@@ -104,6 +104,7 @@ GOLDEN_READERS = (
     ("spec/ui/v1/golden", "composer-send.golden.json", "spec/ui/v1/tools/ui_check.py", False),
     ("spec/ui/v1/golden", "pressed-states.golden.json", "spec/ui/v1/tools/ui_check.py", False),
     ("spec/ui/v1/golden", "disclosure-motion.golden.json", "spec/ui/v1/tools/ui_check.py", False),
+    ("spec/ui/v1/bot/fish/golden", "*.json", "spec/ui/v1/bot/fish/tools/check_fish.py", False),
     ("spec/v1/golden/native-mcp", "*.json", "spec/v1/tools/native_mcp_check.py", False),
     ("spec/ui/v1/golden/page-completeness", "fixture.json", "spec/ui/v1/tools/test_extract_ios_pages.py", False),
     ("spec/ui/v1/golden/page-completeness", "cases.schema.json", "spec/ui/v1/tools/test_extract_ios_pages.py", False),
@@ -113,6 +114,7 @@ GOLDEN_READERS = (
     ("spec/v1/golden/native-mcp", "file-transfer.json", "Tests/PhoneDSHADBTests/ADBFileTransferTests.swift", False),
     ("spec/v1/golden/native-mcp", "package-management.json", "Tests/PhoneDSHADBTests/ADBPackageTests.swift", False),
     ("spec/v1/golden/frames", "*.json", "spec/v1/tools/spec_golden.py", False),
+    ("spec/v1/golden/plan", "*.json", "spec/v1/tools/plan_cases_check.py", False),
     ("spec/v1/golden/wal", "*.json", "spec/v1/tools/spec_golden.py", False),
     ("spec/v1/golden/wal/lifecycle", "*.json", "spec/v1/tools/spec_golden.py", False),
     ("spec/v1/golden/wal/replay", "*.json", "spec/v1/tools/spec_golden.py", False),
@@ -135,6 +137,7 @@ GOLDEN_READERS = (
     ("spec/device/v1/golden", "standard-gatt-discovery-mutations.json", "spec/v1/tools/test_spec_golden.py", False),
     ("spec/pclink/v1/golden", "pclink-v1-vectors.json", "spec/pclink/v1/tools/vectors.mjs", False),
     ("spec/pclink/v1/golden", "schema-samples.json", "spec/pclink/v1/tools/check_samples.py", False),
+    ("spec/ui/v1/bot/golden", "*.json", "spec/ui/v1/bot/tools/check_bot_ui.py", False),
 )
 
 

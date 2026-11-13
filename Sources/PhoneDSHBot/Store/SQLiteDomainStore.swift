@@ -50,6 +50,19 @@ private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self
 final class SQLiteDatabase: @unchecked Sendable {
     let fileURL: URL
     private var handle: OpaquePointer?
+    /// Prepared statements keyed by their SQL text. Preparing on every call was
+    /// measurable on the Bot hot path; the actor serialises all use, so one
+    /// statement per SQL string is safe. A statement is reset and its bindings
+    /// cleared before every use.
+    private var statements: [String: OpaquePointer] = [:]
+    private var statementPrepareCount = 0
+    private var statementCacheHits = 0
+    /// File protection is applied once per path (database/WAL/SHM). It is not
+    /// part of the commit path: a COMMIT must not pay three setAttributes
+    /// calls.
+    private var attributedPaths: Set<String> = []
+    private var attributeApplyCount = 0
+    private var quickCheckCount = 0
 
     init(fileURL: URL) throws {
         self.fileURL = fileURL
@@ -74,7 +87,7 @@ final class SQLiteDatabase: @unchecked Sendable {
         sqlite3_busy_timeout(opened, 5_000)
 
         do {
-            try Self.applyFileAttributes(to: fileURL)
+            try applyFileAttributesIfNeeded()
             let journal = try query("PRAGMA journal_mode=WAL")
             guard journal.first?["journal_mode"]?.text?.lowercased() == "wal" else {
                 throw SQLiteDomainStoreError.sqlite("unable to enable SQLite WAL")
@@ -87,10 +100,6 @@ final class SQLiteDatabase: @unchecked Sendable {
             _ = try query("PRAGMA secure_delete=ON")
             let version = try query("PRAGMA user_version").first?["user_version"]?.integer ?? 0
             guard version <= 3 else { throw SQLiteDomainStoreError.schemaTooNew(Int(version)) }
-            let check = try query("PRAGMA quick_check")
-            guard check.count == 1, check[0]["quick_check"]?.text?.lowercased() == "ok" else {
-                throw SQLiteDomainStoreError.corrupted(check.first?["quick_check"]?.text ?? "quick_check failed")
-            }
             if version > 0, version < 3 {
                 try migrateToV3()
             }
@@ -99,14 +108,17 @@ final class SQLiteDatabase: @unchecked Sendable {
                 _ = try query("PRAGMA user_version=3")
             }
             _ = try query("PRAGMA foreign_keys=ON")
-            let migratedCheck = try query("PRAGMA quick_check")
-            guard migratedCheck.count == 1,
-                  migratedCheck[0]["quick_check"]?.text?.lowercased() == "ok" else {
+            // One quick_check per open, after migration. The event-by-event
+            // verification lives in SQLiteDomainStore and is incremental.
+            quickCheckCount += 1
+            let check = try query("PRAGMA quick_check")
+            guard check.count == 1, check[0]["quick_check"]?.text?.lowercased() == "ok" else {
                 throw SQLiteDomainStoreError.corrupted(
-                    migratedCheck.first?["quick_check"]?.text ?? "quick_check failed")
+                    check.first?["quick_check"]?.text ?? "quick_check failed")
             }
-            try Self.applyFileAttributes(to: fileURL)
+            try applyFileAttributesIfNeeded()
         } catch {
+            finalizeStatements()
             sqlite3_close_v2(opened)
             handle = nil
             throw error
@@ -114,18 +126,50 @@ final class SQLiteDatabase: @unchecked Sendable {
     }
 
     deinit {
+        finalizeStatements()
         if let handle { sqlite3_close_v2(handle) }
     }
 
     var isOpen: Bool { handle != nil }
+    var preparedStatementPrepareCount: Int { statementPrepareCount }
+    var preparedStatementCacheHits: Int { statementCacheHits }
+    var cachedPreparedStatementCount: Int { statements.count }
+    var fileAttributeApplyCount: Int { attributeApplyCount }
+    var performedQuickCheckCount: Int { quickCheckCount }
 
     func close() throws {
         guard let handle else { return }
+        finalizeStatements()
         let result = sqlite3_close_v2(handle)
         guard result == SQLITE_OK else {
             throw Self.error(handle: handle, result: result)
         }
         self.handle = nil
+    }
+
+    private func finalizeStatements() {
+        for statement in statements.values {
+            sqlite3_finalize(statement)
+        }
+        statements.removeAll()
+    }
+
+    private func preparedStatement(_ sql: String) throws -> OpaquePointer {
+        guard let handle else { throw SQLiteDomainStoreError.closed }
+        if let cached = statements[sql] {
+            statementCacheHits += 1
+            sqlite3_reset(cached)
+            sqlite3_clear_bindings(cached)
+            return cached
+        }
+        var statement: OpaquePointer?
+        let prepared = sqlite3_prepare_v2(handle, sql, -1, &statement, nil)
+        guard prepared == SQLITE_OK, let statement else {
+            throw Self.error(handle: handle, result: prepared)
+        }
+        statements[sql] = statement
+        statementPrepareCount += 1
+        return statement
     }
 
     func execute(_ sql: String, bindings: [SQLiteValue] = []) throws {
@@ -140,37 +184,56 @@ final class SQLiteDatabase: @unchecked Sendable {
             }
             return
         }
-        var statement: OpaquePointer?
-        let prepared = sqlite3_prepare_v2(handle, sql, -1, &statement, nil)
-        guard prepared == SQLITE_OK, let statement else {
-            throw Self.error(handle: handle, result: prepared)
-        }
-        defer { sqlite3_finalize(statement) }
+        let statement = try preparedStatement(sql)
         try Self.bind(bindings, to: statement, handle: handle)
         let result = sqlite3_step(statement)
+        sqlite3_reset(statement)
         guard result == SQLITE_DONE else { throw Self.error(handle: handle, result: result) }
     }
 
     func query(_ sql: String, bindings: [SQLiteValue] = []) throws -> [[String: SQLiteValue]] {
         guard let handle else { throw SQLiteDomainStoreError.closed }
-        var statement: OpaquePointer?
-        let prepared = sqlite3_prepare_v2(handle, sql, -1, &statement, nil)
-        guard prepared == SQLITE_OK, let statement else {
-            throw Self.error(handle: handle, result: prepared)
-        }
-        defer { sqlite3_finalize(statement) }
+        let statement = try preparedStatement(sql)
         try Self.bind(bindings, to: statement, handle: handle)
         var rows: [[String: SQLiteValue]] = []
         while true {
             let result = sqlite3_step(statement)
-            if result == SQLITE_DONE { return rows }
-            guard result == SQLITE_ROW else { throw Self.error(handle: handle, result: result) }
+            if result == SQLITE_DONE {
+                sqlite3_reset(statement)
+                return rows
+            }
+            guard result == SQLITE_ROW else {
+                sqlite3_reset(statement)
+                throw Self.error(handle: handle, result: result)
+            }
             var row: [String: SQLiteValue] = [:]
             for index in 0..<sqlite3_column_count(statement) {
                 let name = sqlite3_column_name(statement, index).map { String(cString: $0) } ?? "column\(index)"
                 row[name] = Self.value(statement: statement, index: index)
             }
             rows.append(row)
+        }
+    }
+
+    /// Applies the private file protection once per path. New WAL/SHM files
+    /// are picked up on the first commit after SQLite creates them; later
+    /// commits do not repeat the syscalls.
+    func applyFileAttributesIfNeeded() throws {
+        let manager = FileManager.default
+        let candidates = [
+            fileURL,
+            URL(fileURLWithPath: fileURL.path + "-wal"),
+            URL(fileURLWithPath: fileURL.path + "-shm"),
+        ]
+        for candidate in candidates
+        where manager.fileExists(atPath: candidate.path)
+            && !attributedPaths.contains(candidate.path) {
+            try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: candidate.path)
+            try? manager.setAttributes(
+                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: candidate.path)
+            attributedPaths.insert(candidate.path)
+            attributeApplyCount += 1
         }
     }
 
@@ -252,6 +315,15 @@ final class SQLiteDatabase: @unchecked Sendable {
             // normalise the version and recreate any missing child table.
             try execute("BEGIN IMMEDIATE")
             do {
+                let sequences = try query(
+                    "SELECT commit_seq FROM bot_event_headers ORDER BY commit_seq ASC"
+                ).map { row -> Int64 in
+                    guard let sequence = row["commit_seq"]?.integer else {
+                        throw SQLiteDomainStoreError.corrupted("v3 event row is incomplete")
+                    }
+                    return sequence
+                }
+                try Self.requireContiguousCommitSeq(sequences)
                 try execute(Self.schemaSQL)
                 _ = try query("PRAGMA user_version=3")
                 try execute("COMMIT")
@@ -276,11 +348,24 @@ final class SQLiteDatabase: @unchecked Sendable {
         _ = try query("PRAGMA foreign_keys=OFF")
         do {
             try execute("BEGIN IMMEDIATE")
+            // The contiguity check is part of the migration transaction: a
+            // gapped v1/v2 file MUST be refused before COMMIT so the rollback
+            // leaves `user_version` at its old value and the file untouched.
+            let sequences = try oldEvents.map { row -> Int64 in
+                guard let sequence = row["commit_seq"]?.integer else {
+                    throw SQLiteDomainStoreError.corrupted("v2 event row is incomplete")
+                }
+                return sequence
+            }
+            try Self.requireContiguousCommitSeq(sequences)
             try execute("DROP TRIGGER IF EXISTS bot_events_reject_update")
             try execute("DROP TRIGGER IF EXISTS bot_events_reject_delete")
             try execute("DROP TABLE IF EXISTS bot_user_action_nonces")
             try execute("DROP TABLE IF EXISTS bot_events")
             try execute(Self.schemaSQL)
+            // The rows are rebuilt, so an old watermark is meaningless. The
+            // open-time verification re-establishes it.
+            try execute("DELETE FROM bot_store_meta")
             let codec = BotEventEnvelopeCodec()
             for row in oldEvents {
                 guard let sequence = row["commit_seq"]?.integer, sequence >= 1,
@@ -331,11 +416,46 @@ final class SQLiteDatabase: @unchecked Sendable {
         }
     }
 
+    /// Migration-time sequence check. The first gap is reported with both
+    /// numbers so the open failure names it; the error type is the existing
+    /// `corrupted`, not a second code for the same invariant.
+    private static func requireContiguousCommitSeq(_ sequences: [Int64]) throws {
+        for (index, sequence) in sequences.enumerated() {
+            let expected = Int64(index + 1)
+            guard sequence == expected else {
+                throw SQLiteDomainStoreError.corrupted(
+                    "commit_seq gap: expected \(expected), found \(sequence)")
+            }
+        }
+    }
+
     static func payloadDigest(_ payload: Data) -> String {
         SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Persisted lower bound of the events that have passed verification.
+    func integrityWatermark() throws -> Int? {
+        let rows = try query(
+            "SELECT value FROM bot_store_meta WHERE key = ?",
+            bindings: [.text(SQLiteDomainStore.integrityWatermarkKey)])
+        return rows.first?["value"]?.integer.map(Int.init)
+    }
+
+    func setIntegrityWatermark(_ value: Int) throws {
+        try execute(
+            """
+            INSERT INTO bot_store_meta(key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            bindings: [.text(SQLiteDomainStore.integrityWatermarkKey),
+                       .integer(Int64(max(0, value)))])
+    }
+
     private static let schemaSQL = """
+        CREATE TABLE IF NOT EXISTS bot_store_meta (
+            key TEXT PRIMARY KEY,
+            value INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS bot_event_headers (
             commit_seq INTEGER PRIMARY KEY CHECK (commit_seq > 0),
             event_id TEXT NOT NULL UNIQUE,
@@ -454,12 +574,19 @@ public actor SQLiteDomainStore {
     var droppedEphemeral = 0
     var crashPoint: String?
     var inboxFlights: [BotEffectInboxFlightKey: Task<BotEffectInboxEntry, Error>] = [:]
+    /// Set when the background full verification finds corruption. The next
+    /// operation fails loud instead of trusting a store that already failed a
+    /// stronger check than the open-time incremental pass.
+    var backgroundIntegrityFailure: String?
+    /// Key of the persisted `bot_store_meta` watermark.
+    static let integrityWatermarkKey = "integrity.verified_commit_seq"
 
     public init(
         fileURL: URL,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) },
         leaseTTLms: Int64 = 30_000,
-        ephemeralCapacity: Int = 256
+        ephemeralCapacity: Int = 256,
+        startsBackgroundIntegrityCheck: Bool = true
     ) throws {
         guard leaseTTLms > 0 else {
             throw SQLiteDomainStoreError.invalidConfiguration("leaseTTLms must be positive")
@@ -471,8 +598,16 @@ public actor SQLiteDomainStore {
         self.clock = now
         self.defaultLeaseTTLms = leaseTTLms
         self.ephemeralCapacity = ephemeralCapacity
-        self.database = try SQLiteDatabase(fileURL: fileURL)
-        try Self.verifyIntegrity(database: database)
+        let database = try SQLiteDatabase(fileURL: fileURL)
+        self.database = database
+        // Open verifies only the rows above the persisted watermark; a first
+        // open of an existing (pre-watermark) database pays one full pass.
+        try Self.verifyOnOpen(database: database)
+        if startsBackgroundIntegrityCheck {
+            _ = Task.detached(priority: .background) { [weak self] in
+                await self?.runBackgroundIntegrityCheck()
+            }
+        }
     }
 
     public static func applicationSupport() throws -> SQLiteDomainStore {
@@ -485,19 +620,80 @@ public actor SQLiteDomainStore {
         guard !closed else { return }
         closed = true
         try database.close()
-        try? SQLiteDatabase.applyFileAttributes(to: fileURL)
     }
 
+    /// Full synchronous verification. The open path uses the incremental form;
+    /// this one keeps the old contract for callers that explicitly ask for it.
     public func verifyIntegrity() throws {
         try ensureOpen()
-        try Self.verifyIntegrity(database: database)
+        let head = try Self.head(database: database)
+        try Self.verifyIntegrity(database: database, from: 0, to: head, full: true)
+        try database.setIntegrityWatermark(head)
     }
 
-    private static func verifyIntegrity(database: SQLiteDatabase) throws {
-        let check = try database.query("PRAGMA quick_check")
-        guard check.count == 1, check[0]["quick_check"]?.text?.lowercased() == "ok" else {
-            throw SQLiteDomainStoreError.corrupted(check.first?["quick_check"]?.text ?? "quick_check failed")
+    /// Runs the deferred full verification now (tests and diagnostics).
+    public func runFullIntegrityVerificationForTesting() throws {
+        try ensureOpen()
+        let head = try Self.head(database: database)
+        try Self.verifyIntegrity(database: database, from: 0, to: head, full: true)
+        try database.setIntegrityWatermark(head)
+    }
+
+    func integrityWatermarkForTesting() throws -> Int {
+        try database.integrityWatermark() ?? 0
+    }
+
+    func preparedStatementStatsForTesting() -> (prepares: Int, hits: Int, cached: Int) {
+        (database.preparedStatementPrepareCount,
+         database.preparedStatementCacheHits,
+         database.cachedPreparedStatementCount)
+    }
+
+    func fileAttributeApplyCountForTesting() -> Int {
+        database.fileAttributeApplyCount
+    }
+
+    func quickCheckCountForTesting() -> Int {
+        database.performedQuickCheckCount
+    }
+
+    private func runBackgroundIntegrityCheck() async {
+        do {
+            try ensureOpen()
+            let head = try Self.head(database: database)
+            try Self.verifyIntegrity(database: database, from: 0, to: head, full: true)
+            try database.setIntegrityWatermark(head)
+        } catch {
+            guard !closed else { return }
+            backgroundIntegrityFailure = String(describing: error)
+            NSLog("phone-dsh: Bot SQLite background integrity check failed: %@",
+                  String(describing: error))
         }
+    }
+
+    private static func head(database: SQLiteDatabase) throws -> Int {
+        let rows = try database.query(
+            "SELECT COALESCE(MAX(commit_seq), 0) AS head FROM bot_event_headers")
+        return Int(rows.first?["head"]?.integer ?? 0)
+    }
+
+    private static func verifyOnOpen(database: SQLiteDatabase) throws {
+        let head = try head(database: database)
+        let watermark = try database.integrityWatermark()
+        if let watermark, watermark <= head {
+            try verifyIntegrity(database: database, from: watermark, to: head, full: false)
+        } else {
+            // No watermark (pre-W2 database) or a rolled-back file: one full
+            // pass, then the watermark makes later opens incremental.
+            try verifyIntegrity(database: database, from: 0, to: head, full: true)
+        }
+        try database.setIntegrityWatermark(head)
+    }
+
+    private static func verifyIntegrity(database: SQLiteDatabase,
+                                        from lowerExclusive: Int,
+                                        to upperInclusive: Int,
+                                        full: Bool) throws {
         let foreignKeyErrors = try database.query("PRAGMA foreign_key_check")
         guard foreignKeyErrors.isEmpty else {
             throw SQLiteDomainStoreError.corrupted("SQLite foreign key check failed")
@@ -508,14 +704,12 @@ public actor SQLiteDomainStore {
                    h.header_meta, p.payload, p.erased_at, p.erasure_commit_seq
             FROM bot_event_headers AS h
             LEFT JOIN bot_event_payloads AS p ON p.commit_seq = h.commit_seq
+            WHERE h.commit_seq > ? AND h.commit_seq <= ?
             ORDER BY h.commit_seq ASC
-            """)
+            """,
+            bindings: [.integer(Int64(lowerExclusive)), .integer(Int64(upperInclusive))])
         let codec = BotEventEnvelopeCodec()
-        var expected = 1
-        var eventSequences: [String: Int64] = [:]
-        var eventBotIDs: [String: String] = [:]
-        var erasureTypes: Set<Int64> = []
-        var erasedBy: [Int64: Int64] = [:]
+        var expected = lowerExclusive + 1
         for row in rows {
             guard let sequence = row["commit_seq"]?.integer, sequence == Int64(expected) else {
                 throw SQLiteDomainStoreError.commitGap(
@@ -551,35 +745,49 @@ public actor SQLiteDomainStore {
                     throw SQLiteDomainStoreError.corrupted(
                         "event \(expected) has neither payload nor a valid erasure")
                 }
+                let erasureRows = try database.query(
+                    "SELECT event_type FROM bot_event_headers WHERE commit_seq = ?",
+                    bindings: [.integer(erasureSequence)])
+                guard erasureRows.first?["event_type"]?.text == "erasure" else {
+                    throw SQLiteDomainStoreError.corrupted(
+                        "event \(expected) names a non-erasure event \(erasureSequence)")
+                }
                 event = event.assigningData(.object([
                     "$erased": .bool(true),
                     "$erasureCommitSeq": .number(Double(erasureSequence)),
                 ]))
                 try BotEventEnvelopeCodec.validate(event)
-                erasedBy[sequence] = erasureSequence
             }
-            if eventType == "erasure" {
-                erasureTypes.insert(sequence)
-            }
-            eventSequences[event.eventId] = sequence
-            eventBotIDs[event.eventId] = event.principal.botId
             expected += 1
         }
-        for (erasedSequence, erasureSequence) in erasedBy {
-            guard erasureTypes.contains(erasureSequence) else {
-                throw SQLiteDomainStoreError.corrupted(
-                    "event \(erasedSequence) names a non-erasure event \(erasureSequence)")
-            }
+        guard expected == upperInclusive + 1 else {
+            throw SQLiteDomainStoreError.commitGap(
+                expected: expected, actual: upperInclusive + 1)
         }
         let nonces = try database.query(
-            "SELECT bot_id, nonce, event_id, created_commit_seq FROM bot_user_action_nonces")
+            """
+            SELECT bot_id, nonce, event_id, created_commit_seq
+            FROM bot_user_action_nonces
+            WHERE created_commit_seq > ? AND created_commit_seq <= ?
+            """,
+            bindings: [.integer(Int64(lowerExclusive)), .integer(Int64(upperInclusive))])
         for nonce in nonces {
             guard let botID = nonce["bot_id"]?.text, !botID.isEmpty,
                   nonce["nonce"]?.text?.isEmpty == false,
                   let eventID = nonce["event_id"]?.text,
-                  let createdCommitSeq = nonce["created_commit_seq"]?.integer,
-                  eventSequences[eventID] == createdCommitSeq,
-                  eventBotIDs[eventID] == botID else {
+                  let createdCommitSeq = nonce["created_commit_seq"]?.integer else {
+                throw SQLiteDomainStoreError.corrupted("invalid user action nonce reference")
+            }
+            let referenced = try database.query(
+                "SELECT commit_seq, header_meta FROM bot_event_headers WHERE event_id = ?",
+                bindings: [.text(eventID)])
+            guard let referencedRow = referenced.first,
+                  referencedRow["commit_seq"]?.integer == createdCommitSeq,
+                  let header = referencedRow["header_meta"]?.blob else {
+                throw SQLiteDomainStoreError.corrupted("invalid user action nonce reference")
+            }
+            let event = try codec.decode(header)
+            guard event.principal.botId == botID else {
                 throw SQLiteDomainStoreError.corrupted("invalid user action nonce reference")
             }
         }
@@ -587,6 +795,10 @@ public actor SQLiteDomainStore {
 
     func ensureOpen() throws {
         guard !closed, database.isOpen else { throw SQLiteDomainStoreError.closed }
+        if let backgroundIntegrityFailure {
+            throw SQLiteDomainStoreError.corrupted(
+                "background integrity check failed: \(backgroundIntegrityFailure)")
+        }
     }
 
     func withTransaction<T>(_ body: () throws -> T) throws -> T {
@@ -598,7 +810,9 @@ public actor SQLiteDomainStore {
             try checkCrashPoint("before-commit")
             try database.execute("COMMIT")
             try checkCrashPoint("abort-after-commit")
-            try? SQLiteDatabase.applyFileAttributes(to: fileURL)
+            // Only a newly created WAL/SHM file needs its protection set; an
+            // existing path is a no-op after the first commit.
+            try? database.applyFileAttributesIfNeeded()
             return result
         } catch {
             try? database.execute("ROLLBACK")

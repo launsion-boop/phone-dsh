@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spec/ui/v1/bot/schema/activity.schema.json",
+  "title": "BotActivity v1 (P09 view value)",
+  "type": "object",
+  "required": [
+    "status",
+    "detail",
+    "category",
+    "startedAt"
+  ],
+  "properties": {
+    "status": {
+      "enum": [
+        "thinking",
+        "tool-running",
+        "streaming"
+      ]
+    },
+    "detail": {
+      "type": "string"
+    },
+    "category": {
+      "enum": [
+        "thinking",
+        "reading",
+        "searching",
+        "browsing",
+        "running",
+        "writing",
+        "memory",
+        "messaging",
+        "reviewing",
+        "waiting",
+        "replying",
+        "generic"
+      ]
+    },
+    "startedAt": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,6 +1,6 @@
 # Upstream patch drafts for DeepSeek Harness (W9-UPSTREAM)
 
-These are patch drafts and one pending proposal note for the DeepSeek Harness (DSH)
+These are patch drafts and pending proposal notes for the DeepSeek Harness (DSH)
 maintainers, produced for the phone-DSH work package. They are **drafts only**:
 
 - They are **not applied** to the pinned DSH checkout and **not applied** to this
@@ -39,6 +39,23 @@ and apply one at a time with:
 ```sh
 git -C "$PDSH_DSH_CHECKOUT" apply "$PWD/docs/upstream/0001-worker-host-pass-sink.patch"
 ```
+
+## Pending proposal — persist a partial assistant stream on interrupt
+
+[`2026-11-12-persist-partial-assistant-on-interrupt.md`](2026-11-12-persist-partial-assistant-on-interrupt.md)
+proposes a durable `assistant/attempt{interrupted:true}` so an abandoned stream
+is not lost when the App or WebContent is killed. It is a proposal note, not a
+patch; phoneDSH keeps only a display-only local draft meanwhile.
+
+## Pending proposal — lazy/ranged boot overlay
+
+[`2026-11-12-lazy-boot-overlay.md`](2026-11-12-lazy-boot-overlay.md) asks the
+runtime to accept an overlay manifest plus content-addressed blobs (or an
+indexed/ranged archive) instead of one full ustar+gzip member. The current full
+archive costs 5.0–6.6 s, 74% of a boot, for a 139 MB tree, and the host cannot
+change the envelope because `spec/v1/wal.md` §8 and the pinned `readImage` both
+require it. It is a proposal note, not a patch; old hosts keep sending the
+monolith and new workers fall back to it.
 
 ## Pending proposal — Cordis `Fiber.dispose` return value
 

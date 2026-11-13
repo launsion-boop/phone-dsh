@@ -37,6 +37,27 @@
    "name": "<untitled: settingField(field, namespace: group.namespace, writable: group.writable)>",
    "lane": "F",
    "reason": "PR22 restructured NativeConfigurationPage into 本机管理范围/iPhone Worker 限制/工具/新会话默认权限/实验插件/已加载插件 plus data-driven settings groups. Android NativeConfigurationPage.kt still renders the pre-PR22 内置插件设置 index and its older actions, so this section/action is a real current difference. Lane F rebuilds the page. This row is `<untitled: settingField(field, namespace: group.namespace, writable: group.writable)>` (unresolved-section)."
+  },
+  {
+   "page": "git-hub-connector",
+   "kind": "missing-section",
+   "name": "<android-screen>",
+   "lane": "H",
+   "reason": "origin/main (#136) added the GitHub and Gmail connector contracts to the iOS probe app; the Android Discover connectors page still routes both entries to a disabled 即将支持 placeholder and has no screen for either. Registered as a known divergence until the Android connector screens land in the lane that owns ConnectorsPage; the contracts themselves are not changed."
+  },
+  {
+   "page": "gmail-connector",
+   "kind": "missing-section",
+   "name": "<android-screen>",
+   "lane": "H",
+   "reason": "origin/main (#136) added the GitHub and Gmail connector contracts to the iOS probe app; the Android Discover connectors page still routes both entries to a disabled 即将支持 placeholder and has no screen for either. Registered as a known divergence until the Android connector screens land in the lane that owns ConnectorsPage; the contracts themselves are not changed."
+  },
+  {
+   "page": "connectors",
+   "kind": "extra-action",
+   "name": "即将支持",
+   "lane": "H",
+   "reason": "The Android ConnectorsPage renders a disabled 即将支持 placeholder for the GitHub/Gmail entries; the iOS contracts have no such label because those rows navigate to real pages. Same pending Android connector work as the two missing-screen rows."
   }
  ]
 }

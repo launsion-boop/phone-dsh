@@ -113,6 +113,60 @@ export function needsIdentityRegistration(name: string): boolean {
   return name.startsWith(PHONE_TOOL_PREFIX)
 }
 
+export interface TailCancelQueue {
+  /** Queue one registration id; never blocks the caller. */
+  enqueue(id: string | undefined): void
+  /** Resolve once every queued cancellation has been attempted. */
+  flush(): Promise<void>
+  readonly pending: number
+}
+
+/**
+ * Cancellation is a tail request: the tool result must reach the model before
+ * the host is told to drop the identity registration. The queue drains on the
+ * next event-loop turn, collapses duplicate ids, and swallows transport
+ * failures (the host TTL is the backstop). It never delays execution.
+ */
+export function createTailCancelQueue(
+  cancel: (id: string, options: { timeoutMs: number }) => Promise<void>,
+  timeoutMs: number,
+  schedule: (run: () => void) => void = run => queueMicrotask(run),
+): TailCancelQueue {
+  const ids: string[] = []
+  const seen = new Set<string>()
+  let draining: Promise<void> | undefined
+  const start = (): void => {
+    if (draining !== undefined || ids.length === 0) return
+    draining = (async () => {
+      await new Promise<void>(resolve => schedule(resolve))
+      while (ids.length > 0) {
+        const id = ids.shift()!
+        seen.delete(id)
+        try { await cancel(id, { timeoutMs }) } catch {}
+      }
+    })().finally(() => {
+      draining = undefined
+      if (ids.length > 0) start()
+    })
+  }
+  return {
+    enqueue(id: string | undefined): void {
+      const value = id?.trim() ?? ''
+      if (value === '' || seen.has(value)) return
+      seen.add(value)
+      ids.push(value)
+      start()
+    },
+    async flush(): Promise<void> {
+      while (draining !== undefined || ids.length > 0) {
+        if (draining !== undefined) await draining
+        else start()
+      }
+    },
+    get pending(): number { return ids.length },
+  }
+}
+
 export function createKeyedMutex() {
   const states = new Map<string, { busy: boolean; waiters: { resolve: (release: () => void) => void; reject: (error: Error) => void; signal?: AbortSignal }[] }>()
 
@@ -303,6 +357,7 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
   const cancel = config.cancel ?? (async (id: string, options: { timeoutMs: number; signal?: AbortSignal }) => {
     await postJson(cancelUrl, bridgeToken, { id }, options.timeoutMs, options.signal)
   })
+  const cancelQueue = createTailCancelQueue(cancel, timeoutMs)
   /**
    * Send one registration, re-reading the Worker's owned-session map on every
    * attempt. The App re-claims the session's current token when a token no
@@ -366,9 +421,10 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
     pending.delete(key)
     calls.delete(key)
     if (entry.timer !== undefined) clearTimeout(entry.timer)
-    try {
-      await cancel(entry.registrationId, { timeoutMs })
-    } catch {}
+    // Tail request, never on the result path (W5: cancel does not block the
+    // tool result). The queue collapses duplicates and the host TTL bounds a
+    // lost cancellation.
+    cancelQueue.enqueue(entry.registrationId)
     entry.release()
   }
 
@@ -392,7 +448,7 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
         // A settlement can win the race while this request was in flight.
         // Cancel the just-issued id instead of letting it outlive the job.
         if (binding.finished || backgroundJobs.get(binding.key) !== binding) {
-          try { await cancel(registration.id, { timeoutMs }) } catch {}
+          cancelQueue.enqueue(registration.id)
           return
         }
         binding.registrationId = registration.id
@@ -536,9 +592,7 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
       // and the digest mutex are released together, never left behind.
       if (!retained) {
         calls.delete(key)
-        if (registrationId !== undefined) {
-          try { await cancel(registrationId, { timeoutMs }) } catch {}
-        }
+        cancelQueue.enqueue(registrationId)
         release()
       }
     }
@@ -576,7 +630,7 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
       pending.delete(key)
       calls.delete(key)
       if (entry.timer !== undefined) clearTimeout(entry.timer)
-      void cancel(entry.registrationId, { timeoutMs }).catch(() => {})
+      cancelQueue.enqueue(entry.registrationId)
       entry.release()
     }
   })

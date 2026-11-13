@@ -38,6 +38,15 @@ pub const OP_MKDIR: u8 = 2;
 pub const OP_REMOVE: u8 = 3;
 /// `op` of a mode change.
 pub const OP_CHMOD: u8 = 4;
+/// `op` of the W6 write-by-reference record (`wal.md` §14.2).
+pub const OP_BLOB_WRITE: u8 = 0xFE;
+/// A write whose `data` is at or above this many bytes is blob-backed; a writer
+/// policy, not a wire rule (`wal.md` §14.2).
+pub const BLOB_WRITE_THRESHOLD: usize = 65_536;
+/// One blob carries one mutation's `data`, bounded by the 15 MiB frame cap.
+pub const MAX_BLOB_BYTES: usize = 15 * 1024 * 1024;
+/// Raw SHA-256 length of a blob reference.
+pub const BLOB_DIGEST_BYTES: usize = 32;
 /// `mflags` bit 0 `entryChanged` (`channel.md` §3.1).
 pub const MFLAG_ENTRY_CHANGED: u8 = 1 << 0;
 /// `mflags` bit 1 `appended`: the data is the suffix from `append_from`.
@@ -209,6 +218,134 @@ impl MutationBody {
     }
 }
 
+/// A W6 `op = 0xFE` write-by-reference record (`wal.md` §14.2).
+///
+/// `blob_len` and `blob_sha256` name the mutation's `data`, not the whole file;
+/// an `appended` record's blob is the suffix at `append_from`. The record bytes
+/// are version-free: an old decoder that does not know `0xFE` treats it as an
+/// unknown op and fails loudly, which is the W6 rollback rule.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlobWrite {
+    /// The mutation mseq; at least 1 and consecutive on the wire.
+    pub mseq: u64,
+    /// Permission bits of the write.
+    pub mode: u32,
+    /// `mflags`: bit 0 `entryChanged`, bit 1 `appended`.
+    pub mflags: u8,
+    /// Suffix offset, 0 unless `appended`.
+    pub append_from: u64,
+    /// `data` length, 1 ... 15 MiB.
+    pub blob_len: u32,
+    /// Raw SHA-256 of the mutation's `data`.
+    pub blob_sha256: [u8; BLOB_DIGEST_BYTES],
+    /// Absolute VFS path.
+    pub path: String,
+}
+
+impl BlobWrite {
+    /// A validated blob-write record.
+    pub fn new(
+        mseq: u64,
+        mode: u32,
+        mflags: u8,
+        append_from: u64,
+        blob_len: u32,
+        blob_sha256: [u8; BLOB_DIGEST_BYTES],
+        path: &str,
+    ) -> WalResult<Self> {
+        let value = BlobWrite {
+            mseq,
+            mode,
+            mflags,
+            append_from,
+            blob_len,
+            blob_sha256,
+            path: path.to_string(),
+        };
+        value.validate()?;
+        Ok(value)
+    }
+
+    /// Structural invariants of `wal.md` §14.2.
+    pub fn validate(&self) -> WalResult<()> {
+        let bad = |reason: &str| WalError::malformed(reason.to_string());
+        if self.mseq < 1 {
+            return Err(WalError::ZeroMseq);
+        }
+        if self.mode > MAX_MODE {
+            return Err(bad("blob-write mode exceeds 0o7777"));
+        }
+        if self.mflags & !(MFLAG_ENTRY_CHANGED | MFLAG_APPENDED) != 0 {
+            return Err(bad("reserved blob-write flags are set"));
+        }
+        if !self.is_appended() && self.append_from != 0 {
+            return Err(bad("a complete blob write must have append_from = 0"));
+        }
+        if self.blob_len == 0 {
+            return Err(bad("blob_len must be at least 1"));
+        }
+        if self.blob_len as usize > MAX_BLOB_BYTES {
+            return Err(bad("blob_len exceeds one mutation's 15 MiB"));
+        }
+        if self.path.is_empty() || self.path.len() > u16::MAX as usize {
+            return Err(bad("blob-write path length is invalid"));
+        }
+        Ok(())
+    }
+
+    /// `true` when `mflags` bit 1 is set.
+    pub fn is_appended(&self) -> bool {
+        self.mflags & MFLAG_APPENDED != 0
+    }
+
+    /// The §14.2 body bytes.
+    pub fn emit(&self) -> WalResult<Vec<u8>> {
+        self.validate()?;
+        let path = self.path.as_bytes();
+        let mut out = Vec::with_capacity(BODY_HEADER_BYTES + BLOB_DIGEST_BYTES + 2 + path.len());
+        out.push(OP_BLOB_WRITE);
+        out.extend_from_slice(&self.mode.to_be_bytes());
+        out.push(self.mflags);
+        out.extend_from_slice(&self.append_from.to_be_bytes());
+        out.extend_from_slice(&self.blob_len.to_be_bytes());
+        out.extend_from_slice(&self.blob_sha256);
+        out.extend_from_slice(&(path.len() as u16).to_be_bytes());
+        out.extend_from_slice(path);
+        Ok(out)
+    }
+
+    /// Parses a complete §14.2 body with its wire mseq.
+    pub fn parse(mseq: u64, body: &[u8]) -> WalResult<Self> {
+        let bad = |reason: String| WalError::malformed(reason);
+        if body.len() < 52 {
+            return Err(bad(format!("blob-write body is {} bytes, shorter than 52", body.len())));
+        }
+        if body[0] != OP_BLOB_WRITE {
+            return Err(bad("blob-write body does not start with op 0xFE".to_string()));
+        }
+        let mode = u32::from_be_bytes([body[1], body[2], body[3], body[4]]);
+        let mflags = body[5];
+        let mut append_from = [0u8; 8];
+        append_from.copy_from_slice(&body[6..14]);
+        let append_from = u64::from_be_bytes(append_from);
+        let blob_len = u32::from_be_bytes([body[14], body[15], body[16], body[17]]);
+        let mut digest = [0u8; BLOB_DIGEST_BYTES];
+        digest.copy_from_slice(&body[18..18 + BLOB_DIGEST_BYTES]);
+        let path_len = u16::from_be_bytes([body[50], body[51]]) as usize;
+        let path_end = 52 + path_len;
+        if body.len() != path_end {
+            return Err(bad(format!(
+                "blob-write body is {} bytes but its path_len names {path_end}",
+                body.len()
+            )));
+        }
+        let path = core::str::from_utf8(&body[52..path_end])
+            .map_err(|_| bad("blob-write path is not UTF-8".to_string()))?
+            .to_string();
+        BlobWrite::new(mseq, mode, mflags, append_from, blob_len, digest, &path)
+    }
+}
+
 /// A mutation record: a VFS mutation with its host-allocated mseq.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mutation {
@@ -238,6 +375,8 @@ impl Mutation {
 pub enum Record {
     /// A VFS mutation (§3).
     Mutation(Mutation),
+    /// A W6 write-by-reference record (§14.2).
+    BlobWrite(BlobWrite),
     /// The epoch-close record (§4).
     EpochClose(EpochClose),
 }
@@ -246,6 +385,11 @@ impl Record {
     /// A mutation record.
     pub fn mutation(mseq: u64, body: MutationBody) -> WalResult<Self> {
         Ok(Record::Mutation(Mutation::new(mseq, body)?))
+    }
+
+    /// A blob-write record.
+    pub fn blob_write(blob: BlobWrite) -> Self {
+        Record::BlobWrite(blob)
     }
 
     /// The epoch-close record whose wire `mseq` is `durable_upto`.
@@ -257,6 +401,7 @@ impl Record {
     pub fn wire_mseq(&self) -> u64 {
         match self {
             Record::Mutation(mutation) => mutation.mseq,
+            Record::BlobWrite(blob) => blob.mseq,
             Record::EpochClose(close) => close.mseq(),
         }
     }
@@ -265,6 +410,7 @@ impl Record {
     pub fn mutation_mseq(&self) -> Option<u64> {
         match self {
             Record::Mutation(mutation) => Some(mutation.mseq),
+            Record::BlobWrite(blob) => Some(blob.mseq),
             Record::EpochClose(_) => None,
         }
     }
@@ -272,14 +418,14 @@ impl Record {
     /// `true` only for a mutation: the only record that advances
     /// `materialized_upto_mseq` (§4, §10 step 3).
     pub fn advances_materialized(&self) -> bool {
-        matches!(self, Record::Mutation(_))
+        matches!(self, Record::Mutation(_) | Record::BlobWrite(_))
     }
 
     /// The epoch-close body, or `None` for a mutation.
     pub fn epoch_close(&self) -> Option<&EpochClose> {
         match self {
             Record::EpochClose(close) => Some(close),
-            Record::Mutation(_) => None,
+            Record::Mutation(_) | Record::BlobWrite(_) => None,
         }
     }
 
@@ -287,6 +433,7 @@ impl Record {
     pub fn emit(&self, cks: &dyn Checksum) -> WalResult<Vec<u8>> {
         let (mseq, body) = match self {
             Record::Mutation(mutation) => (mutation.mseq, mutation.body.emit()?),
+            Record::BlobWrite(blob) => (blob.mseq, blob.emit()?),
             Record::EpochClose(close) => (close.mseq(), close.body().to_vec()),
         };
         let payload_len = RECORD_PREFIX_BYTES + body.len();
@@ -357,6 +504,9 @@ fn parse_payload(payload: &[u8]) -> WalResult<Record> {
     }
     if mseq == 0 {
         return Err(WalError::ZeroMseq);
+    }
+    if body.first() == Some(&OP_BLOB_WRITE) {
+        return Ok(Record::BlobWrite(BlobWrite::parse(mseq, body)?));
     }
     Ok(Record::Mutation(Mutation {
         mseq,
@@ -557,28 +707,36 @@ impl RecordChain {
         if self.close.is_some() {
             return match record {
                 Record::EpochClose(_) => Err(WalError::DuplicateEpochClose),
-                Record::Mutation(_) => Err(WalError::RecordAfterEpochClose),
+                Record::Mutation(_) | Record::BlobWrite(_) => {
+                    Err(WalError::RecordAfterEpochClose)
+                }
             };
         }
         match record {
             Record::Mutation(mutation) => {
-                if mutation.mseq < 1 {
-                    return Err(WalError::ZeroMseq);
-                }
-                if mutation.mseq != self.next_mutation {
-                    return Err(WalError::MseqNotConsecutive {
-                        expected: self.next_mutation,
-                        found: mutation.mseq,
-                    });
-                }
-                self.next_mutation = mutation
-                    .mseq
-                    .checked_add(1)
-                    .ok_or(WalError::MseqExhausted)?;
-                self.mutations += 1;
+                self.push_mutation(mutation.mseq)?;
+            }
+            Record::BlobWrite(blob) => {
+                self.push_mutation(blob.mseq)?;
             }
             Record::EpochClose(close) => self.close = Some(*close),
         }
+        Ok(())
+    }
+
+    /// The shared mseq-continuity rule for both mutation record kinds.
+    fn push_mutation(&mut self, mseq: u64) -> WalResult<()> {
+        if mseq < 1 {
+            return Err(WalError::ZeroMseq);
+        }
+        if mseq != self.next_mutation {
+            return Err(WalError::MseqNotConsecutive {
+                expected: self.next_mutation,
+                found: mseq,
+            });
+        }
+        self.next_mutation = mseq.checked_add(1).ok_or(WalError::MseqExhausted)?;
+        self.mutations += 1;
         Ok(())
     }
 

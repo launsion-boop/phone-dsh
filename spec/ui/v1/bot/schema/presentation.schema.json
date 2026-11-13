@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spec/ui/v1/bot/schema/presentation.schema.json",
+  "title": "BotRuntimePresentation v1 (P09 inbound value)",
+  "description": "Absent optional members are null (CCR-1). activity/reaction/oneShot are validated separately against activity.schema.json and the shapes in this file's $defs equivalents (the checker validates them explicitly).",
+  "type": "object",
+  "properties": {
+    "fishState": {
+      "enum": [
+        "idle",
+        "thinking",
+        "streaming",
+        "working",
+        "sleeping",
+        "alerting",
+        "listening",
+        "speaking",
+        "happy",
+        "sad",
+        "surprised",
+        "confused",
+        "laughing",
+        "love",
+        "angry",
+        "wink",
+        "nod",
+        "shrug",
+        "celebrate",
+        "poke",
+        "waking",
+        "waiting",
+        "loading",
+        "done",
+        "standby",
+        "spawning",
+        "bouncing",
+        "dancing",
+        "waving",
+        "shy",
+        "smug",
+        "crying",
+        "sighing",
+        "cheering",
+        "bowing",
+        "clapping",
+        "stretching",
+        "yawning",
+        "kiss",
+        "shaking-head",
+        "high-five",
+        "powering-down"
+      ]
+    },
+    "runningTurnID": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "activity": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "status",
+            "detail",
+            "category",
+            "startedAt"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "thinking",
+                "tool-running",
+                "streaming"
+              ]
+            },
+            "detail": {
+              "type": "string"
+            },
+            "category": {
+              "enum": [
+                "thinking",
+                "reading",
+                "searching",
+                "browsing",
+                "running",
+                "writing",
+                "memory",
+                "messaging",
+                "reviewing",
+                "waiting",
+                "replying",
+                "generic"
+              ]
+            },
+            "startedAt": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "reaction": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "kind",
+            "name",
+            "startedAt",
+            "durationMs"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "botID": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "action",
+                "expression"
+              ]
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "startedAt": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "durationMs": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "oneShot": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "state",
+            "priority",
+            "startedAt",
+            "endsAt"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "idle",
+                "thinking",
+                "streaming",
+                "working",
+                "sleeping",
+                "alerting",
+                "listening",
+                "speaking",
+                "happy",
+                "sad",
+                "surprised",
+                "confused",
+                "laughing",
+                "love",
+                "angry",
+                "wink",
+                "nod",
+                "shrug",
+                "celebrate",
+                "poke",
+                "waking",
+                "waiting",
+                "loading",
+                "done",
+                "standby",
+                "spawning",
+                "bouncing",
+                "dancing",
+                "waving",
+                "shy",
+                "smug",
+                "crying",
+                "sighing",
+                "cheering",
+                "bowing",
+                "clapping",
+                "stretching",
+                "yawning",
+                "kiss",
+                "shaking-head",
+                "high-five",
+                "powering-down"
+              ]
+            },
+            "priority": {
+              "type": "integer"
+            },
+            "startedAt": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "endsAt": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "additionalProperties": false
+}

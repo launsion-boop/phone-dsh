@@ -1,0 +1,808 @@
+{
+  "schemaVersion": 1,
+  "vector": "context-lint.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "upstream": [
+    "context-lint.json"
+  ],
+  "delta": [
+    "D7 freezes the six context-lint rules, the exact warn/error thresholds and the per-rule location keys. The upstream context-lint.json stays byte-identical; these cases live in the phone overlay.",
+    "Each valid case supplies only inputs; expected findings are frozen here so Swift BotContextLint and the Python reference validator consume the same values. Evidence strings are diagnostics, never a wire contract.",
+    "Invalid findings prove the closed rule/severity/location shape. Threshold type errors are rejected by the reader; non-positive thresholds are coerced exactly as observability.md §4 states."
+  ],
+  "valid": [
+    {
+      "rule": "system-prompt-bloat",
+      "severity": "warn",
+      "evidence": "persona is 20000 chars (warn 20000, error 32000) from prompt-mount.json",
+      "location": {
+        "sessionId": "gb-main",
+        "source": "prompt-mount",
+        "chars": 20000
+      }
+    },
+    {
+      "rule": "system-prompt-bloat",
+      "severity": "error",
+      "evidence": "persona is 32000 chars (warn 20000, error 32000) from prompt-mount.json",
+      "location": {
+        "sessionId": "gb-main",
+        "source": "prompt-mount",
+        "chars": 32000
+      }
+    },
+    {
+      "rule": "system-prompt-bloat",
+      "severity": "error",
+      "evidence": "persona is 20000 chars (warn 20000, error 20000) from prompt-mount.json",
+      "location": {
+        "sessionId": "gb-main",
+        "source": "prompt-mount",
+        "chars": 20000
+      }
+    },
+    {
+      "rule": "tool-result-bloat",
+      "severity": "warn",
+      "evidence": "6 estimated tokens, no spill notice (warn 5, error 8, ok result)",
+      "location": {
+        "sessionId": "gb-main",
+        "turn": 1,
+        "step": null,
+        "seq": 3,
+        "callId": "call-1",
+        "tool": "read",
+        "tokens": 6
+      }
+    },
+    {
+      "rule": "tool-result-bloat",
+      "severity": "error",
+      "evidence": "10 estimated tokens, no spill notice (warn 5, error 8, error result)",
+      "location": {
+        "sessionId": "gb-main",
+        "turn": 1,
+        "step": null,
+        "seq": 3,
+        "callId": "call-1",
+        "tool": "read",
+        "tokens": 10
+      }
+    },
+    {
+      "rule": "duplicate-context",
+      "severity": "warn",
+      "evidence": "3 runtime-context snapshots in one turn (max 2); older snapshots accumulate",
+      "location": {
+        "sessionId": "gb-main",
+        "turn": 1,
+        "seq": 4,
+        "occurrences": 3
+      }
+    },
+    {
+      "rule": "duplicate-context",
+      "severity": "warn",
+      "evidence": "the same 10-char block appears in 2 messages (seq 1, 2)",
+      "location": {
+        "sessionId": "gb-main",
+        "turn": 1,
+        "seq": 2,
+        "firstSeq": 1,
+        "occurrences": 2,
+        "chars": 10
+      }
+    },
+    {
+      "rule": "orphan-tool-call",
+      "severity": "error",
+      "evidence": "tool/call call-1 (read) has no matching tool/result",
+      "location": {
+        "sessionId": "gb-main",
+        "turn": 1,
+        "step": null,
+        "seq": 2,
+        "callId": "call-1",
+        "tool": "read"
+      }
+    },
+    {
+      "rule": "orphan-tool-result",
+      "severity": "error",
+      "evidence": "tool result callId missing has no matching tool/call",
+      "location": {
+        "sessionId": "gb-main",
+        "turn": 1,
+        "step": null,
+        "seq": 2,
+        "callId": "missing"
+      }
+    },
+    {
+      "rule": "tool-def-bloat",
+      "severity": "error",
+      "evidence": "1 tool definitions, ~23 tokens / 79 chars (token warn 1, error 1; count warn 40)",
+      "location": {
+        "sessionId": "gb-main",
+        "source": "tools/list",
+        "count": 1,
+        "tokens": 23,
+        "chars": 79
+      }
+    },
+    {
+      "rule": "tool-def-bloat",
+      "severity": "warn",
+      "evidence": "40 tool definitions, ~160 tokens / 550 chars (token warn 8000, error 16000; count warn 40)",
+      "location": {
+        "sessionId": "gb-main",
+        "source": "tools/list",
+        "count": 40,
+        "tokens": 160,
+        "chars": 550
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "missing-evidence",
+      "finding": {
+        "rule": "tool-def-bloat",
+        "severity": "warn",
+        "location": {
+          "sessionId": "gb-main",
+          "source": "tools/list",
+          "count": 1,
+          "tokens": 1,
+          "chars": 1
+        }
+      },
+      "error": {
+        "code": "context_lint.finding_required",
+        "path": "/finding/evidence"
+      }
+    },
+    {
+      "name": "unknown-rule",
+      "finding": {
+        "rule": "token-bloat",
+        "severity": "warn",
+        "evidence": "x",
+        "location": {
+          "sessionId": "gb-main",
+          "source": "tools/list",
+          "count": 1,
+          "tokens": 1,
+          "chars": 1
+        }
+      },
+      "error": {
+        "code": "context_lint.unknown_rule",
+        "path": "/finding/rule"
+      }
+    },
+    {
+      "name": "unknown-severity",
+      "finding": {
+        "rule": "tool-def-bloat",
+        "severity": "info",
+        "evidence": "1 tool definitions, ~23 tokens / 79 chars (token warn 1, error 1; count warn 40)",
+        "location": {
+          "sessionId": "gb-main",
+          "source": "tools/list",
+          "count": 1,
+          "tokens": 23,
+          "chars": 79
+        }
+      },
+      "error": {
+        "code": "context_lint.unknown_severity",
+        "path": "/finding/severity"
+      }
+    },
+    {
+      "name": "location-extra-key",
+      "finding": {
+        "rule": "tool-def-bloat",
+        "severity": "warn",
+        "evidence": "x",
+        "location": {
+          "sessionId": "gb-main",
+          "source": "tools/list",
+          "count": 1,
+          "tokens": 1,
+          "chars": 1,
+          "extra": true
+        }
+      },
+      "error": {
+        "code": "context_lint.location_keys",
+        "path": "/finding/location/extra"
+      }
+    },
+    {
+      "name": "location-missing-key",
+      "finding": {
+        "rule": "tool-def-bloat",
+        "severity": "warn",
+        "evidence": "x",
+        "location": {
+          "sessionId": "gb-main",
+          "source": "tools/list",
+          "count": 1,
+          "tokens": 1
+        }
+      },
+      "error": {
+        "code": "context_lint.location_keys",
+        "path": "/finding/location/chars"
+      }
+    }
+  ],
+  "thresholds": {
+    "default": {
+      "personaCharsWarn": 20000,
+      "personaCharsError": 32000,
+      "toolResultTokensWarn": 4096,
+      "toolResultTokensError": 12000,
+      "toolDefTokensWarn": 8000,
+      "toolDefTokensError": 16000,
+      "toolCountWarn": 40,
+      "maxRuntimeContextsPerTurn": 2,
+      "repeatedTextChars": 500,
+      "repeatedTextMaxFindings": 20
+    },
+    "invalid": [
+      {
+        "name": "wrong-type",
+        "input": {
+          "toolResultTokensWarn": "4096"
+        },
+        "error": {
+          "code": "context_lint.thresholds.type",
+          "path": "/thresholds/toolResultTokensWarn"
+        }
+      },
+      {
+        "name": "bool-is-not-integer",
+        "input": {
+          "repeatedTextMaxFindings": true
+        },
+        "error": {
+          "code": "context_lint.thresholds.type",
+          "path": "/thresholds/repeatedTextMaxFindings"
+        }
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "persona-warn-default",
+      "sessionId": "gb-main",
+      "promptMount": {
+        "chars": 20000
+      },
+      "expect": [
+        {
+          "rule": "system-prompt-bloat",
+          "severity": "warn",
+          "evidence": "persona is 20000 chars (warn 20000, error 32000) from prompt-mount.json",
+          "location": {
+            "sessionId": "gb-main",
+            "source": "prompt-mount",
+            "chars": 20000
+          }
+        }
+      ]
+    },
+    {
+      "name": "persona-error-default",
+      "sessionId": "gb-main",
+      "promptMount": {
+        "chars": 32000
+      },
+      "expect": [
+        {
+          "rule": "system-prompt-bloat",
+          "severity": "error",
+          "evidence": "persona is 32000 chars (warn 20000, error 32000) from prompt-mount.json",
+          "location": {
+            "sessionId": "gb-main",
+            "source": "prompt-mount",
+            "chars": 32000
+          }
+        }
+      ]
+    },
+    {
+      "name": "persona-coerced-zero-thresholds",
+      "sessionId": "gb-main",
+      "promptMount": {
+        "chars": 20000
+      },
+      "thresholds": {
+        "personaCharsWarn": 0,
+        "personaCharsError": 0
+      },
+      "expect": [
+        {
+          "rule": "system-prompt-bloat",
+          "severity": "error",
+          "evidence": "persona is 20000 chars (warn 20000, error 20000) from prompt-mount.json",
+          "location": {
+            "sessionId": "gb-main",
+            "source": "prompt-mount",
+            "chars": 20000
+          }
+        }
+      ]
+    },
+    {
+      "name": "tool-result-warn",
+      "sessionId": "gb-main",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 2,
+          "data": {
+            "turn": 1,
+            "callId": "call-1",
+            "name": "read"
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 3,
+          "data": {
+            "turn": 1,
+            "callId": "call-1",
+            "message": {
+              "content": "xxxxxxxxxxxxxxxxxx"
+            }
+          }
+        }
+      ],
+      "thresholds": {
+        "toolResultTokensWarn": 5,
+        "toolResultTokensError": 8
+      },
+      "expect": [
+        {
+          "rule": "tool-result-bloat",
+          "severity": "warn",
+          "evidence": "6 estimated tokens, no spill notice (warn 5, error 8, ok result)",
+          "location": {
+            "sessionId": "gb-main",
+            "turn": 1,
+            "step": null,
+            "seq": 3,
+            "callId": "call-1",
+            "tool": "read",
+            "tokens": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "tool-result-error",
+      "sessionId": "gb-main",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 2,
+          "data": {
+            "turn": 1,
+            "callId": "call-1",
+            "name": "read"
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 3,
+          "data": {
+            "turn": 1,
+            "callId": "call-1",
+            "message": {
+              "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "isError": true
+            }
+          }
+        }
+      ],
+      "thresholds": {
+        "toolResultTokensWarn": 5,
+        "toolResultTokensError": 8
+      },
+      "expect": [
+        {
+          "rule": "tool-result-bloat",
+          "severity": "error",
+          "evidence": "10 estimated tokens, no spill notice (warn 5, error 8, error result)",
+          "location": {
+            "sessionId": "gb-main",
+            "turn": 1,
+            "step": null,
+            "seq": 3,
+            "callId": "call-1",
+            "tool": "read",
+            "tokens": 10
+          }
+        }
+      ]
+    },
+    {
+      "name": "runtime-context-count-warn",
+      "sessionId": "gb-main",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "user/message",
+          "seq": 2,
+          "data": {
+            "turn": 1,
+            "source": {
+              "kind": "runtime-context"
+            },
+            "content": "ctx-a"
+          }
+        },
+        {
+          "type": "user/message",
+          "seq": 3,
+          "data": {
+            "turn": 1,
+            "source": {
+              "kind": "runtime-context"
+            },
+            "content": "ctx-b"
+          }
+        },
+        {
+          "type": "user/message",
+          "seq": 4,
+          "data": {
+            "turn": 1,
+            "source": {
+              "kind": "runtime-context"
+            },
+            "content": "ctx-c"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "rule": "duplicate-context",
+          "severity": "warn",
+          "evidence": "3 runtime-context snapshots in one turn (max 2); older snapshots accumulate",
+          "location": {
+            "sessionId": "gb-main",
+            "turn": 1,
+            "seq": 4,
+            "occurrences": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "repeated-text-warn",
+      "sessionId": "gb-main",
+      "events": [
+        {
+          "type": "assistant/message",
+          "seq": 1,
+          "data": {
+            "turn": 1,
+            "message": {
+              "content": "same text!"
+            }
+          }
+        },
+        {
+          "type": "assistant/message",
+          "seq": 2,
+          "data": {
+            "turn": 1,
+            "message": {
+              "content": "same text!"
+            }
+          }
+        }
+      ],
+      "thresholds": {
+        "repeatedTextChars": 10
+      },
+      "expect": [
+        {
+          "rule": "duplicate-context",
+          "severity": "warn",
+          "evidence": "the same 10-char block appears in 2 messages (seq 1, 2)",
+          "location": {
+            "sessionId": "gb-main",
+            "turn": 1,
+            "seq": 2,
+            "firstSeq": 1,
+            "occurrences": 2,
+            "chars": 10
+          }
+        }
+      ]
+    },
+    {
+      "name": "orphan-tool-call",
+      "sessionId": "gb-main",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 2,
+          "data": {
+            "turn": 1,
+            "callId": "call-1",
+            "name": "read"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "rule": "orphan-tool-call",
+          "severity": "error",
+          "evidence": "tool/call call-1 (read) has no matching tool/result",
+          "location": {
+            "sessionId": "gb-main",
+            "turn": 1,
+            "step": null,
+            "seq": 2,
+            "callId": "call-1",
+            "tool": "read"
+          }
+        }
+      ]
+    },
+    {
+      "name": "orphan-tool-result",
+      "sessionId": "gb-main",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 2,
+          "data": {
+            "turn": 1,
+            "callId": "missing",
+            "result": "x"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "rule": "orphan-tool-result",
+          "severity": "error",
+          "evidence": "tool result callId missing has no matching tool/call",
+          "location": {
+            "sessionId": "gb-main",
+            "turn": 1,
+            "step": null,
+            "seq": 2,
+            "callId": "missing"
+          }
+        }
+      ]
+    },
+    {
+      "name": "tool-def-error",
+      "sessionId": "gb-main",
+      "tools": [
+        {
+          "name": "example",
+          "description": "example tool",
+          "inputSchema": {
+            "type": "object"
+          }
+        }
+      ],
+      "thresholds": {
+        "toolDefTokensWarn": 1,
+        "toolDefTokensError": 1,
+        "toolCountWarn": 40
+      },
+      "expect": [
+        {
+          "rule": "tool-def-bloat",
+          "severity": "error",
+          "evidence": "1 tool definitions, ~23 tokens / 79 chars (token warn 1, error 1; count warn 40)",
+          "location": {
+            "sessionId": "gb-main",
+            "source": "tools/list",
+            "count": 1,
+            "tokens": 23,
+            "chars": 79
+          }
+        }
+      ]
+    },
+    {
+      "name": "tool-count-warn-default",
+      "sessionId": "gb-main",
+      "tools": [
+        {
+          "name": "t0"
+        },
+        {
+          "name": "t1"
+        },
+        {
+          "name": "t2"
+        },
+        {
+          "name": "t3"
+        },
+        {
+          "name": "t4"
+        },
+        {
+          "name": "t5"
+        },
+        {
+          "name": "t6"
+        },
+        {
+          "name": "t7"
+        },
+        {
+          "name": "t8"
+        },
+        {
+          "name": "t9"
+        },
+        {
+          "name": "t10"
+        },
+        {
+          "name": "t11"
+        },
+        {
+          "name": "t12"
+        },
+        {
+          "name": "t13"
+        },
+        {
+          "name": "t14"
+        },
+        {
+          "name": "t15"
+        },
+        {
+          "name": "t16"
+        },
+        {
+          "name": "t17"
+        },
+        {
+          "name": "t18"
+        },
+        {
+          "name": "t19"
+        },
+        {
+          "name": "t20"
+        },
+        {
+          "name": "t21"
+        },
+        {
+          "name": "t22"
+        },
+        {
+          "name": "t23"
+        },
+        {
+          "name": "t24"
+        },
+        {
+          "name": "t25"
+        },
+        {
+          "name": "t26"
+        },
+        {
+          "name": "t27"
+        },
+        {
+          "name": "t28"
+        },
+        {
+          "name": "t29"
+        },
+        {
+          "name": "t30"
+        },
+        {
+          "name": "t31"
+        },
+        {
+          "name": "t32"
+        },
+        {
+          "name": "t33"
+        },
+        {
+          "name": "t34"
+        },
+        {
+          "name": "t35"
+        },
+        {
+          "name": "t36"
+        },
+        {
+          "name": "t37"
+        },
+        {
+          "name": "t38"
+        },
+        {
+          "name": "t39"
+        }
+      ],
+      "expect": [
+        {
+          "rule": "tool-def-bloat",
+          "severity": "warn",
+          "evidence": "40 tool definitions, ~160 tokens / 550 chars (token warn 8000, error 16000; count warn 40)",
+          "location": {
+            "sessionId": "gb-main",
+            "source": "tools/list",
+            "count": 40,
+            "tokens": 160,
+            "chars": 550
+          }
+        }
+      ]
+    }
+  ],
+  "contextProfiles": {
+    "source": "context-profiles.json",
+    "readOnly": true,
+    "botRuntimeCompaction": false,
+    "profiles": [
+      "default",
+      "conservative"
+    ],
+    "unknownResolution": "default"
+  }
+}

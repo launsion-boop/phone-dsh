@@ -39,6 +39,10 @@ public struct WALWriterResumeState: Equatable, Sendable {
     public var startEpoch: UInt64
     public var materializedUptoMseq: UInt64
     public var truncatedTornTail: Bool
+    /// Segments the recovery pass already verified and truncated. When present
+    /// the writer builds its segment state from them instead of scanning the
+    /// whole WAL a second time (W4 handoff rule).
+    public var segments: [WALSegmentFile]
 
     public init(nextMseq: UInt64,
                 lastMseq: UInt64,
@@ -46,7 +50,8 @@ public struct WALWriterResumeState: Equatable, Sendable {
                 lastDurableEpoch: UInt64,
                 startEpoch: UInt64,
                 materializedUptoMseq: UInt64,
-                truncatedTornTail: Bool = false) {
+                truncatedTornTail: Bool = false,
+                segments: [WALSegmentFile] = []) {
         self.nextMseq = nextMseq
         self.lastMseq = lastMseq
         self.durableMseq = durableMseq
@@ -54,6 +59,7 @@ public struct WALWriterResumeState: Equatable, Sendable {
         self.startEpoch = startEpoch
         self.materializedUptoMseq = materializedUptoMseq
         self.truncatedTornTail = truncatedTornTail
+        self.segments = segments
     }
 }
 
@@ -125,6 +131,10 @@ public actor WALWriter {
         var lastMutationMseq: UInt64
         var hasEpochClose: Bool
         var closeDurableUpto: UInt64
+        /// Blob digests referenced by this segment's retained blob-write
+        /// records (wal.md §14.5 live set). Compaction drops the whole segment
+        /// state, so the set never needs per-record removal.
+        var blobDigests: Set<String> = []
 
         /// The lifecycle facts of this segment; the manifest and truncation
         /// decisions are derived from them by ``WALSegmentLifecycle`` only.
@@ -146,10 +156,16 @@ public actor WALWriter {
         }
     }
 
-    private struct PendingAppend {
+    /// One record ready for the group-commit write, independent of the caller
+    /// waiting for its level-1 ack. A batch shares one `write()` (W4).
+    private struct WALBatchItem {
         var mseq: UInt64
         var record: WALRecord
         var encoded: Data
+    }
+
+    private struct PendingAppend {
+        var item: WALBatchItem
         var continuation: CheckedContinuation<WALAppendResult, Error>
     }
 
@@ -159,6 +175,9 @@ public actor WALWriter {
     }
 
     private let paths: WorkspacePaths
+    /// W6 §14.1 store. The WAL is the single reference source; the store holds
+    /// only immutable bytes and a live-set GC.
+    private let blobs: WorkspaceBlobStore
     private let bootIDHex: String
     private let groupCommitDelay: TimeInterval
     private let groupCommitBytes: Int
@@ -195,14 +214,24 @@ public actor WALWriter {
         self.configuration = configuration
         self.bootID = bootID
         self.bootIDHex = bootID.map { String(format: "%02x", $0) }.joined()
-        let workspacePaths = WorkspacePaths(root: configuration.root)
+        let workspacePaths = WorkspacePaths(root: configuration.root, cacheRoot: configuration.cacheRoot)
         self.paths = workspacePaths
+        self.blobs = WorkspaceBlobStore(root: configuration.root)
         self.groupCommitDelay = max(configuration.groupCommitDelay, 0)
         self.groupCommitBytes = max(configuration.groupCommitBytes, 1)
         try workspacePaths.createDirectories()
 
-        let scan = try WALReader.scan(directory: workspacePaths.walDirectory,
+        // W4: a recovery handoff already verified (and truncated) every
+        // segment. Reuse that scan instead of reading the whole WAL again just
+        // to rebuild the writer's segment state.
+        let scan: WALScan
+        if let resumeState, !resumeState.segments.isEmpty {
+            scan = WALScan(segments: resumeState.segments,
+                           truncatedTornTail: resumeState.truncatedTornTail)
+        } else {
+            scan = try WALReader.scan(directory: workspacePaths.walDirectory,
                                       truncateTornTail: true)
+        }
         let manifestStore = ManifestStore(paths: workspacePaths)
         let manifest = try manifestStore.read()
 
@@ -214,7 +243,8 @@ public actor WALWriter {
                          mutationCount: segment.mutationCount,
                          lastMutationMseq: segment.lastMutationMseq,
                          hasEpochClose: segment.hasEpochClose,
-                         closeDurableUpto: segment.epochClose?.durableUpto ?? 0)
+                         closeDurableUpto: segment.epochClose?.durableUpto ?? 0,
+                         blobDigests: Self.blobDigests(in: segment.records))
         }
         let scannedLastMseq = scan.lastMutationMseq
         let resume: WALWriterResumeState
@@ -288,9 +318,13 @@ public actor WALWriter {
         try mutation.validate()
 
         let mseq = nextMseq
-        let record = try WALRecord(mseq: mseq, mutation: mutation)
+        let built = try makeRecord(mseq: mseq, mutation: mutation)
+        let record = built.record
         let encoded = record.encoded()
-        try enforceQuota(additionalBytes: encoded.count)
+        let blobExtra = built.blobDigest.map { digest in
+            liveBlobDigests().contains(digest) ? 0 : built.blobByteCount
+        } ?? 0
+        try enforceQuota(additionalBytes: encoded.count + blobExtra)
         // Terminal seals discard a header-only tail segment (G2-FIX-69/120);
         // the next append opens the epoch again with the same epoch number.
         try ensureOpenSegment(firstMseq: mseq)
@@ -299,16 +333,71 @@ public actor WALWriter {
         lastMseq = mseq
 
         return try await withCheckedThrowingContinuation { continuation in
-            pending.append(PendingAppend(mseq: mseq,
-                                         record: record,
-                                         encoded: encoded,
-                                         continuation: continuation))
+            pending.append(PendingAppend(
+                item: WALBatchItem(mseq: mseq, record: record, encoded: encoded),
+                continuation: continuation))
             pendingBytes += encoded.count
             if pendingBytes >= groupCommitBytes {
                 flushPending()
             } else {
                 scheduleFlush()
             }
+        }
+    }
+
+    /// Appends a group of mutations with one shared `write()` (wal.md §5
+    /// group commit, W4). The mseq order is the array order; every record is
+    /// validated before any byte is written, so a batch either lands whole or
+    /// not at all. Returns one result per input, in the same order.
+    public func appendBatch(_ mutations: [VfsMutationBody]) async throws
+        -> [WALAppendResult] {
+        guard !failed else { throw LogError.closed }
+        guard !mutations.isEmpty else { return [] }
+        // Keep the level-1 watermark honest: an older pending batch is written
+        // first, so `flushedUpto` can never jump over an earlier mseq.
+        if !pending.isEmpty { flushPending() }
+        guard !failed else { throw LogError.closed }
+
+        var items: [WALBatchItem] = []
+        var projectedBytes = 0
+        var projectedBlobBytes = 0
+        var projectedDigests = liveBlobDigests()
+        var mseq = nextMseq
+        // Build and validate every record first; a quota refusal must not
+        // consume an mseq or leave a hole for the batch retry.
+        for mutation in mutations {
+            try mutation.validate()
+            let built = try makeRecord(mseq: mseq, mutation: mutation)
+            let record = built.record
+            let encoded = record.encoded()
+            projectedBytes += encoded.count
+            if let digest = built.blobDigest, projectedDigests.insert(digest).inserted {
+                projectedBlobBytes += built.blobByteCount
+            }
+            items.append(WALBatchItem(mseq: mseq, record: record, encoded: encoded))
+            mseq += 1
+        }
+        try enforceQuota(additionalBytes: projectedBytes + projectedBlobBytes)
+        // Terminal seals discard a header-only tail segment (G2-FIX-69/120);
+        // the next append opens the epoch again with the same epoch number.
+        try ensureOpenSegment(firstMseq: nextMseq)
+        nextMseq = mseq
+        lastMseq = mseq - 1
+
+        do {
+            try write(batch: items)
+        } catch {
+            failed = true
+            failBarrierWaiters(error)
+            throw error
+        }
+        batchCount += 1
+        let ack = WorkspaceLogAck(level: .write, uptoMseq: flushedUpto)
+        ackBroadcaster.yield(ack)
+        resolveBarrierWaiters()
+        return items.map { item in
+            WALAppendResult(mseq: item.mseq, record: item.record,
+                            level: .write, ackedUptoMseq: flushedUpto)
         }
     }
 
@@ -371,6 +460,10 @@ public actor WALWriter {
 
         let closedEpoch = currentEpoch
         let durableUpto = lastMseq
+        // §5.2 step 1 / §14.3: every blob written in the epoch is fsynced
+        // before the close record of step 2, so a durable record never names a
+        // blob that power loss could remove.
+        try blobs.fsyncEpoch()
         // An idle epoch (wal.md §1: header-only segment, close record only)
         // and an epoch re-opened after a terminal seal both need the segment
         // created lazily before the close record is appended.
@@ -437,6 +530,39 @@ public actor WALWriter {
         resolveBarrierWaiters()
     }
 
+    // MARK: Blob-backed records (wal.md §14)
+
+    private struct BuiltRecord {
+        var record: WALRecord
+        /// The blob this record references, when it is a write-by-reference.
+        var blobDigest: String?
+        var blobByteCount: Int
+    }
+
+    /// Builds the record for one validated mutation. A write whose `data` is at
+    /// or above the §14.2 threshold first lands in the §14.1 store and becomes
+    /// an `op = 0xFE` record; everything else stays inline. The blob write is
+    /// part of the append order, before the record bytes.
+    private func makeRecord(mseq: UInt64, mutation: VfsMutationBody) throws -> BuiltRecord {
+        if mutation.op == .write,
+           mutation.data.count >= WireLimits.walBlobWriteThresholdBytes {
+            let ref = try blobs.write(mutation.data)
+            let blob = try WALBlobWrite(mode: mutation.mode,
+                                        mflags: mutation.mflags,
+                                        appendFrom: mutation.appendFrom,
+                                        blobLength: UInt32(mutation.data.count),
+                                        blobSHA256: ref.digestBytes,
+                                        path: mutation.path)
+            let record = try WALRecord(mseq: mseq, blobWrite: blob)
+            return BuiltRecord(record: record,
+                               blobDigest: ref.sha256,
+                               blobByteCount: ref.byteCount)
+        }
+        return BuiltRecord(record: try WALRecord(mseq: mseq, mutation: mutation),
+                           blobDigest: nil,
+                           blobByteCount: 0)
+    }
+
     // MARK: Materialized watermark / manifest
 
     /// Records the strictly contiguous materialized watermark and rewrites the
@@ -461,9 +587,28 @@ public actor WALWriter {
 
     // MARK: Quota / compaction (wal.md §9)
 
-    /// Total bytes of the WAL incl. headers.
+    /// Total bytes of the WAL incl. headers and every live blob (wal.md §9,
+    /// §14.6). An orphan blob is excluded because the §14.5 GC reclaims it.
     public var walByteCount: Int {
-        segments.reduce(0) { $0 + $1.byteCount }
+        let segmentBytes = segments.reduce(0) { $0 + $1.byteCount }
+        let blobBytes = (try? blobs.liveByteCount(digests: liveBlobDigests())) ?? 0
+        return segmentBytes + blobBytes
+    }
+
+    /// Digests referenced by the retained blob-write records of this writer's
+    /// segment state (wal.md §14.5 live set).
+    public func liveBlobDigests() -> Set<String> {
+        segments.reduce(into: Set<String>()) { $0.formUnion($1.blobDigests) }
+    }
+
+    private static func blobDigests(in records: [WALRecord]) -> Set<String> {
+        var digests: Set<String> = []
+        for record in records where record.isBlobWrite {
+            if let blob = try? record.blobWrite() {
+                digests.insert(blob.sha256Hex)
+            }
+        }
+        return digests
     }
 
     /// Segment file names in `<epoch, segment>` order.
@@ -550,6 +695,9 @@ public actor WALWriter {
             try LogFile.unlink(segment.url)
         }
         try LogFile.fsyncDirectory(paths.walDirectory)
+        // §14.5: the shorter manifest is durable and the referencing segments
+        // are unlinked, so every blob no retained record names is an orphan.
+        _ = try blobs.collectGarbage(liveDigests: liveBlobDigests())
         return dropped.map(\.name.fileName)
     }
 
@@ -610,13 +758,13 @@ public actor WALWriter {
         flushTask = nil
 
         do {
-            try write(batch: batch)
+            try write(batch: batch.map(\.item))
             batchCount += 1
             let ack = WorkspaceLogAck(level: .write, uptoMseq: flushedUpto)
             for item in batch {
                 item.continuation.resume(returning: WALAppendResult(
-                    mseq: item.mseq,
-                    record: item.record,
+                    mseq: item.item.mseq,
+                    record: item.item.record,
                     level: .write,
                     ackedUptoMseq: flushedUpto))
             }
@@ -631,10 +779,11 @@ public actor WALWriter {
         }
     }
 
-    private func write(batch: [PendingAppend]) throws {
+    private func write(batch: [WALBatchItem]) throws {
         var chunk = Data()
         var chunkRecords = 0
         var chunkLastMseq: UInt64 = 0
+        var chunkBlobDigests: Set<String> = []
 
         func emitChunk() throws {
             guard !chunk.isEmpty else { return }
@@ -644,10 +793,12 @@ public actor WALWriter {
             segments[currentSegmentIndex].mutationCount += chunkRecords
             segments[currentSegmentIndex].lastMutationMseq =
                 max(segments[currentSegmentIndex].lastMutationMseq, chunkLastMseq)
+            segments[currentSegmentIndex].blobDigests.formUnion(chunkBlobDigests)
             epochWrittenSegmentNames.insert(segments[currentSegmentIndex].name.fileName)
             chunk = Data()
             chunkRecords = 0
             chunkLastMseq = 0
+            chunkBlobDigests.removeAll()
         }
 
         for item in batch {
@@ -659,6 +810,9 @@ public actor WALWriter {
                 try rotateSegment(firstMseq: item.mseq)
             }
             chunk.append(item.encoded)
+            if let blob = try? item.record.blobWrite() {
+                chunkBlobDigests.insert(blob.sha256Hex)
+            }
             chunkRecords += 1
             chunkLastMseq = item.mseq
         }
@@ -811,6 +965,7 @@ public final class WALSynchronousAppender {
     private let paths: WorkspacePaths
     private let bootID: Data
     private let segmentRollBytes: Int
+    private let blobs: WorkspaceBlobStore
     private var segments: [WALSegmentFile]
     private var currentIndex: Int
     private var currentFD: Int32
@@ -820,10 +975,11 @@ public final class WALSynchronousAppender {
         guard bootID.count == 16 else {
             throw LogError.corrupt("boot_id must be 16 raw bytes")
         }
-        let paths = WorkspacePaths(root: configuration.root)
+        let paths = WorkspacePaths(root: configuration.root, cacheRoot: configuration.cacheRoot)
         self.paths = paths
         self.bootID = bootID
         self.segmentRollBytes = configuration.segmentRollBytes
+        self.blobs = WorkspaceBlobStore(root: configuration.root)
         let scanned = try Self.scanPOSIX(directory: paths.walDirectory)
         guard let last = scanned.last else {
             throw LogError.corrupt("no WAL segment to append to")
@@ -844,7 +1000,20 @@ public final class WALSynchronousAppender {
     public func append(_ mutation: VfsMutationBody) throws -> UInt64 {
         try mutation.validate()
         let mseq = nextMseq
-        let record = try WALRecord(mseq: mseq, mutation: mutation)
+        let record: WALRecord
+        if mutation.op == .write,
+           mutation.data.count >= WireLimits.walBlobWriteThresholdBytes {
+            let ref = try blobs.write(mutation.data)
+            let blob = try WALBlobWrite(mode: mutation.mode,
+                                        mflags: mutation.mflags,
+                                        appendFrom: mutation.appendFrom,
+                                        blobLength: UInt32(mutation.data.count),
+                                        blobSHA256: ref.digestBytes,
+                                        path: mutation.path)
+            record = try WALRecord(mseq: mseq, blobWrite: blob)
+        } else {
+            record = try WALRecord(mseq: mseq, mutation: mutation)
+        }
         let encoded = record.encoded()
         var segment = segments[currentIndex]
         if segment.mutationCount > 0,

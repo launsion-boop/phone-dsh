@@ -1,0 +1,197 @@
+{
+  "name": "outbox-entry-attachments-20",
+  "schema": "schema/outbox-entry.schema.json",
+  "instance": {
+    "v": 1,
+    "rpcId": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+    "sessionId": "gb-main",
+    "text": "",
+    "createdAtMs": 1794407000000,
+    "state": "queued",
+    "attempts": 0,
+    "backend": "local",
+    "attachments": [
+      {
+        "id": "img-01",
+        "kind": "image",
+        "byteSize": 1025,
+        "sha256": "c2a64047d8d3241ffe5d27f9213f23bedf967069a3421339ba1aa13cfc34821a",
+        "contentType": "image/jpeg",
+        "filename": "photo-01.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-01"
+      },
+      {
+        "id": "img-02",
+        "kind": "image",
+        "byteSize": 1026,
+        "sha256": "44d603c5ef1c7e78dedac83a69834f14eb6839184014fc1fd41c647fa0142de6",
+        "contentType": "image/jpeg",
+        "filename": "photo-02.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-02"
+      },
+      {
+        "id": "img-03",
+        "kind": "image",
+        "byteSize": 1027,
+        "sha256": "05aecb0056faaf5168d9fe93cfd2532224279692937b4649243584601a6f9c84",
+        "contentType": "image/jpeg",
+        "filename": "photo-03.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-03"
+      },
+      {
+        "id": "img-04",
+        "kind": "image",
+        "byteSize": 1028,
+        "sha256": "d72230e30b58684ac1b33036ba06a95f17339acda5c8204fb425c8bc874ae4a5",
+        "contentType": "image/jpeg",
+        "filename": "photo-04.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-04"
+      },
+      {
+        "id": "img-05",
+        "kind": "image",
+        "byteSize": 1029,
+        "sha256": "17ab4b55aa02ff240148c459bad6953d65fa60a6f2527e21906096fafaf315d8",
+        "contentType": "image/jpeg",
+        "filename": "photo-05.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-05"
+      },
+      {
+        "id": "img-06",
+        "kind": "image",
+        "byteSize": 1030,
+        "sha256": "703b464c204fac50e539e92dde729856358c077219c8909c4ffcdcff639af97c",
+        "contentType": "image/jpeg",
+        "filename": "photo-06.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-06"
+      },
+      {
+        "id": "img-07",
+        "kind": "image",
+        "byteSize": 1031,
+        "sha256": "39fa2811f8bac523e33320d7a95a3390250e7c6ea8e7fe79c090087f2870a2f3",
+        "contentType": "image/jpeg",
+        "filename": "photo-07.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-07"
+      },
+      {
+        "id": "img-08",
+        "kind": "image",
+        "byteSize": 1032,
+        "sha256": "ed28fcc60b84651f873f5c064c1a1373d0e7071b40535b9792151a189d3749d4",
+        "contentType": "image/jpeg",
+        "filename": "photo-08.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-08"
+      },
+      {
+        "id": "img-09",
+        "kind": "image",
+        "byteSize": 1033,
+        "sha256": "fd941518495d9c4c837301bde0e429d274ff1ec70ca82d70815c0e052a40463d",
+        "contentType": "image/jpeg",
+        "filename": "photo-09.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-09"
+      },
+      {
+        "id": "img-10",
+        "kind": "image",
+        "byteSize": 1034,
+        "sha256": "92b2a91bac1130ec5a1fb8f175f81682385c4d2513a98a8582a1c58c31a9196a",
+        "contentType": "image/jpeg",
+        "filename": "photo-10.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-10"
+      },
+      {
+        "id": "img-11",
+        "kind": "image",
+        "byteSize": 1035,
+        "sha256": "a65b190f9f14cc02432c6dffc8761bef43472665912b17fa7f00ba8368ca3d23",
+        "contentType": "image/jpeg",
+        "filename": "photo-11.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-11"
+      },
+      {
+        "id": "img-12",
+        "kind": "image",
+        "byteSize": 1036,
+        "sha256": "8f0f4c1567a0fea1c509e2d21102556f1433635468602048afd631556b20319b",
+        "contentType": "image/jpeg",
+        "filename": "photo-12.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-12"
+      },
+      {
+        "id": "img-13",
+        "kind": "image",
+        "byteSize": 1037,
+        "sha256": "fba54350d4a4e1854c9b3bbb24c3fb13c01c26660e4e27906cee2f18c16ff5f2",
+        "contentType": "image/jpeg",
+        "filename": "photo-13.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-13"
+      },
+      {
+        "id": "img-14",
+        "kind": "image",
+        "byteSize": 1038,
+        "sha256": "173a6212f03ee1bdb67d0720d61381cf755b2215414df9484d98e76f67104954",
+        "contentType": "image/jpeg",
+        "filename": "photo-14.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-14"
+      },
+      {
+        "id": "img-15",
+        "kind": "image",
+        "byteSize": 1039,
+        "sha256": "cf47f2dde37e368b7a498219ef658a375650e4bf66ef43e225e4bfa4c30eb4f7",
+        "contentType": "image/jpeg",
+        "filename": "photo-15.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-15"
+      },
+      {
+        "id": "img-16",
+        "kind": "image",
+        "byteSize": 1040,
+        "sha256": "dc11711325d0ceb4f1bc16348df948d5a0a5e9151fd59a2cbac205923988cfcd",
+        "contentType": "image/jpeg",
+        "filename": "photo-16.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-16"
+      },
+      {
+        "id": "img-17",
+        "kind": "image",
+        "byteSize": 1041,
+        "sha256": "f1e52c5210a91ca13c65bb767524c8db26f31b069cb302567a71ab068daf6073",
+        "contentType": "image/jpeg",
+        "filename": "photo-17.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-17"
+      },
+      {
+        "id": "img-18",
+        "kind": "image",
+        "byteSize": 1042,
+        "sha256": "9566cd6291dba31f059d04ee16df9feb363e9139c35bd80d2043a37ad061e44c",
+        "contentType": "image/jpeg",
+        "filename": "photo-18.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-18"
+      },
+      {
+        "id": "img-19",
+        "kind": "image",
+        "byteSize": 1043,
+        "sha256": "f76696546db151d74e3b174663dec20e1871777013a23c29fe5ad38bd862399a",
+        "contentType": "image/jpeg",
+        "filename": "photo-19.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-19"
+      },
+      {
+        "id": "img-20",
+        "kind": "image",
+        "byteSize": 1044,
+        "sha256": "955900d40a0b487484cce3ed137594414f73185b450ed512cd24f5d96d028803",
+        "contentType": "image/jpeg",
+        "filename": "photo-20.jpg",
+        "storePath": "attachments/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/img-20"
+      }
+    ]
+  },
+  "notes": "docs/protocol-changes/PC-20261112-w1-browse-outbox.md:§7 — attachment-only send uses empty text with at least one attachment; this entry is at the 20-attachment bound."
+}

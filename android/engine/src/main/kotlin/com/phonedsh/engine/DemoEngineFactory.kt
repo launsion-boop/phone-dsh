@@ -68,6 +68,7 @@ fun createDemoEngine(
     writesAllowed: () -> Boolean = { true },
     bootOverlaySource: BootOverlaySource? = null,
     nativeMcp: NativeMcpServing? = null,
+    botMcpEnvironment: (() -> BotMcpEnvironment?)? = null,
 ): DemoEngine = WebViewEngine(
     context,
     channelHandler,
@@ -80,4 +81,5 @@ fun createDemoEngine(
     writesAllowed,
     bootOverlaySource,
     nativeMcp,
+    botMcpEnvironment,
 )

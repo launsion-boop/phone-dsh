@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotProactiveSettings v1",
+  "description": "The effective proactive-delivery configuration. The persisted ProactiveSettings blob supplies mode/dnd/quietStart/quietEnd/routineQuietWeekends/timeZone; ProactivePolicyConfiguration supplies fuseWindowMs/fuseMaxWakeups; ProactiveEngine supplies deliveryKinds. A canonical writer emits all nine members and no others. quietStart/quietEnd are local clock times; one-digit hours are accepted because QuietClock.minutes accepts them, but canonical writers emit HH:MM. See spec/bot/v2/README.md §3.",
+  "type": "object",
+  "required": [
+    "mode",
+    "dnd",
+    "quietStart",
+    "quietEnd",
+    "routineQuietWeekends",
+    "timeZone",
+    "fuseWindowMs",
+    "fuseMaxWakeups",
+    "deliveryKinds"
+  ],
+  "properties": {
+    "mode": {
+      "description": "off stops at mode-off after the routine held/quiet pre-filter; would records would decisions without delivery; on delivers kinds listed in deliveryKinds.",
+      "enum": ["off", "would", "on"]
+    },
+    "dnd": {"type": "boolean"},
+    "quietStart": {
+      "description": "Local quiet-window start. QuietClock.minutes trims the value, requires an hour of at most two digits and a two-digit minute, and accepts 0..23 / 0..59. Canonical writers emit HH:MM.",
+      "type": "string",
+      "pattern": "^\\s*(\\+?[0-9]|0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]\\s*$"
+    },
+    "quietEnd": {
+      "description": "Local quiet-window end, same grammar as quietStart. quietStart == quietEnd means no quiet window (RoutineQuietHours.isWithinQuietHours returns false).",
+      "type": "string",
+      "pattern": "^\\s*(\\+?[0-9]|0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]\\s*$"
+    },
+    "routineQuietWeekends": {"type": "boolean"},
+    "timeZone": {
+      "description": "IANA time-zone identifier. ProactiveSettings.normalized replaces an identifier TimeZone(identifier:) cannot resolve with TimeZone.current.identifier.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": ".*\\S.*"
+    },
+    "fuseWindowMs": {
+      "description": "Frequency-fuse window. ProactivePolicyConfiguration defaults to 900000. The comparison is strict: now - acceptedAt < fuseWindowMs.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "fuseMaxWakeups": {
+      "description": "Maximum did/would contributions per Bot per window. ProactivePolicyConfiguration defaults to 4; with that default the 4th contribution is allowed and the next candidate is refused with reason fuse.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "deliveryKinds": {
+      "description": "Kinds ProactiveEngine may deliver when mode == on. Other kinds are still considered and record a would decision with reason would-only-kind, but consume no fuse. An empty array is valid (deliver nothing in on mode).",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": ["task-done", "routine-result", "reminder"]}
+    }
+  },
+  "additionalProperties": false
+}

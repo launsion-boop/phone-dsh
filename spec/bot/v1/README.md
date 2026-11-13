@@ -19,11 +19,12 @@
 
 ### 1.1 多 Bot 与 Team 边界
 
-phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json`（`schemaVersion: 3`）和 `runtime-settings.json` 的 `mainAgentId`；每个 Bot 有独立的 DSH 会话、记忆、例行任务、授权、held inbox 与未读计数。首个 Bot 成为主 Bot；主 Bot 是指针，不是记录字段。删除主 Bot 时指针移到剩余第一个 Bot；隐藏的 Bot 仍留在名册，但不进入模型可见的工具描述。
+phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json`（`schemaVersion: 3`）和 `runtime-settings.json` 的 `mainAgentId`；每个 Bot 有独立的 DSH 会话、记忆、例行任务、授权、held inbox 与未读计数。首个 Bot 成为主 Bot；主 Bot 是指针，不是记录字段。删除主 Bot 时指针移到剩余第一个 Bot；隐藏的 Bot 仍留在名册，但不进入模型可见的工具描述；它仍可按精确 id 或名字解析为 `SendToAgent` 目标（不可见不等于不可达）。
 
-- `SendToAgent`：`agent_id` 必填（接受 id 或名字；兼容别名 `target_id`/`bot_name`/`agentId`），`message` 必填（别名 `text`），可选 `title`。必须提供 `priority: Bool` 或 `delivery: "now"|"queued"` 之一；两者冲突、缺失或非法都 fail-closed，缺失时返回上游原句 `SendToAgent requires priority (true = wake now, false = hold for their next turn).`。发送者只能取已登记 principal 的 `botId`；目标必须存在，禁止发给自己；入站深度 + 1 超过 2 跳拒绝，目标已在同一条**进行中的**转交链上也按环路拒绝。转交链只描述一次进行中的转交：`now` 的对方回合结束后释放，`queued` 在目标消费该 held 项时释放；对方回复写回发送方的 `agent-held` 项是这次转交的结束通知，不是新的转交，不给发送方安装链。真环（A→B→A 仍在同一条进行中的链里）仍拒绝，错误文案用 Bot 名字而不是内部 id。`queued` 只写目标 held inbox（`kind: agent-held`），不唤醒目标；`now` 在目标空闲时开启可见回合，目标忙时排在当前回合之后（不打断）。目标回合最后一段 assistant 文本在 300 秒内返回，作为发送方的 `inbound` 行；phoneDSH 有意再把它作为一条 `agent-held` 回复写回发送方 held inbox，在发送方下一回合进入上下文，且不唤醒发送方。`requestId` 取调用 id，重复调用返回同一 `threadId`，不重复投递。
-- `CreateTeammate`：只有当前主 Bot 可调用；其他 Bot 得到 `permission_denied`。`name` 去空格后 1–60 字符，`description` 截 300，`color` 为 15 色枚举，`hairstyle` 为 4 发型枚举，`section_id` 接受但忽略。没有用户消息来源的回合（见 §4.1）调用时必须先经现有审批卡确认；确认后宿主把作者（`rpcId`/`turnId`/`origin`/`authorization`/`approvalID`）写入 `ui.system_event{event:"teammate.created"}` 的 durable 记录，描述随 Bot 资料保存。用户回合的记录同样写入，`authorization:"user-turn"` 且没有 `approvalID`。
+- `SendToAgent`：`agent_id` 必填（接受 id 或名字；兼容别名 `target_id`/`bot_name`/`agentId`），`message` 必填（别名 `text`），可选 `title`。必须提供 `priority: Bool` 或 `delivery: "now"|"queued"` 之一；两者冲突、缺失或非法都 fail-closed，缺失时返回中文句 `SendToAgent 需要 priority：true 表示立即唤醒，false 表示等对方下一个回合。`。发送者只能取已登记 principal 的 `botId`；目标必须存在，禁止发给自己；入站深度 + 1 超过 2 跳拒绝，目标已在同一条**进行中的**转交链上也按环路拒绝。转交链只描述一次进行中的转交：`now` 的对方回合结束后释放，`queued` 给目标安装一次性 pending context、在目标下一次 team 工具调用时释放（内存态，重启丢失）；对方回复写回发送方的 `agent-held` 项是这次转交的结束通知，不是新的转交，不给发送方安装链。真环（A→B→A 仍在同一条进行中的链里）仍拒绝，错误文案用 Bot 名字而不是内部 id。`queued` 只写目标 held inbox（`kind: agent-held`），不唤醒目标；`now` 在目标空闲时开启可见回合，目标忙时排在当前回合之后（不打断）。目标回合最后一段 assistant 文本在 300 秒内返回，作为发送方的 `inbound` 行；phoneDSH 有意再把它作为一条 `agent-held` 回复写回发送方 held inbox，在发送方下一回合进入上下文，且不唤醒发送方。`requestId` 为 `agent:<callId>`；pre-WP4 行仍以 bare `callId` 兼容查找；重复调用返回同一 `threadId`，不重复投递。逐字契约（精确错误句、id 算法、row/event 形状、held 回复）见 [team.md](team.md)。
+- `CreateTeammate`：只有当前主 Bot 可调用；其他 Bot 得到 `permission_denied`。`name` 去空格后 1–60 UTF-16 units，`description` 截 300 UTF-16 units，`color` 为 15 色枚举，`hairstyle` 为 4 发型枚举，`section_id` 接受但忽略。没有用户消息来源的回合（见 §4.1）调用时必须先经现有审批卡确认；确认后宿主把作者（`rpcId`/`turnId`/`origin`/`authorization`/`approvalID`）写入 `ui.system_event{event:"teammate.created"}` 的 durable 记录，描述随 Bot 资料保存。用户回合的记录同样写入，`authorization:"user-turn"` 且没有 `approvalID`。逐字边界与错误句见 [team.md](team.md) §3。
 - 行：发送方 `outbound`/`inbound`、目标 `incoming`/`reply` 都使用上游 `toAgent`/`fromAgent`/`agentComm{direction,…}` 与 `threadId = <rowID>@<seq>:agent-comm`；发送方交换按 `summarizeCommRows` 汇总为 `single`/`fanout`/`thread`。
+- `Task`/`AwaitTask`/`StopSubagent` 的参数、状态机、`persistedTask` 快照/restore、interrupted wake 与 request-id 推导见 [tasks.md](tasks.md)。
 - `agent.comm` 是 P27 的 additive UI event type，也是 P25 的 additive durable event；outbound/inbound 都写入 `origin = local/comm-service`。契约冻结见 [PC-20261111-bot-agent-comm-envelope](../../../docs/protocol-changes/PC-20261111-bot-agent-comm-envelope.md)。
 - 不在本期范围：Team 共享/发布/克隆、团队记忆/审核队列、Bot 模板导入导出、`CreateAgent` 云端工具、sidebar section 渲染，以及 macOS 本机工具。
 
@@ -51,6 +52,14 @@ phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json
 - `p0`：第一版 App MCP 和 persona 可以暴露的全部工具。
 - `p1`：`show_table`、`show_callout`、`show_info`、`show_payload`、`show_library`。本修订只冻结 schema 和 payload，标为 `target`；第一版不得注册到 App MCP，也不得写进 persona。
 
+**运行期分层（W5，`tool-catalog.schema.json` 的 additive `tiers` 成员）。** `p0`/`p1` 仍是“全部工具”的静态清单，`tiers` 只是把同一批工具按运行期可见性分组；两者不是第二种目录，任何工具只属于一层，且必须仍出现在 `p0`/`p1` 之一。
+
+- **core 常驻**：persona 与既有工具面直接依赖的工具，始终出现在 `tools/list`，描述与 `inputSchema` 完整。
+- **device 按连接状态**：只在对应设备类已连接或已配置时列出。`class` 取 `adb`/`ble`/`venus`/`ssh`；某类不在连接/配置状态时，该类整组不出现。连接状态真正变化后，**下一次** `tools/list` 必须立即反映；不新增 `notifications/tools/list_changed`，不因单个请求抖动而反复变化。设备刚连上后的下一步就能调用该组工具，不能出现“模型找不到工具”。
+- **discoverable 常驻但精简**：始终出现在 `tools/list`，`inputSchema` 完整可调用，描述压成一行；`tiers.discoverable` 列出名字。模型仍能直接调用，不需要额外的发现工具。
+
+`golden/tool-catalog-tiers.phone.json` 冻结分层正反例：重复归层、未知 class、把设备工具放进 core、状态变化未反映、core 工具缺失都拒绝。
+
 `canvas`、`product`、`gift` 不在手机卡片词汇中。未知工具、未知 `cardType`、缺少渲染所需数据的卡片一律 fail-closed；工具返回失败，不生成半空卡片。
 
 `golden/tool-catalog.phone.json` 登记 phoneDSH 的团队工具、`FishAction` 与记忆三原语增量：这些名字不在上游 `tool-catalog.schema.json` 的 P0 enum 中，因此不改上游 `tool-catalog.json` 或其 schema。团队工具描述由可见名册减去调用者自己与隐藏 Bot 动态生成 `Available bots: <name> (id: <id>[, main Bot])`。`ReadMemory` 是 [v2 §1.2](../v2/README.md#12-三个原语) 的新增原语，`UpdateMemory`/`RecallMemory` 的 fact 参数由同一节替换。`golden/tool-effects.phone.json` 以同一 `tool-effects.schema.json` 冻结分类：`SendToAgent` 为 `external-send + auto`，`CreateTeammate` 为 `write + auto`，`FishAction` 为 `read + auto`（纯外观、由宿主审计），`ReadMemory` 为 `read + auto`；`RecallMemory` 沿用上游 `golden/tool-effects.json` 的 `read + auto`。`auto` 分类的工具不向用户出审批卡；结构审批门禁必须使用同一分类，不得把已冻结的 `read + auto` 工具当作 `tool.unclassified` 再请求审批（否则 `alwaysScope` 与宿主期望不一致，调用会以 `stale:always_scope` 失败）。
@@ -58,6 +67,8 @@ phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json
 `card-payload.schema.json` 的字段来自 dsh-bot `cardPayloads.cjs` 的白名单。`golden/card-payload.json` 是 `export-vectors.mjs` 的原样导出，不得手改；phoneDSH 对卡片负载的增量（宿主分配的 `optionID`、recommended 移到首位、负向 fixture）放在 `golden/card-payload.phone.json`，两个文件都由 `validate_vectors.py` 校验 schema/负向结果，并由 Swift `BotCardPayloadTests` 用真实 builder 对拍。重跑导出器后 `card-payload.json` 必须无 diff；`card-payload.phone.json` 不需要重新导出。链接只接受 HTTP/HTTPS；卡片数据必须自带，不能假设存在服务端 callback 补全。
 
 `golden/tool-effects.phone.json` 的 `nativeMcp` 数组登记原生 MCP 的 BLE 工具分类（`ble_devices`、`ble_read`、`ble_alert`、`ble_link_tools`、`ble_link_call`、`ble_link_result`；经 Bot MCP 转发后模型看到 `mcp__phone__ble_*`）。读类为 `read + ask`，发送类为 `external-send + ask`；`resource` 取裁剪后的 `device_id`，没有则 `ble:*`，`ble_link_call` 还带 `name`。工具名来自 `spec/v1/native-mcp.md`「BLE tools」；設備須先在「設定 → 藍牙設備」中逐連接授權，Bot 的 ask 只是附加層。该数组是 phoneDSH 增量，与团队工具增量同在 `.phone.json` 覆盖文件；上游 `tool-effects.json` 保持原样导出。
+
+[mcp-endpoint.md](mcp-endpoint.md) §7–§11 and [tool-contracts.md](tool-contracts.md) own the Bot JSON-RPC methods, `/identity/register|cancel`, `/approval`, session-credential/attribution limits, listener recovery, native forwarding and the exact HTTP error forms. [cards.md](cards.md) owns the seven P0 card builders. Their shared fixtures are `golden/mcp-rpc-cases.phone.json`, `golden/identity-approval-cases.phone.json`, `golden/tool-call-cases.phone.json`, the appended cases in `golden/card-payload.phone.json`, and the assembly cases in `golden/volatile-context.phone.json`; the Swift tests read the files, not a copied table. The frozen change is `docs/protocol-changes/PC-20261113-bot-mcp-d13.md`.
 
 ### 2.1 volatile 上下文快照（WP2 CCR）
 
@@ -68,6 +79,8 @@ phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json
 - variant/persona 各最多 12,000 字符，memory/automation 各最多 4,000 字符；总文本最多 24,000 字符。不得包含模型密钥、Bearer token 或无关 session 的内容。
 - 传输失败、标准 MCP `isError`、超时、非法响应或 session 不符都不得携带部分快照。consumer 必须丢弃本次结果并使用空快照，不能沿用可能陈旧的记忆；`AbortSignal` 只用于本地忽略迟到结果，网络超时仍由既有 App MCP mount 管理。
 - consumer 的本地 revision 防止旧请求覆盖新请求；producer revision 用于诊断，不作为跨进程持久游标。不得将静态工具发现当成宿主数据已接通。
+- **时间块精度（W5）。** Worker 渲染的 `## Time` / `## 时间` 块只精确到**小时**：`Current local time` 的本地时间写成 `YYYY-MM-DD HH:00`（分与秒恒为 `00`），时区偏移仍保留。它因此在一个长任务里至多每小时变化一次，而不是每分钟追加一份完整块。`golden/volatile-context.phone.json` 冻结该格式及“分钟不得非零”的负例；模型不得据该小时桶声称精确到分钟。
+- **只注入一次（W5）。** Worker 配置（`plugins/profile/phone.worker.cordis.patch.yml`）对挂载 bot-runtime 的 profile 关闭上游 `@deepseek-ai/dsh-time-context` 行，时间只由本块注入；普通 DSH 工作台保留上游行。这是 profile 配置，不改 DSH 源码，也不新增环境变量或第二种传输。
 - 只有实际注册 `mcp__phone__BotVolatileContext` 的 Bot MCP 才启用 Bot 专用身份登记和 `/approval`。普通 DSH 工作台没有此能力时，`identity-bridge` 与 Bot 专用审批门禁直接继续原工具权限链，不要求 Bot identity 路由，也不得把 Bot 缺失当成允许 Bot 写入。
 
 ### 2.2 Bot MCP 端点、身份与审批
@@ -75,6 +88,14 @@ phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json
 App 运行 Bot runtime 时，`PDSH_PHONE_MCP_URL` 指向 Bot MCP listener，它是 Worker 唯一的 `phone` MCP 服务器；`PhoneDSHHost` 不得再用 `/mcp/native` 覆盖它。Bot server 在进程内把非 Bot 工具的 `tools/list`/`tools/call` 转发给原生 MCP 处理（ADB），因此两类工具共享一个 `mcp__phone__` 命名空间。`nativeMCP` 仍保留 `/mcp/native` 路由给其他调用方；只有未配置 Bot 端点时才沿用旧的原生 env。
 
 身份登记在 `tools/pre-execute` 先于结构审批完成；普通调用在 `tools/execute` 清理，被 DSH job registry 保留的命令把同一登记持有到 `job/settled`/`removed`（heartbeat 续期，24 小时上限）。登记有效期必须覆盖 300 秒交互审批等待；持久待办审批不使用阻塞等待（§2.7），因此不要求登记跨待办存活。认领同时绑定代次、bare tool name、参数摘要和仍有效的 principal incarnation。Worker 重启时取消交互待审批并写 `approval.decided`/`ui.notice`，清空旧登记并推进代次；持久待办保留并由新进程恢复（§2.7）。Task 记录持久化，未完成项以 `interrupted`/`worker_restarted` 返回并只唤醒父对话一次，`waiting_approval` 例外。HTTP 只监听 loopback、Origin 精确匹配、路径精确、Bearer 常量时间比较，且 Worker 只拿 token placeholder，由宿主在 `/v1/http` egress 注入真实 bearer。
+
+**身份、审批、取消的往返合并（W5，可观察语义）。** `identity-bridge` 与 `approval-gate` 可以把“注册身份 → 审批 → 执行 → 取消注册”从 3–4 次串行 loopback 请求合并为一个管线，但下列可观察事实保持不变：
+
+- 每次工具调用恰好一次身份登记、一次审批决定、一次执行；登记必须在审批前被宿主确认，审批必须在执行前完成；安全检查和审批批次一条都不减少，也不因合并而跳过。
+- `bash`/`write`/`edit` 与每个 Bot 手机工具仍走同一门禁；审批卡的数量、`resource`/`operation` 与 Grant 复用规则不变。
+- 取消是**不阻塞结果**的：结果先交回模型，取消作为同一管线的尾部请求发送；取消失败、超时或宿主不可达都不改变工具结果，也不重跑工具。取消仍只投递一次（或与下一次请求合并），不产生第二次副作用。
+- 后台 job 的登记续期（§2.4）不变；合并只减少往返，不缩短 TTL 或扩大授权。
+- 审计/事件（`approval.requested`/`approval.decided`、identity 记录）的条数与语义不变，不新增事件类型。
 
 P05/P16/P26 的出口与身份增量（`mcp-egress-capability-v1`，见 [PC-20261110-bot-mcp-egress-capability](../../../docs/protocol-changes/PC-20261110-bot-mcp-egress-capability.md)）：宿主每次启动生成 `PDSH_MCP_EGRESS_TOKEN`，受信 MCP 客户端在目标命中精确 MCP 路由时带 `X-PDSH-MCP-Egress`；宿主在解析/注入任何 MCP 凭据前常量时间校验，缺失或错误以 403 `mcp_egress_forbidden` 在出口拒绝（用户配置的精确 MCP 路由同样覆盖）。宿主把会话 principal 的随机 token 经 `phone/botClaimSession` 的 `sessionToken` 字段交给 Worker，`identity-bridge` 在 `/identity/register` 带上它；宿主按 token 解析 principal，`sessionId` 不自证，缺失/撤销/不匹配一律 `unauthorized` 并 fail-closed。`tools/call` 认领身份后还要在该 principal 的 per-caller 目录里查到工具，否则 `permission_denied`；`CreateTeammate` 的主 Bot 检查保留。Android/HarmonyOS 没有 Bot runtime，三项均 `not started`。
 
@@ -286,6 +307,47 @@ verifier 凭证，宿主不伪造事件，而是把 `uncertain`/`unavailable` �
 共享向量见 [golden/verification.phone.json](golden/verification.phone.json)，输出与事件形状由
 [verifier-output.schema.json](verifier-output.schema.json) 和
 [verification-report.schema.json](verification-report.schema.json) 冻结。
+
+### 2.10 模型用途策略的强制执行与验证器取证（W5）
+
+- **执行点（2026-11-13 已接线；per-request purpose 来源仍缺，见 GAP-42）。** `BotModelPurposeGate`／
+  `BotModelRequest`（`BotModelPurposePolicy` 的 enforcer，类型声明在
+  `Sources/PhoneDSHAgentCore/BotModelPurposePolicy.swift`，`PhoneDSHBot` 以 public alias 保留原名，
+  不得出现两个类型名）已经定义且可被外部呼叫；`model-purpose-enforcement.phone.json` 的
+  allowed／denied／default／unknown 正反例仍然有效，它们描述 enforcer 语义，不是执行点。
+  R3（2026-11-13）冻结下列三件事：
+  1. **不新增 wire 载体。** 不新增任何 purpose 标头或字段（`x-pdsh-model-purpose` 之类被否决：要四端
+     同步、旧版要容忍，而 pinned 上游适配器不保留该值，加了也观察不到）；`GatewayRequest`／
+     `HTTPEgressRequest` 的 method／url／headers／body 不变。
+  2. **类型归属（P12）。** enforcer 的纯策略类型（`BotModelPurpose`／`BotModelPurposePolicy`／
+     `BotModelRequest`／`BotModelPurposeGate`／`BotModelPurposeError`）下沉到 `PhoneDSHAgentCore`；
+     `PhoneDSHGateway` 已依赖该模组，新增的是 Gateway→AgentCore policy 类型的使用，不是新的模组依赖
+     边，也不反转方向。本轮不改 `Package.swift`，实作单落地；`PhoneDSHBot` 保留对外名称（alias 或
+     re-export），不得出现两个类型名。
+  3. **分阶段执行语义。** purpose **缺席** → 执行点只记录一笔宿主内部诊断（`purpose_absent`，不是错误码、
+     不上 wire），行为与今天完全相同（不 fail-closed、不放行新权限）；purpose **存在** → 执行点真的呼叫
+     enforcer，allow／deny 生效（deny 即拒绝该请求）。只有这两个分支，不得按模型名或 prompt 内容推断 purpose。
+- **接线状态与前提（2026-11-13）。** 执行点在 `ModelGateway` 的 `/v1/http` 入口实现
+  （`Sources/PhoneDSHGateway/ModelPurposeEnforcement.swift`），位置在 MCP egress gate／shutdown guard
+  之后，Bot 审批接缝、allow-list、response log、凭据解析与 socket 之前；deny 因此不解析凭据、不发上游
+  请求。purpose 证据只能来自宿主组合注入的 `ModelPurposeProviding`（缺省 `nil`）：**生产环境未安装任何
+  provider，所以每个交换都走缺席分支**，行为与基线相同。仍缺的是可靠的 per-request purpose 来源：
+  wire 上没有，pinned 模型适配器也不保留、不传递上游的用途标记；GAP-42 因此保持 open，只对「来源」开放。
+  - 来源落地前必须先解一个 P05 问题：deny 目前经既有的 `/v1/http` unknown-error 映射表示为
+    `upstream_failed`／502；在来源上线前需要 P05 的裁决，不得为此新增第二个错误码。
+  - 不得 fail-closed，不得默认放行，不得按模型名或 prompt 内容推断 purpose，不得把 policy 复制进
+    Gateway（第二个权威，AGENTS.md §2.1）。
+- **用途映射。** 前台回合 `front-turn`、工作回合 `worker-turn` 允许大模型；`triage`（含标题生成）、
+  `memory-extract`、`reflect`、`compact`、`watchdog`、`completion-check`（验证器）、`memory-maintenance`
+  只允许小模型。标题不新增 purpose，沿用 `triage`；验证器沿用 `completion-check`。策略由 profile
+  配置提供，缺省用 `BotModelPurposePolicy.frozen`；配置不能把 `largeModelPurposes` 扩到非前台/工作用途。
+- **账本。** `llm-ledger` 的 `purpose` 记录实际请求用途；验证器花費记 `completion-check`，不得记成
+  `worker-turn`。未知 purpose 的账本记录按该文件末尾的未知值规则处理（记录原值、不崩溃）。
+- **验证器取证。** 验证器读取 subject 会话的证据时，必须取该会话**最新**的事件窗口（按 cursor/尾部
+  分页），不得用 `events(after: 0, limit: 1000)` 之类的“最旧 1000 条”。新会话证据不足时结论只能是
+  `uncertain`，不得把旧事件当成本次任务的证据。回归用同一 subject 会话的“旧事件 + 新事件”向量。
+- `model-purpose-policy.phone.json` 冻结正反例：标题/压缩/验证器用大模型拒绝、worker-turn 允许、
+  缺省模型为空拒绝、未知 purpose 不得放大模型。
 
 ### 2.9 内容卡 `final` 收尾标记（P26 additive，S3）
 
@@ -559,9 +621,9 @@ Row、RowBatch、UserAction 和 ActionResult 以对应 schema 为准。`golden/r
 
 - 每个模型 step 追加一条 LLM 账本，字段以 `llm-ledger.schema.json` 为准；四类 token 分开记录，快取命中率按上游公式计算，TTFT 不可得时省略。
 - 只有 `front-turn` 和 `worker-turn` 允许大模型；其他 purpose 必须走小模型策略。模型密钥仍由 phoneDSH 宿主持有。
-- Watchdog 只观察，不自动 nudge/stop。deadline、heartbeat、重复工具签名、重复工具错误、token/成本配额，以及手机新增的 WebContent 终止、温度、电量事件，每项每个工作单元只发一次 `watchdog.flagged`。
-- compaction、pruner、spill 的 default/conservative 参数逐值复用 `CONTEXT_PROFILES`。未知 profile 回退 default，不新增环境变量。
-- contextLint 对最近 session 做确定性检查；冻结重放和 rubric 不在第一版。
+- Watchdog 只观察，不自动 nudge/stop。deadline、heartbeat、重复工具签名、重复工具错误、token/成本配额，以及手机新增的 WebContent 终止、温度、电量事件，每项每个工作单元只发一次 `watchdog.flagged`。config 的 13 个具名成员、缺省/零值、unit 生命周期、flag payload 与 mobile host-signal 语义见 [watchdog.md](watchdog.md)；`watchdog.schema.json` 的 `config` 是关闭对象，缺成员取缺省，错误码为 `watchdog.config.type`/`watchdog.config.range`/`watchdog.config.unknown`，path 为 `/config/<field>`，负数/类型/未知成员明确拒绝。
+- compaction、pruner、spill 的 default/conservative 参数逐值复用 `CONTEXT_PROFILES`。未知 profile 回退 default，不新增环境变量。`context-profiles` 只是 DSH compaction 数据，Bot runtime 不重作 compaction，Android 不要求实现 DSH compaction。
+- contextLint 对最近 session 做确定性检查；冻结重放和 rubric 不在第一版。六条规则、warn/error thresholds、evidence/location keys 与 P0 无 production caller 的边界见 [observability.md](observability.md)。
 
 ## 7. 大肥鱼与表现状态
 
@@ -612,7 +674,15 @@ python3 spec/bot/v1/tools/validate_vectors.py
 - `turn-origin.phone.json`：回合来源的有效／无效 `rpcId` 向量；它没有同名上游文件，用 `"upstream": []` 声明为手机专属向量，`check_golden.py` 对显式注册的手机专属文件跳过 append-only 合并，`validate_vectors.py` 逐条校验解析结果并做 mutation 自检。
 - `record-reference.phone.json`、`observation-envelope.phone.json`、`record-query.phone.json`、`erasure-event.phone.json`：原始记录引用、观察信封、`phone record` 结果和 `erasure` 事件的手机专属向量；同样用 `"upstream": []` 登记，逐条校验解析／编码／解码并做 mutation 自检。这四个文件不是 dsh-bot 的上游导出，重跑导出器不会写它们。
 - `verification.phone.json`：S3 只读 verifier 的工具白名单、只读 bash 允许/拒绝命令、结构化输出正反例、30% 预算边界与 `verification.reported` 事件正反例；`"upstream": []`，由 Python 校验器和 Swift／TS 运行时测试共用。它不是 dsh-bot 的上游导出。
+- `store.phone.json`、`user-action-transaction.phone.json`：P25 SQLite store v3（追加、`commitSeq` 连续性、载荷清除、effect outbox 租约、v2→v3 迁移）与用户动作事务（nonce 幂等、`performAndRecord`）的手机专属步骤向量，规则见 [store.md](store.md)；`"upstream": []` 登记，Swift `Tests/PhoneDSHBotTests/Store` 用真实 `SQLiteDomainStore` 跑同一份向量。
+- `session-lifecycle.phone.json`、`projection.phone.json`：P27 会话生命周期（workspace、session token、`runtime.started`、恢复／重建）与 DSH→row 投影（rowID/entrySeq、tombstone、history 分页、streaming）的手机专属向量，规则见 [session-lifecycle.md](session-lifecycle.md)、[projection.md](projection.md)；`"upstream": []` 登记，Swift `BotSessionLifecycleGoldenTests`／`BotProjectionGoldenTests` 读同一份向量。
 - `authority.phone.json`：routine 设立者/放宽判定、Task 授权子集和 CreateTeammate 作者的手机专属向量；用 `"upstream": []` 登记，含 schema 负例、解析负例和 mutation 自检。
+- `mcp-rpc-cases.phone.json`：`initialize`/`ping`/`tools/list`/`tools/call` 成功与失败、batch、notification、unknown method、invalid params，以及 native 工具合并／同名冲突；`"upstream": []` 登记，Swift `BotMCPRPCCasesTests` 用真实 `BotMCPHandler`/`BotMCPHTTPServer` 逐条执行，Python 校验器校验 case 形状与 mutation。
+- `identity-approval-cases.phone.json`：`/identity/register|cancel` 与 `/approval` 的注册成功／未授权／digest 不匹配／cancel、allow/deny/timeout/alwaysScope/sandbox escalation、pending→timeout；`"upstream": []`，Swift `BotMCPIdentityApprovalCasesTests` 驱动真实 handler/coordinator。
+- `team-cases.phone.json`：`SendToAgent`/`CreateTeammate` 的 valid/invalid 参数、精确错误句、target/hidden/self、depth/cycle、duplicate call id、pre-WP4 bare id、held reply、四方向 agent-comm row+eventData、`SendToUser` 边界；`"upstream": []`，Swift `BotTeamCasesTests` 驱动真实 `BotTeamTools`/`BotAgentCommIdentity`/`BotTeamAgentCommRecord`，规则见 [team.md](team.md)。
+- `task-cases.phone.json`：`Task`/`AwaitTask`/`StopSubagent` 的 lifecycle、timeout、cancel、`persistedTask` restore、interrupted/settled/denied wake、request-id；`"upstream": []`，Swift `BotTaskCasesTests` 驱动真实 `BotMCPRuntime` 工具层与 `BotDSHRemoteRuntime`/SQLite event store，规则见 [tasks.md](tasks.md)。
+- `tool-call-cases.phone.json`：每个 P0 工具的 valid/invalid 参数、unknown 与 per-caller denial；`"upstream": []`，Swift `BotMCPToolCallCasesTests` 驱动真实 runtime（含真实 card builder、memory、routine、task executor 和 approval coordinator）。
+- `volatile-context.phone.json`：`volatile-context.json` 的覆盖文件，只追加 assembly/caps/persona/teammates/stale 用例；上游 `valid`/`invalid` 不改，Swift `BotVolatileContextPhoneCasesTests` 读取合并结果。
 - `mcp-egress.phone.json`：MCP 出口凭证、会话凭证与 `tools/call` 调用者目录的手机专属向量；同样用 `"upstream": []` 登记。`valid` / `invalid` 的每条用例带 `suite`（`egress` / `identity` / `tools-call` / `egress-approval` / `grant-directory`）；`egress` 由精确路由集合与常量时间 token 比较判定，`identity` 由 token 登记表（含撤销／过期／轮换）解析 principal 并比较 `sessionId`，`tools-call` 由与 `tools/list` 相同的 per-caller 目录判定；`egress-approval` 逐条覆盖登记/job 生命周期、同 Bot 分组、无登记时的单/多/无 Bot 与工作台回合，以及 Task 授权子集（无 `task.network-write` 拒绝且不出卡、有授权照常送审、主对话不受影响），`grant-directory` 覆盖目录 Grant 命中和不命中。`validate_vectors.py` 逐条校验并按 suite 强制边界覆盖，内部 mutation 变异预期值；`check_golden.py` 在 `PHONE_ONLY_VECTORS` 显式登记该文件。
 
 覆盖文件的合并语义由 `spec/tools/bot/golden_overlay.py`、Swift `BotGoldenFixture` 与 `plugins/tests/bot-golden.ts` 一致实现：

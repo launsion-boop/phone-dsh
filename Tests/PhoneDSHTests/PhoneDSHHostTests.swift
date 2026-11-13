@@ -1516,7 +1516,18 @@ final class PhoneDSHHostTests: XCTestCase {
         // Simulate loss of the controller projection after all records were
         // durably journaled. Boot must rebuild from CRC-validated JournalLog
         // plus the persisted, explicitly associated exec ledger entry.
+        // budgets.md §8 (PC-20261112-w2-journal-step-pruning): a durable close
+        // may prune the completed entries, so snapshot the pre-close journal
+        // that this recovery shape needs; the pruning rule itself is covered by
+        // JournalAndQuotaTests.
+        let journalURL = WorkspacePaths(root: fixture.workspace).journalURL
+        let savedJournalURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("journal-" + UUID().uuidString)
+        try FileManager.default.copyItem(at: journalURL, to: savedJournalURL)
+        defer { try? FileManager.default.removeItem(at: savedJournalURL) }
         try await host.stop()
+        try FileManager.default.removeItem(at: journalURL)
+        try FileManager.default.copyItem(at: savedJournalURL, to: journalURL)
         try FileManager.default.removeItem(
             at: fixture.workspace.appendingPathComponent("steps", isDirectory: true))
         try await host.start()
@@ -1724,11 +1735,13 @@ final class PhoneDSHHostTests: XCTestCase {
                                             requiresMseq: firstMseq)
         try await engine.worker.waitForExecEvent("multi-exec-1", type: "exit")
 
-        // Fail only the second idempotency entry. The first entry and its
-        // successful exit/WAL proof remain intact on disk.
+        // Fail only the second idempotency entry. exec.md §8
+        // (PC-20261112-w4-writepath-append) writes the append-only v2 file as
+        // `exec/<key>.ndjson`; the v1 `.json` is only the legacy read path.
+        // The first entry and its successful exit/WAL proof remain intact.
         let secondEntryPath = fixture.workspace.appendingPathComponent("exec",
                                                                        isDirectory: true)
-            .appendingPathComponent(secondIdemKey + ".json", isDirectory: true)
+            .appendingPathComponent(secondIdemKey + ".ndjson", isDirectory: true)
         try FileManager.default.createDirectory(at: secondEntryPath,
                                                 withIntermediateDirectories: false)
         let secondMseq = try await engine.worker.writeFile(

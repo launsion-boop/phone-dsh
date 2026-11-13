@@ -325,6 +325,19 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
     ///     attached and occlusion-visible.
     ///   - turnInactivityTimeout: Event-silence threshold of an open turn
     ///     (G2-FIX-12); must be a positive finite number of seconds.
+    /// `Library/Caches/pdsh/<workspace_id>` for a real App-container
+    /// workspace (`Library/xl/<workspace_id>`). Test fixtures use arbitrary
+    /// temporary roots and keep the pre-W3 in-workspace layout.
+    static func cacheRoot(for workspaceRoot: URL) -> URL? {
+        let library = workspaceRoot.deletingLastPathComponent().deletingLastPathComponent()
+        guard workspaceRoot.deletingLastPathComponent().lastPathComponent == "xl",
+              library.lastPathComponent == "Library" else { return nil }
+        return library
+            .appendingPathComponent("Caches", isDirectory: true)
+            .appendingPathComponent("pdsh", isDirectory: true)
+            .appendingPathComponent(workspaceRoot.lastPathComponent, isDirectory: true)
+    }
+
     public init(workspaceRoot: URL, token: String, origin: URL,
                 deviceTier: DeviceTier = DeviceTier.default,
                 bundle: PhoneDSHBundleLocation? = nil,
@@ -359,6 +372,7 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
         self.loopback = LoopbackConfiguration(token: token)
         self.log = WorkspaceLogConfiguration(
             root: workspaceRoot,
+            cacheRoot: PhoneDSHConfiguration.cacheRoot(for: workspaceRoot),
             singleFileLimitBytes: resolvedBudgets.singleFileBytes)
         self.gateway = ModelGatewayConfiguration(
             allowedUpstreamHosts: ModelGatewayConfiguration.effectiveAllowedUpstreamHosts(
@@ -636,7 +650,20 @@ public struct PhoneDSHBudgetSnapshot: Equatable, Sendable {
     /// WebContent process terminations observed by this boot.
     public var webContentTerminations: UInt64
     /// Last reported WebContent heap occupancy, when the engine has one.
+    /// Sampled engine heap is permanently `target` (budgets.md §3); its only
+    /// writer is the test-only ``PhoneDSHHost/reportEngineHeapBytes(_:)``
+    /// injection point, so this is `nil` in production.
     public var engineHeapBytesUsed: Int?
+    /// Last recorded host-process `phys_footprint`, booked against §4's
+    /// `App process` row (budgets.md §3, R1 2026-11-13), or `nil` until the
+    /// first memory-pressure observation.
+    ///
+    /// This is informational in this unit: it is **not** compared with the
+    /// `App process` row to drive an action yet, it is never added to the
+    /// Engine heap row, and it is never converted into an engine-heap
+    /// percentage. It exists so the pressure event and the footprint observed
+    /// with it are visible together.
+    public var appProcessFootprintBytesUsed: Int?
     /// The action this snapshot reports: the next pending action while an
     /// episode is active, or `nil` while clear. Reading a snapshot never
     /// consumes the episode (see ``PhoneDSHHost/reportEngineHeapBytes(_:)``).
@@ -654,6 +681,7 @@ public struct PhoneDSHBudgetSnapshot: Equatable, Sendable {
                 responseLogBytesUsed: Int = 0,
                 webContentTerminations: UInt64 = 0,
                 engineHeapBytesUsed: Int? = nil,
+                appProcessFootprintBytesUsed: Int? = nil,
                 lastAction: BudgetAction? = nil,
                 hardFail: Bool = false) {
         self.table = table
@@ -666,6 +694,7 @@ public struct PhoneDSHBudgetSnapshot: Equatable, Sendable {
         self.responseLogBytesUsed = responseLogBytesUsed
         self.webContentTerminations = webContentTerminations
         self.engineHeapBytesUsed = engineHeapBytesUsed
+        self.appProcessFootprintBytesUsed = appProcessFootprintBytesUsed
         self.lastAction = lastAction
         self.hardFail = hardFail
     }
@@ -799,6 +828,11 @@ public struct PhoneDSHDiagnostics: Equatable, Sendable {
     /// one. `bytesUp`/`bytesDown` are the gateway's own request/response byte
     /// counters; consumers must not infer direction from the response log.
     public var gatewayMetrics: ModelGatewayMetrics?
+    /// The settled persistence counters of the most recently completed turn
+    /// (`budgets.md` §7 `fsync_calls_per_turn` / `bytes_written_per_turn`), or
+    /// `nil` before the first turn settles. The same value
+    /// ``PhoneDSHHost/lastTurnPersistenceIO()`` returns.
+    public var lastTurnPersistenceIO: WorkspaceLogIOCounters?
 
     public init(state: PhoneDSHState, bootID: String, nextMseq: UInt64 = 1,
                 ackedMseq: UInt64 = 0, durableMseq: UInt64 = 0,
@@ -821,7 +855,8 @@ public struct PhoneDSHDiagnostics: Equatable, Sendable {
                 turnInactivityTimeout: TimeInterval? = nil,
                 vfsRefusals: UInt64 = 0,
                 lastVFSRefusal: PhoneDSHVFSRefusal? = nil,
-                gatewayMetrics: ModelGatewayMetrics? = nil) {
+                gatewayMetrics: ModelGatewayMetrics? = nil,
+                lastTurnPersistenceIO: WorkspaceLogIOCounters? = nil) {
         self.state = state
         self.bootID = bootID
         self.nextMseq = nextMseq
@@ -852,5 +887,6 @@ public struct PhoneDSHDiagnostics: Equatable, Sendable {
         self.vfsRefusals = vfsRefusals
         self.lastVFSRefusal = lastVFSRefusal
         self.gatewayMetrics = gatewayMetrics
+        self.lastTurnPersistenceIO = lastTurnPersistenceIO
     }
 }

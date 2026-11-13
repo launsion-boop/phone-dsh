@@ -136,6 +136,7 @@ import com.phonedsh.ui.HomeMetrics
 import com.phonedsh.ui.UiMetrics
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.UiTags
+import com.phonedsh.ui.surface.SettingsSubPageFrame
 import com.phonedsh.ui.icon.PdshIcon
 import com.phonedsh.ui.icon.PdshIconView
 import com.phonedsh.ui.nav.PdshActionAvailability
@@ -649,6 +650,87 @@ private fun RenameSessionOverlay(
                         .testTag(UiPageTags.CHAT_RENAME_SAVE)
                         .padding(tokens.spacing.iconText),
                 )
+            }
+        }
+    }
+}
+
+/** Read-only state for a chat opened from a paired PC. */
+public data class PcSessionHistoryUiState(
+    public val machineId: String,
+    public val sessionId: String,
+    public val title: String,
+    public val rows: List<ChatRow> = emptyList(),
+    public val loading: Boolean = true,
+    public val error: String? = null,
+    public val recentOnly: Boolean = false,
+)
+
+@Composable
+internal fun ChatPage(
+    state: PcSessionHistoryUiState,
+    onBack: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    var expanded by remember(state.machineId, state.sessionId) { mutableStateOf(emptySet<String>()) }
+    val tokens = LocalUiTokens.current
+    val type = LocalUiType.current
+    SettingsSubPageFrame(
+        title = state.title,
+        onBack = onBack,
+        backGlyph = PAGE_BACK_GLYPH,
+        grouped = true,
+        rootTag = UiTags.CHAT_ROOT,
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            when {
+                state.loading -> BasicText(
+                    text = "正在读取电脑上的会话历史…",
+                    style = type.secondary.copy(color = tokens.colors.textPlaceholder),
+                    modifier = Modifier.align(Alignment.Center),
+                )
+                state.error != null -> Column(
+                    modifier = Modifier.align(Alignment.Center).padding(horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    BasicText(state.error, style = type.secondary.copy(color = tokens.colors.pageDanger))
+                    SessionTextAction(label = UiStrings.RETRY, onClick = onRetry, tone = SessionActionTone.ACCENT)
+                }
+                state.rows.isEmpty() -> BasicText(
+                    text = "这个会话在电脑上没有可显示的历史。",
+                    style = type.secondary.copy(color = tokens.colors.textPlaceholder),
+                    modifier = Modifier.align(Alignment.Center),
+                )
+                else -> Column(Modifier.fillMaxSize()) {
+                    if (state.recentOnly) {
+                        BasicText(
+                            text = "仅显示电脑上最近的历史。",
+                            style = type.caption.copy(color = tokens.colors.textSecondary),
+                            modifier = Modifier.padding(horizontal = HomeMetrics.contentInset, vertical = 8.dp),
+                        )
+                    }
+                    val transcript = remember(state.sessionId, state.rows, expanded) {
+                        ChatScreenState.from(emptyList()).copy(
+                            sessionID = state.sessionId,
+                            rows = state.rows,
+                            expandedRowIds = expanded,
+                        )
+                    }
+                    Box(Modifier.weight(1f)) {
+                        ChatTranscript(
+                            state = transcript,
+                            onToggleRow = { id -> expanded = if (id in expanded) expanded - id else expanded + id },
+                            onLoadEarlier = null,
+                            startEngineAvailability = PdshActionAvailability.Unavailable(PdshUnavailableReason.NOT_IMPLEMENTED),
+                            onConfigureProvider = null,
+                            onRetry = onRetry,
+                            onOpenFile = null,
+                            onOpenResource = null,
+                            imageSource = null,
+                            retryAvailability = PdshActionAvailability.Unavailable(PdshUnavailableReason.NOT_IMPLEMENTED),
+                        )
+                    }
+                }
             }
         }
     }

@@ -146,6 +146,9 @@ public final class Materializer {
     private var dirtyFiles: Set<String> = []
     private var dirtyDirectories: Set<String> = []
     private var temporaryCounter: UInt64 = 0
+    /// Blobs this instance already verified in this boot. Blobs are immutable,
+    /// so a repeated reference (an appended chunk chain) needs no second hash.
+    private var verifiedBlobURLs: [String: URL] = [:]
     /// Test seam used by the replay fixture runner and the host/drain failure
     /// detail. Production leaves it `nil`.
     internal var decisionObserver: (@Sendable (MaterializeDecision) -> Void)?
@@ -259,7 +262,37 @@ public final class Materializer {
             return .skipped
         }
         noteAppliedThrough(record.mseq)
-        let body = try record.mutationBody()
+        // wal.md §14.4: a blob-backed write materializes exactly like its
+        // inline form, with the verified blob bytes as `data`. A complete write
+        // may clone the blob (COW); hard links are forbidden.
+        var cloneSource: URL?
+        let body: VfsMutationBody
+        if record.isBlobWrite {
+            guard let blob = try record.blobWrite() else {
+                throw LogError.corrupt("blob-write record did not decode")
+            }
+            let url: URL
+            if let cached = verifiedBlobURLs[blob.sha256Hex] {
+                url = cached
+            } else {
+                url = try WorkspaceBlobStore(root: paths.root)
+                    .verifiedURL(digest: blob.sha256Hex,
+                                 expectedLength: Int(blob.blobLength))
+                verifiedBlobURLs[blob.sha256Hex] = url
+            }
+            let data = try LogFile.readAll(url)
+            body = VfsMutationBody(op: .write,
+                                   mode: blob.mode,
+                                   mflags: blob.mflags,
+                                   appendFrom: blob.appendFrom,
+                                   path: blob.path,
+                                   data: data)
+            if !blob.mflags.contains(.appended) {
+                cloneSource = url
+            }
+        } else {
+            body = try record.mutationBody()
+        }
         guard let target = try resolve(body.path) else {
             markApplied(record.mseq)
             reportDecision(record.mseq, .applied)
@@ -314,7 +347,7 @@ public final class Materializer {
                     return .baseMismatch(path)
                 }
             } else {
-                try fullWrite(body, to: target)
+                try fullWrite(body, to: target, cloneSource: cloneSource)
                 markApplied(record.mseq)
                 reportDecision(record.mseq, .applied)
                 return .applied
@@ -571,7 +604,8 @@ public final class Materializer {
 
     // MARK: - Operations
 
-    private func fullWrite(_ body: VfsMutationBody, to target: URL) throws {
+    private func fullWrite(_ body: VfsMutationBody, to target: URL,
+                           cloneSource: URL? = nil) throws {
         let directory = target.deletingLastPathComponent()
         let created = try LogFile.createDirectoryTree(directory)
         for url in created {
@@ -583,23 +617,44 @@ public final class Materializer {
         let temporary = directory.appendingPathComponent(
             ".pdsh-tmp-\(getpid())-\(temporaryCounter)")
         try LogFile.unlink(temporary)
-        let descriptor = try LogFile.open(temporary,
-                                          flags: O_WRONLY | O_CREAT | O_TRUNC,
-                                          mode: 0o600)
+        // W6 §14.4: a complete blob-backed write may be a clonefile of the
+        // blob (one physical copy, independent inode). Hard links are
+        // forbidden; a filesystem without cloning falls back to a byte copy.
+        var cloned = false
+        if let cloneSource {
+            let result = cloneSource.path.withCString { source in
+                temporary.path.withCString { destination in
+                    clonefile(source, destination, 0)
+                }
+            }
+            cloned = result == 0
+        }
+        if !cloned {
+            let descriptor = try LogFile.open(temporary,
+                                              flags: O_WRONLY | O_CREAT | O_TRUNC,
+                                              mode: 0o600)
+            do {
+                try LogFile.writeAll(fd: descriptor, data: body.data)
+            } catch {
+                Darwin.close(descriptor)
+                try? LogFile.unlink(temporary)
+                throw error
+            }
+            Darwin.close(descriptor)
+        }
         do {
-            try LogFile.writeAll(fd: descriptor, data: body.data)
+            let descriptor = try LogFile.open(temporary, flags: O_WRONLY)
             guard fchmod(descriptor, mode_t(body.mode)) == 0 else {
                 let code = errno
                 Darwin.close(descriptor)
                 try? LogFile.unlink(temporary)
                 throw LogError.posix(operation: "fchmod", code: code)
             }
-        } catch {
             Darwin.close(descriptor)
+        } catch {
             try? LogFile.unlink(temporary)
             throw error
         }
-        Darwin.close(descriptor)
         do {
             try LogFile.rename(temporary, to: target)
         } catch {

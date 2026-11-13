@@ -8,7 +8,8 @@ import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import dshbotVolatileContext, {
   collectVolatileBlocks,
-  minutePrecision,
+  hourPrecision,
+  localHourBucket,
   renderVolatileContext,
   VOLATILE_BLOCK_ORDER,
 } from '../bot-runtime/src/volatile-context.ts'
@@ -32,7 +33,15 @@ function agent(id: string): Agent {
 
 test('volatile blocks preserve variant, time, persona, memory, automation order and trim optional blocks', () => {
   const now = new Date('2026-11-06T08:09:59.900Z')
-  assert.equal(minutePrecision(now).toISOString(), '2026-11-06T08:09:00.000Z')
+  // W5: the injected block is a local hour bucket, not a minute bucket.
+  const bucket = hourPrecision(now)
+  assert.equal(bucket.getMinutes(), 0)
+  assert.equal(bucket.getSeconds(), 0)
+  assert.equal(bucket.getMilliseconds(), 0)
+  assert.match(localHourBucket(now), /^\d{4}-\d{2}-\d{2} \d{2}:00$/)
+  assert.equal(localHourBucket(now), localHourBucket(new Date(now.getTime() + 10 * 60_000)),
+    'two instants inside one local hour share the same bucket')
+  assert.notEqual(localHourBucket(now), localHourBucket(new Date(now.getTime() + 60 * 60_000)))
   const blocks = collectVolatileBlocks({
     variant: ' variant ',
     persona: ' persona ',
@@ -48,6 +57,47 @@ test('volatile blocks preserve variant, time, persona, memory, automation order 
   }, { now, lang: 'en' })
   const positions = ['<variant>', '## Time', '<persona>', '<memory>', '<automation>'].map(text => rendered.indexOf(text))
   assert.ok(positions.every((position, index) => position >= 0 && (index === 0 || position > positions[index - 1]!)))
+})
+
+test('the time block changes at most once per hour and never carries a non-zero minute', () => {
+  const first = new Date('2026-11-12T09:07:31.000Z')
+  const laterInHour = new Date('2026-11-12T09:59:59.999Z')
+  const nextHour = new Date('2026-11-12T10:00:00.000Z')
+  const timeAt = (now: Date): string =>
+    collectVolatileBlocks({}, { now, lang: 'en' }).find(block => block.name === 'time')!.text
+  assert.equal(timeAt(first), timeAt(laterInHour))
+  assert.notEqual(timeAt(first), timeAt(nextHour))
+  assert.match(timeAt(first), /Current local time: \d{4}-\d{2}-\d{2} \d{2}:00 \(.+\)\./)
+  assert.doesNotMatch(timeAt(first), /Current local time: .*:\d{2}:\d{2}/)
+})
+
+test('an unchanged volatile snapshot is not re-read inside the freshness window', async () => {
+  const ctx = new Context()
+  let calls = 0
+  const snapshot: VolatileSnapshot = { memory: 'stable-memory' }
+  try {
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRuntime, {})
+    await ctx.plugin(NativeToolExecutor)
+    await ctx.plugin(dshbotVolatileContext, {
+      now: () => new Date('2026-11-12T09:07:00.000Z'),
+      lang: () => 'en' as const,
+      refreshMinIntervalMs: 60_000,
+      source: async () => {
+        calls += 1
+        return snapshot
+      },
+    })
+    const subject = agent('gb-freshness-window')
+    for (let index = 0; index < 3; index += 1) {
+      const assembly = await ctx.systemPrompt.assemble({ agent: subject, scope: subject })
+      assert.match(assembly.contexts.find(entry => entry.name === 'dshbot:volatile')?.text ?? '',
+        /stable-memory/)
+    }
+    assert.equal(calls, 1, 'three assemblies inside the window share one BotVolatileContext read')
+  } finally {
+    await ctx.fiber.dispose()
+  }
 })
 
 test('the configured Bot preset is selected for gb- sessions before their first turn', async () => {
@@ -226,6 +276,50 @@ test('a failed or late snapshot never exposes stale memory', async () => {
     fail = true
     const failed = await ctx.systemPrompt.assemble({ agent: subject, scope: subject })
     assert.doesNotMatch(failed.contexts.find(entry => entry.name === 'dshbot:volatile')?.text ?? '', /fresh-memory|late-memory/)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('an aborted read clears memory but does not permanently drop the accepted snapshot', async () => {
+  const ctx = new Context()
+  const subject = agent('gb-abort-retry')
+  let call = 0
+  let markStarted: () => void = () => {}
+  let release: (value: VolatileSnapshot) => void = () => {}
+  const started = new Promise<void>(resolve => { markStarted = resolve })
+  try {
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRuntime, {})
+    await ctx.plugin(NativeToolExecutor)
+    await ctx.plugin(dshbotVolatileContext, {
+      lang: () => 'en' as const,
+      source: async () => {
+        call += 1
+        if (call === 1) return { memory: 'accepted-memory' }
+        if (call === 2) {
+          return new Promise<VolatileSnapshot>(resolve => {
+            release = resolve
+            markStarted()
+          })
+        }
+        return { memory: 'accepted-memory' }
+      },
+    })
+    const first = await ctx.systemPrompt.assemble({ agent: subject, scope: subject })
+    assert.match(first.contexts.find(entry => entry.name === 'dshbot:volatile')?.text ?? '', /accepted-memory/)
+
+    const controller = new AbortController()
+    const abortedAssembly = ctx.systemPrompt.assemble({ agent: subject, scope: subject, signal: controller.signal })
+    await started
+    controller.abort({ kind: 'user' })
+    release({ memory: 'aborted-memory' })
+    const aborted = await abortedAssembly
+    assert.doesNotMatch(aborted.contexts.find(entry => entry.name === 'dshbot:volatile')?.text ?? '',
+      /accepted-memory|aborted-memory/)
+
+    const retried = await ctx.systemPrompt.assemble({ agent: subject, scope: subject })
+    assert.match(retried.contexts.find(entry => entry.name === 'dshbot:volatile')?.text ?? '', /accepted-memory/)
   } finally {
     await ctx.fiber.dispose()
   }

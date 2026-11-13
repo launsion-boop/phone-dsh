@@ -28,11 +28,15 @@ final class WorkspaceLogFacadeTests: XCTestCase {
                                   encoding: .utf8), "alpha")
         XCTAssertEqual(try LogFile.fileMode(materializedURL(root, "/dsh/workspace/a.txt")),
                        0o600)
+        // W4: the manifest watermark is persisted only at an epoch close (or
+        // an explicit reconcile/materialize), not after every mutation.
+        let beforeClose = try ManifestStore(root: root).read()
+        XCTAssertEqual(beforeClose?.materializedUptoMseq ?? 0, 0)
+        let watermark = try await log.materialize()
+        XCTAssertEqual(watermark, 3)
         let manifest = try XCTUnwrap(try ManifestStore(root: root).read())
         XCTAssertEqual(manifest.materializedUptoMseq, 3)
         XCTAssertEqual(manifest.lastMseq, 3)
-        let watermark = try await log.materialize()
-        XCTAssertEqual(watermark, 3)
     }
 
     func testLevelOneAckThenLevelTwoOnlyAtClose() async throws {
@@ -96,9 +100,14 @@ final class WorkspaceLogFacadeTests: XCTestCase {
         }
         _ = try await log.append(LogTestSupport.write("/dsh/workspace/a", data: "a"))
         _ = try await log.append(LogTestSupport.write("/dsh/workspace/b", data: "b"))
-        // At each D18 step-1 fsync the manifest still names the previous
-        // watermark; the rewrite happens afterwards (P0-2 regression).
-        XCTAssertEqual(observed.values, [0, 1])
+        // W4: per-mutation appends do not rewrite the manifest. The D18 step-1
+        // fsync happens at the epoch close, and the manifest rewrite follows it
+        // (P0-2 regression kept: the observer must not see the new watermark).
+        XCTAssertEqual(observed.values, [])
+        let beforeClose = try ManifestStore(root: root).read()
+        XCTAssertEqual(beforeClose?.materializedUptoMseq ?? 0, 0)
+        _ = try await log.closeEpoch()
+        XCTAssertEqual(observed.values, [0])
         let manifest = try XCTUnwrap(try ManifestStore(root: root).read())
         XCTAssertEqual(manifest.materializedUptoMseq, 2)
     }

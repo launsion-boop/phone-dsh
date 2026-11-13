@@ -471,6 +471,13 @@ public enum WorkspaceStorage {
                                                     documentsDirectory: documents)
             try? fileManager.removeItem(at: directory)
         }
+        if documentsDirectory == nil, let caches = defaultCachesDirectory(fileManager) {
+            let directory = caches
+                .appendingPathComponent("pdsh", isDirectory: true)
+                .appendingPathComponent("transcript-snapshots", isDirectory: true)
+                .appendingPathComponent(backend.storageScope, isDirectory: true)
+            try? fileManager.removeItem(at: directory)
+        }
         setLastWorkspaceID(nil, for: backend, defaults: defaults)
         // The roster cache describes the removed pairing; a stale list must not
         // come back if the same machine is paired again later.
@@ -479,6 +486,51 @@ public enum WorkspaceStorage {
 
     private static func defaultDocumentsDirectory(_ fileManager: FileManager) -> URL? {
         fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+    }
+
+    private static func defaultCachesDirectory(_ fileManager: FileManager) -> URL? {
+        fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
+    }
+
+    /// Production snapshots are derived and rebuildable, so they live under
+    /// `Library/Caches/pdsh/transcript-snapshots/<scope>`. A test or caller
+    /// that passes an explicit documents directory keeps the historical path;
+    /// the old build can still read its files there.
+    private static func productionTranscriptsDirectory(for backend: BackendID,
+                                                       fileManager: FileManager) -> URL? {
+        guard let caches = defaultCachesDirectory(fileManager) else { return nil }
+        let directory = caches
+            .appendingPathComponent("pdsh", isDirectory: true)
+            .appendingPathComponent("transcript-snapshots", isDirectory: true)
+            .appendingPathComponent(backend.storageScope, isDirectory: true)
+        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    /// Copies (never moves) legacy snapshots into the cache tree. Re-entrant:
+    /// a file already present in the cache is left alone, and the old copy is
+    /// retained for rollback until the normal eviction bound removes it.
+    private static func migrateTranscriptSnapshotsIfNeeded(
+        for backend: BackendID,
+        documentsDirectory: URL?,
+        fileManager: FileManager) {
+        guard let documents = documentsDirectory ?? defaultDocumentsDirectory(fileManager),
+              let destination = productionTranscriptsDirectory(for: backend,
+                                                               fileManager: fileManager) else {
+            return
+        }
+        let legacy = transcriptsDirectoryURL(for: backend, documentsDirectory: documents)
+        guard let files = try? fileManager.contentsOfDirectory(at: legacy,
+                                                               includingPropertiesForKeys: nil,
+                                                               options: [.skipsHiddenFiles]) else {
+            return
+        }
+        for source in files where source.pathExtension == "json" {
+            let target = destination.appendingPathComponent(source.lastPathComponent)
+            guard !fileManager.fileExists(atPath: target.path),
+                  let data = try? Data(contentsOf: source) else { continue }
+            _ = try? data.write(to: target, options: .atomic)
+        }
     }
 
     private static func transcriptsDirectoryURL(for backend: BackendID,
@@ -502,12 +554,54 @@ public enum WorkspaceStorage {
                                              documentsDirectory: URL? = nil,
                                              fileManager: FileManager = .default) -> URL? {
         guard isValidSessionID(sessionID) else { return nil }
+        if let documentsDirectory {
+            return transcriptsDirectory(for: backend,
+                                        documentsDirectory: documentsDirectory,
+                                        fileManager: fileManager)
+                .appendingPathComponent("\(sessionID).json")
+        }
+        migrateTranscriptSnapshotsIfNeeded(for: backend,
+                                           documentsDirectory: nil,
+                                           fileManager: fileManager)
+        guard let directory = productionTranscriptsDirectory(for: backend,
+                                                             fileManager: fileManager) else {
+            return nil
+        }
+        return directory.appendingPathComponent("\(sessionID).json")
+    }
+
+    /// The interrupted-stream draft lives beside the transcript snapshot and
+    /// shares its scope/backup rules. The distinct suffix keeps it out of the
+    /// snapshot eviction count and makes a stale draft easy to identify.
+    public static func streamDraftURL(for backend: BackendID,
+                                      sessionID: String,
+                                      documentsDirectory: URL? = nil,
+                                      fileManager: FileManager = .default) -> URL? {
+        guard isValidSessionID(sessionID) else { return nil }
         let documents = documentsDirectory
             ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return transcriptsDirectory(for: backend,
                                     documentsDirectory: documents,
                                     fileManager: fileManager)
-            .appendingPathComponent("\(sessionID).json")
+            .appendingPathComponent("\(sessionID).draft.json")
+    }
+
+    /// Removes one session's local cache files: its snapshot and its
+    /// interrupted-stream draft. Used when the App removes a session (archive)
+    /// or a caller explicitly drops the local tail.
+    public static func removeTranscriptArtifacts(for backend: BackendID,
+                                                 sessionID: String,
+                                                 documentsDirectory: URL? = nil,
+                                                 fileManager: FileManager = .default) {
+        for url in [transcriptSnapshotURL(for: backend, sessionID: sessionID,
+                                          documentsDirectory: documentsDirectory,
+                                          fileManager: fileManager),
+                    streamDraftURL(for: backend, sessionID: sessionID,
+                                   documentsDirectory: documentsDirectory,
+                                   fileManager: fileManager)]
+        .compactMap({ $0 }) {
+            try? fileManager.removeItem(at: url)
+        }
     }
 
     /// Marks the snapshot tree as rebuildable local data so it is never part of
@@ -529,15 +623,27 @@ public enum WorkspaceStorage {
                                                 keeping currentSessionID: String? = nil,
                                                 limit: Int = 200) {
         guard limit > 0 else { return }
-        let documents = documentsDirectory
-            ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let directory = transcriptsDirectoryURL(for: backend, documentsDirectory: documents)
+        let directory: URL
+        if let documentsDirectory {
+            directory = transcriptsDirectoryURL(for: backend,
+                                                documentsDirectory: documentsDirectory)
+        } else if let cacheDirectory = productionTranscriptsDirectory(for: backend,
+                                                                      fileManager: fileManager) {
+            directory = cacheDirectory
+        } else {
+            return
+        }
         let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
         guard let entries = try? fileManager.contentsOfDirectory(at: directory,
                                                                  includingPropertiesForKeys: keys,
                                                                  options: [.skipsHiddenFiles])
         else { return }
-        let json = entries.filter { $0.pathExtension == "json" }
+        // Draft files share the directory but are companions of a snapshot, not
+        // entries in the 200-file budget. Counting them would evict snapshots
+        // twice as fast and could leave orphaned drafts.
+        let json = entries.filter {
+            $0.pathExtension == "json" && !$0.lastPathComponent.hasSuffix(".draft.json")
+        }
         guard json.count > limit else { return }
         let ordered = json.sorted { lhs, rhs in
             let left = (try? lhs.resourceValues(forKeys: Set(keys)))?.contentModificationDate ?? .distantPast
@@ -548,7 +654,15 @@ public enum WorkspaceStorage {
         var excess = json.count - limit
         for url in ordered where excess > 0 {
             if url.lastPathComponent == protectedName { continue }
-            if (try? fileManager.removeItem(at: url)) != nil { excess -= 1 }
+            if (try? fileManager.removeItem(at: url)) != nil {
+                // The draft belongs to the snapshot being evicted. Removing it
+                // here is what keeps the cache from retaining interrupted text
+                // for a session whose settled tail is already gone.
+                let draft = directory.appendingPathComponent(
+                    url.deletingPathExtension().lastPathComponent + ".draft.json")
+                try? fileManager.removeItem(at: draft)
+                excess -= 1
+            }
         }
     }
 

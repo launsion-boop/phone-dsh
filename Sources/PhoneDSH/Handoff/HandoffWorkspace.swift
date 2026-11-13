@@ -161,10 +161,40 @@ public struct HandoffWorkspaceSnapshotter: HandoffSourceProviding {
                                                             baseMseq: base,
                                                             walSeq: walSeq)
             var files: [HandoffSegmentFile] = []
+            let blobStore = WorkspaceBlobStore(root: root)
             for segment in selected {
                 let bytes: Data
                 do {
-                    bytes = try Data(contentsOf: segment.url, options: [.mappedIfSafe])
+                    // wal.md §14.7: the set is normally empty (base == walSeq
+                    // after the close). If a non-empty tail is selected, every
+                    // blob record is expanded to its pre-W6 inline form in this
+                    // transfer copy only; the local WAL is never rewritten, and
+                    // an old remote sees only records it knows.
+                    if segment.records.contains(where: { $0.isBlobWrite }) {
+                        let expanded = try segment.records.map { record -> WALRecord in
+                            guard record.isBlobWrite else { return record }
+                            guard let blob = try record.blobWrite() else {
+                                throw HandoffError.badRequest(
+                                    "a WAL blob-write record did not decode")
+                            }
+                            let data = try blobStore.read(
+                                digest: blob.sha256Hex,
+                                expectedLength: Int(blob.blobLength))
+                            let mutation = VfsMutationBody(op: .write,
+                                                           mode: blob.mode,
+                                                           mflags: blob.mflags,
+                                                           appendFrom: blob.appendFrom,
+                                                           path: blob.path,
+                                                           data: data)
+                            return try WALRecord(mseq: record.mseq, mutation: mutation)
+                        }
+                        bytes = try WALSegment(header: segment.header,
+                                               records: expanded).encoded()
+                    } else {
+                        bytes = try Data(contentsOf: segment.url, options: [.mappedIfSafe])
+                    }
+                } catch let error as HandoffError {
+                    throw error
                 } catch {
                     throw HandoffError.badRequest("a WAL segment file is unreadable")
                 }

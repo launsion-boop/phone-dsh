@@ -48,8 +48,9 @@ private struct IPhoneAgentVolumeFixture: Decodable {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     }
     override func tearDown() async throws { try? FileManager.default.removeItem(at: directory) }
-    private func server(_ executor: PhoneToolExecutor) -> IPhoneAgentMCPServer {
-        IPhoneAgentMCPServer(fallback: PhoneToolFallback(), executor: executor, receiptDirectory: directory)
+    private func server(_ executor: PhoneToolExecutor, configured: Bool = true) -> IPhoneAgentMCPServer {
+        IPhoneAgentMCPServer(fallback: PhoneToolFallback(), executor: executor,
+                             receiptDirectory: directory, isConfigured: { configured })
     }
     private func rpc(_ method: String = "tools/call", id: Int? = 1, key: String? = "session-a-call-1",
                      args: [String: JSONValue] = ["task": .string("open Settings")],
@@ -79,6 +80,21 @@ private struct IPhoneAgentVolumeFixture: Decodable {
             try await Task.sleep(for: .milliseconds(1))
         }
         XCTFail("executor did not start")
+    }
+
+    func testUnconfiguredVenusHidesItsDeviceToolFromToolsList() async throws {
+        let executor = PhoneToolExecutor(), service = server(executor, configured: false)
+        let list = try root(await service.handle(rpc("tools/list")))
+        XCTAssertEqual(list["result"]?["tools"]?.arrayValue?.compactMap { $0["name"]?.stringValue },
+                       ["android_tap"])
+        let initResult = try root(await service.handle(rpc("initialize")))
+        XCTAssertFalse(initResult["result"]?["instructions"]?.stringValue?.contains("iphone_agent_run") == true)
+        // Losing the row must not lose the call path once the user configures
+        // it: a fresh server with the same predicate now lists it.
+        let configured = server(executor)
+        let visible = try root(await configured.handle(rpc("tools/list")))
+        XCTAssertEqual(visible["result"]?["tools"]?.arrayValue?.compactMap { $0["name"]?.stringValue },
+                       ["android_tap", "iphone_agent_run"])
     }
 
     func testCatalogInstructionsAndExistingToolsRemainAvailable() async throws {

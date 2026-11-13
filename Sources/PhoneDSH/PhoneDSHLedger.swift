@@ -355,7 +355,7 @@ struct PhoneDSHLedgerOutbound: ChannelOutbound {
 
 /// Adds the persisted D10 exec replay of ``SideEffectLedger`` in front of the
 /// loopback module's in-memory default handler.
-actor PhoneDSHLedgerChannelHandling: ChannelHandling {
+actor PhoneDSHLedgerChannelHandling: ChannelHandling, VFSMutationBatching {
     private let delegate: any ChannelHandling
     private let ledger: SideEffectLedger
     private let outbound: any ChannelOutbound
@@ -384,6 +384,18 @@ actor PhoneDSHLedgerChannelHandling: ChannelHandling {
     func handleVFSMutation(_ body: VfsMutationBody, mseq: UInt64,
                            seq: UInt64) async throws {
         try await delegate.handleVFSMutation(body, mseq: mseq, seq: seq)
+    }
+
+    func handleVFSMutationBatch(_ admissions: [VFSMutationAdmission]) async throws {
+        if let batchDelegate = delegate as? any VFSMutationBatching {
+            try await batchDelegate.handleVFSMutationBatch(admissions)
+        } else {
+            for admission in admissions {
+                try await delegate.handleVFSMutation(admission.body,
+                                                     mseq: admission.mseq,
+                                                     seq: admission.seq)
+            }
+        }
     }
 
     func handleVFSBarrier(_ body: VfsBarrierBody) async throws {

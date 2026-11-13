@@ -492,7 +492,9 @@ struct HTTPResponseWriter {
         switch reply {
         case .full(let status, var headers, let body):
             headers = sanitized(headers)
-            headers["Cache-Control"] = "no-store"
+            // wal.md §8: only the two content-addressed routes may carry a
+            // cacheable policy; every other reply keeps the pre-W6 `no-store`.
+            if headers["Cache-Control"] == nil { headers["Cache-Control"] = "no-store" }
             headers["Content-Length"] = String(body.count)
             headers["Connection"] = keepAlive ? "keep-alive" : "close"
             try await channel.send(head(status: status, headers: headers))
@@ -505,7 +507,7 @@ struct HTTPResponseWriter {
             headers = sanitized(headers)
             headers["Content-Type"] = contentType
             headers["Content-Length"] = String(size)
-            headers["Cache-Control"] = "no-store"
+            if headers["Cache-Control"] == nil { headers["Cache-Control"] = "no-store" }
             headers["Connection"] = keepAlive ? "keep-alive" : "close"
             try await channel.send(head(status: 200, headers: headers))
             guard !headRequest else { return 200 }
@@ -593,9 +595,21 @@ struct HTTPResponseWriter {
     }
 
     private func sendChunk(_ data: Data) async throws {
-        var frame = Data("\(String(data.count, radix: 16))\r\n".utf8)
-        frame.append(data)
-        frame.append(Data("\r\n".utf8))
+        // One allocation and one body copy per forwarded chunk: build the
+        // chunked frame in place instead of growing a Data through three
+        // append calls. The wire bytes are unchanged.
+        let header = Data("\(String(data.count, radix: 16))\r\n".utf8)
+        var frame = Data(count: header.count + data.count + 2)
+        frame.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            header.copyBytes(to: base.assumingMemoryBound(to: UInt8.self), count: header.count)
+            data.copyBytes(to: base.advanced(by: header.count)
+                .assumingMemoryBound(to: UInt8.self), count: data.count)
+            base.storeBytes(of: UInt8(0x0D), toByteOffset: header.count + data.count,
+                            as: UInt8.self)
+            base.storeBytes(of: UInt8(0x0A), toByteOffset: header.count + data.count + 1,
+                            as: UInt8.self)
+        }
         try await channel.send(frame)
     }
 

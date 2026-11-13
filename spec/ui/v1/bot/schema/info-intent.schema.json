@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spec/ui/v1/bot/schema/info-intent.schema.json",
+  "title": "BotInfoIntent v1 (P09 view -> projection)",
+  "description": "The BotInfoDriver closures expressed as data. load has no parameters and returns BotInfoSnapshot; mutations re-read the authority afterwards.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "load"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "name"
+      ],
+      "properties": {
+        "kind": {
+          "const": "rename"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "documentPath",
+        "version"
+      ],
+      "properties": {
+        "kind": {
+          "const": "forget"
+        },
+        "documentPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "documentPath"
+      ],
+      "properties": {
+        "kind": {
+          "const": "eraseDocument"
+        },
+        "documentPath": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "erase"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "eraseShared"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "routineID",
+        "enabled"
+      ],
+      "properties": {
+        "kind": {
+          "const": "setRoutineEnabled"
+        },
+        "routineID": {
+          "type": "string",
+          "minLength": 1
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "grantID"
+      ],
+      "properties": {
+        "kind": {
+          "const": "revokeGrant"
+        },
+        "grantID": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "routineID"
+      ],
+      "properties": {
+        "kind": {
+          "const": "cancelRoutine"
+        },
+        "routineID": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "routineID",
+        "decision"
+      ],
+      "properties": {
+        "kind": {
+          "const": "resolveReconciliation"
+        },
+        "routineID": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision": {
+          "enum": [
+            "acknowledge",
+            "retry"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "settings"
+      ],
+      "properties": {
+        "kind": {
+          "const": "saveProactiveSettings"
+        },
+        "settings": {
+          "$comment": "the ProactiveSettings object in info.schema.json (proactiveSettings)"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "enabled"
+      ],
+      "properties": {
+        "kind": {
+          "const": "setMaintenanceEnabled"
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "batchID"
+      ],
+      "properties": {
+        "kind": {
+          "const": "rollbackMaintenance"
+        },
+        "batchID": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

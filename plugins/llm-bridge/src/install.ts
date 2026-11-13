@@ -659,96 +659,148 @@ function resumableDelivery(initial: DeliveryAttempt, options: DeliveryOptions,
   let onResumedAttempt = false
   let terminal = false
   let controller: ReadableStreamDefaultController<Uint8Array> | undefined
-  let handoffTimer: ReturnType<typeof setTimeout> | undefined
-  let handoffRemainingMs = options.timeoutMs
-  let handoffRenewals = 0
+  // One watchdog window owns the whole delivery leg. The window is re-armed
+  // only when it actually expires; a chunk just records progress and resets the
+  // budget. Previously every chunk created a handoff timer, cleared it, created
+  // a second read timer and raced them, which is pure per-chunk overhead.
+  let watchdogTimer: ReturnType<typeof setTimeout> | undefined
+  let watchdogWallAt = Date.now()
+  let watchdogActiveAt = activeClockNow()
+  let watchdogRemainingMs = options.timeoutMs
+  let watchdogRenewals = 0
+  let pendingRead: ((result: DeliveryRead) => void) | undefined
+  let readStartedAt: number | undefined
+  let readActiveAt: number | undefined
 
-  const clearHandoff = (): void => {
-    if (handoffTimer !== undefined) {
-      clearTimeout(handoffTimer)
-      handoffTimer = undefined
+  const clearWatchdog = (): void => {
+    if (watchdogTimer !== undefined) {
+      clearTimeout(watchdogTimer)
+      watchdogTimer = undefined
     }
+  }
+  const scheduleWatchdog = (): void => {
+    if (watchdogTimer !== undefined || terminal || watchdogRemainingMs <= 0) return
+    watchdogTimer = setTimeout(onWatchdog, watchdogRemainingMs)
+  }
+  const noteProgress = (): void => {
+    watchdogRemainingMs = options.timeoutMs
+    watchdogRenewals = 0
+    watchdogWallAt = Date.now()
+    watchdogActiveAt = activeClockNow()
+    scheduleWatchdog()
   }
   const settle = (error?: unknown): void => {
     if (terminal) return
     terminal = true
-    clearHandoff()
+    clearWatchdog()
+    const resolve = pendingRead
+    pendingRead = undefined
+    readStartedAt = undefined
     options.signal.removeEventListener('abort', onAbort)
     if (error !== undefined) {
       try { void reader.cancel(error).catch(() => {}) } catch { /* already closed */ }
       attempt.controller.abort(error)
       try { controller?.error(error) } catch { /* already errored */ }
+      resolve?.({ kind: 'failure', error, timedOut: false })
     } else {
       try { controller?.close() } catch { /* already closed */ }
+      resolve?.({ kind: 'done' })
     }
   }
   const onAbort = (): void => {
     settle(options.signal.reason ?? new DOMException('The request was aborted', 'AbortError'))
   }
-  const armHandoff = (renewBudget = true): void => {
-    clearHandoff()
+  /**
+   * Classifies one expired window. The wall clock proves the window drained;
+   * the active clock decides whether this process was frozen for it. A pending
+   * body read is answered in place so `pull` can resume from the host log; an
+   * idle consumer (no pending read) renews or fails the stream directly.
+   */
+  const onWatchdog = (): void => {
+    watchdogTimer = undefined
     if (terminal) return
-    if (renewBudget) {
-      handoffRemainingMs = options.timeoutMs
-      handoffRenewals = 0
+    const now = Date.now()
+    const activeNow = activeClockNow()
+    // A read has its own full inactivity window, exactly like the old per-read
+    // timer: progress that happened before the read began must not shorten it.
+    const windowStartWall = readStartedAt ?? watchdogWallAt
+    const windowStartActive = readStartedAt === undefined ? watchdogActiveAt : readActiveAt
+    const elapsed = now - windowStartWall
+    if (elapsed < watchdogRemainingMs) {
+      // This timer was armed before a newer window started. Keep the original
+      // window start and re-arm for the remaining wall time; moving the start
+      // here would let a coarse or early timer shrink a frozen window to a few
+      // milliseconds and exhaust the renewal budget immediately.
+      watchdogRemainingMs -= elapsed
+      scheduleWatchdog()
+      return
     }
-    const armedAt = activeClockNow()
-    handoffTimer = setTimeout(() => {
-      handoffTimer = undefined
-      if (terminal) return
-      const frozenMs = frozenWindowActiveMs(armedAt, handoffRemainingMs)
-      if (frozenMs !== undefined && handoffRenewals < MAX_SUSPENSION_RENEWALS) {
-        deliveryMetrics.suspends += 1
-        handoffRenewals += 1
-        handoffRemainingMs -= frozenMs
-        if (handoffRemainingMs > 0) {
-          armHandoff(false)
+    const frozenMs = frozenWindowActiveMs(windowStartActive, watchdogRemainingMs)
+    if (frozenMs !== undefined && watchdogRenewals < MAX_SUSPENSION_RENEWALS) {
+      deliveryMetrics.suspends += 1
+      watchdogRenewals += 1
+      // A frozen window spent no active budget: renew it from a full window
+      // (minus whatever active time it did observe), never from a remainder
+      // that an early-firing timer reduced to almost nothing.
+      watchdogRemainingMs = Math.max(0, options.timeoutMs - frozenMs)
+      if (watchdogRemainingMs > 0) {
+        const resolve = pendingRead
+        pendingRead = undefined
+        if (readStartedAt !== undefined) {
+          readStartedAt = now
+          readActiveAt = activeNow
+          scheduleWatchdog()
+          resolve?.({ kind: 'suspended' })
           return
         }
+        watchdogWallAt = now
+        watchdogActiveAt = activeNow
+        scheduleWatchdog()
+        return
       }
-      deliveryMetrics.stalls += 1
-      settle(new DeliveryTimeoutError('body', options.timeoutMs))
-    }, handoffRemainingMs)
+    }
+    deliveryMetrics.stalls += 1
+    const error = new DeliveryTimeoutError('body', options.timeoutMs)
+    const resolve = pendingRead
+    pendingRead = undefined
+    readStartedAt = undefined
+    if (resolve !== undefined) {
+      resolve({ kind: 'failure', error, timedOut: true })
+      return
+    }
+    settle(error)
   }
-  const readOnce = async (): Promise<DeliveryRead> => {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    // A window cannot fire before a whole wall clock interval has passed, so the
-    // active delta below answers "was this process running for the window the
-    // upstream never got?".
-    const armedAt = activeClockNow()
-    const timeout = new Promise<DeliveryRead>(resolve => {
-      timer = setTimeout(() => {
-        if (frozenWindowActiveMs(armedAt, options.timeoutMs) !== undefined) {
-          resolve({ kind: 'suspended' })
-          return
-        }
-        resolve({
-          kind: 'failure',
-          error: new DeliveryTimeoutError('body', options.timeoutMs),
-          timedOut: true,
-        })
-      }, options.timeoutMs)
-    })
-    const read = reader.read()
-      .then(result => result.done === true
+  const readOnce = (): Promise<DeliveryRead> => new Promise<DeliveryRead>(resolve => {
+    // Each read owns a fresh inactivity window (the existing contract: the
+    // timer starts when the consumer asks for bytes).
+    watchdogRemainingMs = options.timeoutMs
+    watchdogRenewals = 0
+    readStartedAt = Date.now()
+    readActiveAt = activeClockNow()
+    if (watchdogTimer === undefined) scheduleWatchdog()
+    pendingRead = resolve
+    reader.read().then(result => {
+      if (pendingRead !== resolve) return
+      pendingRead = undefined
+      readStartedAt = undefined
+      resolve(result.done === true
         ? ({ kind: 'done' } as DeliveryRead)
         : ({ kind: 'chunk', value: result.value } as DeliveryRead))
-      .catch(error => ({ kind: 'failure', error, timedOut: false } as DeliveryRead))
-    try {
-      return await Promise.race([read, timeout])
-    } finally {
-      if (timer !== undefined) clearTimeout(timer)
-    }
-  }
+    }, error => {
+      if (pendingRead !== resolve) return
+      pendingRead = undefined
+      readStartedAt = undefined
+      resolve({ kind: 'failure', error, timedOut: false })
+    })
+  })
   options.signal.addEventListener('abort', onAbort, { once: true })
   const body = new ReadableStream<Uint8Array>({
     start(value) {
       controller = value
-      armHandoff()
+      noteProgress()
     },
     async pull(value) {
       controller = value
-      clearHandoff()
       while (true) {
         if (terminal) return
         const result = await readOnce()
@@ -758,7 +810,7 @@ function resumableDelivery(initial: DeliveryAttempt, options: DeliveryOptions,
           deliveryMetrics.bodyBytes += result.value.byteLength
           if (onResumedAttempt) deliveryMetrics.resumedBytes += result.value.byteLength
           value.enqueue(result.value)
-          armHandoff()
+          noteProgress()
           return
         }
         if (result.kind === 'done') {
@@ -776,8 +828,7 @@ function resumableDelivery(initial: DeliveryAttempt, options: DeliveryOptions,
         // delivery window exactly like a stall; a genuine stall (the active
         // clock drained the window too) keeps its typed failure below.
         const suspended = result.kind === 'suspended'
-        if (suspended) deliveryMetrics.suspends += 1
-        else if (result.kind === 'failure' && result.timedOut) deliveryMetrics.stalls += 1
+        // The watchdog already counted this expiry (suspension or stall).
         const failure = result.kind === 'failure' && !result.timedOut
           ? result.error
           : new DeliveryTimeoutError('body', options.timeoutMs)
@@ -804,15 +855,22 @@ function resumableDelivery(initial: DeliveryAttempt, options: DeliveryOptions,
         attempt = next
         reader = next.response.body.getReader()
         onResumedAttempt = true
+        // The resumed attempt gets the full inactivity window, exactly like the
+        // old per-read timer did.
+        noteProgress()
       }
     },
     cancel(reason) {
       if (terminal) return
       terminal = true
-      clearHandoff()
+      clearWatchdog()
+      const resolve = pendingRead
+      pendingRead = undefined
+      readStartedAt = undefined
       options.signal.removeEventListener('abort', onAbort)
       try { void reader.cancel(reason).catch(() => {}) } catch { /* already closed */ }
       attempt.controller.abort(reason)
+      resolve?.({ kind: 'failure', error: reason, timedOut: false })
     },
   })
   return new Response(body, {

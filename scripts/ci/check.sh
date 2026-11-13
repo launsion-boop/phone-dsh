@@ -47,7 +47,7 @@ stage_desc() {
         phone-android-structure) echo "android/tools structure_check (11 checks, incl. nested-comments and the two 16 KB page-alignment gates) + its tool unit tests + the packaged-APK 16 KB gate's mutation suite" ;;
         phone-android-tests)   echo "cargo build -p pdsh-jni, then every test-bearing Gradle module's JVM tests; 0 tests counted = FAIL" ;;
         phone-rust-tests)      echo "cargo test --workspace over shell/: the host read policy, the WAL planner and the accelerators; the JVM suite exercises them through JNI, but the authoritative policy tests live only here" ;;
-        phone-android-release) echo "the published com.phonedsh:lib:0.1.0 coordinate (8 artifacts + POM api closure) + the consumer probe resolved from it by coordinate, then assembleRelease + 16 KB proof of the arm64-v8a libpdsh_jni.so and of the .so packaged in the APK (the AAR/publication half never SKIPs; the APK half SKIPs without the gitignored worker bundle/NDK product)" ;;
+        phone-android-release) echo "the published com.phonedsh:lib:0.1.0 coordinate (9 artifacts + POM api closure) + the consumer probe resolved from it by coordinate, then assembleRelease + 16 KB proof of the arm64-v8a libpdsh_jni.so and of the .so packaged in the APK (the AAR/publication half never SKIPs; the APK half SKIPs without the gitignored worker bundle/NDK product)" ;;
         phone-xcode-resolve)   echo "xcodegen + Xcode package resolution of examples/probe-app (no simulator; SKIP if XcodeGen is absent)" ;;
         *)                     return 1 ;;
     esac
@@ -589,7 +589,7 @@ stage_phone_android_release() {
 
     gradle_args="--configure-on-demand --console=plain"
     [ "${CI_GRADLE_OFFLINE:-0}" = 1 ] && gradle_args="$gradle_args --offline"
-    # `publishLocalRepository` is the eight `com.phonedsh` artifacts into
+    # `publishLocalRepository` is the nine `com.phonedsh` artifacts into
     # android/build/repo. The consumer probe resolves `com.phonedsh:lib:0.1.0`
     # from there through its POM — no file dependency, no hand-supplied sibling
     # list — so the publication has to exist before it builds. A real consumer
@@ -607,7 +607,7 @@ stage_phone_android_release() {
     # alone would not protect that: the probe could pass again on a hand-supplied
     # closure. So assert the POM itself carries the split it must carry —
     # `api` -> compile, `implementation` -> runtime, and the Compose BOM as an
-    # import — and that all eight artifacts really exist.
+    # import — and that all nine artifacts really exist.
     repo="$ROOT/android/build/repo"
     if ! publish_summary=$("$PYTHON" - "$repo" <<'PY'
 import pathlib
@@ -616,7 +616,7 @@ import sys
 
 repo = pathlib.Path(sys.argv[1])
 version = "0.1.0"
-# artifact -> binary extension. Five AAR (Android libraries), three JAR (JVM).
+# artifact -> binary extension. Five AAR (Android libraries), four JAR (JVM).
 required = {
     "lib": "aar",
     "dsh": "aar",
@@ -626,6 +626,7 @@ required = {
     "core": "jar",
     "net": "jar",
     "platform": "jar",
+    "bot": "jar",
 }
 problems = []
 for artifact, extension in required.items():
@@ -650,8 +651,8 @@ def scope_of(sibling):
     )
     return match.group(1) if match else None
 
-# :lib's `api` edges: the seven siblings on its closure arrive through these.
-for sibling in ("dsh", "domain", "platform"):
+# :lib's `api` edges: the eight siblings on its closure arrive through these.
+for sibling in ("dsh", "domain", "platform", "bot"):
     if scope_of(sibling) != "compile":
         problems.append(
             "lib POM: com.phonedsh:{} is {} scope, not compile — an `api` edge "
@@ -681,7 +682,7 @@ if "<scope>import</scope>" not in pom or "<artifactId>compose-bom</artifactId>" 
 if problems:
     sys.exit("; ".join(problems[:6]))
 print(
-    "publication: 8 com.phonedsh:{} artifacts, :lib POM carries the api closure "
+    "publication: 9 com.phonedsh:{} artifacts, :lib POM carries the api closure "
     "(compile) and the Compose BOM import".format(version)
 )
 PY

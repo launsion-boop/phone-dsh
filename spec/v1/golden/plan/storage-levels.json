@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "vector": "storage-levels",
+  "valid": [
+    {
+      "id": "level-0-steady",
+      "internalBytes": 104857600,
+      "workspaceBytes": 104857600,
+      "workspaceQuotaBytes": 301989888,
+      "availableImportantBytes": 10737418240,
+      "volumeBytes": 68719476736,
+      "writeWouldFail": false,
+      "expectedLevel": 0,
+      "expectedActions": ["reclaim_droppable"],
+      "userSurface": "none",
+      "neverDelete": ["home", "workspace", "sessions", "un-journaled-steps"],
+      "deleted": []
+    },
+    {
+      "id": "level-1-internal-over-1-3x",
+      "internalBytes": 209715200,
+      "workspaceBytes": 104857600,
+      "workspaceQuotaBytes": 301989888,
+      "availableImportantBytes": 10737418240,
+      "volumeBytes": 68719476736,
+      "writeWouldFail": false,
+      "expectedLevel": 1,
+      "expectedActions": ["reclaim_droppable", "prune_caches"],
+      "userSurface": "none",
+      "neverDelete": ["home", "workspace", "sessions", "un-journaled-steps"],
+      "deleted": []
+    },
+    {
+      "id": "level-2-low-volume-headroom",
+      "internalBytes": 104857600,
+      "workspaceBytes": 104857600,
+      "workspaceQuotaBytes": 301989888,
+      "availableImportantBytes": 314572800,
+      "volumeBytes": 68719476736,
+      "writeWouldFail": false,
+      "expectedLevel": 2,
+      "expectedActions": ["reclaim_droppable", "prune_caches", "stop_new_caches"],
+      "userSurface": "none",
+      "neverDelete": ["home", "workspace", "sessions", "un-journaled-steps"],
+      "deleted": []
+    },
+    {
+      "id": "level-3-workspace-near-quota",
+      "internalBytes": 104857600,
+      "workspaceBytes": 283115520,
+      "workspaceQuotaBytes": 301989888,
+      "availableImportantBytes": 10737418240,
+      "volumeBytes": 68719476736,
+      "writeWouldFail": false,
+      "expectedLevel": 3,
+      "expectedActions": ["reclaim_droppable", "prune_caches", "stop_new_caches", "emit_storage_signal"],
+      "userSurface": "card",
+      "neverDelete": ["home", "workspace", "sessions", "un-journaled-steps"],
+      "deleted": []
+    },
+    {
+      "id": "level-4-write-would-fail",
+      "internalBytes": 104857600,
+      "workspaceBytes": 104857600,
+      "workspaceQuotaBytes": 301989888,
+      "availableImportantBytes": 10737418240,
+      "volumeBytes": 68719476736,
+      "writeWouldFail": true,
+      "expectedLevel": 4,
+      "expectedActions": ["reclaim_droppable", "prune_caches", "stop_new_caches", "emit_storage_signal", "fail_write"],
+      "userSurface": "error",
+      "neverDelete": ["home", "workspace", "sessions", "un-journaled-steps"],
+      "deleted": []
+    }
+  ],
+  "invalid": [
+    {
+      "case": {"workspaceBytes": 283115520, "workspaceQuotaBytes": 301989888, "availableImportantBytes": 10737418240, "volumeBytes": 68719476736, "expectedLevel": 2, "userSurface": "none"},
+      "reason": "level_3_downgraded"
+    },
+    {
+      "case": {"internalBytes": 104857600, "workspaceBytes": 104857600, "workspaceQuotaBytes": 301989888, "availableImportantBytes": 10737418240, "volumeBytes": 68719476736, "writeWouldFail": false, "expectedLevel": 0, "userSurface": "error"},
+      "reason": "silent_level_has_error"
+    },
+    {
+      "case": {"internalBytes": 209715200, "workspaceBytes": 104857600, "workspaceQuotaBytes": 301989888, "availableImportantBytes": 10737418240, "volumeBytes": 68719476736, "expectedLevel": 1, "userSurface": "none", "neverDelete": ["home", "workspace"], "deleted": ["home"]},
+      "reason": "deleted_authoritative_home"
+    }
+  ]
+}

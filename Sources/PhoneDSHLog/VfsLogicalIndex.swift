@@ -141,8 +141,12 @@ struct VfsLogicalIndex {
         let from = materializedUptoMseq == UInt64.max
             ? UInt64.max : materializedUptoMseq + 1
         let records = try WALReader.records(directory: paths.walDirectory, fromMseq: from)
+        let blobs = WorkspaceBlobStore(paths: paths)
         for record in records {
-            guard let body = try? record.mutationBody() else { continue }
+            // W6 §14.2: the mutation's data may live in the §14.1 store; the
+            // logical size must count it exactly like an inline write. A
+            // missing/mismatched blob fails loud like the WAL reader.
+            let body = try record.resolvedMutationBody(using: blobs)
             guard WireValidation.isValidMutationPath(body.path) else { continue }
             apply(body)
         }

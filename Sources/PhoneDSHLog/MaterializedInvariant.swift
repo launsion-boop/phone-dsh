@@ -215,6 +215,9 @@ public enum MaterializedInvariant {
         bootIDHex: String = "",
         decisionObserver: (@Sendable (MaterializeDecision) -> Void)? = nil
     ) throws -> MaterializedInvariantReport {
+        // W6 §14.4: a blob-backed write is verified and materialized with the
+        // verified blob bytes; the invariant planner sees the inline form.
+        let records = try inlineBlobRecords(records, paths: paths)
         let mutations = records.filter { !$0.isEpochClose }.sorted { $0.mseq < $1.mseq }
         let fullHistory = hasFullHistory(mutations)
         let plans = try verificationPlans(mutations: mutations,
@@ -703,6 +706,7 @@ public enum MaterializedInvariant {
         decisionObserver: (@Sendable (MaterializeDecision) -> Void)? = nil,
         requireComplete: Bool = true
     ) throws -> UInt64 {
+        let mutations = try inlineBlobRecords(mutations, paths: paths)
         let ordered = mutations.filter { !$0.isEpochClose }.sorted { $0.mseq < $1.mseq }
         guard let first = ordered.first else { return 0 }
         guard first.mseq == 1 else {
@@ -859,6 +863,26 @@ public enum MaterializedInvariant {
             expected += 1
         }
         return true
+    }
+
+    /// Resolves every §14.2 record to its pre-W6 inline form for analysis only.
+    /// A missing or digest-mismatched blob fails loud (`WAL_CORRUPT`); the
+    /// materialized copy is never used as a fallback authority.
+    private static func inlineBlobRecords(_ records: [WALRecord],
+                                          paths: WorkspacePaths) throws -> [WALRecord] {
+        guard records.contains(where: { $0.isBlobWrite }) else { return records }
+        let store = WorkspaceBlobStore(paths: paths)
+        var result: [WALRecord] = []
+        result.reserveCapacity(records.count)
+        for record in records {
+            guard record.isBlobWrite else {
+                result.append(record)
+                continue
+            }
+            let mutation = try record.resolvedMutationBody(using: store)
+            result.append(try WALRecord(mseq: record.mseq, mutation: mutation))
+        }
+        return result
     }
 
     private static func verificationPlans(mutations: [WALRecord],

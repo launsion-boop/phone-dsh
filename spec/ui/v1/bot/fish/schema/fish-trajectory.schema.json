@@ -1,0 +1,1200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:phone-dsh:bot-fish-trajectory:1",
+  "title": "BotFish numeric trajectory v1",
+  "description": "Frozen model/pose output generated from the iOS app fish sources by tools/generate_trajectory.py. Rasterisation is out of scope. See fish.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "vector",
+    "source",
+    "tolerances",
+    "frameClock",
+    "geometry",
+    "clips",
+    "spriteOrder",
+    "palettes",
+    "headSlice",
+    "anchors",
+    "cases"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "vector": {
+      "const": "bot-fish-trajectory"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractBase",
+        "generatedBy",
+        "harness",
+        "assetsManifest",
+        "files"
+      ],
+      "properties": {
+        "contractBase": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$"
+        },
+        "generatedBy": {
+          "const": "spec/ui/v1/bot/fish/tools/generate_trajectory.py"
+        },
+        "harness": {
+          "const": "spec/ui/v1/bot/fish/tools/trajectory_harness.swift"
+        },
+        "assetsManifest": {
+          "const": "spec/ui/v1/bot/fish/golden/assets.json"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "bytes",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "minItems": 15
+        }
+      }
+    },
+    "tolerances": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "pose",
+        "timeMs",
+        "alpha",
+        "rationale"
+      ],
+      "properties": {
+        "params": {
+          "const": 1e-06
+        },
+        "pose": {
+          "const": 1e-06
+        },
+        "timeMs": {
+          "const": 1e-06
+        },
+        "alpha": {
+          "const": 1e-06
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 100
+        }
+      }
+    },
+    "frameClock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "standardFps",
+        "standardSmallFps",
+        "standardSmallMaxSizePt",
+        "livelyFps",
+        "deltaClampMs",
+        "freezeSampleMs",
+        "blinkDurationMs",
+        "poseSpringOmega",
+        "poseTransitionMs"
+      ],
+      "properties": {
+        "standardFps": {
+          "const": 20
+        },
+        "standardSmallFps": {
+          "const": 15
+        },
+        "standardSmallMaxSizePt": {
+          "const": 40
+        },
+        "livelyFps": {
+          "const": 30
+        },
+        "deltaClampMs": {
+          "const": 100
+        },
+        "freezeSampleMs": {
+          "const": 650
+        },
+        "blinkDurationMs": {
+          "const": 260
+        },
+        "poseSpringOmega": {
+          "const": 18.0
+        },
+        "poseTransitionMs": {
+          "const": 320
+        }
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "designCanvas",
+        "pad",
+        "designScale",
+        "crop",
+        "crownedCrop",
+        "pivot",
+        "motionBoost",
+        "headSlicing",
+        "ink"
+      ],
+      "properties": {
+        "designCanvas": {
+          "const": 512
+        },
+        "pad": {
+          "const": 24
+        },
+        "designScale": {
+          "const": 0.453125
+        },
+        "crop": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "origin",
+            "side"
+          ],
+          "properties": {
+            "origin": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number"
+              }
+            },
+            "side": {
+              "const": 416
+            }
+          }
+        },
+        "crownedCrop": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "origin",
+            "side"
+          ],
+          "properties": {
+            "origin": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number"
+              }
+            },
+            "side": {
+              "const": 448
+            }
+          }
+        },
+        "pivot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "normal",
+            "crowned"
+          ],
+          "properties": {
+            "normal": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number"
+              }
+            },
+            "crowned": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "motionBoost": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "smallSize",
+            "largeSize",
+            "factor",
+            "maxTranslation",
+            "maxRoll"
+          ],
+          "properties": {
+            "smallSize": {
+              "const": 40
+            },
+            "largeSize": {
+              "const": 64
+            },
+            "factor": {
+              "const": 2.2
+            },
+            "maxTranslation": {
+              "const": 20
+            },
+            "maxRoll": {
+              "const": 9
+            }
+          }
+        },
+        "headSlicing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "minimumSize",
+            "livelyMinimumSize",
+            "quantum",
+            "livelyQuantum"
+          ],
+          "properties": {
+            "minimumSize": {
+              "const": 40
+            },
+            "livelyMinimumSize": {
+              "const": 24
+            },
+            "quantum": {
+              "const": 0.1
+            },
+            "livelyQuantum": {
+              "const": 0.25
+            }
+          }
+        },
+        "ink": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      }
+    },
+    "clips": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "period",
+          "duration",
+          "isStatic"
+        ],
+        "properties": {
+          "period": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "duration": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "isStatic": {
+            "type": "boolean"
+          }
+        }
+      },
+      "required": [],
+      "properties": {},
+      "minProperties": 42
+    },
+    "spriteOrder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eyes",
+        "mouths"
+      ],
+      "properties": {
+        "eyes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 12,
+          "maxItems": 12
+        },
+        "mouths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 12,
+          "maxItems": 12
+        }
+      }
+    },
+    "palettes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "hex",
+          "lut",
+          "ink",
+          "mid",
+          "light"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "hex": {
+            "type": "string",
+            "pattern": "^#[0-9A-F]{6}$"
+          },
+          "lut": {
+            "type": "array",
+            "minItems": 768,
+            "maxItems": 768,
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "ink": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "mid": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "light": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "minItems": 3,
+            "maxItems": 3
+          }
+        }
+      },
+      "minItems": 15,
+      "maxItems": 15
+    },
+    "headSlice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profiles",
+        "cases"
+      ],
+      "properties": {
+        "profiles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "standard",
+            "lively"
+          ],
+          "properties": {
+            "standard": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "quantum"
+              ],
+              "properties": {
+                "quantum": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            },
+            "lively": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "quantum"
+              ],
+              "properties": {
+                "quantum": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "profile",
+              "quantum",
+              "input",
+              "levels",
+              "displacement"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "profile": {
+                "enum": [
+                  "standard",
+                  "lively"
+                ]
+              },
+              "quantum": {
+                "type": "number",
+                "minimum": 0
+              },
+              "input": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "headX",
+                  "headY",
+                  "hairSway",
+                  "earFlutter"
+                ],
+                "properties": {
+                  "headX": {
+                    "type": "number"
+                  },
+                  "headY": {
+                    "type": "number"
+                  },
+                  "hairSway": {
+                    "type": "number"
+                  },
+                  "earFlutter": {
+                    "type": "number"
+                  }
+                }
+              },
+              "levels": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "headX",
+                  "headY",
+                  "hairSway",
+                  "earFlutter"
+                ],
+                "properties": {
+                  "headX": {
+                    "type": "integer"
+                  },
+                  "headY": {
+                    "type": "integer"
+                  },
+                  "hairSway": {
+                    "type": "integer"
+                  },
+                  "earFlutter": {
+                    "type": "integer"
+                  }
+                }
+              },
+              "displacement": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "headX",
+                  "headY",
+                  "hairSway",
+                  "earFlutter"
+                ],
+                "properties": {
+                  "headX": {
+                    "type": "number"
+                  },
+                  "headY": {
+                    "type": "number"
+                  },
+                  "hairSway": {
+                    "type": "number"
+                  },
+                  "earFlutter": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          },
+          "minItems": 4
+        }
+      }
+    },
+    "anchors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "line",
+          "contains"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "contains": {
+            "type": "string",
+            "minLength": 8
+          }
+        }
+      },
+      "minItems": 30
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "group",
+          "state",
+          "appearance",
+          "crowned",
+          "viewport",
+          "still",
+          "reduced",
+          "motionProfile",
+          "workStyle",
+          "seed",
+          "randomValues",
+          "dtMs",
+          "steps",
+          "sampleSteps",
+          "reaction",
+          "pokeAtStep",
+          "frames",
+          "needsAnimationAtEnd"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "group": {
+            "enum": [
+              "p0",
+              "sampling",
+              "one-shot",
+              "still-reduced",
+              "appearance",
+              "lively",
+              "replay"
+            ]
+          },
+          "state": {
+            "enum": [
+              "idle",
+              "thinking",
+              "streaming",
+              "working",
+              "sleeping",
+              "alerting",
+              "listening",
+              "speaking",
+              "happy",
+              "sad",
+              "surprised",
+              "confused",
+              "laughing",
+              "love",
+              "angry",
+              "wink",
+              "nod",
+              "shrug",
+              "celebrate",
+              "poke",
+              "waking",
+              "waiting",
+              "loading",
+              "done",
+              "standby",
+              "spawning",
+              "bouncing",
+              "dancing",
+              "waving",
+              "shy",
+              "smug",
+              "crying",
+              "sighing",
+              "cheering",
+              "bowing",
+              "clapping",
+              "stretching",
+              "yawning",
+              "kiss",
+              "shaking-head",
+              "high-five",
+              "powering-down"
+            ]
+          },
+          "appearance": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "color",
+              "hairstyle"
+            ],
+            "properties": {
+              "color": {
+                "enum": [
+                  "white",
+                  "brown",
+                  "red",
+                  "orange",
+                  "amber",
+                  "green",
+                  "teal",
+                  "blue",
+                  "purple",
+                  "magenta",
+                  "gray",
+                  "black",
+                  "silver",
+                  "peach",
+                  "sky"
+                ]
+              },
+              "hairstyle": {
+                "enum": [
+                  "long",
+                  "twin-tail",
+                  "bob",
+                  "side-braid"
+                ]
+              }
+            }
+          },
+          "crowned": {
+            "type": "boolean"
+          },
+          "viewport": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sizePt",
+              "displayScale",
+              "pixelSide"
+            ],
+            "properties": {
+              "sizePt": {
+                "type": "number",
+                "minimum": 1
+              },
+              "displayScale": {
+                "type": "number",
+                "minimum": 1
+              },
+              "pixelSide": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "still": {
+            "type": "boolean"
+          },
+          "reduced": {
+            "type": "boolean"
+          },
+          "motionProfile": {
+            "enum": [
+              "standard",
+              "lively"
+            ]
+          },
+          "workStyle": {
+            "enum": [
+              "generic",
+              "reading",
+              "searching",
+              "running",
+              "writing"
+            ]
+          },
+          "seed": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "randomValues": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "dtMs": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "steps": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sampleSteps": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "minItems": 1
+              }
+            ]
+          },
+          "reaction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "kind",
+                  "startStep",
+                  "startTimeMs",
+                  "durationMs"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "kind": {
+                    "enum": [
+                      "action",
+                      "expression"
+                    ]
+                  },
+                  "startStep": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "startTimeMs": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "durationMs": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            ]
+          },
+          "pokeAtStep": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "integer",
+                "minimum": 0
+              }
+            ]
+          },
+          "frames": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "step",
+                "timeMs",
+                "params",
+                "pose",
+                "alpha",
+                "needsAnimation",
+                "static",
+                "view"
+              ],
+              "properties": {
+                "step": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "timeMs": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "params": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "eyeL",
+                    "eyeR",
+                    "joy",
+                    "browL",
+                    "browR",
+                    "anger",
+                    "sorrow",
+                    "smile",
+                    "mouth",
+                    "mouthWidth",
+                    "round",
+                    "blush",
+                    "tears",
+                    "love",
+                    "gazeX",
+                    "gazeY",
+                    "roll",
+                    "y",
+                    "x",
+                    "sx",
+                    "sy",
+                    "alpha",
+                    "finL",
+                    "finR",
+                    "finWave",
+                    "decoration",
+                    "progress",
+                    "phase",
+                    "eyeArt",
+                    "mouthArt",
+                    "finFold",
+                    "hairSway",
+                    "earFlutter",
+                    "puff",
+                    "breath",
+                    "headX",
+                    "headY",
+                    "bodyX",
+                    "bodyY",
+                    "blink",
+                    "morphX",
+                    "morphY",
+                    "artMix",
+                    "eyeArtPrev",
+                    "mouthArtPrev",
+                    "motionScale",
+                    "gazeEmphasis",
+                    "dotLift",
+                    "dotScale",
+                    "dotStagger",
+                    "isLivelyMotion"
+                  ],
+                  "properties": {
+                    "eyeL": {
+                      "type": "number"
+                    },
+                    "eyeR": {
+                      "type": "number"
+                    },
+                    "joy": {
+                      "type": "number"
+                    },
+                    "browL": {
+                      "type": "number"
+                    },
+                    "browR": {
+                      "type": "number"
+                    },
+                    "anger": {
+                      "type": "number"
+                    },
+                    "sorrow": {
+                      "type": "number"
+                    },
+                    "smile": {
+                      "type": "number"
+                    },
+                    "mouth": {
+                      "type": "number"
+                    },
+                    "mouthWidth": {
+                      "type": "number"
+                    },
+                    "round": {
+                      "type": "number"
+                    },
+                    "blush": {
+                      "type": "number"
+                    },
+                    "tears": {
+                      "type": "number"
+                    },
+                    "love": {
+                      "type": "number"
+                    },
+                    "gazeX": {
+                      "type": "number"
+                    },
+                    "gazeY": {
+                      "type": "number"
+                    },
+                    "roll": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    },
+                    "x": {
+                      "type": "number"
+                    },
+                    "sx": {
+                      "type": "number"
+                    },
+                    "sy": {
+                      "type": "number"
+                    },
+                    "alpha": {
+                      "type": "number"
+                    },
+                    "finL": {
+                      "type": "number"
+                    },
+                    "finR": {
+                      "type": "number"
+                    },
+                    "finWave": {
+                      "type": "number"
+                    },
+                    "decoration": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "progress": {
+                      "type": "number"
+                    },
+                    "phase": {
+                      "type": "number"
+                    },
+                    "eyeArt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "mouthArt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "finFold": {
+                      "type": "number"
+                    },
+                    "hairSway": {
+                      "type": "number"
+                    },
+                    "earFlutter": {
+                      "type": "number"
+                    },
+                    "puff": {
+                      "type": "number"
+                    },
+                    "breath": {
+                      "type": "number"
+                    },
+                    "headX": {
+                      "type": "number"
+                    },
+                    "headY": {
+                      "type": "number"
+                    },
+                    "bodyX": {
+                      "type": "number"
+                    },
+                    "bodyY": {
+                      "type": "number"
+                    },
+                    "blink": {
+                      "type": "number"
+                    },
+                    "morphX": {
+                      "type": "number"
+                    },
+                    "morphY": {
+                      "type": "number"
+                    },
+                    "artMix": {
+                      "type": "number"
+                    },
+                    "eyeArtPrev": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "mouthArtPrev": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "motionScale": {
+                      "type": "number"
+                    },
+                    "gazeEmphasis": {
+                      "type": "number"
+                    },
+                    "dotLift": {
+                      "type": "number"
+                    },
+                    "dotScale": {
+                      "type": "number"
+                    },
+                    "dotStagger": {
+                      "type": "number"
+                    },
+                    "isLivelyMotion": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "pose": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "offsetX",
+                    "offsetY",
+                    "roll",
+                    "scaleX",
+                    "scaleY"
+                  ],
+                  "properties": {
+                    "offsetX": {
+                      "type": "number"
+                    },
+                    "offsetY": {
+                      "type": "number"
+                    },
+                    "roll": {
+                      "type": "number"
+                    },
+                    "scaleX": {
+                      "type": "number"
+                    },
+                    "scaleY": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "alpha": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "needsAnimation": {
+                  "type": "boolean"
+                },
+                "static": {
+                  "type": "boolean"
+                },
+                "reactionActive": {
+                  "type": "boolean"
+                },
+                "view": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "motionScale",
+                    "pixelSide"
+                  ],
+                  "properties": {
+                    "motionScale": {
+                      "type": "number",
+                      "minimum": 1
+                    },
+                    "pixelSide": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                }
+              }
+            },
+            "minItems": 1
+          },
+          "needsAnimationAtEnd": {
+            "type": "boolean"
+          }
+        }
+      },
+      "minItems": 90
+    }
+  }
+}

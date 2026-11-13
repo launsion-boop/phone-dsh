@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spec/ui/v1/bot/schema/appearance-intent.schema.json",
+  "title": "BotAppearanceIntent v1 (P09 view -> projection)",
+  "description": "BotProfileCenter's write surface. Selection applies locally first, then persists only the changed field; a failure is surfaced and not rolled back.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "color"
+      ],
+      "properties": {
+        "kind": {
+          "const": "selectColor"
+        },
+        "color": {
+          "enum": [
+            "white",
+            "brown",
+            "red",
+            "orange",
+            "amber",
+            "green",
+            "teal",
+            "blue",
+            "purple",
+            "magenta",
+            "gray",
+            "black",
+            "silver",
+            "peach",
+            "sky"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "hairstyle"
+      ],
+      "properties": {
+        "kind": {
+          "const": "selectHairstyle"
+        },
+        "hairstyle": {
+          "enum": [
+            "long",
+            "twin-tail",
+            "bob",
+            "side-braid"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "name"
+      ],
+      "properties": {
+        "kind": {
+          "const": "rename"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

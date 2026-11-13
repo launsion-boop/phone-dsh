@@ -108,6 +108,18 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// Turn-inactivity counters shared by every supervised harness this host
     /// hands out (G2-FIX-12). It holds no session or credential state.
     private let inactivityLedger: PhoneDSHTurnInactivityLedger
+    /// Per-turn persistence window shared by every harness this host hands out
+    /// (budgets.md §7). Created on first use so its diagnostic sink can name
+    /// this boot; it holds counters and the last settled sample only.
+    private lazy var turnPersistenceIO: PhoneDSHTurnPersistenceIOLedger = {
+        let recorder = bootPhaseRecorder
+        let bootID = bootID
+        return PhoneDSHTurnPersistenceIOLedger(sink: { sample in
+            recorder.recordDiagnostic(
+                PhoneDSHTurnPersistenceIOLedger.diagnosticLine(
+                    for: sample, bootID: bootID))
+        })
+    }()
     /// DSH session ids this host incarnation handed to the Worker (G2-FIX-9).
     /// The drain uses it to scope terminal-journal verification to live
     /// sessions; a journal left open by an earlier crashed boot is ignored.
@@ -190,6 +202,17 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private var periodicEpochCloseToken = UUID()
     private var periodicEpochCloseIntervalOverride: TimeInterval?
     private var periodicEpochCloseObserver: (@Sendable (PeriodicEpochCloseOutcome) -> Void)?
+    /// Feeds the journal's level-2 acks into the step machine so terminal step
+    /// records are pruned only once their journal entry is durable.
+    private var journalDurabilityObserver: Task<Void, Never>?
+    /// Registered on the live workspace log for W3's response-log reclamation
+    /// at every successful epoch close.
+    private var epochCloseStorageObserverID: UUID?
+    /// Platform memory-warning adapter (no user-visible prompt).
+    private var memoryPressureObserver: PhoneDSHMemoryPressureObserver?
+    /// Coalesces system memory warnings so one pressure episode does not
+    /// restart the Worker repeatedly.
+    private var lastMemoryReliefAt: Date?
     private var lastError: String?
     /// The resume line being accumulated, and the phase currently in flight.
     /// The exclusive resume gate guarantees one at a time.
@@ -210,6 +233,11 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// the platform provides one; the budget monitor then uses only the VFS
     /// proxy.
     private var engineHeapBytes: Int?
+    /// Latest host-process `phys_footprint` booking (budgets.md §3, R1), at
+    /// most one per Worker epoch. Kept apart from ``engineHeapBytes``: the
+    /// footprint includes the App process and must never be evaluated as, or
+    /// added to, the Engine heap row.
+    private var hostFootprint: PhoneDSHHostFootprintReading?
     /// Remembered engine capability: a failed boot still lets ``harness()``
     /// explain that Lockdown Mode is the reason.
     private var lockdownModeObserved = false
@@ -1565,6 +1593,9 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private func releaseRuntimeAfterReclaim(_ runtime: RuntimeServices) async {
         engineObserver?.cancel()
         engineObserver = nil
+        stopJournalDurabilityObserver()
+        stopMemoryPressureObserver()
+        stopEpochCloseStorageObserver()
         await shutdownEngineBestEffort(runtime.engine)
         await runtime.loopback.stop()
         await runtime.machine.shutdown()
@@ -1582,6 +1613,9 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private func releaseFailedRuntime(_ runtime: RuntimeServices) async {
         engineObserver?.cancel()
         engineObserver = nil
+        stopJournalDurabilityObserver()
+        stopMemoryPressureObserver()
+        stopEpochCloseStorageObserver()
         await shutdownEngineBestEffort(runtime.engine)
         await runtime.loopback.stop()
         _ = await runtime.coordinator.waitForInboundWritesToQuiesce()
@@ -3135,6 +3169,9 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         machineObserver = nil
         engineObserver?.cancel()
         engineObserver = nil
+        stopJournalDurabilityObserver()
+        stopMemoryPressureObserver()
+        stopEpochCloseStorageObserver()
         if let runtime {
             await runtime.loopback.stop()
             let controller = await runtime.machine.currentState()
@@ -3169,6 +3206,11 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                     drainError = error
                 }
             }
+            // budgets.md §7: this host incarnation is over. Close any turn the
+            // abort drain could not observe (after the sealing close above, so
+            // its fsyncs are in the sample) instead of leaving the counter
+            // window open for the next boot to inherit.
+            turnPersistenceIO.closeOpenTurnsAfterSeal(outcome: "stopped")
             if preserveRemoteHandoff, let handoff = runtime.handoff {
                 remoteHandoff = RemoteHandoffContext(coordinator: handoff,
                                                      machine: runtime.machine)
@@ -3219,10 +3261,44 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         // call returns a fresh supervisor; a caller that replaces the harness
         // after a recovery releases the old `events()` subscription, which
         // disarms that supervisor (no zombie cancel, no phantom stall).
-        return PhoneDSHTurnInactivitySupervisor(
+        //
+        // budgets.md §7: the same harness chain carries the per-turn
+        // persistence window. The outer decorator resets `WorkspaceLogIOCounters`
+        // before a prompt/steer opens a turn and settles it on the turn's
+        // terminal event, then records the sample for `lastTurnPersistenceIO()`.
+        // It is outside the inactivity supervisor so the watchdog's synthetic
+        // terminal (a failed turn) settles like any other terminal.
+        let harness = PhoneDSHTurnInactivitySupervisor(
             harness: DSHRemoteHarness(transport: makeTransport(runtime: runtime)),
             timeout: configuration.turnInactivityTimeout,
             ledger: inactivityLedger)
+        return PhoneDSHTurnPersistenceIOSupervisor(harness: harness,
+                                                   ledger: turnPersistenceIO)
+    }
+
+    /// The settled persistence counters of the most recently completed turn,
+    /// or `nil` before the first turn settles (budgets.md §7
+    /// `fsync_calls_per_turn` / `bytes_written_per_turn`).
+    ///
+    /// The window is the process-wide ``PhoneDSHLog/WorkspaceLogIOCounters``
+    /// set: it covers the stores `PhoneDSHLog` owns (WAL segments, journal,
+    /// materialized copy, blob store, overlay, manifest) and includes an epoch
+    /// close that ran inside the turn (D18's fsync pass). Steps, the exec
+    /// ledger and the response log are counted by other modules.
+    ///
+    /// The value is settled *before* the terminal `.turnEnded` event is
+    /// delivered, so a consumer that reads it on that event sees the turn's own
+    /// number. The next prompt/steer resets the window; a turn that never
+    /// reached a terminal is closed by a park/stop after the host's sealing
+    /// epoch close.
+    public func lastTurnPersistenceIO() -> WorkspaceLogIOCounters? {
+        turnPersistenceIO.lastCounters()
+    }
+
+    /// The most recent settled turn sample, including the session/turn id, how
+    /// the turn ended and when the host settled it.
+    public func lastTurnPersistenceIOSample() -> PhoneDSHTurnPersistenceIOSample? {
+        turnPersistenceIO.lastSample()
     }
 
     /// True while at least one workbench session this host opened or prompted
@@ -3285,7 +3361,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                 state: state, bootID: bootID, lastError: lastError,
                 turnInactivityStalls: inactivity.stallCount,
                 turnInactivityReason: inactivity.lastStallReason,
-                turnInactivityTimeout: inactivity.timeout)
+                turnInactivityTimeout: inactivity.timeout,
+                lastTurnPersistenceIO: turnPersistenceIO.lastCounters())
         }
         let hostState = await runtime.machine.currentState()
         let bootDisposition = await runtime.machine.bootDisposition
@@ -3348,7 +3425,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             turnInactivityTimeout: inactivity.timeout,
             vfsRefusals: vfsRefusals,
             lastVFSRefusal: lastVFSRefusal,
-            gatewayMetrics: gatewayMetrics)
+            gatewayMetrics: gatewayMetrics,
+            lastTurnPersistenceIO: turnPersistenceIO.lastCounters())
         lastSnapshot = snapshot
         return snapshot
     }
@@ -3655,7 +3733,12 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             // a Backoff refusal needs no teardown and leaves the persisted
             // deadline untouched.
             try await prepareMachineForBoot(machine)
-            let stepMachine = try StepMachine(root: configuration.workspaceRoot)
+            let journalDurability = JournalDurabilityTracker()
+            let stepMachine = try StepMachine(
+                root: configuration.workspaceRoot,
+                journalDurableJseq: { sessionID in
+                    await journalDurability.durableJseq(sessionID: sessionID)
+                })
             let ledger = try SideEffectLedger(root: configuration.workspaceRoot)
             let recoveredJournal = await log.recoveredJournalSnapshot()
             // Rebuild identities first, then correlate only explicitly
@@ -3690,7 +3773,9 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             let gatewayConfiguration = configuration.resolvedGatewayConfiguration()
             let responseLog = try? ModelGateway.makeResponseLog(
                 configuration: gatewayConfiguration,
-                workspaceRoot: configuration.workspaceRoot)
+                workspaceRoot: configuration.workspaceRoot,
+                cacheRoot: PhoneDSHConfiguration.cacheRoot(
+                    for: configuration.workspaceRoot))
             // The same boot-timings file carries the loopback and gateway
             // timing lines: a resume stall is diagnosed from one artifact.
             let gatewayDiagnostics = GatewayUpstreamDiagnostics(
@@ -3741,6 +3826,13 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                 loopback: loopback, budgetMonitor: budgetMonitor,
                 overlayURL: overlayURL, engine: nil,
                 engineConfiguration: engineConfiguration)
+            installJournalDurabilityObserver(log: log, stepMachine: stepMachine,
+                                             tracker: journalDurability)
+            await installEpochCloseStorageObserver(log: log,
+                                                   responseLog: responseLog,
+                                                   stepMachine: stepMachine,
+                                                   tracker: journalDurability)
+            installMemoryPressureObserver()
             // A boot starts from Recovering, before any Worker HELLO; open the
             // replay window here so a request that arrives during the boot can
             // be answered from the response log instead of the upstream.
@@ -4280,6 +4372,13 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             }
         }
         try await sealEpochAtTailAndRecordFence(runtime)
+        // budgets.md §7: the park's sealing epoch close is the last D18 pass of
+        // this host incarnation. A turn whose terminal the abort drain could
+        // not observe is closed here (after the seal, so its fsyncs are in the
+        // sample) instead of keeping the counter window open across the park.
+        turnPersistenceIO.closeOpenTurnsAfterSeal(
+            outcome: stopping ? "stopped"
+                : (interruptedSessions.isEmpty ? "parked" : "interrupted"))
         await runtime.coordinator.prepareForReboot()
         for (sessionID, turns) in interruptedSessions {
             var merged = sessionsInterruptedAtPark[sessionID] ?? []
@@ -4353,6 +4452,10 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             throw PhoneDSHError.invalidState(
                 "the WAL epoch close for the planned restart failed: \(error)")
         }
+        // budgets.md §7: the planned restart's sealing close is a D18 fsync
+        // pass. Credit it to an open turn (a restart may rebuild the Worker in
+        // the middle of one) instead of dropping it.
+        turnPersistenceIO.settleEpochClose()
         let fence = await runtime.authority.current
         if ack.uptoMseq > fence.walSeq {
             do {
@@ -4435,6 +4538,11 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                     await runtime.machine.escalateFailureToTerminal(reason: combined)
                 }
             }
+            // budgets.md §7: a failed incarnation ends the turn observation.
+            // The seal above already ran (or failed loud); whatever turn the
+            // App's stream never saw end is closed here so the numbers are
+            // recorded instead of being lost with the runtime.
+            turnPersistenceIO.closeOpenTurnsAfterSeal(outcome: "host-failed")
             if var services = self.runtime {
                 services.engine = nil
                 self.runtime = services
@@ -5185,7 +5293,24 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             return .skipped(reason: reason)
         }
         do {
-            let ack = try await runtime.log.closeEpochCoveringTail()
+            // W4: an idle epoch is skipped. `sealEpochCoveringTail` returns the
+            // current durable position without a segment, an F_FULLFSYNC or a
+            // level-2 ack when no mutation opened an epoch since the last close
+            // (wal.md §13). A close required by handoff/drain/teardown still runs
+            // its §5.2 order through the same call when it has work to make
+            // durable.
+            let positions = await runtime.log.positions()
+            guard positions.durableMseq < positions.ackedMseq else {
+                let reason = "periodic epoch close skipped: idle epoch (no mutation since the last close)"
+                periodicEpochCloseObserver?(.skipped(reason: reason))
+                return .skipped(reason: reason)
+            }
+            let ack = try await runtime.log.sealEpochCoveringTail()
+            // budgets.md §7: an epoch close is D18's fsync pass. Settling it
+            // here credits the pass to the open turn instead of letting the
+            // next turn's reset inherit it (and, between turns, discards a tail
+            // the next reset would discard anyway). Observation only.
+            turnPersistenceIO.settleEpochClose()
             periodicEpochCloseObserver?(.closed(uptoMseq: ack.uptoMseq))
             return .closed(uptoMseq: ack.uptoMseq)
         } catch {
@@ -5211,6 +5336,181 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         await attemptPeriodicEpochClose()
     }
 
+    // MARK: - Journal durability and memory warnings (W2)
+
+    /// Subscribes to the level-2 journal acks of one runtime. Each ack that
+    /// completes an epoch advances the step machine's durable watermark and
+    /// lets it prune terminal step records; the journal prunes its own entries
+    /// inside ``JournalLog/closeEpoch()`` with the same rule.
+    private func installJournalDurabilityObserver(log: WorkspaceLog,
+                                                  stepMachine: StepMachine,
+                                                  tracker: JournalDurabilityTracker) {
+        stopJournalDurabilityObserver()
+        journalDurabilityObserver = Task.detached(priority: .utility) {
+            for await ack in log.journalAcks() {
+                await tracker.record(ack)
+                guard ack.level == .epochFsync else { continue }
+                // W4: intermediate step lines were not fsynced per transition;
+                // the epoch close forces the session logs that still hold them.
+                _ = try? await stepMachine.fsyncPendingLogs()
+                // Silence is part of the contract: pruning is background work
+                // and never surfaces a prompt or a disabled state. An
+                // `abandoned` record is the terminal owner record (exec.md §4)
+                // and budgets.md §8 permits retaining it; the kill/reconcile
+                // evidence must still name the steps this host gave up, so it
+                // is passed as a retained reference.
+                let loadedSteps = await stepMachine.allRecords()
+                let abandoned = Set(loadedSteps
+                    .filter { $0.state == .abandoned }.map(\.stepKey))
+                _ = try? await stepMachine.pruneTerminalSteps(
+                    referencedStepKeys: abandoned)
+            }
+        }
+    }
+
+    private func stopJournalDurabilityObserver() {
+        journalDurabilityObserver?.cancel()
+        journalDurabilityObserver = nil
+    }
+
+    /// W3 (gateway-security.md §11): at the same successful epoch close that
+    /// reclaims droppable WAL segments, delete response-log entries whose
+    /// whole step set is terminal and level-2 durable. The host never runs this
+    /// while Recovering, and the response log itself refuses a key with a
+    /// resume in flight. Silence is part of the contract.
+    private func installEpochCloseStorageObserver(
+        log: WorkspaceLog,
+        responseLog: ResponseLog?,
+        stepMachine: StepMachine,
+        tracker: JournalDurabilityTracker) async {
+        stopEpochCloseStorageObserver()
+        guard let responseLog else { return }
+        epochCloseStorageObserverID = await log.addEpochCloseObserver {
+            [weak self] _ in
+            guard let self else { return }
+            await self.reclaimResponseLogAfterEpochClose(responseLog: responseLog,
+                                                         stepMachine: stepMachine,
+                                                         tracker: tracker)
+        }
+    }
+
+    private func stopEpochCloseStorageObserver() {
+        guard let id = epochCloseStorageObserverID else { return }
+        epochCloseStorageObserverID = nil
+        guard let log = runtime?.log else { return }
+        Task { await log.removeEpochCloseObserver(id) }
+    }
+
+    private func reclaimResponseLogAfterEpochClose(
+        responseLog: ResponseLog,
+        stepMachine: StepMachine,
+        tracker: JournalDurabilityTracker) async {
+        // gateway-security.md §11 (PC-20261112-w3): an entry may be removed only
+        // when its producing step is journaled and level-2 durable and the host
+        // is not Recovering. A planned restart closes the epoch while the facade
+        // is still Draining (before the controller enters Recovering), so the
+        // deletion must also stay closed across that edge or the committed
+        // response would be gone before the Recovering replay window opens.
+        if state == .draining || state == .starting { return }
+        if let runtime, await runtime.machine.currentState() != .running { return }
+        let durable = await tracker.snapshot()
+        // W3 does not edit StepMachine (its owning unit did): the host derives
+        // the same fact from the public records. Every loaded step must be
+        // terminal and its terminal evidence level-2 durable. With no loaded
+        // step there is no "step whose request produced it" to prove, so the
+        // §11 condition is not met and nothing is reclaimed (the response log
+        // remains an LRU cache).
+        let records = await stepMachine.allRecords()
+        guard !records.isEmpty else { return }
+        guard records.allSatisfy({ record in
+            guard record.state.isTerminal else { return false }
+            if let evidence = record.execEvidence,
+               evidence.values.contains(where: {
+                   ($0.started && !$0.terminal) || $0.persistenceFailed
+               }) {
+                return false
+            }
+            switch record.state {
+            case .journaled:
+                guard let jseq = record.completionJseq ?? record.jseq,
+                      jseq > 0,
+                      jseq <= (durable[record.sessionID] ?? 0) else { return false }
+                return true
+            case .abandoned:
+                return true
+            default:
+                return false
+            }
+        }) else { return }
+        let keys = await responseLog.allKeys()
+        guard !keys.isEmpty else { return }
+        _ = await responseLog.reclaim(keys: Set(keys))
+    }
+
+    /// Installs the platform memory-warning adapter. The handler lands on the
+    /// host actor so it observes the same lifecycle and budget state as every
+    /// other signal.
+    private func installMemoryPressureObserver() {
+        let observer = PhoneDSHMemoryPressureObserver()
+        observer.start { [weak self] in
+            guard let self else { return }
+            Task { await self.handleSystemMemoryPressureWarning() }
+        }
+        memoryPressureObserver?.stop()
+        memoryPressureObserver = observer
+    }
+
+    private func stopMemoryPressureObserver() {
+        memoryPressureObserver?.stop()
+        memoryPressureObserver = nil
+    }
+
+    /// Applies the existing pressure order for a system memory warning.
+    ///
+    /// budgets.md §3 (R1) makes the warning and the host `phys_footprint` the
+    /// two engine-memory production inputs, so the warning books the current
+    /// footprint before anything else. The booking is once per Worker epoch and
+    /// never changes the action order or the numbers (see
+    /// ``reportHostFootprintBytes(_:)``).
+    ///
+    /// `clearTmp` is a no-op at this layer: `/dsh/tmp` lives in the Worker's
+    /// volatile VFS and is never materialized, so the host owns no tmp bytes to
+    /// unlink. The planned restart is the release valve and only runs at a tool
+    /// boundary, so a turn is never interrupted. No prompt, banner or disabled
+    /// state is produced (plan §1.2).
+    internal func handleSystemMemoryPressureWarning() async {
+        guard state == .running, let runtime else { return }
+        // Book the footprint for the event that was observed, including an
+        // episode the coalescing guard below drops: the footprint is an input,
+        // not an action, and the per-epoch booking keeps it to one reading.
+        await recordCurrentHostFootprint()
+        let now = Date()
+        if let last = lastMemoryReliefAt,
+           now.timeIntervalSince(last) < 60 {
+            return
+        }
+        guard await runtime.machine.currentState() == .running,
+              await runtime.stepMachine.atToolCallBoundary() else { return }
+        lastMemoryReliefAt = now
+        try? await plannedRestart(reason: "system memory warning")
+    }
+
+    /// Samples the host process footprint for the pressure event in flight.
+    /// A failed or absent syscall stays a missing sample, never zero.
+    private func recordCurrentHostFootprint() async {
+        guard let bytes = PhoneDSHHostFootprintSampler.sampleBytes() else {
+            return
+        }
+        await reportHostFootprintBytes(bytes)
+    }
+
+    /// Test seam: forces one memory-warning handling without a platform
+    /// notification (Linux CI and simulator tests cannot post the UIKit one).
+    internal func handleSystemMemoryPressureWarningForTesting() async {
+        lastMemoryReliefAt = nil
+        await handleSystemMemoryPressureWarning()
+    }
+
     // MARK: - Budgets
 
     /// Reports the latest WebContent heap sample. The engine or App calls this
@@ -5226,6 +5526,46 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         if let runtime {
             await evaluateBudget(runtime)
         }
+    }
+
+    /// Records one host-process `phys_footprint` sample for the current Worker
+    /// epoch (budgets.md §3, R1 2026-11-13; GAP-39).
+    ///
+    /// The sample is booked against §4's `App process` row and is published as
+    /// ``PhoneDSHBudgetSnapshot/appProcessFootprintBytesUsed``. It is not an
+    /// engine-heap sample: WebContent is a separate process with no readable
+    /// heap on iOS, so the Engine heap row stays permanently `target` and this
+    /// value is never compared with it or converted into a percentage of it.
+    /// ``reportEngineHeapBytes(_:)`` remains the test-only injection point for
+    /// that `target` row and is not called here.
+    ///
+    /// The booking is once per Worker epoch: the first sample of an epoch is
+    /// kept and later samples of the same epoch are ignored, so a per-second
+    /// sampler cannot turn the footprint into a stream of §4 readings. A `nil`
+    /// (or non-positive) sample is ignored, never booked as zero
+    /// (budgets.md §3).
+    ///
+    /// This API only records and reports. It never evaluates a budget and never
+    /// triggers `clearTmp -> plannedRestart`; the existing action order and
+    /// every §4 number are unchanged.
+    ///
+    /// - Parameter bytes: the sampled `phys_footprint`, or `nil` for no sample.
+    /// - Returns: `true` when the sample was booked for the current epoch.
+    @discardableResult
+    public func reportHostFootprintBytes(_ bytes: Int?) async -> Bool {
+        guard let bytes, bytes > 0 else { return false }
+        let epoch = await currentWorkerEpoch()
+        guard hostFootprint?.epoch != epoch else { return false }
+        hostFootprint = PhoneDSHHostFootprintReading(bytes: bytes, epoch: epoch)
+        return true
+    }
+
+    /// The Worker epoch a footprint booking belongs to: the last durably
+    /// closed WAL epoch. `0` before the first epoch close still limits a fresh
+    /// host to one booking.
+    private func currentWorkerEpoch() async -> UInt64 {
+        guard let runtime else { return 0 }
+        return await runtime.log.positions().lastDurableEpoch
     }
 
     private func evaluateBudget(_ runtime: RuntimeServices) async {
@@ -5278,6 +5618,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             responseLogBytesUsed: responseLogBytes,
             webContentTerminations: terminations,
             engineHeapBytesUsed: engineHeapBytes,
+            appProcessFootprintBytesUsed: hostFootprint?.bytes,
             lastAction: decision.action,
             hardFail: decision.hardFail)
     }

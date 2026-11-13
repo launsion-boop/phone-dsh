@@ -3,11 +3,14 @@
 """Validate Bot v1 schemas and the exported positive/negative conformance vectors."""
 from __future__ import annotations
 
+import base64
 import copy
+import hashlib
 import json
 import posixpath
 import re
 import sys
+import unicodedata
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -18,6 +21,7 @@ from spec.v1.tools.spec_golden import validate_json
 from spec.tools.bot.golden_overlay import (
     METADATA_KEYS,
     assert_append_only,
+    canonical,
     load_json,
     merged_fixture,
     overlay_name,
@@ -33,13 +37,29 @@ OBSERVATION_ENVELOPE_VECTOR = "observation-envelope.phone.json"
 RECORD_QUERY_VECTOR = "record-query.phone.json"
 ERASURE_EVENT_VECTOR = "erasure-event.phone.json"
 VERIFICATION_VECTOR = "verification.phone.json"
+STORE_VECTOR = "store.phone.json"
+USER_ACTION_VECTOR = "user-action-transaction.phone.json"
+SESSION_LIFECYCLE_VECTOR = "session-lifecycle.phone.json"
+PROJECTION_VECTOR = "projection.phone.json"
 # A phone-only vector has no dsh-bot upstream export to extend. Keep this list
 # explicit; `check_golden.py` has the same registration.
 PHONE_ONLY_VECTORS = frozenset({
+    "tool-call-cases.phone.json",
+    "identity-approval-cases.phone.json",
+    "mcp-rpc-cases.phone.json",
+    "team-cases.phone.json",
+    "task-cases.phone.json",
     TURN_ORIGIN_VECTOR, MCP_EGRESS_VECTOR, AUTHORITY_VECTOR,
     RECORD_REFERENCE_VECTOR, OBSERVATION_ENVELOPE_VECTOR, RECORD_QUERY_VECTOR,
     ERASURE_EVENT_VECTOR,
     VERIFICATION_VECTOR,
+    "tool-catalog-tiers.phone.json",
+    "volatile-context-time.phone.json",
+    "model-purpose-enforcement.phone.json",
+    STORE_VECTOR,
+    USER_ACTION_VECTOR,
+    SESSION_LIFECYCLE_VECTOR,
+    PROJECTION_VECTOR,
 })
 
 # P26/P27 turn-origin contract. Prefix matching is exact, ASCII
@@ -1621,6 +1641,134 @@ def validate_authority_fixture(fixture) -> tuple[int, int, int]:
     return (len(creator_cases), len(change_cases), len(task_cases), mutations)
 
 
+W5_TIER_CLASSES = frozenset({"adb", "ble", "venus", "ssh"})
+
+
+def w5_tier_problem(case):
+    """Return the first tiering law a W5 tool-catalog case violates, or None."""
+    catalog = case.get("catalog", {})
+    tiers = catalog.get("tiers", {})
+    p0 = [item.get("name") for item in catalog.get("p0", [])]
+    p1 = [item.get("name") for item in catalog.get("p1", [])]
+    known = set(p0) | set(p1)
+    requires = {item.get("name"): item.get("requires") for item in catalog.get("p0", []) + catalog.get("p1", [])
+                if item.get("requires") is not None}
+    core, device, discoverable = tiers.get("core", []), tiers.get("device", []), tiers.get("discoverable", [])
+    names = list(core) + list(discoverable)
+    for entry in device:
+        if entry.get("class") not in W5_TIER_CLASSES:
+            return "unknown_device_class"
+        names.extend(entry.get("tools", []))
+    seen = set()
+    for name in names:
+        if name in seen:
+            return "tool_in_two_tiers"
+        seen.add(name)
+    for name in core:
+        if name not in known:
+            return "core_tool_missing_from_p0"
+    if any(requires.get(name) is not None for name in core):
+        return "device_tool_in_core"
+    device_names = {tool for entry in device for tool in entry.get("tools", [])}
+    if set(core) & device_names:
+        return "device_tool_in_core"
+    connection = case.get("connection")
+    listed = case.get("listed")
+    if connection is not None and listed is not None:
+        expected = set(core) | set(discoverable)
+        for entry in device:
+            if connection.get(entry.get("class")) is True:
+                expected |= set(entry.get("tools", []))
+        if set(listed) != expected:
+            if set(listed) & device_names and any(
+                    connection.get(entry.get("class")) is False
+                    and set(listed) & set(entry.get("tools", [])) for entry in device):
+                return "stale_device_listing"
+            return "listing_mismatch"
+        not_listed = case.get("notListed")
+        if not_listed is not None and set(not_listed) & set(listed):
+            return "listing_mismatch"
+    return None
+
+
+def w5_hour_problem(case):
+    import re
+    current = case.get("current", "")
+    if case.get("precision") != "hour":
+        return "minute_precision"
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:00 \([^()]+\)", current):
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \([^()]+\)", current):
+            return "seconds_in_hour_bucket"
+        return "not_a_local_hour_bucket"
+    if not current.split(" ", 1)[1].split(":", 1)[1].startswith("00 "):
+        return "minute_precision"
+    return None
+
+
+W5_SMALL = "deepseek-flash"
+W5_LARGE = {"deepseek-v4-pro", "deepseek-pro", "deepseek-reasoner", "deepseek-chat"}
+W5_SMALL_PURPOSES = frozenset({
+    "triage", "memory-extract", "reflect", "compact", "watchdog",
+    "completion-check", "memory-maintenance",
+})
+
+
+def w5_model_allowed(purpose, model):
+    normalized = (model or "").strip().lower()
+    if not normalized:
+        return False, "EPURPOSE_MODEL_REQUIRED"
+    if purpose in {"front-turn", "worker-turn"}:
+        return True, None
+    if purpose not in W5_SMALL_PURPOSES:
+        return False, "EPURPOSE_MODEL_DENIED"
+    if normalized == W5_SMALL or normalized.startswith(W5_SMALL + "-"):
+        return True, None
+    return False, "EPURPOSE_MODEL_DENIED"
+
+
+def validate_w5_fixtures(load, check, rejects, check_many):
+    tiers = load("tool-catalog-tiers.phone.json")
+    check(tiers["valid"]["catalog"], "tool-catalog.schema.json", "tool-catalog-tiers.valid.catalog")
+    problem = w5_tier_problem(tiers["valid"])
+    if problem is not None:
+        raise AssertionError(f"tool-catalog-tiers.valid: {problem}")
+    for index, case in enumerate(tiers["invalid"]):
+        payload = case["case"]
+        if w5_tier_problem(payload) != case["reason"]:
+            raise AssertionError(
+                f"tool-catalog-tiers.invalid[{index}]: expected {case['reason']}, "
+                f"got {w5_tier_problem(payload)}")
+        if case["reason"] == "unknown_device_class":
+            rejects(payload.get("catalog"), "tool-catalog.schema.json",
+                    f"tool-catalog-tiers.invalid[{index}].catalog")
+        # The other negative cases are schema-valid by design; the tier law rejects them.
+
+    volatile = load("volatile-context-time.phone.json")
+    if w5_hour_problem(volatile["valid"]["timeBlock"]) is not None:
+        raise AssertionError("volatile-context-time.valid: time block is not hour precision")
+    if volatile["valid"]["rendered"].count("Current local time:") != 1:
+        raise AssertionError("volatile-context-time.valid: time block must render exactly once")
+    if volatile["valid"]["timeBlock"]["current"] not in volatile["valid"]["rendered"]:
+        raise AssertionError("volatile-context-time.valid: rendered text must carry the hour bucket")
+    for index, case in enumerate(volatile["invalid"]):
+        if w5_hour_problem(case["case"]) != case["reason"]:
+            raise AssertionError(
+                f"volatile-context-time.invalid[{index}]: expected {case['reason']}, "
+                f"got {w5_hour_problem(case['case'])}")
+
+    purpose = load("model-purpose-enforcement.phone.json")
+    for index, case in enumerate(purpose["valid"]):
+        allowed, code = w5_model_allowed(case["purpose"], case["model"])
+        if allowed is not case["allowed"] or code is not None:
+            raise AssertionError(f"model-purpose-enforcement.valid[{index}]: unexpected decision")
+    for index, case in enumerate(purpose["invalid"]):
+        allowed, code = w5_model_allowed(case["purpose"], case["model"])
+        if allowed or code != case["code"]:
+            raise AssertionError(
+                f"model-purpose-enforcement.invalid[{index}]: expected {case['code']}, got {code}")
+    return len(tiers["valid"].get("listed", [])), len(volatile["invalid"]), len(purpose["invalid"])
+
+
 def _content_card_entries(catalog):
     p0 = catalog.get("p0")
     if not isinstance(p0, list):
@@ -1695,8 +1843,3988 @@ def content_card_final_mutations(catalog):
     return count
 
 
+# --- P25 store / user-action transaction vectors (phone-owned) -----------------
+
+STORE_ERRORS = frozenset({
+    "INVALID_EVENT", "SCHEMA_TOO_NEW", "EPHEMERAL_HAS_COMMIT_SEQ", "UNKNOWN_REQUIRED_EVENT",
+    "COMMIT_SEQ_ASSIGNED_BY_STORE", "MISSING_COMMIT_SEQ",
+    "invalidTransition", "invalidCursor", "invalidConfiguration", "corrupted",
+    "staleLease", "unknownEffect", "schemaTooNew:4", "commitGap:2:3",
+    "simulatedCrash:abort-before-commit", "simulatedCrash:abort-after-commit",
+})
+TERMINAL_EFFECT_STATES = frozenset({"acked", "dead_letter", "canceled"})
+EFFECT_STATES = frozenset({
+    "pending", "leased", "failed", "acked", "dead_letter", "needs_reconciliation",
+    "cancel_requested", "canceled",
+})
+RECONCILIATION_REASONS = frozenset({
+    "unknown-outcome", "generation-conflict", "receiver-mismatch",
+})
+
+
+def _store_source(value, where):
+    if not isinstance(value, str) or not re.fullmatch(
+            r"(Tests|Sources|examples)/[^:\s]+:\d+(-\d+)?", value):
+        raise AssertionError(f"{where}: source must be a file:line reference")
+
+
+def _store_canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _store_digest(value):
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _json_equal(expected, actual):
+    if expected is None or actual is None:
+        return expected is None and actual is None
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return isinstance(expected, bool) and isinstance(actual, bool) and expected == actual
+    if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
+        return expected == actual
+    if isinstance(expected, str) and isinstance(actual, str):
+        return expected == actual
+    if isinstance(expected, list) and isinstance(actual, list):
+        return len(expected) == len(actual) and all(
+            _json_equal(left, right) for left, right in zip(expected, actual))
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        return all(key in actual and _json_equal(value, actual[key])
+                   for key, value in expected.items())
+    return False
+
+
+def _expect_store(expect, observation, where):
+    if expect is None:
+        return
+    if not isinstance(expect, dict):
+        raise AssertionError(f"{where}: expect must be an object or null")
+    for key, value in expect.items():
+        if key == "lastErrorContains":
+            text = observation.get("lastError") or ""
+            if not isinstance(text, str) or value not in text:
+                raise AssertionError(f"{where}: lastError does not contain {value!r}")
+            continue
+        if key == "lastErrorNotContains":
+            text = observation.get("lastError") or ""
+            if isinstance(text, str) and value in text:
+                raise AssertionError(f"{where}: lastError unexpectedly contains {value!r}")
+            continue
+        actual = observation.get(key)
+        if not _json_equal(value, actual):
+            raise AssertionError(f"{where}.{key}: expected {value!r}, got {actual!r}")
+
+
+def _default_max_attempts(policy, idempotent):
+    if policy == "network-idempotent":
+        return 5
+    if policy == "local-idempotent":
+        return 2
+    if policy in ("local-nonidempotent", "network-nonidempotent"):
+        return 1
+    return 2 if idempotent else 1
+
+
+def _retry_delay(policy, attempt):
+    if policy != "network-idempotent":
+        return 0
+    exponent = max(0, min(8, attempt - 1))
+    return min(1000 * (1 << exponent), 300_000)
+
+
+def _safe_error(text):
+    import re as _re
+    text = _re.sub(r"\bsk-[A-Za-z0-9_-]{8,}\b", "[redacted]", text)
+    text = _re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*", "[redacted]", text)
+    return text[:500]
+
+
+class _StoreModelError(Exception):
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+class _StoreModel:
+    def __init__(self, case, open_failed=False):
+        self.clock = case.get("clock", 1000)
+        self.lease_ttl = case.get("leaseTTLms", 30_000)
+        self.ephemeral_capacity = case.get("ephemeralCapacity", 256)
+        self.head = 0
+        self.events = {}
+        self.ids = {}
+        self.effects = {}
+        self.nonces = {}
+        self.leases = {}
+        self.inbox = {}
+        self.inbox_executions = {}
+        self.crash_point = None
+        self.closed = False
+        self.version = 3
+        self.migrated_from = 0
+        self.open_failed = open_failed
+        self.ephemeral = []
+        self.dropped = 0
+        self.effect_event_ids = 0
+        setup = case.get("setup")
+        user_version = 2
+        if setup:
+            user_version = int(setup.get("userVersion", 2))
+            self.migrated_from = user_version
+            for event in setup.get("events", []):
+                seq = event["commitSeq"]
+                self.events[seq] = event
+                self.ids[event["eventId"]] = seq
+                self.head = max(self.head, seq)
+            for nonce in setup.get("nonces", []):
+                self.nonces[(nonce["botId"], nonce["nonce"])] = nonce["eventId"]
+        # A refused migration rolls back: the file keeps its old version and
+        # the old rows. Successful cases (and fresh databases) are v3.
+        self.version = user_version if open_failed else 3
+
+    def open_failure_detail(self):
+        """The detail that names the first migration gap, or None."""
+        for index, seq in enumerate(sorted(self.events), start=1):
+            if seq != index:
+                return f"commit_seq gap: expected {index}, found {seq}"
+        if self.version > 3:
+            return f"schemaTooNew:{self.version}"
+        return None
+
+    # -- helpers ---------------------------------------------------------
+    def _append_event(self, event, effect_event=False):
+        if effect_event:
+            self.effect_event_ids += 1
+            event_id = f"evt:vector-{self.effect_event_ids}"
+        else:
+            event_id = event["eventId"]
+        self.head += 1
+        stored = dict(event)
+        stored["commitSeq"] = self.head
+        self.events[self.head] = stored
+        self.ids[event_id] = self.head
+        return self.head
+
+    def _is_ephemeral(self, event_type):
+        return event_type in {
+            "model.delta", "model.started", "model.settled", "tool.progress", "agent.status",
+            "fish.action", "runtime.stderr", "runtime.notification", "projection.invalidated",
+            "journal.backpressure", "approval.card_available",
+        }
+
+    def _effect_event(self, event_type="effect.enqueued"):
+        return {"type": event_type, "eventId": "evt:placeholder"}
+
+    def _append_effect_events(self, event_types):
+        if len(event_types) == 1:
+            self._append_event(self._effect_event(event_types[0]), effect_event=True)
+            return
+        batch_id = f"batch:vector-{self.head + 1}"
+        for index, event_type in enumerate(event_types):
+            event = self._effect_event(event_type)
+            event["batch"] = {"id": batch_id, "index": index, "total": len(event_types)}
+            self._append_event(event, effect_event=True)
+
+    # -- operations ------------------------------------------------------
+    def step(self, step):
+        op = step.get("op")
+        fn = getattr(self, f"_op_{op}", None)
+        if fn is None:
+            raise AssertionError(f"unknown store op {op!r}")
+        if self.crash_point is not None and op not in ("armCrash",):
+            point = self.crash_point
+            self.crash_point = None
+            self.closed = True
+            if point == "abort-after-commit":
+                fn(step)
+            raise _StoreModelError(f"simulatedCrash:{point}")
+        return fn(step)
+
+    def _op_armCrash(self, step):
+        self.crash_point = step.get("point", "")
+        return {}
+
+    def _op_head(self, step):
+        return {"head": self.head}
+
+    def _op_append(self, step):
+        event = step["event"]
+        if "commitSeq" in event:
+            if self._is_ephemeral(event["type"]):
+                raise _StoreModelError("EPHEMERAL_HAS_COMMIT_SEQ")
+            raise _StoreModelError("COMMIT_SEQ_ASSIGNED_BY_STORE")
+        if event["eventId"] in self.ids:
+            return {"sequence": self.ids[event["eventId"]]}
+        seq = self._append_event(event)
+        return {"sequence": seq}
+
+    def _op_appendBatch(self, step):
+        events = step["events"]
+        if any(self._is_ephemeral(event["type"]) for event in events):
+            raise _StoreModelError("invalidTransition")
+        if any("commitSeq" in event for event in events):
+            raise _StoreModelError("COMMIT_SEQ_ASSIGNED_BY_STORE")
+        if len({event["eventId"] for event in events}) != len(events):
+            raise _StoreModelError("invalidTransition")
+        if any(event["eventId"] in self.ids for event in events):
+            raise _StoreModelError("invalidTransition")
+        if len(events) > 1 and all("batch" not in event for event in events):
+            batch_id = "batch:vector"
+            for index, event in enumerate(events):
+                event = dict(event)
+                event["batch"] = {"id": batch_id, "index": index, "total": len(events)}
+                events[index] = event
+        sequences = [self._append_event(event) for event in events]
+        return {"sequences": sequences}
+
+    def _op_events(self, step):
+        after = step.get("after", 0)
+        limit = step.get("limit", 256)
+        selected = [self.events[seq] for seq in sorted(self.events) if seq > after][:limit]
+        return {
+            "sequences": [event["commitSeq"] for event in selected],
+            "eventIds": [event["eventId"] for event in selected],
+            "types": [event["type"] for event in selected],
+            "batchIndices": [event.get("batch", {}).get("index") for event in selected],
+            "batchTotal": selected[0].get("batch", {}).get("total") if selected else None,
+            "batchIdsEqual": len({event.get("batch", {}).get("id") for event in selected}) <= 1,
+        }
+
+    def _op_payload(self, step):
+        data = step["data"]
+        if not isinstance(data, dict):
+            raise _StoreModelError("INVALID_EVENT")
+        text = _store_canonical(data)
+        return {"canonical": text, "sha256": _store_digest(text), "size": len(text.encode())}
+
+    def _op_ephemeralAppend(self, step):
+        sequences = []
+        for event in step["events"]:
+            if len(self.ephemeral) == self.ephemeral_capacity:
+                self.ephemeral.pop(0)
+                self.dropped += 1
+            self.ephemeral.append(event["eventId"])
+            sequences.append(0)
+        return {"sequences": sequences, "buffer": list(self.ephemeral),
+                "dropped": self.dropped, "head": self.head}
+
+    def _op_reopen(self, step):
+        if self.version > 3:
+            raise _StoreModelError(f"schemaTooNew:{self.version}")
+        expected = sorted(self.events)
+        if expected != list(range(1, len(expected) + 1)):
+            for index, seq in enumerate(expected, start=1):
+                if seq != index:
+                    raise _StoreModelError(f"commitGap:{index}:{seq}")
+        return {"head": self.head}
+
+    def _op_sql(self, step):
+        statement = step.get("statement", "")
+        match = re.search(r"PRAGMA user_version\s*=\s*(\d+)", statement)
+        if match:
+            self.version = int(match.group(1))
+        match = re.search(r"DELETE FROM bot_event_headers WHERE commit_seq\s*=\s*(\d+)", statement)
+        if match:
+            seq = int(match.group(1))
+            self.events.pop(seq, None)
+            for event_id, stored_seq in list(self.ids.items()):
+                if stored_seq == seq:
+                    self.ids.pop(event_id)
+        return {"ok": True}
+
+    def _op_raw(self, step):
+        query = step.get("query", "")
+        if query.startswith("PRAGMA user_version"):
+            return {"rows": [[str(self.version)]]}
+        if "sqlite_master WHERE name = 'bot_events'" in query:
+            if self.migrated_from and self.version == 3:
+                return {"rows": [["view"]]}
+            return {"rows": [["table"]]}
+        if query == "SELECT COUNT(*) FROM bot_event_headers":
+            return {"rows": [[str(len(self.events))]]}
+        if query == "SELECT COUNT(*) FROM bot_events":
+            return {"rows": [[str(len(self.events))]]}
+        if query == "SELECT COUNT(*) FROM bot_event_payloads":
+            return {"rows": [[str(len(self.events))]]}
+        if query.startswith("SELECT commit_seq, event_id, event_type, payload_size, payload_digest"):
+            rows = []
+            for seq in sorted(self.events):
+                event = self.events[seq]
+                data = _store_canonical(event.get("data", {}))
+                rows.append([str(seq), event["eventId"], event["type"],
+                             str(len(data.encode())), _store_digest(data)])
+            return {"rows": rows}
+        if query.startswith("SELECT CAST(payload AS TEXT)"):
+            match = re.search(r"commit_seq\s*=\s*(\d+)", query)
+            seq = int(match.group(1)) if match else 1
+            event = self.events.get(seq)
+            if event is None:
+                return {"rows": []}
+            return {"rows": [[_store_canonical(event.get("data", {}))]]}
+        if query.startswith("SELECT event_id FROM bot_user_action_nonces"):
+            match = re.search(r"bot_id = '([^']+)' AND nonce = '([^']+)'", query)
+            if not match:
+                return {"rows": []}
+            event_id = self.nonces.get((match.group(1), match.group(2)))
+            return {"rows": [[event_id]] if event_id else []}
+        if "name = 'bot_user_action_nonces'" in query:
+            return {"rows": [["bot_user_action_nonces"]]}
+        if query.startswith("SELECT name FROM pragma_table_info('bot_user_action_nonces')"):
+            return {"rows": [["bot_id"], ["nonce"], ["event_id"], ["created_commit_seq"]]}
+        return {"rows": []}
+
+    def _op_event(self, step):
+        event_id = step.get("eventId", "")
+        seq = self.ids.get(event_id)
+        if seq is None:
+            return {"exists": False}
+        event = self.events[seq]
+        return {"exists": True, "commitSeq": seq, "type": event["type"]}
+
+    def _op_eventData(self, step):
+        seq = step.get("commitSeq")
+        event = self.events.get(seq)
+        if event is None:
+            return {"exists": False}
+        return {"exists": True, "value": event.get("data", {}).get(step.get("dataKey"))}
+
+    # -- effects ---------------------------------------------------------
+    def _effect(self, key):
+        return self.effects.get(key)
+
+    def _op_effectEnqueue(self, step):
+        effect = dict(step["effect"])
+        key = effect["effectKey"]
+        generation = effect.get("generation", 1)
+        existing = self._effect(key)
+        if existing is not None and generation <= existing["generation"]:
+            return {"effectKey": key, "head": self.head}
+        retry = effect.get("retryPolicy") or (
+            "local-idempotent" if effect.get("idempotent") else "local-nonidempotent")
+        max_attempts = effect.get("maxAttempts") or _default_max_attempts(
+            retry, bool(effect.get("idempotent")))
+        not_before = effect.get("notBefore", self.clock)
+        self._append_event(self._effect_event("effect.enqueued"), effect_event=True)
+        self.effects[key] = {
+            "effectKey": key, "kind": effect.get("kind", "generic"),
+            "operation": effect.get("operation", ""), "idempotent": bool(effect.get("idempotent")),
+            "retryPolicy": retry, "maxAttempts": max_attempts, "generation": generation,
+            "notBefore": not_before, "state": "pending", "attempt": 0, "attempts": 0,
+            "enqueuedCommitSeq": self.head, "leaseOwner": None, "leaseExpiresAt": None,
+            "lastError": None, "errorClass": None, "resultRef": None,
+            "reconciliationReason": None,
+        }
+        return {"effectKey": key, "head": self.head}
+
+    def _lease(self, step, explicit_ttl):
+        owner = step.get("owner", "")
+        now = step.get("now", self.clock)
+        ttl = step.get("ttlMs", explicit_ttl or self.lease_ttl)
+        candidates = []
+        for key, effect in self.effects.items():
+            if effect["state"] in ("pending", "failed") and (
+                    effect["notBefore"] is None or effect["notBefore"] <= now):
+                candidates.append(effect)
+            elif effect["state"] in ("leased", "cancel_requested") and (
+                    effect["leaseExpiresAt"] is not None and effect["leaseExpiresAt"] <= now):
+                candidates.append(effect)
+        candidates.sort(key=lambda effect: (
+            effect["notBefore"] if effect["notBefore"] is not None else 0,
+            effect["enqueuedCommitSeq"], effect["effectKey"]))
+        for effect in candidates:
+            if effect["state"] == "cancel_requested":
+                self._append_event(self._effect_event("effect.reconciliation_required"), effect_event=True)
+                effect.update({"state": "needs_reconciliation", "reconciliationReason": "unknown-outcome",
+                               "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None})
+                continue
+            if effect["state"] == "leased":
+                if effect["attempts"] >= effect["maxAttempts"]:
+                    self._append_event(self._effect_event("effect.reconciliation_required"), effect_event=True)
+                    effect.update({"state": "needs_reconciliation",
+                                   "reconciliationReason": "unknown-outcome",
+                                   "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None})
+                    continue
+                attempt = effect["attempt"] + 1
+                generation = effect["generation"] + 1
+            else:
+                if effect["attempts"] >= effect["maxAttempts"]:
+                    self._append_event(self._effect_event("effect.dead_lettered"), effect_event=True)
+                    effect.update({"state": "dead_letter", "leaseOwner": None,
+                                   "leaseExpiresAt": None})
+                    continue
+                attempt = effect["attempt"] + 1
+                generation = effect["generation"]
+            self._append_event(self._effect_event("effect.attempted"), effect_event=True)
+            effect.update({
+                "state": "leased", "attempt": attempt, "generation": generation,
+                "attempts": max(effect["attempts"], attempt), "leaseOwner": owner,
+                "leaseExpiresAt": now + ttl, "notBefore": None,
+                "reconciliationReason": None,
+            })
+            lease = {"effectKey": effect["effectKey"], "attempt": attempt,
+                     "generation": generation, "leaseOwner": owner,
+                     "leaseExpiresAt": now + ttl}
+            self.leases[effect["effectKey"]] = lease
+            return dict(lease)
+        return {"lease": None}
+
+    def _op_effectLease(self, step):
+        return self._lease(step, None)
+
+    def _op_effectLeaseNext(self, step):
+        observation = self._lease(step, None)
+        if "lease" not in observation and step.get("effectKey"):
+            if observation.get("effectKey") != step["effectKey"]:
+                raise AssertionError("leaseNext selected another effect")
+        return observation
+
+    def _step_lease(self, step):
+        key = step.get("effectKey", "")
+        if "lease" in step:
+            return step["lease"]
+        lease = self.leases.get(key)
+        if lease is None:
+            raise AssertionError(f"no lease recorded for {key}")
+        return lease
+
+    def _op_effectRenew(self, step):
+        lease = self._step_lease(step)
+        effect = self._effect(lease["effectKey"])
+        if effect is None:
+            raise _StoreModelError("unknownEffect")
+        if (effect["state"] != "leased" or lease["generation"] != effect["generation"]
+                or lease["attempt"] != effect["attempt"]
+                or lease["leaseOwner"] != effect["leaseOwner"]):
+            raise _StoreModelError("staleLease")
+        now = step.get("now", self.clock)
+        ttl = step.get("ttlMs", self.lease_ttl)
+        self._append_event(self._effect_event("effect.attempted"), effect_event=True)
+        effect["leaseExpiresAt"] = now + ttl
+        lease["leaseExpiresAt"] = now + ttl
+        return {"attempt": lease["attempt"], "generation": lease["generation"],
+                "leaseExpiresAt": lease["leaseExpiresAt"], "leaseOwner": lease["leaseOwner"]}
+
+    def _check_lease(self, step, states):
+        lease = self._step_lease(step)
+        effect = self._effect(lease["effectKey"])
+        if effect is None:
+            raise _StoreModelError("unknownEffect")
+        if (lease["generation"] != effect["generation"]
+                or lease["attempt"] != effect["attempt"]
+                or lease["leaseOwner"] != effect["leaseOwner"]):
+            raise _StoreModelError("staleLease")
+        if effect["state"] not in states:
+            raise _StoreModelError("invalidTransition")
+        return lease, effect
+
+    def _op_effectAck(self, step):
+        lease = self._step_lease(step)
+        effect = self._effect(lease["effectKey"])
+        if effect is not None and effect["state"] == "acked" and (
+                effect["generation"] == lease["generation"]
+                and effect["attempt"] == lease["attempt"]):
+            return {"state": "acked", "head": self.head}
+        lease, effect = self._check_lease(step, {"leased", "cancel_requested"})
+        sequence = self._append_event(self._effect_event("effect.acked"), effect_event=True)
+        self.events[sequence]["data"] = {"reconciled": True}
+        effect.update({"state": "acked", "resultRef": step.get("resultRef"),
+                       "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None,
+                       "reconciliationReason": None})
+        return {"state": "acked", "head": self.head}
+
+    def _op_effectFail(self, step):
+        error_class = step.get("errorClass")
+        if error_class not in ("transient", "permanent", "unknown"):
+            raise _StoreModelError("invalidTransition")
+        lease = self._step_lease(step)
+        effect = self._effect(lease["effectKey"])
+        if effect is None:
+            raise _StoreModelError("unknownEffect")
+        if (effect["state"] not in ("leased", "cancel_requested")
+                or lease["generation"] != effect["generation"]
+                or lease["attempt"] != effect["attempt"]
+                or lease["leaseOwner"] != effect["leaseOwner"]):
+            raise _StoreModelError("staleLease")
+        now = self.clock
+        safe = _safe_error(step.get("reason", ""))
+        dead = error_class == "permanent" or effect["attempts"] >= effect["maxAttempts"]
+        if error_class == "unknown":
+            self._append_effect_events(["effect.failed", "effect.reconciliation_required"])
+            effect.update({"state": "needs_reconciliation", "lastError": safe,
+                           "errorClass": error_class,
+                           "reconciliationReason": "unknown-outcome",
+                           "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None})
+        elif dead:
+            self._append_effect_events(["effect.failed", "effect.dead_lettered"])
+            effect.update({"state": "dead_letter", "lastError": safe,
+                           "errorClass": error_class, "leaseOwner": None,
+                           "leaseExpiresAt": None, "notBefore": None})
+        else:
+            self._append_event(self._effect_event("effect.failed"), effect_event=True)
+            effect.update({"state": "failed", "lastError": safe, "errorClass": error_class,
+                           "notBefore": now + _retry_delay(effect["retryPolicy"], lease["attempt"]),
+                           "leaseOwner": None, "leaseExpiresAt": None})
+        lease["leaseExpiresAt"] = None
+        return {"state": effect["state"], "head": self.head, "attempt": effect["attempt"],
+                "attempts": effect["attempts"], "notBefore": effect["notBefore"]}
+
+    def _op_effectRelease(self, step):
+        """Known kind without a registered executor: back to pending, no event."""
+        lease = self._step_lease(step)
+        effect = self._effect(lease["effectKey"])
+        if effect is None:
+            raise _StoreModelError("unknownEffect")
+        if (lease["generation"] != effect["generation"]
+                or lease["attempt"] != effect["attempt"]
+                or lease["leaseOwner"] != effect["leaseOwner"]):
+            raise _StoreModelError("staleLease")
+        if effect["state"] != "leased":
+            raise _StoreModelError("invalidTransition")
+        now = self.clock
+        effect.update({
+            "state": "pending",
+            "notBefore": now + _retry_delay(effect["retryPolicy"], lease["attempt"]),
+            "lastError": "no registered executor",
+            "leaseOwner": None,
+            "leaseExpiresAt": None,
+        })
+        lease["leaseExpiresAt"] = None
+        return {"state": effect["state"], "head": self.head, "attempt": effect["attempt"],
+                "attempts": effect["attempts"], "notBefore": effect["notBefore"]}
+
+    def _op_effectMarkReconciliation(self, step):
+        reason = step.get("reason")
+        if reason not in RECONCILIATION_REASONS:
+            raise _StoreModelError("invalidTransition")
+        effect = self._effect(step.get("effectKey", ""))
+        if effect is None:
+            raise _StoreModelError("unknownEffect")
+        if effect["state"] == "needs_reconciliation":
+            return {"state": effect["state"], "head": self.head}
+        if effect["state"] in TERMINAL_EFFECT_STATES:
+            raise _StoreModelError("invalidTransition")
+        self._append_event(self._effect_event("effect.reconciliation_required"), effect_event=True)
+        effect.update({"state": "needs_reconciliation", "reconciliationReason": reason,
+                       "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None})
+        return {"state": effect["state"], "head": self.head}
+
+    def _op_effectAckReconciled(self, step):
+        effect = self._effect(step.get("effectKey", ""))
+        if effect is None:
+            raise _StoreModelError("unknownEffect")
+        if (effect["state"] != "needs_reconciliation"
+                or effect["generation"] != step.get("generation")
+                or effect["attempt"] != step.get("attempt")):
+            raise _StoreModelError("invalidTransition")
+        sequence = self._append_event(self._effect_event("effect.acked"), effect_event=True)
+        self.events[sequence]["data"] = {"reconciled": True}
+        effect.update({"state": "acked", "resultRef": step.get("resultRef"),
+                       "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None,
+                       "reconciliationReason": None})
+        return {"state": "acked", "head": self.head}
+
+    def _op_effectCancel(self, step):
+        effect = self._effect(step.get("effectKey", ""))
+        if effect is None:
+            raise _StoreModelError("unknownEffect")
+        if effect["state"] in TERMINAL_EFFECT_STATES or effect["state"] == "cancel_requested":
+            return {"state": effect["state"], "head": self.head}
+        if effect["state"] == "needs_reconciliation":
+            raise _StoreModelError("invalidTransition")
+        if effect["state"] == "leased":
+            self._append_event(self._effect_event("effect.cancel_requested"), effect_event=True)
+            effect["state"] = "cancel_requested"
+        else:
+            self._append_event(self._effect_event("effect.canceled"), effect_event=True)
+            effect.update({"state": "canceled", "lastError": step.get("reason"),
+                           "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None})
+        return {"state": effect["state"], "head": self.head}
+
+    def _op_effectConfirmCancel(self, step):
+        lease, effect = self._check_lease(step, {"cancel_requested"})
+        self._append_event(self._effect_event("effect.canceled"), effect_event=True)
+        effect.update({"state": "canceled", "lastError": step.get("reason"),
+                       "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None})
+        return {"state": effect["state"], "head": self.head}
+
+    def _op_effectRecord(self, step):
+        effect = self._effect(step.get("effectKey", ""))
+        if effect is None:
+            return {"exists": False}
+        observation = {"exists": True, **{key: effect.get(key) for key in (
+            "state", "attempt", "attempts", "generation", "enqueuedCommitSeq",
+            "leaseOwner", "resultRef", "reconciliationReason", "lastError",
+            "notBefore", "errorClass")}}
+        return observation
+
+    _op_effect = _op_effectRecord
+
+    def _op_effects(self, step):
+        ordered = sorted(self.effects.values(), key=lambda effect: (
+            effect["enqueuedCommitSeq"], effect["effectKey"]))
+        return {"keys": [effect["effectKey"] for effect in ordered],
+                "states": [effect["state"] for effect in ordered],
+                "enqueuedCommitSeq": [effect["enqueuedCommitSeq"] for effect in ordered]}
+
+    def _op_effectInbox(self, step):
+        receiver = step.get("receiver")
+        key = step.get("effectKey")
+        lease = self._step_lease(step)
+        repeat = step.get("repeat", 1)
+        deduped = 0
+        executions = self.inbox_executions.get((receiver, key), 0)
+        result_ref = None
+        for _ in range(repeat):
+            existing = self.inbox.get((receiver, key))
+            if existing is not None and existing["generation"] >= lease["generation"]:
+                deduped += 1
+                result_ref = existing["resultRef"]
+                continue
+            effect = self._effect(key)
+            if (effect is None or effect["state"] not in ("leased", "cancel_requested")
+                    or lease["generation"] != effect["generation"]
+                    or lease["attempt"] != effect["attempt"]
+                    or lease["leaseOwner"] != effect["leaseOwner"]):
+                raise _StoreModelError("staleLease")
+            executions += 1
+            result_ref = step.get("resultRef")
+            self.inbox[(receiver, key)] = {"generation": lease["generation"],
+                                           "resultRef": result_ref}
+            self.inbox_executions[(receiver, key)] = executions
+        return {"dedupedCount": deduped, "executions": executions, "resultRef": result_ref}
+
+    def _op_action(self, step):
+        action = step["action"]
+        plan = step["plan"]
+        key = (action["botID"], action["nonce"])
+        if key in self.nonces:
+            return {"status": "duplicate", "eventID": self.nonces[key], "head": self.head}
+        reason = _validate_action(action)
+        if reason is not None:
+            status, value = reason
+            return {"status": status, "reason": value, "head": self.head}
+        event = plan["event"]
+        effects = plan.get("effects", [])
+        if self._is_ephemeral(event["type"]) or event["principal"]["botId"] != action["botID"]:
+            raise _StoreModelError("invalidTransition")
+        if event["eventId"] in self.ids:
+            raise _StoreModelError("invalidTransition")
+        effect_keys = [effect["effectKey"] for effect in effects]
+        if len(set(effect_keys)) != len(effect_keys):
+            raise _StoreModelError("invalidTransition")
+        if any(effect_key in self.effects for effect_key in effect_keys):
+            raise _StoreModelError("invalidTransition")
+        self._append_event(event)
+        event_types = [event["type"]]
+        sequences = [self.head]
+        for effect in effects:
+            enqueue = self._op_effectEnqueue({"effect": effect, "expect": None})
+            event_types.append("effect.enqueued")
+            sequences.append(enqueue["head"])
+        self.nonces[key] = event["eventId"]
+        return {"status": "accepted", "eventID": event["eventId"], "head": self.head,
+                "eventTypes": event_types, "sequences": sequences}
+
+    def _op_nonce(self, step):
+        event_id = self.nonces.get((step.get("botID"), step.get("nonce")))
+        if event_id is None:
+            return {"exists": False}
+        return {"eventID": event_id}
+
+
+def _validate_action(action):
+    if not action.get("nonce") or not action.get("botID"):
+        return "rejected", "invalid_action"
+    kind = action.get("kind")
+    if kind != "chat" and "attachments" in action:
+        return "rejected", "unexpected_attachments"
+    if kind == "chat":
+        attachments = action.get("attachments") or []
+        if not (action.get("text") or "").strip() and not attachments:
+            return "rejected", "missing_text"
+    elif kind == "cardAnswer":
+        if not action.get("cardID"):
+            return "rejected", "missing_card_id"
+        if "text" in action:
+            return "rejected", "unexpected_card_answer_field"
+        if not action.get("optionID"):
+            return "rejected", "missing_card_answer"
+    elif kind == "cardDismiss":
+        if not action.get("cardID"):
+            return "rejected", "missing_card_id"
+    elif kind == "approval":
+        if not action.get("approvalID") or action.get("decision") is None:
+            return "rejected", "invalid_approval"
+        if not action.get("digest"):
+            return "stale", "digest_mismatch"
+    elif kind == "stopTask":
+        if not action.get("threadID"):
+            return "rejected", "missing_thread_id"
+    return None
+
+
+def _run_store_step(model, step, where):
+    expect = step.get("expect")
+    try:
+        observation = model.step(step)
+    except _StoreModelError as error:
+        if not isinstance(expect, dict) or "error" not in expect:
+            raise AssertionError(f"{where}: unexpected model error {error.code}") from None
+        if expect["error"] != error.code:
+            raise AssertionError(
+                f"{where}: expected error {expect['error']!r}, got {error.code!r}") from None
+        return
+    if isinstance(expect, dict) and "error" in expect:
+        raise AssertionError(f"{where}: expected error {expect['error']!r}, got success")
+    _expect_store(expect, observation, where)
+
+
+def _walk_store_case(case, vector_name):
+    name = case.get("name")
+    if not isinstance(name, str) or not name:
+        raise AssertionError(f"{vector_name}: case without name")
+    _store_source(case.get("source"), f"{vector_name}.{name}")
+    steps = case.get("steps")
+    if not isinstance(steps, list):
+        raise AssertionError(f"{vector_name}.{name}: steps must be an array")
+    open_error = case.get("openError")
+    if open_error is not None:
+        if open_error not in STORE_ERRORS:
+            raise AssertionError(f"{vector_name}.{name}: unknown openError {open_error!r}")
+        # A refused open may still be inspected on disk (for example
+        # `PRAGMA user_version` after a rolled-back migration). No other step
+        # makes sense because the model never opened.
+        model = _StoreModel(case, open_failed=True)
+        expected_detail = case.get("openErrorContains")
+        if expected_detail is not None:
+            if not isinstance(expected_detail, str) or not expected_detail:
+                raise AssertionError(
+                    f"{vector_name}.{name}: openErrorContains must be a non-empty string")
+            actual_detail = model.open_failure_detail()
+            if actual_detail is None:
+                raise AssertionError(
+                    f"{vector_name}.{name}: openError case models no failure detail")
+            if expected_detail not in actual_detail:
+                raise AssertionError(
+                    f"{vector_name}.{name}: openErrorContains {expected_detail!r} not in "
+                    f"{actual_detail!r}")
+        for index, step in enumerate(steps):
+            where = f"{vector_name}.{name}.steps[{index}]"
+            if step.get("op") not in ("raw", "sql"):
+                raise AssertionError(
+                    f"{where}: only raw/sql steps may follow a failed open")
+            _run_store_step(model, step, where)
+        return len(steps)
+    if not steps:
+        raise AssertionError(f"{vector_name}.{name}: case without steps")
+    model = _StoreModel(case)
+    for index, step in enumerate(steps):
+        where = f"{vector_name}.{name}.steps[{index}]"
+        _run_store_step(model, step, where)
+    return len(steps)
+
+
+def validate_store_fixture(fixture):
+    if fixture.get("vector") != "store.phone":
+        raise AssertionError("store.phone: vector must be store.phone")
+    if fixture.get("upstream") != []:
+        raise AssertionError("store.phone: phone-only vector must declare upstream: []")
+    if not isinstance(fixture.get("delta"), list) or not fixture["delta"]:
+        raise AssertionError("store.phone: delta must be a non-empty array")
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    if not isinstance(valid, list) or not valid:
+        raise AssertionError("store.phone: valid must be a non-empty array")
+    if not isinstance(invalid, list) or not invalid:
+        raise AssertionError("store.phone: invalid must be a non-empty array")
+    names = set()
+    count = 0
+    for case in valid + invalid:
+        if case.get("name") in names:
+            raise AssertionError(f"store.phone: duplicate case name {case.get('name')!r}")
+        names.add(case.get("name"))
+        count += _walk_store_case(case, "store.phone")
+    # Mutation self-check: the expected sequence is part of the contract, not a comment.
+    mutated = copy.deepcopy(valid[0])
+    mutated["steps"][0]["expect"]["sequence"] = 2
+    expect_rule_violation("store-sequence", lambda: _walk_store_case(mutated, "store.phone"))
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "payload-canonical-bytes-and-digest"))
+    mutated["steps"][0]["expect"]["sha256"] = "0" * 64
+    expect_rule_violation("store-payload-digest", lambda: _walk_store_case(mutated, "store.phone"))
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "outbox-transient-exhaustion-dead-letters-atomically"))
+    for step in mutated["steps"]:
+        if step["op"] == "effectFail":
+            step["expect"]["state"] = "acked"
+            break
+    expect_rule_violation("store-effect-state", lambda: _walk_store_case(mutated, "store.phone"))
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "outbox-network-idempotent-backoff"))
+    for step in mutated["steps"]:
+        if step["op"] == "effectLease" and step.get("now") == 1999:
+            step["expect"] = {
+                "attempt": 2, "generation": 1,
+                "leaseOwner": "owner", "leaseExpiresAt": 31999}
+            break
+    expect_rule_violation("store-backoff", lambda: _walk_store_case(mutated, "store.phone"))
+    # A known kind without an executor MUST be released to `pending` with the
+    # store's retry delay, not failed or dead-lettered.
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "outbox-known-kind-without-executor-releases-to-pending"))
+    for step in mutated["steps"]:
+        if step["op"] == "effectRelease":
+            step["expect"]["state"] = "failed"
+            break
+    expect_rule_violation("store-release-state", lambda: _walk_store_case(mutated, "store.phone"))
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "outbox-known-kind-without-executor-releases-to-pending"))
+    for step in mutated["steps"]:
+        if step["op"] == "effectRelease":
+            step["expect"]["notBefore"] = 1001
+            break
+    expect_rule_violation("store-release-delay", lambda: _walk_store_case(mutated, "store.phone"))
+    # A migration gap MUST roll back, so the file still reports user_version 2.
+    mutated = copy.deepcopy(next(case for case in invalid if case["name"] ==
+                                 "v2-gap-rolls-back-and-stays-v2"))
+    for step in mutated["steps"]:
+        if step["op"] == "raw" and step.get("query") == "PRAGMA user_version":
+            step["expect"]["rows"] = [["3"]]
+            break
+    expect_rule_violation("store-migration-rollback",
+                          lambda: _walk_store_case(mutated, "store.phone"))
+    # The no-executor release is not the unknown-kind path: the latter is a
+    # permanent failure whose stored code is exactly `unknown_effect_kind`.
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "unknown-effect-kind-is-permanent"))
+    for step in mutated["steps"]:
+        if step["op"] == "effectRecord":
+            step["expect"]["lastErrorContains"] = "not_the_code"
+            break
+    expect_rule_violation("store-unknown-effect-kind",
+                          lambda: _walk_store_case(mutated, "store.phone"))
+    return count
+
+
+def validate_user_action_fixture(fixture):
+    if fixture.get("vector") != "user-action-transaction.phone":
+        raise AssertionError("user-action-transaction.phone: vector must be "
+                             "user-action-transaction.phone")
+    if fixture.get("upstream") != []:
+        raise AssertionError("user-action-transaction.phone: phone-only vector must "
+                             "declare upstream: []")
+    if not isinstance(fixture.get("delta"), list) or not fixture["delta"]:
+        raise AssertionError("user-action-transaction.phone: delta must be a non-empty array")
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    if not isinstance(valid, list) or not valid:
+        raise AssertionError("user-action-transaction.phone: valid must be a non-empty array")
+    if not isinstance(invalid, list) or not invalid:
+        raise AssertionError("user-action-transaction.phone: invalid must be a non-empty array")
+    names = set()
+    count = 0
+    for case in valid + invalid:
+        if case.get("name") in names:
+            raise AssertionError(f"user-action-transaction.phone: duplicate case name "
+                                 f"{case.get('name')!r}")
+        names.add(case.get("name"))
+        if not isinstance(case.get("steps"), list):
+            raise AssertionError(f"user-action-transaction.phone.{case.get('name')}: "
+                                 f"steps must be an array")
+        count += _walk_store_case(case, "user-action-transaction.phone")
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "action-duplicate-survives-reopen"))
+    for step in mutated["steps"]:
+        if step["op"] == "action" and step["expect"].get("status") == "duplicate":
+            step["expect"]["status"] = "accepted"
+            break
+    expect_rule_violation("action-duplicate",
+                   lambda: _walk_store_case(mutated, "user-action-transaction.phone"))
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "action-event-effects-and-nonce-commit-atomically"))
+    mutated["steps"][0]["expect"]["head"] = 4
+    expect_rule_violation("action-head",
+                   lambda: _walk_store_case(mutated, "user-action-transaction.phone"))
+    mutated = copy.deepcopy(next(case for case in invalid if case["name"] ==
+                                 "action-event-id-conflict-fails-closed-without-consuming-nonce"))
+    for step in mutated["steps"]:
+        if step["op"] == "nonce" and step["expect"].get("eventID") == "evt-shared":
+            step["expect"]["eventID"] = "evt-wrong"
+            break
+    expect_rule_violation("action-nonce",
+                   lambda: _walk_store_case(mutated, "user-action-transaction.phone"))
+    return count
+
+
+# ---------------------------------------------------------------------------
+# P27 B7a: session lifecycle and row projection (phone-only vectors).
+#
+# These validators are reference oracles, not runtime conformance. They prove
+# that the shared fixtures are internally consistent with the normative text:
+# id/entrySeq arithmetic, the token-registry model, the JSONL decoder
+# diagnostics, watch/reset semantics and the 10 Hz limiter. The Swift tests in
+# Tests/PhoneDSHBotTests/{MCP,Rows} drive the real code over the same files.
+# ---------------------------------------------------------------------------
+
+SESSION_LIFECYCLE_VECTOR = "session-lifecycle.phone.json"
+PROJECTION_VECTOR = "projection.phone.json"
+
+_ROW_WIRE_KINDS = {"message", "send-message", "event"}
+_ROW_BODY_TYPES = {"text", "widget", "attachment", "approval", "automation", "notice", "deleted"}
+_ROW_CARD_TYPES = {"question", "steps", "task", "document", "progress", "checklist", "link",
+                   "table", "callout", "info", "payload", "library"}
+_ROW_TRUST = {"owner_direct", "model", "projector"}
+_TOKEN_RE = re.compile(r"^dshg_[A-Za-z0-9_-]{43}$")
+_INCARNATION_RE = re.compile(r"^[0-9a-f]{32}$")
+_BOT_REQUEST_ID_RE = re.compile(
+    r"^bot-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_REBUILT_ID_RE = re.compile(
+    r"^gb-main-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_FROZEN_REQUEST_PREFIXES = (
+    "user-action:", "card-answer:", "held:", "agent:", "routine:", "task-turn:",
+    "task-settled:", "task-interrupted:", "maintenance:",
+)
+_DEFAULT_BOT_ROOT = "/dsh/workspace/.dshbot/agents/main"
+
+
+def _family(fixture, group, name, label):
+    section = fixture.get(group)
+    if not isinstance(section, dict):
+        raise AssertionError(f"{label}: {group} must be an object")
+    value = section.get(name)
+    if not isinstance(value, list) or not value:
+        raise AssertionError(f"{label}: {group}.{name} must be a non-empty array")
+    return value
+
+
+def _expect_phone_vector(fixture, vector_name):
+    if fixture.get("vector") != vector_name:
+        raise AssertionError(f"{vector_name}: vector must be {vector_name!r}")
+    if fixture.get("upstream") != []:
+        raise AssertionError(f"{vector_name}: phone-only vector must declare upstream: []")
+    delta = fixture.get("delta")
+    if not isinstance(delta, list) or not delta:
+        raise AssertionError(f"{vector_name}: phone-only vector needs a non-empty delta")
+    if not isinstance(fixture.get("valid"), dict):
+        raise AssertionError(f"{vector_name}: valid must be an object")
+    if not isinstance(fixture.get("invalid"), (dict, list)):
+        raise AssertionError(f"{vector_name}: invalid must be an object or an array")
+    for group in ("valid", "invalid"):
+        section = fixture[group]
+        if isinstance(section, list):
+            if not section:
+                raise AssertionError(f"{vector_name}: {group} must not be empty")
+            continue
+        for key, value in section.items():
+            if not value:
+                raise AssertionError(f"{vector_name}: {group}.{key} must not be empty")
+
+
+def _graphemes(text):
+    """Approximate extended grapheme clusters for the sanitized alphabet.
+
+    §2.1 replaces every scalar outside L*/M*/N*/`._-` with `_` *before*
+    truncating, so emoji ZWJ sequences, flags and modifiers never reach this
+    loop; only a combining mark can extend a cluster here. The Kotlin runtime's
+    shared helper also implements GB11/GB12/GB13 for callers that truncate raw
+    text, and the `grapheme-truncation` / `grapheme-truncation-zwj-and-flag`
+    vectors pin the sanitize-then-truncate order.
+    """
+    clusters = []
+    for character in text:
+        if clusters and unicodedata.category(character).startswith("M"):
+            clusters[-1] += character
+        else:
+            clusters.append(character)
+    return clusters
+
+
+def _safe_path_component(raw):
+    allowed_extra = "._-"
+    output = []
+    for character in raw:
+        category = unicodedata.category(character)
+        if category[0] in ("L", "M", "N") or character in allowed_extra:
+            output.append(character)
+        else:
+            output.append("_")
+    value = "".join(output)
+    if value in ("", ".", ".."):
+        value = "bot"
+    return "".join(_graphemes(value)[:64])
+
+
+_SESSION_FOLLOW_SNAPSHOT_ERROR = "session/follow ended before its snapshot"
+
+
+def _follow_wait_outcome(frames):
+    """Model `waitForSnapshot` (`BotDSHRemoteRuntime.swift:2214-2230`).
+
+    Returns ``(True, None)`` once the `snapshot` arrives, otherwise
+    ``(False, message)`` for an `error` frame, an `end` value or a closed
+    socket. A `follow` item whose `value.type` is neither `snapshot` nor `end`
+    is skipped. Foreign stream ids and non-item frames are ignored.
+    """
+    for frame in frames or []:
+        if not isinstance(frame, dict):
+            continue
+        if frame.get("__awaitCancel") is True:
+            continue
+        if frame.get("type") == "error":
+            error = frame.get("error")
+            message = error.get("message") if isinstance(error, dict) else None
+            return False, message or "session/follow failed"
+        if frame.get("type") != "item" or frame.get("streamId") != "follow":
+            continue
+        value = frame.get("value")
+        value_type = value.get("type") if isinstance(value, dict) else None
+        if value_type == "snapshot":
+            return True, None
+        if value_type == "end":
+            return False, _SESSION_FOLLOW_SNAPSHOT_ERROR
+    return False, _SESSION_FOLLOW_SNAPSHOT_ERROR
+
+
+def _session_turns(case):
+    transport = case.get("transport")
+    if not isinstance(transport, dict):
+        return []
+    turns = transport.get("turns")
+    return turns if isinstance(turns, list) else []
+
+
+def _validate_session_workspace(fixture):
+    workspace = _family(fixture, "valid", "workspace", "session-lifecycle")
+    for case in workspace:
+        if not isinstance(case.get("source"), str):
+            raise AssertionError("session-lifecycle.workspace: source")
+        safe = _safe_path_component(case["botId"])
+        if safe != case["safe"]:
+            raise AssertionError(f"workspace {case['name']}: safe {safe!r} != {case['safe']!r}")
+        directory = case.get("dataDirectory", "/dsh/workspace/.dshbot")
+        while len(directory) > 1 and directory.endswith("/"):
+            directory = directory[:-1]
+        root = f"{directory}/agents/{safe}"
+        if root != case["root"]:
+            raise AssertionError(f"workspace {case['name']}: root {root!r} != {case['root']!r}")
+    invalid = _family(fixture, "invalid", "workspace", "session-lifecycle")
+    for case in invalid:
+        if not isinstance(case.get("why"), str) or not case["why"]:
+            raise AssertionError("session-lifecycle.workspace invalid: why")
+        if _safe_path_component(case["botId"]) != case["safe"]:
+            raise AssertionError(f"workspace {case['name']}: fallback")
+    return workspace, invalid
+
+
+def validate_session_snapshot_wait_vectors(fixture):
+    """Check the §6.2 snapshot-wait transcript model and its mutations.
+
+    The valid fixture must contain a `follow` item before the snapshot and the
+    turn must still proceed. The invalid fixture must contain a skipped item
+    followed by `end`, which fails with the frozen message before
+    `session/prompt`.
+    """
+    skipped_before_snapshot = 0
+    ended_after_skip = 0
+    for group, cases in (("valid", fixture["valid"]["sessions"]),
+                         ("invalid", fixture["invalid"]["sessions"])):
+        for case in cases:
+            label = f"session-lifecycle.{group}.{case.get('name')}"
+            expect = case.get("expect") or {}
+            expect_error = " ".join(expect.get("errorContains") or [])
+            turns = _session_turns(case)
+            if not turns:
+                continue
+            for index, frames in enumerate(turns):
+                where = f"{label}.transport.turns[{index}]"
+                ok, message = _follow_wait_outcome(frames)
+                if ok:
+                    if "ended before its snapshot" in expect_error:
+                        raise AssertionError(
+                            f"{where}: snapshot wait passed but the case expects an end failure")
+                    first_follow = next(
+                        (item for item in frames or []
+                         if isinstance(item, dict) and item.get("type") == "item"
+                         and item.get("streamId") == "follow"), None)
+                    if first_follow is not None and (
+                            first_follow.get("value") or {}).get("type") != "snapshot":
+                        skipped_before_snapshot += 1
+                        if not expect.get("promptRequests"):
+                            raise AssertionError(
+                                f"{where}: a skipped pre-snapshot item must still prompt")
+                elif "ended before its snapshot" in expect_error:
+                    saw_skip = any(
+                        isinstance(item, dict) and item.get("type") == "item"
+                        and item.get("streamId") == "follow"
+                        and isinstance(item.get("value"), dict)
+                        and item["value"].get("type") not in ("snapshot", "end")
+                        for item in frames or [])
+                    if saw_skip:
+                        ended_after_skip += 1
+            if "ended before its snapshot" in expect_error:
+                ok, message = _follow_wait_outcome(turns[0])
+                if ok or message != _SESSION_FOLLOW_SNAPSHOT_ERROR:
+                    raise AssertionError(
+                        f"{label}: end before snapshot must fail with "
+                        f"{_SESSION_FOLLOW_SNAPSHOT_ERROR!r}")
+                if expect.get("promptRequests") != []:
+                    raise AssertionError(f"{label}: an end before snapshot must not prompt")
+    if skipped_before_snapshot == 0:
+        raise AssertionError(
+            "session-lifecycle: no valid vector covers a skipped item before the snapshot")
+    if ended_after_skip == 0:
+        raise AssertionError(
+            "session-lifecycle: no invalid vector covers a skipped item followed by end")
+
+    def mutated_skip_to_end():
+        mutated = copy.deepcopy(fixture)
+        case = next(c for c in mutated["valid"]["sessions"]
+                    if c["name"] == "follow-skips-item-before-snapshot")
+        frames = case["transport"]["turns"][0]
+        for index, frame in enumerate(frames):
+            value = frame.get("value") if isinstance(frame, dict) else None
+            if (frame.get("type") == "item" and frame.get("streamId") == "follow"
+                    and isinstance(value, dict)
+                    and value.get("type") not in ("snapshot", "end")):
+                frames[index] = {"type": "item", "streamId": "follow",
+                                 "value": {"type": "end"}}
+                break
+        validate_session_snapshot_wait_vectors(mutated)
+
+    _expect_contract_failure("session follow snapshot skip", mutated_skip_to_end)
+
+    def mutated_end_to_snapshot():
+        mutated = copy.deepcopy(fixture)
+        case = next(c for c in mutated["invalid"]["sessions"]
+                    if c["name"] == "follow-skips-item-then-ends-before-snapshot")
+        frames = case["transport"]["turns"][0]
+        for index, frame in enumerate(frames):
+            value = frame.get("value") if isinstance(frame, dict) else None
+            if (frame.get("type") == "item" and frame.get("streamId") == "follow"
+                    and isinstance(value, dict) and value.get("type") == "end"):
+                frames[index] = {"type": "item", "streamId": "follow",
+                                 "value": {"type": "snapshot", "cursor": 0}}
+                break
+        validate_session_snapshot_wait_vectors(mutated)
+
+    _expect_contract_failure("session follow snapshot end", mutated_end_to_snapshot)
+
+
+def _entry_seq(time_value, source_seq):
+    positive_source = max(0, int(source_seq)) % 1000
+    milliseconds = int(time_value) * 1000
+    if milliseconds < -(2 ** 63) or milliseconds > 2 ** 63 - 1:
+        return -(2 ** 63) if int(time_value) < 0 else 2 ** 63 - 1
+    result = milliseconds + positive_source
+    if result > 2 ** 63 - 1 or result < -(2 ** 63):
+        return 2 ** 63 - 1
+    return result
+
+
+def _parse_session_records(records):
+    events = []
+    skipped = []
+    first = True
+    for line_number, raw in enumerate(records, start=1):
+        line = raw.lstrip(" \t\r")
+        if not line.strip():
+            continue
+        if first:
+            first = False
+            try:
+                candidate = json.loads(line)
+            except ValueError:
+                candidate = None
+            if (isinstance(candidate, dict) and candidate.get("type") == "session"
+                    and candidate.get("version") == 4
+                    and all(key in candidate for key in
+                            ("id", "createdAt", "isSeeded", "delegationDepth"))):
+                continue
+        try:
+            event = json.loads(line)
+            _check_session_event(event)
+            events.append(event)
+        except (ValueError, AssertionError):
+            seq = None
+            try:
+                candidate = json.loads(line)
+                value = candidate.get("seq") if isinstance(candidate, dict) else None
+                if isinstance(value, int) and not isinstance(value, bool):
+                    seq = value
+            except ValueError:
+                seq = None
+            skipped.append({"lineNumber": line_number, "seq": seq})
+    return events, skipped
+
+
+def _check_session_event(event):
+    if not isinstance(event, dict):
+        raise AssertionError("session record must be an object")
+    if not isinstance(event.get("type"), str):
+        raise AssertionError("session record type")
+    for key in ("seq", "time"):
+        value = event.get(key)
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise AssertionError(f"session record {key}")
+    if not isinstance(event.get("data"), dict):
+        raise AssertionError("session record data")
+    if "eventId" in event and not isinstance(event["eventId"], str):
+        raise AssertionError("session record eventId")
+    surface_op = event.get("surfaceOp")
+    if surface_op is None:
+        return
+    if surface_op == "append":
+        return
+    if not isinstance(surface_op, dict) or set(surface_op) != {"op", "startSeq", "endSeq"}:
+        raise AssertionError("surfaceOp shape")
+    if surface_op["op"] != "replace":
+        raise AssertionError("surfaceOp op")
+    start = surface_op["startSeq"]
+    end = surface_op["endSeq"]
+    for value in (start, end):
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise AssertionError("surfaceOp range")
+    if start < 0 or end < start:
+        raise AssertionError("surfaceOp range order")
+
+
+def _flatten_ui_payload(event):
+    data = event.get("data")
+    if not isinstance(data, dict):
+        return {}
+    payload = dict(data)
+    for key in ("row", "entry", "message", "body", "card", "task", "automation",
+                "routine", "run", "notice"):
+        nested = data.get(key)
+        if isinstance(nested, dict):
+            payload.update(nested)
+    return payload
+
+
+def _validate_row(row, where):
+    check(row, "row.schema.json", where)
+    if row["body"]["type"] not in _ROW_BODY_TYPES:
+        raise AssertionError(f"{where}: body type")
+    if row["body"].get("cardType") is not None and row["body"]["cardType"] not in _ROW_CARD_TYPES:
+        raise AssertionError(f"{where}: cardType")
+    if row["provenance"]["trust"] not in _ROW_TRUST:
+        raise AssertionError(f"{where}: trust")
+    if row["updatedSeq"] < 1:
+        raise AssertionError(f"{where}: updatedSeq must be positive")
+
+
+def _find_record(case, origin):
+    if "epochs" in case:
+        for epoch in case["epochs"]:
+            if epoch["sessionID"] == origin.get("sessionID", "gb-main"):
+                for record in epoch["records"]:
+                    event, _ = _parse_session_records([record])
+                    if event and event[0]["seq"] == origin["seq"]:
+                        return event[0], epoch["sessionID"]
+        raise AssertionError(f"{case['name']}: epoch record {origin} not found")
+    for record in case["records"]:
+        event, _ = _parse_session_records([record])
+        if event and event[0]["seq"] == origin["seq"]:
+            return event[0], case.get("sessionID", "gb-main")
+    raise AssertionError(f"{case['name']}: record {origin} not found")
+
+
+def _validate_expected_rows(case, session_id, label):
+    expected = case["expected"]
+    rows = expected.get("rows")
+    tombstones = expected.get("tombstones")
+    if not isinstance(rows, list) or not isinstance(tombstones, list):
+        raise AssertionError(f"{label}: rows/tombstones must be arrays")
+    cursor = expected.get("cursor")
+    if not isinstance(cursor, int) or cursor < 0:
+        raise AssertionError(f"{label}: cursor")
+    ids = set()
+    updated = []
+    for side, values in (("row", rows), ("tombstone", tombstones)):
+        for index, row in enumerate(values):
+            where = f"{label}.{side}[{index}]"
+            _validate_row(row, where)
+            if row["id"] in ids:
+                raise AssertionError(f"{where}: duplicate id {row['id']}")
+            ids.add(row["id"])
+            updated.append(row["updatedSeq"])
+            if side == "tombstone" and row["body"]["type"] != "deleted":
+                raise AssertionError(f"{where}: tombstone body must be deleted")
+            origin = expected.get("origins", {}).get(row["id"])
+            if origin is None:
+                raise AssertionError(f"{where}: missing origin")
+            event, origin_session = _find_record(case, origin) if origin.get("kind") == "dsh" else (None, None)
+            if origin.get("kind") == "dsh":
+                wanted_id = f"e-{origin_session}-{origin['seq']}"
+                if event.get("type") == "tool/call" and row["id"].endswith("-approval"):
+                    wanted_id += "-approval"
+                if row["id"] != wanted_id:
+                    raise AssertionError(f"{where}: row id {row['id']} != {wanted_id}")
+                wanted_seq = _entry_seq(event["time"], event["seq"])
+                if row["seq"] != wanted_seq:
+                    raise AssertionError(f"{where}: entrySeq {row['seq']} != {wanted_seq}")
+                if row["createdAt"] != event["time"]:
+                    raise AssertionError(f"{where}: createdAt")
+            elif origin.get("kind") == "ui":
+                events = case.get("uiEvents", [])
+                event = next((item for item in events if item.get("eventId") == origin.get("eventId")), None)
+                if event is None:
+                    raise AssertionError(f"{where}: ui event not found")
+                wanted_seq = _entry_seq(event["time"], event.get("commitSeq") or 0)
+                if row["seq"] != wanted_seq:
+                    raise AssertionError(f"{where}: ui entrySeq {row['seq']} != {wanted_seq}")
+                payload = _flatten_ui_payload(event)
+                event_type = event.get("type", "")
+                if row["id"].startswith("e-ui-"):
+                    wanted_id = "e-ui-" + event["eventId"]
+                elif event_type in ("approval.requested", "approval.decided"):
+                    approval_id = (payload.get("approvalID") or payload.get("approvalId")
+                                   or payload.get("requestId") or payload.get("requestID"))
+                    wanted_id = payload.get("id") or f"e-main-approval-{approval_id}"
+                elif event_type == "verification.reported":
+                    task_id = payload.get("task_id") or payload.get("subjectId") or payload.get("subjectID")
+                    wanted_id = f"e-main-task-{task_id}"
+                elif event_type.startswith("task."):
+                    task_id = (payload.get("task_id") or payload.get("taskID") or payload.get("taskId")
+                               or payload.get("threadID"))
+                    wanted_id = (f"e-main-task-{task_id}" if payload.get("task_id")
+                                 else payload.get("id") or f"e-main-task-{task_id}")
+                elif event_type == "conversation.automation_run" or event_type.startswith("routine.run_"):
+                    run_id = payload.get("runID") or payload.get("runId") or event.get("runId")
+                    wanted_id = payload.get("id") or f"e-main-automation-{run_id}"
+                else:
+                    wanted_id = payload.get("id") or payload.get("rowID") or ("e-ui-" + event["eventId"])
+                if row["id"] != wanted_id:
+                    raise AssertionError(f"{where}: ui row id {row['id']} != {wanted_id}")
+            else:
+                raise AssertionError(f"{where}: origin kind")
+    if cursor < len(rows) + len(tombstones):
+        raise AssertionError(f"{label}: cursor smaller than applied rows")
+    if updated and cursor < max(updated):
+        raise AssertionError(f"{label}: cursor smaller than updatedSeq")
+    nonces = expected.get("chatActionNonces", {})
+    if not isinstance(nonces, dict):
+        raise AssertionError(f"{label}: chatActionNonces must be an object")
+    row_by_id = {row["id"]: row for row in rows}
+    for row_id, nonce in nonces.items():
+        if row_id not in row_by_id:
+            raise AssertionError(f"{label}: nonce for unknown row {row_id}")
+        if row_by_id[row_id].get("role") != "user":
+            raise AssertionError(f"{label}: nonce on non-user row {row_id}")
+        if not isinstance(nonce, str) or not nonce:
+            raise AssertionError(f"{label}: nonce must be a non-empty string")
+    displays = expected.get("display")
+    if not isinstance(displays, dict) or set(displays) != set(row_by_id):
+        raise AssertionError(f"{label}: display must cover exactly the live rows")
+    for row_id, display in displays.items():
+        if not isinstance(display, dict) or set(display) != {"surface", "renderable", "wire"}:
+            raise AssertionError(f"{label}: display shape for {row_id}")
+        if not isinstance(display["surface"], str) or not display["surface"]:
+            raise AssertionError(f"{label}: display surface for {row_id}")
+        if not isinstance(display["renderable"], bool):
+            raise AssertionError(f"{label}: display renderable for {row_id}")
+        wire = display["wire"]
+        if (not isinstance(wire, dict) or set(wire) != {"kind", "type"}
+                or wire["kind"] not in _ROW_WIRE_KINDS or not isinstance(wire["type"], str)):
+            raise AssertionError(f"{label}: display wire for {row_id}")
+
+
+def validate_projection_fixture(fixture):
+    _expect_phone_vector(fixture, "projection.phone")
+    valid_count = 0
+    invalid_count = 0
+    for case in _family(fixture, "valid", "dshMapping", "projection"):
+        name = case.get("name")
+        if not isinstance(name, str) or not name:
+            raise AssertionError("projection.dshMapping: name")
+        if not isinstance(case.get("source"), str):
+            raise AssertionError(f"projection {name}: missing source")
+        records = case.get("records") if "epochs" not in case else [
+            record for epoch in case["epochs"] for record in epoch["records"]]
+        if not isinstance(records, list):
+            raise AssertionError(f"projection {name}: records")
+        events, skipped = _parse_session_records(records)
+        if skipped:
+            raise AssertionError(f"projection {name}: valid case skipped records {skipped}")
+        _validate_expected_rows(case, case.get("sessionID", "gb-main"), f"projection.{name}")
+        valid_count += 1
+    for case in _family(fixture, "valid", "uiMapping", "projection"):
+        name = case.get("name")
+        if not isinstance(name, str) or not name:
+            raise AssertionError("projection.uiMapping: name")
+        if not isinstance(case.get("source"), str):
+            raise AssertionError(f"projection {name}: missing source")
+        _validate_expected_rows(case, case.get("sessionID", "gb-main"), f"projection.{name}")
+        valid_count += 1
+    invalid_records = fixture["invalid"]
+    if not isinstance(invalid_records, list) or not invalid_records:
+        raise AssertionError("projection: invalid must be a non-empty array")
+    for case in invalid_records:
+        name = case.get("name")
+        if not isinstance(name, str) or not name:
+            raise AssertionError("projection.invalid: name")
+        if not isinstance(case.get("source"), str):
+            raise AssertionError(f"projection invalid {name}: missing source")
+        events, skipped = _parse_session_records(case.get("records", []))
+        expected = case.get("expected")
+        if not isinstance(expected, dict):
+            raise AssertionError(f"projection invalid {name}: expected")
+        wanted_events = [int(item) for item in expected.get("eventSeqs", [])]
+        if [event["seq"] for event in events] != wanted_events:
+            raise AssertionError(f"projection invalid {name}: event seqs")
+        wanted_skipped = expected.get("skipped", [])
+        if len(skipped) != len(wanted_skipped):
+            raise AssertionError(f"projection invalid {name}: skipped count")
+        for actual, wanted in zip(skipped, wanted_skipped):
+            if actual["lineNumber"] != wanted.get("lineNumber") or actual["seq"] != wanted.get("seq"):
+                raise AssertionError(f"projection invalid {name}: skipped entry {actual} != {wanted}")
+        invalid_count += 1
+    head = 0
+    reset_state = None
+    history_count = 0
+    for case in _family(fixture, "valid", "history", "projection"):
+        name = case.get("name")
+        steps = case.get("steps")
+        if not isinstance(steps, list) or not steps:
+            raise AssertionError(f"projection.history {name}: steps")
+        head = 0
+        reset_state = None
+        for index, step in enumerate(steps):
+            where = f"projection.history.{name}[{index}]"
+            if "rebuild" in step:
+                expected = step.get("expectBatch")
+                if not isinstance(expected, dict) or expected.get("reset") is not True:
+                    raise AssertionError(f"{where}: rebuild must return a reset batch")
+                _validate_batch_rows(expected, where)
+                head = expected["cursor"]
+                if head < len(expected.get("rows", [])) + len(expected.get("tombstones", [])):
+                    raise AssertionError(f"{where}: cursor")
+                reset_state = copy.deepcopy(expected)
+            elif "watchAfter" in step:
+                cursor = step["watchAfter"]
+                expected = step.get("expectBatch")
+                if not isinstance(expected, dict):
+                    raise AssertionError(f"{where}: missing batch")
+                if cursor <= 0 or cursor > head:
+                    if expected.get("reset") is not True or reset_state is None:
+                        raise AssertionError(f"{where}: out-of-range cursor must reset")
+                    if expected != reset_state:
+                        raise AssertionError(f"{where}: reset batch must equal the last reset")
+                else:
+                    if expected.get("reset") is not False:
+                        raise AssertionError(f"{where}: in-range cursor must not reset")
+                    _validate_batch_rows(expected, where)
+                    for row in expected.get("rows", []):
+                        if row["updatedSeq"] <= cursor:
+                            raise AssertionError(f"{where}: row at or before cursor")
+                    if expected.get("cursor") != head:
+                        raise AssertionError(f"{where}: batch cursor must be the head")
+                history_count += 1
+            else:
+                raise AssertionError(f"{where}: unknown step")
+    streaming_count = 0
+    for case in _family(fixture, "valid", "streaming", "projection"):
+        streaming_count += 1
+        _run_streaming_case(case)
+    if valid_count == 0 or invalid_count == 0 or history_count == 0 or streaming_count == 0:
+        raise AssertionError("projection: missing a vector family")
+    # Mutation self-checks: the arithmetic must reject a shifted id/seq and a
+    # wrong streaming expectation instead of merely echoing the fixture.
+    def mutated_origin():
+        mutated = copy.deepcopy(fixture)
+        case = mutated["valid"]["dshMapping"][0]
+        row = case["expected"]["rows"][0]
+        row["seq"] += 1
+        _validate_projection_fixture_inner(mutated)
+
+    _expect_contract_failure("projection entrySeq", mutated_origin)
+
+    def mutated_stream():
+        mutated = copy.deepcopy(fixture)
+        step = mutated["valid"]["streaming"][0]["steps"][0]
+        step["expectEmitted"]["body"]["text"] = "wrong"
+        _run_streaming_case(mutated["valid"]["streaming"][0])
+
+    _expect_contract_failure("streaming coalescing", mutated_stream)
+    return valid_count, invalid_count, history_count, streaming_count
+
+
+def _validate_projection_fixture_inner(fixture):
+    for case in _family(fixture, "valid", "dshMapping", "projection"):
+        _validate_expected_rows(case, case.get("sessionID", "gb-main"), f"projection.{case.get('name')}")
+
+
+def _validate_batch_rows(batch, where):
+    rows = batch.get("rows")
+    deletes = batch.get("deletes")
+    if not isinstance(rows, list) or not isinstance(deletes, list):
+        raise AssertionError(f"{where}: batch rows/deletes")
+    ids = set()
+    for index, row in enumerate(rows):
+        _validate_row(row, f"{where}.rows[{index}]")
+        if row["id"] in ids:
+            raise AssertionError(f"{where}: duplicate batch row")
+        ids.add(row["id"])
+    if len(set(deletes)) != len(deletes):
+        raise AssertionError(f"{where}: duplicate deletes")
+    for index, row_id in enumerate(deletes):
+        if not isinstance(row_id, str) or not row_id:
+            raise AssertionError(f"{where}.deletes[{index}]")
+    cursor = batch.get("cursor")
+    if not isinstance(cursor, int) or cursor < 0:
+        raise AssertionError(f"{where}: batch cursor")
+    for row in rows:
+        if row["updatedSeq"] > cursor:
+            raise AssertionError(f"{where}: row updatedSeq beyond cursor")
+
+
+class _StreamingModel:
+    maximum = 10
+
+    def __init__(self):
+        self.visible = {}
+        self.pending = {}
+        self.order = {}
+        self.counter = 0
+        self.emissions = []
+        self.last_now = 0.0
+
+    def _clock(self, now):
+        self.last_now = max(self.last_now, float(now))
+        return self.last_now
+
+    def _prune(self, now):
+        self.emissions = [value for value in self.emissions if value > now - 1]
+
+    def _emit(self, row_id, now):
+        row = self.pending.pop(row_id)
+        self.order.pop(row_id, None)
+        self.visible[row_id] = row
+        self.emissions.append(now)
+        return row
+
+    def submit(self, row, now):
+        now = self._clock(now)
+        self._prune(now)
+        row = copy.deepcopy(row)
+        if row["id"] not in self.pending:
+            self.order[row["id"]] = self.counter
+            self.counter += 1
+        row["streaming"] = True
+        self.pending[row["id"]] = row
+        if len(self.emissions) < self.maximum:
+            return self._emit(row["id"], now)
+        return None
+
+    def flush(self, now):
+        now = self._clock(now)
+        self._prune(now)
+        output = []
+        while len(self.emissions) < self.maximum and self.pending:
+            row_id = min(self.pending, key=lambda key: self.order[key])
+            output.append(self._emit(row_id, now))
+        return output
+
+    def next_flush_at(self):
+        if not self.pending or not self.emissions:
+            return None
+        return min(self.emissions) + 1
+
+
+def _run_streaming_case(case):
+    model = _StreamingModel()
+    for index, step in enumerate(case["steps"]):
+        where = f"projection.streaming.{case['name']}[{index}]"
+        if "submit" in step:
+            row = step["submit"]["row"]
+            if row["body"]["type"] not in _ROW_BODY_TYPES:
+                raise AssertionError(f"{where}: row body")
+            emitted = model.submit(row, step["submit"]["now"])
+            wanted = step.get("expectEmitted")
+            if wanted is None:
+                if emitted is not None:
+                    raise AssertionError(f"{where}: expected no emission")
+            elif emitted != wanted:
+                raise AssertionError(f"{where}: emitted {emitted} != {wanted}")
+            if "expectFlush" in step:
+                if model.flush(step["submit"]["now"]) != step["expectFlush"]:
+                    raise AssertionError(f"{where}: inline flush")
+        elif "flush" in step:
+            flushed = model.flush(step["flush"]["now"])
+            if flushed != step.get("expectRows", []):
+                raise AssertionError(f"{where}: flush {flushed} != {step.get('expectRows')}")
+        elif "state" in step:
+            state = step["state"]
+            if state.get("pendingCount") != len(model.pending):
+                raise AssertionError(f"{where}: pendingCount")
+            if state.get("rowCount") != len(model.visible):
+                raise AssertionError(f"{where}: rowCount")
+            if state.get("nextFlushAt") != model.next_flush_at():
+                raise AssertionError(f"{where}: nextFlushAt")
+        else:
+            raise AssertionError(f"{where}: unknown streaming step")
+
+
+class _TokenModel:
+    def __init__(self, now=0, default_ttl=43200000, maximum=4096):
+        self.now = int(now)
+        self.default_ttl = int(default_ttl)
+        self.maximum = int(maximum)
+        self.records = {}
+        self.current = {}
+        self.counter = 0
+        self.tokens = []
+
+    @staticmethod
+    def _identifier(value, name):
+        if not isinstance(value, str):
+            raise AssertionError(f"invalidInput:{name}")
+        text = value.strip()
+        if not text or len(text) > 256:
+            raise AssertionError(f"invalidInput:{name}")
+        return text
+
+    @staticmethod
+    def _capabilities(values):
+        if not isinstance(values, list) or len(values) > 64:
+            raise AssertionError("invalidInput:capabilities")
+        result = []
+        for value in values:
+            if not isinstance(value, str):
+                raise AssertionError("invalidInput:capabilities")
+            text = value.strip()
+            if not text or len(text) > 128:
+                raise AssertionError("invalidInput:capabilities")
+            if text not in result:
+                result.append(text)
+        return result
+
+    def _remove(self, token):
+        principal = self.records.pop(token, None)
+        if principal is not None and self.current.get(principal["sessionId"]) == principal["incarnation"]:
+            self.current.pop(principal["sessionId"], None)
+
+    def _revoke_where(self, predicate):
+        removed = [token for token, principal in self.records.items() if predicate(principal)]
+        for token in removed:
+            self._remove(token)
+        return len(removed)
+
+    def prune(self):
+        return self._revoke_where(lambda principal: principal["expiresAt"] <= self.now)
+
+    def issue(self, bot_id, session_id, kind, capabilities=None, expires_at=None, ttl=None):
+        bot = self._identifier(bot_id, "botId")
+        session = self._identifier(session_id, "sessionId")
+        caps = self._capabilities(capabilities or [])
+        if expires_at is not None:
+            expiry = int(expires_at)
+        else:
+            ttl_value = self.default_ttl if ttl is None else int(ttl)
+            if ttl_value <= 0:
+                raise AssertionError("invalidInput:ttlMilliseconds")
+            expiry = self.now + ttl_value
+            if expiry > 2 ** 63 - 1 or expiry < -(2 ** 63):
+                raise AssertionError("invalidInput:expiresAt")
+        if expiry <= self.now:
+            raise AssertionError("invalidInput:expiresAt")
+        self.prune()
+        if len(self.records) >= self.maximum:
+            raise AssertionError("registryFull")
+        self.counter += 1
+        digest = hashlib.sha256(f"token-{self.counter}".encode()).digest()
+        token = "dshg_" + base64.urlsafe_b64encode(digest).decode().rstrip("=")[:43]
+        incarnation = hashlib.sha256(f"incarnation-{self.counter}".encode()).hexdigest()[:32]
+        principal = {"botId": bot, "sessionId": session, "kind": kind,
+                     "capabilities": caps, "expiresAt": expiry, "incarnation": incarnation}
+        self.records[token] = principal
+        self.current[session] = incarnation
+        issued = {"token": token, "principal": principal}
+        self.tokens.append(issued)
+        return issued
+
+    def issue_session(self, bot_id, session_id, kind, capabilities=None, expires_at=None, ttl=None):
+        session = self._identifier(session_id, "sessionId")
+        self.revoke_session(session)
+        return self.issue(bot_id, session, kind, capabilities, expires_at, ttl)
+
+    def lookup(self, token):
+        if not isinstance(token, str) or not token or len(token) > 512:
+            return None
+        principal = self.records.get(token)
+        if principal is None:
+            return None
+        if principal["expiresAt"] <= self.now:
+            self._remove(token)
+            return None
+        return principal
+
+    def lookup_session(self, session_id):
+        if not isinstance(session_id, str):
+            return None
+        target = session_id.strip()
+        incarnation = self.current.get(target)
+        if not incarnation:
+            return None
+        for token, principal in self.records.items():
+            if principal["sessionId"] == target and principal["incarnation"] == incarnation:
+                if principal["expiresAt"] <= self.now:
+                    self._remove(token)
+                    return None
+                return principal
+        self.current.pop(target, None)
+        return None
+
+    def lookup_bearer(self, header):
+        if not isinstance(header, str):
+            return None
+        parts = header.strip().split()
+        if len(parts) != 2 or parts[0].lower() != "bearer":
+            return None
+        return self.lookup(parts[1])
+
+    def revoke(self, token):
+        if not isinstance(token, str) or not token or len(token) > 512:
+            return False
+        if token not in self.records:
+            return False
+        self._remove(token)
+        return True
+
+    def revoke_session(self, session_id):
+        target = session_id.strip()
+        return self._revoke_where(lambda principal: principal["sessionId"] == target)
+
+    def revoke_bot(self, bot_id):
+        target = bot_id.strip()
+        return self._revoke_where(lambda principal: principal["botId"] == target)
+
+    def rotate(self, token, capabilities=None, expires_at=None, ttl=None):
+        if not isinstance(token, str) or not token or len(token) > 512:
+            return None
+        principal = self.records.get(token)
+        if principal is None:
+            return None
+        if principal["expiresAt"] <= self.now:
+            self._remove(token)
+            return None
+        new_caps = principal["capabilities"] if capabilities is None else capabilities
+        if expires_at is not None:
+            new_expiry = int(expires_at)
+        elif ttl is not None:
+            new_expiry = self.now + int(ttl)
+        else:
+            new_expiry = principal["expiresAt"]
+        issued = self.issue(principal["botId"], principal["sessionId"], principal["kind"],
+                            new_caps, new_expiry, None)
+        self._remove(token)
+        return issued
+
+    def count(self):
+        self.prune()
+        return len(self.records)
+
+
+def _expect_contract_failure(label, operation):
+    try:
+        operation()
+    except AssertionError:
+        return
+    raise AssertionError(f"mutation {label!r} unexpectedly passed")
+
+
+def _check_token_expect(issued, expect, label):
+    principal = issued["principal"]
+    expect = expect or {}
+    if expect.get("tokenIndex") != _token_counter[0] - 1:
+        raise AssertionError(f"{label}: token index")
+    if "expiresAt" in expect and principal["expiresAt"] != expect["expiresAt"]:
+        raise AssertionError(f"{label}: expiresAt")
+    if "tokenPattern" in expect and not re.fullmatch(expect["tokenPattern"].removeprefix("re:"), issued["token"]):
+        raise AssertionError(f"{label}: token pattern")
+    if "incarnationPattern" in expect and not re.fullmatch(
+            expect["incarnationPattern"].removeprefix("re:"), principal["incarnation"]):
+        raise AssertionError(f"{label}: incarnation pattern")
+    wanted = expect.get("principal", {})
+    for key in ("botId", "sessionId", "kind", "capabilities"):
+        if key in wanted and principal[key] != wanted[key]:
+            raise AssertionError(f"{label}: principal {key}")
+
+
+_token_counter = [0]
+
+
+def _run_token_case(model, vector):
+    tokens = []
+    for index, step in enumerate(vector["steps"]):
+        label = f"token.{vector['name']}[{index}]"
+        operation = step.get("op")
+        expect = step.get("expect")
+        if expect is None:
+            expect = {}
+        if operation == "setClock":
+            model.now = int(step["clock"])
+        elif operation in ("issue", "issueSession"):
+            try:
+                if operation == "issueSession":
+                    issued = model.issue_session(
+                        step["botId"], step["sessionId"], step["kind"],
+                        step.get("capabilities"), step.get("expiresAt"), step.get("ttlMilliseconds"))
+                else:
+                    issued = model.issue(
+                        step["botId"], step["sessionId"], step["kind"],
+                        step.get("capabilities"), step.get("expiresAt"), step.get("ttlMilliseconds"))
+            except AssertionError as error:
+                if step.get("expectError") == str(error):
+                    continue
+                raise
+            _token_counter[0] = len(tokens) + 1
+            if expect.get("tokenIndex") != len(tokens):
+                raise AssertionError(f"{label}: token index")
+            _check_token_expect(issued, expect, label)
+            tokens.append(issued)
+        elif operation == "lookup":
+            resolved = model.lookup(tokens[step["tokenIndex"]]["token"])
+            if (resolved is not None) != bool(expect.get("resolves")):
+                raise AssertionError(f"{label}: lookup")
+        elif operation == "lookupRaw":
+            if (model.lookup(step["token"]) is not None) != bool(expect.get("resolves")):
+                raise AssertionError(f"{label}: lookupRaw")
+        elif operation == "lookupSession":
+            resolved = model.lookup_session(step["sessionId"])
+            if (resolved is not None) != bool(expect.get("resolves")):
+                raise AssertionError(f"{label}: lookupSession")
+            if "tokenIndex" in expect and resolved is not None:
+                wanted = tokens[expect["tokenIndex"]]["principal"]
+                if resolved["incarnation"] != wanted["incarnation"]:
+                    raise AssertionError(f"{label}: lookupSession incarnation")
+        elif operation == "lookupBearer":
+            header = f"{step.get('scheme', 'Bearer')} {tokens[step['tokenIndex']]['token']}"
+            if (model.lookup_bearer(header) is not None) != bool(expect.get("resolves")):
+                raise AssertionError(f"{label}: lookupBearer")
+        elif operation == "lookupBearerRaw":
+            if (model.lookup_bearer(step.get("header")) is not None) != bool(expect.get("resolves")):
+                raise AssertionError(f"{label}: lookupBearerRaw")
+        elif operation in ("rotate", "rotateRaw"):
+            old = tokens[step["tokenIndex"]]["token"] if operation == "rotate" else step.get("token")
+            try:
+                issued = model.rotate(old, step.get("capabilities"), step.get("expiresAt"),
+                                      step.get("ttlMilliseconds"))
+            except AssertionError as error:
+                if step.get("expectError") == str(error):
+                    continue
+                raise
+            expected_resolves = bool(expect.get("resolves", True))
+            if (issued is not None) != expected_resolves:
+                raise AssertionError(f"{label}: rotate result")
+            if "tokenIndex" in expect:
+                if issued is None or expect["tokenIndex"] != len(tokens):
+                    raise AssertionError(f"{label}: rotate token index")
+                tokens.append(issued)
+                _token_counter[0] = len(tokens)
+                _check_token_expect(issued, expect, label)
+                if expect.get("sameSession") and issued["principal"]["sessionId"] != tokens[0]["principal"]["sessionId"]:
+                    raise AssertionError(f"{label}: rotate session")
+        elif operation == "revoke":
+            if model.revoke(tokens[step["tokenIndex"]]["token"]) != bool(expect.get("removed")):
+                raise AssertionError(f"{label}: revoke")
+        elif operation == "revokeRaw":
+            if model.revoke(step.get("token")) != bool(expect.get("removed")):
+                raise AssertionError(f"{label}: revokeRaw")
+        elif operation == "revokeSession":
+            if model.revoke_session(step["sessionId"]) != expect.get("removed"):
+                raise AssertionError(f"{label}: revokeSession")
+        elif operation == "revokeBot":
+            if model.revoke_bot(step["botId"]) != expect.get("removed"):
+                raise AssertionError(f"{label}: revokeBot")
+        elif operation == "count":
+            if model.count() != expect:
+                raise AssertionError(f"{label}: count {model.count()} != {expect}")
+        else:
+            raise AssertionError(f"{label}: unknown op {operation}")
+    return tokens
+
+
+def validate_session_lifecycle_fixture(fixture):
+    _expect_phone_vector(fixture, "session-lifecycle.phone")
+    workspace, invalid_workspace = _validate_session_workspace(fixture)
+    registry = (fixture["valid"].get("tokenRegistry") or {})
+    defaults = registry.get("defaults") or {}
+    if defaults.get("defaultTTLMilliseconds") != 43200000:
+        raise AssertionError("tokenRegistry: default TTL")
+    if defaults.get("defaultMaximumTokens") != 4096:
+        raise AssertionError("tokenRegistry: default maximum")
+    if defaults.get("chatTTLMilliseconds") != 30 * 24 * 60 * 60 * 1000:
+        raise AssertionError("tokenRegistry: chat TTL")
+    if defaults.get("ephemeralTTLMilliseconds") != 12 * 60 * 60 * 1000:
+        raise AssertionError("tokenRegistry: ephemeral TTL")
+    token_cases = registry.get("cases") or []
+    if not token_cases:
+        raise AssertionError("tokenRegistry: no cases")
+    for vector in token_cases:
+        if not isinstance(vector.get("source"), str):
+            raise AssertionError("tokenRegistry: source")
+        model = _TokenModel(vector.get("clock", 0),
+                            maximum=vector.get("maximumTokens", 4096))
+        _run_token_case(model, vector)
+    for vector in _family(fixture, "invalid", "tokenRegistry", "session-lifecycle"):
+        if not isinstance(vector.get("source"), str):
+            raise AssertionError("tokenRegistry invalid: source")
+        model = _TokenModel(vector.get("clock", 0))
+        operation = vector.get("op")
+        try:
+            if operation == "issue":
+                model.issue(vector.get("botId", ""), vector.get("sessionId", ""),
+                            vector.get("kind", "chat"), vector.get("capabilities"),
+                            vector.get("expiresAt"), vector.get("ttlMilliseconds"))
+            elif operation == "lookupRaw":
+                if (model.lookup(vector.get("token")) is not None) != bool(
+                        (vector.get("expect") or {}).get("resolves")):
+                    raise AssertionError("invalid lookup")
+                continue
+            elif operation == "revokeRaw":
+                if model.revoke(vector.get("token")) != bool(
+                        (vector.get("expect") or {}).get("removed")):
+                    raise AssertionError("invalid revoke")
+                continue
+            elif operation == "rotateRaw":
+                issued = model.rotate(vector.get("token"))
+                if (issued is not None) != bool((vector.get("expect") or {}).get("resolves")):
+                    raise AssertionError("invalid rotate")
+                continue
+            else:
+                raise AssertionError(f"unknown invalid token op {operation}")
+        except AssertionError as error:
+            if str(error) == vector.get("expectError"):
+                continue
+            raise
+        raise AssertionError(f"token invalid {vector['name']}: expected {vector.get('expectError')}")
+    sessions = _family(fixture, "valid", "sessions", "session-lifecycle")
+    coverage = {"create": 0, "recover": 0, "rebuild": 0, "erase": 0, "prompt": 0,
+                "cancel": 0, "claim": 0, "page": 0, "list": 0}
+    allowed_actions = {"startMainSession", "sendUserMessage", "sendHiddenInteraction",
+                       "sendTwoMessages", "switchMainSessionForErasure", "cancelDuringTurn"}
+    allowed_presets = {"phone-bot", "pdsh-verifier", "phone-bot-maintainer"}
+    for case in sessions:
+        label = f"session-lifecycle.{case.get('name')}"
+        if not isinstance(case.get("name"), str) or not isinstance(case.get("source"), str):
+            raise AssertionError(f"{label}: name/source")
+        if case.get("action") not in allowed_actions:
+            raise AssertionError(f"{label}: action")
+        expect = case.get("expect") or {}
+        if "errorContains" in expect:
+            raise AssertionError(f"{label}: valid case must not expect an error")
+        if "result" not in expect and "results" not in expect:
+            raise AssertionError(f"{label}: missing result")
+        for seed in case.get("seedEvents", []) or []:
+            if seed.get("type") != "runtime.started":
+                raise AssertionError(f"{label}: seed type")
+            principal = seed.get("principal") or {}
+            if principal.get("kind") != "chat" or principal.get("botId") != "main":
+                raise AssertionError(f"{label}: seed principal")
+            data = seed.get("data") or {}
+            if not set(data).issubset({"sessionId", "botId", "cwd"}):
+                raise AssertionError(f"{label}: seed data members")
+        for request in expect.get("createRequests", []):
+            if set(request) != {"request"}:
+                raise AssertionError(f"{label}: create request shape")
+            payload = request["request"]
+            if set(payload) != {"sessionId", "cwd", "agentPreset"}:
+                raise AssertionError(f"{label}: create request members")
+            if payload["agentPreset"] not in allowed_presets:
+                raise AssertionError(f"{label}: create preset")
+            if payload["cwd"] != _DEFAULT_BOT_ROOT:
+                raise AssertionError(f"{label}: create cwd")
+            session_id = payload["sessionId"]
+            if not (session_id == "gb-main" or _REBUILT_ID_RE.fullmatch(session_id)
+                    or (isinstance(session_id, str) and session_id.startswith("re:"))):
+                raise AssertionError(f"{label}: create session id")
+            coverage["create"] += 1
+        if not expect.get("createRequests"):
+            coverage["recover"] += 1
+        if expect.get("archive"):
+            coverage["rebuild"] += 1
+        if expect.get("pageRequests") or "pageRequestCount" in expect:
+            coverage["page"] += 1
+        if expect.get("listRequests"):
+            coverage["list"] += 1
+        for request in expect.get("claimRequests", []):
+            if set(request) != {"request"}:
+                raise AssertionError(f"{label}: claim shape")
+            payload = request["request"]
+            if not set(payload).issubset({"sessionId", "sessionToken"}):
+                raise AssertionError(f"{label}: claim members")
+            if not payload.get("sessionId"):
+                raise AssertionError(f"{label}: claim session")
+            if "sessionToken" in payload:
+                token = payload["sessionToken"]
+                if not (isinstance(token, str) and (token.startswith("re:") or _TOKEN_RE.fullmatch(token))):
+                    raise AssertionError(f"{label}: claim token")
+            coverage["claim"] += 1
+        for request in expect.get("promptRequests", []):
+            if set(request) != {"request"}:
+                raise AssertionError(f"{label}: prompt shape")
+            payload = request["request"]
+            if set(payload) != {"requestId", "sessionId", "mode", "content"}:
+                raise AssertionError(f"{label}: prompt members")
+            if payload["mode"] not in ("queue", "steer"):
+                raise AssertionError(f"{label}: prompt mode")
+            request_id = payload["requestId"]
+            if not (isinstance(request_id, str) and (
+                    _BOT_REQUEST_ID_RE.fullmatch(request_id)
+                    or (request_id.startswith("re:") and "bot-" in request_id)
+                    or request_id.startswith(_FROZEN_REQUEST_PREFIXES))):
+                raise AssertionError(f"{label}: prompt requestId {request_id}")
+            content = payload["content"]
+            if (not isinstance(content, list) or len(content) != 1
+                    or content[0].get("type") != "text" or not isinstance(content[0].get("text"), str)):
+                raise AssertionError(f"{label}: prompt content")
+            coverage["prompt"] += 1
+        for request in expect.get("cancelRequests", []):
+            payload = request["request"]
+            if set(payload) != {"sessionId", "cause"} or payload["cause"] != {"kind": "user"}:
+                raise AssertionError(f"{label}: cancel shape")
+            coverage["cancel"] += 1
+        for event in expect.get("events", []):
+            if event["type"] == "runtime.started":
+                if set(event["data"]) != {"sessionId", "botId", "cwd"}:
+                    raise AssertionError(f"{label}: started data members")
+                if event["data"]["botId"] != "main" or event["data"]["cwd"] != _DEFAULT_BOT_ROOT:
+                    raise AssertionError(f"{label}: started data")
+                if event["principal"].get("kind") != "chat":
+                    raise AssertionError(f"{label}: started principal")
+            elif event["type"] == "runtime.exited":
+                if set(event["data"]) != {"sessionId", "reason", "replacedBy", "erasureId", "erasedRecords"}:
+                    raise AssertionError(f"{label}: exited data members")
+                if event["data"]["reason"] != "session-erased":
+                    raise AssertionError(f"{label}: exited reason")
+                if not isinstance(event["data"]["erasedRecords"], list):
+                    raise AssertionError(f"{label}: erasedRecords")
+                coverage["erase"] += 1
+            else:
+                raise AssertionError(f"{label}: lifecycle event type")
+    for case in _family(fixture, "invalid", "sessions", "session-lifecycle"):
+        expect = case.get("expect") or {}
+        if not expect.get("errorContains"):
+            raise AssertionError(f"session-lifecycle invalid {case.get('name')}: errorContains")
+        if "result" in expect or "results" in expect:
+            raise AssertionError(f"session-lifecycle invalid {case.get('name')}: must not expect a result")
+    missing = [name for name, count in coverage.items() if count == 0]
+    if missing:
+        raise AssertionError(f"session-lifecycle: missing coverage {missing}")
+
+    def mutated_preset():
+        mutated = copy.deepcopy(fixture)
+        mutated["valid"]["sessions"][0]["expect"]["createRequests"][0]["request"]["agentPreset"] = "standard"
+        validate_session_lifecycle_fixture_inner(mutated)
+
+    _expect_contract_failure("session create preset", mutated_preset)
+
+    def mutated_started():
+        mutated = copy.deepcopy(fixture)
+        mutated["valid"]["sessions"][0]["expect"]["events"][0]["data"]["extra"] = True
+        validate_session_lifecycle_fixture_inner(mutated)
+
+    _expect_contract_failure("runtime.started members", mutated_started)
+
+    def mutated_token():
+        mutated = copy.deepcopy(fixture)
+        mutated["valid"]["tokenRegistry"]["cases"][0]["steps"][1]["expect"]["resolves"] = False
+        model = _TokenModel(mutated["valid"]["tokenRegistry"]["cases"][0].get("clock", 0))
+        _run_token_case(model, mutated["valid"]["tokenRegistry"]["cases"][0])
+
+    _expect_contract_failure("token lookup", mutated_token)
+
+    def mutated_grapheme():
+        mutated = copy.deepcopy(fixture)
+        case = next(c for c in mutated["valid"]["workspace"]
+                    if c["name"] == "grapheme-truncation")
+        case["safe"] = case["safe"][:-1]
+        _validate_session_workspace(mutated)
+
+    _expect_contract_failure("grapheme truncation", mutated_grapheme)
+
+    validate_session_snapshot_wait_vectors(fixture)
+    return (len(workspace) + len(invalid_workspace),
+            len(token_cases) + len(_family(fixture, "invalid", "tokenRegistry", "session-lifecycle")),
+            len(sessions) + len(_family(fixture, "invalid", "sessions", "session-lifecycle")))
+
+
+def validate_session_lifecycle_fixture_inner(fixture):
+    allowed_presets = {"phone-bot", "pdsh-verifier", "phone-bot-maintainer"}
+    for case in fixture["valid"]["sessions"]:
+        for request in (case.get("expect") or {}).get("createRequests", []):
+            if request["request"]["agentPreset"] not in allowed_presets:
+                raise AssertionError("create preset")
+        for event in (case.get("expect") or {}).get("events", []):
+            if event["type"] == "runtime.started" and set(event["data"]) != {"sessionId", "botId", "cwd"}:
+                raise AssertionError("runtime.started members")
+
+
+MCP_RPC_VECTOR = "mcp-rpc-cases.phone.json"
+IDENTITY_APPROVAL_VECTOR = "identity-approval-cases.phone.json"
+TOOL_CALL_VECTOR = "tool-call-cases.phone.json"
+VOLATILE_PHONE_VECTOR = "volatile-context.phone.json"
+TEAM_CASES_VECTOR = "team-cases.phone.json"
+TASK_CASES_VECTOR = "task-cases.phone.json"
+
+MCP_RPC_TRANSPORTS = frozenset({"single", "batch", "notification"})
+MCP_RPC_INVALID_TRANSPORTS = frozenset({"single", "batch", "http"})
+MCP_RPC_ERROR_CODES = frozenset({-32601, -32602, -32603})
+MCP_RPC_HTTP_ERRORS = frozenset({
+    "invalid request target", "not found", "origin mismatch", "unauthorized",
+    "invalid JSON", "invalid JSON-RPC message", "request too large", "method not allowed",
+})
+MCP_RPC_REQUIRED_VALID = frozenset({
+    "initialize-echo-2025-06-18", "initialize-echo-2025-11-25", "initialize-echo-2025-03-26",
+    "initialize-fallback-unknown-version", "initialize-missing-version", "ping",
+    "tools-list-static-with-native-merge", "tools-list-per-caller-hides-create-teammate",
+    "tools-call-success", "tools-call-server-prefix", "tools-call-native-forward",
+    "tools-call-unknown-tool-result", "unknown-method", "unknown-method-forwarded-native",
+    "batch-mixed", "batch-single-request", "notification-only", "batch-notifications-only",
+})
+MCP_RPC_REQUIRED_INVALID = frozenset({
+    "tools-call-missing-name", "tools-call-arguments-not-object", "batch-element-not-object",
+    "batch-element-missing-method", "http-get", "http-delete", "http-query-string",
+    "http-dotdot-segment", "http-trailing-slash", "http-different-case", "http-unknown-path",
+    "http-origin-mismatch", "http-missing-bearer", "http-wrong-bearer", "http-invalid-json",
+    "http-body-too-large",
+})
+
+IDENTITY_APPROVAL_ERRORS = frozenset({
+    "invalid identity registration", "unauthorized", "argument digest mismatch", "unknown_tool",
+    "invalid_request", "unattributed", "cross_session_denied", "timeout", "unavailable",
+    "identity registration refused",
+})
+IDENTITY_TOKEN_MODES = frozenset({"current", "none", "wrong", "revoked", "foreign"})
+APPROVAL_SCOPES = frozenset({"until", "session", "none"})
+APPROVAL_DECISIONS = frozenset({"allowOnce", "always", "deny"})
+IDENTITY_REQUIRED_VALID = frozenset({
+    "register-success", "register-prefixed-name", "cancel-success", "cancel-twice",
+    "approval-allow-once", "approval-always-until", "approval-always-session",
+    "approval-sandbox-escalation", "approval-cancel-cascade", "approval-pending-durable",
+})
+IDENTITY_REQUIRED_INVALID = frozenset({
+    "register-unauthorized-missing-token", "register-unauthorized-wrong-token",
+    "register-unauthorized-revoked-token", "register-unauthorized-foreign-session",
+    "register-digest-mismatch", "register-invalid-body", "register-unknown-tool",
+    "cancel-invalid", "approval-deny", "approval-timeout-interactive",
+    "approval-scope-mismatch", "approval-digest-mismatch", "approval-bash-command-mismatch",
+    "approval-unattributed", "approval-invalid-body", "approval-sandbox-wrong-scope",
+    "approval-pending-expired",
+})
+
+TOOL_ERROR_CODES = frozenset({
+    "invalid_arguments", "unknown_tool", "unattributed", "cross_session_read_denied",
+    "permission_denied", "timeout", "unavailable", "execution_failed", "memory_unavailable",
+    "memory-evidence-invalid", "record_erased",
+})
+TOOL_NAMES = (
+    "ask_user", "show_next_steps", "show_attachment", "show_document", "show_progress",
+    "show_checklist", "show_link", "UpdateMemory", "ReadMemory", "RecallMemory", "Task",
+    "AwaitTask", "StopSubagent", "UpdateRoutine", "ListRoutines", "RequestApproval", "SendToUser",
+)
+
+
+def _canonical_digest(arguments):
+    payload = json.dumps(arguments, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _require(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
+def _unique_names(cases, where):
+    names = [case.get("name") for case in cases]
+    _require(all(isinstance(name, str) and name for name in names), f"{where}: every case needs a name")
+    _require(len(names) == len(set(names)), f"{where}: duplicate case name")
+
+
+def _cases_by_name(cases):
+    return {case["name"]: case for case in cases}
+
+
+def validate_mcp_rpc_fixture(fixture):
+    _require(fixture.get("schemaVersion") == 1, "mcp-rpc-cases.phone: schemaVersion must be 1")
+    _require(fixture.get("vector") == "mcp-rpc-cases.phone", "mcp-rpc-cases.phone: vector")
+    _require(fixture.get("upstream") == [], "mcp-rpc-cases.phone: upstream must be []")
+    _require(fixture.get("protocolVersions") == ["2025-11-25", "2025-06-18", "2025-03-26"],
+             "mcp-rpc-cases.phone: protocolVersions")
+    _require(fixture.get("maximumBodyBytes") == 1_048_576,
+             "mcp-rpc-cases.phone: maximumBodyBytes must be 1048576")
+    native = fixture.get("native")
+    _require(isinstance(native, dict) and isinstance(native.get("instructions"), str)
+             and native["instructions"], "mcp-rpc-cases.phone: native.instructions")
+    native_tools = native.get("tools")
+    _require(isinstance(native_tools, list) and native_tools, "mcp-rpc-cases.phone: native.tools")
+    for index, tool in enumerate(native_tools):
+        _require(isinstance(tool, dict) and isinstance(tool.get("name"), str)
+                 and isinstance(tool.get("inputSchema"), dict),
+                 f"mcp-rpc-cases.phone.native.tools[{index}]")
+    _require(any(tool["name"] == "ask_user" for tool in native_tools),
+             "mcp-rpc-cases.phone: native collision case needs a native ask_user")
+    _require(len({tool["name"] for tool in native_tools}) == len(native_tools),
+             "mcp-rpc-cases.phone: duplicate native tool name")
+
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    _require(isinstance(valid, list) and valid, "mcp-rpc-cases.phone: valid")
+    _require(isinstance(invalid, list) and invalid, "mcp-rpc-cases.phone: invalid")
+    _unique_names(valid, "mcp-rpc-cases.phone.valid")
+    _unique_names(invalid, "mcp-rpc-cases.phone.invalid")
+    _require(MCP_RPC_REQUIRED_VALID <= set(_cases_by_name(valid)),
+             "mcp-rpc-cases.phone: missing frozen valid case")
+    _require(MCP_RPC_REQUIRED_INVALID <= set(_cases_by_name(invalid)),
+             "mcp-rpc-cases.phone: missing frozen invalid case")
+
+    for case in valid:
+        transport = case.get("transport")
+        _require(transport in MCP_RPC_TRANSPORTS, f"{case['name']}: transport")
+        expect = case.get("expect")
+        _require(isinstance(expect, dict) and expect, f"{case['name']}: expect")
+        if transport == "single":
+            request = case.get("request")
+            _require(isinstance(request, dict) and isinstance(request.get("method"), str),
+                     f"{case['name']}: request.method")
+            kinds = [key for key in ("result", "error", "toolList") if key in expect]
+            _require(len(kinds) == 1, f"{case['name']}: expect exactly one outcome")
+            if "error" in expect:
+                _require(expect["error"].get("code") in MCP_RPC_ERROR_CODES,
+                         f"{case['name']}: error code")
+            if "toolList" in expect:
+                listed = expect["toolList"]
+                names = listed.get("names")
+                if names is not None:
+                    _require(names.count("ask_user") == 1 and names[-1] == "native_echo",
+                             f"{case['name']}: static list must append native once and keep the Bot collision")
+                    _require(len(names) == listed.get("count"),
+                             f"{case['name']}: count must equal names length")
+        elif transport == "batch":
+            _require(isinstance(case.get("messages"), list), f"{case['name']}: messages")
+            _require(expect.get("status") in {200, 202, 400}, f"{case['name']}: batch status")
+            if expect["status"] == 200:
+                requests = [m for m in case["messages"]
+                            if isinstance(m, dict) and "id" in m]
+                _require(expect.get("replyCount") == len(requests),
+                         f"{case['name']}: replyCount must equal request count")
+                _require(expect.get("ids") == [m["id"] for m in requests],
+                         f"{case['name']}: ids must preserve request order")
+            else:
+                _require(expect.get("empty") is True or expect.get("error") == "invalid JSON-RPC message",
+                         f"{case['name']}: terminal batch form")
+        else:
+            _require(isinstance(case.get("message"), dict), f"{case['name']}: message")
+            _require(expect.get("status") == 202 and expect.get("empty") is True,
+                     f"{case['name']}: notification must be 202 empty")
+
+    for case in invalid:
+        transport = case.get("transport")
+        _require(transport in MCP_RPC_INVALID_TRANSPORTS, f"{case['name']}: transport")
+        expect = case.get("expect")
+        _require(isinstance(expect, dict), f"{case['name']}: expect")
+        if transport == "single":
+            _require(expect.get("error", {}).get("code") in MCP_RPC_ERROR_CODES,
+                     f"{case['name']}: error code")
+        elif transport == "batch":
+            _require(expect.get("status") == 400
+                     and expect.get("error") == "invalid JSON-RPC message",
+                     f"{case['name']}: invalid batch frame")
+        else:
+            _require(expect.get("status") in {400, 401, 403, 404, 405, 413},
+                     f"{case['name']}: http status")
+            _require(expect.get("error") in MCP_RPC_HTTP_ERRORS,
+                     f"{case['name']}: http error body")
+    return len(valid), len(invalid)
+
+
+def mcp_rpc_mutations(fixture):
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_mcp_rpc_fixture(copy)
+        except AssertionError:
+            return
+        raise AssertionError(f"mcp-rpc mutation not detected: {label}")
+
+    expect_failure("drop-protocol-version", lambda f: f["protocolVersions"].pop())
+    expect_failure("wrong-max-body", lambda f: f.update({"maximumBodyBytes": 1_048_577}))
+    expect_failure("duplicate-case", lambda f: f["valid"].append(json.loads(json.dumps(f["valid"][0]))))
+    expect_failure("bad-batch-count", lambda f: next(
+        c for c in f["valid"] if c["name"] == "batch-mixed")["expect"].update({"replyCount": 3}))
+    expect_failure("unknown-http-body", lambda f: next(
+        c for c in f["invalid"] if c["name"] == "http-get")["expect"].update({"error": "nope"}))
+    return 5
+
+
+def validate_identity_approval_fixture(fixture):
+    _require(fixture.get("schemaVersion") == 1, "identity-approval-cases.phone: schemaVersion")
+    _require(fixture.get("vector") == "identity-approval-cases.phone", "identity-approval-cases.phone: vector")
+    _require(fixture.get("upstream") == [], "identity-approval-cases.phone: upstream must be []")
+    defaults = fixture.get("defaults")
+    _require(defaults == {"approvalTimeoutMs": 300_000, "approvalExpiryMs": 86_400_000},
+             "identity-approval-cases.phone: defaults")
+    credential = fixture.get("credentialContract")
+    _require(credential == {
+        "tokenPrefix": "dshg_",
+        "tokenLength": 48,
+        "tokenURLSafeAlphabet": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+        "incarnationHexLength": 32,
+        "defaultTTLMilliseconds": 43_200_000,
+        "maximumTokens": 4_096,
+        "attributionTTLMilliseconds": 330_000,
+        "attributionMaximumEntries": 4_096,
+    }, "identity-approval-cases.phone: credentialContract")
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    _require(isinstance(valid, list) and valid, "identity-approval-cases.phone: valid")
+    _require(isinstance(invalid, list) and invalid, "identity-approval-cases.phone: invalid")
+    _unique_names(valid, "identity-approval-cases.phone.valid")
+    _unique_names(invalid, "identity-approval-cases.phone.invalid")
+    _require(IDENTITY_REQUIRED_VALID <= set(_cases_by_name(valid)),
+             "identity-approval-cases.phone: missing valid case")
+    _require(IDENTITY_REQUIRED_INVALID <= set(_cases_by_name(invalid)),
+             "identity-approval-cases.phone: missing invalid case")
+
+    for where, cases in (("valid", valid), ("invalid", invalid)):
+        for case in cases:
+            name = case["name"]
+            setup = case.get("setup")
+            _require(isinstance(setup, dict) and isinstance(setup.get("botId"), str)
+                     and isinstance(setup.get("sessionId"), str)
+                     and setup.get("kind") in {"chat", "task", "routine"},
+                     f"{name}: setup")
+            kind = case.get("kind")
+            _require(kind in {"register", "cancel", "approval"}, f"{name}: kind")
+            expect = case.get("expect")
+            _require(isinstance(expect, dict) and expect, f"{name}: expect")
+            if kind == "register":
+                registration = case.get("registration")
+                _require(isinstance(registration, dict)
+                         and isinstance(registration.get("callId"), str)
+                         and isinstance(registration.get("tool"), str)
+                         and isinstance(registration.get("arguments"), dict),
+                         f"{name}: registration")
+                _require(case.get("token", "current") in IDENTITY_TOKEN_MODES, f"{name}: token mode")
+                _require(case.get("argsDigest", "computed") in {"computed", "mismatch"},
+                         f"{name}: digest mode")
+                if expect.get("ok") is True:
+                    _require(where == "valid", f"{name}: success in invalid list")
+                else:
+                    _require(expect.get("error") in IDENTITY_APPROVAL_ERRORS
+                             or expect.get("error") in {"argument digest mismatch"},
+                             f"{name}: exact register error")
+            elif kind == "cancel":
+                if "body" not in case:
+                    _require(isinstance(case.get("registration"), dict), f"{name}: registration")
+                _require(isinstance(expect.get("ok"), bool) or isinstance(expect.get("first"), bool),
+                         f"{name}: cancel outcome")
+            else:
+                registration = case.get("registration")
+                _require(isinstance(registration, dict)
+                         and isinstance(registration.get("callId"), str)
+                         and isinstance(registration.get("tool"), str)
+                         and isinstance(registration.get("arguments"), dict),
+                         f"{name}: registration")
+                approval = case.get("approval")
+                _require(isinstance(approval, dict), f"{name}: approval")
+                if "alwaysScope" in approval:
+                    _require(approval["alwaysScope"] in APPROVAL_SCOPES, f"{name}: alwaysScope")
+                if case.get("argsDigest") not in (None, "0" * 64):
+                    _require(re.fullmatch(r"[0-9a-f]{64}", case["argsDigest"]) is not None,
+                             f"{name}: argsDigest shape")
+                    _require(case["argsDigest"] == _canonical_digest(registration["arguments"]),
+                             f"{name}: argsDigest must be SHA-256 of the canonical arguments")
+                if "decision" in case:
+                    _require(case["decision"] in APPROVAL_DECISIONS, f"{name}: decision")
+                for key in ("approvalTimeoutMs", "approvalExpiryMs", "expireAfterMs"):
+                    if key in case:
+                        _require(isinstance(case[key], int) and not isinstance(case[key], bool)
+                                 and case[key] > 0, f"{name}: {key}")
+    return len(valid), len(invalid)
+
+
+def identity_approval_mutations(fixture):
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_identity_approval_fixture(copy)
+        except AssertionError:
+            return
+        raise AssertionError(f"identity-approval mutation not detected: {label}")
+
+    expect_failure("wrong-timeout", lambda f: f["defaults"].update({"approvalTimeoutMs": 300_001}))
+    expect_failure("bad-digest", lambda f: next(
+        c for c in f["valid"] if c["name"] == "approval-allow-once").update({"argsDigest": "a" * 64}))
+    expect_failure("unknown-register-error", lambda f: next(
+        c for c in f["invalid"] if c["name"] == "register-unauthorized-wrong-token"
+    )["expect"].update({"error": "nope"}))
+    expect_failure("duplicate-name", lambda f: f["valid"].append(json.loads(json.dumps(f["valid"][0]))))
+    expect_failure("bad-scope", lambda f: next(
+        c for c in f["valid"] if c["name"] == "approval-always-until"
+    )["approval"].update({"alwaysScope": "forever"}))
+    expect_failure("wrong-token-length", lambda f: f["credentialContract"].update({"tokenLength": 47}))
+    return 6
+
+
+def validate_tool_call_fixture(fixture):
+    _require(fixture.get("schemaVersion") == 1, "tool-call-cases.phone: schemaVersion")
+    _require(fixture.get("vector") == "tool-call-cases.phone", "tool-call-cases.phone: vector")
+    _require(fixture.get("upstream") == [], "tool-call-cases.phone: upstream must be []")
+    tools = fixture.get("tools")
+    _require(tools == list(TOOL_NAMES), "tool-call-cases.phone: tools must list every P0 name")
+    for key in ("valid", "invalid", "denials", "unknown"):
+        _require(isinstance(fixture.get(key), list) and fixture[key],
+                 f"tool-call-cases.phone: {key}")
+        _unique_names(fixture[key], f"tool-call-cases.phone.{key}")
+
+    valid = fixture["valid"]
+    invalid = fixture["invalid"]
+    denials = fixture["denials"]
+    unknowns = fixture["unknown"]
+    _require(set(case.get("tool") for case in valid) == set(tools),
+             "tool-call-cases.phone: every tool needs a valid case")
+    _require(set(case.get("tool") for case in denials) == set(tools),
+             "tool-call-cases.phone: every tool needs a per-caller denial")
+    for tool in tools:
+        if tool == "ListRoutines":
+            continue
+        _require(any(case.get("tool") == tool for case in invalid),
+                 f"tool-call-cases.phone: {tool} needs an invalid-arguments case")
+
+    for where, cases in (("valid", valid), ("invalid", invalid),
+                         ("denials", denials), ("unknown", unknowns)):
+        for case in cases:
+            name = case["name"]
+            _require(case.get("tool") in set(tools) | {"show_table", "show_info", "no_such_tool"},
+                     f"{name}: tool")
+            _require(isinstance(case.get("setup"), dict), f"{name}: setup")
+            _require("arguments" in case, f"{name}: arguments")
+            expect = case.get("expect")
+            _require(isinstance(expect, dict), f"{name}: expect")
+            if case.get("layer") == "rpc":
+                _require(expect.get("rpcError") == -32602, f"{name}: rpc error")
+                continue
+            _require(isinstance(expect.get("isError"), bool), f"{name}: expect.isError")
+            if expect["isError"]:
+                _require(expect.get("errorCode") in TOOL_ERROR_CODES, f"{name}: errorCode")
+            else:
+                _require(isinstance(expect.get("structured"), dict), f"{name}: structured")
+    for case in denials:
+        _require(case["expect"]["errorCode"] == "permission_denied", f"{case['name']}: denial code")
+    for case in unknowns:
+        _require(case["expect"]["errorCode"] == "unknown_tool", f"{case['name']}: unknown code")
+        _require(case.get("skipRegistration") is True, f"{case['name']}: skipRegistration")
+    return len(valid), len(invalid), len(denials), len(unknowns)
+
+
+def tool_call_mutations(fixture):
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_tool_call_fixture(copy)
+        except AssertionError:
+            return
+        raise AssertionError(f"tool-call mutation not detected: {label}")
+
+    expect_failure("drop-tool-valid", lambda f: f.update({"valid": [c for c in f["valid"] if c["tool"] != "ReadMemory"]}))
+    expect_failure("drop-tool-denial", lambda f: f["denials"].pop(0))
+    expect_failure("bad-denial-code", lambda f: f["denials"][0]["expect"].update({"errorCode": "unknown_tool"}))
+    expect_failure("duplicate-name", lambda f: f["valid"].append(json.loads(json.dumps(f["valid"][0]))))
+    expect_failure("missing-invalid", lambda f: f.update({"invalid": [c for c in f["invalid"] if c["tool"] != "ReadMemory"]}))
+    return 5
+
+
+def validate_volatile_phone_fixture(upstream, overlay):
+    _require(overlay.get("schemaVersion") == 1, "volatile-context.phone: schemaVersion")
+    _require(overlay.get("vector") == "volatile-context.phone", "volatile-context.phone: vector")
+    _require(overlay.get("upstream") == "volatile-context.json", "volatile-context.phone: upstream")
+    assembly = overlay.get("assemblyCases")
+    producer = overlay.get("producerCases")
+    _require(isinstance(assembly, list) and assembly, "volatile-context.phone: assemblyCases")
+    _require(isinstance(producer, list) and producer, "volatile-context.phone: producerCases")
+    _unique_names(assembly, "volatile-context.phone.assemblyCases")
+    _unique_names(producer, "volatile-context.phone.producerCases")
+    for case in assembly:
+        input_data = case.get("input")
+        _require(isinstance(input_data, dict), f"{case['name']}: input")
+        _require(input_data.get("kind") in {"chat", "task", "routine"}, f"{case['name']}: kind")
+        _require(isinstance(case.get("expect"), dict) and case["expect"], f"{case['name']}: expect")
+    for case in producer:
+        principal = case.get("principal")
+        _require(isinstance(principal, dict) and principal.get("kind") == "chat",
+                 f"{case['name']}: principal")
+        request = case.get("request")
+        _require(isinstance(request, dict), f"{case['name']}: request")
+        if case["name"] != "request-extra-key":
+            _require(set(request) == {"sessionId"},
+                     f"{case['name']}: request must contain only sessionId")
+        else:
+            _require(set(request) == {"sessionId", "botID"},
+                     f"{case['name']}: extra-key case shape")
+        _require(isinstance(case.get("provider"), dict), f"{case['name']}: provider")
+        expect = case.get("expect")
+        _require(isinstance(expect, dict) and ("error" in expect) != ("response" in expect),
+                 f"{case['name']}: expect exactly one of error/response")
+        if "error" in expect:
+            _require(expect["error"] in {"invalid_arguments", "cross_session_read_denied",
+                                         "timeout", "unavailable"},
+                     f"{case['name']}: producer error")
+    names = set(_cases_by_name(producer))
+    for required in ("caps-variant-overflow", "caps-persona-overflow", "caps-memory-overflow",
+                     "caps-automation-overflow", "caps-total-overflow", "credential-shaped-content",
+                     "provider-timeout", "no-stale-after-failure", "snapshot-valid-blocks"):
+        _require(required in names, f"volatile-context.phone: missing producer case {required}")
+    merged = merged_fixture(upstream, overlay)
+    _require(merged.get("valid") is not None and merged.get("invalid") is not None,
+             "volatile-context.phone: upstream cases must survive the merge")
+    return len(assembly), len(producer)
+
+
+def volatile_phone_mutations(upstream, fixture):
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_volatile_phone_fixture(upstream, copy)
+        except AssertionError:
+            return
+        raise AssertionError(f"volatile-context mutation not detected: {label}")
+
+    expect_failure("drop-caps", lambda f: f["producerCases"].pop(0))
+    expect_failure("extra-request-key", lambda f: next(
+        c for c in f["producerCases"] if c["name"] == "snapshot-valid-blocks"
+    )["request"].update({"botID": "other"}))
+    expect_failure("ambiguous-expect", lambda f: next(
+        c for c in f["producerCases"] if c["name"] == "snapshot-valid-blocks"
+    )["expect"].update({"error": "unavailable"}))
+    expect_failure("duplicate-assembly", lambda f: f["assemblyCases"].append(
+        json.loads(json.dumps(f["assemblyCases"][0]))))
+    return 4
+
+
+TEAM_ERROR_CODES = frozenset({
+    "invalid_arguments", "permission_denied", "timeout", "execution_failed",
+})
+TEAM_DIRECTIONS = frozenset({"outbound", "inbound", "incoming", "reply"})
+TEAM_HELD_ID_PATTERN = r"^held-[0-9a-z]+-[0-9a-f]{8}$"
+TEAM_REQUIRED_VALID = frozenset({
+    "send-now-with-title", "send-queued-with-title", "send-priority-false-string",
+    "send-target-and-text-aliases", "send-hidden-target-by-name",
+    "send-depth-two-allowed", "send-duplicate-call-id", "send-pre-wp4-bare-call-id",
+    "send-held-reply-cap", "create-teammate-success", "create-teammate-minimal",
+})
+TEAM_REQUIRED_INVALID = frozenset({
+    "send-missing-agent", "send-missing-message", "send-missing-priority",
+    "send-priority-conflict", "send-priority-invalid", "send-delivery-invalid",
+    "send-target-not-found", "send-self", "send-depth-three", "send-cycle",
+    "send-timeout", "send-queued-enqueue-failure", "send-arguments-not-object",
+    "create-not-main", "create-missing-name", "create-name-too-long",
+    "create-color-invalid", "create-hairstyle-invalid",
+})
+TEAM_CONTRACT_SEND = {
+    "maximumHops": 2,
+    "defaultTimeoutMilliseconds": 300_000,
+    "heldTextLimit": 1_200,
+    "requestIdTemplate": "agent:<callId>",
+    "legacyRequestIdTemplate": "<callId>",
+    "rowIdPrefix": "agent-outbound-",
+    "threadIdTemplate": "<rowID>@<seq>:agent-comm",
+    "inboundRowTemplate": "t<turn>u[<n>]",
+    "promptTemplate": "[agent] <name> (id: <id>)[ — <title>]: <message>",
+    "queuedText": "已扣住给 <name>：消息会在对方下一个回合开头交付，不会唤醒对方。",
+    "nowText": "已发送给 <name>，回复稍后以 agent-comm 消息送达。",
+}
+
+
+def _team_row_identity(case):
+    identity = case.get("expect", {}).get("rowIdentity")
+    if not isinstance(identity, dict):
+        return None
+    raw = "\u0000".join([
+        identity["sender"], identity["target"], identity["requestId"],
+        str(identity["seq"]),
+    ]).encode("utf-8")
+    expected = "agent-outbound-" + hashlib.sha256(raw).hexdigest()
+    _require(identity["rowID"] == expected,
+             f"{case['name']}: rowID must be sha256(sender NUL target NUL requestId NUL seq)")
+    _require(identity["threadId"] == f"{expected}@{identity['seq']}:agent-comm",
+             f"{case['name']}: threadId must be <rowID>@<seq>:agent-comm")
+    return identity
+
+
+def _team_derive_comm(record):
+    direction = record["direction"]
+    comm = {"direction": direction}
+    if direction == "outbound":
+        peer = record.get("toAgent") or {}
+        comm.update({
+            "targetId": peer.get("id"), "targetName": peer.get("name"),
+            "message": record.get("text"),
+        })
+    elif direction == "inbound":
+        peer = record.get("fromAgent") or {}
+        comm.update({
+            "fromAgentId": peer.get("id"), "fromAgentName": peer.get("name"),
+            "replyText": record.get("text"),
+        })
+    elif direction == "incoming":
+        peer = record.get("fromAgent") or {}
+        comm.update({
+            "fromAgentId": peer.get("id"), "fromAgentName": peer.get("name"),
+            "message": record.get("text"),
+        })
+    else:
+        peer = record.get("toAgent") or {}
+        comm.update({
+            "targetId": peer.get("id"), "targetName": peer.get("name"),
+            "message": record.get("text"),
+        })
+    for record_key, comm_key in (
+        ("requestID", "requestId"), ("threadID", "threadId"),
+        ("delivery", "delivery"), ("status", "status"), ("title", "title"),
+        ("hop", "hop"), ("callID", "callId"),
+        ("replyEntryID", "replyEntryId"), ("error", "error"),
+    ):
+        if record_key in record:
+            comm[comm_key] = record[record_key]
+    return {key: value for key, value in comm.items() if value is not None}
+
+
+def _team_derive_event_data(record):
+    data = {
+        "id": record["rowID"], "rowID": record["rowID"], "role": record["role"],
+        "text": record["text"], "direction": record["direction"],
+        "threadId": record["threadID"], "requestId": record["requestID"],
+        "agentComm": _team_derive_comm(record),
+    }
+    for record_key, data_key in (
+        ("fromAgent", "fromAgent"), ("toAgent", "toAgent"),
+        ("delivery", "delivery"), ("status", "status"), ("title", "title"),
+        ("hop", "hop"), ("turn", "turn"), ("callID", "callId"),
+        ("replyEntryID", "replyEntryId"), ("error", "error"),
+    ):
+        if record_key in record:
+            data[data_key] = record[record_key]
+    return data
+
+
+def _team_validate_held(entry, where):
+    _require(isinstance(entry, dict) and isinstance(entry.get("botID"), str),
+             f"{where}: botID")
+    _require("handOff" in entry, f"{where}: handOff must be present (null for a reply)")
+    item = entry.get("item")
+    _require(isinstance(item, dict), f"{where}: item")
+    _require(entry.get("idPattern") == TEAM_HELD_ID_PATTERN, f"{where}: idPattern")
+    _require(re.fullmatch(TEAM_HELD_ID_PATTERN, item.get("id", "")) is not None,
+             f"{where}: placeholder id must match the frozen pattern")
+    _require(item.get("id") == "held-0-00000000",
+             f"{where}: item.id is the frozen placeholder")
+    _require(item.get("kind") == "agent-held", f"{where}: item.kind")
+    _require(isinstance(item.get("text"), str) and item["text"], f"{where}: item.text")
+    _require(len(item["text"]) <= 1_200, f"{where}: held text exceeds 1200 characters")
+    _require(isinstance(item.get("requestId"), str) and item["requestId"],
+             f"{where}: item.requestId")
+    _require(isinstance(item.get("threadId"), str) and item["threadId"],
+             f"{where}: item.threadId")
+    check(item, "held-inbox-item.schema.json", where)
+    handoff = entry["handOff"]
+    if handoff is not None:
+        _require(isinstance(handoff, dict)
+                 and isinstance(handoff.get("depth"), int)
+                 and handoff["depth"] >= 1
+                 and isinstance(handoff.get("chain"), list)
+                 and handoff["chain"], f"{where}: handOff")
+
+
+def _team_prompt(case, roster):
+    arguments = case["arguments"]
+    caller = case["callerBotId"]
+    sender = next(bot for bot in roster["bots"] if bot["id"] == caller)
+    target = _team_first_string(arguments, ["agent_id", "target_id", "bot_name", "agentId"])
+    message = _team_first_string(arguments, ["message", "text"])
+    title = (arguments.get("title") or "").strip() or None
+    suffix = f" — {title}" if title else ""
+    return f"[agent] {sender['name']} (id: {caller}){suffix}: {message}"
+
+
+def _team_first_string(arguments, keys):
+    for key in keys:
+        value = arguments.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def validate_team_fixture(fixture):
+    _require(fixture.get("schemaVersion") == 1, "team-cases.phone: schemaVersion must be 1")
+    _require(fixture.get("vector") == "team-cases.phone", "team-cases.phone: vector")
+    _require(fixture.get("upstream") == [], "team-cases.phone: upstream must be []")
+    _require(isinstance(fixture.get("delta"), list) and fixture["delta"],
+             "team-cases.phone: delta")
+    contract = fixture.get("contract")
+    _require(isinstance(contract, dict), "team-cases.phone: contract")
+    send = contract.get("sendToAgent")
+    _require(isinstance(send, dict), "team-cases.phone: contract.sendToAgent")
+    for key, value in TEAM_CONTRACT_SEND.items():
+        _require(send.get(key) == value,
+                 f"team-cases.phone: contract.sendToAgent.{key} must be {value!r}")
+    errors = contract.get("errors")
+    _require(isinstance(errors, dict) and errors, "team-cases.phone: contract.errors")
+    for key in ("missingPriority", "targetNotFound", "self", "depth", "cycle",
+                "timeout", "sendFailed", "queuedHeldFailed", "replyHeldFailed"):
+        _require(isinstance(errors.get(key), str) and errors[key],
+                 f"team-cases.phone: contract.errors.{key}")
+    _require("cancelled" not in errors, "team-cases.phone: unexpected error key")
+    create = contract.get("createTeammate")
+    _require(create.get("nameLengthRange") == [1, 60],
+             "team-cases.phone: create name range")
+    _require(create.get("descriptionLimit") == 300,
+             "team-cases.phone: create description limit")
+    _require(create.get("colors") == [
+        "white", "brown", "red", "orange", "amber", "green", "teal", "blue",
+        "purple", "magenta", "gray", "black", "silver", "peach", "sky",
+    ], "team-cases.phone: create colors")
+    _require(create.get("hairstyles") == ["long", "twin-tail", "bob", "side-braid"],
+             "team-cases.phone: create hairstyles")
+    _require(contract.get("sendToUser", {}).get("event") == "ui.send_to_user",
+             "team-cases.phone: SendToUser event")
+
+    roster = fixture.get("roster")
+    _require(isinstance(roster, dict) and isinstance(roster.get("bots"), list),
+             "team-cases.phone: roster")
+    bot_ids = [bot.get("id") for bot in roster["bots"]]
+    _require(all(isinstance(bot_id, str) and bot_id for bot_id in bot_ids),
+             "team-cases.phone: roster ids")
+    _require(len(bot_ids) == len(set(bot_ids)), "team-cases.phone: duplicate roster id")
+    _require(roster.get("mainBotId") in bot_ids, "team-cases.phone: mainBotId")
+    _require(fixture.get("nowMilliseconds") == 1_700_000_000_000,
+             "team-cases.phone: nowMilliseconds")
+
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    _require(isinstance(valid, list) and valid, "team-cases.phone: valid")
+    _require(isinstance(invalid, list) and invalid, "team-cases.phone: invalid")
+    all_cases = valid + invalid
+    _unique_names(all_cases, "team-cases.phone")
+    names = set(_cases_by_name(all_cases))
+    _require(TEAM_REQUIRED_VALID <= names, "team-cases.phone: missing frozen valid case")
+    _require(TEAM_REQUIRED_INVALID <= names, "team-cases.phone: missing frozen invalid case")
+
+    for case in valid:
+        _require(case["expect"]["isError"] is False,
+                 f"{case['name']}: a valid case must succeed")
+    for case in invalid:
+        _require(case["expect"]["isError"] is True,
+                 f"{case['name']}: an invalid case must fail")
+    for case in all_cases:
+        name = case["name"]
+        caller = case.get("callerBotId")
+        _require(caller in bot_ids, f"{name}: callerBotId")
+        arguments = case.get("arguments")
+        _require(isinstance(arguments, dict) or case.get("argumentsNotObject") is True,
+                 f"{name}: arguments")
+        context = case.get("context")
+        if context is not None:
+            _require(isinstance(context, dict)
+                     and isinstance(context.get("depth"), int)
+                     and isinstance(context.get("chain"), list)
+                     and isinstance(context.get("turn"), int)
+                     and isinstance(context.get("existingRowIDs"), list),
+                     f"{name}: context")
+        expect = case.get("expect")
+        _require(isinstance(expect, dict), f"{name}: expect")
+        _require(isinstance(expect.get("isError"), bool), f"{name}: expect.isError")
+        if expect["isError"]:
+            _require(expect.get("structured", {}).get("ok") is False, f"{name}: failed ok")
+            error = expect["structured"].get("error")
+            _require(isinstance(error, dict), f"{name}: structured.error")
+            _require(error.get("code") in TEAM_ERROR_CODES, f"{name}: error code")
+            _require(isinstance(error.get("message"), str) and error["message"],
+                     f"{name}: error message")
+            _require(expect.get("text") == error["message"], f"{name}: failure text")
+        else:
+            structured = expect.get("structured")
+            _require(isinstance(structured, dict) and structured.get("ok") is True,
+                     f"{name}: success structured")
+            patterns = expect.get("structuredPatterns", {})
+            _require(isinstance(patterns, dict), f"{name}: structuredPatterns")
+            for key, pattern in patterns.items():
+                _require(key in structured, f"{name}: pattern key {key} missing")
+                _require(re.fullmatch(pattern, structured[key]) is not None,
+                         f"{name}: structured pattern {key}")
+            identity = _team_row_identity(case)
+            if identity is not None:
+                records = expect.get("records")
+                _require(isinstance(records, list) and records, f"{name}: records")
+                outbound = records[0]
+                _require(outbound.get("direction") == "outbound",
+                         f"{name}: first record must be outbound")
+                _require(outbound.get("rowID") == identity["rowID"],
+                         f"{name}: outbound rowID")
+                _require(outbound.get("threadID") == identity["threadId"],
+                         f"{name}: outbound threadID")
+                _require(outbound.get("requestID") == identity["requestId"],
+                         f"{name}: outbound requestID")
+                deliveries = expect.get("deliveries")
+                if deliveries:
+                    _require(isinstance(deliveries, list), f"{name}: deliveries")
+                    for delivery in deliveries:
+                        _require(delivery.get("promptText") == _team_prompt(case, roster),
+                                 f"{name}: promptText")
+                        _require(delivery.get("requestId") == identity["requestId"],
+                                 f"{name}: delivery requestId")
+                        _require(delivery.get("threadId") == identity["threadId"],
+                                 f"{name}: delivery threadId")
+        records = expect.get("records", [])
+        _require(isinstance(records, list), f"{name}: records")
+        for record in records:
+            _require(record.get("direction") in TEAM_DIRECTIONS,
+                     f"{name}: record direction")
+            _require(isinstance(record.get("rowID"), str) and record["rowID"],
+                     f"{name}: record rowID")
+            _require(isinstance(record.get("threadID"), str) and record["threadID"],
+                     f"{name}: record threadID")
+            _require(isinstance(record.get("requestID"), str) and record["requestID"],
+                     f"{name}: record requestID")
+            _require(record.get("role") in {"user", "assistant"},
+                     f"{name}: record role")
+            if record["direction"] == "outbound":
+                _require(record.get("toAgent", {}).get("kind") == "agent",
+                         f"{name}: outbound toAgent.kind")
+                _require(isinstance(record.get("delivery"), str), f"{name}: outbound delivery")
+            if record["direction"] == "inbound":
+                match = re.fullmatch(r"t(\d+)u(\d*)", record["rowID"])
+                _require(match is not None, f"{name}: inbound row id")
+                _require(int(match.group(1)) == record.get("turn"),
+                         f"{name}: inbound turn")
+                _require("fromAgent" in record, f"{name}: inbound fromAgent")
+        if "created" in expect:
+            created = expect["created"]
+            _require(isinstance(created, dict), f"{name}: created")
+            arguments = case["arguments"]
+            _require(created.get("name") ==
+                     (arguments.get("name") or "").strip(), f"{name}: created name")
+            description = arguments.get("description") or ""
+            _require(created.get("descriptionLength") == min(len(description), 300),
+                     f"{name}: created description length")
+            _require(created.get("color") == arguments.get("color"),
+                     f"{name}: created color")
+            _require(created.get("hairstyle") == arguments.get("hairstyle"),
+                     f"{name}: created hairstyle")
+        held = expect.get("held", [])
+        _require(isinstance(held, list), f"{name}: held")
+        for index, entry in enumerate(held):
+            _team_validate_held(entry, f"{name}.held[{index}]")
+
+    rows = fixture.get("rowCases")
+    _require(isinstance(rows, list) and len(rows) == 4, "team-cases.phone: rowCases")
+    _require({case["record"]["direction"] for case in rows} == TEAM_DIRECTIONS,
+             "team-cases.phone: rowCases must cover all four directions")
+    _unique_names(rows, "team-cases.phone.rowCases")
+    for case in rows:
+        record = case.get("record")
+        event = case.get("eventData")
+        _require(isinstance(record, dict) and isinstance(event, dict),
+                 f"{case['name']}: row record/eventData")
+        _require(record.get("direction") in TEAM_DIRECTIONS,
+                 f"{case['name']}: row direction")
+        _require(event == _team_derive_event_data(record),
+                 f"{case['name']}: eventData must be derived from the row record")
+        _require(event.get("agentComm", {}).get("direction") == record["direction"],
+                 f"{case['name']}: agentComm direction")
+
+    send_to_user = fixture.get("sendToUserCases")
+    _require(isinstance(send_to_user, dict), "team-cases.phone: sendToUserCases")
+    for group in ("valid", "invalid"):
+        cases = send_to_user.get(group)
+        _require(isinstance(cases, list) and cases, f"team-cases.phone: sendToUser.{group}")
+        _unique_names(cases, f"team-cases.phone.sendToUser.{group}")
+        for case in cases:
+            session = case.get("session")
+            _require(isinstance(session, dict)
+                     and session.get("kind") in {"chat", "task", "routine"}
+                     and isinstance(session.get("hidden"), bool)
+                     and isinstance(session.get("suppressed"), bool),
+                     f"{case['name']}: sendToUser session")
+            _require(isinstance(case.get("arguments"), dict),
+                     f"{case['name']}: sendToUser arguments")
+            expect = case.get("expect")
+            _require(isinstance(expect, dict) and isinstance(expect.get("isError"), bool),
+                     f"{case['name']}: sendToUser expect")
+            if group == "valid":
+                _require(expect["isError"] is False
+                         and expect.get("event") == "ui.send_to_user",
+                         f"{case['name']}: sendToUser success")
+            else:
+                _require(expect["isError"] is True, f"{case['name']}: sendToUser failure")
+                error = expect.get("structured", {}).get("error", {})
+                _require(error.get("code") in TEAM_ERROR_CODES,
+                         f"{case['name']}: sendToUser code")
+                _require(isinstance(error.get("message"), str) and error["message"],
+                         f"{case['name']}: sendToUser message")
+                _require(expect.get("text") == error["message"],
+                         f"{case['name']}: sendToUser text")
+    return len(valid), len(invalid), len(rows)
+
+
+def team_fixture_mutations(fixture):
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_team_fixture(copy)
+        except AssertionError:
+            return
+        raise AssertionError(f"team-cases mutation not detected: {label}")
+
+    def by_name(fixture_copy, name):
+        return next(case for case in fixture_copy["valid"] + fixture_copy["invalid"]
+                    if case["name"] == name)
+
+    expect_failure("hop-limit", lambda f: f["contract"]["sendToAgent"]
+                   .update({"maximumHops": 3}))
+    expect_failure("row-hash", lambda f: by_name(f, "send-now-with-title")
+                   ["expect"]["rowIdentity"].update({"rowID": "agent-outbound-" + "0" * 64}))
+    expect_failure("prompt", lambda f: by_name(f, "send-now-with-title")
+                   ["expect"]["deliveries"][0].update({"promptText": "wrong"}))
+    expect_failure("error-code", lambda f: by_name(f, "send-target-not-found")
+                   ["expect"]["structured"]["error"].update({"code": "nope"}))
+    expect_failure("held-text", lambda f: by_name(f, "send-held-reply-cap")
+                   ["expect"]["held"][0]["item"].update({"text": "长" * 1201}))
+    expect_failure("event-data", lambda f: next(
+        case for case in f["rowCases"] if case["name"] == "outbound-event"
+    )["eventData"].update({"rowID": "wrong"}))
+    expect_failure("duplicate", lambda f: f["valid"].append(
+        json.loads(json.dumps(f["valid"][0]))))
+    expect_failure("missing-case", lambda f: f.update({
+        "valid": [case for case in f["valid"] if case["name"] != "send-now-with-title"]}))
+    expect_failure("send-to-user-message", lambda f: next(
+        case for case in f["sendToUserCases"]["invalid"]
+        if case["name"] == "hidden-wake")["expect"]["structured"]["error"]
+        .update({"message": "wrong"}))
+    return 9
+
+
+TASK_ERROR_CODES = frozenset({
+    "invalid_arguments", "permission_denied", "unauthorized", "timeout",
+    "execution_failed", "unavailable",
+})
+TASK_STATUS_ORDER = [
+    "running", "stopping", "waiting_approval", "completed", "failed", "stopped",
+    "interrupted", "denied",
+]
+TASK_STATUSES = frozenset(TASK_STATUS_ORDER)
+TASK_TERMINAL = frozenset({
+    "completed", "failed", "stopped", "interrupted", "denied", "waiting_approval",
+})
+TASK_REQUIRED_VALID = frozenset({
+    "task-start-sync-completed", "task-start-async-running", "task-await-completed",
+    "task-await-timeout-running", "task-stop-running", "task-stop-alias-id",
+})
+TASK_REQUIRED_INVALID = frozenset({
+    "task-missing-prompt", "task-timeout-out-of-range", "task-completion-too-long",
+    "task-constraints-too-many", "task-budget-unknown-key", "task-history-resume",
+    "task-routine-principal", "task-child-without-delegate", "await-missing-task-id",
+    "await-timeout-out-of-range", "stop-missing-task-id", "stop-unknown-task",
+    "await-unknown-task",
+})
+TASK_REQUIRED_RESTORE = frozenset({
+    "restore-interrupted-wake-once", "restore-settled-record-wins",
+    "restore-waiting-approval-survives", "restore-legacy-record-ignored",
+})
+TASK_REQUIRED_REQUEST_IDS = frozenset({
+    "task-turn", "task-settled", "task-interrupted", "task-turn-approval-resume",
+    "task-settled-approval-denied",
+})
+TASK_CONTRACT = {
+    "defaultTaskTimeoutMs": 180_000,
+    "taskTimeoutRangeMs": [1_000, 300_000],
+    "defaultAwaitTimeoutMs": 180_000,
+    "awaitTimeoutRangeMs": [1_000, 600_000],
+    "maximumCompletionCharacters": 4_000,
+    "maximumPurposeCharacters": 2_000,
+    "maximumConstraints": 8,
+    "maximumConstraintCharacters": 500,
+    "maximumWriteDirectories": 32,
+    "budgetRangeMs": [1_000, 300_000],
+}
+
+
+def _task_latest_snapshot(seed_events):
+    latest = None
+    settled = None
+    for event in seed_events:
+        data = event.get("data") or {}
+        snapshot = data.get("persistedTask")
+        if isinstance(snapshot, dict):
+            latest = snapshot
+        if event.get("type") == "task.settled" and isinstance(data.get("task_id"), str):
+            settled = data
+    return latest, settled
+
+
+def validate_task_fixture(fixture):
+    _require(fixture.get("schemaVersion") == 1, "task-cases.phone: schemaVersion must be 1")
+    _require(fixture.get("vector") == "task-cases.phone", "task-cases.phone: vector")
+    _require(fixture.get("upstream") == [], "task-cases.phone: upstream must be []")
+    _require(isinstance(fixture.get("delta"), list) and fixture["delta"],
+             "task-cases.phone: delta")
+    contract = fixture.get("contract")
+    _require(isinstance(contract, dict), "task-cases.phone: contract")
+    for key, value in TASK_CONTRACT.items():
+        _require(contract.get(key) == value,
+                 f"task-cases.phone: contract.{key} must be {value!r}")
+    _require(contract.get("statuses") == TASK_STATUS_ORDER,
+             "task-cases.phone: statuses must be the frozen ordered set")
+    _require("cancelled" not in contract["statuses"],
+             "task-cases.phone: a task is stopped, never cancelled")
+    _require(set(contract.get("awaitTerminalStatuses", [])) == TASK_TERMINAL,
+             "task-cases.phone: awaitTerminalStatuses")
+    _require(set(contract.get("lifecycleTerminalStatuses", [])) ==
+             TASK_TERMINAL - {"waiting_approval"},
+             "task-cases.phone: lifecycleTerminalStatuses")
+    persisted = contract.get("persistedTask")
+    _require(isinstance(persisted, dict), "task-cases.phone: persistedTask")
+    required_keys = persisted.get("requiredKeys")
+    optional_keys = persisted.get("optionalKeys")
+    _require(isinstance(required_keys, list) and required_keys,
+             "task-cases.phone: persistedTask.requiredKeys")
+    _require(isinstance(optional_keys, list), "task-cases.phone: persistedTask.optionalKeys")
+    _require(not set(required_keys) & set(optional_keys),
+             "task-cases.phone: required/optional snapshot keys overlap")
+    _require(set(persisted.get("parentKinds", [])) == {"chat", "task", "routine"},
+             "task-cases.phone: parentKinds")
+    request_ids = contract.get("requestIds")
+    _require(request_ids == {
+        "taskTurn": "task-turn:<taskId>",
+        "taskSettled": "task-settled:<taskId>",
+        "taskInterrupted": "task-interrupted:<taskId>",
+        "taskTurnApprovalResume": "task-turn:<taskId>:approval:<approvalID>",
+        "taskSettledApprovalDenied": "task-settled:<taskId>:approval:<approvalID>",
+    }, "task-cases.phone: requestIds")
+    errors = contract.get("errors")
+    _require(isinstance(errors, dict), "task-cases.phone: errors")
+    for key in ("onlyChatOrTask", "childCannotDelegate", "missingPrompt", "taskTimeout",
+                "completionTooLong", "purposeTooLong", "constraints", "budgetKey",
+                "budgetRange", "writeDirectories", "historyResume", "awaitMissingId",
+                "awaitTimeout", "stopMissingId"):
+        _require(isinstance(errors.get(key), str) and errors[key],
+                 f"task-cases.phone: errors.{key}")
+
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    _require(isinstance(valid, list) and valid, "task-cases.phone: valid")
+    _require(isinstance(invalid, list) and invalid, "task-cases.phone: invalid")
+    all_cases = valid + invalid
+    _unique_names(all_cases, "task-cases.phone")
+    names = set(_cases_by_name(all_cases))
+    _require(TASK_REQUIRED_VALID <= names, "task-cases.phone: missing frozen valid case")
+    _require(TASK_REQUIRED_INVALID <= names, "task-cases.phone: missing frozen invalid case")
+
+    for case in valid:
+        _require(case["expect"]["isError"] is False,
+                 f"{case['name']}: a valid case must succeed")
+    for case in invalid:
+        _require(case["expect"]["isError"] is True,
+                 f"{case['name']}: an invalid case must fail")
+    for case in all_cases:
+        name = case["name"]
+        _require(case.get("kind") in {"start", "await", "stop"},
+                 f"{name}: kind")
+        _require(isinstance(case.get("arguments"), dict), f"{name}: arguments")
+        expect = case.get("expect")
+        _require(isinstance(expect, dict) and isinstance(expect.get("isError"), bool),
+                 f"{name}: expect")
+        if expect["isError"]:
+            error = expect.get("structured", {}).get("error")
+            _require(isinstance(error, dict), f"{name}: error")
+            _require(error.get("code") in TASK_ERROR_CODES, f"{name}: error code")
+            _require(isinstance(error.get("message"), str) and error["message"],
+                     f"{name}: error message")
+            _require(expect.get("text") == error["message"], f"{name}: failure text")
+            _require("status" not in expect or expect["status"] is None,
+                     f"{name}: a failure has no terminal status")
+        else:
+            _require(expect.get("status") in TASK_STATUSES, f"{name}: status")
+            record = expect.get("record")
+            _require(isinstance(record, dict), f"{name}: record")
+            _require(record.get("status") == expect["status"], f"{name}: record status")
+            _require(record.get("task_id") == "<taskId>", f"{name}: record task token")
+            _require(record.get("sessionId") == "<sessionId>",
+                     f"{name}: record session token")
+            event_order = expect.get("eventOrder")
+            _require(isinstance(event_order, list) and event_order, f"{name}: eventOrder")
+            _require(all(event_type.startswith("task.") for event_type in event_order),
+                     f"{name}: eventOrder types")
+            _require(event_order[0] == "task.created", f"{name}: created must be first")
+            _require(isinstance(expect.get("authorization"), dict) or
+                     case["kind"] == "stop", f"{name}: authorization")
+            if expect.get("authorization"):
+                _require(expect["authorization"].get("canNetworkWrite") is False
+                         and expect["authorization"].get("canDelegateTasks") is False,
+                         f"{name}: task authorization must not widen")
+            if "persistedTask" in expect:
+                snapshot = expect["persistedTask"]
+                _require(isinstance(snapshot, dict), f"{name}: persistedTask expectation")
+                _require(snapshot.get("status") == expect["status"],
+                         f"{name}: persistedTask.status")
+                _require(set(snapshot) <= set(required_keys) | set(optional_keys),
+                         f"{name}: persistedTask expectation keys")
+                _require(isinstance(snapshot.get("createdAt"), int),
+                         f"{name}: persistedTask.createdAt")
+        setup = case.get("setup")
+        if setup is not None:
+            _require(isinstance(setup, dict)
+                     and isinstance(setup.get("parentSessionId"), str),
+                     f"{name}: setup.parentSessionId")
+            if "parentTurn" in setup:
+                _require(isinstance(setup["parentTurn"], list) and setup["parentTurn"],
+                         f"{name}: setup.parentTurn")
+            if "parentKind" in setup:
+                _require(setup["parentKind"] in {"chat", "task", "routine"},
+                         f"{name}: setup.parentKind")
+
+    restores = fixture.get("restoreCases")
+    _require(isinstance(restores, list) and restores, "task-cases.phone: restoreCases")
+    _unique_names(restores, "task-cases.phone.restoreCases")
+    _require(TASK_REQUIRED_RESTORE <= set(_cases_by_name(restores)),
+             "task-cases.phone: missing frozen restore case")
+    for case in restores:
+        name = case["name"]
+        seeds = case.get("seedEvents")
+        _require(isinstance(seeds, list) and seeds, f"{name}: seedEvents")
+        expect = case.get("expect")
+        _require(isinstance(expect, dict), f"{name}: expect")
+        latest, settled = _task_latest_snapshot(seeds)
+        if latest is None:
+            _require(expect.get("errorCode") == "invalid_arguments",
+                     f"{name}: legacy record must be ignored as an unknown task")
+            _require(expect.get("wake", {}).get("delivered") == 0,
+                     f"{name}: legacy record must not wake")
+            continue
+        snapshot_keys = set(latest)
+        _require(set(required_keys) <= snapshot_keys,
+                 f"{name}: persistedTask missing required keys")
+        _require(snapshot_keys <= set(required_keys) | set(optional_keys),
+                 f"{name}: persistedTask unknown keys")
+        for key in required_keys:
+            _require(latest[key] is not None, f"{name}: persistedTask.{key} is null")
+        _require(latest["parentKind"] in persisted["parentKinds"],
+                 f"{name}: parentKind")
+        _require(latest["status"] in TASK_STATUSES, f"{name}: snapshot status")
+        _require(isinstance(latest["createdAt"], int) and latest["createdAt"] >= 0,
+                 f"{name}: createdAt")
+        _require(isinstance(latest["asynchronous"], bool), f"{name}: asynchronous")
+        _require(isinstance(latest["wakeDelivered"], bool), f"{name}: wakeDelivered")
+        expected_status = latest["status"]
+        expected_error = latest.get("error")
+        if settled is not None:
+            expected_status = settled["status"]
+            expected_error = settled.get("error")
+        elif expected_status in {"running", "stopping"}:
+            expected_status = "interrupted"
+            expected_error = "worker_restarted"
+        _require(expect.get("status") == expected_status,
+                 f"{name}: restore status must be {expected_status}")
+        record = expect.get("record")
+        _require(isinstance(record, dict), f"{name}: record")
+        _require(record.get("status") == expected_status, f"{name}: record status")
+        if expected_error is not None:
+            _require(record.get("error") == expected_error, f"{name}: record error")
+        should_wake = (
+            expected_status == "interrupted"
+            and latest["asynchronous"] is True
+            and latest["parentKind"] == "chat"
+            and latest["wakeDelivered"] is False
+        )
+        wake = expect.get("wake")
+        _require(isinstance(wake, dict), f"{name}: wake")
+        _require(wake.get("delivered") == (1 if should_wake else 0),
+                 f"{name}: wake.delivered")
+        if should_wake:
+            _require(wake.get("requestId") ==
+                     f"task-interrupted:{latest['taskId']}", f"{name}: wake requestId")
+            _require(wake.get("sessionId") == latest["parentSessionId"],
+                     f"{name}: wake session")
+            _require(isinstance(wake.get("promptContains"), list)
+                     and latest["taskId"] in wake["promptContains"],
+                     f"{name}: wake prompt")
+        _require(expect.get("secondWake") == 0, f"{name}: second wake must be 0")
+
+    request_cases = fixture.get("requestIdCases")
+    _require(isinstance(request_cases, list) and request_cases,
+             "task-cases.phone: requestIdCases")
+    _unique_names(request_cases, "task-cases.phone.requestIdCases")
+    _require(TASK_REQUIRED_REQUEST_IDS <= set(_cases_by_name(request_cases)),
+             "task-cases.phone: missing frozen request-id case")
+    for case in request_cases:
+        name = case["name"]
+        expected = case.get("expected")
+        _require(isinstance(expected, str) and expected, f"{name}: expected")
+        _require(expected.startswith(case.get("prefix", "")), f"{name}: prefix")
+        task_id = case.get("taskId")
+        approval = case.get("approvalId")
+        if approval is None:
+            _require(expected in {f"task-turn:{task_id}", f"task-settled:{task_id}",
+                                  f"task-interrupted:{task_id}"},
+                     f"{name}: request id")
+        else:
+            _require(expected.endswith(f":approval:{approval}"), f"{name}: approval suffix")
+        origin, hidden, _held, memory_source = resolve_turn_origin(expected)
+        _require(origin == case.get("origin"), f"{name}: origin")
+        _require(hidden == case.get("hidden"), f"{name}: hidden")
+        _require(memory_source == case.get("memorySource"),
+                 f"{name}: memorySource")
+    return len(valid), len(invalid), len(restores), len(request_cases)
+
+
+def task_fixture_mutations(fixture):
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_task_fixture(copy)
+        except AssertionError:
+            return
+        raise AssertionError(f"task-cases mutation not detected: {label}")
+
+    def by_name(fixture_copy, name, group="valid"):
+        return next(case for case in fixture_copy[group] if case["name"] == name)
+
+    def by_restore(fixture_copy, name):
+        return next(case for case in fixture_copy["restoreCases"] if case["name"] == name)
+
+    expect_failure("default-timeout", lambda f: f["contract"]
+                   .update({"defaultTaskTimeoutMs": 180_001}))
+    expect_failure("cancelled-status", lambda f: f["contract"]["statuses"].append("cancelled"))
+    expect_failure("snapshot-key", lambda f: by_restore(
+        f, "restore-interrupted-wake-once")["seedEvents"][0]["data"]
+        ["persistedTask"].pop("wakeDelivered"))
+    expect_failure("restore-status", lambda f: by_restore(
+        f, "restore-interrupted-wake-once")["expect"].update({"status": "completed"}))
+    expect_failure("request-id", lambda f: next(
+        case for case in f["requestIdCases"] if case["name"] == "task-turn"
+    ).update({"expected": "task-turn:task-other"}))
+    expect_failure("error-message", lambda f: by_name(
+        f, "task-missing-prompt", "invalid")["expect"].update({"text": "wrong"}))
+    expect_failure("duplicate-restore", lambda f: f["restoreCases"].append(
+        json.loads(json.dumps(f["restoreCases"][0]))))
+    expect_failure("drop-valid", lambda f: f.update({
+        "valid": [case for case in f["valid"]
+                  if case["name"] != "task-start-sync-completed"]}))
+    expect_failure("snapshot-expect-status", lambda f: by_name(
+        f, "task-start-sync-completed")["expect"]["persistedTask"]
+        .update({"status": "running"}))
+    return 9
+
+
+
+WATCHDOG_CONFIG_DEFAULTS = {
+    "heartbeatTimeoutMs": 120000,
+    "turnDeadlineMs": 900000,
+    "taskDeadlineMs": 600000,
+    "routineDeadlineMs": 660000,
+    "repeatedToolCalls": 5,
+    "repeatedToolErrors": 3,
+    "maxUnitTokens": 200000,
+    "maxUnitCostUsd": 2,
+    "goalMaxTotalTokens": 0,
+    "goalMaxTotalCostUsd": 0,
+    "tickMs": 5000,
+    "historyLimit": 200,
+    "maxUnits": 1000,
+}
+WATCHDOG_CONFIG_INT64_FIELDS = frozenset({
+    "heartbeatTimeoutMs", "turnDeadlineMs", "taskDeadlineMs", "routineDeadlineMs",
+    "tickMs",
+})
+WATCHDOG_CONFIG_INT_FIELDS = frozenset({
+    "repeatedToolCalls", "repeatedToolErrors", "maxUnitTokens",
+    "goalMaxTotalTokens", "historyLimit", "maxUnits",
+})
+WATCHDOG_CONFIG_NUMBER_FIELDS = frozenset({"maxUnitCostUsd", "goalMaxTotalCostUsd"})
+WATCHDOG_CONFIG_MAX = 9223372036854775807
+WATCHDOG_UNIT_KINDS = frozenset({"turn", "task", "routine", "goal"})
+WATCHDOG_CHECKS = (
+    "deadline", "heartbeat", "repeated_tool_signature", "repeated_tool_error",
+    "quota", "webcontent_terminated", "thermal_pressure", "battery_pressure",
+)
+WATCHDOG_MOBILE_CHECKS = frozenset({
+    "webcontent_terminated", "thermal_pressure", "battery_pressure",
+})
+WATCHDOG_FLAG_KEYS = frozenset({
+    "check", "unitKind", "unitId", "botId", "sessionId", "at", "evidence",
+})
+
+
+def _watchdog_config_schema():
+    return schema("watchdog.schema.json")["properties"]["config"]
+
+
+def _watchdog_flag_schema():
+    return schema("watchdog.schema.json")["$defs"]["flagData"]
+
+
+def _resolved_watchdog_config(value):
+    resolved = dict(WATCHDOG_CONFIG_DEFAULTS)
+    resolved.update(value)
+    return resolved
+
+
+def _watchdog_config_error(value):
+    """Return the frozen code/path for one invalid config object."""
+    for name in value:
+        if name not in WATCHDOG_CONFIG_DEFAULTS:
+            return "watchdog.config.unknown", f"/config/{name}"
+    for name, item in value.items():
+        if name in WATCHDOG_CONFIG_NUMBER_FIELDS:
+            if isinstance(item, bool) or not isinstance(item, (int, float)):
+                return "watchdog.config.type", f"/config/{name}"
+            if item != item or item in (float("inf"), float("-inf")) or item < 0:
+                return "watchdog.config.range", f"/config/{name}"
+            continue
+        if isinstance(item, bool) or not isinstance(item, int):
+            return "watchdog.config.type", f"/config/{name}"
+        if item < 0 or item > WATCHDOG_CONFIG_MAX:
+            return "watchdog.config.range", f"/config/{name}"
+    return None
+
+
+def _watchdog_deadline(kind, config, override=None):
+    if isinstance(override, int) and not isinstance(override, bool) and override > 0:
+        return override
+    if kind == "turn":
+        return config["turnDeadlineMs"]
+    if kind == "task":
+        return config["taskDeadlineMs"]
+    if kind == "routine":
+        return config["routineDeadlineMs"]
+    return 0
+
+
+def _watchdog_sha256(text):
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _watchdog_evaluate(unit, now, config):
+    findings = []
+    deadline_at = unit.get("deadlineAt")
+    if deadline_at is not None and deadline_at > 0 and now > deadline_at:
+        findings.append(("deadline", {
+            "deadlineAt": deadline_at,
+            "now": now,
+            "elapsedMs": max(0, now - unit["startedAt"]),
+        }))
+    if unit.get("pendingApproval", 0) <= 0 and config["heartbeatTimeoutMs"] > 0:
+        last = unit.get("lastEventAt")
+        if last is None:
+            last = unit["startedAt"]
+        silent = now - last
+        if silent > config["heartbeatTimeoutMs"]:
+            findings.append(("heartbeat", {
+                "lastEventAt": last,
+                "now": now,
+                "silentMs": silent,
+                "thresholdMs": config["heartbeatTimeoutMs"],
+            }))
+    if (config["repeatedToolCalls"] > 0
+            and unit.get("repeatedToolSignatureCount", 0) >= config["repeatedToolCalls"]):
+        findings.append(("repeated_tool_signature", {
+            "signature": unit.get("lastToolSignature"),
+            "count": unit["repeatedToolSignatureCount"],
+            "threshold": config["repeatedToolCalls"],
+        }))
+    if (config["repeatedToolErrors"] > 0
+            and unit.get("repeatedToolErrorCount", 0) >= config["repeatedToolErrors"]):
+        findings.append(("repeated_tool_error", {
+            "errorSignature": unit.get("lastToolErrorSignature"),
+            "count": unit["repeatedToolErrorCount"],
+            "threshold": config["repeatedToolErrors"],
+        }))
+    tokens = max(0, unit.get("tokens", 0))
+    cost = max(0.0, unit.get("costUsd", 0.0))
+    over_tokens = config["maxUnitTokens"] > 0 and tokens > config["maxUnitTokens"]
+    over_cost = config["maxUnitCostUsd"] > 0 and cost > config["maxUnitCostUsd"]
+    if over_tokens or over_cost:
+        reason = "tokens_and_cost" if over_tokens and over_cost else (
+            "tokens" if over_tokens else "cost")
+        findings.append(("quota", {
+            "tokens": tokens,
+            "maxTokens": config["maxUnitTokens"],
+            "costUsd": cost,
+            "maxCostUsd": config["maxUnitCostUsd"],
+            "reason": reason,
+        }))
+    return findings
+
+
+class _WatchdogReferenceMonitor:
+    """Small reference state machine used only to prove the shared vectors."""
+
+    def __init__(self, config):
+        self.config = config
+        self.units = {}
+        self.seen = set()
+        self.pending_calls = {}
+        self.payloads = {}
+
+    def _emit(self, kind, unit_id, bot_id, session_id, check, at, evidence):
+        key = (kind, unit_id, check)
+        if key in self.seen:
+            return None
+        event_id = f"watchdog.flagged:{kind}:{unit_id}:{check}"
+        if event_id in self.payloads:
+            # The real monitor consults the durable event id before appending,
+            # so finishing and restarting the same unit cannot re-emit a check.
+            self.seen.add(key)
+            return None
+        self.seen.add(key)
+        payload = {
+            "check": check,
+            "unitKind": kind,
+            "unitId": unit_id,
+            "botId": bot_id,
+            "sessionId": session_id,
+            "at": at,
+            "evidence": evidence,
+        }
+        self.payloads[event_id] = payload
+        return check
+
+    def _evaluate(self, key, now):
+        kind, unit_id = key
+        unit = self.units[key]
+        emitted = []
+        for check, evidence in _watchdog_evaluate(unit, now, self.config):
+            value = self._emit(kind, unit_id, unit.get("botId"), unit.get("sessionId"),
+                               check, now, evidence)
+            if value is not None:
+                emitted.append(value)
+        return emitted
+
+    def apply(self, step):
+        op = step["op"]
+        if op == "start":
+            unit_id = step["id"].strip()
+            if not unit_id:
+                return []
+            key = (step["kind"], unit_id)
+            now = step.get("at", step.get("startedAt", 0))
+            if key in self.units:
+                unit = self.units[key]
+                if unit.get("botId") is None:
+                    unit["botId"] = step.get("botId")
+                if unit.get("sessionId") is None:
+                    unit["sessionId"] = step.get("sessionId")
+                last = unit.get("lastEventAt")
+                unit["lastEventAt"] = now if last is None else max(last, now)
+                return self._evaluate(key, now)
+            started = step.get("startedAt", now)
+            deadline_ms = _watchdog_deadline(step["kind"], self.config,
+                                             step.get("deadlineOverrideMs"))
+            self.units[key] = {
+                "kind": step["kind"],
+                "id": unit_id,
+                "botId": step.get("botId"),
+                "sessionId": step.get("sessionId"),
+                "startedAt": started,
+                "lastEventAt": now,
+                "deadlineAt": started + deadline_ms if deadline_ms > 0 else None,
+                "repeatedToolSignatureCount": 0,
+                "lastToolSignature": None,
+                "repeatedToolErrorCount": 0,
+                "lastToolErrorSignature": None,
+                "pendingApproval": 0,
+                "tokens": 0,
+                "costUsd": 0.0,
+            }
+            return self._evaluate(key, now)
+        if op == "tick":
+            emitted = []
+            for key in sorted(self.units, key=lambda item: (item[0], item[1])):
+                emitted.extend(self._evaluate(key, step["at"]))
+            return emitted
+        if op == "finish":
+            key = (step["kind"], step["id"])
+            self.units.pop(key, None)
+            self.seen = {item for item in self.seen if item[:2] != key}
+            return []
+        if op == "mobile":
+            check = step["event"]
+            tool_key = (step["kind"], step["id"].strip())
+            unit = self.units.get(tool_key, {})
+            value = self._emit(step["kind"], step["id"].strip(),
+                               step.get("botId", unit.get("botId")),
+                               step.get("sessionId", unit.get("sessionId")),
+                               check, step["at"], step.get("evidence", {}))
+            return [value] if value is not None else []
+        key = (step["kind"], step["id"])
+        unit = self.units.get(key)
+        if unit is None:
+            return []
+        now = step["at"]
+        if op == "toolCall":
+            digest = step.get("digest")
+            signature = (f"{step['name']}|{digest}"
+                         if isinstance(digest, str) and digest else step["name"])
+            if signature == unit.get("lastToolSignature"):
+                unit["repeatedToolSignatureCount"] += 1
+            else:
+                unit["lastToolSignature"] = signature
+                unit["repeatedToolSignatureCount"] = 1
+            call_id = step.get("callId")
+            if isinstance(call_id, str) and call_id:
+                self.pending_calls[call_id] = step["name"]
+        elif op == "toolResult":
+            call_id = step.get("callId")
+            pending_name = self.pending_calls.pop(call_id, None) if call_id else None
+            tool_name = pending_name or step.get("name") or "unknown"
+            if step["status"].lower() == "error":
+                error_text = step.get("error") or step.get("resultDigest") or "error"
+                signature = f"{tool_name}|{_watchdog_sha256(error_text)}"
+                if signature == unit.get("lastToolErrorSignature"):
+                    unit["repeatedToolErrorCount"] += 1
+                else:
+                    unit["lastToolErrorSignature"] = signature
+                    unit["repeatedToolErrorCount"] = 1
+            else:
+                unit["lastToolErrorSignature"] = None
+                unit["repeatedToolErrorCount"] = 0
+        elif op == "usage":
+            if step.get("tokens", 0) > 0:
+                unit["tokens"] = unit.get("tokens", 0) + step["tokens"]
+            if step.get("costUsd", 0) > 0:
+                unit["costUsd"] = unit.get("costUsd", 0.0) + step["costUsd"]
+        else:
+            raise AssertionError(f"watchdog monitor step: unknown op {op!r}")
+        last = unit.get("lastEventAt")
+        unit["lastEventAt"] = now if last is None else max(last, now)
+        return self._evaluate(key, now)
+
+
+def validate_watchdog_phone_fixture(fixture, upstream):
+    """Validate D7 config/unit/monitor/flag vectors and their reference behavior."""
+    if fixture.get("schemaVersion") != 1:
+        raise AssertionError("watchdog.phone: schemaVersion must be 1")
+    if fixture.get("vector") != "watchdog.phone":
+        raise AssertionError("watchdog.phone: vector must be watchdog.phone")
+    if fixture.get("upstream") != ["watchdog.json"]:
+        raise AssertionError("watchdog.phone: upstream must be [watchdog.json]")
+    if not isinstance(fixture.get("delta"), list) or not fixture["delta"]:
+        raise AssertionError("watchdog.phone: delta must be non-empty")
+    if fixture["source"]["checkout"] != upstream["source"]["checkout"]:
+        raise AssertionError("watchdog.phone: source.checkout differs from watchdog.json")
+    config_schema = _watchdog_config_schema()
+    flag_schema = _watchdog_flag_schema()
+
+    config_cases = fixture.get("configCases", {})
+    valid_configs = config_cases.get("valid", [])
+    invalid_configs = config_cases.get("invalid", [])
+    if not valid_configs or not invalid_configs:
+        raise AssertionError("watchdog.phone.configCases needs valid and invalid cases")
+    valid_names = set()
+    for index, case in enumerate(valid_configs):
+        where = f"watchdog.phone.configCases.valid[{index}]"
+        name = case.get("name")
+        if not isinstance(name, str) or not name or name in valid_names:
+            raise AssertionError(f"{where}: name must be unique and non-empty")
+        valid_names.add(name)
+        validate_json(case["input"], config_schema, where + ".input")
+        resolved = _resolved_watchdog_config(case["input"])
+        if resolved != case.get("expect"):
+            raise AssertionError(f"{where}: resolved config differs from expect")
+        validate_json(resolved, config_schema, where + ".expect")
+    invalid_names = set()
+    for index, case in enumerate(invalid_configs):
+        where = f"watchdog.phone.configCases.invalid[{index}]"
+        name = case.get("name")
+        if not isinstance(name, str) or not name or name in invalid_names:
+            raise AssertionError(f"{where}: name must be unique and non-empty")
+        invalid_names.add(name)
+        try:
+            validate_json(case["input"], config_schema, where + ".input")
+        except Exception:
+            pass
+        else:
+            raise AssertionError(f"{where}: invalid config unexpectedly validates")
+        expected = _watchdog_config_error(case["input"])
+        if expected is None:
+            raise AssertionError(f"{where}: fixture does not name a frozen config error case")
+        if case.get("error") != {"code": expected[0], "path": expected[1]}:
+            raise AssertionError(f"{where}: error code/path differs from {expected}")
+
+    unit_cases = fixture.get("unitCases", {}).get("valid", [])
+    if not unit_cases:
+        raise AssertionError("watchdog.phone.unitCases.valid must be non-empty")
+    unit_names = set()
+    for index, case in enumerate(unit_cases):
+        where = f"watchdog.phone.unitCases.valid[{index}]"
+        name = case.get("name")
+        if not isinstance(name, str) or not name or name in unit_names:
+            raise AssertionError(f"{where}: name must be unique and non-empty")
+        unit_names.add(name)
+        kind = case.get("kind")
+        if kind not in WATCHDOG_UNIT_KINDS:
+            raise AssertionError(f"{where}: unknown kind {kind!r}")
+        if not isinstance(case.get("id"), str) or not case["id"].strip():
+            raise AssertionError(f"{where}: id must be non-empty")
+        expected = case.get("expect")
+        if not isinstance(expected, dict):
+            raise AssertionError(f"{where}: expect must be an object")
+        if expected.get("kind") != kind or expected.get("id") != case["id"].strip():
+            raise AssertionError(f"{where}: expect kind/id differs")
+        deadline_ms = _watchdog_deadline(kind, WATCHDOG_CONFIG_DEFAULTS,
+                                         case.get("deadlineOverrideMs"))
+        started = case.get("startedAt", case["at"])
+        expected_deadline = started + deadline_ms if deadline_ms > 0 else None
+        if expected.get("deadlineAt") != expected_deadline:
+            raise AssertionError(f"{where}: deadlineAt must be {expected_deadline!r}")
+        if expected.get("startedAt") != started or expected.get("lastEventAt") != case["at"]:
+            raise AssertionError(f"{where}: startedAt/lastEventAt differ from the rule")
+
+    scenarios = fixture.get("monitorCases", [])
+    if not scenarios:
+        raise AssertionError("watchdog.phone.monitorCases must be non-empty")
+    scenario_names = set()
+    generated_payloads = {}
+    scenario_count = 0
+    step_count = 0
+    for index, scenario in enumerate(scenarios):
+        where = f"watchdog.phone.monitorCases[{index}]"
+        name = scenario.get("name")
+        if not isinstance(name, str) or not name or name in scenario_names:
+            raise AssertionError(f"{where}: name must be unique and non-empty")
+        scenario_names.add(name)
+        scenario_count += 1
+        validate_json(scenario["config"], config_schema, where + ".config")
+        config = _resolved_watchdog_config(scenario["config"])
+        monitor = _WatchdogReferenceMonitor(config)
+        for step_index, step in enumerate(scenario.get("steps", [])):
+            step_where = f"{where}.steps[{step_index}]"
+            op = step.get("op")
+            if op not in {"start", "tick", "finish", "mobile", "toolCall",
+                          "toolResult", "usage"}:
+                raise AssertionError(f"{step_where}: unknown op {op!r}")
+            if op != "tick" and "kind" in step and step["kind"] not in WATCHDOG_UNIT_KINDS:
+                raise AssertionError(f"{step_where}: unknown unit kind")
+            if op != "finish" and "at" not in step:
+                raise AssertionError(f"{step_where}: at is required")
+            step_count += 1
+            emitted = monitor.apply(step)
+            if emitted != step.get("expectChecks"):
+                raise AssertionError(
+                    f"{step_where}: expected checks {step.get('expectChecks')!r}, got {emitted!r}")
+            if "expectUnit" in step:
+                expected_unit = step["expectUnit"]
+                key = (step["kind"], step["id"].strip())
+                actual = monitor.units.get(key)
+                if expected_unit is None:
+                    if actual is not None:
+                        raise AssertionError(f"{step_where}: expected no unit")
+                elif actual is None or any(
+                        actual.get(name) != value for name, value in expected_unit.items()):
+                    raise AssertionError(
+                        f"{step_where}: unit {actual!r} differs from {expected_unit!r}")
+        if monitor.payloads:
+            generated_payloads.update(monitor.payloads)
+
+    payload_cases = fixture.get("flagPayloadCases", [])
+    if not payload_cases:
+        raise AssertionError("watchdog.phone.flagPayloadCases must be non-empty")
+    payload_names = set()
+    for index, case in enumerate(payload_cases):
+        where = f"watchdog.phone.flagPayloadCases[{index}]"
+        name = case.get("name")
+        if not isinstance(name, str) or not name or name in payload_names:
+            raise AssertionError(f"{where}: name must be unique and non-empty")
+        payload_names.add(name)
+        event_id = case.get("eventId")
+        if not isinstance(event_id, str) or not event_id.startswith("watchdog.flagged:"):
+            raise AssertionError(f"{where}: eventId must be a watchdog.flagged id")
+        expected = case.get("expect")
+        if not isinstance(expected, dict) or set(expected) != WATCHDOG_FLAG_KEYS:
+            raise AssertionError(f"{where}: expect must carry exactly {sorted(WATCHDOG_FLAG_KEYS)}")
+        validate_json(expected, flag_schema, where + ".expect")
+        if expected["check"] not in WATCHDOG_CHECKS:
+            raise AssertionError(f"{where}: unknown check")
+        if expected["check"] in WATCHDOG_MOBILE_CHECKS:
+            if expected["evidence"] == {} and expected["check"] != "webcontent_terminated":
+                raise AssertionError(f"{where}: a mobile reading may not be fabricated as empty")
+        if generated_payloads.get(event_id) != expected:
+            raise AssertionError(f"{where}: monitor payload differs for {event_id}")
+    if set(generated_payloads) != {case["eventId"] for case in payload_cases}:
+        raise AssertionError("watchdog.phone.flagPayloadCases do not cover every monitor flag")
+
+    profiles = fixture.get("contextProfiles")
+    if profiles != {
+        "source": "context-profiles.json",
+        "readOnly": True,
+        "botRuntimeCompaction": False,
+        "profiles": ["default", "conservative"],
+        "unknownResolution": "default",
+    }:
+        raise AssertionError("watchdog.phone.contextProfiles must remain read-only data")
+    profile_fixture = load("context-profiles.json")
+    if sorted(profile_fixture["valid"]["profiles"]) != sorted(profiles["profiles"]):
+        raise AssertionError("watchdog.phone.contextProfiles differ from context-profiles.json")
+    return (len(valid_configs), len(invalid_configs), len(unit_cases),
+            scenario_count, step_count, len(payload_cases))
+
+
+CONTEXT_LINT_THRESHOLD_DEFAULTS = {
+    "personaCharsWarn": 20000,
+    "personaCharsError": 32000,
+    "toolResultTokensWarn": 4096,
+    "toolResultTokensError": 12000,
+    "toolDefTokensWarn": 8000,
+    "toolDefTokensError": 16000,
+    "toolCountWarn": 40,
+    "maxRuntimeContextsPerTurn": 2,
+    "repeatedTextChars": 500,
+    "repeatedTextMaxFindings": 20,
+}
+CONTEXT_LINT_LOCATION_KEYS = {
+    "system-prompt-bloat": (
+        frozenset({"sessionId", "source", "chars"}),
+        frozenset({"sessionId", "source", "turn", "seq", "chars"}),
+    ),
+    "tool-result-bloat": (
+        frozenset({"sessionId", "turn", "step", "seq", "callId", "tool", "tokens"}),
+    ),
+    "duplicate-context": (
+        frozenset({"sessionId", "turn", "seq", "occurrences"}),
+        frozenset({"sessionId", "turn", "seq", "chars"}),
+        frozenset({"sessionId", "turn", "seq", "earlierSeq", "chars"}),
+        frozenset({"sessionId", "turn", "seq", "firstSeq", "occurrences", "chars"}),
+    ),
+    "orphan-tool-call": (
+        frozenset({"sessionId", "turn", "step", "seq", "callId", "tool"}),
+    ),
+    "orphan-tool-result": (
+        frozenset({"sessionId", "turn", "step", "seq", "callId"}),
+    ),
+    "tool-def-bloat": (
+        frozenset({"sessionId", "source", "count", "tokens", "chars"}),
+    ),
+}
+
+
+def _decode_lint_thresholds(value):
+    thresholds = dict(CONTEXT_LINT_THRESHOLD_DEFAULTS)
+    if not isinstance(value, dict):
+        raise AssertionError("context-lint thresholds must be an object")
+    for name, item in value.items():
+        if name not in thresholds:
+            continue
+        if isinstance(item, bool) or not isinstance(item, int):
+            raise AssertionError(f"context-lint threshold {name} must be an integer")
+        thresholds[name] = item
+    return thresholds
+
+
+def _check_lint_finding(finding, where):
+    validate_json([finding], schema("context-lint.schema.json"), where)
+    rule = finding["rule"]
+    keys = frozenset(finding["location"])
+    if keys not in CONTEXT_LINT_LOCATION_KEYS[rule]:
+        raise AssertionError(f"{where}: location keys {sorted(keys)} are not frozen for {rule}")
+
+
+def _lint_finding_error(finding):
+    """Return the frozen code/path for one deliberately invalid finding."""
+    if not isinstance(finding, dict):
+        return "context_lint.finding_type", "/finding"
+    rule = finding.get("rule")
+    if rule not in CONTEXT_LINT_LOCATION_KEYS:
+        return "context_lint.unknown_rule", "/finding/rule"
+    if finding.get("severity") not in ("warn", "error"):
+        return "context_lint.unknown_severity", "/finding/severity"
+    if not isinstance(finding.get("evidence"), str) or not finding["evidence"]:
+        return "context_lint.finding_required", "/finding/evidence"
+    location = finding.get("location")
+    if not isinstance(location, dict):
+        return "context_lint.location_type", "/finding/location"
+    keys = frozenset(location)
+    variants = CONTEXT_LINT_LOCATION_KEYS[rule]
+    if keys in variants:
+        return None
+    for variant in variants:
+        extra = keys - variant
+        if extra:
+            key = sorted(extra)[0]
+            return "context_lint.location_keys", f"/finding/location/{key}"
+    missing = set(variants[0]) - keys
+    key = sorted(missing)[0]
+    return "context_lint.location_keys", f"/finding/location/{key}"
+
+
+def validate_context_lint_phone_fixture(fixture, upstream):
+    """Validate D7 lint cases, thresholds and the per-rule location keys."""
+    if fixture.get("schemaVersion") != 1:
+        raise AssertionError("context-lint.phone: schemaVersion must be 1")
+    if fixture.get("vector") != "context-lint.phone":
+        raise AssertionError("context-lint.phone: vector must be context-lint.phone")
+    if fixture.get("upstream") != ["context-lint.json"]:
+        raise AssertionError("context-lint.phone: upstream must be [context-lint.json]")
+    if not isinstance(fixture.get("delta"), list) or not fixture["delta"]:
+        raise AssertionError("context-lint.phone: delta must be non-empty")
+    if fixture["source"]["checkout"] != upstream["source"]["checkout"]:
+        raise AssertionError("context-lint.phone: source.checkout differs from context-lint.json")
+
+    thresholds = fixture.get("thresholds", {})
+    if thresholds.get("default") != CONTEXT_LINT_THRESHOLD_DEFAULTS:
+        raise AssertionError("context-lint.phone.thresholds.default differs from D7")
+    for index, case in enumerate(thresholds.get("invalid", [])):
+        where = f"context-lint.phone.thresholds.invalid[{index}]"
+        try:
+            _decode_lint_thresholds(case["input"])
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError(f"{where}: invalid thresholds unexpectedly decode")
+        if not case.get("error", {}).get("code"):
+            raise AssertionError(f"{where}: error code is required")
+        if not case.get("error", {}).get("path"):
+            raise AssertionError(f"{where}: error path is required")
+
+    valid = fixture.get("valid", [])
+    if not valid:
+        raise AssertionError("context-lint.phone.valid must be non-empty")
+    for index, finding in enumerate(valid):
+        _check_lint_finding(finding, f"context-lint.phone.valid[{index}]")
+
+    invalid = fixture.get("invalid", [])
+    if not invalid:
+        raise AssertionError("context-lint.phone.invalid must be non-empty")
+    for index, case in enumerate(invalid):
+        where = f"context-lint.phone.invalid[{index}]"
+        try:
+            _check_lint_finding(case["finding"], where + ".finding")
+        except Exception:
+            pass
+        else:
+            raise AssertionError(f"{where}: invalid finding unexpectedly validates")
+        expected = _lint_finding_error(case["finding"])
+        if expected is None:
+            raise AssertionError(f"{where}: invalid fixture names no frozen error")
+        if case.get("error") != {"code": expected[0], "path": expected[1]}:
+            raise AssertionError(f"{where}: error code/path differs from {expected}")
+
+    cases = fixture.get("cases", [])
+    if not cases:
+        raise AssertionError("context-lint.phone.cases must be non-empty")
+    covered_rules = set()
+    expected_from_cases = []
+    case_names = set()
+    for index, case in enumerate(cases):
+        where = f"context-lint.phone.cases[{index}]"
+        name = case.get("name")
+        if not isinstance(name, str) or not name or name in case_names:
+            raise AssertionError(f"{where}: name must be unique and non-empty")
+        case_names.add(name)
+        _decode_lint_thresholds(case.get("thresholds", {}))
+        expected = case.get("expect")
+        if not isinstance(expected, list) or not expected:
+            raise AssertionError(f"{where}: expect must be a non-empty array")
+        for finding_index, finding in enumerate(expected):
+            _check_lint_finding(finding, f"{where}.expect[{finding_index}]")
+            covered_rules.add(finding["rule"])
+        expected_from_cases.extend(expected)
+    if covered_rules != set(CONTEXT_LINT_LOCATION_KEYS):
+        raise AssertionError(f"context-lint.phone.cases do not cover all six rules: {sorted(covered_rules)}")
+    if canonical(expected_from_cases) != canonical(valid):
+        raise AssertionError(
+            "context-lint.phone.valid must be exactly the findings named by cases[].expect")
+    return len(cases), len(valid), len(invalid)
+
+
+def watchdog_phone_mutations(fixture):
+    """Prove the D7 watchdog checker rejects altered vectors."""
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_watchdog_phone_fixture(copy, load("watchdog.json"))
+        except Exception:
+            return
+        raise AssertionError(f"watchdog mutation not detected: {label}")
+
+    def config_case(copy, name, group="valid"):
+        return next(case for case in copy["configCases"][group] if case["name"] == name)
+
+    def scenario(copy, name):
+        return next(case for case in copy["monitorCases"] if case["name"] == name)
+
+    def payload(copy, name):
+        return next(case for case in copy["flagPayloadCases"] if case["name"] == name)
+
+    expect_failure("config-default", lambda copy: config_case(
+        copy, "missing-all-uses-defaults")["expect"].update({"tickMs": 0}))
+    expect_failure("config-error-code", lambda copy: config_case(
+        copy, "unknown-field", "invalid")["error"].update({"code": "watchdog.config.type"}))
+    expect_failure("unit-deadline", lambda copy: next(
+        case for case in copy["unitCases"]["valid"]
+        if case["name"] == "turn-default-deadline")["expect"].update({"deadlineAt": 1}))
+    expect_failure("monitor-checks", lambda copy: scenario(
+        copy, "base-and-mobile-once")["steps"][1].update({"expectChecks": ["deadline"]}))
+    expect_failure("flag-at", lambda copy: payload(copy, "deadline")["expect"].update({"at": 0}))
+    expect_failure("mobile-empty", lambda copy: payload(
+        copy, "thermal-pressure")["expect"].update({"evidence": {}}))
+    expect_failure("read-only-profile", lambda copy: copy["contextProfiles"].update(
+        {"botRuntimeCompaction": True}))
+    return 7
+
+
+def context_lint_phone_mutations(fixture):
+    """Prove the D7 lint checker rejects altered thresholds and locations."""
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_context_lint_phone_fixture(copy, load("context-lint.json"))
+        except Exception:
+            return
+        raise AssertionError(f"context-lint mutation not detected: {label}")
+
+    def case(copy, name):
+        return next(item for item in copy["cases"] if item["name"] == name)
+
+    expect_failure("threshold", lambda copy: copy["thresholds"]["default"].update(
+        {"personaCharsWarn": 19999}))
+    expect_failure("location-key", lambda copy: case(
+        copy, "tool-def-error")["expect"][0]["location"].update({"extra": True}))
+    expect_failure("severity", lambda copy: case(
+        copy, "persona-warn-default")["expect"][0].update({"severity": "error"}))
+    expect_failure("invalid-error-code", lambda copy: copy["invalid"][0]["error"].update(
+        {"code": "context_lint.unknown_rule"}))
+    expect_failure("source", lambda copy: case(
+        copy, "tool-def-error")["expect"][0]["location"].update({"source": "request/header"}))
+    return 5
+
+
 def main() -> int:
     check_overlays()
+    rpc_valid, rpc_invalid = validate_mcp_rpc_fixture(load(MCP_RPC_VECTOR))
+    rpc_mutations = mcp_rpc_mutations(load(MCP_RPC_VECTOR))
+    identity_valid, identity_invalid = validate_identity_approval_fixture(load(IDENTITY_APPROVAL_VECTOR))
+    identity_mutations = identity_approval_mutations(load(IDENTITY_APPROVAL_VECTOR))
+    tool_valid, tool_invalid, tool_denials, tool_unknowns = validate_tool_call_fixture(load(TOOL_CALL_VECTOR))
+    tool_mutations = tool_call_mutations(load(TOOL_CALL_VECTOR))
+    volatile_assembly, volatile_producer = validate_volatile_phone_fixture(
+        load("volatile-context.json"), load(VOLATILE_PHONE_VECTOR))
+    volatile_mutations = volatile_phone_mutations(
+        load("volatile-context.json"), load(VOLATILE_PHONE_VECTOR))
+    team_valid, team_invalid, team_rows = validate_team_fixture(load(TEAM_CASES_VECTOR))
+    team_mutations = team_fixture_mutations(load(TEAM_CASES_VECTOR))
+    task_valid, task_invalid, task_restores, task_request_ids = validate_task_fixture(
+        load(TASK_CASES_VECTOR))
+    task_mutations = task_fixture_mutations(load(TASK_CASES_VECTOR))
     check_event(load("event-envelope.json")["valid"]["event"],
                 "event-envelope.schema.json", "event")
     for index, case in enumerate(load("event-envelope.json")["invalid"]):
@@ -1748,6 +5876,8 @@ def main() -> int:
     if not any("commitSeq" in case["event"] for case in ephemeral_invalid):
         raise AssertionError("event-envelope.phone: ephemeral negative vectors must cover commitSeq")
 
+    store_steps = validate_store_fixture(load(STORE_VECTOR))
+    action_steps = validate_user_action_fixture(load(USER_ACTION_VECTOR))
     check(load("tool-catalog.json")["valid"], "tool-catalog.schema.json", "tool-catalog")
     # phoneDSH P26 additive: the content-card `final` flag lives in the
     # append-only overlay, so the runtime view is the merged p0/p1 catalog.
@@ -1796,10 +5926,19 @@ def main() -> int:
     if ledger_phone["valid"]["purpose"] != "memory-maintenance":
         raise AssertionError("llm-ledger.phone: the phone-only purpose must be memory-maintenance")
     check(load("model-purpose-policy.json")["valid"], "model-purpose-policy.schema.json", "model-purpose-policy")
+    validate_w5_fixtures(load, check, rejects, check_many)
     check(load("watchdog.json")["valid"], "watchdog.schema.json", "watchdog")
     check(load("fish-director.json")["valid"], "fish-director.schema.json", "fish-director")
     check(load("context-profiles.json")["valid"], "context-profiles.schema.json", "context-profiles")
-    check(load("context-lint.json")["valid"], "context-lint.schema.json", "context-lint")
+    check(load_merged("context-lint.json")["valid"], "context-lint.schema.json", "context-lint")
+    watchdog_valid_configs, watchdog_invalid_configs, watchdog_units, \
+        watchdog_scenarios, watchdog_steps, watchdog_payloads = (
+            validate_watchdog_phone_fixture(
+                load("watchdog.phone.json"), load("watchdog.json")))
+    watchdog_mutations = watchdog_phone_mutations(load("watchdog.phone.json"))
+    lint_cases, lint_valid, lint_invalid = validate_context_lint_phone_fixture(
+        load("context-lint.phone.json"), load("context-lint.json"))
+    lint_mutations = context_lint_phone_mutations(load("context-lint.phone.json"))
     effects = load_merged("tool-effects.json")
     check_many(effects["valid"], "tool-effects.schema.json", "tool-effects")
     check_many(effects["invalid"], "tool-effects.schema.json", "tool-effects.invalid")
@@ -1863,13 +6002,27 @@ def main() -> int:
     valid_egress, invalid_egress, egress_mutations = validate_mcp_egress_fixture(load(MCP_EGRESS_VECTOR))
     valid_authority, authority_changes, authority_task, authority_mutations = (
         validate_authority_fixture(load(AUTHORITY_VECTOR)))
+    lifecycle_workspace, lifecycle_tokens, lifecycle_sessions = (
+        validate_session_lifecycle_fixture(load(SESSION_LIFECYCLE_VECTOR)))
+    projection_valid, projection_invalid, projection_history, projection_streaming = (
+        validate_projection_fixture(load(PROJECTION_VECTOR)))
     print("bot vectors: PASS (schemas, positive vectors, negative vectors; "
+          f"watchdog {watchdog_valid_configs} valid / {watchdog_invalid_configs} invalid configs, "
+          f"{watchdog_units} units / {watchdog_scenarios} monitor scenarios / "
+          f"{watchdog_steps} steps / {watchdog_payloads} payloads, "
+          f"{watchdog_mutations} mutation checks; "
+          f"context-lint {lint_cases} cases / {lint_valid} valid / {lint_invalid} invalid findings, "
+          f"{lint_mutations} mutation checks; "
           f"turn-origin {valid_origins} valid / {invalid_origins} invalid, "
           f"{mutations} mutation checks; "
           f"mcp-egress {valid_egress} valid / {invalid_egress} invalid, "
           f"{egress_mutations} mutation checks; "
           f"authority {valid_authority} creators / {authority_changes} changes / "
           f"{authority_task} task subsets, {authority_mutations} mutation checks; "
+          f"session-lifecycle {lifecycle_workspace} workspace / {lifecycle_tokens} token / "
+          f"{lifecycle_sessions} session vectors, "
+          f"projection {projection_valid} valid / {projection_invalid} invalid / "
+          f"{projection_history} history / {projection_streaming} streaming vectors, "
           f"record-reference {reference_valid} valid / {reference_invalid} invalid, "
           f"observation-envelope {envelope_valid} valid / {envelope_invalid} invalid / "
           f"{envelope_decode_errors} decode errors, "
@@ -1881,7 +6034,20 @@ def main() -> int:
           f"{verify_budget_valid} valid / {verify_budget_invalid} invalid budgets, "
           f"{verify_valid_reports} valid / {verify_invalid_reports} invalid reports, "
           f"{verify_mutations} mutation checks; "
-          f"content-card-final {content_cards} tools / {content_card_mutations} mutation checks)")
+          f"mcp-rpc {rpc_valid} valid / {rpc_invalid} invalid, {rpc_mutations} mutation checks; "
+          f"identity-approval {identity_valid} valid / {identity_invalid} invalid, "
+          f"{identity_mutations} mutation checks; "
+          f"tool-call {tool_valid} valid / {tool_invalid} invalid / {tool_denials} denials / "
+          f"{tool_unknowns} unknown, {tool_mutations} mutation checks; "
+          f"volatile-phone {volatile_assembly} assembly / {volatile_producer} producer, "
+          f"{volatile_mutations} mutation checks; "
+          f"team-phone {team_valid} valid / {team_invalid} invalid / {team_rows} row cases, "
+          f"{team_mutations} mutation checks; "
+          f"task-phone {task_valid} valid / {task_invalid} invalid / "
+          f"{task_restores} restore / {task_request_ids} request-id cases, "
+          f"{task_mutations} mutation checks; "
+          f"content-card-final {content_cards} tools / {content_card_mutations} mutation checks; "
+          f"store {store_steps} steps, user-action {action_steps} steps)")
     return 0
 
 

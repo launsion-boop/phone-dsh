@@ -1,0 +1,26 @@
+{
+  "name": "outbox-entry-attachment-only",
+  "schema": "schema/outbox-entry.schema.json",
+  "instance": {
+    "v": 1,
+    "rpcId": "7f6e5d4c-3b2a-4918-8a7b-6c5d4e3f2a1b",
+    "sessionId": "gb-main",
+    "text": "",
+    "createdAtMs": 1794407000000,
+    "state": "queued",
+    "attempts": 0,
+    "backend": "local",
+    "attachments": [
+      {
+        "id": "shot-1",
+        "kind": "image",
+        "byteSize": 183402,
+        "sha256": "6b8f3d2c1a4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcd",
+        "contentType": "image/png",
+        "filename": "Screenshot 2026-11-12.png",
+        "storePath": "attachments/7f6e5d4c-3b2a-4918-8a7b-6c5d4e3f2a1b/shot-1"
+      }
+    ]
+  },
+  "notes": "docs/protocol-changes/PC-20261112-w1-browse-outbox.md:§7 — image-only send has empty text and one attachment; no synthetic caption."
+}

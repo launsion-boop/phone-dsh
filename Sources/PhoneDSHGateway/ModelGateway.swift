@@ -557,6 +557,15 @@ public actor ModelGateway {
     /// matrix's ordinary allow-list behaviour for every deployment without a
     /// Bot runtime (workbench, tests, native MCP).
     private nonisolated let botEgressApprover: (any BotEgressWriteApproving)?
+    /// P26 §2.10 model-purpose execution point (PC-20261113). `nil` provider
+    /// means no deployment-specific purpose source is installed, so every
+    /// exchange takes the frozen absent branch (one `purpose_absent`
+    /// diagnostic, no behaviour change). It never denies for absence.
+    private nonisolated let modelPurpose: ModelPurposeExecutionPoint
+    private nonisolated let upstreamDiagnostics: GatewayUpstreamDiagnostics
+    /// The `purpose_absent` diagnostic is a gateway-wide fact, recorded once
+    /// instead of once per egress request.
+    private nonisolated let purposeAbsentOnce = GatewayOnceFlag()
     /// spec/v1/tono-account.md §5: which origins get the 401/503 inspection.
     private nonisolated let cloudResponsePolicy: TonoCloudResponsePolicy
     private nonisolated let responseLog: (any ResponseLogging)?
@@ -586,6 +595,11 @@ public actor ModelGateway {
     ///   - botEgressApprover: Bot network-write approval seam. The App installs
     ///     the same live policy object it uses as `egressAuthorizer`; a
     ///     deployment without a Bot runtime leaves this `nil`.
+    ///   - modelPurposeProvider: Purpose evidence for the P26 §2.10 execution
+    ///     point. There is no wire carrier, so a purpose can only come from
+    ///     host composition; a deployment without a per-request purpose source
+    ///     leaves this `nil` and takes the frozen absent branch (one
+    ///     `purpose_absent` diagnostic, no behaviour change).
     ///   - officialDeepSeekWebCredentialProvider: Optional official web route.
     ///   - cloudResponsePolicy: The origins whose 401 `credential_expired` /
     ///     503 `identity_unavailable` answers are re-sent
@@ -597,6 +611,7 @@ public actor ModelGateway {
                 clock: any GatewayClock = SystemGatewayClock(),
                 egressAuthorizer: (any EgressHostAuthorizing)? = nil,
                 botEgressApprover: (any BotEgressWriteApproving)? = nil,
+                modelPurposeProvider: (any ModelPurposeProviding)? = nil,
                 officialDeepSeekWebCredentialProvider: (any CredentialProvider)? = nil,
                 upstreamDiagnostics: GatewayUpstreamDiagnostics = .standardError,
                 cloudResponsePolicy: TonoCloudResponsePolicy = .production) {
@@ -609,6 +624,8 @@ public actor ModelGateway {
         self.clock = clock
         self.egressAuthorizer = egressAuthorizer
         self.botEgressApprover = botEgressApprover
+        self.modelPurpose = ModelPurposeExecutionPoint(provider: modelPurposeProvider)
+        self.upstreamDiagnostics = upstreamDiagnostics
         let rules = configuration.allowedUpstreamHosts.compactMap(GatewayHostRule.init(rawValue:))
         self.hostRules = rules
         let coordinator = GatewaySessionCoordinator(allowedHosts: rules,
@@ -734,8 +751,11 @@ public actor ModelGateway {
     /// Builds the workspace response log with the quota from `configuration`.
     /// The facade injects the result into `init(configuration:...)`.
     public nonisolated static func makeResponseLog(configuration: ModelGatewayConfiguration,
-                                                   workspaceRoot: URL) throws -> ResponseLog {
-        try ResponseLog(root: workspaceRoot, quotaBytes: configuration.responseLogQuotaBytes)
+                                                   workspaceRoot: URL,
+                                                   cacheRoot: URL? = nil) throws -> ResponseLog {
+        try ResponseLog(root: workspaceRoot,
+                        quotaBytes: configuration.responseLogQuotaBytes,
+                        cacheRoot: cacheRoot)
     }
 
     /// Snapshot of the gateway counters.
@@ -795,6 +815,25 @@ public actor ModelGateway {
         }
         guard !coordinator.isShutDown else {
             downstream.finish(throwing: ModelGatewayError.shuttingDown)
+            return
+        }
+
+        // Model-purpose execution point (P26 §2.10, PC-20261113). Staged
+        // semantics: purpose present -> the one frozen enforcer decides, and a
+        // denial ends the exchange before the Bot approval seam, the
+        // allow-list answer, the response log, any credential resolution and
+        // any socket; purpose absent -> one host-internal `purpose_absent`
+        // diagnostic and the exchange is byte-for-byte the baseline. It never
+        // fails closed for absence and never invents a default purpose.
+        switch modelPurpose.decide(request) {
+        case .absent:
+            if purposeAbsentOnce.claim() {
+                upstreamDiagnostics.recordPurposeAbsent(host: url.host ?? "")
+            }
+        case .allowed:
+            break
+        case .denied(let denial):
+            downstream.finish(throwing: denial)
             return
         }
 
@@ -908,7 +947,6 @@ public actor ModelGateway {
         let maximumAttempts = max(1, configuration.backoff.maximumAttempts)
         let requestMayRetry = webProvider == nil && Self.isReplaySafeRequest(
             method: method, url: url, replaySafeModelEndpoints: configuration.replaySafeModelEndpoints)
-        var logSequence: UInt64 = 0
         // spec/v1/tono-account.md §5: the cloud origin's own rejections are
         // re-sent outside the backoff budget, with their own small counters.
         let inspectsCloudAnswers = webProvider == nil && cloudResponsePolicy.applies(to: url)
@@ -977,6 +1015,10 @@ public actor ModelGateway {
             var headReceived = false
             var headForwarded = false
             var logStarted = false
+            // W7 (§13): buffer response-log writes so a chunk is forwarded
+            // before the log's disk I/O; the bytes and their order are
+            // unchanged and a partial stream is still discarded by `abort`.
+            var logAccumulator = ResponseLogAccumulator()
             var attemptFailed = false
             var attemptFailure: Error?
             var retryDelay: TimeInterval?
@@ -1140,12 +1182,12 @@ public actor ModelGateway {
                     }
                     // Record after forwarding so the caller's first byte never
                     // waits for the response log's disk I/O.
-                    if !sensitive, logStarted, let log = responseLog {
+                    if !sensitive, logStarted, let log = responseLog,
+                       let batch = logAccumulator.append(data) {
                         do {
                             try await log.append(ResponseLogEntry(requestID: requestID,
-                                                                  sequence: logSequence,
-                                                                  body: data))
-                            logSequence &+= 1
+                                                                  sequence: batch.sequence,
+                                                                  body: batch.body))
                         } catch {
                             // A failed append leaves the recording incomplete;
                             // `finish` below only commits a consistent body and
@@ -1182,6 +1224,16 @@ public actor ModelGateway {
                 if attemptFailed {
                     await log.abort(requestID: requestID)
                 } else {
+                    if let batch = logAccumulator.flush() {
+                        do {
+                            try await log.append(ResponseLogEntry(requestID: requestID,
+                                                                  sequence: batch.sequence,
+                                                                  body: batch.body))
+                        } catch {
+                            // The incomplete recording is aborted by `finish`
+                            // below only if it cannot be committed consistently.
+                        }
+                    }
                     do {
                         // One atomic call: the receipt is non-nil only when the
                         // commit is still retained after quota eviction. A
@@ -1333,6 +1385,8 @@ public actor ModelGateway {
                 "the host response log is not configured"))
             return
         }
+        await log.beginResume(key: key)
+        defer { Task { await log.endResume(key: key) } }
         let deadline = Date().addingTimeInterval(ModelGatewayConfiguration.defaultResumeWaitSeconds)
         while true {
             if downstream.isCancelled {

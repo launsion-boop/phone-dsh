@@ -15,7 +15,7 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         // The in-tree publish repository. `./gradlew publishLocalRepository`
-        // (android/build.gradle.kts) writes the eight `com.phonedsh` artifacts
+        // (android/build.gradle.kts) writes the nine `com.phonedsh` artifacts
         // here, and `:lib-consumer-test` resolves `com.phonedsh:lib:0.1.0` from
         // it — the same way an external app would from a real repository.
         //
@@ -58,6 +58,10 @@ include(":net")
 // protocol and must not double-own the P05 loopback/gateway surface in `:net`
 // or pull its Ktor/crypto dependencies into the published `:lib` AAR graph.
 include(":pclink")
+// Bot (P25/P26/P27) is a pure JVM module for the value types and codecs whose
+// contracts are already frozen by the shared `spec/bot/v1` goldens. It has no
+// `android.*` import; the Bot store, MCP listener and UI are later lanes.
+include(":bot")
 include(":controller")
 include(":engine")
 include(":shell")

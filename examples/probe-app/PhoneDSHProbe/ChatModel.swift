@@ -343,12 +343,46 @@ final class ChatModel {
     /// Non-nil for the PC backend (PCLink D2). The phone path keeps the host.
     @ObservationIgnored private var pcRuntime: PCWorkspaceRuntime?
 
-    init() {}
+    init() {
+        startOutboxStartupScanIfNeeded()
+    }
 
     /// PC workspace instance (PCLink D2). It never owns a `PhoneDSHHost` or the
     /// phone Bot runtime; transport/harness resolve through `pcRuntime.backend`.
     init(pcRuntime: PCWorkspaceRuntime) {
         self.pcRuntime = pcRuntime
+    }
+
+    /// Host-private durable queue directory. It is not a P18 settings key and
+    /// never enters `dsh/home/*.json`.
+    static var sendOutboxDirectory: URL {
+        let base = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default
+                .urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent("phone-dsh", isDirectory: true)
+            .appendingPathComponent("send-outbox", isDirectory: true)
+    }
+
+    /// A new process resumes `queued` / `outcomeUnknown` / `accepted` entries;
+    /// it never invents a new rpcId.
+    private func startOutboxStartupScanIfNeeded() {
+        guard !outboxScanStarted else { return }
+        outboxScanStarted = true
+        Task { @MainActor [weak self] in
+            guard let self, self.pcRuntime == nil else { return }
+            // Attachment bytes are user data. Only directories without an
+            // entry file are orphans; a directory whose entry still exists is
+            // a consistency failure handled at dispatch, never GC'd here.
+            _ = await self.sendOutbox.collectOrphanAttachments()
+            let entries = await self.sendOutbox.entries()
+            self.queuedSendCount = entries.filter {
+                $0.state == .queued || $0.state == .submitting
+                    || $0.state == .accepted || $0.state == .outcomeUnknown
+            }.count
+            self.outboxNeedsDrain = !entries.isEmpty
+            if !entries.isEmpty { self.scheduleRecoveryQueueFlush() }
+        }
     }
 
     /// 参数只取一层标量,拼成 [键:字符串];嵌套结构换成 JSON 文本,够卡上用。
@@ -402,6 +436,11 @@ final class ChatModel {
     /// Exact MCP admission/credential policy for this host. The native MCP
     /// editor and the Web bridge update the same object in place.
     private(set) var mcpAccessPolicy = MCPEgressPolicy()
+    /// A long-lived session must not keep unbounded presentation rows in RAM.
+    /// Older rows are dropped from the front (the tail is what is on screen);
+    /// `transcriptHasMore` keeps the paging affordance so they can be loaded
+    /// again through `loadEarlierTranscript`.
+    static let maximumTranscriptItems = 600
     private(set) var items: [ChatItem] = [] {
         didSet { itemsRevision &+= 1 }
     }
@@ -548,6 +587,10 @@ final class ChatModel {
     let resourceMeter = ResourceMeter()
     /// Pending streamed deltas, drained at `ResourceLevel`'s refresh cap.
     private var streamAccumulator = NativeStreamAccumulator()
+    /// Current streaming rows' text for the crash-recovery draft. It holds at
+    /// most one assistant and one reasoning row; captures copy this small value
+    /// instead of scanning `items`.
+    private var streamDraftTracker = NativeStreamDraftTracker()
     private var streamFlushTask: Task<Void, Never>?
     /// Serializes off-main workspace scans. `refreshFiles()` only requests a
     /// scan; the traversal never runs on the main actor.
@@ -617,9 +660,12 @@ final class ChatModel {
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var harness: (any AgentHarness)?
     private var sessionID: String?
-    /// The session the page is showing. While a cached preview is painted this
-    /// is the previewed session, not the last one the model opened.
-    var currentSessionID: String? { cachedPreview.previewSessionID ?? sessionID }
+    /// The session the page is showing. While a cached preview or a read-only
+    /// materialized projection is painted this is the viewed session, not the
+    /// last one the engine opened (W1-B: viewing is not activation).
+    var currentSessionID: String? {
+        viewedSessionID ?? cachedPreview.previewSessionID ?? sessionID
+    }
     /// The row the last drawer tap selected, painted immediately while the
     /// engine/Worker open runs in the background. `sessionID` and `items` stay
     /// on the old session until the new history is durable, so a failed or
@@ -663,9 +709,30 @@ final class ChatModel {
     /// cancelled resume should immediately re-arm or wait for the next active.
     private var appIsActive = true
     private var recoveryFlushTask: Task<Void, Never>?
-    private var queuedPromptsDuringRecovery: [(text: String,
-                                               attachments: [HarnessAttachment],
-                                               itemID: String?)] = []
+    /// Durable send queue (P06/W1-C). The file is the source of truth; this
+    /// count only drives the lightweight queued hint.
+    private(set) var queuedSendCount = 0
+    private var outboxNeedsDrain = false
+    private var isDrainingOutbox = false
+    private var isStartingEngine = false
+    /// Read-only projection currently painted by W1-A. Non-nil means the page
+    /// is showing a materialized copy and no send may go to `sessionID` until
+    /// the target is activated.
+    private var viewedSessionID: String?
+    private var isShowingProjectedTranscript = false
+    private struct ProjectedRestore {
+        var rows: [ChatItem]
+        var statusLine: String
+        var transcriptReady: Bool
+        var showingCachedTranscript: Bool
+        var hasMore: Bool
+        var beforeSeq: Int?
+        var throughSeq: Int?
+    }
+    private var projectedRestore: ProjectedRestore?
+    @ObservationIgnored
+    private lazy var sendOutbox = SendOutbox(directory: Self.sendOutboxDirectory)
+    private var outboxScanStarted = false
     private var hostResumeWatchdogTimeout =
         ChatHostConfiguration.defaultResumeWatchdogTimeout
     /// One automatic session re-open after a recovery left the open session
@@ -692,6 +759,23 @@ final class ChatModel {
         harness != nil && cachedPreview.gate.allowsSend(into: sessionID) && transcriptReady
             && !eventStreamRecovering && !busy && !parked && !hostLifecycleTransition
             && !isReloadingSession && pcOnline
+    }
+    /// W1: a local send is always accepted into the durable outbox, even while
+    /// the engine is starting, a turn is running, or a projection is painted.
+    /// The engine phase decides delivery, never admission. The PC backend keeps
+    /// its existing online/ready gate.
+    var canAcceptSend: Bool {
+        if pcRuntime != nil { return canSend }
+        return !isReloadingSession
+    }
+    /// The three W1-B states are independent; this is the engine half.
+    var enginePhase: ChatEnginePhase {
+        ChatStatePolicy.enginePhase(
+            hostPresent: host != nil,
+            startInProgress: isStartingEngine,
+            needsReset: engineNeedsReset,
+            failed: failedHost != nil,
+            parked: parked)
     }
     var canStartBySending: Bool {
         // A PC workspace only sends into an already-open session; it has no
@@ -809,7 +893,7 @@ final class ChatModel {
     /// The light hint next to the banner for actions that were queued.
     var recoveryQueuedHint: String? {
         if pendingSessionSwitch != nil { return ChatResumeRecovery.queuedSessionHint }
-        if queuedPromptsDuringRecovery.isEmpty == false {
+        if queuedSendCount > 0 {
             return ChatResumeRecovery.queuedPromptHint
         }
         return nil
@@ -831,6 +915,9 @@ final class ChatModel {
     private var pumpTask: Task<Void, Never>?
     private var hostEventTask: Task<Void, Never>?
     private var lastSeq: UInt64?
+    /// Last durable seq carried by the cached transcript snapshot read for a
+    /// session. The draft evidence line reports it without another disk read.
+    private var cachedSnapshotLastSeq: [String: UInt64] = [:]
     private var trajectoryThroughSeq: Int?
     private var trajectoryBeforeSeq: Int?
     private var trajectoryRefreshTask: Task<Void, Never>?
@@ -1310,7 +1397,12 @@ final class ChatModel {
         }
         botRuntimeState = .preparing
         do {
-            let store = try SQLiteDomainStore.applicationSupport()
+            // Opening and verifying the SQLite store must not run on the main
+            // actor: the old synchronous call stalled the first frame on a
+            // large history (W1-E).
+            let store = try await Task.detached(priority: .utility) {
+                try SQLiteDomainStore.applicationSupport()
+            }.value
             let launch = try await BotRuntimeComposition.prepare(store: store, workspaceRoot: workspaceRoot)
             launch.composition.onStateChange = { [weak self] state in
                 self?.botRuntimeState = state
@@ -1431,7 +1523,8 @@ final class ChatModel {
             return
         }
         busy = true
-        defer { busy = false }
+        isStartingEngine = true
+        defer { busy = false; isStartingEngine = false }
         guard await prepareBotRuntime() else { return }
         // Every Host build reads the Bot MCP URL into the Worker environment;
         // heal a reaped listener before that snapshot is taken.
@@ -1745,7 +1838,8 @@ final class ChatModel {
             return
         }
         busy = true
-        defer { busy = false }
+        isStartingEngine = true
+        defer { busy = false; isStartingEngine = false }
         statusLine = "Restarting the engine…"
         appendStatus("User reset: clearing the persisted failed controller")
         do {
@@ -1846,36 +1940,53 @@ final class ChatModel {
                 }
             }
             let history: SessionHistory
+            // A projection of another session may already be on screen while
+            // this boot finishes; the engine session is still adopted, but the
+            // viewed rows must not be replaced by the persisted session.
+            let keepProjection = viewedSessionID != nil && viewedSessionID != session.id
             do {
                 history = try await loadSessionHistory(sessionID: session.id,
                                                         transport: transport)
-                flushStreamingText()
-                items = history.items
-            turnStartTimes = history.turnFacts.starts
-            turnEndReasons = history.turnFacts.endReasons
-            turnEndTimes = history.turnFacts.ends
-                transcriptHasMore = history.hasMore
-                transcriptBeforeSeq = history.beforeSeq
-                transcriptThroughSeq = history.throughSeq
-                isShowingCachedTranscript = false
-                persistTranscriptSnapshot()
+                if !keepProjection {
+                    flushStreamingText()
+                    streamDraftTracker.clearAll()
+                    items = history.items
+                    transcriptHasMore = history.hasMore
+                    transcriptBeforeSeq = history.beforeSeq
+                    transcriptThroughSeq = history.throughSeq
+                    isShowingCachedTranscript = false
+                    persistTranscriptSnapshot()
+                }
+                turnStartTimes = history.turnFacts.starts
+                turnEndReasons = history.turnFacts.endReasons
+                turnEndTimes = history.turnFacts.ends
             } catch {
-                reportError("会话已打开，但读取历史失败：\(Self.condensed(String(describing: error)))")
-                transcriptReady = false
-                refreshFiles()
-                // A park during this load is the evidence case: the host will
-                // resume, but nothing else re-opens the session. Retry only
-                // while the App is in front and the lifecycle is idle; the
-                // resume/Worker-restart triggers cover the other cases.
-                scheduleSessionReload(reason: "history load failed after adoption",
-                                      delay: ChatSessionReload.retryDelay,
-                                      requireForeground: true)
+                if keepProjection {
+                    appendStatus("The engine session history is not ready yet; the viewed projection stays on screen")
+                } else {
+                    reportError("会话已打开，但读取历史失败：\(Self.condensed(String(describing: error)))")
+                    transcriptReady = false
+                    refreshFiles()
+                    // A park during this load is the evidence case: the host will
+                    // resume, but nothing else re-opens the session. Retry only
+                    // while the App is in front and the lifecycle is idle; the
+                    // resume/Worker-restart triggers cover the other cases.
+                    scheduleSessionReload(reason: "history load failed after adoption",
+                                          delay: ChatSessionReload.retryDelay,
+                                          requireForeground: true)
+                }
                 return
             }
             transcriptReady = true
             clearError()
             Task { await self.refreshGoal() }
             turnRunning = history.turnRunning
+            // A session adopted mid-turn has no live `turn/start` to set these;
+            // the durable facts do. Draft rows then carry the real turn and can
+            // be placed after an interrupted reload.
+            activeTurn = history.turnRunning ? history.turnFacts.starts.keys.max() : nil
+            activeStep = nil
+            activeTurnStartedAt = activeTurn.flatMap { history.turnFacts.starts[$0] }
             startPump(harness: harness, sessionID: session.id, after: history.after)
             Task { await self.refreshAccessModes() }
             Task { await self.refreshNativeMetrics() }
@@ -1967,17 +2078,56 @@ final class ChatModel {
                 return false
             }
         } else {
-            // The optimistic target is already on screen before this method
-            // runs. If the local host is parked, resuming or rebuilding, the
-            // switch worker waits for that same lifecycle instead of queueing
-            // a second switch or turning the tap into an error.
-            guard await waitForSessionSwitchLifecycle(isStillWanted: isStillWanted) else {
-                return false
+            // W1-B: viewing a session never waits for the engine. A switch that
+            // cannot activate right now (engine stopped/starting, a turn is
+            // running, a lifecycle transition) paints the read-only projection
+            // instead of refusing. The engine wins later when it answers.
+            var canActivateNow = host != nil && !busy && !hostLifecycleTransition
+                && !turnRunning && !keepingAlive
+                && pendingQuestion == nil && pendingPermission == nil
+                && !parked && !isReloadingSession
+            // 新会话 has no materialized copy to view, so a stopped engine is
+            // booted here. Session switches never take this path.
+            if id == nil, !canActivateNow, host == nil, !busy {
+                await start(autoRecover: true)
+                canActivateNow = host != nil && !busy && !hostLifecycleTransition
+                    && !turnRunning && !keepingAlive
+                    && pendingQuestion == nil && pendingPermission == nil
+                    && !parked && !isReloadingSession
             }
-            guard host != nil else {
-                reportError(engineNeedsReset
-                    ? ChatResumeRecovery.manualRestartText
-                    : "引擎还没启动，请稍后重试")
+            if !canActivateNow {
+                if let id {
+                    // Returning to the engine's own session restores the rows
+                    // that kept running behind the projection instead of
+                    // painting a stale copy over them.
+                    if id == sessionID, projectedRestore != nil {
+                        discardProjectedView()
+                        Task { await self.reloadActiveSessionRows() }
+                        return true
+                    }
+                    // Tapping the session already on screen is not a reason to
+                    // replace live rows with the (possibly older) projection.
+                    if id == currentSessionID { return true }
+                    if await viewProjectedSession(id: id, isStillWanted: isStillWanted) {
+                        return true
+                    }
+                    if id != sessionID, id != cachedPreview.previewSessionID {
+                        discardProjectedView()
+                        if showCachedPreview(for: id,
+                                             statusLine: "显示上次对话，正在同步…") {
+                            return true
+                        }
+                    }
+                    if host == nil, !isStartingEngine {
+                        // Nothing materialized and no cache: only the engine can
+                        // produce this session. Start it once and let the normal
+                        // adoption path open the remembered session.
+                        Task { await self.start(autoRecover: true) }
+                    }
+                    return false
+                }
+                // A brand-new session still needs the engine; the drawer's
+                // 新会话 policy keeps this row disabled while busy.
                 return false
             }
         }
@@ -2004,22 +2154,150 @@ final class ChatModel {
                 id: id, preset: preset, harness: harness, isStillWanted: isStillWanted)
             guard applied else {
                 discardCachedPreview()
+                discardProjectedView()
                 return false
             }
             guard isStillWanted() else {
                 discardCachedPreview()
+                discardProjectedView()
                 return false
             }
             appendStatus("Session \(id == nil ? "created" : "resumed"): \(sessionID ?? "")")
             return true
         } catch is CancellationError {
             discardCachedPreview()
+            discardProjectedView()
             return false
         } catch {
             discardCachedPreview()
+            discardProjectedView()
             reportError("无法\(id == nil ? "创建" : "恢复")会话：\(Self.condensed(String(describing: error)))")
             return false
         }
+    }
+
+    /// Paints the newest materialized page of `id` without touching the engine.
+    /// This is the W1-A read-only projection (wal.md §11): it may lag the open
+    /// epoch, so it is display-only and never becomes a send/durability input.
+    @discardableResult
+    private func viewProjectedSession(id: String,
+                                      isStillWanted: () -> Bool) async -> Bool {
+        guard isStillWanted() else { return false }
+        let root = materializedHome.appendingPathComponent("sessions", isDirectory: true)
+        let page = await Task.detached(priority: .userInitiated) {
+            SessionProjectionReader(sessionsRoot: root).latestPage(sessionID: id)
+        }.value
+        guard let page, isStillWanted() else { return false }
+        if viewedSessionID == nil {
+            projectedRestore = ProjectedRestore(
+                rows: items, statusLine: statusLine,
+                transcriptReady: transcriptReady,
+                showingCachedTranscript: isShowingCachedTranscript,
+                hasMore: transcriptHasMore,
+                beforeSeq: transcriptBeforeSeq, throughSeq: transcriptThroughSeq)
+        }
+        flushStreamingText()
+        viewedSessionID = id
+        isShowingProjectedTranscript = true
+        items = page.items
+        transcriptReady = true
+        transcriptHasMore = page.hasMore
+        transcriptBeforeSeq = page.beforeSeq
+        transcriptThroughSeq = page.throughSeq
+        transcriptError = nil
+        isShowingCachedTranscript = false
+        clearError()
+        syncIdleTimer()
+        if host != nil {
+            Task { await self.alignProjectedSession(id) }
+        }
+        return true
+    }
+
+    /// Once the engine is ready the existing `session/list` + `session/page`
+    /// RPCs are the authority for a viewed session too. This only replaces the
+    /// visible rows; the engine's active session and turn state stay untouched.
+    private func alignProjectedSession(_ id: String) async {
+        guard viewedSessionID == id, host != nil else { return }
+        do {
+            let transport = try await transportForManagement()
+            let history = try await loadSessionHistory(sessionID: id,
+                                                       transport: transport)
+            guard viewedSessionID == id else { return }
+            flushStreamingText()
+            items = NativeTranscriptProjector.restoring(
+                history.items, preservingInputsFrom: items,
+                inputReceipts: history.inputReceipts)
+            transcriptHasMore = history.hasMore
+            transcriptBeforeSeq = history.beforeSeq
+            transcriptThroughSeq = history.throughSeq
+            transcriptError = nil
+            isShowingCachedTranscript = false
+        } catch {
+            // The projection stays readable; a later open/switch retries.
+        }
+    }
+
+    /// Refreshes the engine-active transcript after the person comes back from
+    /// a projection. Rows only: the engine already owns the turn facts.
+    private func reloadActiveSessionRows() async {
+        guard viewedSessionID == nil, let sessionID, host != nil else { return }
+        do {
+            let transport = try await transportForManagement()
+            let history = try await loadSessionHistory(sessionID: sessionID,
+                                                       transport: transport)
+            guard viewedSessionID == nil, self.sessionID == sessionID else { return }
+            flushStreamingText()
+            items = NativeTranscriptProjector.restoring(
+                history.items, preservingInputsFrom: items,
+                inputReceipts: history.inputReceipts)
+            transcriptHasMore = history.hasMore
+            transcriptBeforeSeq = history.beforeSeq
+            transcriptThroughSeq = history.throughSeq
+            transcriptReady = true
+            transcriptError = nil
+            isShowingCachedTranscript = false
+        } catch {
+            // The restored rows stay readable; the next event or open retries.
+        }
+    }
+
+    /// Leaves the projection because a live read for the same session landed.
+    private func endProjectedView() {
+        guard viewedSessionID != nil else { return }
+        viewedSessionID = nil
+        isShowingProjectedTranscript = false
+        projectedRestore = nil
+    }
+
+    /// The switch did not land and the page must go back to what it showed.
+    private func discardProjectedView() {
+        guard let restore = projectedRestore else {
+            endProjectedView()
+            return
+        }
+        flushStreamingText()
+        items = restore.rows
+        statusLine = restore.statusLine
+        transcriptReady = restore.transcriptReady
+        isShowingCachedTranscript = restore.showingCachedTranscript
+        transcriptHasMore = restore.hasMore
+        transcriptBeforeSeq = restore.beforeSeq
+        transcriptThroughSeq = restore.throughSeq
+        viewedSessionID = nil
+        isShowingProjectedTranscript = false
+        projectedRestore = nil
+    }
+
+    /// Lists the materialized session copies off-main. Used by the management
+    /// model while the engine is not running; the engine list replaces it on
+    /// the next successful `session/list`.
+    func projectedSessions() async -> [SessionProjectionSummary] {
+        guard pcRuntime == nil else { return [] }
+        let root = materializedHome.appendingPathComponent("sessions", isDirectory: true)
+        return await Task.detached(priority: .userInitiated) {
+            SessionProjectionReader(sessionsRoot: root).listSessions()
+        }.value
     }
 
     /// Shared body of a user session switch and the automatic reload: opens
@@ -2086,11 +2364,17 @@ final class ChatModel {
         try Task.checkCancellation()
         guard isStillWanted() else { return false }
         pumpTask?.cancel()
+        // A queued snapshot for the previous session must not land after this
+        // switch. The writer's sequence check drops it; in-flight work fails
+        // the epoch check before it touches the file.
+        TranscriptSnapshotWriter.shared.invalidate()
         resetSessionLedgers()
+        endProjectedView()
         self.sessionID = session.id
         WorkspaceStorage.setCurrentSessionID(session.id, for: backendID)
         lastSeq = history.after
         flushStreamingText()
+        streamDraftTracker.clearAll()
         // One transaction: the new history, stats, todos, plan and goal all
         // replace the old session before SwiftUI renders the page.
         items = history.items
@@ -2110,6 +2394,9 @@ final class ChatModel {
         pendingPermission = nil
         pendingQuestion = nil
         turnRunning = history.turnRunning
+        activeTurn = history.turnRunning ? history.turnFacts.starts.keys.max() : nil
+        activeStep = nil
+        activeTurnStartedAt = activeTurn.flatMap { history.turnFacts.starts[$0] }
         startPump(harness: harness, sessionID: session.id, after: history.after)
         Task { await self.refreshAccessModes() }
         Task { await self.refreshNativeMetrics() }
@@ -2316,7 +2603,17 @@ final class ChatModel {
         isSessionSwitchWorkStarted = false
         pumpTask?.cancel(); pumpTask = nil
         eventStreamRecovering = false
+        let archivedSessionID = sessionID
         if let harness, let sessionID { await harness.closeSession(sessionID) }
+        TranscriptSnapshotWriter.shared.invalidate()
+        // The archived session is removed from the page. Its visual tail stays
+        // in the transcript cache, but an interrupted-stream draft belongs to
+        // the live turn that is no longer on screen.
+        streamDraftTracker.clearAll()
+        if let archivedSessionID {
+            NativeStreamDraftStore.shared.delete(backend: backendID,
+                                                 sessionID: archivedSessionID)
+        }
         harness = nil
         sessionID = nil
         transcriptReady = false
@@ -2334,6 +2631,10 @@ final class ChatModel {
         cancelSessionReload()
         pendingSessionSwitch = nil
         isSessionSwitchWorkStarted = false
+        // A stop closes the session; keep the already-visible partial text for
+        // the next launch instead of losing the last throttle window.
+        flushStreamingText()
+        flushStreamDraft(immediately: true)
         if pcRuntime != nil {
             guard !busy else { return }
             busy = true
@@ -2439,6 +2740,14 @@ final class ChatModel {
     /// A running turn with background keep-alive holds a silent playback
     /// session and leaves the host running. An idle host still parks.
     func scenePhaseChanged(_ phase: ScenePhase) async {
+        // Leaving the foreground is the last guaranteed main-actor window
+        // before iOS may suspend or kill a streaming WebContent. Apply the
+        // pending deltas and hand the current draft to the off-main writer now;
+        // the submit itself performs no filesystem work.
+        if NativeStreamDraftPolicy.shouldFlushOnScenePhase(active: phase == .active) {
+            flushStreamingText()
+            flushStreamDraft(immediately: true)
+        }
         appIsActive = phase == .active
         BotPresenceCenter.shared.update(appActive: appIsActive)
         // PC lifecycle is connection-only: nothing to park or keep alive. On
@@ -2864,28 +3173,20 @@ final class ChatModel {
         syncIdleTimer()
     }
 
-    /// Applies the prompts that arrived while recovering. Session switches are
-    /// not drained here: their own worker waits on ``sessionSwitchGate`` and
-    /// performs the latest optimistic target after the lifecycle settles, so
-    /// there is exactly one pending switch structure.
+    /// Delivers the durable outbox once the engine lifecycle is idle. Session
+    /// switches are not drained here: their own worker waits on
+    /// ``sessionSwitchGate`` and performs the latest optimistic target after the
+    /// lifecycle settles, so there is exactly one pending switch structure.
     private func flushPendingRecoveryUIActions() async {
         guard !isHostRecovering, !busy, host != nil else {
-            // A failed rebuild leaves the prompts queued; the next successful
-            // adoption schedules this again. Do not spin while there is no host.
             if host != nil { scheduleRecoveryQueueFlush() }
             return
         }
-        let prompts = queuedPromptsDuringRecovery
-        queuedPromptsDuringRecovery.removeAll()
-        for prompt in prompts {
-            _ = await send(prompt.text,
-                           attachments: prompt.attachments,
-                           reusing: prompt.itemID)
-        }
+        await drainSendOutbox()
     }
 
     private func scheduleRecoveryQueueFlush() {
-        guard !queuedPromptsDuringRecovery.isEmpty else {
+        guard outboxNeedsDrain else {
             recoveryFlushTask?.cancel()
             recoveryFlushTask = nil
             return
@@ -2908,7 +3209,6 @@ final class ChatModel {
             await self.flushPendingRecoveryUIActions()
         }
     }
-
 
     /// Releases a latched host transition after a bound the host's own
     /// drain/hello timeouts cannot exceed, so a wedged host fails loud on the
@@ -3074,6 +3374,10 @@ final class ChatModel {
 
     private func hostDidFail(_ failed: PhoneDSHHost) {
         guard host === failed else { return }
+        // The host is gone but the session id is still valid: persist the text
+        // that was on screen before the adoption failure clears local state.
+        flushStreamingText()
+        flushStreamDraft(immediately: true)
         anchor.shutdown()
         cancelBackoffRetry()
         cancelSessionReload()
@@ -3191,24 +3495,23 @@ final class ChatModel {
         await send(text, attachments: [])
     }
 
-    /// 重发时把 `reusing` 传进来:仍用原来那条气泡,不再长出新的一行。
+    /// 重发时把 `reusing` 传进来:仍用原来那条气泡,不再长出一行。
     func send(_ text: String, attachments: [HarnessAttachment], reusing itemID: String? = nil) async -> Bool {
+        MainThreadHangMonitor.mark("send.start")
+        defer { MainThreadHangMonitor.mark("send.end") }
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty || !attachments.isEmpty else { return false }
-        // A send while the engine is recovering (or being rebuilt) is queued;
-        // it is never dropped and the person never sees an English refusal.
-        // A PC backend has no local Worker recovery to wait for.
-        if pcRuntime == nil,
-           ChatResumeRecovery.shouldQueuePrompt(
-               parked: parked,
-               hostLifecycleTransition: hostLifecycleTransition,
-               rebuilding: engineRebuildInProgress)
-            || (host == nil && backoffRetryTask != nil) {
-            queuedPromptsDuringRecovery.append((prompt, attachments, itemID))
-            appendStatus("Prompt queued until the engine finishes recovering")
-            scheduleRecoveryQueueFlush()
-            return true
+        if pcRuntime != nil {
+            return await sendDirect(prompt, attachments: attachments, reusing: itemID)
         }
+        return await enqueueSend(prompt, attachments: attachments, reusing: itemID)
+    }
+
+    /// The pre-W1 direct send. Used by the PC backend and the first-ever launch
+    /// where no session identifier exists yet to key a durable entry. Local
+    /// text and attachment sends share the durable outbox.
+    private func sendDirect(_ prompt: String, attachments: [HarnessAttachment],
+                            reusing itemID: String?) async -> Bool {
         // Sending is the clearest signal that the engine is wanted. Boot it
         // here (the transcript stays visible from the cache meanwhile) instead
         // of silently dropping the message because nothing is running.
@@ -3222,11 +3525,24 @@ final class ChatModel {
             operation: "prompt", text: prompt, attachments: attachments,
             scope: backendID.storageScope, sessionID: sessionID)
         let dispatchStart = ProcessInfo.processInfo.systemUptime
+        // Sending while no turn is open starts a new turn, which supersedes the
+        // previous interrupted turn's draft. A send during a running turn may
+        // only be queued, so its live draft must stay.
+        let supersedesPreviousTurn = !turnRunning
         Self.persistStatus("latency client-observed phase=prompt-rpc-start request=\(requestID)")
         do {
             try await harness.send(.prompt(text: prompt, attachments: attachments, requestID: requestID), to: sessionID)
             Self.persistStatus("latency client-observed phase=prompt-rpc-accepted request=\(requestID) elapsed_ms=\(Int((ProcessInfo.processInfo.systemUptime - dispatchStart) * 1000))")
             Self.completeRetryableRequest(fingerprint: fingerprint, requestID: requestID)
+            if supersedesPreviousTurn {
+                // The prompt is accepted, so the old draft can no longer be
+                // shown beside this turn. Drop both the painted row and the
+                // file before the new stream starts writing a fresh row.
+                streamDraftTracker.clearAll()
+                items.removeAll { $0.isInterruptedDraft }
+                NativeStreamDraftStore.shared.delete(backend: backendID,
+                                                     sessionID: sessionID)
+            }
             // The drawer needs a readable row before DSH publishes its own
             // title projection.
             SessionTitleHints.remember(prompt, for: sessionID, backend: backendID)
@@ -3246,6 +3562,275 @@ final class ChatModel {
             Self.persistStatus("latency client-observed phase=prompt-rpc-failed request=\(requestID) elapsed_ms=\(Int((ProcessInfo.processInfo.systemUptime - dispatchStart) * 1000))")
             syncIdleTimer()
             reportError("消息发送失败：\(Self.condensed(String(describing: error)))")
+            return false
+        }
+    }
+
+    /// Durably enqueue one prompt (text and/or attachment references) and
+    /// return immediately. Delivery is a separate step (`drainSendOutbox`); a
+    /// crash at any point before the authoritative message leaves the files
+    /// for the next launch.
+    private func enqueueSend(_ prompt: String, attachments: [HarnessAttachment],
+                             reusing itemID: String?) async -> Bool {
+        // A brand-new engine with no persisted session still has to boot once
+        // before a sessionId exists. Everything after that is durable.
+        if currentSessionID == nil, sessionID == nil,
+           WorkspaceStorage.currentSessionID(for: .phone) == nil {
+            return await sendDirect(prompt, attachments: attachments, reusing: itemID)
+        }
+        guard let target = currentSessionID ?? sessionID
+                ?? WorkspaceStorage.currentSessionID(for: .phone) else {
+            return await sendDirect(prompt, attachments: attachments, reusing: itemID)
+        }
+        // A retry of the same failed row keeps the original rpcId so the
+        // authority de-duplicates instead of appending a second message.
+        let reuseRequestID = itemID.flatMap { id in
+            items.first(where: { $0.id == id })?.promptRequestID
+        }
+        let entry: SendOutboxEntry
+        do {
+            if let reuseRequestID, let existing = await sendOutbox.entry(rpcId: reuseRequestID) {
+                switch existing.state {
+                case .outcomeUnknown:
+                    entry = try await sendOutbox.requeue(rpcId: reuseRequestID)
+                default:
+                    entry = existing
+                }
+            } else {
+                entry = try await sendOutbox.enqueue(
+                    sessionID: target, text: prompt,
+                    attachments: attachments.map { Self.outboxAttachment($0) },
+                    backend: .local,
+                    rpcId: reuseRequestID)
+            }
+        } catch {
+            reportError("消息队列不可用：\(Self.condensed(String(describing: error)))")
+            return false
+        }
+        let rowID = itemID ?? "\(target):prompt:\(entry.rpcId)"
+        var input = ChatItem(id: rowID, kind: .user, title: "You",
+                             text: Self.visiblePrompt(prompt, attachments: attachments))
+        input.promptRequestID = entry.rpcId
+        NativeTranscriptProjector.acceptInput(input, in: &items)
+        markQueued(itemID: rowID, requestID: entry.rpcId)
+        lastPrompt = (prompt, attachments)
+        lastPromptRequestID = entry.rpcId
+        clearError()
+        syncIdleTimer()
+        SessionTitleHints.remember(prompt, for: target, backend: backendID)
+        await refreshQueuedSendCount()
+        // Sending is the clearest signal that the engine is wanted; boot it
+        // without holding the composer.
+        if !isStarted, !busy {
+            Task { @MainActor [weak self] in await self?.start(autoRecover: true) }
+        }
+        scheduleRecoveryQueueFlush()
+        return true
+    }
+
+    /// The same visible label `sendDirect` has always shown for attachments.
+    private nonisolated static func visiblePrompt(_ prompt: String,
+                                                   attachments: [HarnessAttachment]) -> String {
+        let label = attachments.map { "[\($0.name)]" }.joined(separator: " ")
+        return [prompt, label].filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+
+    private nonisolated static func outboxAttachment(
+        _ attachment: HarnessAttachment) -> SendOutboxAttachmentInput {
+        SendOutboxAttachmentInput(
+            kind: SendOutboxAttachmentKind(mimeType: attachment.mimeType),
+            contentType: attachment.mimeType,
+            filename: attachment.name,
+            data: attachment.data)
+    }
+
+    /// Reads the verified bytes for one entry. Returns nil after recording an
+    /// internal `attachment_missing` / `attachment_digest_mismatch`; the entry
+    /// stays queued (or outcomeUnknown) and is never sent text-only.
+    private func dispatchAttachments(for entry: SendOutboxEntry) async -> [HarnessAttachment]? {
+        guard let attachments = entry.attachments, !attachments.isEmpty else { return [] }
+        do {
+            let loaded = try await sendOutbox.verifiedAttachmentData(rpcId: entry.rpcId)
+            return loaded.map {
+                HarnessAttachment(name: $0.attachment.filename,
+                                  mimeType: $0.attachment.contentType,
+                                  data: $0.data)
+            }
+        } catch let error as SendOutboxError {
+            let failure: SendOutboxAttachmentFailure
+            switch error {
+            case .attachmentMissing:
+                failure = .missing
+            case .attachmentDigestMismatch:
+                failure = .digestMismatch
+            default:
+                return nil
+            }
+            _ = try? await sendOutbox.recordAttachmentFailure(
+                rpcId: entry.rpcId, failure: failure)
+            return nil
+        } catch {
+            return nil
+        }
+    }
+
+    private func refreshQueuedSendCount() async {
+        let entries = await sendOutbox.entries()
+        queuedSendCount = entries.filter {
+            $0.state == .queued || $0.state == .submitting
+                || $0.state == .accepted || $0.state == .outcomeUnknown
+        }.count
+        // A durable file is a delivered message waiting for its delete; it
+        // still needs one drain pass after the engine answers.
+        outboxNeedsDrain = !entries.isEmpty
+    }
+
+    /// Delivers queued entries in per-session FIFO order. A target that is not
+    /// the engine's active session is activated only when no turn is running;
+    /// otherwise the entry stays queued and is delivered after the turn.
+    private func drainSendOutbox() async {
+        guard pcRuntime == nil, !isDrainingOutbox else { return }
+        isDrainingOutbox = true
+        defer { isDrainingOutbox = false }
+        let entries = await sendOutbox.entries()
+        guard !entries.isEmpty else {
+            queuedSendCount = 0
+            outboxNeedsDrain = false
+            return
+        }
+        guard host != nil, !busy, !hostLifecycleTransition, !parked else {
+            await refreshQueuedSendCount()
+            return
+        }
+        for entry in entries {
+            if entry.state == .durable {
+                _ = try? await sendOutbox.deleteIfDurable(rpcId: entry.rpcId)
+                continue
+            }
+            guard entry.state == .queued || entry.state == .submitting
+                    || entry.state == .accepted
+                    || entry.state == .outcomeUnknown else { continue }
+            if entry.state != .queued {
+                if entry.state == .submitting {
+                    // A process that died mid-submit left this state. Treat it
+                    // as outcomeUnknown and read the authority back before any
+                    // resend; never auto-resend.
+                    _ = try? await sendOutbox.markOutcomeUnknown(
+                        rpcId: entry.rpcId,
+                        lastError: "resumed after a crash mid-submit")
+                }
+                await reconcileOutboxEntry(entry)
+                continue
+            }
+            if entry.sessionId != sessionID {
+                guard !turnRunning, !keepingAlive else { break }
+                guard await activateSessionForOutbox(entry.sessionId) else { break }
+            }
+            guard let activeHarness = harness else { break }
+            // Both the first attempt and every retry re-verify every byte
+            // reference before submit. A missing or modified file blocks the
+            // entry; it is never downgraded to a text-only send.
+            guard let submittedAttachments = await dispatchAttachments(for: entry) else {
+                continue
+            }
+            let submitted: SendOutboxEntry
+            do {
+                submitted = try await sendOutbox.markSubmitting(rpcId: entry.rpcId)
+            } catch {
+                continue
+            }
+            do {
+                try await activeHarness.send(
+                    .prompt(text: submitted.text, attachments: submittedAttachments,
+                            requestID: submitted.rpcId),
+                    to: submitted.sessionId)
+                _ = try? await sendOutbox.markAccepted(rpcId: submitted.rpcId)
+            } catch {
+                _ = try? await sendOutbox.markOutcomeUnknown(
+                    rpcId: submitted.rpcId,
+                    lastError: Self.condensed(String(describing: error)))
+                await reconcileOutboxEntry(submitted)
+            }
+        }
+        await refreshQueuedSendCount()
+        // A send that arrived while this drain was in flight must not wait for
+        // an unrelated lifecycle event. Only reschedule when delivery can
+        // actually progress now; a turn on another session waits for its own
+        // turn-end callback.
+        let remaining = await sendOutbox.pending()
+        let deliverable = remaining.contains {
+            $0.state == .queued && (!turnRunning || $0.sessionId == sessionID)
+        }
+        if deliverable { scheduleRecoveryQueueFlush() }
+    }
+
+    /// Reads the same authoritative history that makes an entry durable. The
+    /// engine must be the source; a local cache is never proof.
+    private func authoritativeHistoryContains(rpcId: String,
+                                              sessionID: String) async -> Bool? {
+        guard host != nil, !isReloadingSession else { return nil }
+        do {
+            let transport = try await transportForManagement()
+            let cursor = try await SessionHistoryReader.followCursor(
+                sessionID: sessionID, transport: transport)
+            guard cursor >= 0 else { return nil }
+            let page = try await transport.call("session/page", args: .object([
+                "request": .object([
+                    "address": .object([
+                        "kind": .string("session"), "sessionId": .string(sessionID),
+                    ]),
+                    "throughSeq": .number(Double(cursor)),
+                    "maxMessages": .number(60),
+                ]),
+            ]))
+            for record in page["records"]?.arrayValue ?? [] {
+                guard let event = record["event"],
+                      event["type"]?.stringValue == "user/message",
+                      event["data"]?["source"]?["rpcId"]?.stringValue == rpcId else {
+                    continue
+                }
+                return true
+            }
+            return nil
+        } catch {
+            return nil
+        }
+    }
+
+    private func reconcileOutboxEntry(_ entry: SendOutboxEntry) async {
+        guard entry.state == .accepted || entry.state == .outcomeUnknown
+                || entry.state == .submitting else { return }
+        guard let found = await authoritativeHistoryContains(
+            rpcId: entry.rpcId, sessionID: entry.sessionId) else {
+            // No read-back means stay put; never guess and resend.
+            return
+        }
+        guard found else { return }
+        if entry.state == .outcomeUnknown || entry.state == .submitting {
+            _ = try? await sendOutbox.markAccepted(rpcId: entry.rpcId)
+        }
+        _ = try? await sendOutbox.observeAuthoritativeUserMessage(rpcId: entry.rpcId)
+        await refreshQueuedSendCount()
+    }
+
+    /// Activation for a queued send. It reuses the existing open/activate path
+    /// so provider selection, projections and the pump land exactly as a tap.
+    private func activateSessionForOutbox(_ id: String) async -> Bool {
+        guard host != nil, !busy, !turnRunning, !keepingAlive,
+              !hostLifecycleTransition else { return false }
+        // Never steal the screen from a session the person is reading now.
+        if let viewed = viewedSessionID, viewed != id { return false }
+        if id == sessionID { return true }
+        busy = true
+        defer { busy = false }
+        do {
+            let resolved = try await workspaceBackend.harness()
+            self.harness = resolved
+            let applied = try await openAndActivateSession(
+                id: id, preset: nil, harness: resolved, isStillWanted: { true })
+            return applied && sessionID == id
+        } catch {
+            appendStatus("Queued send activation failed: \(NativeLogRedaction.localizedError(error))")
             return false
         }
     }
@@ -3326,6 +3911,7 @@ final class ChatModel {
         }
         guard turnRunning else { return }
         finishStreamingAssistant()
+        flushStreamDraft(immediately: true)
         turnRunning = false
         resourceMeter.endTurn()
         syncIdleTimer()
@@ -3368,6 +3954,9 @@ final class ChatModel {
         var throughSeq: Int?
         var turnFacts: SessionTurnFacts
         var inputReceipts: [String: Int]
+        /// Draft rows this load found settled or covered by durable text. Rows
+        /// that merely stay visible are kept on disk for the next reload.
+        var consumedDraftItemIDs: [String] = []
     }
 
     /// All layout-bearing composer values from one session projection snapshot.
@@ -3407,17 +3996,37 @@ final class ChatModel {
         let throughSeq = snapshot.throughSeq
         let turnFacts = snapshot.turnFacts
         let inputReceipts = snapshot.inputReceipts
-        return await Task.detached(priority: .userInitiated) {
-            Self.projectHistory(records: records,
-                                sessionID: sessionID,
-                                after: after,
-                                turnRunning: turnRunning,
-                                hasMore: hasMore,
-                                beforeSeq: beforeSeq,
-                                throughSeq: throughSeq,
-                                turnFacts: turnFacts,
-                                inputReceipts: inputReceipts)
+        let backend = backendID
+        // Read before leaving the main actor. This is the seq of the snapshot
+        // that was restored for a cold paint or a preview, not a new scan.
+        let snapshotLastSeq = cachedSnapshotLastSeq[sessionID]
+        let history = await Task.detached(priority: .userInitiated) {
+            // The draft is tiny and its decoder belongs with the projection: a
+            // corrupt or foreign file is ignored, never fatal.
+            let drafts = NativeStreamDraftStore.shared.load(backend: backend,
+                                                           sessionID: sessionID)?.items ?? []
+            return Self.projectHistory(records: records,
+                                       sessionID: sessionID,
+                                       after: after,
+                                       turnRunning: turnRunning,
+                                       hasMore: hasMore,
+                                       beforeSeq: beforeSeq,
+                                       throughSeq: throughSeq,
+                                       turnFacts: turnFacts,
+                                       inputReceipts: inputReceipts,
+                                       drafts: drafts,
+                                       snapshotLastSeq: snapshotLastSeq)
         }.value
+        if !history.consumedDraftItemIDs.isEmpty {
+            // Only a normal settlement or durable text that covers the draft
+            // removes it. A row that was shown stays in the file so a second
+            // kill still repaints it.
+            streamDraftTracker.remove(itemIDs: history.consumedDraftItemIDs)
+            NativeStreamDraftStore.shared.consume(backend: backend,
+                                                  sessionID: sessionID,
+                                                  itemIDs: history.consumedDraftItemIDs)
+        }
+        return history
     }
 
     /// One detached projection of a loaded history page. It is `nonisolated`
@@ -3430,22 +4039,53 @@ final class ChatModel {
                                                     beforeSeq: Int?,
                                                     throughSeq: Int?,
                                                     turnFacts: SessionTurnFacts,
-                                                    inputReceipts: [String: Int]) -> SessionHistory {
-        SessionHistory(items: transcriptItems(from: records, sessionID: sessionID),
-                       after: after,
-                       turnRunning: turnRunning,
-                       hasMore: hasMore,
-                       beforeSeq: beforeSeq,
-                       throughSeq: throughSeq,
-                       turnFacts: turnFacts,
-                       inputReceipts: inputReceipts)
+                                                    inputReceipts: [String: Int],
+                                                    drafts: [NativeStreamDraftItem],
+                                                    snapshotLastSeq: UInt64?) -> SessionHistory {
+        let projected = transcriptItems(from: records, sessionID: sessionID)
+        // Interrupted-stream drafts are inserted only after the durable
+        // projection, so the settled text is always the authority. The policy
+        // keeps every row that is still needed; only genuine replacements are
+        // consumed.
+        let draftResolution = NativeStreamDraftPolicy.resolve(
+            drafts: drafts,
+            history: projected,
+            turnEndReasons: turnFacts.endReasons,
+            engineReportsRunningTurn: turnRunning,
+            sessionID: sessionID)
+        // Exactly one evidence line per history load, built off the main actor
+        // from values this load already read. `appendRaw` only queues; it does
+        // not touch the file or the main actor.
+        let activeTurn = turnRunning ? turnFacts.starts.keys.max() : nil
+        ChatStatusLogWriter.shared.appendRaw(NativeStreamDraftEvidence.evidenceLine(
+            sessionID: sessionID,
+            dshLastSeq: throughSeq,
+            snapshotLastSeq: snapshotLastSeq,
+            drafts: drafts,
+            resolution: draftResolution,
+            activeTurn: activeTurn))
+        return SessionHistory(items: draftResolution.items,
+                              after: after,
+                              turnRunning: turnRunning,
+                              hasMore: hasMore,
+                              beforeSeq: beforeSeq,
+                              throughSeq: throughSeq,
+                              turnFacts: turnFacts,
+                              inputReceipts: inputReceipts,
+                              consumedDraftItemIDs: draftResolution.consumedItemIDs)
     }
 
     /// Loads one older message-aligned page and prepends unseen durable events.
     /// The existing tail remains untouched so the view can preserve its anchor.
     func loadEarlierTranscript() async {
-        guard transcriptHasMore, let sessionID, let throughSeq = transcriptThroughSeq,
+        guard transcriptHasMore, let throughSeq = transcriptThroughSeq,
               let beforeSeq = transcriptBeforeSeq else { return }
+        if let viewedSessionID, viewedSessionID != sessionID {
+            await loadEarlierViewedSessionPage(sessionID: viewedSessionID,
+                                               beforeSeq: beforeSeq)
+            return
+        }
+        guard let sessionID else { return }
         do {
             let transport = try await transportForManagement()
             let page = try await transport.call("session/page", args: .object(["request": .object([
@@ -3478,6 +4118,67 @@ final class ChatModel {
             guard self.sessionID == sessionID else { return }
             transcriptError = error.localizedDescription
         }
+    }
+
+    /// Pages a viewed (not engine-active) session through the existing
+    /// `session/page` RPC. On failure it falls back to the read-only file page
+    /// so paging never becomes an error while browsing during a running turn.
+    private func loadEarlierViewedSessionPage(sessionID viewed: String,
+                                              beforeSeq: Int) async {
+        guard let throughSeq = transcriptThroughSeq else { return }
+        do {
+            let transport = try await transportForManagement()
+            let page = try await transport.call("session/page", args: .object([
+                "request": .object([
+                    "address": .object([
+                        "kind": .string("session"), "sessionId": .string(viewed),
+                    ]),
+                    "throughSeq": .number(Double(throughSeq)),
+                    "beforeSeq": .number(Double(beforeSeq)),
+                    "maxMessages": .number(60),
+                ]),
+            ]))
+            guard viewedSessionID == viewed else { return }
+            let events = (page["records"]?.arrayValue ?? []).compactMap { $0["event"] }
+            guard let nextBeforeSeq = events.compactMap({ $0["seq"]?.intValue }).min(),
+                  nextBeforeSeq < beforeSeq else {
+                transcriptHasMore = false
+                return
+            }
+            let existing = Set(items.map(\.id))
+            let older = Self.transcriptItems(from: events, sessionID: viewed)
+                .filter { !existing.contains($0.id) }
+            flushStreamingText()
+            items = older + items
+            transcriptBeforeSeq = nextBeforeSeq
+            transcriptHasMore = page["hasMore"]?.boolValue ?? false
+            transcriptError = nil
+        } catch {
+            await loadEarlierProjectedPage(sessionID: viewed, beforeSeq: beforeSeq)
+        }
+    }
+
+    /// Pages a projected copy backwards off-main. The page ids match the
+    /// durable projector's ids, so a later engine sync can deduplicate without
+    /// reviving a row the engine did not send.
+    private func loadEarlierProjectedPage(sessionID: String, beforeSeq: Int) async {
+        let root = materializedHome.appendingPathComponent("sessions", isDirectory: true)
+        let page = await Task.detached(priority: .userInitiated) {
+            SessionProjectionReader(sessionsRoot: root)
+                .page(sessionID: sessionID, beforeSeq: beforeSeq)
+        }.value
+        guard let page, self.viewedSessionID == sessionID else { return }
+        let existing = Set(items.map(\.id))
+        let older = page.items.filter { !existing.contains($0.id) }
+        if older.isEmpty, page.beforeSeq == nil {
+            transcriptHasMore = false
+            return
+        }
+        flushStreamingText()
+        items = older + items
+        transcriptBeforeSeq = page.beforeSeq ?? beforeSeq
+        transcriptHasMore = page.hasMore
+        transcriptError = nil
     }
 
     private func currentJournalCursor(sessionID: String,
@@ -3729,9 +4430,22 @@ final class ChatModel {
                                                    requireRunningState: true, pendingInputs: items)
         try Task.checkCancellation()
         guard self.sessionID == sessionID else { throw CancellationError() }
+        // While another session's projection is painted, resync the active
+        // session's facts without replacing the visible rows.
+        if let viewed = viewedSessionID, viewed != sessionID {
+            turnRunning = history.turnRunning
+            turnStartTimes = history.turnFacts.starts
+            turnEndReasons = history.turnFacts.endReasons
+            turnEndTimes = history.turnFacts.ends
+            lastSeq = history.after
+            return history.after
+        }
         flushStreamingText()
+        streamDraftTracker.clearAll()
+        MainThreadHangMonitor.mark("historyRestore.start")
         items = NativeTranscriptProjector.restoring(history.items, preservingInputsFrom: items,
                                                     inputReceipts: history.inputReceipts)
+        MainThreadHangMonitor.mark("historyRestore.end")
         turnStartTimes = history.turnFacts.starts
         turnEndReasons = history.turnFacts.endReasons
         turnEndTimes = history.turnFacts.ends
@@ -3765,16 +4479,78 @@ final class ChatModel {
     }
 
     private var latencyFirstEvents = Set<String>()
+    private static let latencyFormatter = ISO8601DateFormatter()
 
     /// Receipt times at the native client, not upstream model timings. Source
     /// event time and sequence let a diagnostic distinguish replay from delay.
     private func recordLatency(_ phase: String, event: HarnessEvent, once: Bool = false) {
         if once && !latencyFirstEvents.insert(phase).inserted { return }
-        Self.persistStatus("latency client-observed phase=\(phase) turn=\(activeTurn.map(String.init) ?? "none") seq=\(event.seq.map(String.init) ?? "none") source_time=\(ISO8601DateFormatter().string(from: event.time)) uptime_ms=\(Int(ProcessInfo.processInfo.systemUptime * 1000))")
+        Self.persistStatus("latency client-observed phase=\(phase) turn=\(activeTurn.map(String.init) ?? "none") seq=\(event.seq.map(String.init) ?? "none") source_time=\(Self.latencyFormatter.string(from: event.time)) uptime_ms=\(Int(ProcessInfo.processInfo.systemUptime * 1000))")
+    }
+
+    /// Reduced event handling while a read-only projection of a different
+    /// session is painted. The active turn's durable/engine facts keep moving
+    /// so activation and the outbox are correct, but the visible projected rows
+    /// are not touched. The active transcript is reloaded from the engine when
+    /// the person returns to it.
+    private func handle(eventWhileViewingAnotherSession event: HarnessEvent) {
+        switch event.kind {
+        case .userMessage:
+            observeOutboxUserMessage(event)
+        case .turnStarted(let turnID):
+            let turnNumber = Int(turnID) ?? activeTurn ?? 0
+            activeTurn = turnNumber
+            activeTurnStartedAt = event.time
+            turnStartTimes[turnNumber] = event.time
+            turnBoundaryRevision += 1
+            turnRunning = true
+        case .turnEnded(let turnID, let reason):
+            turnRunning = false
+            activeTurnStartedAt = nil
+            turnBoundaryRevision += 1
+            let finishedTurn = Int(turnID) ?? activeTurn ?? 0
+            turnEndReasons[finishedTurn] = event.rawTurnEndKind ?? Self.rawTurnEndKind(reason)
+            turnEndTimes[finishedTurn] = event.time
+            if outboxNeedsDrain { scheduleRecoveryQueueFlush() }
+            if keepingAlive, !botTurnsRunning {
+                Task { await self.finishBackgroundKeepAlive() }
+            }
+        case .permissionRequested(let request):
+            pendingPermission = ChatPermission(id: request.requestID, tool: request.tool,
+                                               summary: request.summary,
+                                               arguments: recentToolArguments[request.tool] ?? [:])
+        case .questionRequested(let question):
+            pendingQuestion = question
+        case .exited:
+            turnRunning = false
+        default:
+            break
+        }
+        syncIdleTimer()
+    }
+
+    /// The authoritative `source.rpcId` is the only durable marker for a queued
+    /// send (P06/W1-C); a local accepted acknowledgement is not enough.
+    private func observeOutboxUserMessage(_ event: HarnessEvent) {
+        guard let rpcId = event.userMessageData?["source"]?["rpcId"]?.stringValue else {
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = try? await self.sendOutbox.observeAuthoritativeUserMessage(rpcId: rpcId)
+            await self.refreshQueuedSendCount()
+        }
     }
 
     private func handle(_ event: HarnessEvent) {
         eventsHandled += 1
+        // A projection of another session is on screen while the engine keeps
+        // running its own session. Consume the engine's events so the turn and
+        // the outbox stay correct, but never let them mutate the viewed rows.
+        if let viewed = viewedSessionID, let active = sessionID, viewed != active {
+            handle(eventWhileViewingAnotherSession: event)
+            return
+        }
         // Deltas are coalesced; every other event is an ordering boundary and
         // sees the transcript with the pending text already applied.
         switch event.kind {
@@ -3807,6 +4583,8 @@ final class ChatModel {
                 item.turn = activeTurn
                 item.step = activeStep
                 items.append(item)
+                streamDraftTracker.begin(itemID: item.id, kind: .reasoning,
+                                         turn: item.turn, step: item.step)
                 streamAccumulator.append(text, to: item.id)
                 scheduleStreamingFlush()
             }
@@ -3824,6 +4602,8 @@ final class ChatModel {
                 item.turn = activeTurn
                 item.step = activeStep
                 items.append(item)
+                streamDraftTracker.begin(itemID: item.id, kind: .assistant,
+                                         turn: item.turn, step: item.step)
                 streamAccumulator.append(text, to: item.id)
                 scheduleStreamingFlush()
             }
@@ -3842,11 +4622,22 @@ final class ChatModel {
                 item.step = activeStep
                 items.append(item)
             }
+            // The durable message wins over every draft at this position, and
+            // it also settles the reasoning blocks that arrived in the same
+            // step. Only the settled text remains.
+            streamDraftTracker.clear(kind: .reasoning, turn: activeTurn)
+            streamDraftTracker.clear(kind: .assistant, turn: activeTurn)
+            removeInterruptedDraftRows(turn: activeTurn)
+            clearStreamDraft()
             scheduleNativeMetricsRefresh()
         case .userMessage(let text, let source):
             if let sessionID {
                 NativeTranscriptProjector.acknowledgeInput(event, sessionID: sessionID, in: &items)
             }
+            // The authoritative `source.rpcId` is the only durable marker for a
+            // queued send (P06/W1-C); a local accepted acknowledgement is not
+            // enough to delete the outbox file.
+            observeOutboxUserMessage(event)
             // Human prompts are already appended optimistically by the
             // composer. Every non-human producer (subagent-settled, goal,
             // schedule, tool-jobs, webhook, plugin) must still surface; it is
@@ -3943,8 +4734,20 @@ final class ChatModel {
             turnBoundaryRevision += 1
             activeTurnStartedAt = nil
             let finishedTurn = Int(turnID) ?? activeTurn ?? 0
-            turnEndReasons[finishedTurn] = event.rawTurnEndKind ?? Self.rawTurnEndKind(reason)
+            let rawEndKind = event.rawTurnEndKind ?? Self.rawTurnEndKind(reason)
+            turnEndReasons[finishedTurn] = rawEndKind
             turnEndTimes[finishedTurn] = event.time
+            // A normal ending means DSH settled the step (or the assistant
+            // message already did). An interrupted/failed/cancelled ending is
+            // exactly the case where the durable text is absent, so the draft
+            // is kept and flushed before the process can be killed.
+            if NativeStreamDraftPolicy.isNormalTurnEnd(rawEndKind) {
+                streamDraftTracker.clear(turn: finishedTurn)
+                removeInterruptedDraftRows(turn: finishedTurn)
+                clearStreamDraft()
+            } else {
+                flushStreamDraft(immediately: true)
+            }
             syncIdleTimer()
             statusLine = "Turn ended: \(Self.describe(reason))"
             if case .failed = reason {
@@ -3979,6 +4782,7 @@ final class ChatModel {
             }
             refreshFiles()
             Task { await self.refreshGoal() }
+            if outboxNeedsDrain { scheduleRecoveryQueueFlush() }
             if keepingAlive, !botTurnsRunning { Task { await self.finishBackgroundKeepAlive() } }
         case .progress(let phase, let step, let total):
             if phase == "step" { activeStep = step }
@@ -4021,6 +4825,17 @@ final class ChatModel {
             resourceMeter.endTurn()
             syncIdleTimer()
         }
+        capTranscriptItems()
+    }
+
+    /// Drops the oldest rows once the live transcript exceeds the cap. A
+    /// streaming recent block or an explicitly paged older block is never the
+    /// target: only the front is removed.
+    private func capTranscriptItems() {
+        let overflow = items.count - Self.maximumTranscriptItems
+        guard overflow > 0 else { return }
+        items.removeFirst(overflow)
+        transcriptHasMore = true
     }
 
     private func finishStreamingAssistant() {
@@ -4050,9 +4865,49 @@ final class ChatModel {
         streamFlushTask = nil
         let chunks = streamAccumulator.take()
         guard !chunks.isEmpty else { return }
-        var next = items
-        next.applyStreamChunks(chunks)
-        items = next
+        MainThreadHangMonitor.mark("flushStreamingText.start")
+        // Keep the draft's copy in step with the rows without scanning the
+        // transcript. `begin` registered these ids when the rows appeared.
+        for chunk in chunks {
+            streamDraftTracker.append(chunk.text, to: chunk.itemID)
+        }
+        // Mutate the stored array in place: a `var next = items` copy makes the
+        // buffer non-unique, so the first append copies the whole transcript.
+        items.applyStreamChunks(chunks)
+        MainThreadHangMonitor.mark("flushStreamingText.end")
+        flushStreamDraft(immediately: false)
+    }
+
+    /// Hands the current streaming-row text to the off-main draft writer.
+    /// `immediately` bypasses the 1 s throttle and is used when the App leaves
+    /// the foreground, a turn ends or a durable message settles the row.
+    private func flushStreamDraft(immediately: Bool) {
+        // Never submit an empty tracker here: it would delete a draft that a
+        // previous load deliberately kept for a still-running turn. Only
+        // `clearStreamDraft()` may remove the file.
+        guard !streamDraftTracker.items.isEmpty, let sessionID else { return }
+        NativeStreamDraftStore.shared.submit(rows: streamDraftTracker.items,
+                                             backend: backendID,
+                                             sessionID: sessionID,
+                                             flushNow: immediately)
+    }
+
+    /// Drops the painted display-only rows for a turn whose durable text has
+    /// arrived or whose end was normal. The draft file is handled separately by
+    /// `clearStreamDraft()`.
+    private func removeInterruptedDraftRows(turn: Int?) {
+        guard let turn else { return }
+        items.removeAll { $0.isInterruptedDraft && $0.turn == turn }
+    }
+
+    /// Delete-or-rewrite after a durable settlement. Submitting the remaining
+    /// rows (usually none) is what removes the file.
+    private func clearStreamDraft() {
+        guard let sessionID else { return }
+        NativeStreamDraftStore.shared.submit(rows: streamDraftTracker.items,
+                                             backend: backendID,
+                                             sessionID: sessionID,
+                                             flushNow: true)
     }
 
     private func scheduleStreamingFlush() {
@@ -4254,42 +5109,6 @@ final class ChatModel {
         WorkspaceStorage.transcriptSnapshotURL(for: backendID, sessionID: sessionID)
     }
 
-    private static func snapshotKindName(_ kind: ChatItem.Kind) -> String {
-        switch kind {
-        case .user: return "user"
-        case .context: return "context"
-        case .assistant: return "assistant"
-        case .reasoning: return "reasoning"
-        case .image: return "image"
-        case .toolCall: return "toolCall"
-        case .toolResult(let isError): return isError ? "toolError" : "toolResult"
-        case .systemEvent: return "systemEvent"
-        case .turnError: return "turnError"
-        case .maxTokens: return "maxTokens"
-        case .unknown: return "unknown"
-        case .status: return "status"
-        }
-    }
-
-    private static func chatKind(from name: String) -> ChatItem.Kind? {
-        switch name {
-        case "user": return .user
-        case "context": return .context
-        case "assistant": return .assistant
-        case "reasoning": return .reasoning
-        case "image": return .image
-        case "toolCall": return .toolCall
-        case "toolResult": return .toolResult(isError: false)
-        case "toolError": return .toolResult(isError: true)
-        case "systemEvent": return .systemEvent
-        case "turnError": return .turnError
-        case "maxTokens": return .maxTokens
-        case "unknown": return .unknown
-        case "status": return .status
-        default: return nil
-        }
-    }
-
     /// Renders the last session's settled items before the host is ready.
     private func restoreCachedTranscriptIfAvailable() {
         guard items.isEmpty,
@@ -4312,9 +5131,17 @@ final class ChatModel {
             guard let data = try? Data(contentsOf: url) else { continue }
             if let snapshot = CachedTranscriptCodec.decode(data, backend: backendID,
                                                            sessionID: sessionID) {
+                if let lastSeq = snapshot.lastSeq {
+                    cachedSnapshotLastSeq[sessionID] = lastSeq
+                } else {
+                    cachedSnapshotLastSeq.removeValue(forKey: sessionID)
+                }
                 return snapshot
             }
         }
+        // No readable snapshot: do not let an earlier read's seq describe a
+        // cache that no longer exists.
+        cachedSnapshotLastSeq.removeValue(forKey: sessionID)
         return nil
     }
 
@@ -4368,36 +5195,33 @@ final class ChatModel {
 
     private static func chatItems(from cached: [CachedTranscriptItem]) -> [ChatItem] {
         cached.compactMap { item in
-            guard let kind = chatKind(from: item.kind) else { return nil }
+            guard let kind = CachedTranscriptItemKind.chatKind(from: item.kind) else { return nil }
             return ChatItem(id: item.id, kind: kind, title: item.title, text: item.text)
         }
     }
 
     /// Saves the settled items so the next launch can paint immediately.
+    ///
+    /// Main-actor cost is a CoW array capture plus the URL check. Filtering,
+    /// mapping, JSON encoding and the atomic write happen on the snapshot
+    /// writer's serial queue; the writer coalesces to the latest submit.
     private func persistTranscriptSnapshot() {
         guard !isShowingCachedTranscript, let sessionID else { return }
-        let settled = items.filter { !$0.streaming }
-        guard !settled.isEmpty else { return }
-        let cached = settled.map { item in
-            CachedTranscriptItem(id: item.id,
-                                 kind: Self.snapshotKindName(item.kind),
-                                 title: item.title,
-                                 text: item.text)
+        MainThreadHangMonitor.mark("persistTranscriptSnapshot.start")
+        // The writer resolves the URL and its directory on its own queue, so
+        // the main actor only retains the CoW items buffer.
+        TranscriptSnapshotWriter.shared.submit(items: items,
+                                               backend: backendID,
+                                               sessionID: sessionID,
+                                               lastSeq: lastSeq)
+        // Remember the seq of the snapshot this process just published so a
+        // later evidence line can report it without re-reading the file.
+        if let lastSeq {
+            cachedSnapshotLastSeq[sessionID] = lastSeq
+        } else {
+            cachedSnapshotLastSeq.removeValue(forKey: sessionID)
         }
-        guard let data = CachedTranscriptCodec.encode(items: cached, backend: backendID,
-                                                      sessionID: sessionID, lastSeq: lastSeq)
-        else { return }
-        guard let url = snapshotURL(for: sessionID) else { return }
-        let directory = url.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        WorkspaceStorage.excludeFromBackup(directory)
-        try? data.write(to: url, options: .atomic)
-        // The cache is rebuildable: bound it off the main thread so a long
-        // history of opened sessions cannot grow without limit (P18).
-        let backend = backendID
-        Task.detached(priority: .utility) {
-            WorkspaceStorage.evictTranscriptSnapshots(for: backend, keeping: sessionID)
-        }
+        MainThreadHangMonitor.mark("persistTranscriptSnapshot.end")
     }
 
     /// One short line of a raw host message (the full text stays in
@@ -4461,14 +5285,7 @@ final class ChatModel {
     }
 
     static func appendDiagnostic(_ line: String) {
-        guard let data = (line + "\n").data(using: .utf8) else { return }
-        if let handle = try? FileHandle(forWritingTo: statusLogURL) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-        } else {
-            try? data.write(to: statusLogURL)
-        }
+        statusLog.appendRaw(line)
     }
 
     /// 上一轮失败后可以原样重发的那一条;清掉草稿就不还字(Ato 定的)。
@@ -4654,20 +5471,14 @@ final class ChatModel {
     /// Status rows also go to `Documents/chat-status.log` so a host error can
     /// be read back from the device container after the fact (the transcript
     /// itself lives only in memory).
-    static let statusLogURL: URL = FileManager.default
-        .urls(for: .documentDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("chat-status.log")
+    static let statusLogURL: URL = ChatStatusLogWriter.defaultURL
+
+    /// Bounded, off-main, size-rotated writer (W1-E). The URL stays public for
+    /// diagnostics exports; every line goes through the serial writer.
+    private static let statusLog = ChatStatusLogWriter.shared
 
     private static func persistStatus(_ text: String) {
-        let stamp = ISO8601DateFormatter().string(from: Date())
-        guard let data = "\(stamp) \(text)\n".data(using: .utf8) else { return }
-        if let handle = try? FileHandle(forWritingTo: statusLogURL) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-        } else {
-            try? data.write(to: statusLogURL)
-        }
+        statusLog.append(text)
     }
 
     private static func render(_ arguments: JSONValue) -> String {
@@ -4808,6 +5619,10 @@ final class ChatModel {
 
     func clearTranscript() {
         flushStreamingText()
+        // The local tail is being erased; a draft that would paint part of it
+        // back on reload must go too.
+        streamDraftTracker.clearAll()
+        if let sessionID { NativeStreamDraftStore.shared.delete(backend: backendID, sessionID: sessionID) }
         items.removeAll()
         inputTokens = 0; outputTokens = 0; modelRequests = 0
     }

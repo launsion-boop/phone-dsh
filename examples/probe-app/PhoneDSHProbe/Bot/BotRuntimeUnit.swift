@@ -323,26 +323,28 @@ final class BotRuntimeUnit {
         return (try? await machine.list(botId: botID).count) ?? 0
     }
 
-    /// Live status for the sidebar. It is intentionally cheap (no durable
-    /// row rebuild): visible chat turns publish live frames; a selected Bot's
-    /// cached `BotChatModel` supplies the richer detail when its page is open.
+    /// Live status for the sidebar. The durable read is cached by its row
+    /// service after the first call (no per-tick row rebuild), so this stays
+    /// cheap while giving the projection the durable presentation the page
+    /// also sees.
     func statusSnapshot(pendingApprovalCount: Int,
                         runtimeState: BotRuntimeState) async -> BotRosterRuntimeState {
         let now = BotLiveFishProjection.now
         let live = liveFish.presentation(now: now)
+        let durable = (try? await rows.presentation()) ?? live
         let remoteBusy = await remote.isMainTurnBusy()
         let routineRunning = await routineActivity.isRunning()
         let running = liveRunning || remoteBusy || routineRunning
-        let fish: BotFishLifecycle
-        if pendingApprovalCount > 0 {
-            fish = .alerting
-        } else if running {
-            fish = live.fishState == .idle ? .working : live.fishState
-        } else if liveFish.isIdleSleeping(now: now) {
-            fish = .sleeping
-        } else {
-            fish = live.fishState
-        }
+        let fish = BotFishLifecycleProjection.resolve(
+            pendingApprovalCount: pendingApprovalCount,
+            running: running,
+            idleSleeping: liveFish.isIdleSleeping(now: now),
+            livePresentation: BotFishLifecyclePresentation(
+                fishState: live.fishState, oneShot: live.oneShot),
+            durablePresentation: BotFishLifecyclePresentation(
+                fishState: durable.fishState, oneShot: durable.oneShot),
+            liveTurn: liveRunning,
+            now: now)
         return BotRosterRuntimeState(
             fishState: fish,
             activity: running ? live.activity : nil,

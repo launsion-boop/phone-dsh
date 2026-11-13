@@ -65,6 +65,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -151,15 +152,20 @@ import com.phonedsh.probe.pc.toPcDrawerUiState
 import com.phonedsh.probe.pc.toPcPairingUiState
 import com.phonedsh.probe.pc.toPcSettingsValue
 import com.phonedsh.probe.pc.unpairPc
+import com.phonedsh.ui.page.PcSessionHistoryUiState
 import com.phonedsh.ui.theme.PdshTheme
 import com.phonedsh.ui.theme.PdshThemeValues
 import com.phonedsh.ui.theme.UiTypePreferences
+import com.phonedsh.ui.state.ChatScreenState
 import com.phonedsh.ui.state.StateRequestId
 import java.util.UUID
 
 /** The installed app opens the real conversation; the diagnostic face is opt-in. */
 internal fun initialHostNavState(probeFaceOnLaunch: Boolean): PdshNavState =
     PdshNavState(listOf(if (probeFaceOnLaunch) PdshRoute.Home else PdshRoute.Chat))
+
+internal const val PCLINK_INSTALL_COMMAND: String =
+    "curl -fsSL https://raw.githubusercontent.com/launsion-boop/phone-dsh/main/pclink/install.sh | bash"
 
 /**
  * How many pages sit above [tab]'s root in [nav].
@@ -245,6 +251,8 @@ internal data class HostBackChain(
 
     /** Close the drawer overlay only; the motion stays mounted until `onClose`. */
     fun closeDrawer(): HostBackChain = copy(pushBack = pushBack.closeOverlay(PushOverlay.DRAWER))
+
+    fun navigateFromDrawer(route: PdshRoute): HostBackChain = closeDrawer().push(route)
 
     /** §4 rule 4: the keyboard hides the bar without touching the stack. */
     fun withKeyboard(visible: Boolean): HostBackChain =
@@ -389,6 +397,10 @@ internal fun HostShell(
     val configurationFacts by engine.configuration.collectAsState()
     val agentPresetFacts by engine.agentPresets.collectAsState()
     val context = LocalContext.current
+    // The composition root owns the Bot driver/store/channel; this shell only
+    // passes plain values into `:lib`. A construction failure leaves the tab
+    // absent rather than rendering a fake conversation.
+    val botPlatform by engine.botPlatformConfig.collectAsState()
     // PCLink C5: the view model owns the controller's lifetime (`onCleared`), so
     // this shell only observes its snapshot and maps it onto the plain `:lib`
     // page state. The camera prompt stays the Activity's one CAMERA request.
@@ -538,6 +550,36 @@ internal fun HostShell(
     }
     val nav: PdshNavState = hostBack.nav
 
+    val pcHistoryRoute = nav.current as? PdshRoute.PcSessionHistory
+    var pcHistoryRevision by remember(pcHistoryRoute) { mutableIntStateOf(0) }
+    val pcHistoryView by produceState<PcSessionHistoryUiState?>(
+        null, pcHistoryRoute, pcHistoryRevision, pcState?.record?.machineId,
+    ) {
+        val route = pcHistoryRoute ?: return@produceState
+        val pending = PcSessionHistoryUiState(route.machineId, route.sessionId, route.title)
+        value = pending
+        value = try {
+            val controller = checkNotNull(pcController) { "本宿主没有连接电脑的通道。" }
+            val page = withContext(Dispatchers.IO) {
+                controller.readSessionHistoryPage(route.machineId, route.sessionId)
+            }
+            val projection = projectPcSessionHistory(route.sessionId, page.events)
+            pending.copy(
+                rows = ChatScreenState.from(projection.nodes).rows,
+                loading = false,
+                recentOnly = page.hasMore,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            pending.copy(
+                loading = false,
+                error = failure.message?.substringBefore('\n')?.take(180)
+                    ?: "读取电脑上的会话历史失败，请重试。",
+            )
+        }
+    }
+
     fun pushRoute(route: PdshRoute) {
         hostBack = hostBack.push(route)
     }
@@ -560,6 +602,10 @@ internal fun HostShell(
 
     fun closeHostDrawer() {
         hostBack = hostBack.closeDrawer()
+    }
+
+    fun navigateFromDrawer(route: PdshRoute) {
+        hostBack = hostBack.navigateFromDrawer(route)
     }
 
     fun applyPushState(next: PushBackState) {
@@ -1221,13 +1267,23 @@ internal fun HostShell(
                     PdshNavHost(
                         nav = nav,
                         facts = shownFacts,
+                        botDriver = botPlatform?.driver,
+                        botContext = botPlatform?.context
+                            ?: com.phonedsh.ui.bot.state.BotUiContext(
+                                botID = "main",
+                                botName = "Bot",
+                            ),
+                        botAppearance = botPlatform?.appearance
+                            ?: com.phonedsh.bot.profile.BotFishAppearance.CLASSIC,
+                        botRoster = botPlatform?.roster ?: emptyList(),
+                        botIsMainBot = botPlatform?.isMainBot ?: true,
+                        botDescription = botPlatform?.description.orEmpty(),
                         // §2 rule 9 / §4 rule 5: the same chain the SHEET layer
                         // above dispatches to, so a page-owned or route-presented
                         // sheet is the layer this host's back closes first.
                         sheetBackHost = sheetBackHost,
                         onNavigate = { route ->
-                            closeHostDrawer()
-                            pushRoute(route)
+                            navigateFromDrawer(route)
                         },
                         onBack = { popRoute() },
                         onHome = {
@@ -1483,7 +1539,18 @@ internal fun HostShell(
                         // snapshot; the scanner is a host composable because :lib
                         // carries no camera dependency.
                         pcPairingState = pcPairingState,
+                        pcInstallCommand = PCLINK_INSTALL_COMMAND,
                         pcConnectedState = pcConnectedState,
+                        pcSessionHistory = pcHistoryRoute?.let { route ->
+                            pcHistoryView?.takeIf {
+                                it.machineId == route.machineId && it.sessionId == route.sessionId
+                            } ?: PcSessionHistoryUiState(
+                                machineId = route.machineId,
+                                sessionId = route.sessionId,
+                                title = route.title,
+                            )
+                        },
+                        onPcSessionHistoryRetry = { pcHistoryRevision++ },
                         pcScannerContent = pcScannerContent,
                         connectedComputerValue = pcConnectedValue,
                         onPcScan = pcWiring::onScan,
@@ -1696,6 +1763,7 @@ internal fun HostShell(
                 if (showTabBar) {
                     HomeTabBar(
                         selection = homeTab,
+                        showBot = botPlatform != null,
                         onSelect = { tab ->
                             // A re-tap is a no-op inside `selectTab` (§4 rule 2), and
                             // the target tab's route stack is the only one this host owns.
@@ -1881,9 +1949,20 @@ internal fun HostShell(
                     // PC empty card, never the phone list.
                     pcDrawer = pcDrawerState,
                     onSelectPcBackend = pcWiring::onSelectBackend,
-                    onOpenPcPairing = { pushRoute(PdshRoute.PcPairing) },
+                    onOpenPcPairing = { navigateFromDrawer(PdshRoute.PcPairing) },
                     onRetryPc = pcWiring::onRetryRoster,
-                    onOpenConnectedComputer = { pushRoute(PdshRoute.ConnectedComputer) },
+                    onOpenConnectedComputer = { navigateFromDrawer(PdshRoute.ConnectedComputer) },
+                    onOpenPcSession = { sessionId ->
+                        val machineId = pcState?.record?.machineId
+                        if (machineId.isNullOrBlank()) {
+                            notice = "电脑未配对，无法打开这个会话。"
+                        } else {
+                            val title = pcDrawerState.sessions.firstOrNull { it.id == sessionId }
+                                ?.title?.takeIf { it.isNotBlank() }
+                                ?: "电脑会话"
+                            navigateFromDrawer(PdshRoute.PcSessionHistory(machineId, sessionId, title))
+                        }
+                    },
                 )
             }
         }
@@ -2327,6 +2406,10 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
     // state, and their failures are the page's own lines. A route-wide note would
     // be a second, weaker version of that disclosure.
     PdshRoute.PcPairing, PdshRoute.ConnectedComputer -> null
+
+    // The PC session history page prints its own loading/error/empty states and
+    // the bounded-window notice; a route-wide note would repeat them.
+    is PdshRoute.PcSessionHistory -> null
 
     // The rules are real: they are the App's own /v1/http policy. The note is
     // what keeps them from being mistaken for the DSH settings allow-list.

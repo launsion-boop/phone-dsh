@@ -25,6 +25,14 @@ export const WAL_SEGMENT_HEADER_SIZE = 40
 export const WAL_FORMAT = 1
 /** First body byte of the epoch-close record (D7). */
 export const WAL_EPOCH_CLOSE_OP = 0xff
+/** First body byte of the W6 write-by-reference record (wal.md §14.2). */
+export const WAL_BLOB_WRITE_OP = 0xfe
+/** A write at or above this many bytes is blob-backed; a writer policy, not a wire rule. */
+export const WAL_BLOB_WRITE_THRESHOLD = 65_536
+/** One blob carries one mutation's data, bounded by the 15 MiB frame cap. */
+export const WAL_BLOB_MAX_BYTES = 15 * 1024 * 1024
+/** Raw SHA-256 length of a blob reference. */
+export const WAL_BLOB_DIGEST_BYTES = 32
 /** Byte size of a boot identity. */
 export const WAL_BOOT_ID_SIZE = 16
 
@@ -62,13 +70,94 @@ export interface WalEpochCloseRecord {
   readonly crc32c: number
 }
 
+/** A W6 write-by-reference record (wal.md §14.2). */
+export interface WalBlobWriteRecord {
+  readonly kind: 'blob_write'
+  readonly mseq: bigint
+  readonly mode: number
+  readonly mflags: number
+  readonly appendFrom: bigint
+  readonly blobLen: number
+  readonly blobSha256: Uint8Array
+  readonly path: string
+  readonly crc32c: number
+}
+
 /** Any decoded WAL record. */
-export type WalRecord = WalMutationRecord | WalEpochCloseRecord
+export type WalRecord = WalMutationRecord | WalBlobWriteRecord | WalEpochCloseRecord
 
 /** Record input for {@link encodeWalRecord}. */
 export type WalRecordInput =
   | { readonly kind: 'mutation'; readonly mseq: bigint; readonly mutation: VfsMutationBody }
+  | {
+    readonly kind: 'blob_write'
+    readonly mseq: bigint
+    readonly mode: number
+    readonly mflags: number
+    readonly appendFrom: bigint
+    readonly blobLen: number
+    readonly blobSha256: Uint8Array
+    readonly path: string
+  }
   | { readonly kind: 'epoch_close'; readonly mseq: bigint; readonly wallMs: bigint; readonly durableUpto: bigint }
+
+function encodeBlobWriteBody(record: Extract<WalRecordInput, { kind: 'blob_write' }>): Uint8Array {
+  if (!Number.isInteger(record.mode) || record.mode < 0 || record.mode > 0o7777) {
+    throw new WalError('WAL_BAD_RECORD', 'blob-write mode exceeds 0o7777')
+  }
+  if (!Number.isInteger(record.mflags) || (record.mflags & ~0x03) !== 0) {
+    throw new WalError('WAL_BAD_RECORD', 'reserved blob-write flags are set')
+  }
+  if ((record.mflags & 0x02) === 0 && record.appendFrom !== 0n) {
+    throw new WalError('WAL_BAD_RECORD', 'a complete blob write must have append_from = 0')
+  }
+  requireU64(record.appendFrom, 'append_from')
+  if (!Number.isInteger(record.blobLen) || record.blobLen < 1 || record.blobLen > WAL_BLOB_MAX_BYTES) {
+    throw new WalError('WAL_BAD_RECORD', 'blob_len is outside 1 .. 15 MiB')
+  }
+  if (!(record.blobSha256 instanceof Uint8Array) || record.blobSha256.byteLength !== WAL_BLOB_DIGEST_BYTES) {
+    throw new WalError('WAL_BAD_RECORD', `blob_sha256 must be ${WAL_BLOB_DIGEST_BYTES} raw bytes`)
+  }
+  const path = new TextEncoder().encode(record.path)
+  if (path.byteLength === 0 || path.byteLength > 0xffff) {
+    throw new WalError('WAL_BAD_RECORD', 'blob-write path length is invalid')
+  }
+  const out = new Uint8Array(52 + path.byteLength)
+  out[0] = WAL_BLOB_WRITE_OP
+  writeU32be(out, 1, record.mode)
+  out[5] = record.mflags
+  writeU64be(out, 6, record.appendFrom)
+  writeU32be(out, 14, record.blobLen)
+  out.set(record.blobSha256, 18)
+  out[50] = (path.byteLength >>> 8) & 0xff
+  out[51] = path.byteLength & 0xff
+  out.set(path, 52)
+  return out
+}
+
+function decodeBlobWriteBody(mseq: bigint, body: Uint8Array, crc: number): WalBlobWriteRecord {
+  if (body.byteLength < 52) {
+    throw new WalError('WAL_BAD_RECORD', `blob-write body is ${body.byteLength} bytes, shorter than 52`)
+  }
+  const mode = readU32be(body, 1)
+  const mflags = body[5]!
+  const appendFrom = readU64be(body, 6)
+  const blobLen = readU32be(body, 14)
+  const blobSha256 = body.slice(18, 50)
+  const pathLen = (body[50]! << 8) | body[51]!
+  if (body.byteLength !== 52 + pathLen) {
+    throw new WalError('WAL_BAD_RECORD', 'blob-write path_len does not match the body')
+  }
+  const path = new TextDecoder().decode(body.subarray(52))
+  if ((mflags & ~0x03) !== 0) throw new WalError('WAL_BAD_RECORD', 'reserved blob-write flags are set')
+  if ((mflags & 0x02) === 0 && appendFrom !== 0n) {
+    throw new WalError('WAL_BAD_RECORD', 'a complete blob write must have append_from = 0')
+  }
+  if (blobLen < 1 || blobLen > WAL_BLOB_MAX_BYTES) {
+    throw new WalError('WAL_BAD_RECORD', 'blob_len is outside 1 .. 15 MiB')
+  }
+  return { kind: 'blob_write', mseq, mode, mflags, appendFrom, blobLen, blobSha256, path, crc32c: crc }
+}
 
 function requireU64(value: bigint, what: string): bigint {
   if (typeof value !== 'bigint' || value < 0n || value > 0xffffffffffffffffn) {
@@ -141,6 +230,17 @@ export function encodeWalRecord(record: WalRecordInput): Uint8Array {
     writeU32be(out, 4, crc32c(out.subarray(8)))
     return out
   }
+  if (record.kind === 'blob_write') {
+    const mseq = requireU64(record.mseq, 'mseq')
+    const body = encodeBlobWriteBody(record)
+    const payloadLength = 8 + body.byteLength
+    const out = new Uint8Array(8 + payloadLength)
+    writeU32be(out, 0, payloadLength)
+    writeU64be(out, 8, mseq)
+    out.set(body, 16)
+    writeU32be(out, 4, crc32c(out.subarray(8)))
+    return out
+  }
   const durableUpto = requireU64(record.durableUpto, 'durable_upto')
   const wallMs = requireU64(record.wallMs, 'wall_ms')
   if (record.mseq !== durableUpto) {
@@ -182,6 +282,9 @@ export function decodeWalRecord(bytes: Uint8Array): WalRecord {
       throw new WalError('WAL_BAD_RECORD', 'the epoch-close record mseq must equal durable_upto')
     }
     return { kind: 'epoch_close', mseq, wallMs, durableUpto, crc32c: storedCrc }
+  }
+  if (body[0] === WAL_BLOB_WRITE_OP) {
+    return decodeBlobWriteBody(mseq, body, storedCrc)
   }
   if (body.byteLength < 1) throw new WalError('WAL_BAD_RECORD', 'mutation record has no body')
   return {

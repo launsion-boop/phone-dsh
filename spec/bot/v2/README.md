@@ -286,26 +286,108 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 
 ## 3. 主动提醒
 
-主动提醒只用于 interrupt。保留的规则链只由三道硬限制和通知投递接口组成：
+主动提醒的权威实现是 Swift `Sources/PhoneDSHBot/Proactive/`（`ProactiveEngine`、
+`ProactivityPolicy`、`ProactiveSettings`、`ProactiveSources`、
+`UNUserNotificationProactiveDelivery`）及其测试。本节把该行为冻结为
+`proactive-settings.schema.json`、`proactive-decision.schema.json` 和共享向量
+`golden/proactive.json`；Kotlin B4 必须读同一份向量，不得按旧 prose 重写语义。
+`routine-notification.schema.json` 仍只负责 §3.1 的 routine 到期本地通知。
 
-1. **投递对象。** 只有 `delivery == interrupt`、非 quiet、成功的 routine 结果（或失败终态）
-   可以进入通知；held 结果只进 held inbox，不通知。
-2. **勿扰（DND）。** `ProactiveSettings.dnd == true` 时拒绝所有候选；显式 reminder
-   （`reminderId` 非空且 `allowDuringDnd == true`）是唯一例外。
-3. **安静时段。** 落在 `quietStart`–`quietEnd` 的候选拒绝；显式 reminder 例外同上。routine
-   调度器的安静时段延后（§2）仍在调度层生效，不因通知被拒绝而丢弃运行。
-4. **频率保险丝。** 同一 Bot 在一个 `fuseWindowMs`（默认 900,000 ms）窗口内最多
-   `fuseMaxWakeups`（默认 4）次 `did`/`would` 决策；达到上限后新的候选记 `fuse` 并跳过。
-5. **通知投递接口。** `ProactiveDelivering` 接收 `ProactiveNotification` 并返回
-   `ProactiveDeliveryResult`。`dedupeKey` 是通知的稳定标识（用于替换同一通知），不是抑制窗口；
-   iOS 深链为 `phonedsh://bot/<botID>/row/<rowID>`。推送中继不在本轮，只保留
-   WakeSignalSource 接口。
+### 3.0 有效设置、判定链与通知形状
 
-模式：`off` 只记 `mode-off`，不投递；`would` 记录 `would` 决策但不投递；`on` 对
-`deliveryKinds` 内的类别投递，投递失败记 `delivery-failed` 且不消耗保险丝。生产 Bot 装配使用
-`on`，并把 `routine-result` 接到 `RoutineScheduler` 的 interrupt 结果；`delivery == held` 的结果
-仍只进 held inbox，不进入这条链。
+设置分布在三个 Swift 类型里，共享文档把它们合成一份**有效设置**：
 
+| 字段 | 来源 | 缺省 |
+| --- | --- | --- |
+| `mode`、`dnd`、`quietStart`、`quietEnd`、`routineQuietWeekends`、`timeZone` | 持久化 `ProactiveSettings`（UserDefaults key `phone-dsh.bot.proactive-settings.v1`，P18） | `ProactiveSettings()` 为 `would`；生产 store 为 `on`、`dnd=false`、`23:00`–`08:00` |
+| `fuseWindowMs`、`fuseMaxWakeups` | `ProactivePolicyConfiguration` | `900_000`、`4` |
+| `deliveryKinds` | `ProactiveEngine` 构造参数 | 引擎缺省 `[task-done, routine-result]`；生产装配 `[routine-result]` |
+
+- `mode` 为 `off`、`would`、`on`；`deliveryKinds` 的元素为 `task-done`、
+  `routine-result`、`reminder`，允许空数组（`on` 时不投递任何类别）。
+- `quietStart`/`quietEnd` 是本地时钟 `HH:MM`；`QuietClock.minutes` 允许一位数小时，但写入者
+  应输出两位。`quietStart == quietEnd` 表示没有安静窗口。
+- schema 是关闭对象：缺栏、型别错误、未知 enum、未知成员、越界都拒绝。错误码固定为
+  `proactive-settings-missing-field`、`-type`、`-unknown-enum`、`-time-format`、
+  `-timezone`、`-range`、`-duplicate-delivery-kind`、`-unknown-field`，`path` 是
+  `$.<field>` 或 `$.deliveryKinds[i]`。候选输入的对应错误码是
+  `proactive-candidate-missing-field`、`-type`、`-unknown-enum`、`-unknown-field`、
+  `-min-length`、`-range`，见 `golden/proactive.json` 的 `decisions.invalid`。
+- Swift 本地读取有两个恢复行为，且只属于持久化恢复，不是放宽共享文档：`normalized()` 把
+  解析不了的时间回退 `23:00`/`08:00`、把解析不了的时区回退当前时区；`ProactiveSettingsStore`
+  在 Codable decode 失败时回退生产缺省值。未知成员被 `JSONDecoder` 忽略，但写回时不会保留；
+  canonical writer 不得输出未知成员。`ProactiveDecision`/`ProactiveNotification` 本身是输出
+  记录，不是运行时输入；它们的未知成员由 schema 的 `additionalProperties: false` 拒绝，不新增
+  第二套执行时错误码。
+
+**判定链。** 判定结果只有 `did`、`would`、`skip` 三种 `decision`。旧 prose 里的 `mode-off`、`fuse`、
+`quiet`、`dnd`、`delivery-failed` 等是 `reason` 值，不是 decision kind；`ProactiveDecision`
+的 JSON 形状由 `proactive-decision.schema.json` 固定。`reason` 的完整集合是
+`delivered`、`would-mode`、`would-only-kind`、`mode-off`、`fuse`、`dnd`、`quiet-hours`、
+`missing-bot`、`delivery-failed`、`delivery-unavailable`、`routine-held`、`routine-quiet`。
+
+一次 `ProactiveEngine.consider` 按以下顺序处理，前一步命中就短路：
+
+1. **routine 预过滤。** `routine-result` 的 `delivery != interrupt` 记 `routine-held`；`quiet`
+   记 `routine-quiet`。这两步在 `mode` 之前，因此 `off` 模式下的 held/quiet routine 不是
+   `mode-off`。
+2. **模式。** `off` 记 `mode-off`，不检查 DND/安静/保险丝，也不投递。
+3. **投递类别。** 只有 `on` 且 kind 在 `deliveryKinds` 内才可投递；否则不投递，仍继续走
+   硬限制和保险丝检查；两者都未命中时最后记 `would`/`would-only-kind`，不投递、不消耗保险丝。
+4. **硬限制。** Bot id trim 后为空记 `missing-bot`；`dnd == true` 记 `dnd`；落在
+   `quietStart`–`quietEnd` 记 `quiet-hours`。显式 reminder（kind 为 `reminder`、
+   `allowDuringDnd == true`、`reminderId` 非空）同时豁免 DND 和安静时段，但不豁免
+   `mode`、`deliveryKinds` 或保险丝。
+5. **频率保险丝。** 仅当模式为 `would` 或本 kind 可投递时检查。同一 Bot 在
+   `fuseWindowMs` 窗口内已有 `fuseMaxWakeups` 次 `did`（或 `would` 模式的 `would`）后，新候选
+   记 `fuse`。窗口比较是严格的 `now - at < fuseWindowMs`；默认配置下第 4 次允许，第 5 次拒绝。
+   `would`-only（`on` 模式下 kind 被过滤）不计入保险丝。
+6. **投递。** 可投递但没有 deliverer 记 `delivery-unavailable`；deliverer 返回
+   `delivered=false` 或抛错记 `delivery-failed`，两者都不消耗保险丝。成功记 `did`/`delivered`。
+7. **提交。** 只有 `did` 和 `would` 模式下的 `would` 提交保险丝计数；所有 `skip`、
+   `would-only-kind`、投递失败和投递不可用都不提交。
+
+**通知形状。** `ProactiveNotification` 固定 `title`、`body`、`kind`、`botId`、
+`dedupeKey`、`channel`，可选 `rowId`/`deepLink`；`rowId` 与 `deepLink` 必须同时出现。
+显式 `title`/`body` 先 trim，空白则用缺省值；最终 title 截 120、body 截 500 个字符。
+
+| kind | 缺省 title | 缺省 body |
+| --- | --- | --- |
+| `task-done` | `DSH Bot · 后台任务` | `summary`，否则 `taskTitle`，否则 `任务 <taskId> <status>` |
+| `routine-result` | `DSH Bot · 定时执行` | `resultExcerpt` 的首句摘要，否则 `例行任务 <routineId> <status>` |
+| `reminder` | `DSH Bot · 提醒` | `提醒时间到了` |
+
+只有显式 `title`/`body` 会 trim 后判空；`summary`/`taskTitle`/`resultExcerpt` 按 presence 选择，
+空串仍会被采用（routine 的空 excerpt 摘要也是空串），不继续 fallback。
+
+`status` 的标签为已完成／已停止／超时／失败，其余原样。`rowId` 存在时深链固定为
+`phonedsh://bot/<botId>/row/<rowId>`（路径段 percent-encode）。`ProactiveDeliveryResult` 固定
+`delivered`、`channel` 和可选 `error`。
+
+**dedupeKey。** 显式 `dedupeKey` trim 后非空则使用；否则用
+`<kind>:<botId>:<taskId|runId|reminderId|id>`，四者都为空时用 `<kind>:<botId>:<at>`。
+它是通知的稳定 identifier（同一 key 替换同一条系统通知），**不是**抑制窗口：同一 key 的候选
+仍然每次判定、仍然可能再次 `did`。
+
+**持久事件与重启恢复。** 每次判定写一条 durable `proactive.considered`（P25 envelope），
+`data` 至少包含 `decision`、`reason`、`kind`、`botId`、`mode`、`channel`、`fuseRecorded`、
+`dedupeKey`，有 `trigger` 时一并写入。`restoreAccounting` 只取 fuse 窗口内
+`decision == "did"` 或 `"would"` 的事件，按 `kind`/`botId`/`mode`/`fuseRecorded` 重建计数；
+旧事件缺 `fuseRecorded` 时按 `mode == "would" || decision == "did"` 推导。未知 kind 跳过，
+旧字段（`cost`、`spendBudget`、`dedupeKey` 等）不得让恢复失败。重启恢复不是抑制窗口：
+恢复只重建保险丝计数，不阻止同 dedupeKey 的再次判定。
+
+**模式摘要。** `off` 在 routine 预过滤之后只记 `mode-off`，不投递；`would` 记录 `would` 决策并消耗保险丝，但不投递；
+`on` 对 `deliveryKinds` 内的类别投递，投递失败记 `delivery-failed` 且不消耗保险丝。生产 Bot
+装配使用 `on`，并把 `routine-result` 接到 `RoutineScheduler` 的 interrupt 结果；
+`delivery == held` 仍只进 held inbox，不进入这条链。
+
+**已知接缝（CCR-5）。** `ProactiveSources.tick` 生成 reminder 候选时不填 `rowId`，而
+`UNUserNotificationProactiveDelivery` 拒绝没有深链的通知，因此该来源的运行时提醒会走
+`delivery-failed`。B4 接线前必须为 reminder 选择行/深链；本节的判定链本身不因此改变。
+
+本节的完整裁定表（CCR-1..CCR-5，含 pre-freeze prose 行号与 Swift 行号）在
+[PC-20261113-bot-proactive](../../../docs/protocol-changes/PC-20261113-bot-proactive.md) §2.1。
 
 ### 3.1 预定本地通知（routine 到期）
 
@@ -313,11 +395,14 @@ iOS 的后台执行不是常驻能力。为了让 App 被挂起或杀掉时仍�
 建立或改期后把**下一次到期**登记为一条 `UNUserNotificationCenter` 本地通知；这条路径不依赖进程存活。
 
 - **内容。** 标题固定 `例行任务到期`，正文 `「<routine title>」到点，点开运行。`，深链
-  `phonedsh://bot/<botID>/routine/<routineID>` 定位 Bot 信息页的该 routine 行。它不是主动提醒，
-  不消耗保险丝，也不改变 routine 的运行或 held/interrupt 交付档位。
+  `phonedsh://bot/<botID>/routine/<routineID>` 定位 Bot 信息页的该 routine 行。Swift
+  `RoutineScheduledNotification` 先把 routine title 截 120 个字符，再把整段正文截 200 个字符。
+  它不是主动提醒，不消耗保险丝，也不改变 routine 的运行或 held/interrupt 交付档位。
 - **标识。** 每条通知的 identifier 为 `routine-due:<botID>:<routineID>:<fireAt>`；同一 routine 改期时
   旧 identifier 取消、新 identifier 登记。`routine-notification.schema.json` 与
-  `golden/routine-notification.json` 固定字段、标题、深链和边界。
+  `golden/routine-notification.json` 固定字段、标题、深链和边界；
+  `golden/proactive.json` 的 `routineDue` 只补“不是 proactive、不消耗保险丝”的跨路径断言，
+  不重复前者的字段正反例。
 - **重排。** routine 运行、暂停、删除、改期、启用/恢复或安静时段延后时，宿主取消旧登记并按新的
   `nextRunAt` 重排。App 被杀后系统保留最后一次登记；再次启动时按当前 routine 状态做一次全量对账，
   取消孤儿 identifier。
@@ -549,6 +634,15 @@ encoder 产生，覆盖 new／deferred／started／needs-reconciliation／delete
 `held-inbox.phone.json` 的 `upstream` 字段仍指向 `held-inbox.json`，合并语义与
 [v1 §8.1](../v1/README.md#81-上游导出与-phonejson-覆盖) 相同：对象按键合并，数组按
 `name`／`id`／`nonce`／`action.nonce` 追加或替换，覆盖文件不能删除上游用例。
+`golden/proactive.json` 是 §3 的 phone-only 向量（`upstream: []`）：覆盖有效/错误设置与
+时区/时间回退、off/would/on 三模式、routine-held/quiet 优先级、DND 与安静时段、显式 reminder
+例外、保险丝第 4/5 次边界、`deliveryKinds` 过滤、投递失败/不可用、dedupeKey 的替换与回退、
+通知文案截断、非法候选，以及 routine-due 的“不是 proactive／不消耗保险丝”跨路径断言。
+`spec/bot/v2/tools/validate_vectors.py` 用 §3 的参考判定链逐条复算期望 decision，并对
+settings、fuse、deliveryKinds、投递失败、dedupeKey 和 routine-due 做 mutation 自检；
+Swift `Tests/PhoneDSHBotTests/Proactive/ProactiveVectorTests.swift` 用真实
+`ProactiveSettings`／`ProactivityPolicy`／`ProactiveEngine`／`RoutineScheduledNotification`
+读同一份文件，不手抄案例。
 
 从仓库根运行：
 

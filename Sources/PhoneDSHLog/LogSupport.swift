@@ -119,9 +119,32 @@ extension LogError: VFSResourceRefusalProviding {
 /// caller-supplied root; none is persisted inside the workspace or the repo.
 public struct WorkspacePaths: Equatable, Sendable {
     public let root: URL
+    /// Optional `Library/Caches/pdsh/<workspace_id>` root for derived,
+    /// rebuildable data (wal.md §12, budgets.md §9). `nil` keeps the pre-W3
+    /// layout inside the workspace root, which the existing unit tests use.
+    public let cacheRoot: URL?
 
-    public init(root: URL) {
+    public init(root: URL, cacheRoot: URL? = nil) {
         self.root = root
+        self.cacheRoot = cacheRoot
+    }
+
+    /// Root for rebuildable caches. Falls back to the workspace root so a
+    /// caller that did not opt into tiering keeps byte-for-byte the old paths.
+    public var cacheDirectory: URL {
+        cacheRoot ?? root
+    }
+
+    public var responseLogCacheDirectory: URL {
+        cacheDirectory.appendingPathComponent("response-log", isDirectory: true)
+    }
+
+    public var transcriptSnapshotCacheDirectory: URL {
+        cacheDirectory.appendingPathComponent("transcript-snapshots", isDirectory: true)
+    }
+
+    public var overlayCacheDirectory: URL {
+        cacheDirectory
     }
 
     public var walDirectory: URL { root.appendingPathComponent("wal", isDirectory: true) }
@@ -147,11 +170,17 @@ public struct WorkspacePaths: Equatable, Sendable {
     }
     public var stepsDirectory: URL { root.appendingPathComponent("steps", isDirectory: true) }
     public var execDirectory: URL { root.appendingPathComponent("exec", isDirectory: true) }
+    /// W6 content-addressed mutation payloads (wal.md §14.1). Authoritative
+    /// while a retained record references them; never inside `Library/Caches`.
+    public var blobDirectory: URL { root.appendingPathComponent("blobs", isDirectory: true) }
+    public var blobShardRoot: URL {
+        blobDirectory.appendingPathComponent("sha256", isDirectory: true)
+    }
 
     /// `<root>/overlay-<boot_id>.tar`, rebuilt for every boot (wal.md §8).
     /// The name is the pre-D21 route contract; the bytes are gzip (D21).
     public func overlayURL(bootID: String) -> URL {
-        root.appendingPathComponent("overlay-\(bootID).tar")
+        cacheDirectory.appendingPathComponent("overlay-\(bootID).tar")
     }
 
     /// Creates the directories the log owns. `steps/` and `exec/` belong to
@@ -401,17 +430,30 @@ public struct WorkspaceLogMetrics: Equatable, Sendable {
 /// before any later live element (the replay happens under the same lock that
 /// registers the continuation, so ordering is preserved).
 final class AckBroadcaster<Element: Sendable>: @unchecked Sendable {
+    /// Default bound of one subscriber's stream. The previous default was
+    /// `.unbounded`, so a stalled consumer could grow the process without
+    /// limit. Cumulative acks coalesce naturally: dropping an older element
+    /// loses no state because the next ack carries the higher watermark.
+    static var defaultBufferingLimit: Int { 4_096 }
+
     private let lock = NSLock()
     private var continuations: [UUID: AsyncStream<Element>.Continuation] = [:]
     private var replayBuffer: [Element] = []
     private let replayLimit: Int
     private var finished = false
+    /// Number of elements a subscriber's bounded buffer rejected. Exposed so a
+    /// caller can distinguish "quiet" from "the subscriber fell behind"; the
+    /// first drop is also logged, so a persistent event is never dropped
+    /// silently.
+    private var droppedElements = 0
+    private var loggedOverflow = false
 
     init(replayLimit: Int = 0) {
         self.replayLimit = max(0, replayLimit)
     }
 
-    func stream(bufferingPolicy: AsyncStream<Element>.Continuation.BufferingPolicy = .unbounded)
+    func stream(bufferingPolicy: AsyncStream<Element>.Continuation.BufferingPolicy =
+                    .bufferingNewest(AckBroadcaster.defaultBufferingLimit))
         -> AsyncStream<Element> {
         AsyncStream(bufferingPolicy: bufferingPolicy) { continuation in
             let identifier = UUID()
@@ -446,8 +488,31 @@ final class AckBroadcaster<Element: Sendable>: @unchecked Sendable {
         let targets = Array(continuations.values)
         lock.unlock()
         for target in targets {
-            target.yield(element)
+            if case .dropped = target.yield(element) {
+                noteDroppedElement()
+            }
         }
+    }
+
+    private func noteDroppedElement() {
+        lock.lock()
+        droppedElements += 1
+        let shouldLog = !loggedOverflow
+        loggedOverflow = true
+        lock.unlock()
+        if shouldLog {
+            // No workspace path, prompt or token is part of this diagnostic.
+            NSLog("phone-dsh: an ack stream subscriber fell behind; a bounded "
+                + "buffer rejected an element (cumulative acks replay the newer state)")
+        }
+    }
+
+    /// Elements rejected by a bounded subscriber buffer since the process
+    /// started. A zero value means no consumer fell behind.
+    func droppedElementCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return droppedElements
     }
 
     func finish() {
@@ -523,19 +588,39 @@ enum LogFile {
                     if errno == EINTR { continue }
                     throw LogError.posix(operation: "write", code: errno)
                 }
+                // budgets.md §7 `bytes_written_per_turn`: count what the
+                // kernel accepted, after the existing write returns.
+                WorkspaceLogIOCounters.recordBytesWritten(written)
                 offset += written
             }
         }
     }
 
     static func fsync(fd: Int32) throws {
+        // budgets.md §7 `fsync_calls_per_turn`: one count per syscall issued.
+        WorkspaceLogIOCounters.recordFsyncCalls()
         guard Darwin.fsync(fd) == 0 else {
             throw LogError.posix(operation: "fsync", code: errno)
         }
     }
 
+    /// Best-effort append to an existing diagnostic log (`boot-timings.log`).
+    /// `O_APPEND` keeps a line written by the log actor and the boot recorder
+    /// from replacing each other; a missing directory or a full disk only
+    /// loses the line, never the overlay that was already packed.
+    static func appendLine(_ line: String, to url: URL) {
+        guard let data = (line + "\n").data(using: .utf8) else { return }
+        let descriptor = url.path.withCString {
+            Darwin.open($0, O_WRONLY | O_CREAT | O_APPEND, 0o644)
+        }
+        guard descriptor >= 0 else { return }
+        defer { Darwin.close(descriptor) }
+        try? writeAll(fd: descriptor, data: data)
+    }
+
     /// `F_FULLFSYNC`: the level-2 durability primitive of D7/D18.
     static func fullFsync(fd: Int32) throws {
+        WorkspaceLogIOCounters.recordFsyncCalls()
         guard fcntl(fd, F_FULLFSYNC) == 0 else {
             throw LogError.posix(operation: "F_FULLFSYNC", code: errno)
         }
@@ -556,6 +641,7 @@ enum LogFile {
             throw LogError.posix(operation: "open directory", code: errno)
         }
         defer { Darwin.close(descriptor) }
+        WorkspaceLogIOCounters.recordFsyncCalls()
         guard Darwin.fsync(descriptor) == 0 else {
             throw LogError.posix(operation: "fsync directory", code: errno)
         }

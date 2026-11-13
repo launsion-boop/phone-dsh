@@ -187,10 +187,21 @@ enum ScenarioRecovery {
             }
         }
 
-        var replay: [(record: WALRecord, change: ScenarioRecoveryChange)] = []
+        // W6 §14.2: a blob-backed write is replayed with its verified blob
+        // bytes. The store is the run workspace's `blobs/`; a missing or
+        // mismatched blob is the WAL reader's fail-loud condition, never an
+        // empty body.
+        let blobStore = WorkspaceBlobStore(root: hostRoot)
+        var replay: [(record: WALRecord,
+                      body: VfsMutationBody,
+                      change: ScenarioRecoveryChange)] = []
         for record in records {
-            guard let body = try? record.mutationBody() else {
-                return .failure("the WAL record at mseq \(record.mseq) has no mutation body")
+            let body: VfsMutationBody
+            do {
+                body = try record.resolvedMutationBody(using: blobStore)
+            } catch {
+                return .failure(
+                    "the WAL record at mseq \(record.mseq) has no resolvable mutation body: \(error)")
             }
             guard relativeWorkspacePath(body.path) != nil else { continue }
             let op: String
@@ -204,7 +215,7 @@ enum ScenarioRecovery {
                 case .chmod: op = "chmod"
                 }
             }
-            replay.append((record, ScenarioRecoveryChange(
+            replay.append((record, body, ScenarioRecoveryChange(
                 mseq: record.mseq, op: op, path: body.path)))
         }
         let accounted = replay.map(\.change)
@@ -218,15 +229,14 @@ enum ScenarioRecovery {
         // accounting above.
         var materializeRecords: [WALRecord] = []
         for (index, entry) in replay.enumerated() {
-            guard let body = try? entry.record.mutationBody() else { continue }
+            let body = entry.body
             if body.op == .chmod { continue }
             if body.mflags.contains(.appended),
                replay[(index + 1)...].contains(where: { later in
-                   guard let laterBody = try? later.record.mutationBody(),
-                         laterBody.path == body.path else { return false }
-                   if laterBody.op == .remove { return true }
-                   return laterBody.op == .write
-                       && !laterBody.mflags.contains(.appended)
+                   guard later.body.path == body.path else { return false }
+                   if later.body.op == .remove { return true }
+                   return later.body.op == .write
+                       && !later.body.mflags.contains(.appended)
                }) {
                 continue
             }
@@ -235,7 +245,9 @@ enum ScenarioRecovery {
 
         let expected: MaterializedSnapshot
         do {
-            expected = try replayWorkspace(base: base, records: materializeRecords)
+            expected = try replayWorkspace(base: base,
+                                           records: materializeRecords,
+                                           blobRoot: hostRoot)
         } catch let error as ScenarioRecoveryReplayError {
             return .failure(error.description, accounted: accounted)
         } catch {
@@ -271,7 +283,8 @@ enum ScenarioRecovery {
     /// same `Materializer` the host uses (D9 write/append/remove/mkdir/chmod
     /// semantics), then returns the resulting snapshot.
     private static func replayWorkspace(base: ScenarioRecoveryBase,
-                                        records: [WALRecord]) throws -> MaterializedSnapshot {
+                                        records: [WALRecord],
+                                        blobRoot: URL) throws -> MaterializedSnapshot {
         let fileManager = FileManager.default
         let workRoot = fileManager.temporaryDirectory.appendingPathComponent(
             "pdsh-scenario-replay-\(UUID().uuidString)", isDirectory: true)
@@ -288,7 +301,14 @@ enum ScenarioRecovery {
             try fileManager.createDirectory(at: workspace, withIntermediateDirectories: true)
         }
 
-        let materializer = try Materializer(root: workRoot)
+        // The replay's materialized tree lives under `workRoot`, but the blobs
+        // a 0xFE record references live in the run workspace. Root the
+        // materializer at `blobRoot` (read-only for blobs) and keep the
+        // materialized directory in scratch, so the real workspace is never
+        // written by this check.
+        let materializer = try Materializer(root: blobRoot,
+                                            materializedUptoMseq: 0,
+                                            materializedDirectoryURL: materialized)
         for record in records {
             do {
                 _ = try materializer.apply(record)

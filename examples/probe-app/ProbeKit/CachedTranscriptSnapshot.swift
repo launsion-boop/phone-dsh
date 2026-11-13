@@ -84,7 +84,13 @@ public enum CachedTranscriptCodec {
             let snapshot = CachedTranscriptSnapshot(capturedAt: capturedAt, backend: backend,
                                                     sessionID: sessionID, lastSeq: lastSeq,
                                                     items: kept)
-            guard let data = try? JSONEncoder().encode(snapshot) else { return nil }
+            // JSON member order is not semantic, and Foundation's encoder
+            // does not promise insertion order across invocations. Sorted
+            // keys make the same value produce the same bytes, which is what
+            // the off-main writer's byte-identity test relies on.
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            guard let data = try? encoder.encode(snapshot) else { return nil }
             if data.count <= maxFileBytes { return data }
             guard kept.count > 1 else { return nil }
             let drop = max(1, kept.count / 4)

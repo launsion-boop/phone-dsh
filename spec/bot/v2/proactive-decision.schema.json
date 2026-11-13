@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotProactiveDecision v1",
+  "description": "One ProactiveEngine consideration record. decision is the Swift ProactiveDecisionKind (did/would/skip); the names used by README §3 for refusals (mode-off, fuse, quiet-hours, dnd, delivery-failed, delivery-unavailable, routine-held, routine-quiet, missing-bot) are reason values, not decision kinds. notification is always present because ProactiveEngine.finish builds it even for a skip; delivery is present only when a deliverer was invoked and returned a result. See spec/bot/v2/README.md §3.",
+  "type": "object",
+  "required": [
+    "id",
+    "at",
+    "decision",
+    "reason",
+    "kind",
+    "botId",
+    "dedupeKey",
+    "mode",
+    "channel",
+    "notification"
+  ],
+  "properties": {
+    "id": {
+      "description": "proactive:<at>:<sequence>; sequence increments for every finish call in one engine instance, including skips.",
+      "type": "string",
+      "pattern": "^proactive:[0-9]+:[1-9][0-9]*$"
+    },
+    "at": {"type": "integer", "minimum": 0},
+    "decision": {"enum": ["did", "would", "skip"]},
+    "reason": {
+      "enum": [
+        "delivered",
+        "would-mode",
+        "would-only-kind",
+        "mode-off",
+        "fuse",
+        "dnd",
+        "quiet-hours",
+        "missing-bot",
+        "delivery-failed",
+        "delivery-unavailable",
+        "routine-held",
+        "routine-quiet"
+      ]
+    },
+    "kind": {"enum": ["task-done", "routine-result", "reminder"]},
+    "botId": {"type": "string", "minLength": 1},
+    "dedupeKey": {
+      "description": "Stable notification identifier: explicit candidate.dedupeKey trimmed, else <kind>:<botId>:<taskId|runId|reminderId|id>, else <kind>:<botId>:<at>. It is not a suppression window.",
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {"enum": ["off", "would", "on"]},
+    "channel": {"type": "string", "minLength": 1},
+    "notification": {
+      "type": "object",
+      "required": ["title", "body", "kind", "botId", "dedupeKey", "channel"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1, "maxLength": 120},
+        "body": {"type": "string", "maxLength": 500},
+        "kind": {"enum": ["task-done", "routine-result", "reminder"]},
+        "botId": {"type": "string", "minLength": 1},
+        "dedupeKey": {"type": "string", "minLength": 1},
+        "channel": {"type": "string", "minLength": 1},
+        "rowId": {"type": "string", "minLength": 1},
+        "deepLink": {
+          "type": "string",
+          "pattern": "^phonedsh://bot/[^/]+/row/[^/]+$"
+        }
+      },
+      "dependentRequired": {
+        "rowId": ["deepLink"],
+        "deepLink": ["rowId"]
+      },
+      "additionalProperties": false
+    },
+    "delivery": {
+      "type": "object",
+      "required": ["delivered", "channel"],
+      "properties": {
+        "delivered": {"type": "boolean"},
+        "channel": {"type": "string", "minLength": 1},
+        "error": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "commitSeq": {"type": "integer", "minimum": 0}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "proactiveCandidate": {
+      "title": "BotProactiveCandidate v1",
+      "description": "Decision input frozen from ProactiveCandidate. kind, botId and createdAt are required. A nil optional member is omitted; delivery is held/interrupt and only present for routine results.",
+      "type": "object",
+      "required": ["kind", "botId", "createdAt"],
+      "properties": {
+        "id": {"type": "string"},
+        "kind": {"enum": ["task-done", "routine-result", "reminder"]},
+        "botId": {"type": "string", "minLength": 1},
+        "dedupeKey": {"type": "string"},
+        "trigger": {"type": "string"},
+        "sourceEventId": {"type": "string"},
+        "createdAt": {"type": "integer", "minimum": 0},
+        "channel": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "body": {"type": "string"},
+        "taskId": {"type": "string"},
+        "taskTitle": {"type": "string"},
+        "summary": {"type": "string"},
+        "status": {"type": "string"},
+        "routineId": {"type": "string"},
+        "runId": {"type": "string"},
+        "attempt": {"type": "integer", "minimum": 0},
+        "delivery": {"enum": ["held", "interrupt"]},
+        "quiet": {"type": "boolean"},
+        "resultExcerpt": {"type": "string"},
+        "deliveryKey": {"type": "string"},
+        "rowId": {"type": "string", "minLength": 1},
+        "reminderId": {"type": "string"},
+        "allowDuringDnd": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

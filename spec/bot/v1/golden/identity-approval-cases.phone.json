@@ -1,0 +1,740 @@
+{
+  "schemaVersion": 1,
+  "vector": "identity-approval-cases.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH-only /identity and /approval body vector; no dsh-bot upstream file exists. The checkout records the pinned upstream batch this contract sits beside, not the origin of these cases."
+  },
+  "upstream": [],
+  "delta": [
+    "P05/P26: /identity/register uses the App-issued dshg_ token, never the body sessionId; missing/empty/unknown/revoked/expired/foreign tokens are one unauthorized answer, and a body argsDigest mismatch is argument digest mismatch. Success is {ok:true,id}; the id is the registration cancelled by /identity/cancel.",
+    "P05/P26: /approval validation order and exact refusals are frozen: unattributed, stale:digest_mismatch, stale:command_mismatch, stale:sandbox_effect, stale:always_scope; the expected scope is until for a known effect and session for all-unknown effects, none is accepted as a one-shot override, and sandbox escalation requires none.",
+    "P05/P26: approval outcomes carry pending plus optional approvalId/message/expiresAt/approvalDecision/scope; interactive card timeout is 300000 ms and a durable todo expires after 24 h. A /identity/cancel of a registration closes its interactive approvals with approval cancelled."
+  ],
+  "defaults": {
+    "approvalTimeoutMs": 300000,
+    "approvalExpiryMs": 86400000
+  },
+  "valid": [
+    {
+      "kind": "register",
+      "name": "register-success",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "reg-register-success",
+        "tool": "ListRoutines",
+        "arguments": {}
+      },
+      "token": "current",
+      "argsDigest": "computed",
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "kind": "register",
+      "name": "register-prefixed-name",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "reg-register-prefixed-name",
+        "tool": "mcp__phone__ListRoutines",
+        "arguments": {}
+      },
+      "token": "current",
+      "argsDigest": "computed",
+      "expect": {
+        "ok": true
+      },
+      "flags": {
+        "registeredBareName": "ListRoutines"
+      }
+    },
+    {
+      "kind": "cancel",
+      "name": "cancel-success",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "cancel-1",
+        "tool": "ListRoutines",
+        "arguments": {}
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "kind": "cancel",
+      "name": "cancel-twice",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "cancel-2",
+        "tool": "ListRoutines",
+        "arguments": {}
+      },
+      "twice": true,
+      "expect": {
+        "first": true,
+        "second": false
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-allow-once",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "appr-approval-allow-once",
+        "tool": "UpdateMemory",
+        "arguments": {
+          "action": "delete",
+          "path": "user/private.md",
+          "expected_version": 0
+        }
+      },
+      "argsDigest": "8b37fa8ab96618e3675a8f6d48f985823e66de0bcb38bd764950c1966fcf6f88",
+      "approval": {
+        "alwaysScope": "until"
+      },
+      "decision": "allowOnce",
+      "expect": {
+        "ok": true,
+        "allowed": true,
+        "pending": false,
+        "message": "allowed",
+        "approvalDecision": "allowOnce",
+        "scope": "once"
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-always-until",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "appr-approval-always-until",
+        "tool": "bash",
+        "arguments": {
+          "command": "rm -rf /tmp/c6-approval"
+        }
+      },
+      "argsDigest": "34b729a9100c5d5279553fe3c574d36aa99ca56846833d3f729fcc2ae83e509a",
+      "approval": {
+        "alwaysScope": "until",
+        "action": "删除临时目录",
+        "command": "rm -rf /tmp/c6-approval"
+      },
+      "decision": "always",
+      "expect": {
+        "ok": true,
+        "allowed": true,
+        "pending": false,
+        "approvalDecision": "always",
+        "scope": "until"
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-always-session",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "appr-approval-always-session",
+        "tool": "phone",
+        "arguments": {}
+      },
+      "argsDigest": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "approval": {
+        "alwaysScope": "session"
+      },
+      "decision": "always",
+      "expect": {
+        "ok": true,
+        "allowed": true,
+        "pending": false,
+        "approvalDecision": "always",
+        "scope": "session"
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-sandbox-escalation",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "appr-approval-sandbox-escalation",
+        "tool": "bash",
+        "arguments": {
+          "command": "make install"
+        }
+      },
+      "argsDigest": "d22fa347f9bb77e0753363cb7fb08a414b874dbae88ccb14db892cc77dba5846",
+      "approval": {
+        "alwaysScope": "none",
+        "action": "安装到系统目录",
+        "detail": "sandbox escalation",
+        "command": "make install",
+        "askAction": "sandbox-escalation",
+        "effects": [
+          {
+            "tool": "bash",
+            "operation": "sandbox-escalation",
+            "resource": "/usr/local/lib",
+            "target": "/usr/local/lib",
+            "mutability": "write",
+            "policy": "ask"
+          }
+        ]
+      },
+      "decision": "allowOnce",
+      "expect": {
+        "ok": true,
+        "allowed": true,
+        "pending": false,
+        "approvalDecision": "allowOnce",
+        "scope": "once"
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-cancel-cascade",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "appr-approval-cancel-cascade",
+        "tool": "UpdateMemory",
+        "arguments": {
+          "action": "delete",
+          "path": "user/private.md",
+          "expected_version": 0
+        }
+      },
+      "argsDigest": "8b37fa8ab96618e3675a8f6d48f985823e66de0bcb38bd764950c1966fcf6f88",
+      "approval": {
+        "alwaysScope": "until",
+        "action": "删除共享记忆",
+        "detail": "cancel cascade"
+      },
+      "post": {
+        "cancelRegistration": true
+      },
+      "expect": {
+        "ok": false,
+        "allowed": false,
+        "pending": false,
+        "message": "approval cancelled"
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-pending-durable",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-task",
+        "kind": "task"
+      },
+      "registration": {
+        "callId": "appr-approval-pending-durable",
+        "tool": "UpdateMemory",
+        "arguments": {
+          "action": "delete",
+          "path": "user/private.md",
+          "expected_version": 0
+        }
+      },
+      "argsDigest": "8b37fa8ab96618e3675a8f6d48f985823e66de0bcb38bd764950c1966fcf6f88",
+      "approval": {
+        "alwaysScope": "until"
+      },
+      "immediate": true,
+      "post": {
+        "resolve": "allowOnce"
+      },
+      "expect": {
+        "ok": true,
+        "allowed": false,
+        "pending": true,
+        "message": "approval pending"
+      },
+      "flags": {
+        "expiresAtPositive": true
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "kind": "register",
+      "name": "register-unauthorized-missing-token",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "reg-register-unauthorized-missing-token",
+        "tool": "ListRoutines",
+        "arguments": {}
+      },
+      "token": "none",
+      "argsDigest": "computed",
+      "expect": {
+        "ok": false,
+        "error": "unauthorized"
+      }
+    },
+    {
+      "kind": "register",
+      "name": "register-unauthorized-wrong-token",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "reg-register-unauthorized-wrong-token",
+        "tool": "ListRoutines",
+        "arguments": {}
+      },
+      "token": "wrong",
+      "argsDigest": "computed",
+      "expect": {
+        "ok": false,
+        "error": "unauthorized"
+      }
+    },
+    {
+      "kind": "register",
+      "name": "register-unauthorized-revoked-token",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "reg-register-unauthorized-revoked-token",
+        "tool": "ListRoutines",
+        "arguments": {}
+      },
+      "token": "revoked",
+      "argsDigest": "computed",
+      "expect": {
+        "ok": false,
+        "error": "unauthorized"
+      }
+    },
+    {
+      "kind": "register",
+      "name": "register-unauthorized-foreign-session",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "reg-register-unauthorized-foreign-session",
+        "tool": "ListRoutines",
+        "arguments": {}
+      },
+      "token": "foreign",
+      "argsDigest": "computed",
+      "body": {
+        "tokenSession": "gb-foreign"
+      },
+      "expect": {
+        "ok": false,
+        "error": "unauthorized"
+      }
+    },
+    {
+      "kind": "register",
+      "name": "register-digest-mismatch",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "reg-register-digest-mismatch",
+        "tool": "UpdateMemory",
+        "arguments": {
+          "action": "delete",
+          "path": "user/private.md",
+          "expected_version": 0
+        }
+      },
+      "token": "current",
+      "argsDigest": "mismatch",
+      "expect": {
+        "ok": false,
+        "error": "argument digest mismatch"
+      }
+    },
+    {
+      "kind": "register",
+      "name": "register-invalid-body",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "reg-register-invalid-body",
+        "tool": "ListRoutines",
+        "arguments": {}
+      },
+      "token": "current",
+      "argsDigest": "computed",
+      "body": {
+        "omitName": true
+      },
+      "expect": {
+        "ok": false,
+        "error": "invalid identity registration"
+      }
+    },
+    {
+      "kind": "register",
+      "name": "register-unknown-tool",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "reg-register-unknown-tool",
+        "tool": "no_such_tool",
+        "arguments": {}
+      },
+      "token": "current",
+      "argsDigest": "computed",
+      "expect": {
+        "ok": false,
+        "error": "unknown_tool"
+      }
+    },
+    {
+      "kind": "cancel",
+      "name": "cancel-invalid",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "body": {},
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-deny",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "appr-approval-deny",
+        "tool": "UpdateMemory",
+        "arguments": {
+          "action": "delete",
+          "path": "user/private.md",
+          "expected_version": 0
+        }
+      },
+      "argsDigest": "8b37fa8ab96618e3675a8f6d48f985823e66de0bcb38bd764950c1966fcf6f88",
+      "approval": {
+        "alwaysScope": "until"
+      },
+      "decision": "deny",
+      "expect": {
+        "ok": false,
+        "allowed": false,
+        "pending": false,
+        "message": "approval denied",
+        "approvalDecision": "deny"
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-timeout-interactive",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "appr-approval-timeout-interactive",
+        "tool": "UpdateMemory",
+        "arguments": {
+          "action": "delete",
+          "path": "user/private.md",
+          "expected_version": 0
+        }
+      },
+      "argsDigest": "8b37fa8ab96618e3675a8f6d48f985823e66de0bcb38bd764950c1966fcf6f88",
+      "approval": {
+        "alwaysScope": "until"
+      },
+      "approvalTimeoutMs": 50,
+      "immediate": true,
+      "expect": {
+        "ok": false,
+        "allowed": false,
+        "pending": false,
+        "message": "approval timed out"
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-scope-mismatch",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "appr-approval-scope-mismatch",
+        "tool": "phone",
+        "arguments": {}
+      },
+      "argsDigest": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "approval": {
+        "alwaysScope": "until"
+      },
+      "immediate": true,
+      "expect": {
+        "ok": false,
+        "allowed": false,
+        "message": "stale:always_scope"
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-digest-mismatch",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "appr-approval-digest-mismatch",
+        "tool": "UpdateMemory",
+        "arguments": {
+          "action": "delete",
+          "path": "user/private.md",
+          "expected_version": 0
+        }
+      },
+      "argsDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+      "approval": {
+        "alwaysScope": "until"
+      },
+      "immediate": true,
+      "expect": {
+        "ok": false,
+        "allowed": false,
+        "message": "stale:digest_mismatch"
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-bash-command-mismatch",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "appr-approval-bash-command-mismatch",
+        "tool": "bash",
+        "arguments": {
+          "command": "rm -rf /tmp/c6-a"
+        }
+      },
+      "argsDigest": "4c16dbbd9f91bb4d42daca0f138d6fe557f4a32c3fbdd1f50c71883f43f61943",
+      "approval": {
+        "alwaysScope": "until",
+        "action": "删除目录",
+        "command": "rm -rf /tmp/c6-b"
+      },
+      "immediate": true,
+      "expect": {
+        "ok": false,
+        "allowed": false,
+        "message": "stale:command_mismatch"
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-unattributed",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "appr-approval-unattributed",
+        "tool": "UpdateMemory",
+        "arguments": {
+          "action": "delete",
+          "path": "user/private.md",
+          "expected_version": 0
+        }
+      },
+      "argsDigest": "8b37fa8ab96618e3675a8f6d48f985823e66de0bcb38bd764950c1966fcf6f88",
+      "approval": {
+        "alwaysScope": "until",
+        "callId": "does-not-exist"
+      },
+      "immediate": true,
+      "expect": {
+        "ok": false,
+        "allowed": false,
+        "message": "unattributed"
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-invalid-body",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "appr-approval-invalid-body",
+        "tool": "UpdateMemory",
+        "arguments": {
+          "action": "delete",
+          "path": "user/private.md",
+          "expected_version": 0
+        }
+      },
+      "argsDigest": "8b37fa8ab96618e3675a8f6d48f985823e66de0bcb38bd764950c1966fcf6f88",
+      "approval": {
+        "alwaysScope": "until",
+        "omitAlwaysScope": true
+      },
+      "immediate": true,
+      "expect": {
+        "ok": false,
+        "allowed": false,
+        "message": "invalid approval request"
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-sandbox-wrong-scope",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "appr-approval-sandbox-wrong-scope",
+        "tool": "bash",
+        "arguments": {
+          "command": "make install"
+        }
+      },
+      "argsDigest": "d22fa347f9bb77e0753363cb7fb08a414b874dbae88ccb14db892cc77dba5846",
+      "approval": {
+        "alwaysScope": "until",
+        "action": "安装",
+        "command": "make install",
+        "askAction": "sandbox-escalation",
+        "effects": [
+          {
+            "tool": "bash",
+            "operation": "sandbox-escalation",
+            "resource": "/usr/local/lib",
+            "mutability": "write",
+            "policy": "ask"
+          }
+        ]
+      },
+      "immediate": true,
+      "expect": {
+        "ok": false,
+        "allowed": false,
+        "message": "stale:sandbox_effect"
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-pending-expired",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-task-exp",
+        "kind": "task"
+      },
+      "registration": {
+        "callId": "appr-approval-pending-expired",
+        "tool": "UpdateMemory",
+        "arguments": {
+          "action": "delete",
+          "path": "user/private.md",
+          "expected_version": 0
+        }
+      },
+      "argsDigest": "8b37fa8ab96618e3675a8f6d48f985823e66de0bcb38bd764950c1966fcf6f88",
+      "approval": {
+        "alwaysScope": "until"
+      },
+      "approvalExpiryMs": 50,
+      "expireAfterMs": 80,
+      "immediate": true,
+      "post": {
+        "durableStatus": "expired",
+        "resolve": "expired"
+      },
+      "expect": {
+        "ok": true,
+        "allowed": false,
+        "pending": true,
+        "message": "approval pending"
+      }
+    }
+  ],
+  "credentialContract": {
+    "tokenPrefix": "dshg_",
+    "tokenLength": 48,
+    "tokenURLSafeAlphabet": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+    "incarnationHexLength": 32,
+    "defaultTTLMilliseconds": 43200000,
+    "maximumTokens": 4096,
+    "attributionTTLMilliseconds": 330000,
+    "attributionMaximumEntries": 4096
+  }
+}

@@ -399,3 +399,279 @@ public actor BudgetMonitor {
                         actionsTaken: actions), actions)
     }
 }
+
+// MARK: - Host internal storage aggregate (W3, budgets.md §9)
+
+/// One measurement of the host's internal storage. `hostInternalBytes` is the
+/// exact §9 sum; `budgetedBytes` adds the W1 outbox attachment bytes, which the
+/// owner's Rev 3 ruling makes user data that must count toward the aggregate
+/// budget even though it is never auto-deleted.
+public struct HostStorageUsage: Codable, Equatable, Sendable {
+    public var walBytes: Int
+    public var materializedBytes: Int
+    public var journalBytes: Int
+    public var stepsBytes: Int
+    public var execBytes: Int
+    public var responseLogBytes: Int
+    public var overlayCacheBytes: Int
+    public var transcriptSnapshotBytes: Int
+    /// Bytes of unsent `send-outbox` attachments. Counted, never evicted.
+    public var outboxAttachmentBytes: Int
+    public var workspaceLogicalBytes: Int
+    /// `volumeAvailableCapacityForImportantUsage`, falling back to the volume's
+    /// available capacity where the platform has no important-usage value.
+    public var availableImportantBytes: Int
+    /// Optional volume size, used for the level-2 10 % headroom.
+    public var volumeBytes: Int?
+
+    public init(walBytes: Int = 0,
+                materializedBytes: Int = 0,
+                journalBytes: Int = 0,
+                stepsBytes: Int = 0,
+                execBytes: Int = 0,
+                responseLogBytes: Int = 0,
+                overlayCacheBytes: Int = 0,
+                transcriptSnapshotBytes: Int = 0,
+                outboxAttachmentBytes: Int = 0,
+                workspaceLogicalBytes: Int = 0,
+                availableImportantBytes: Int = Int.max,
+                volumeBytes: Int? = nil) {
+        self.walBytes = max(0, walBytes)
+        self.materializedBytes = max(0, materializedBytes)
+        self.journalBytes = max(0, journalBytes)
+        self.stepsBytes = max(0, stepsBytes)
+        self.execBytes = max(0, execBytes)
+        self.responseLogBytes = max(0, responseLogBytes)
+        self.overlayCacheBytes = max(0, overlayCacheBytes)
+        self.transcriptSnapshotBytes = max(0, transcriptSnapshotBytes)
+        self.outboxAttachmentBytes = max(0, outboxAttachmentBytes)
+        self.workspaceLogicalBytes = max(0, workspaceLogicalBytes)
+        self.availableImportantBytes = max(0, availableImportantBytes)
+        self.volumeBytes = volumeBytes
+    }
+
+    /// The §9 aggregate: WAL + materialized + journal + steps + exec +
+    /// not-yet-deletable response entries + overlay cache + snapshots.
+    public var hostInternalBytes: Int {
+        walBytes &+ materializedBytes &+ journalBytes &+ stepsBytes &+ execBytes
+            &+ responseLogBytes &+ overlayCacheBytes &+ transcriptSnapshotBytes
+    }
+
+    /// Reported aggregate including the W1 outbox attachments. budgets.md §9
+    /// defines the level-1 trigger as `hostInternalBytes`, so owned outbox
+    /// bytes are counted and reported but never make a level delete anything.
+    public var budgetedBytes: Int {
+        hostInternalBytes &+ outboxAttachmentBytes
+    }
+
+    /// Only rebuildable content, never an authority. A non-zero response log
+    /// is included because its deletion condition may be satisfied even when
+    /// the cache body is still present.
+    public var reclaimableBytes: Int {
+        overlayCacheBytes &+ transcriptSnapshotBytes &+ responseLogBytes
+    }
+}
+
+public enum HostStorageLevel: Int, Codable, CaseIterable, Equatable, Sendable {
+    case zero = 0
+    case one = 1
+    case two = 2
+    case three = 3
+    case four = 4
+}
+
+public enum HostStorageAction: String, Codable, CaseIterable, Equatable, Sendable {
+    /// Reclaim droppable WAL segments and deletable response entries.
+    case reclaimDroppable
+    /// Remove rebuildable caches; they are recreated on demand.
+    case pruneCaches
+    /// Stop creating new caches until the pressure clears.
+    case stopCreatingCaches
+    /// Emit the one structured workspace signal.
+    case emitWorkspaceSignal
+    /// Fail the write with the explicit quota error.
+    case failWrite
+}
+
+public enum HostStorageUserSurface: String, Codable, Equatable, Sendable {
+    case silent
+    case workspaceCard
+    case quotaError
+}
+
+public struct HostStorageFile: Codable, Equatable, Sendable {
+    public var relativePath: String
+    public var byteCount: Int
+
+    public init(relativePath: String, byteCount: Int) {
+        self.relativePath = relativePath
+        self.byteCount = max(0, byteCount)
+    }
+}
+
+/// The level-3 structured signal. Only the App renders it, after the turn.
+public struct HostStorageSignal: Codable, Equatable, Sendable {
+    public var level: HostStorageLevel
+    public var workspaceLogicalBytes: Int
+    public var workspaceBucketBytes: Int
+    public var largestFiles: [HostStorageFile]
+
+    public init(level: HostStorageLevel = .three,
+                workspaceLogicalBytes: Int,
+                workspaceBucketBytes: Int,
+                largestFiles: [HostStorageFile] = []) {
+        self.level = level
+        self.workspaceLogicalBytes = max(0, workspaceLogicalBytes)
+        self.workspaceBucketBytes = max(0, workspaceBucketBytes)
+        self.largestFiles = largestFiles
+    }
+}
+
+/// Level-4 error. It reuses the existing quota vocabulary rather than adding a
+/// second wire error code; the host's existing ENOSPC/quota mapping carries it.
+public struct HostStorageFailure: Error, Equatable, Sendable, LocalizedError {
+    public var reason: String
+    public var remedy: String
+    public var budgetedBytes: Int
+    public var workspaceBytes: Int
+
+    public init(reason: String, remedy: String,
+                budgetedBytes: Int = 0, workspaceBytes: Int = 0) {
+        self.reason = reason
+        self.remedy = remedy
+        self.budgetedBytes = max(0, budgetedBytes)
+        self.workspaceBytes = max(0, workspaceBytes)
+    }
+
+    public var errorDescription: String? {
+        "Host storage quota exhausted: \(reason). \(remedy)"
+    }
+}
+
+public struct HostStorageDecision: Equatable, Sendable {
+    public var level: HostStorageLevel
+    public var actions: [HostStorageAction]
+    public var userSurface: HostStorageUserSurface
+    public var reason: String
+    public var signal: HostStorageSignal?
+    public var failure: HostStorageFailure?
+
+    public init(level: HostStorageLevel,
+                actions: [HostStorageAction],
+                userSurface: HostStorageUserSurface,
+                reason: String,
+                signal: HostStorageSignal? = nil,
+                failure: HostStorageFailure? = nil) {
+        self.level = level
+        self.actions = actions
+        self.userSurface = userSurface
+        self.reason = reason
+        self.signal = signal
+        self.failure = failure
+    }
+
+    public var isSilent: Bool { userSurface == .silent }
+}
+
+/// The five-level table of budgets.md §9. The constants are policy defaults,
+/// not measurements.
+public struct HostStoragePolicy: Equatable, Sendable {
+    public var steadyStateRatio: Double
+    public var minimumLevel2HeadroomBytes: Int
+    public var volumeHeadroomFraction: Double
+    public var workspaceSignalRatio: Double
+
+    public init(steadyStateRatio: Double = 1.3,
+                minimumLevel2HeadroomBytes: Int = 512 * 1024 * 1024,
+                volumeHeadroomFraction: Double = 0.10,
+                workspaceSignalRatio: Double = 0.90) {
+        self.steadyStateRatio = max(1, steadyStateRatio)
+        self.minimumLevel2HeadroomBytes = max(0, minimumLevel2HeadroomBytes)
+        self.volumeHeadroomFraction = max(0, volumeHeadroomFraction)
+        self.workspaceSignalRatio = max(0, min(1, workspaceSignalRatio))
+    }
+
+    public static let standard = HostStoragePolicy()
+
+    public func level2HeadroomBytes(volumeBytes: Int?) -> Int {
+        let volume = max(0, volumeBytes ?? 0)
+        return max(minimumLevel2HeadroomBytes,
+                   Int(Double(volume) * volumeHeadroomFraction))
+    }
+
+    /// - Parameter writeWouldFail: `true` only when the next write has already
+    ///   been refused after all level-0..3 actions had a chance to run.
+    /// - Parameter largestFiles: optional already-measured level-3 detail.
+    public func decision(for usage: HostStorageUsage,
+                         workspaceBucketBytes: Int,
+                         writeWouldFail: Bool = false,
+                         largestFiles: [HostStorageFile] = []) -> HostStorageDecision {
+        let bucket = max(0, workspaceBucketBytes)
+        var actions: [HostStorageAction] = [.reclaimDroppable]
+        let reclaimable = usage.reclaimableBytes > 0
+        if writeWouldFail && !reclaimable {
+            actions.append(contentsOf: [.pruneCaches, .stopCreatingCaches,
+                                        .emitWorkspaceSignal, .failWrite])
+            let failure = HostStorageFailure(
+                reason: "no reclaimable data remains and the next write would fail",
+                remedy: "Free space in the workspace or remove large files, then retry.",
+                budgetedBytes: usage.budgetedBytes,
+                workspaceBytes: usage.workspaceLogicalBytes)
+            return HostStorageDecision(level: .four,
+                                       actions: actions,
+                                       userSurface: .quotaError,
+                                       reason: failure.reason,
+                                       failure: failure)
+        }
+        if bucket > 0,
+           Double(usage.workspaceLogicalBytes) >= workspaceSignalRatio * Double(bucket) {
+            actions.append(contentsOf: [.pruneCaches, .stopCreatingCaches,
+                                        .emitWorkspaceSignal])
+            let signal = HostStorageSignal(workspaceLogicalBytes: usage.workspaceLogicalBytes,
+                                           workspaceBucketBytes: bucket,
+                                           largestFiles: largestFiles)
+            return HostStorageDecision(level: .three,
+                                       actions: actions,
+                                       userSurface: .workspaceCard,
+                                       reason: "workspace at or above 90% of its bucket",
+                                       signal: signal)
+        }
+        if usage.availableImportantBytes < level2HeadroomBytes(volumeBytes: usage.volumeBytes) {
+            actions.append(contentsOf: [.pruneCaches, .stopCreatingCaches])
+            return HostStorageDecision(level: .two,
+                                       actions: actions,
+                                       userSurface: .silent,
+                                       reason: "important-usage headroom below policy floor")
+        }
+        // budgets.md §9: the trigger is the §9 aggregate, not the reported
+        // total that also carries the never-evicted outbox attachments.
+        if Double(usage.hostInternalBytes) > steadyStateRatio * Double(max(1, usage.workspaceLogicalBytes)) {
+            actions.append(.pruneCaches)
+            return HostStorageDecision(level: .one,
+                                       actions: actions,
+                                       userSurface: .silent,
+                                       reason: "host internal bytes above 1.3x workspace")
+        }
+        return HostStorageDecision(level: .zero,
+                                   actions: [.reclaimDroppable],
+                                   userSurface: .silent,
+                                   reason: "within steady-state budget")
+    }
+}
+
+/// Once-per-workspace-per-day gate for the level-3 card. Pure value logic so
+/// tests can drive a clock; the App persists the returned map.
+public struct WorkspaceQuotaCardGate: Codable, Equatable, Sendable {
+    public var lastEmittedDay: [String: String]
+
+    public init(lastEmittedDay: [String: String] = [:]) {
+        self.lastEmittedDay = lastEmittedDay
+    }
+
+    public mutating func shouldEmit(workspaceID: String, day: String) -> Bool {
+        guard !workspaceID.isEmpty, !day.isEmpty else { return false }
+        if lastEmittedDay[workspaceID] == day { return false }
+        lastEmittedDay[workspaceID] = day
+        return true
+    }
+}

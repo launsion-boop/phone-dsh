@@ -94,6 +94,75 @@ public struct SideEffectEntry: Codable, Equatable, Sendable {
     }
 }
 
+/// Line 1 of `exec/<idem_key>.ndjson` (exec.md §8). It carries the immutable
+/// intent and the current control flags; recorded events are later lines.
+private struct SideEffectV2Header: Codable {
+    var version: Int
+    var kind: SideEffectKind
+    var key: String
+    var execID: String?
+    var argv: [String]
+    var cwd: String
+    var stepID: String?
+    var turnID: String?
+    var createdAtMilliseconds: Int64
+    var lastAccessMilliseconds: Int64
+    var terminal: Bool
+    var response: Data?
+    var status: Int?
+    var journaled: Bool
+    var toolKey: String?
+    var requiresMseq: UInt64?
+
+    enum CodingKeys: String, CodingKey {
+        case version = "v"
+        case kind
+        case key
+        case execID = "exec_id"
+        case argv
+        case cwd
+        case stepID = "step_id"
+        case turnID = "turn_id"
+        case createdAtMilliseconds = "created_at_ms"
+        case lastAccessMilliseconds = "last_access_ms"
+        case terminal
+        case response
+        case status
+        case journaled
+        case toolKey = "tool_key"
+        case requiresMseq = "requires_mseq"
+    }
+
+    init(_ entry: SideEffectEntry) {
+        version = 2
+        kind = entry.kind
+        key = entry.key
+        execID = entry.execID
+        argv = entry.argv
+        cwd = entry.cwd
+        stepID = entry.stepID
+        turnID = entry.turnID
+        createdAtMilliseconds = entry.createdAtMilliseconds
+        lastAccessMilliseconds = entry.lastAccessMilliseconds
+        terminal = entry.terminal
+        response = entry.response
+        status = entry.status
+        journaled = entry.journaled
+        toolKey = entry.toolKey
+        requiresMseq = entry.requiresMseq
+    }
+
+    func entry(events: [String]) -> SideEffectEntry {
+        SideEffectEntry(version: 1, kind: kind, key: key, execID: execID,
+                        argv: argv, cwd: cwd, stepID: stepID, turnID: turnID,
+                        createdAtMilliseconds: createdAtMilliseconds,
+                        lastAccessMilliseconds: lastAccessMilliseconds,
+                        terminal: terminal, events: events,
+                        response: response, status: status, journaled: journaled,
+                        toolKey: toolKey, requiresMseq: requiresMseq)
+    }
+}
+
 /// Result of an exec dedup lookup.
 public enum ExecReplay: Equatable, Sendable {
     case miss
@@ -197,6 +266,13 @@ public actor SideEffectLedger {
                                                           idemKey: idemKey)
             entry.events.append(event)
             entry.terminal = true
+            entry.lastAccessMilliseconds = nowMilliseconds
+            // The interrupted terminal event is itself a recorded event: append
+            // it instead of rewriting the entry (exec.md §8).
+            try appendEventLine(event, seq: entry.events.count - 1,
+                                to: entry, terminal: true)
+            entries[entry.key] = entry
+            return .replay(entry)
         }
         entry.lastAccessMilliseconds = nowMilliseconds
         try write(entry)
@@ -220,12 +296,16 @@ public actor SideEffectLedger {
         guard let text = String(data: canonical, encoding: .utf8) else {
             throw LedgerError.corrupt("exec event is not UTF-8")
         }
+        let terminal = Self.isTerminalExecEvent(canonical)
+        let seq = entry.events.count
         entry.events.append(text)
-        if Self.isTerminalExecEvent(canonical) {
-            entry.terminal = true
-        }
+        if terminal { entry.terminal = true }
         entry.lastAccessMilliseconds = nowMilliseconds
-        try write(entry)
+        // Append-only: one line per event, and only the terminal event fsyncs
+        // (exec.md §8). The in-memory entry already carries the event so a
+        // caller may emit it after this returns.
+        try appendEventLine(text, seq: seq, to: entry, terminal: terminal)
+        entries[entry.key] = entry
         return entry
     }
 
@@ -329,10 +409,20 @@ public actor SideEffectLedger {
         -> (entries: [String: SideEffectEntry], totalBytes: Int) {
         var entries: [String: SideEffectEntry] = [:]
         var totalBytes = 0
-        for name in ControllerFileStore.fileNames(in: execDirectory)
-        where name.hasSuffix(".json") {
-            let key = String(name.dropLast(".json".count))
+        let names = ControllerFileStore.fileNames(in: execDirectory)
+        // v2 `.ndjson` wins; a v1 `.json` is still read for every key whose
+        // `.ndjson` does not exist yet (exec.md §8 old-data rule).
+        for name in names where name.hasSuffix(".ndjson") {
+            let key = String(name.dropLast(".ndjson".count))
             guard WireValidation.isValidIdemKey(key) else { continue }
+            let url = execDirectory.appendingPathComponent(name)
+            let entry = try loadNDJSON(url: url, key: key)
+            entries[key] = entry
+            totalBytes += ControllerFileStore.fileSize(url)
+        }
+        for name in names where name.hasSuffix(".json") {
+            let key = String(name.dropLast(".json".count))
+            guard WireValidation.isValidIdemKey(key), entries[key] == nil else { continue }
             let url = execDirectory.appendingPathComponent(name)
             guard let entry = try ControllerFileStore.readJSON(SideEffectEntry.self,
                                                                 from: url) else {
@@ -347,21 +437,117 @@ public actor SideEffectLedger {
         return (entries, totalBytes)
     }
 
+    /// Reads one append-only ledger file: header line then `{seq,event}` lines
+    /// with ascending sequence numbers (exec.md §8).
+    private static func loadNDJSON(url: URL, key: String) throws -> SideEffectEntry {
+        let data = try ControllerFileStore.read(url)
+        let lines = String(decoding: data, as: UTF8.self)
+            .split(separator: "\n", omittingEmptySubsequences: true)
+        guard let first = lines.first else {
+            throw LedgerError.corrupt("empty exec ledger \(key)")
+        }
+        let header: SideEffectV2Header
+        do {
+            header = try ControllerFileStore.makeDecoder()
+                .decode(SideEffectV2Header.self, from: Data(first.utf8))
+        } catch {
+            throw LedgerError.corrupt("malformed exec ledger header \(key)")
+        }
+        guard header.version == 2, header.key == key else {
+            throw LedgerError.corrupt("exec ledger key or version mismatch")
+        }
+        var events: [String] = []
+        for line in lines.dropFirst() {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)),
+                  let dictionary = object as? [String: Any],
+                  let seq = dictionary["seq"] as? NSNumber,
+                  let event = dictionary["event"] else {
+                throw LedgerError.corrupt("malformed exec ledger event line")
+            }
+            guard seq.intValue == events.count,
+                  let canonical = try? JSONSerialization.data(
+                    withJSONObject: event, options: [.sortedKeys]) else {
+                throw LedgerError.corrupt("exec ledger events are not in seq order")
+            }
+            events.append(String(decoding: canonical, as: UTF8.self))
+        }
+        var entry = header.entry(events: events)
+        if events.contains(where: { Self.isTerminalExecEvent(Data($0.utf8)) }) {
+            entry.terminal = true
+        }
+        return entry
+    }
+
     private func write(_ entry: SideEffectEntry) throws {
+        let data = try serialized(entry)
         let url = entryURL(entry.key)
-        let data = try ControllerFileStore.encode(entry)
-        let oldSize = ControllerFileStore.fileSize(url)
-        if oldSize == 0 && data.count > quotaBytes {
+        let existing = totalSizeOfEntry(entry.key)
+        if existing == 0 && data.count > quotaBytes {
             throw LedgerError.quotaExceeded(limit: quotaBytes, used: totalBytes)
         }
-        let projected = totalBytes - oldSize + data.count
+        let projected = totalBytes - existing + data.count
         if projected > quotaBytes {
-            try evict(until: quotaBytes, adding: data.count - oldSize,
+            try evict(until: quotaBytes, adding: data.count - existing,
                       excluding: entry.key)
         }
         try ControllerFileStore.writeAtomic(data, to: url)
-        totalBytes += data.count - oldSize
+        // The new file is durable; the v1 `.json` is no longer read.
+        try ControllerFileStore.removeIfExists(legacyURL(entry.key))
+        totalBytes += data.count - existing
         entries[entry.key] = entry
+    }
+
+    /// One append-only event line. The first append to a v1 entry writes the
+    /// v2 file (header + the events already recorded), fsyncs and renames it;
+    /// the old `.json` stays readable until that write succeeded. The event
+    /// bytes themselves are fsynced only for a terminal event.
+    private func appendEventLine(_ text: String, seq: Int,
+                                 to entry: SideEffectEntry,
+                                 terminal: Bool) throws {
+        let url = entryURL(entry.key)
+        let line = "{\"seq\":\(seq),\"event\":\(text)}\n"
+        let lineBytes = line.utf8.count
+        var migrationBytes = 0
+        var legacyBytes = 0
+        if !ControllerFileStore.exists(url) {
+            let legacy = legacyURL(entry.key)
+            var data = try ControllerFileStore.encode(SideEffectV2Header(entry))
+            data.append(0x0A)
+            for (index, old) in entry.events.prefix(seq).enumerated() {
+                data.append(Data("{\"seq\":\(index),\"event\":\(old)}\n".utf8))
+            }
+            legacyBytes = ControllerFileStore.fileSize(legacy)
+            let projected = totalBytes - legacyBytes + data.count + lineBytes
+            if projected > quotaBytes {
+                try evict(until: quotaBytes,
+                          adding: data.count + lineBytes - legacyBytes,
+                          excluding: entry.key)
+            }
+            try ControllerFileStore.writeAtomic(data, to: url)
+            try ControllerFileStore.removeIfExists(legacy)
+            migrationBytes = data.count - legacyBytes
+            totalBytes += migrationBytes
+        }
+        let projected = totalBytes + lineBytes
+        if projected > quotaBytes {
+            try evict(until: quotaBytes, adding: lineBytes, excluding: entry.key)
+        }
+        try ControllerFileStore.append(Data(line.utf8), to: url, sync: terminal)
+        totalBytes += lineBytes
+    }
+
+    private func serialized(_ entry: SideEffectEntry) throws -> Data {
+        var data = try ControllerFileStore.encode(SideEffectV2Header(entry))
+        data.append(0x0A)
+        for (index, event) in entry.events.enumerated() {
+            data.append(Data("{\"seq\":\(index),\"event\":\(event)}\n".utf8))
+        }
+        return data
+    }
+
+    private func totalSizeOfEntry(_ key: String) -> Int {
+        ControllerFileStore.fileSize(entryURL(key))
+            + ControllerFileStore.fileSize(legacyURL(key))
     }
 
     /// LRU eviction of already-journaled entries. Un-journaled steps are never
@@ -373,9 +559,9 @@ public actor SideEffectLedger {
             .sorted { $0.lastAccessMilliseconds < $1.lastAccessMilliseconds }
         for candidate in candidates {
             if totalBytes - reclaimed + adding <= limit { return }
-            let url = entryURL(candidate.key)
-            let removedSize = ControllerFileStore.fileSize(url)
-            try ControllerFileStore.removeIfExists(url)
+            let removedSize = totalSizeOfEntry(candidate.key)
+            try ControllerFileStore.removeIfExists(entryURL(candidate.key))
+            try ControllerFileStore.removeIfExists(legacyURL(candidate.key))
             totalBytes -= removedSize
             reclaimed += removedSize
             entries.removeValue(forKey: candidate.key)
@@ -386,6 +572,10 @@ public actor SideEffectLedger {
     }
 
     private func entryURL(_ key: String) -> URL {
+        execDirectory.appendingPathComponent(key + ".ndjson")
+    }
+
+    private func legacyURL(_ key: String) -> URL {
         execDirectory.appendingPathComponent(key + ".json")
     }
 

@@ -85,7 +85,7 @@ use pdsh_wal::{
     retained_supersession as replay_supersession, scan_segment as scan_segment_bytes, Checksum,
     CoverKind, Manifest, Record, RecordParseError, RecoveryInput, RecoveryPlan, ReplayDecision,
     RetainedRecord, SegmentFacts, SegmentName, TailVerdict, Truncation, WalError,
-    BODY_HEADER_BYTES, HEADER_BYTES, OP_EPOCH_CLOSE, RECORD_PREFIX_BYTES,
+    BODY_HEADER_BYTES, HEADER_BYTES, OP_BLOB_WRITE, OP_EPOCH_CLOSE, RECORD_PREFIX_BYTES,
 };
 
 /// `WAL_CORRUPT`, the only `wal.md` §10 state code.
@@ -686,6 +686,26 @@ fn push_record(out: &mut String, record: &Record) {
             out.push_str(",\"data_hex\":");
             push_hex_string(out, &body.data);
         }
+        // W6 `wal.md` §14.2 write-by-reference. This is a codec rendering only:
+        // the Kotlin/Android host store still does not implement W6 and its own
+        // `WalSegmentReader` keeps failing loud on `op = 0xFE`; serialising the
+        // fields here does not make Android read a W6 workspace.
+        Record::BlobWrite(blob) => {
+            out.push_str("\"blob_write\",\"op\":");
+            out.push_str(&OP_BLOB_WRITE.to_string());
+            out.push_str(",\"mode\":");
+            out.push_str(&blob.mode.to_string());
+            out.push_str(",\"mflags\":");
+            out.push_str(&blob.mflags.to_string());
+            out.push_str(",\"append_from\":");
+            out.push_str(&blob.append_from.to_string());
+            out.push_str(",\"blob_len\":");
+            out.push_str(&blob.blob_len.to_string());
+            out.push_str(",\"blob_sha256\":");
+            push_hex_string(out, &blob.blob_sha256);
+            out.push_str(",\"path\":");
+            push_json_string(out, &blob.path);
+        }
         Record::EpochClose(close) => {
             out.push_str("\"epoch_close\",\"op\":");
             out.push_str(&OP_EPOCH_CLOSE.to_string());
@@ -710,6 +730,11 @@ fn record_len(record: &Record) -> usize {
                 + mutation.body.path.len()
                 + 4
                 + mutation.body.data.len()
+        }
+        Record::BlobWrite(blob) => {
+            // §14.2 fixed body: op(1) + mode(4) + mflags(1) + append_from(8) +
+            // blob_len(4) + sha256(32) + path_len(2) = 52, then the path.
+            RECORD_PREFIX_BYTES + 52 + blob.path.len()
         }
         Record::EpochClose(_) => RECORD_PREFIX_BYTES + EPOCH_CLOSE_BODY_BYTES,
     }

@@ -234,6 +234,7 @@ targets:
       # ProbeKit/Transcript, and the perf helpers into ProbeKit/Perf;
       # the test targets import ProbeKit instead.
       - path: PhoneDSHProbe/NativeStreamAccumulator.swift
+      - path: PhoneDSHProbe/NativeStreamDraftStore.swift
       - path: PhoneDSHProbe/NativeToolOutputFold.swift
       - path: PhoneDSHProbe/NativeToolRowIdentity.swift
       - path: PhoneDSHProbe/NativeLogRedaction.swift
@@ -540,6 +541,27 @@ schemes:
       config: Debug
       targets:
         - PhoneDSHScenarioSimTests
+    run:
+      config: Debug
+    profile:
+      config: Debug
+    analyze:
+      config: Debug
+    archive:
+      config: Debug
+
+  # Same hostless suite, under the scheme name used by task acceptance
+  # commands. `scripts/ci/sim.sh` keeps using `PhoneDSHSim`.
+  PhoneDSHSimTests:
+    build:
+      targets:
+        PhoneDSHProbe: all
+        ProbeKit: all
+        PhoneDSHSimTests: [test]
+    test:
+      config: Debug
+      targets:
+        - PhoneDSHSimTests
     run:
       config: Debug
     profile:

@@ -71,19 +71,33 @@ final class DeviceMCPNativeRegressionTests: XCTestCase {
         return tools
     }
 
-    func testToolsListKeepsMainCatalogExactlyThenAppendsBLE() async throws {
+    func testToolsListKeepsMainCatalogExactlyThenAppendsConnectedBLE() async throws {
         let (main, _, head, _) = try pair()
         let mainList = await main.handle(post(try body("tools/list")))
         let headList = await head.handle(post(try body("tools/list")))
         XCTAssertEqual(try names(mainList), Self.mainAndroidTools)
-        XCTAssertEqual(try names(headList), Self.mainAndroidTools + Self.addedBLETools)
+        // W5 (spec/bot/v1/README.md §2): the ADB class is configured in this
+        // fixture, so Android stays exactly as main; BLE is not connected and
+        // its whole group is absent until it is.
+        XCTAssertEqual(try names(headList), Self.mainAndroidTools)
         let mainTools = try tools(mainList), headTools = try tools(headList)
         XCTAssertEqual(Array(headTools.prefix(mainTools.count)), mainTools, "Android names, descriptions and inputSchemas must be unchanged")
         XCTAssertEqual(Set(try names(headList)).count, headTools.count, "no duplicate tool names")
         XCTAssertFalse(try names(headList).contains { $0.hasPrefix("ssh") }, "SSH is an exec accelerator, never a native MCP tool")
-        // Shared singleton wiring used by ChatModel.
-        let shared = await DeviceMCPServer.shared.handle(post(try body("tools/list")))
-        XCTAssertEqual(try names(shared), Self.mainAndroidTools + Self.addedBLETools)
+
+        // Once the BLE class is connected/configured, the very next list
+        // appends the same six tools after the untouched Android catalog.
+        let adb = try adbServer(enabled: true, executor: ScriptedADB(output: ADBShellResult(stdout: Data("fixture".utf8))))
+        let receiptDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("device-mcp-ble-visible-" + UUID().uuidString)
+        addTeardownBlock { try? FileManager.default.removeItem(at: receiptDirectory) }
+        let ble = DeviceMCPServer(receiptDirectory: receiptDirectory, adb: adb,
+                                  bleToolVisibility: { true })
+        let bleList = await ble.handle(post(try body("tools/list")))
+        XCTAssertEqual(try names(bleList), Self.mainAndroidTools + Self.addedBLETools)
+        let bleTools = try tools(bleList)
+        XCTAssertEqual(Array(bleTools.prefix(mainTools.count)), mainTools)
+        XCTAssertEqual(Set(try names(bleList)).count, bleTools.count, "no duplicate tool names")
     }
 
     func testInitializeKeepsNegotiationAndAndroidInstructions() async throws {

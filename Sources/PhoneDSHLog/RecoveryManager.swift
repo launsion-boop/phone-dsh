@@ -390,6 +390,10 @@ public struct RecoveryManager: Sendable {
             }
         }
         try LogFile.fsyncDirectory(paths.walDirectory)
+        // wal.md §14.5: after placement and the manifest-first unlinks, every
+        // retained blob must exist at its recorded length and every blob no
+        // retained record names is an orphan.
+        try verifyAndCollectBlobs(segments: finalSegments)
         if markerPresent {
             try LogFile.unlink(paths.reconcileMarkerURL)
             try LogFile.fsyncDirectory(configuration.root)
@@ -410,7 +414,36 @@ public struct RecoveryManager: Sendable {
             rebuiltFromWal: rebuiltFromWal,
             coldRecovery: manifest.bootID != bootIDHex,
             reconciled: reconciled,
-            localRepairs: localRepairs)
+            localRepairs: localRepairs,
+            segments: finalSegments)
+    }
+
+    // MARK: - Blob store (wal.md §14.5)
+
+    /// Verifies the length of every blob referenced by a retained record and
+    /// then deletes every orphan in `blobs/`. The startup GC is read-only with
+    /// respect to every authoritative store: it derives the live set from the
+    /// WAL after §7.2 placement and unlinks only files under `blobs/`.
+    private func verifyAndCollectBlobs(segments: [WALSegmentFile]) throws {
+        var lengths: [String: UInt32] = [:]
+        for segment in segments {
+            for record in segment.records where record.isBlobWrite {
+                guard let blob = try record.blobWrite() else {
+                    throw LogError.corrupt(
+                        "blob-write record in \(segment.fileName) did not decode")
+                }
+                if let existing = lengths[blob.sha256Hex], existing != blob.blobLength {
+                    throw LogError.corrupt(
+                        "blob \(blob.sha256Hex) is referenced with two different lengths")
+                }
+                lengths[blob.sha256Hex] = blob.blobLength
+            }
+        }
+        let store = WorkspaceBlobStore(root: configuration.root)
+        for (digest, length) in lengths {
+            try store.verifyLength(digest: digest, expectedLength: Int(length))
+        }
+        _ = try store.collectGarbage(liveDigests: Set(lengths.keys))
     }
 
     // MARK: - Missing manifest (wal.md §7.2)
@@ -446,6 +479,9 @@ public struct RecoveryManager: Sendable {
             // §7.2: an unlisted length-0 file is dropped only after the
             // manifest that omits it is durable.
             let droppedEmpty = dropZeroLengthSegments(scan, paths: paths)
+            // A crash between a blob write and its record leaves only orphans;
+            // the live set of an empty WAL is empty (wal.md §14.5).
+            try verifyAndCollectBlobs(segments: [])
             return RecoveryReport(materializedUptoMseq: materializer.materializedUptoMseq,
                                   nextMseq: 1,
                                   durableMseq: 0,
@@ -457,7 +493,8 @@ public struct RecoveryManager: Sendable {
                                   droppedSegments: droppedEmpty,
                                   needsResync: [],
                                   coldRecovery: false,
-                                  reconciled: false)
+                                  reconciled: false,
+                                  segments: scan.segments)
         }
 
         // Validate the coverage BEFORE touching the materialized copy. A
@@ -505,6 +542,7 @@ public struct RecoveryManager: Sendable {
         // §7.2: the rebuilt manifest is durable; now an unlisted length-0 file
         // may be removed. It holds no header and no record.
         let droppedEmpty = dropZeroLengthSegments(scan, paths: paths)
+        try verifyAndCollectBlobs(segments: scan.segments)
         return RecoveryReport(
             materializedUptoMseq: materializer.materializedUptoMseq,
             nextMseq: lastMseq + 1,
@@ -518,7 +556,8 @@ public struct RecoveryManager: Sendable {
             needsResync: Array(materializer.needsResyncPaths).sorted(),
             resyncHolds: materializer.heldMismatches,
             coldRecovery: true,
-            reconciled: false)
+            reconciled: false,
+            segments: scan.segments)
     }
 
     // MARK: - Zero-length segments (wal.md §7.2)
