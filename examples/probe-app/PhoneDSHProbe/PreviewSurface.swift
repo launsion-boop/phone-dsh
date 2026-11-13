@@ -67,7 +67,7 @@ enum PreviewKind {
     case text, markdown, html, model, webMedia, image, pdf, office, video, audio, unsupported
 }
 
-private extension URL {
+extension URL {
     var previewKind: PreviewKind {
         switch pathExtension.lowercased() {
         case "md", "markdown": return .markdown
@@ -547,7 +547,7 @@ struct PreviewSurface: View {
     }
 }
 
-private struct NativePagedTextView: UIViewRepresentable {
+struct NativePagedTextView: UIViewRepresentable {
     let text: String
     let isLoading: Bool
 

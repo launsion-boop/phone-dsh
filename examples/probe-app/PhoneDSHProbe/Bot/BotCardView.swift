@@ -5,7 +5,13 @@ import UIKit
 
 struct BotCardActions {
     var openURL: (URL) -> Void = { UIApplication.shared.open($0) }
+    /// Opens one attachment path. The default does nothing; a card renders
+    /// its open button only when `canOpenPath` says the host can act, so this
+    /// empty default can never become a silent dead button.
     var openPath: (String) -> Void = { _ in }
+    /// The host's capability answer for `openPath`. Defaults to false: a
+    /// caller that has no preview implementation must not show the control.
+    var canOpenPath: (String) -> Bool = { _ in false }
     var openDocument: (BotUIRow) -> Void = { _ in }
 }
 
@@ -317,7 +323,7 @@ private struct BotAttachmentCardView: View {
                             .lineLimit(1)
                     }
                 }
-                if let path {
+                if let path, actions.canOpenPath(path) {
                     Button("打开") { actions.openPath(path) }
                         .buttonStyle(BotCardButtonStyle(kind: .plain))
                         .accessibilityIdentifier("bot.attachment.open")

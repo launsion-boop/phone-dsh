@@ -225,3 +225,67 @@ enum NativeChatTheme {
         return max(0, NativeParityTokens.bodyLineHeight - UIFont.systemFont(ofSize: size).lineHeight)
     }
 }
+
+// MARK: - Card file preview stand-ins
+
+// The capture target copies `Bot/` (including BotCardFilePreview.swift) but
+// not the app's preview stack, which drags in PhoneDSHEngine and the page
+// bridge. These stand-ins keep the card code compiling. Fixtures either pass
+// an injected `canOpenPath` handler or carry inline content, so no fixture
+// depends on resolving a workspace file; a path-only card shows the real
+// failure copy.
+enum PreviewKind {
+    case text, markdown, html, model, webMedia, image, pdf, office, video, audio, unsupported
+}
+
+extension URL {
+    var previewKind: PreviewKind {
+        switch pathExtension.lowercased() {
+        case "md", "markdown": return .markdown
+        case "txt", "log", "json", "jsonl", "yaml", "yml", "xml", "toml", "ini", "csv", "tsv",
+             "swift", "m", "c", "h", "go", "rs", "py", "js", "ts", "sh", "css", "sql":
+            return .text
+        default: return .unsupported
+        }
+    }
+}
+
+enum PreviewTarget: Identifiable, Hashable {
+    case workspaceFile(String)
+
+    var id: String {
+        switch self {
+        case .workspaceFile(let path): return "workspace:\(path)"
+        }
+    }
+}
+
+enum PreviewPathResolver {
+    /// The capture app has no ChatModel workspace; a card path is never
+    /// resolvable here, which is the explicit-error branch.
+    static func fileURL(for relativePath: String) -> URL? { nil }
+}
+
+struct PreviewSurface: View {
+    let target: PreviewTarget
+
+    var body: some View {
+        ContentUnavailableView("预览不可用", systemImage: "doc.questionmark",
+                               description: Text("采集目标没有接入工作区预览。"))
+    }
+}
+
+struct NativePagedTextView: View {
+    let text: String
+    let isLoading: Bool
+
+    var body: some View {
+        ScrollView {
+            Text(text)
+                .font(.system(size: 13, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .textSelection(.enabled)
+        }
+    }
+}

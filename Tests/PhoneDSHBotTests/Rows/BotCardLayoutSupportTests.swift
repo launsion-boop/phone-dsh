@@ -83,6 +83,30 @@ final class BotCardLayoutSupportTests: XCTestCase {
         XCTAssertEqual(measures, 0)
     }
 
+    func testShortTrailingBubbleUsesItsMeasuredWidthNotTheWidthCap() {
+        // 2026-11-13 field sample: after tapping 建议下一步 the sent message
+        // bubble sat at the 20% mark with empty space to its right. The
+        // trailing origin must use the content-sized width; the 0.80 ratio is
+        // only the maximum, so a 150pt bubble in a 390pt column starts at
+        // 240pt, not at 390 - 390 * 0.80 = 78pt.
+        let bounds = CGRect(x: 0, y: 0, width: 390, height: 44)
+        let measured: CGFloat = 150
+        let origin = BotAdaptiveBubbleGeometry.contentOriginX(
+            bounds: bounds, contentWidth: measured, trailing: true)
+        XCTAssertEqual(origin, 240)
+        XCTAssertNotEqual(origin, bounds.maxX - bounds.width * 0.80,
+                          "the trailing edge must not be computed from the width cap")
+        XCTAssertEqual(origin + measured, bounds.maxX)
+    }
+
+    func testTrailingBubbleAtTheWidthCapStillHugsTheTrailingEdge() {
+        let bounds = CGRect(x: 12, y: 0, width: 390, height: 44)
+        let measured = bounds.width * 0.80
+        let origin = BotAdaptiveBubbleGeometry.contentOriginX(
+            bounds: bounds, contentWidth: measured, trailing: true)
+        XCTAssertEqual(origin, bounds.maxX - measured)
+    }
+
     // MARK: - Heading probe coordination
 
     func testRepeatedProbeReportDoesNotRescheduleWhilePending() {

@@ -149,6 +149,12 @@ final class BotCaptureUITests: XCTestCase {
         launch("document")
         app.buttons["bot.document.open"].tap()
         XCTAssertTrue(app.navigationBars["文档"].waitForExistence(timeout: 2))
+        // D2: an inline-content document renders its body. The old sheet
+        // showed only the path row and the 「没有内嵌正文。」 failure.
+        let heading = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "phoneDSH Bot 验收报告")).firstMatch
+        XCTAssertTrue(heading.waitForExistence(timeout: 2))
+        XCTAssertFalse(app.staticTexts["没有内嵌正文。"].exists)
 
         launch("link")
         app.buttons["bot.link.open.docs"].tap()
