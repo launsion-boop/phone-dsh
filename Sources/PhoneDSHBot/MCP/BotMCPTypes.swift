@@ -45,6 +45,16 @@ public struct BotMCPCallResult: Codable, Sendable, Equatable {
         self.isError = isError ? true : nil
     }
 
+    /// A caller that needs an ordered content array (for example a text part
+    /// plus an MCP image block). The MCP client admits declared images only;
+    /// every other block keeps the ordinary text behaviour.
+    public init(content: [BotJSONValue], structuredContent: BotJSONValue? = nil,
+                isError: Bool = false) {
+        self.content = content
+        self.structuredContent = structuredContent
+        self.isError = isError ? true : nil
+    }
+
     public static func success(_ value: BotJSONValue, text: String? = nil) -> Self {
         let visible = text ?? (try? value.encoded()).map { String(decoding: $0, as: UTF8.self) }
         return Self(structuredContent: value, text: visible)

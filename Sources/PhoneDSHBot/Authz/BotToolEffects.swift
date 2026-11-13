@@ -144,6 +144,34 @@ public enum BotToolEffectClassifier {
                                     ? "中止正在执行的子代理，保留可读的部分结果。"
                                     : "Aborts a running subagent and keeps its partial result readable.",
                                  isMcp: isMcp)
+        case "read_image":
+            // DSH's built-in fs tool commits an image and asks the model route
+            // to inspect it. The Worker gate must present the same external
+            // send effect so the approval card and grants agree.
+            let target = clip(args["path"], max: 200)
+            return BotToolEffect(
+                tool: bareName, operation: "model.image.attach",
+                resource: target.isEmpty ? "model:image" : "attachment=\(target)",
+                target: target.isEmpty ? "model:image" : target,
+                mutability: .externalSend, policy: .ask,
+                label: language == .zh ? "把图片发送给模型" : "Send an image to the model",
+                detail: language == .zh
+                    ? "把工作区图片发送给模型服务，让模型看到像素。"
+                    : "Sends a workspace image to the model service so the model can see its pixels.",
+                isMcp: isMcp)
+        case "attach_to_model":
+            let purpose = clip(args["purpose"], max: 120)
+            let target = clip(firstNonEmpty(args["path"], args["fileId"], args["photoId"]), max: 200)
+            return BotToolEffect(
+                tool: bareName, operation: "model.image.attach",
+                resource: target.isEmpty ? "model:image" : "attachment=\(target)",
+                target: target.isEmpty ? "model:image" : target,
+                mutability: .externalSend, policy: .ask,
+                label: language == .zh ? "把图片发送给模型" : "Send an image to the model",
+                detail: language == .zh
+                    ? "把图片发送给模型服务，让模型看到像素。\(purpose.isEmpty ? "" : "用途：\(purpose)")"
+                    : "Sends the image to the model service so the model can see its pixels.\(purpose.isEmpty ? "" : " Purpose: \(purpose)")",
+                isMcp: isMcp)
         case "SendToUser":
             let preview = clip(args["message"], max: 180)
             return BotToolEffect(tool: bareName, operation: "dshbot.SendToUser",

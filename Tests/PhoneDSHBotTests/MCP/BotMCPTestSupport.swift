@@ -50,6 +50,7 @@ func makeBotMCPFixture(
     volatileProvider: (any BotVolatileContextProviding)? = nil,
     taskExecutor: (any BotTaskExecuting)? = nil,
     recordEvidence: (any BotRecordEvidenceResolving)? = FixedRecordEvidenceResolver(),
+    modelImageReader: BotMCPRuntime.BotModelImageReader? = nil,
     approvalTimeoutMs: Int64 = BotApprovalCoordinator.defaultTimeoutMilliseconds,
     approvalExpiryMs: Int64 = BotApprovalCoordinator.defaultDurableExpiryMilliseconds
 ) throws -> BotMCPTestFixture {
@@ -57,7 +58,7 @@ func makeBotMCPFixture(
     let store = try SQLiteDomainStore(fileURL: directory.appendingPathComponent("domain.sqlite"), now: { 1_000 })
     let runtime = BotMCPRuntime(
         store: store, volatileProvider: volatileProvider, taskExecutor: taskExecutor,
-        recordEvidence: recordEvidence, now: { 1_000 },
+        recordEvidence: recordEvidence, modelImageReader: modelImageReader, now: { 1_000 },
         approvalTimeoutMs: approvalTimeoutMs, approvalExpiryMs: approvalExpiryMs)
     return BotMCPTestFixture(directory: directory, store: store, runtime: runtime)
 }

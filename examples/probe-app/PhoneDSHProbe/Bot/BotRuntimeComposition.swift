@@ -297,6 +297,7 @@ final class BotRuntimeComposition {
         let runtime = BotMCPRuntime(store: store, gateway: gateway,
                                     volatileProvider: deferred,
                                     recordEvidence: recordService,
+                                    modelImageReader: BotWorkspaceModelImage.image(for:),
                                     now: runtimeClock)
         let machine = await runtime.routineMachine
         let baseMemory = await runtime.memory(for: selectedCandidate)
