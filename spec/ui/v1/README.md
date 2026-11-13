@@ -96,6 +96,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | ChatPreferencesPage | 聊天外观、字号、过程折叠、转录密度 | **不可达（全仓无调用点；设置已改分组索引）** | push | later |
 | NativeSettingsDocumentPage | 配置文件的只读查看与分享 | **不可达（全仓无调用点）** | sheet | later |
 | BluetoothDevicesPage | 蓝牙设备扫描与连接；完整结构契约待补；iOS 断连等待及不可用状态见 [P07 本地授权条款](../../device/v1/ble-link.md#ios-standard-gatt-authorization-ordering) | 设置 › 权限与隐私 › 蓝牙设备 | push；设备任务入口默认关闭 | must |
+| DevicePanelPage | **`target`，两端均未实现**：单台已连接设备的工具面板与面板描述的「采用」确认；规则见 [设备面板](../../device/v1/device-panel.md)。Android 在 GAP-20 关闭前不渲染。结构契约在 iOS 页面落地后由提取器生成，届时本行补入口细节 | 蓝牙设备 › 已连接设备（待实现） | push；采用确认为原生 sheet，不在 WebView 内 | later |
 
 内嵌子页随父页实现、不单独排期：CommandExecutionResultPage、ModelProviderEditorPage、SessionQueuePage、PermissionDefaultsPage、LicensesPage、FontSizeSettingsPage、ConversationSettingsPage、ArchivedSessionsPage、ScheduleDetailPage、ScheduleHistoryPage、ScheduleEditorPage。PC 工作区的独立页：`PCPairingPage`（抽屉 PC 分段「连接电脑」sheet；一屏：一条可复制安装命令、主按钮「扫码连接」、折叠的「其他方式」（粘贴链接/手动码）与一行权限说明；扫码即配对，不显示本机指纹、不提示在电脑上输入指纹）与 `ConnectedComputerPage`（设置 › 已连接的电脑，单台电脑信息、在线状态、本机指纹核对、配对方式/时间、解除配对、配对新电脑）。`DevelopmentToolsPage` 已随 PR #13 删除，PR22 无此 struct；memory / probes / background / task-screen 因此仍不可达。
 

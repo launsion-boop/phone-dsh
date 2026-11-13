@@ -88,6 +88,24 @@ The separately negotiated [task profile](task-delegation.md) additionally define
 
 取消当前 Link 工具会断开链路、停止客户端等待。已提交操作可能仍运行，恢复后只能查询；客户端错误必须保留 request_id。固件不会自动擦除 NVS 修复错误，否则会丢失幂等记录与绑定。
 
+### Link 调用准入（`target`）
+
+Status: `target`，由 [PC-20261112-device-panel](../../../docs/protocol-changes/PC-20261112-device-panel.md) 冻结，尚未实现。
+在实现并有回归之前，现行行为如本节末尾所述，任何调用者都不得依赖新的准入顺序。
+
+同一设备同一时刻至多一个进行中的 Link 工具调用或结果查询。准入对所有调用者相同：Agent 的 `ble_link_call`／
+`ble_link_result`、[设备面板](device-panel.md)，以及占用同一 Link 的其他宿主操作。
+
+1. 忙必须在**落盘意图之前**判定。被拒绝的调用没有 journal 记录，没有 request UUID，没有上传任何字节，
+   等同未执行，调用者可以发起新调用。
+2. 后到者得到现有的 Link 忙错误。不排队，不抢占，不新增错误码；先到者不受影响。
+3. 准入成功之后的一切仍按上面的规则 1–7：先落盘再上传，未知结果只能查询。
+
+现行行为（`8f3de8b8` 源码，未做 runtime 实验）：`DeviceMCPServer` 在落盘前拒绝第二个 MCP 调用；
+`BLEDeviceStore.invokeLink` 的忙检查在意图落盘之后，其拒绝经通用错误路径报告为 `outcome_unknown`，尽管没有上传。
+这符合规则 1，所以不是违约；实现本节时两处合并为落盘前的同一个准入点，Agent 在该情形下的可观察结果由
+`outcome_unknown` 变为忙且无记录，须有回归覆盖。
+
 ### iOS standard GATT authorization ordering
 
 Status: frozen local amendment, implementation pending. This is not a device
