@@ -57,6 +57,26 @@ change the envelope because `spec/v1/wal.md` §8 and the pinned `readImage` both
 require it. It is a proposal note, not a patch; old hosts keep sending the
 monolith and new workers fall back to it.
 
+## Pending proposal — `web_fetch` raw `text/plain` files
+
+[`2026-11-13-web-fetch-raw-text.md`](2026-11-13-web-fetch-raw-text.md) records
+the 2026-11-13 field failure: `web_fetch` on a public raw source file returns
+the remote Fetch API's retrieval 404, while `curl` from the same Worker gets a
+200 `text/plain` body. The local HTTP provider already accepts `text/*`, but
+the Worker profile selects `deepseek-fetch-api` and disables `web-fetch-http`
+(no undici/node:dns host route). The note proposes either accepting
+`text/plain` in the official `/fetch` operation or adding a provider over the
+already-installed host-routed `fetch`. It is a proposal note, not a patch; the
+`github get` and `curl` workarounds stay available.
+
+## Pending proposal — `read` on a directory should name the next tool
+
+[`2026-11-13-tool-fs-read-directory.md`](2026-11-13-tool-fs-read-directory.md)
+proposes appending a directory hint to the existing
+`cannot read "…": not a regular file` message (and keeping
+`FS_NOT_REGULAR_FILE` unchanged). The model has to infer `glob`/`ls` from the
+code today; the phone repository cannot patch the pinned `dsh-tool-fs`.
+
 ## Pending proposal — Cordis `Fiber.dispose` return value
 
 This is a proposal note, not a generated patch yet. In DSH's
