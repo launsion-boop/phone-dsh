@@ -200,6 +200,157 @@ enum BotProductionEventReader {
     }
 }
 
+/// Actor-owned append cache. It never changes the durable log format. A
+/// replacement, truncation or same-size rewrite discards the derived state;
+/// an unfinished last line is re-decoded when more bytes arrive.
+struct BotSessionLogReadCache {
+    private struct Stamp: Equatable {
+        var inode: UInt64
+        var size: UInt64
+        var modified: Date
+    }
+    private var stamp: Stamp?
+    private var url: URL?
+    private var prefix = Data()
+    private var suffix = Data()
+    private var offset: UInt64 = 0
+    private var tail = Data()
+    private var lineNumber = 0
+    private var firstRecord = true
+    private var events: [BotDSHSessionEvent] = []
+    private var records: [JSONValue] = []
+    private var skipped: [BotDSHSessionLogSkippedRecord] = []
+    private let decoder = JSONDecoder()
+    private(set) var bytesRead = 0
+    private(set) var decodedLines = 0
+    private(set) var revision = 0
+
+    struct Snapshot {
+        var events: [BotDSHSessionEvent]
+        var records: [JSONValue]
+        var diagnostics: BotDSHSessionLogDiagnostics
+    }
+
+    mutating func refresh(_ source: URL?) throws -> Bool {
+        guard let source else {
+            guard url != nil else { return false }
+            reset(); url = nil; stamp = nil; revision += 1
+            return true
+        }
+        let attributes = try FileManager.default.attributesOfItem(atPath: source.path)
+        let next = Stamp(inode: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0,
+                         size: (attributes[.size] as? NSNumber)?.uint64Value ?? 0,
+                         modified: attributes[.modificationDate] as? Date ?? .distantPast)
+        guard source != url || next != stamp else { return false }
+        let handle = try FileHandle(forReadingFrom: source)
+        defer { try? handle.close() }
+        var appendOnly = source == url && next.inode == stamp?.inode && next.size > offset
+        if appendOnly {
+            let head = try handle.read(upToCount: prefix.count) ?? Data()
+            try handle.seek(toOffset: offset - UInt64(suffix.count))
+            let end = try handle.read(upToCount: suffix.count) ?? Data()
+            appendOnly = head == prefix && end == suffix
+        }
+        if !appendOnly { reset() }
+        try handle.seek(toOffset: offset)
+        while let bytes = try handle.read(upToCount: 1024 * 1024), !bytes.isEmpty {
+            bytesRead += bytes.count
+            offset += UInt64(bytes.count)
+            if prefix.count < 256 { prefix.append(bytes.prefix(256 - prefix.count)) }
+            suffix.append(bytes)
+            suffix = Data(suffix.suffix(256))
+            tail.append(bytes)
+            let lines = tail.split(separator: 0x0A, omittingEmptySubsequences: false)
+            for line in lines.dropLast() {
+                lineNumber += 1; decodedLines += 1
+                Self.decode(Data(line), decoder: decoder, number: lineNumber, first: &firstRecord,
+                       events: &events, records: &records, skipped: &skipped)
+            }
+            tail = Data(lines.last ?? Data().prefix(0))
+        }
+        url = source; stamp = next; revision += 1
+        return true
+    }
+
+    mutating func snapshot() -> Snapshot {
+        var result = Snapshot(events: events, records: records,
+                              diagnostics: BotDSHSessionLogDiagnostics(skipped: skipped))
+        if !tail.isEmpty {
+            var first = firstRecord
+            var errors = skipped
+            Self.decode(tail, decoder: decoder, number: lineNumber + 1, first: &first,
+                   events: &result.events, records: &result.records, skipped: &errors)
+            result.diagnostics = BotDSHSessionLogDiagnostics(skipped: errors)
+        }
+        return result
+    }
+
+    private mutating func reset() {
+        offset = 0; tail = Data(); prefix = Data(); suffix = Data()
+        lineNumber = 0; firstRecord = true
+        events.removeAll(); records.removeAll(); skipped.removeAll()
+    }
+
+    private static func decode(_ line: Data, decoder: JSONDecoder, number: Int, first: inout Bool,
+                        events: inout [BotDSHSessionEvent], records: inout [JSONValue],
+                        skipped: inout [BotDSHSessionLogSkippedRecord]) {
+        let trimmed = line.drop(while: { $0 == 0x20 || $0 == 0x09 || $0 == 0x0D })
+        guard !trimmed.isEmpty else { return }
+        let data = Data(trimmed)
+        if let record = try? JSONValue.parse(data),
+           let type = record["type"]?.stringValue,
+           ["turn/start", "user/message", "tool/call", "tool/result", "turn/end"].contains(type) {
+            records.append(record)
+        }
+        if first {
+            first = false
+            let parsed = BotDSHSessionEvent.parseJSONL(data)
+            events.append(contentsOf: parsed.events)
+            skipped.append(contentsOf: parsed.diagnostics.skipped.map {
+                BotDSHSessionLogSkippedRecord(lineNumber: number, seq: $0.seq)
+            })
+        } else if let event = try? decoder.decode(BotDSHSessionEvent.self, from: data) {
+            events.append(event)
+        } else {
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            skipped.append(BotDSHSessionLogSkippedRecord(
+                lineNumber: number, seq: (object?["seq"] as? NSNumber)?.intValue))
+        }
+    }
+}
+
+/// Durable commit cursors avoid reading the whole domain on every UI tick.
+/// Erasure is the only permitted mutation of old payloads; reload the prefix
+/// when its durable erasure event arrives so cached text cannot resurrect it.
+struct BotDomainReadCache {
+    private(set) var events: [BotEvent] = []
+    private(set) var cursor = 0
+    private(set) var fetchedEvents = 0
+
+    mutating func refresh(domain: SQLiteDomainStore) async throws -> Bool {
+        let head = try await domain.headCommitSeq()
+        let reset = head < cursor
+        if reset { events = []; cursor = 0 }
+        guard head != cursor else { return reset }
+        var delta: [BotEvent] = []
+        var next = cursor
+        while next < head {
+            let page = try await domain.events(after: next, limit: 500)
+            guard let last = page.last?.commitSeq else { break }
+            delta.append(contentsOf: page); next = last
+        }
+        fetchedEvents += delta.count
+        if cursor > 0 && delta.contains(where: { $0.type == "erasure" }) {
+            events = try await BotProductionEventReader.all(domain: domain)
+            fetchedEvents += events.count
+            cursor = events.last?.commitSeq ?? 0
+        } else {
+            events.append(contentsOf: delta); cursor = next
+        }
+        return true
+    }
+}
+
 enum BotProductionPaths {
     static func workspaceRoot() -> URL {
         #if canImport(ProbeKit)
@@ -302,7 +453,17 @@ actor BotProductionRowService {
     private var currentPresentation = BotRuntimePresentation()
     /// Tool steps per turn, re-projected only when the session log changes.
     private var processes: [Int: BotTurnProcess] = [:]
-    private var processSource: Data?
+    private var domainCache = BotDomainReadCache()
+    private var logCaches: [String: BotSessionLogReadCache] = [:]
+    private var logSnapshots: [String: BotSessionLogReadCache.Snapshot] = [:]
+    private var logURLs: [String: URL] = [:]
+    private var epochIDs: [String] = []
+    private var lastSessionID: String?
+    private var lastHeldNonces: [String: String] = [:]
+    private var rebuildTask: Task<Void, Error>?
+    private var cacheExpiryTask: Task<Void, Never>?
+    private var projectionDirty = true
+    private(set) var projectionRebuildCount = 0
     private var liveGeneration = 0
     /// Read-only evidence of session-log records the last `rebuild()` skipped.
     private(set) var sessionLogDiagnostics = BotDSHSessionLogDiagnostics.empty
@@ -330,39 +491,123 @@ actor BotProductionRowService {
     }
 
     private func rebuild() async throws {
-        let snapshot = await environment.sessionSnapshot()
-        let sessionID = snapshot.sessionID
-        let logURL = snapshot.logURL
-        let logData = try logURL.map { try Data(contentsOf: $0) }
-        let parsed = logData.map { BotDSHSessionEvent.parseJSONL($0) }
-        let sessionEvents = parsed?.events ?? []
-        sessionLogDiagnostics = parsed?.diagnostics ?? .empty
-        updateProcesses(from: logData)
-        let uiEvents = try await BotProductionEventReader.all(domain: environment.domain)
-        let heldRequestNonces = await remote?.heldChatActionNonces(sessionID: sessionID) ?? [:]
-        let epochs = try await BotProductionSessionEpochs.load(
-            botID: environment.botID, currentSessionID: sessionID,
-            currentLogURL: logURL, workspaceRoot: environment.workspaceRoot,
-            domain: environment.domain)
-        _ = try await history.rebuild(botID: environment.botID, epochs: epochs,
-                                      uiEvents: uiEvents,
-                                      heldRequestNonces: heldRequestNonces)
-        currentPresentation = BotRuntimePresentationFactory.make(
-            botID: environment.botID, sessionID: sessionID,
-            sessionEvents: sessionEvents, uiEvents: uiEvents)
+        defer { scheduleReadCacheExpiry() }
+        // history/watch/start can overlap while the actor awaits its stores.
+        // They share one read/projection instead of racing stale snapshots.
+        if let rebuildTask { return try await rebuildTask.value }
+        let task = Task { try await self.rebuildOnce() }
+        rebuildTask = task
+        defer { rebuildTask = nil }
+        try await task.value
     }
 
-    private func updateProcesses(from data: Data?) {
-        guard data != processSource else { return }
-        processSource = data
-        guard let data else {
-            processes = [:]
-            return
+    private func scheduleReadCacheExpiry() {
+        cacheExpiryTask?.cancel()
+        cacheExpiryTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            await self?.expireReadCache()
         }
-        let records = data.split(separator: UInt8(ascii: "\n")).compactMap { line in
-            try? JSONValue.parse(Data(line))
+    }
+
+    private func expireReadCache() {
+        if rebuildTask != nil { scheduleReadCacheExpiry(); return }
+        domainCache = BotDomainReadCache()
+        logCaches = [:]; logSnapshots = [:]; logURLs = [:]
+        projectionDirty = true
+        cacheExpiryTask = nil
+    }
+
+    private func rebuildOnce() async throws {
+        let snapshot = await environment.sessionSnapshot()
+        let sessionID = snapshot.sessionID
+        var domain = domainCache
+        var changed = try await domain.refresh(domain: environment.domain)
+        domainCache = domain
+        // Retain invalidation across a later file-read failure. The domain
+        // cursor has already advanced and cannot rediscover these UI events.
+        projectionDirty = projectionDirty || changed
+        let uiEvents = domain.events
+        var ordered: [String] = []
+        var seen: Set<String> = []
+        for event in uiEvents where event.type == "runtime.started"
+            && event.principal.botId == environment.botID
+            && event.principal.kind == BotSessionKind.chat.rawValue {
+            if let id = event.data["sessionId"]?.stringValue ?? event.principal.sessionId,
+               !id.isEmpty, seen.insert(id).inserted { ordered.append(id) }
         }
-        processes = BotTurnProcessProjector.make(records: records)
+        if seen.insert(sessionID).inserted { ordered.append(sessionID) }
+        changed = changed || epochIDs != ordered || lastSessionID != sessionID
+        projectionDirty = projectionDirty || changed
+        var epochs: [BotSessionEpochProjection] = []
+        for id in ordered {
+            let explicit = id == sessionID ? snapshot.logURL : nil
+            let candidate = explicit ?? logURLs[id]
+                ?? BotSessionLogLocator.latestFile(sessionID: id, workspaceRoot: environment.workspaceRoot)
+            // Resolve a rotation inside the already located session directory;
+            // do not re-walk every other session on each 800 ms UI tick.
+            let url = newestLog(near: candidate, sessionID: id) ?? candidate
+            logURLs[id] = url
+            var cache = logCaches[id] ?? BotSessionLogReadCache()
+            // A missing live log is a read failure, not authoritative deletion.
+            // Missing archived epochs keep the previous full-reader semantics.
+            let readable = id != sessionID && url.map({ !FileManager.default.fileExists(atPath: $0.path) }) == true
+                ? nil : url
+            let updated = try cache.refresh(readable)
+            if updated || logSnapshots[id] == nil {
+                projectionDirty = true
+                logSnapshots[id] = cache.snapshot()
+                changed = true
+                if id == sessionID {
+                    processes = BotTurnProcessProjector.make(records: logSnapshots[id]?.records ?? [])
+                }
+            }
+            logCaches[id] = cache
+            let events = logSnapshots[id]?.events ?? []
+            if id == sessionID || !events.isEmpty {
+                epochs.append(BotSessionEpochProjection(sessionID: id, events: events))
+            }
+        }
+        // Removed/erased epochs must release their cached payloads as well.
+        logCaches = logCaches.filter { seen.contains($0.key) }
+        logSnapshots = logSnapshots.filter { seen.contains($0.key) }
+        logURLs = logURLs.filter { seen.contains($0.key) }
+        let current = logSnapshots[sessionID]
+        sessionLogDiagnostics = current?.diagnostics ?? .empty
+        let held = await remote?.heldChatActionNonces(sessionID: sessionID) ?? [:]
+        projectionDirty = projectionDirty || changed || held != lastHeldNonces
+        changed = projectionDirty
+        let now = botProductionNowMilliseconds()
+        let expired = currentPresentation.oneShot.map { $0.endsAt <= now } == true
+            || currentPresentation.reaction.map { !$0.isActive(at: now) } == true
+        if changed {
+            _ = try await history.rebuild(botID: environment.botID, epochs: epochs,
+                                          uiEvents: uiEvents, heldRequestNonces: held)
+            projectionRebuildCount += 1
+            projectionDirty = false
+        }
+        if changed || expired {
+            currentPresentation = BotRuntimePresentationFactory.make(
+                botID: environment.botID, sessionID: sessionID,
+                sessionEvents: current?.events ?? [], uiEvents: uiEvents, now: now)
+        }
+        epochIDs = ordered; lastSessionID = sessionID; lastHeldNonces = held
+    }
+
+    private func newestLog(near url: URL?, sessionID: String) -> URL? {
+        let sessionsRoot = environment.workspaceRoot
+            .appendingPathComponent("materialized/home/sessions", isDirectory: true).standardizedFileURL.path + "/"
+        guard let url, url.standardizedFileURL.path.hasPrefix(sessionsRoot),
+              url.deletingLastPathComponent().lastPathComponent == sessionID,
+              url.lastPathComponent.hasPrefix("session.v"), url.pathExtension == "jsonl" else { return url }
+        let files = try? FileManager.default.contentsOfDirectory(
+            at: url.deletingLastPathComponent(),
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey])
+        return files?.compactMap { candidate -> (URL, Date)? in
+            guard candidate.lastPathComponent.hasPrefix("session.v"), candidate.pathExtension == "jsonl",
+                  let info = try? candidate.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey]),
+                  info.isRegularFile == true else { return nil }
+            return (candidate, info.contentModificationDate ?? .distantPast)
+        }.max { $0.1 < $1.1 }?.0
     }
 
     func turnProcesses() -> [Int: BotTurnProcess] { processes }

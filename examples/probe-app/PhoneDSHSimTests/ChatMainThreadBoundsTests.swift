@@ -502,6 +502,53 @@ final class StatusAndHangMonitorTests: XCTestCase {
 // MARK: - Timeline tail reuse
 
 final class NativeTimelineTailUpdateTests: XCTestCase {
+    func testStreamingBeforeTurnTailUsesFastPathAndStructuralEditInvalidatesIt() {
+        var first = ChatItem(id: "first", kind: .user, title: "", text: "question")
+        first.turn = 1
+        var tail = ChatItem(id: "tail", kind: .assistant, title: "", text: "a", streaming: true)
+        tail.turn = 1
+        var items = [first, tail]
+        let cache = NativeTimelineCache(changesCache: NativeChangesCache())
+        func read(_ revision: Int, _ structure: Int) -> NativeTimelineSnapshot {
+            cache.snapshot(items: items, itemsRevision: revision, foldedTurns: [],
+                           endReasons: [1: "completed"], startTimes: [:], endTimes: [:],
+                           structureRevision: structure)
+        }
+        _ = read(1, 1)
+        items[1].text += "b"
+        let streamed = read(2, 1)
+        XCTAssertEqual(cache.tailUpdateCount, 1)
+        XCTAssertEqual(streamed.visibleItems.last?.text, "ab")
+        XCTAssertEqual(streamed.rows, NativeTimelineCache().snapshot(
+            items: items, itemsRevision: 2, foldedTurns: [], endReasons: [1: "completed"],
+            startTimes: [:], endTimes: [:]).rows)
+        items[0].text = "edited question"
+        _ = read(3, 2)
+        XCTAssertEqual(cache.fullRebuildCount, 2)
+    }
+
+    func testOneFourAndEightStreamingTimelinesReuseHistory() {
+        for streamCount in [1, 4, 8] {
+            let caches = (0..<streamCount).map { _ in NativeTimelineCache(changesCache: NativeChangesCache()) }
+            var histories = (0..<streamCount).map { stream in
+                (0..<600).map { index in
+                    ChatItem(id: "s\(stream)-\(index)", kind: .assistant, title: "",
+                             text: "history \(index)", streaming: index == 599)
+                }
+            }
+            let start = CFAbsoluteTimeGetCurrent()
+            for revision in 0..<100 {
+                for index in histories.indices {
+                    histories[index][599].text += "x"
+                    _ = caches[index].snapshot(items: histories[index], itemsRevision: revision,
+                        foldedTurns: [], endReasons: [:], startTimes: [:], endTimes: [:], structureRevision: 1)
+                }
+            }
+            XCTAssertTrue(caches.allSatisfy { $0.fullRebuildCount == 1 && $0.tailUpdateCount == 99 })
+            print("TIMELINE-PERF streams=\(streamCount) rows=600 ticks=100 ms=\((CFAbsoluteTimeGetCurrent() - start) * 1000)")
+        }
+    }
+
     func testStreamingDeltaReusesEveryRowExceptTheTail() {
         var items: [ChatItem] = []
         for index in 0..<299 {
@@ -555,5 +602,255 @@ final class NativeTimelineTailUpdateTests: XCTestCase {
                            endReasons: [:], startTimes: [:], endTimes: [:])
         XCTAssertEqual(cache.fullRebuildCount, 2)
         XCTAssertEqual(cache.tailUpdateCount, 0)
+    }
+}
+
+// MARK: - Background transcript gate
+
+final class ChatTranscriptBackgroundGateTests: XCTestCase {
+    /// Mirrors `ChatModel.items`: any mutation bumps the revision the timeline
+    /// cache keys on, so a status row is never free.
+    private final class TranscriptBox {
+        var items: [ChatItem] = [] {
+            didSet { itemsRevision &+= 1 }
+        }
+        private(set) var itemsRevision = 0
+    }
+
+    /// Mirrors `ChatModel.appendStatus`: the gate decides, the observed array
+    /// is only written when it returns a row.
+    private func appendStatus(_ text: String, gate: inout ChatTranscriptGate,
+                              to box: TranscriptBox) {
+        if let row = gate.statusRow(text) { box.items.append(row) }
+    }
+
+    func testStatusRowWhileInactiveDoesNotChangeItemsRevision() {
+        let box = TranscriptBox()
+        box.items = [ChatItem(id: "answer", kind: .assistant, title: "DSH", text: "完成")]
+        let revision = box.itemsRevision
+        var gate = ChatTranscriptGate(isForeground: false)
+
+        XCTAssertFalse(gate.admitsStatusRow)
+        XCTAssertNil(gate.statusRow("Booting the host (Worker bundle + image)…"))
+        appendStatus("Booting the host (Worker bundle + image)…", gate: &gate, to: box)
+        XCTAssertEqual(box.itemsRevision, revision,
+                       "a status line appended while hidden must not invalidate the page")
+        XCTAssertEqual(box.items.count, 1)
+
+        gate.isForeground = true
+        XCTAssertTrue(gate.admitsStatusRow)
+        appendStatus("Session resumed", gate: &gate, to: box)
+        XCTAssertEqual(box.itemsRevision, revision + 1)
+        XCTAssertEqual(box.items.count, 2)
+        XCTAssertEqual(box.items.last?.kind, .status)
+        XCTAssertEqual(box.items.last?.title, "Host")
+        XCTAssertEqual(box.items.last?.text, "Session resumed")
+    }
+
+    func testHistoryAdoptionIsParkedWhileInactive() {
+        var gate = ChatTranscriptGate(isForeground: false)
+        XCTAssertFalse(gate.takeAdoptionSlot())
+        XCTAssertEqual(gate.deferredAdoptions, 1)
+        XCTAssertFalse(gate.takeAdoptionSlot())
+        XCTAssertEqual(gate.deferredAdoptions, 2)
+
+        gate.isForeground = true
+        XCTAssertTrue(gate.takeAdoptionSlot())
+        XCTAssertEqual(gate.deferredAdoptions, 2, "the commit is not a deferral")
+    }
+}
+
+// MARK: - Bounded render window
+
+final class NativeTranscriptRenderWindowTests: XCTestCase {
+    func testSixHundredRowTranscriptRendersOnlyTheTailWindow() {
+        let limit = NativeTranscriptRenderWindow.initialRows
+        let range = NativeTranscriptRenderWindow.tailRange(rowCount: 600, limit: limit)
+        XCTAssertEqual(range.count, limit)
+        XCTAssertEqual(range.upperBound, 600)
+        XCTAssertEqual(range.lowerBound, 600 - limit)
+        XCTAssertLessThan(range.count, 600 / 4, "600 rows must not reach one body pass")
+    }
+
+    func testShortTranscriptRendersEverything() {
+        for count in [0, 1, NativeTranscriptRenderWindow.initialRows - 1,
+                      NativeTranscriptRenderWindow.initialRows,
+                      NativeTranscriptRenderWindow.initialRows + 1] {
+            let range = NativeTranscriptRenderWindow.tailRange(
+                rowCount: count, limit: NativeTranscriptRenderWindow.initialRows)
+            XCTAssertEqual(range.lowerBound, max(0, count - NativeTranscriptRenderWindow.initialRows))
+            XCTAssertEqual(range.upperBound, count)
+        }
+    }
+
+    func testLoadEarlierGrowsTheWindowOnePageAtATimeAndReachesTheStart() {
+        let rowCount = 600
+        var limit = NativeTranscriptRenderWindow.initialRows
+        var steps = 0
+        while NativeTranscriptRenderWindow.tailRange(rowCount: rowCount, limit: limit).lowerBound > 0 {
+            let next = NativeTranscriptRenderWindow.grownLimit(limit, rowCount: rowCount)
+            XCTAssertGreaterThan(next, limit, "each sentinel pass must add rows")
+            XCTAssertLessThanOrEqual(next - limit, NativeTranscriptRenderWindow.pageRows)
+            limit = next
+            steps += 1
+            XCTAssertLessThan(steps, 20, "paging must reach the start")
+        }
+        XCTAssertEqual(NativeTranscriptRenderWindow.tailRange(rowCount: rowCount, limit: limit).count,
+                       rowCount)
+    }
+
+    func testHostPageShowsThePrependedRowsOnceEveryLoadedRowIsRendered() {
+        // The reader reached row 0 of 600 loaded rows, so the window covers
+        // them all; a host page prepends 60 and the window must include it.
+        let limit = NativeTranscriptRenderWindow.growing(600, by: 60, rowCount: 660)
+        XCTAssertEqual(limit, 660)
+        XCTAssertEqual(NativeTranscriptRenderWindow.tailRange(rowCount: 660, limit: limit).lowerBound, 0)
+    }
+}
+
+// MARK: - Per-turn facts from the snapshot
+
+final class NativeTimelineTurnFactsTests: XCTestCase {
+    private func makeItem(id: String, kind: ChatItem.Kind, turn: Int?,
+                          text: String = "") -> ChatItem {
+        var item = ChatItem(id: id, kind: kind, title: "row", text: text)
+        item.turn = turn
+        item.timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        return item
+    }
+
+    private func usage(input: Int, output: Int) -> NativeTurnUsage {
+        var usage = NativeTurnUsage()
+        usage.uncachedInputTokens = input
+        usage.outputTokens = output
+        usage.totalTokens = input + output
+        return usage
+    }
+
+    private func factFixture() -> [ChatItem] {
+        var items: [ChatItem] = []
+        items.append(makeItem(id: "u1", kind: .user, turn: nil, text: "第一问"))
+        items.append(makeItem(id: "r1", kind: .reasoning, turn: 1, text: "思考"))
+        var tool = makeItem(id: "t1", kind: .toolCall, turn: 1)
+        tool.toolName = "read"
+        tool.toolState = .ok
+        items.append(tool)
+        var answer = makeItem(id: "a1", kind: .assistant, turn: 1, text: "第一答")
+        answer.messageID = "m1"
+        answer.turnUsage = usage(input: 10, output: 5)
+        items.append(answer)
+
+        items.append(makeItem(id: "u2", kind: .user, turn: nil, text: "第二问"))
+        var firstHalf = makeItem(id: "a2a", kind: .assistant, turn: 2, text: "第二答上")
+        firstHalf.messageID = "m2"
+        firstHalf.turnUsage = usage(input: 20, output: 6)
+        items.append(firstHalf)
+        var secondHalf = makeItem(id: "a2b", kind: .assistant, turn: 2, text: "第二答下")
+        secondHalf.messageID = "m2"
+        secondHalf.turnUsage = usage(input: 20, output: 6)
+        items.append(secondHalf)
+
+        items.append(makeItem(id: "u3", kind: .user, turn: nil, text: "第三问"))
+        items.append(makeItem(id: "r3", kind: .reasoning, turn: 3, text: "再想"))
+        var orphanUsage = makeItem(id: "x3", kind: .toolResult(isError: false), turn: 3, text: "ok")
+        orphanUsage.turnUsage = usage(input: 1, output: 1)
+        items.append(orphanUsage)
+        items.append(makeItem(id: "a3", kind: .assistant, turn: 3, text: "第三答"))
+
+        items.append(makeItem(id: "u4", kind: .user, turn: nil, text: "第四问"))
+        items.append(makeItem(id: "a4", kind: .assistant, turn: 4, text: "第四答"))
+        return items
+    }
+
+    /// The pre-change `ChatPage.turnHasProcess`, kept as the oracle.
+    private func originalHasProcess(_ turn: Int, in items: [ChatItem]) -> Bool {
+        guard let answerID = items.last(where: {
+            $0.turn == turn && $0.kind == .assistant
+        })?.id else { return false }
+        return items.contains { item in
+            item.turn == turn && item.id != answerID
+                && item.kind != .user && item.kind != .context
+        }
+    }
+
+    func testCopyTextUsageAndProcessComeFromTheSnapshotAndMatchTheOldBody() {
+        let items = factFixture()
+        let visible = items.filter { $0.kind != .status }
+        let cache = NativeTimelineCache(changesCache: NativeChangesCache())
+        let snapshot = cache.snapshot(items: items, itemsRevision: 1, foldedTurns: [],
+                                      endReasons: [1: "completed", 2: "completed",
+                                                   3: "completed", 4: "completed"],
+                                      startTimes: [:], endTimes: [:])
+
+        for turn in 1...4 {
+            let facts = snapshot.turnFacts[turn]
+            XCTAssertNotNil(facts, "turn \(turn) must carry snapshot facts")
+            let expectedAnswer = visible.last { $0.turn == turn && $0.kind == .assistant }
+            XCTAssertEqual(facts?.closingAssistantID, expectedAnswer?.id)
+            XCTAssertEqual(facts?.closingMessageID, expectedAnswer?.messageID)
+            XCTAssertEqual(facts?.closingTimestamp, expectedAnswer?.timestamp)
+            XCTAssertEqual(facts?.hasProcess, originalHasProcess(turn, in: visible),
+                           "turn \(turn) foldability must match the old scan")
+            XCTAssertEqual(facts?.copyText,
+                           visible.filter { $0.turn == turn && $0.kind == .assistant }
+                               .map(\.text).joined(separator: "\n\n"))
+            XCTAssertEqual(facts?.usage,
+                           NativeTranscriptProjector.usage(forTurn: turn, in: visible),
+                           "turn \(turn) usage must match the projector")
+        }
+
+        XCTAssertEqual(snapshot.turnFacts[1]?.copyText, "第一答")
+        XCTAssertEqual(snapshot.turnFacts[2]?.copyText, "第二答上\n\n第二答下")
+        // Two rows share one message id: the projector counts it once.
+        XCTAssertEqual(snapshot.turnFacts[2]?.usage, usage(input: 20, output: 6))
+        XCTAssertTrue(snapshot.turnFacts[1]?.hasProcess ?? false)
+        XCTAssertTrue(snapshot.turnFacts[2]?.hasProcess ?? false,
+                      "a second assistant row is process the old scan counted")
+        XCTAssertFalse(snapshot.turnFacts[4]?.hasProcess ?? true)
+        XCTAssertNil(snapshot.turnFacts[4]?.usage)
+    }
+
+    func testFoldedTurnStillCarriesTheWholeCopyText() {
+        var items = factFixture()
+        // A tool call belonging to the folded section must not reach copy.
+        var hiddenTool = makeItem(id: "hidden-tool", kind: .toolCall, turn: 1, text: "")
+        hiddenTool.toolName = "bash"
+        hiddenTool.toolState = .ok
+        items.insert(hiddenTool, at: 2)
+        let cache = NativeTimelineCache(changesCache: NativeChangesCache())
+        let snapshot = cache.snapshot(items: items, itemsRevision: 1, foldedTurns: [1],
+                                      endReasons: [1: "completed"], startTimes: [:], endTimes: [:])
+        XCTAssertEqual(snapshot.turnFacts[1]?.copyText, "第一答")
+        XCTAssertTrue(snapshot.turnFacts[1]?.hasProcess ?? false)
+        XCTAssertFalse(snapshot.rows.contains {
+            if case .tools(let group) = $0 { return group.contains { $0.id == "hidden-tool" } }
+            return false
+        }, "a folded turn must not render its process rows")
+    }
+
+    func testSixHundredRowTranscriptSnapshotStaysBoundedAndCarriesOneFactPerTurn() {
+        var items: [ChatItem] = []
+        for turn in 0..<200 {
+            items.append(makeItem(id: "u\(turn)", kind: .user, turn: nil, text: "q\(turn)"))
+            items.append(makeItem(id: "r\(turn)", kind: .reasoning, turn: turn, text: "think"))
+            var answer = makeItem(id: "a\(turn)", kind: .assistant, turn: turn, text: "answer \(turn)")
+            answer.messageID = "m\(turn)"
+            answer.turnUsage = usage(input: turn, output: turn)
+            items.append(answer)
+        }
+        XCTAssertEqual(items.count, 600)
+        let cache = NativeTimelineCache(changesCache: NativeChangesCache())
+        let endReasons = Dictionary(uniqueKeysWithValues: (0..<200).map { ($0, "completed") })
+        let snapshot = cache.snapshot(items: items, itemsRevision: 1, foldedTurns: [],
+                                      endReasons: endReasons, startTimes: [:], endTimes: [:])
+
+        let window = NativeTranscriptRenderWindow.tailRange(
+            rowCount: snapshot.rows.count, limit: NativeTranscriptRenderWindow.initialRows)
+        XCTAssertLessThanOrEqual(window.count, NativeTranscriptRenderWindow.initialRows)
+
+        XCTAssertEqual(snapshot.turnFacts.count, 200)
+        XCTAssertEqual(snapshot.turnFacts[7]?.copyText, "answer 7")
+        XCTAssertEqual(snapshot.turnFacts[7]?.usage, usage(input: 7, output: 7))
+        XCTAssertEqual(snapshot.turnFacts[199]?.closingAssistantID, "a199")
     }
 }

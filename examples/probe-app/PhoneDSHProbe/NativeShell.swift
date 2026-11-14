@@ -278,6 +278,8 @@ struct NativeShell: View {
                                 openDrawer()
                             }
                         }, drawerExpanded: sidebarVisible)
+                        .environment(\.chatPageVisible,
+                                     selectedTab == .tasks && models.isPhoneSelected && appModel.isSceneActive)
                         .modifier(tabRoot(.tasks))
                     }
                     .opacity(models.isPhoneSelected ? 1 : 0)
@@ -295,6 +297,8 @@ struct NativeShell: View {
                                              openDrawer()
                                          }
                                      }, drawerExpanded: sidebarVisible)
+                            .environment(\.chatPageVisible,
+                                         selectedTab == .tasks && !models.isPhoneSelected && appModel.isSceneActive)
                             .modifier(tabRoot(.tasks))
                         }
                         .opacity(models.isPhoneSelected ? 0 : 1)

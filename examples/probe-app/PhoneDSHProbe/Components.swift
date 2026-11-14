@@ -197,12 +197,20 @@ struct DSSCodeBlock: View {
             .background(NativeChatTheme.codeBanner)
 
             ScrollView(wrapped ? [.vertical] : [.horizontal, .vertical]) {
-                Text(NativeCodeHighlighter.attributed(source, language: language))
-                    .lineSpacing(5)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: !wrapped, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
+                // A clipped ScrollView did not bound work: one Text still
+                // highlighted and laid out every line of a growing code block.
+                // Stable line chunks keep completed chunks cached and let the
+                // vertical viewport materialize only the visible portion.
+                LazyVStack(alignment: .leading, spacing: 5) {
+                    ForEach(Array(NativeCodeTextChunks.chunks(source).enumerated()), id: \.offset) { _, chunk in
+                        Text(NativeCodeHighlighter.attributed(chunk, language: language))
+                            .lineSpacing(5)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: !wrapped, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(12)
             }
             .frame(maxHeight: expanded ? nil : (isLong ? 300 : nil))
 
