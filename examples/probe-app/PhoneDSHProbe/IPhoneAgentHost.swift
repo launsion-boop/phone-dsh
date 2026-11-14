@@ -374,10 +374,15 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
 
     /// Leaves the device list and Control Center without touching the mirror: Escape closes the
     /// list; Home through AssistiveTouch closes Control Center.
+    /// Measured on the phone (TonoLinkMirrorDeviceTests.testWhatClosesControlCenter): `esc` leaves
+    /// Control Center open, and the AssistiveTouch button opens its menu on top of it, so Home
+    /// through that menu missed and the next task started under Control Center. A swipe up from
+    /// the bottom edge closes it.
     private func closeControlCenter() async throws {
         try? await hands.key("esc")
+        try await Task.sleep(for: .milliseconds(500))
+        try await hands.swipe(from: TonoLinkPoint(500, 990), to: TonoLinkPoint(500, 450), ms: 300)
         try await Task.sleep(for: .milliseconds(800))
-        _ = try? await home()
     }
 
     func screenshot(after frame: Int?) async throws -> IPhoneFrame {
