@@ -23,7 +23,9 @@ import com.phonedsh.bot.authz.BotToolPolicy
 import com.phonedsh.bot.fish.BotFishLifecycle
 import com.phonedsh.bot.gateway.BotAttribution
 import com.phonedsh.bot.gateway.BotGatewayPrincipal
-import com.phonedsh.bot.gateway.BotTokenRegistry
+import com.phonedsh.bot.gateway.BotTokenPrincipalPort
+import com.phonedsh.bot.session.BotSessionPrincipal
+import com.phonedsh.bot.session.BotSessionTokenRegistry
 import com.phonedsh.bot.mcp.BotGrantDecision
 import com.phonedsh.bot.mcp.BotMCPEvent
 import com.phonedsh.bot.mcp.BotMCPEventSink
@@ -67,11 +69,13 @@ class AppBotAuthzEventLog(
     private val store: BotDomainStore,
     private val types: Set<String>? = null,
     private val clock: () -> Long = { System.currentTimeMillis() },
+    private val storeLock: Any = Any(),
+    private val onAppend: (String?) -> Unit = {},
 ) : BotAuthzEventLog {
     override fun append(event: BotAuthzEvent): Long {
         val principal = event.principal
-        return store.append(
-            BotEvent(
+        val sequence = synchronized(storeLock) {
+            store.append(BotEvent(
                 schemaVersion = BotEventCodec.CURRENT_SCHEMA_VERSION,
                 type = event.type,
                 eventId = event.eventId.ifEmpty {
@@ -90,13 +94,14 @@ class AppBotAuthzEventLog(
                 causationId = null,
                 correlationId = null,
                 data = event.data,
-            ),
-        )
+            ))
+        }
+        onAppend(principal?.botId)
+        return sequence
     }
 
     override fun events(after: Long, limit: Int): List<BotAuthzEvent> =
-        store.events(after.toInt(), limit).mapNotNull { event ->
-            if (types != null && event.type !in types) return@mapNotNull null
+        readEvents(after, limit).mapNotNull { event ->
             val sequence = event.commitSeq ?: return@mapNotNull null
             BotAuthzEvent(
                 sequence = sequence,
@@ -112,6 +117,19 @@ class AppBotAuthzEventLog(
                 data = (event.data as? JsonObject) ?: JsonObject(emptyMap()),
             )
         }
+
+    private fun readEvents(after: Long, limit: Int): List<BotEvent> = synchronized(storeLock) {
+        val result = ArrayList<BotEvent>()
+        var cursor = after.toInt()
+        while (result.size < limit) {
+            val page = store.events(cursor, limit)
+            if (page.isEmpty()) break
+            result.addAll(page.filter { types == null || it.type in types }.take(limit - result.size))
+            cursor = checkNotNull(page.last().commitSeq).toInt()
+            if (page.size < limit) break
+        }
+        result
+    }
 
     companion object {
         val GRANT_TYPES: Set<String> = setOf(
@@ -429,13 +447,27 @@ class AppBotGrantPort(
 
 /** The `/identity/register` token lookup (B5a2 registry -> B5a1 port). */
 class AppBotTokenPrincipalPort(
-    private val tokens: BotTokenRegistry,
+    private val tokens: BotTokenPrincipalPort,
 ) : com.phonedsh.bot.mcp.BotTokenPrincipalPort {
     override suspend fun principalForSessionToken(token: String) =
         tokens.lookup(token)?.toMcp()
 
     override suspend fun principalForSessionId(sessionId: String) =
         tokens.lookupSession(sessionId)?.toMcp()
+}
+
+internal class AppBotSessionPrincipals(
+    private val registry: BotSessionTokenRegistry,
+) : BotTokenPrincipalPort {
+    override fun lookup(token: String) = registry.lookup(token)?.toGateway()
+    override fun lookupBearer(header: String) = registry.lookupBearer(header)?.toGateway()
+    override fun lookupSession(sessionId: String) = registry.lookupSession(sessionId)?.toGateway()
+    override fun revoke(token: String) = registry.revoke(token)
+    override fun revokeSession(sessionId: String) = registry.revokeSession(sessionId)
+    override fun revokeBot(botId: String) = registry.revokeBot(botId)
+
+    private fun BotSessionPrincipal.toGateway() =
+        BotGatewayPrincipal(botId, sessionId, kind, capabilities, expiresAt, incarnation)
 }
 
 /** `SendToUser` through the same durable event/row projection. */

@@ -9,6 +9,7 @@ import com.phonedsh.agentcore.JsonValue
 import com.phonedsh.bot.BotJson
 import com.phonedsh.bot.attachments.BotAttachment
 import com.phonedsh.bot.attachments.BotAttachmentPrompt
+import com.phonedsh.bot.fish.BotFishLifecycle
 import com.phonedsh.bot.projection.BotProjectionEvent
 import com.phonedsh.bot.projection.BotRowHistory
 import com.phonedsh.bot.projection.BotRowPaging
@@ -22,6 +23,7 @@ import com.phonedsh.bot.rows.BotUserActionKind
 import com.phonedsh.bot.rows.BotUserActionValidation
 import com.phonedsh.bot.session.BotSessionException
 import com.phonedsh.bot.session.BotSessionKind
+import com.phonedsh.bot.session.BotSessionLifecycleEvent
 import com.phonedsh.bot.session.BotSessionLiveFrame
 import com.phonedsh.bot.session.BotSessionPrincipal
 import com.phonedsh.bot.session.BotSessionRemoteException
@@ -29,6 +31,7 @@ import com.phonedsh.bot.session.BotSessionRuntime
 import com.phonedsh.bot.session.BotSessionStoredEvent
 import com.phonedsh.bot.session.BotSessionTokenRegistry
 import com.phonedsh.bot.session.BotSessionTransport
+import com.phonedsh.bot.session.BotSessionWorkspace
 import com.phonedsh.bot.store.BotDomainStore
 import com.phonedsh.bot.store.BotEffectOutbox
 import com.phonedsh.bot.store.BotEvent
@@ -45,23 +48,24 @@ import com.phonedsh.ui.bot.state.BotActivityCategory
 import com.phonedsh.ui.bot.state.BotActivityStatus
 import com.phonedsh.ui.bot.state.BotRuntimePresentation
 import com.phonedsh.ui.bot.state.BotUIHistoryPage
-import com.phonedsh.bot.fish.BotFishLifecycle
+import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.coroutineContext
-import kotlinx.coroutines.isActive
 
 /**
  * The App's rich [BotChatDriver] over the real P25 store and the P27
@@ -80,6 +84,29 @@ import kotlinx.coroutines.isActive
  * driver scope, so the optimistic row and the durable event are visible even
  * while a Worker is still booting.
  *
+ * History survives a force-stop because two independent durable sources are
+ * read on reopen:
+ *
+ * 1. `runtime.started` / `runtime.exited` are written through to the P25 store
+ *    ([onDurableLifecycle]); the epoch chain comes from those events
+ *    (`session-lifecycle.md` §4/§7), not from process memory.
+ * 2. Each epoch's DSH journal is read from the materialized session JSONL,
+ *    with Worker history as a fallback ([BotSessionHistoryReader],
+ *    `session-lifecycle.md` §7). The Swift host reads the same journal format.
+ *
+ * A pre-fix install has a Worker session (`gb-<botId>`) but no persisted
+ * lifecycle. [discoverLegacySessions] reads `session/list` once and projects
+ * those journals too, so old conversations are recovered without deleting or
+ * rewriting Bot data. The projection deduplicates live records against the
+ * journal by event id, DSH seq and user-action nonce, so a live turn never
+ * appears twice after a rebuild.
+ *
+ * [storeLock] is the serialization seam for more than one Bot driver sharing
+ * one [BotDomainStore] (one SQLite connection): every store read/write in this
+ * class happens inside `synchronized(storeLock)`. A single-Bot composition may
+ * omit it; a multi-Bot composition MUST pass the same lock object to every
+ * driver that shares the store.
+ *
  * [transport] is a real host adapter in the App and a fake/local adapter in
  * tests. This class never invents a successful assistant reply: if the
  * transport fails, a durable `ui.notice` row carries the failure.
@@ -93,11 +120,36 @@ class AppBotChatDriver(
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val tokens: BotSessionTokenRegistry = BotSessionTokenRegistry(now = clock),
     seedRecords: List<BotSessionLogRecord> = emptyList(),
+    /**
+     * Shared serialization object for every driver over the same store. The
+     * default is private to this driver; pass the same instance to every
+     * driver that shares [store].
+     */
+    private val storeLock: Any = Any(),
+    private val resolveApproval: ((com.phonedsh.bot.rows.BotUserAction) -> BotActionResult)? = null,
+    private val onTurnBoundary: (String, Boolean) -> Unit = { _, _ -> },
+    materializedSessions: Path? = null,
 ) : BotChatDriver, AutoCloseable {
     private val lock = Any()
-    private val storeLock = Any()
     private val history = BotRowHistory()
-    private val records = ArrayList<BotSessionLogRecord>(seedRecords)
+
+    /** Durable lifecycle seeded from the store before the runtime starts. */
+    private val seedLifecycle: List<BotSessionStoredEvent> =
+        seedLifecycleEvents(store, botId, storeLock)
+
+    /** Ordered epoch chain (`session-lifecycle.md` §7); guarded by [lock]. */
+    private val epochOrder = ArrayList<String>()
+    private val recordsBySession = LinkedHashMap<String, MutableList<BotSessionLogRecord>>()
+    private val loadedSessions = HashSet<String>()
+
+    /** Records written before the runtime has chosen its main session. */
+    private val pendingRecords = ArrayList<BotSessionLogRecord>(seedRecords)
+    @Volatile
+    private var legacyDiscoveryDone = false
+    private val historyLoadRunning = AtomicBoolean(false)
+    private val historyLoadRequested = AtomicBoolean(false)
+    private val historyReader = BotSessionHistoryReader(transport, materializedSessions = materializedSessions)
+
     private val revision = MutableStateFlow(0L)
     private val presentationState = MutableStateFlow(BotRuntimePresentation())
     private val liveFrames = MutableSharedFlow<BotLiveFrame>(
@@ -109,7 +161,14 @@ class AppBotChatDriver(
     private val actions = BotUserActionTransaction(store, outbox)
     private var activeTurnId: String? = null
     private var activity: BotActivity? = null
-    private var localSeq: Long = (seedRecords.maxOfOrNull { it.seq } ?: 0L) + 1L
+    // Local rows use a sequence domain far above DSH journal seqs: a live
+    // optimistic row must never lose to an unrelated journal record merely
+    // because their small integers happen to be equal before the journal has
+    // committed the same message.
+    private var localSeq: Long = maxOf(
+        (seedRecords.maxOfOrNull { it.seq } ?: 0L) + 1L,
+        LOCAL_SEQ_BASE,
+    )
     private val started = AtomicBoolean(false)
 
     private val runtime: BotSessionRuntime = BotSessionRuntime(
@@ -119,35 +178,28 @@ class AppBotChatDriver(
         now = clock,
         onSessionRegistered = { sessionId ->
             synchronized(lock) {
-                if (records.none { it.type == RUNTIME_STARTED && it.dataText("sessionId") == sessionId }) {
-                    // The runtime's durable lifecycle event is mirrored into the
-                    // row projection as a synthetic record so history stays
-                    // usable before the first DSH log file exists.
-                    records += BotSessionLogRecord(
-                        type = RUNTIME_STARTED,
-                        seq = nextSeq(),
-                        time = clock(),
-                        data = linkedMapOf(
-                            "sessionId" to JsonString(sessionId),
-                            "botId" to JsonString(botId),
-                            "cwd" to JsonString(""),
-                        ),
-                    )
-                }
+                ensureSessionLocked(sessionId)
                 bumpLocked()
             }
         },
-        seedEvents = seedLifecycleEvents(store, botId),
+        onLifecycleEvent = ::onDurableLifecycle,
+        seedEvents = seedLifecycle,
     )
 
     private val liveToken: Long = runtime.subscribeLiveFrames(::onRuntimeFrame)
 
     init {
-        synchronized(lock) { rebuildLocked() }
+        synchronized(lock) {
+            for (event in seedLifecycle) {
+                lifecycleSessionId(event.data, event.principal.sessionId)?.let(::ensureSessionLocked)
+            }
+            rebuildLocked()
+        }
     }
 
     override suspend fun history(before: String?, limit: Int): BotUIHistoryPage =
         withContext(Dispatchers.IO) {
+            requestHistoryLoad()
             val snapshot = synchronized(lock) {
                 rebuildLocked()
                 BotRowPaging.page(history.history(), before = before, limit = limit)
@@ -160,6 +212,7 @@ class AppBotChatDriver(
         }
 
     override fun watch(cursor: Long): Flow<BotRowBatch> = flow {
+        requestHistoryLoad()
         var current = cursor
         var seen = revision.value
         while (coroutineContext.isActive && !closed.get()) {
@@ -178,6 +231,9 @@ class AppBotChatDriver(
     override suspend fun perform(action: BotUserAction): BotActionResult =
         withContext(Dispatchers.IO) {
             BotUserActionValidation.validate(action)?.let { return@withContext it }
+            if (action.kind == BotUserActionKind.APPROVAL && resolveApproval != null) {
+                return@withContext resolveApproval.invoke(action)
+            }
             val plan = newPlanEvent(action)
             val result = try {
                 synchronized(storeLock) {
@@ -191,11 +247,7 @@ class AppBotChatDriver(
             if (result is BotActionResult.Accepted) {
                 synchronized(lock) {
                     if (action.kind == BotUserActionKind.CHAT) {
-                        val commitSeq = synchronized(storeLock) {
-                            store.event(result.eventID)?.commitSeq
-                        }
-                        records += userRecord(action, result.eventID, plan.commitSeq
-                            ?: commitSeq ?: nextSeq())
+                        addRecordLocked(userRecord(action, result.eventID, nextSeqLocked()))
                     }
                     bumpLocked()
                 }
@@ -205,6 +257,10 @@ class AppBotChatDriver(
             }
             result
         }
+
+    internal fun domainChanged() {
+        synchronized(lock) { bumpLocked() }
+    }
 
     override suspend fun stopCurrentTurn(turnID: String?) {
         if (runtime.mainSessionIdentifier() == null && activeTurnId == null) return
@@ -229,7 +285,7 @@ class AppBotChatDriver(
     override suspend fun turnProcesses(): Map<Int, BotTurnProcess> =
         synchronized(lock) {
             rebuildLocked()
-            buildProcesses(records)
+            buildProcesses(currentRecordsLocked())
         }
 
     override fun liveFrames(): Flow<BotLiveFrame> = liveFrames
@@ -248,6 +304,243 @@ class AppBotChatDriver(
         if (!closed.compareAndSet(false, true)) return
         runtime.unsubscribeLiveFrames(liveToken)
         scope.cancel()
+    }
+
+    // ------------------------------------------------------------ lifecycle
+
+    /**
+     * The one durable sink for `runtime.started` / `runtime.exited`
+     * (`session-lifecycle.md` §4). The store append happens before the runtime
+     * treats the event as committed; a failure propagates to the turn caller.
+     */
+    private fun onDurableLifecycle(event: BotSessionLifecycleEvent) {
+        val stored = BotEvent(
+            schemaVersion = BotEventCodec.CURRENT_SCHEMA_VERSION,
+            type = event.type,
+            eventId = event.eventId,
+            commitSeq = null,
+            time = event.time,
+            origin = BotEventOrigin.Local("runtime"),
+            traceId = "trace:${event.eventId}",
+            principal = BotPrincipal(
+                botId = event.principal.botId,
+                sessionId = event.principal.sessionId,
+                kind = event.principal.kind.wire,
+                capabilities = event.principal.capabilities,
+            ),
+            causationId = null,
+            correlationId = null,
+            data = JsonObject(event.data),
+        )
+        synchronized(storeLock) { store.append(stored) }
+        val sessionId = lifecycleSessionId(event.data, event.principal.sessionId)
+        synchronized(lock) {
+            if (sessionId != null) {
+                ensureSessionLocked(sessionId)
+                if (event.type == RUNTIME_STARTED) adoptPendingRecordsLocked(sessionId)
+            }
+            bumpLocked()
+        }
+        requestHistoryLoad()
+    }
+
+    private fun lifecycleSessionId(data: Map<String, JsonValue>, principalSessionId: String): String? {
+        val dataSession = (data["sessionId"] as? JsonString)?.value
+        if (!dataSession.isNullOrEmpty()) return dataSession
+        return principalSessionId.takeIf { it.isNotEmpty() }
+    }
+
+    private fun ensureSessionLocked(sessionId: String) {
+        if (sessionId.isEmpty()) return
+        if (!epochOrder.contains(sessionId)) epochOrder.add(sessionId)
+        recordsBySession.getOrPut(sessionId) { mutableListOf() }
+    }
+
+    private fun adoptPendingRecordsLocked(sessionId: String) {
+        if (pendingRecords.isEmpty()) return
+        ensureSessionLocked(sessionId)
+        recordsBySession.getOrPut(sessionId) { mutableListOf() }.addAll(pendingRecords)
+        pendingRecords.clear()
+    }
+
+    // ------------------------------------------------------------- history IO
+
+    /**
+     * Starts one background chain load if none is running. The page's watch
+     * loop gets a revision bump when the journals land; [history] returns the
+     * current snapshot immediately rather than blocking on a cold Worker.
+     */
+    private fun requestHistoryLoad() {
+        if (closed.get()) return
+        if (!historyLoadRunning.compareAndSet(false, true)) {
+            // A new epoch may have landed while the previous pass was ending;
+            // run another pass after it instead of dropping the request.
+            historyLoadRequested.set(true)
+            return
+        }
+        scope.launch {
+            try {
+                var attempt = 0
+                while (!closed.get()) {
+                    if (loadHistoryOnce()) break
+                    if (attempt >= HISTORY_RETRY_DELAYS_MS.size) break
+                    delay(HISTORY_RETRY_DELAYS_MS[attempt])
+                    attempt += 1
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // History is best effort; the page keeps whatever it has.
+            } finally {
+                historyLoadRunning.set(false)
+                if (!closed.get() && historyLoadRequested.compareAndSet(true, false)) {
+                    requestHistoryLoad()
+                }
+            }
+        }
+    }
+
+    /** One pass over every known epoch; false means a retry may help. */
+    private fun loadHistoryOnce(): Boolean {
+        // Load the durable epoch chain before the optional legacy lookup: a
+        // persisted `runtime.started` is already enough to read its journal.
+        var completed = loadTargets(knownTargets())
+        if (!legacyDiscoveryDone) {
+            val discovered = try {
+                discoverLegacySessions()
+            } catch (_: Exception) {
+                return false
+            }
+            synchronized(lock) {
+                for (sessionId in discovered.asReversed()) {
+                    if (!epochOrder.contains(sessionId)) {
+                        epochOrder.add(0, sessionId)
+                        recordsBySession.getOrPut(sessionId) { mutableListOf() }
+                    }
+                }
+                legacyDiscoveryDone = true
+                if (discovered.isNotEmpty()) bumpLocked()
+            }
+        }
+        completed = loadTargets(knownTargets()) && completed
+        return completed && synchronized(lock) {
+            epochOrder.all { it in loadedSessions }
+        }
+    }
+
+    private fun knownTargets(): List<String> = synchronized(lock) {
+        epochOrder.filter { it !in loadedSessions }
+    }
+
+    private fun loadTargets(targets: List<String>): Boolean {
+        var completed = true
+        for (sessionId in targets) {
+            if (closed.get()) return true
+            val remote = try {
+                historyReader.load(sessionId)
+            } catch (_: Exception) {
+                completed = false
+                continue
+            }
+            synchronized(lock) {
+                mergeRemoteRecordsLocked(sessionId, remote)
+                loadedSessions.add(sessionId)
+                bumpLocked()
+            }
+        }
+        return completed
+    }
+
+    /**
+     * Pre-fix installs have no durable `runtime.started`; their Worker session
+     * is still the minted `gb-<safe botId>` (or a rebuilt `gb-<safe>-<uuid>`)
+     * under the Bot root. `session/list` is the authoritative source named by
+     * `session-lifecycle.md` §5 case 5 and §7. The ids are projected but not
+     * written as a new lifecycle epoch: the runtime decides adoption/rebuild
+     * on the next turn.
+     */
+    private fun discoverLegacySessions(): List<String> {
+        val response = transport.call(
+            "session/list",
+            JsonObject(linkedMapOf("_request" to JsonObject(emptyMap()))),
+        )
+        val items = (response["items"] as? JsonArray)?.values ?: return emptyList()
+        val minted = "gb-${BotSessionWorkspace.safePathComponent(botId)}"
+        val root = BotSessionWorkspace.botRoot(botId)
+        val candidates = ArrayList<Pair<String, Long>>()
+        for ((index, value) in items.withIndex()) {
+            val members = (value as? JsonObject)?.members ?: continue
+            val sessionId = (members["sessionId"] as? JsonString)?.value ?: continue
+            if (!isChatEpochId(sessionId, minted)) continue
+            val cwd = (members["cwd"] as? JsonString)?.value
+            if (cwd != null && cwd != root) continue
+            if (cwd == null && sessionId != minted) continue
+            val updatedAt = (members["updatedAt"] as? JsonNumber)?.asLongOrNull()
+                ?: (members["lastActivityAt"] as? JsonNumber)?.asLongOrNull()
+                ?: (members["modifiedAt"] as? JsonNumber)?.asLongOrNull()
+                ?: index.toLong()
+            candidates += sessionId to updatedAt
+        }
+        return candidates.sortedBy { it.second }.map { it.first }
+    }
+
+    private fun isChatEpochId(sessionId: String, minted: String): Boolean {
+        if (sessionId == minted) return true
+        val prefix = "$minted-"
+        if (!sessionId.startsWith(prefix)) return false
+        return runCatching { UUID.fromString(sessionId.removePrefix(prefix)) }.isSuccess
+    }
+
+    /**
+     * The journal is authoritative; a concurrent live record with the same
+     * event id, DSH seq or user-action nonce is the same message and is
+     * dropped. Records the journal cannot contain yet (a prompt whose page was
+     * read before the commit) survive until the next rebuild.
+     */
+    private fun mergeRemoteRecordsLocked(
+        sessionId: String,
+        remote: List<BotSessionLogRecord>,
+    ) {
+        val existing = recordsBySession.getOrPut(sessionId) { mutableListOf() }
+        if (remote.isNotEmpty()) {
+            val localUserEventIds = existing.filter { it.type == "user/message" }
+                .mapNotNull { row -> userMessageNonce(row)?.let { it to row.eventId } }
+                .toMap()
+            val reconciled = remote.map { row ->
+                val localId = if (row.type == "user/message") localUserEventIds[userMessageNonce(row)] else null
+                if (localId != null) row.copy(eventId = localId) else row
+            }
+            val remoteEventIds = reconciled.mapNotNull { it.eventId }.toHashSet()
+            val remoteSeqs = remote.map { it.seq }.toHashSet()
+            val remoteNonces = remote
+                .filter { it.type == "user/message" }
+                .mapNotNull(::userMessageNonce)
+                .toHashSet()
+            val kept = existing.filterNot { record ->
+                (record.eventId != null && record.eventId in remoteEventIds) ||
+                    (record.type == "user/message" &&
+                        userMessageNonce(record)?.let { it in remoteNonces } == true) ||
+                    record.seq in remoteSeqs
+            }
+            val merged = ArrayList<BotSessionLogRecord>(remote.size + kept.size)
+            merged += reconciled
+            merged += kept
+            merged.sortWith(compareBy({ it.seq }, { it.eventId ?: "" }))
+            existing.clear()
+            existing.addAll(merged)
+        }
+        if (existing.isNotEmpty()) {
+            localSeq = maxOf(localSeq, (existing.maxOfOrNull { it.seq } ?: 0L) + 1L)
+        }
+    }
+
+    private fun userMessageNonce(record: BotSessionLogRecord): String? {
+        (record.data["nonce"] as? JsonString)?.value?.takeIf { it.isNotEmpty() }
+            ?.let { return it }
+        val source = (record.data["source"] as? JsonObject)
+            ?: ((record.data["message"] as? JsonObject)?.get("source") as? JsonObject)
+            ?: return null
+        return com.phonedsh.bot.session.BotTurnOrigin.chatActionNonce(source.members)
     }
 
     // ------------------------------------------------------------------ turns
@@ -287,21 +580,23 @@ class AppBotChatDriver(
                 val event = (frame.event as? JsonObject) ?: return
                 val type = (event["type"] as? JsonString)?.value ?: frame.type
                 val data = (event["data"] as? JsonObject)?.members ?: emptyMap()
-                val seq = (event["seq"] as? JsonNumber)?.asLongOrNull() ?: nextSeq()
                 val time = (event["time"] as? JsonNumber)?.asLongOrNull() ?: clock()
                 val eventId = (event["eventId"] as? JsonString)?.value
-                val record = BotSessionLogRecord(
-                    type = type,
-                    seq = seq,
-                    time = time,
-                    data = data,
-                    surfaceOp = BotSurfaceOp.decode(data["surfaceOp"]) ?: BotSurfaceOp.Append,
-                    eventId = eventId,
-                )
                 synchronized(lock) {
-                    records += record
+                    val seq = (event["seq"] as? JsonNumber)?.asLongOrNull()
+                        ?: nextSeqLocked()
+                    val record = BotSessionLogRecord(
+                        type = type,
+                        seq = seq,
+                        time = time,
+                        data = data,
+                        surfaceOp = BotSurfaceOp.decode(data["surfaceOp"]) ?: BotSurfaceOp.Append,
+                        eventId = eventId,
+                    )
+                    addRecordLocked(record)
                     when (type) {
                         "turn/start" -> {
+                            runtime.mainSessionIdentifier()?.let { onTurnBoundary(it, true) }
                             val turn = (data["turn"] as? JsonNumber)?.asLongOrNull()?.toInt()
                             activeTurnId = turn?.let { "turn-$it" } ?: "turn"
                             activity = BotActivity(
@@ -329,6 +624,7 @@ class AppBotChatDriver(
                             )
                         }
                         "turn/end" -> {
+                            runtime.mainSessionIdentifier()?.let { onTurnBoundary(it, false) }
                             activeTurnId = null
                             activity = null
                         }
@@ -428,7 +724,7 @@ class AppBotChatDriver(
         )
         data["source"] = BotJson.objectOf(
             "kind" to JsonString("user"),
-            "rpcId" to JsonString("user-action:${action.nonce}"),
+            "rpcId" to JsonString("$USER_ACTION_PREFIX${action.nonce}"),
         )
         data["surfaceOp"] = JsonString("append")
         data["nonce"] = JsonString(action.nonce)
@@ -451,12 +747,51 @@ class AppBotChatDriver(
         return if (text.isEmpty()) block.dropWhile { it == '\n' } else text + block
     }
 
+    private fun addRecordLocked(record: BotSessionLogRecord) {
+        val sessionId = runtime.mainSessionIdentifier()
+        if (sessionId == null) {
+            pendingRecords += record
+        } else {
+            ensureSessionLocked(sessionId)
+            recordsBySession.getOrPut(sessionId) { mutableListOf() } += record
+        }
+    }
+
+    private fun currentRecordsLocked(): List<BotSessionLogRecord> {
+        val sessionId = runtime.mainSessionIdentifier()
+            ?: return pendingRecords.toList()
+        return recordsBySession[sessionId]?.toList() ?: emptyList()
+    }
+
     private fun rebuildLocked() {
-        val sessionId = runtime.mainSessionIdentifier() ?: DEFAULT_SESSION_ID
-        val uiEvents = synchronized(storeLock) { readUiEvents() }
+        val current = runtime.mainSessionIdentifier()
+        if (current != null) {
+            ensureSessionLocked(current)
+            adoptPendingRecordsLocked(current)
+        }
+        val order = ArrayList(epochOrder)
+        if (current != null && !order.contains(current)) order.add(current)
+        val liveId = current ?: order.lastOrNull()
+        val epochs = ArrayList<BotSessionEpochProjection>()
+        for (sessionId in order) {
+            val records = recordsBySession[sessionId]?.toList() ?: emptyList()
+            // `session-lifecycle.md` §7: keep an older epoch only when its log
+            // is non-empty; the live epoch is always represented.
+            if (sessionId != liveId && records.isEmpty()) continue
+            epochs += BotSessionEpochProjection(sessionId, records)
+        }
+        if (pendingRecords.isNotEmpty() && current == null &&
+            epochs.none { it.sessionID == DEFAULT_SESSION_ID }
+        ) {
+            epochs += BotSessionEpochProjection(DEFAULT_SESSION_ID, pendingRecords.toList())
+        }
+        if (epochs.isEmpty()) {
+            epochs += BotSessionEpochProjection(liveId ?: DEFAULT_SESSION_ID, emptyList())
+        }
+        val uiEvents = readUiEvents()
         history.rebuild(
             botID = botId,
-            epochs = listOf(BotSessionEpochProjection(sessionId, records.toList())),
+            epochs = epochs,
             uiEvents = uiEvents,
         )
         presentationState.value = currentPresentationLocked()
@@ -470,17 +805,19 @@ class AppBotChatDriver(
 
     private fun readUiEvents(): List<BotProjectionEvent> {
         val result = ArrayList<BotProjectionEvent>()
-        var after = 0
-        while (true) {
-            val page = store.events(after, PAGE_SIZE)
-            if (page.isEmpty()) break
-            for (event in page) {
-                val seq = event.commitSeq ?: continue
-                result += runCatching { BotProjectionEvent.fromJson(event.toJson()) }
-                    .getOrNull() ?: continue
-                after = seq.toInt()
+        synchronized(storeLock) {
+            var after = 0
+            while (true) {
+                val page = store.events(after, PAGE_SIZE)
+                if (page.isEmpty()) break
+                for (event in page) {
+                    val seq = event.commitSeq ?: continue
+                    result += runCatching { BotProjectionEvent.fromJson(event.toJson()) }
+                        .getOrNull() ?: continue
+                    after = seq.toInt()
+                }
+                if (page.size < PAGE_SIZE) break
             }
-            if (page.size < PAGE_SIZE) break
         }
         return result
     }
@@ -509,22 +846,32 @@ class AppBotChatDriver(
         revision.value = revision.value + 1
     }
 
-    private fun nextSeq(): Long {
-        synchronized(lock) {
-            localSeq = maxOf(localSeq, (records.maxOfOrNull { it.seq } ?: 0L) + 1L)
-            return localSeq++
+    private fun nextSeqLocked(): Long {
+        var maximum = pendingRecords.maxOfOrNull { it.seq } ?: 0L
+        for (values in recordsBySession.values) {
+            maximum = maxOf(maximum, values.maxOfOrNull { it.seq } ?: 0L)
         }
+        localSeq = maxOf(localSeq, maximum + 1L, LOCAL_SEQ_BASE)
+        return localSeq++
     }
-
-    private fun BotSessionLogRecord.dataText(key: String): String? =
-        (data[key] as? JsonString)?.value
 
     private companion object {
         const val DEFAULT_SESSION_ID: String = "main"
         const val RUNTIME_STARTED: String = "runtime.started"
         const val PAGE_SIZE: Int = 500
+        const val USER_ACTION_PREFIX: String = "user-action:"
 
-        fun seedLifecycleEvents(store: BotDomainStore, botId: String): List<BotSessionStoredEvent> {
+        /** Above any realistic DSH `seq`, below `Long.MAX_VALUE`. */
+        const val LOCAL_SEQ_BASE: Long = 1_000_000_000_000L
+
+        /** Cold Worker boot retries; the page keeps the last snapshot meanwhile. */
+        val HISTORY_RETRY_DELAYS_MS: LongArray = longArrayOf(250, 500, 1_000, 2_000, 4_000, 8_000, 8_000)
+
+        fun seedLifecycleEvents(
+            store: BotDomainStore,
+            botId: String,
+            storeLock: Any,
+        ): List<BotSessionStoredEvent> = synchronized(storeLock) {
             val result = ArrayList<BotSessionStoredEvent>()
             var after = 0
             while (true) {
@@ -538,10 +885,12 @@ class AppBotChatDriver(
                     val kind = runCatching {
                         BotSessionKind.fromWire(event.principal.kind)
                     }.getOrNull() ?: continue
+                    if (kind != BotSessionKind.CHAT) continue
                     val eventData = (event.data as? JsonObject)?.members ?: emptyMap()
                     val sessionId = (eventData["sessionId"] as? JsonString)?.value
                         ?: event.principal.sessionId
                         ?: continue
+                    if (sessionId.isEmpty()) continue
                     result += BotSessionStoredEvent(
                         type = event.type,
                         principal = BotSessionPrincipal(
@@ -560,7 +909,7 @@ class AppBotChatDriver(
                 }
                 if (page.size < PAGE_SIZE) break
             }
-            return result
+            result
         }
     }
 }

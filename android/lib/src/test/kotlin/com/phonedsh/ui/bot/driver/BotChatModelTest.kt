@@ -5,6 +5,8 @@ package com.phonedsh.ui.bot.driver
 // fixture export (`spec/ui/v1/bot/golden/fixtures.json`, `ui-state.md` §6) and
 // the K3 P09 derivations. No row or expectation is hand-copied into this file.
 import com.phonedsh.agentcore.JsonNumber
+import com.phonedsh.agentcore.JsonObject
+import com.phonedsh.agentcore.JsonValue
 import com.phonedsh.bot.rows.BotActionResult
 import com.phonedsh.bot.rows.BotApprovalDecision
 import com.phonedsh.bot.rows.BotRowBatch
@@ -229,6 +231,25 @@ class BotChatModelTest {
         assertEquals(1, chat.state.value.rows.count { it.body.cardType?.wire == "progress" })
         assertEquals("card-progress-next", chat.state.value.rows.single().id)
         assertEquals(JsonNumber("80"), chat.state.value.rows.single().body["percent"])
+    }
+
+    @Test
+    fun `live tool arguments encoded as JSON still update the activity`() {
+        val frame = BotLiveFrame.Event(
+            JsonValue.parse(
+                """{"type":"tool/call","data":{"name":"ReadMemory","arguments":"{\"path\":\"notes.md\"}"}}""",
+            ) as JsonObject,
+        )
+        val driver = FixtureBotChatDriver.fromJson(fixtures, scenario = "empty", frames = listOf(frame))
+        val chat = BotChatModel(
+            context = BotUiContext(botID = "main", botName = "Bot"),
+            driver = driver,
+            clock = { now },
+            scope = CoroutineScope(Dispatchers.Unconfined),
+        )
+        chat.start()
+        assertTrue(chat.state.value.activityLine.text.isNotBlank())
+        chat.close()
     }
 
     @Test

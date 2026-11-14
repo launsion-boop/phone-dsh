@@ -10,6 +10,15 @@
 // Compose is declared `api` because the AAR's public surface is a composable
 // UI package (com.phonedsh.ui): a consumer that wants to embed a page must be
 // able to compile against the same Compose runtime, never a second copy.
+import javax.inject.Inject
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileSystemOperations
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -121,32 +130,34 @@ androidComponents {
 val repoRoot: File = rootProject.projectDir.parentFile
 val tokensJson: File = repoRoot.resolve("spec/ui/v1/tokens.json")
 
-// ---------------------------------------------------------------------------
-// BotFish artwork: examples/probe-app/BotFish is the single source. The AAR
-// consumes a build-time copy under assets/BotFish/ (never a committed copy of
-// the PNGs). This is the same shape as generateUiTokens below: a declared task
-// writes a generated directory, and the source set reads it.
-//
-// The grant now covers every phoneDSH platform (examples/probe-app/BotFish/
-// SOURCES.md, NOTICE); the copy intentionally includes SOURCES.md so the
-// AAR carries the provenance.
-// ---------------------------------------------------------------------------
-val botFishSourceDir: File = repoRoot.resolve("examples/probe-app/BotFish")
-val generatedBotFishAssetsDir: File =
-    layout.buildDirectory.dir("generated/botfish-assets").get().asFile
+abstract class CopyBotFishAssets : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val artwork: DirectoryProperty
 
-val copyBotFishAssets = tasks.register<org.gradle.api.tasks.Sync>("copyBotFishAssets") {
-    description = "Copies examples/probe-app/BotFish into the :lib AAR assets/BotFish/."
-    group = "build"
-    from(botFishSourceDir) { into("BotFish") }
-    into(generatedBotFishAssetsDir)
+    @get:OutputDirectory
+    abstract val destination: DirectoryProperty
+
+    @get:Inject
+    abstract val files: FileSystemOperations
+
+    @TaskAction
+    fun copyArtwork() {
+        files.sync {
+            from(artwork) { into("BotFish") }
+            into(destination)
+        }
+    }
 }
 
-android.sourceSets.getByName("main").assets.srcDir(generatedBotFishAssetsDir)
-tasks.matching {
-    (it.name.startsWith("merge") || it.name.startsWith("package")) &&
-        it.name.endsWith("Assets")
-}.configureEach { dependsOn(copyBotFishAssets) }
+androidComponents.onVariants { variant ->
+    val copyBotFishAssets = tasks.register<CopyBotFishAssets>(
+        "copy${variant.name.replaceFirstChar { it.uppercase() }}BotFishAssets",
+    ) {
+        artwork.set(repoRoot.resolve("examples/probe-app/BotFish"))
+    }
+    variant.sources.assets?.addGeneratedSourceDirectory(copyBotFishAssets, CopyBotFishAssets::destination)
+}
 
 // PR22 values are reviewed from the iOS owners into `tokens.json` (HomeSpec for
 // the page table; the still-active component files for their own roles). The

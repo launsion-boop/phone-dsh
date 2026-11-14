@@ -31,13 +31,14 @@ public class BotToolCatalog(
     public val p1: List<BotMCPToolDefinition>,
     public val fishAction: BotMCPToolDefinition,
     public val volatileContext: BotMCPToolDefinition,
+    public val attachToModel: BotMCPToolDefinition,
     private val teamBase: List<BotMCPToolDefinition>,
     private val roster: BotRoster? = null,
 ) : BotMCPToolCatalogProvider {
 
     override fun definitions(callerBotId: String?): List<BotMCPToolDefinition> {
         val team = teamDefinitions(callerBotId)
-        return p0 + fishAction + volatileContext + team
+        return p0 + fishAction + volatileContext + attachToModel + team
     }
 
     public fun teamDefinitions(callerBotId: String?): List<BotMCPToolDefinition> {
@@ -65,6 +66,12 @@ public class BotToolCatalog(
             "show_table", "show_callout", "show_info", "show_payload", "show_library",
         )
         public const val VOLATILE_CONTEXT_NAME: String = "BotVolatileContext"
+        /**
+         * One existing image handed to the model as an MCP image content block.
+         * Not in [P0_NAMES]: it is an additive vision capability, so the
+         * frozen P0 golden and every non-vision deployment stay unchanged.
+         */
+        public const val ATTACH_TO_MODEL_NAME: String = "attach_to_model"
         public const val FISH_ACTION_NAME: String = "FishAction"
         public const val SEND_TO_AGENT_NAME: String = "SendToAgent"
         public const val CREATE_TEAMMATE_NAME: String = "CreateTeammate"
@@ -77,9 +84,9 @@ public class BotToolCatalog(
             "show_attachment", "show_document", "show_progress", "show_checklist", "show_link",
         )
 
-        /** §8.1: P0 + BotVolatileContext are the Bot-registered names. */
+        /** §8.1: P0 + BotVolatileContext + the additive vision tool. */
         public fun isRegistered(name: String): Boolean =
-            name == VOLATILE_CONTEXT_NAME || P0_NAMES.contains(name)
+            name == VOLATILE_CONTEXT_NAME || name == ATTACH_TO_MODEL_NAME || P0_NAMES.contains(name)
 
         public fun isTeamTool(name: String): Boolean = TEAM_TOOL_NAMES.contains(name)
 
@@ -138,6 +145,7 @@ public class BotToolCatalog(
                 p1 = p1,
                 fishAction = fish,
                 volatileContext = volatile,
+                attachToModel = attachToModelDefinition(),
                 teamBase = team,
                 roster = roster,
             )
@@ -158,6 +166,7 @@ public class BotToolCatalog(
                 p1 = p1,
                 fishAction = fishDefinition(phone),
                 volatileContext = volatileDefinition(),
+                attachToModel = attachToModelDefinition(),
                 teamBase = defaultTeamDefinitions(),
                 roster = roster,
             )
@@ -235,6 +244,37 @@ public class BotToolCatalog(
                         "maxLength" to JsonNumber("200"),
                     ),
                 ),
+                "additionalProperties" to JsonBool(false),
+            ),
+        )
+
+        /**
+         * `BotToolCatalog.attachToModelDefinition` in the Swift reference. The
+         * description and schema are the frozen P26 contract; the shared P0
+         * golden deliberately does not carry them.
+         */
+        private fun attachToModelDefinition(): BotMCPToolDefinition = BotMCPToolDefinition(
+            name = ATTACH_TO_MODEL_NAME,
+            description = "Attach one image from the Bot workspace or an Office artifact to the model's " +
+                "context so you can actually see it. Pass exactly one of path, fileId or photoId; for a " +
+                "PDF pass page (1-8, default 1) to pick the page image; purpose is shown to the user in the " +
+                "approval card. The user must approve sending the image to the model service. Use this after " +
+                "camera.capture or when a user attached an image and you need its pixels; do not guess from " +
+                "metadata alone.",
+            inputSchema = BotJsonObject.of(
+                "type" to JsonString("object"),
+                "properties" to BotJsonObject.of(
+                    "path" to BotJsonObject.of("type" to JsonString("string")),
+                    "fileId" to BotJsonObject.of("type" to JsonString("string")),
+                    "photoId" to BotJsonObject.of("type" to JsonString("string")),
+                    "page" to BotJsonObject.of(
+                        "type" to JsonString("integer"),
+                        "minimum" to JsonNumber("1"),
+                        "maximum" to JsonNumber("8"),
+                    ),
+                    "purpose" to BotJsonObject.of("type" to JsonString("string")),
+                ),
+                "required" to JsonArray(listOf(JsonString("purpose"))),
                 "additionalProperties" to JsonBool(false),
             ),
         )

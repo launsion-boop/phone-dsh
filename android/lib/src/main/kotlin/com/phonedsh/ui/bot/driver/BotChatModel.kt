@@ -871,9 +871,13 @@ public class BotChatModel(
                         val name = JsonSupport.string(
                             (event["data"] as? JsonObject)?.members?.get("name")) ?: ""
                         if (name.isNotEmpty()) {
-                            val args = (event["data"] as? JsonObject)
-                                ?.let { JsonSupport.objectMembers(it["arguments"], "arguments") }
-                                ?: emptyMap()
+                            val arguments = (event["data"] as? JsonObject)?.get("arguments")
+                            val args = when (arguments) {
+                                is JsonObject -> arguments.members
+                                is JsonString -> runCatching { JsonValue.parse(arguments.value) as? JsonObject }
+                                    .getOrNull()?.members.orEmpty()
+                                else -> emptyMap()
+                            }
                             val activity = BotActivityPhrases.toolActivity(name, args)
                             livePresentation = BotRuntimePresentation(
                                 fishState = runtimePresentation.fishState,

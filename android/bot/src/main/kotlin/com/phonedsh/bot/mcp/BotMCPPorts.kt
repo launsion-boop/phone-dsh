@@ -3,6 +3,8 @@ package com.phonedsh.bot.mcp
 
 import com.phonedsh.agentcore.JsonValue
 import com.phonedsh.bot.BotJson
+import com.phonedsh.bot.attachments.BotModelAttachmentRequest
+import com.phonedsh.bot.attachments.BotModelImage
 
 /**
  * The host side of the Bot MCP lane. B5a1 deliberately owns only these
@@ -14,6 +16,20 @@ import com.phonedsh.bot.BotJson
 /** The catalog a caller may see (`toolDefinitions(callerBotID:)`, §7.3). */
 public fun interface BotMCPToolCatalogProvider {
     public fun definitions(callerBotId: String?): List<BotMCPToolDefinition>
+}
+
+/**
+ * Resolves one existing image into encoded bytes for `attach_to_model`
+ * (`BotMCPRuntime.BotModelImageReader`). A null reader (tests/non-App hosts)
+ * makes the tool fail closed with `unsupported` instead of advertising a
+ * capability that cannot produce pixels.
+ *
+ * The App bridge enforces workspace containment and the platform image bounds;
+ * this port only receives the validated request and returns an already-encoded
+ * image, or throws [com.phonedsh.bot.attachments.BotModelImageException].
+ */
+public fun interface BotModelImageReader {
+    public suspend fun read(request: BotModelAttachmentRequest): BotModelImage
 }
 
 /**

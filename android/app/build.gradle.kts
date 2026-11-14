@@ -6,13 +6,15 @@ import javax.inject.Inject
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileSystemOperations
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
-import org.gradle.api.tasks.Copy
 import org.gradle.api.tasks.testing.Test
 import org.gradle.process.ExecOperations
 
@@ -41,20 +43,26 @@ plugins {
 val repoRoot: File = rootProject.projectDir.parentFile
 // The Bot MCP catalog is the shared spec golden, never a copied Kotlin table.
 // Only the two JSON files the handler reads are packaged, under assets/bot/.
-val botCatalogAssetsDir: File =
-    layout.buildDirectory.dir("generated/bot-catalog-assets").get().asFile
-val copyBotCatalogAssets = tasks.register<Copy>("copyBotCatalogAssets") {
-    description = "Packages spec/bot/v1/golden tool catalogs for AppBotRuntime."
-    from(repoRoot.resolve("spec/bot/v1/golden")) {
-        include("tool-catalog.json", "tool-catalog.phone.json")
+abstract class CopyBotCatalogAssets : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract val catalogs: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val destination: DirectoryProperty
+
+    @get:Inject
+    abstract val files: FileSystemOperations
+
+    @TaskAction
+    fun copyCatalogs() {
+        files.sync {
+            from(catalogs) { into("bot") }
+            into(destination)
+        }
     }
-    into(File(botCatalogAssetsDir, "bot"))
 }
-android.sourceSets.getByName("main").assets.srcDir(botCatalogAssetsDir)
-tasks.matching {
-    (it.name.startsWith("merge") || it.name.startsWith("package")) &&
-        it.name.endsWith("Assets")
-}.configureEach { dependsOn(copyBotCatalogAssets) }
+
 val pdshJniSo: File = repoRoot.resolve("shell/target/aarch64-linux-android/debug/libpdsh_jni.so")
 val hostPdshJni: File = repoRoot.resolve("shell/target/debug/${System.mapLibraryName("pdsh_jni")}")
 val hostJniTestDirectory: File = layout.buildDirectory.dir("generated/host-jni-test").get().asFile
@@ -601,6 +609,15 @@ android {
 androidComponents {
     onVariants { variant ->
         val suffix = variant.name.replaceFirstChar { it.uppercaseChar() }
+        val copyBotCatalogAssets = tasks.register<CopyBotCatalogAssets>("copy${suffix}BotCatalogAssets") {
+            val golden = repoRoot.resolve("spec/bot/v1/golden")
+            catalogs.from(golden.resolve("tool-catalog.json"), golden.resolve("tool-catalog.phone.json"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(
+            copyBotCatalogAssets,
+            CopyBotCatalogAssets::destination,
+        )
+
         val packageTask = tasks.register<PackagePdshJni>("package${suffix}PdshJni") {
             group = "build"
             description = "Copies libpdsh_jni.so into the ${variant.name} APK"

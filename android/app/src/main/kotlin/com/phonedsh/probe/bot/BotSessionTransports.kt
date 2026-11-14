@@ -7,12 +7,23 @@ import com.phonedsh.agentcore.JsonNumber
 import com.phonedsh.agentcore.JsonObject
 import com.phonedsh.agentcore.JsonString
 import com.phonedsh.agentcore.JsonValue
+import com.phonedsh.bot.projection.BotSessionLogParser
+import com.phonedsh.bot.projection.BotSessionLogRecord
+import com.phonedsh.bot.projection.BotSurfaceOp
 import com.phonedsh.bot.session.BotFollowConnection
 import com.phonedsh.bot.session.BotSessionRemoteException
 import com.phonedsh.bot.session.BotSessionTransport
 import com.phonedsh.dsh.host.HostChannel
 import com.phonedsh.dsh.turn.DshTurnClient
 import com.phonedsh.dsh.turn.DshTurnException
+import java.nio.file.FileVisitResult
+import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import java.nio.file.NoSuchFileException
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.attribute.FileTime
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
@@ -108,6 +119,183 @@ class DshBotSessionTransport(
 }
 
 /**
+ * Reads the materialized DSH journal for a Bot epoch (P27 §7).
+ * When no local journal exists, read the same records from the Worker:
+ *
+ * 1. open `session/follow` only to read `snapshot.cursor`, then close it;
+ * 2. call `session/page` with that `throughSeq`;
+ * 3. while `hasMore`, page again with `beforeSeq` = the oldest seq already
+ *    collected and the same `throughSeq`;
+ * 4. return the records oldest-first, deduplicated by `seq`.
+ *
+ * The records are decoded with the same required/optional member rules as
+ * `projection.md` §2.3; a malformed line is skipped rather than aborting the
+ * whole epoch. This class only reads: it never prompts, creates, archives or
+ * claims a session.
+ */
+class BotSessionHistoryReader(
+    private val transport: BotSessionTransport,
+    private val pageSize: Int = 100,
+    private val materializedSessions: Path? = null,
+) {
+    fun load(sessionId: String): List<BotSessionLogRecord> {
+        readMaterializedJournal(sessionId)?.let { return it }
+        val cursor = readCursor(sessionId) ?: -1L
+        val bySeq = LinkedHashMap<Long, BotSessionLogRecord>()
+        var beforeSeq: Long? = null
+        var pages = 0
+        while (pages++ < MAX_PAGES) {
+            val request = LinkedHashMap<String, JsonValue>()
+            request["address"] = JsonObject(
+                linkedMapOf(
+                    "kind" to JsonString("session"),
+                    "sessionId" to JsonString(sessionId),
+                ),
+            )
+            request["throughSeq"] = JsonNumber(cursor.toString())
+            beforeSeq?.let { request["beforeSeq"] = JsonNumber(it.toString()) }
+            request["maxMessages"] = JsonNumber(pageSize.toString())
+            val response = transport.call(
+                "session/page",
+                JsonObject(linkedMapOf("request" to JsonObject(request))),
+            )
+            val records = (response["records"] as? JsonArray)?.values ?: break
+            var smallest: Long? = null
+            for (value in records) {
+                val event = (value as? JsonObject)?.get("event") as? JsonObject ?: continue
+                val record = decodeRecord(event) ?: continue
+                bySeq.putIfAbsent(record.seq, record)
+                if (smallest == null || record.seq < smallest!!) smallest = record.seq
+            }
+            val hasMore = (response["hasMore"] as? JsonBool)?.value == true
+            if (!hasMore) break
+            val next = smallest ?: break
+            if (next == beforeSeq) break
+            beforeSeq = next
+        }
+        return bySeq.values.sortedBy { it.seq }
+    }
+
+    private fun readMaterializedJournal(sessionId: String): List<BotSessionLogRecord>? {
+        val root = materializedSessions ?: return null
+        var newest: Path? = null
+        var newestModified: FileTime? = null
+        return try {
+            Files.walkFileTree(root, object : SimpleFileVisitor<Path>() {
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    val name = file.fileName.toString()
+                    if (attrs.isRegularFile && file.parent.fileName.toString() == sessionId &&
+                        name.startsWith("session.v") && name.endsWith(".jsonl")
+                    ) {
+                        val modified = attrs.lastModifiedTime()
+                        if (newestModified?.let { modified > it } != false) {
+                            newest = file
+                            newestModified = modified
+                        }
+                    }
+                    return FileVisitResult.CONTINUE
+                }
+            })
+            newest?.let { file ->
+                Files.newInputStream(file, NOFOLLOW_LINKS).bufferedReader().use { reader ->
+                    BotSessionLogParser.parseJsonl(reader.readText()).records
+                }
+            }
+        } catch (_: NoSuchFileException) {
+            null
+        }
+    }
+
+    private fun readCursor(sessionId: String): Long? {
+        val mux = transport.openFollow()
+        try {
+            mux.send(followRequestFrame(sessionId))
+            while (true) {
+                val frame = mux.receive() ?: return null
+                when ((frame["type"] as? JsonString)?.value) {
+                    "error" -> {
+                        val error = frame["error"] as? JsonObject
+                        throw BotSessionRemoteException(
+                            (error?.members?.get("code") as? JsonString)?.value ?: "stream_error",
+                            (error?.members?.get("message") as? JsonString)?.value
+                                ?: "session/follow failed",
+                        )
+                    }
+                    "end" -> return null
+                    "item" -> {
+                        if ((frame["streamId"] as? JsonString)?.value != "follow") continue
+                        val value = frame["value"] as? JsonObject ?: continue
+                        when ((value["type"] as? JsonString)?.value) {
+                            "snapshot" -> return (value["cursor"] as? JsonNumber)?.asLongOrNull()
+                            "end" -> return null
+                        }
+                    }
+                }
+            }
+        } finally {
+            runCatching { mux.close() }
+        }
+    }
+
+    private fun decodeRecord(event: JsonObject): BotSessionLogRecord? {
+        val type = (event["type"] as? JsonString)?.value ?: return null
+        val seq = (event["seq"] as? JsonNumber)?.asLongOrNull() ?: return null
+        val time = (event["time"] as? JsonNumber)?.asLongOrNull() ?: return null
+        val data = (event["data"] as? JsonObject)?.members ?: return null
+        val eventId = when (val value = event["eventId"]) {
+            null, is com.phonedsh.agentcore.JsonNull -> null
+            is JsonString -> value.value
+            else -> return null
+        }
+        val surfaceOp = when (val surface = event["surfaceOp"]) {
+            null, is com.phonedsh.agentcore.JsonNull -> null
+            else -> BotSurfaceOp.decode(surface) ?: return null
+        }
+        return BotSessionLogRecord(
+            type = type,
+            seq = seq,
+            time = time,
+            data = data,
+            surfaceOp = surfaceOp,
+            eventId = eventId,
+        )
+    }
+
+    private companion object {
+        const val MAX_PAGES: Int = 200
+    }
+}
+
+/** The §6.2 follow-open request; only the snapshot cursor is read here. */
+private fun followRequestFrame(sessionId: String): JsonObject = JsonObject(
+    linkedMapOf(
+        "type" to JsonString("open"),
+        "streamId" to JsonString("follow"),
+        "endpoint" to JsonString("session/follow"),
+        "payload" to JsonObject(
+            linkedMapOf(
+                "args" to JsonObject(
+                    linkedMapOf(
+                        "request" to JsonObject(
+                            linkedMapOf(
+                                "address" to JsonObject(
+                                    linkedMapOf(
+                                        "kind" to JsonString("session"),
+                                        "sessionId" to JsonString(sessionId),
+                                    ),
+                                ),
+                                "maxMessages" to JsonNumber("1"),
+                                "assistantStream" to JsonBool(true),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+)
+
+/**
  * A deterministic in-process [BotSessionTransport] for the UI-path fallback and
  * for tests that need a real turn without an Android Worker.
  *
@@ -134,8 +322,9 @@ class LocalBotSessionTransport(
     private var nextTurn = 0
     private var nextSeq = 0L
     private var mainSessionId: String? = null
-    private var follow: LocalFollow? = null
+    private val follows = ArrayList<LocalFollow>()
     private val sessionCwd = mutableMapOf<String, String>()
+    private val journals = mutableMapOf<String, MutableList<JsonObject>>()
 
     override fun call(endpoint: String, args: JsonObject): JsonObject {
         calls += endpoint
@@ -158,8 +347,32 @@ class LocalBotSessionTransport(
                     val request = request(args)
                     val address = request["address"] as? JsonObject
                     val id = (address?.members?.get("sessionId") as? JsonString)?.value
-                        ?: mainSessionId
-                    json("sessionId" to JsonString(id ?: "local-session"))
+                        ?: mainSessionId ?: "local-session"
+                    val through = (request["throughSeq"] as? JsonNumber)?.asLongOrNull()
+                    val before = (request["beforeSeq"] as? JsonNumber)?.asLongOrNull()
+                    val maximum = (request["maxMessages"] as? JsonNumber)?.asLongOrNull()
+                        ?.toInt()?.coerceAtLeast(1) ?: 50
+                    val all = journals[id].orEmpty()
+                        .filter { event ->
+                            val seq = (event["seq"] as? JsonNumber)?.asLongOrNull()
+                                ?: return@filter false
+                            if (through != null && through >= 0 && seq > through) {
+                                return@filter false
+                            }
+                            if (before != null && seq >= before) return@filter false
+                            true
+                        }
+                        .sortedBy { (it["seq"] as? JsonNumber)?.asLongOrNull() ?: 0L }
+                    val page = all.takeLast(maximum)
+                    JsonObject(
+                        linkedMapOf(
+                            "sessionId" to JsonString(id),
+                            "records" to JsonArray(page.map { event ->
+                                JsonObject(linkedMapOf("event" to event))
+                            }),
+                            "hasMore" to JsonBool(all.size > page.size),
+                        ),
+                    )
                 }
                 "session/prompt" -> {
                     val request = request(args)
@@ -176,12 +389,26 @@ class LocalBotSessionTransport(
                         ?: mainSessionId ?: "local-session"
                     val turn = pendingEnd?.second ?: nextTurn
                     pendingEnd = null
-                    follow?.let { enqueueEnd(it, id, turn, cancelled = true) }
+                    enqueueToSession(id, item(event(
+                        type = "turn/end",
+                        seq = nextSeq(),
+                        data = json(
+                            "turn" to JsonNumber(turn.toString()),
+                            "reason" to json("kind" to JsonString("aborted")),
+                        ),
+                    )))
                     json("ok" to JsonBool(true))
                 }
                 "session/list" -> {
                     val items = sessionCwd.entries.map { (id, cwd) ->
-                        json("sessionId" to JsonString(id), "cwd" to JsonString(cwd))
+                        val last = journals[id]?.maxOfOrNull {
+                            (it["time"] as? JsonNumber)?.asLongOrNull() ?: 0L
+                        } ?: 0L
+                        json(
+                            "sessionId" to JsonString(id),
+                            "cwd" to JsonString(cwd),
+                            "updatedAt" to JsonNumber(last.toString()),
+                        )
                     }
                     JsonObject(linkedMapOf("items" to JsonArray(items)))
                 }
@@ -194,56 +421,49 @@ class LocalBotSessionTransport(
 
     override fun openFollow(): BotFollowConnection {
         synchronized(lock) {
-            return LocalFollow().also { follow = it }
+            return LocalFollow().also { follows += it }
         }
     }
 
     private fun enqueueTurn(sessionId: String, text: String, requestId: String?) {
-        val active = follow ?: return
         val turn = ++nextTurn
         val replyText = reply(text)
-        active.enqueue(
-            item(event(
-                type = "user/message",
-                seq = nextSeq(),
-                data = json(
-                    "role" to JsonString("user"),
+        enqueueToSession(sessionId, item(event(
+            type = "user/message",
+            seq = nextSeq(),
+            data = json(
+                "role" to JsonString("user"),
+                "content" to JsonArray(
+                    listOf(json("type" to JsonString("text"), "text" to JsonString(text))),
+                ),
+                "source" to json(
+                    "kind" to JsonString("user"),
+                    "rpcId" to JsonString(requestId ?: "user-action:local"),
+                ),
+                "surfaceOp" to JsonString("append"),
+                "turn" to JsonNumber(turn.toString()),
+            ),
+        )))
+        enqueueToSession(sessionId, item(event(
+            type = "turn/start",
+            seq = nextSeq(),
+            data = json("turn" to JsonNumber(turn.toString())),
+        )))
+        enqueueToSession(sessionId, item(event(
+            type = "assistant/message",
+            seq = nextSeq(),
+            data = json(
+                "turn" to JsonNumber(turn.toString()),
+                "message" to json(
+                    "role" to JsonString("assistant"),
                     "content" to JsonArray(
-                        listOf(json("type" to JsonString("text"), "text" to JsonString(text))),
-                    ),
-                    "source" to json(
-                        "kind" to JsonString("user"),
-                        "rpcId" to JsonString(requestId ?: "user-action:local"),
-                    ),
-                    "surfaceOp" to JsonString("append"),
-                    "turn" to JsonNumber(turn.toString()),
-                ),
-            )),
-        )
-        active.enqueue(
-            item(event(
-                type = "turn/start",
-                seq = nextSeq(),
-                data = json("turn" to JsonNumber(turn.toString())),
-            )),
-        )
-        active.enqueue(
-            item(event(
-                type = "assistant/message",
-                seq = nextSeq(),
-                data = json(
-                    "turn" to JsonNumber(turn.toString()),
-                    "message" to json(
-                        "role" to JsonString("assistant"),
-                        "content" to JsonArray(
-                            listOf(json("type" to JsonString("text"), "text" to JsonString(replyText))),
-                        ),
+                        listOf(json("type" to JsonString("text"), "text" to JsonString(replyText))),
                     ),
                 ),
-            )),
-        )
+            ),
+        )))
         if (autoComplete) {
-            enqueueEnd(active, sessionId, turn, cancelled = false)
+            enqueueEnd(sessionId, turn, cancelled = false)
         } else {
             pendingEnd = sessionId to turn
         }
@@ -254,28 +474,45 @@ class LocalBotSessionTransport(
         val (sessionId, turn) = synchronized(lock) {
             pendingEnd.also { pendingEnd = null }
         } ?: return
-        val active = synchronized(lock) { follow } ?: return
-        enqueueEnd(active, sessionId, turn, cancelled = false)
+        enqueueEnd(sessionId, turn, cancelled = false)
     }
 
-    private fun enqueueEnd(
-        active: LocalFollow,
-        sessionId: String,
-        turn: Int,
-        cancelled: Boolean,
-    ) {
-        active.enqueue(
-            item(event(
-                type = "turn/end",
-                seq = nextSeq(),
-                data = json(
-                    "turn" to JsonNumber(turn.toString()),
-                    "reason" to json(
-                        "kind" to JsonString(if (cancelled) "aborted" else "completed"),
-                    ),
+    private fun enqueueEnd(sessionId: String, turn: Int, cancelled: Boolean) {
+        enqueueToSession(sessionId, item(event(
+            type = "turn/end",
+            seq = nextSeq(),
+            data = json(
+                "turn" to JsonNumber(turn.toString()),
+                "reason" to json(
+                    "kind" to JsonString(if (cancelled) "aborted" else "completed"),
                 ),
-            )),
-        )
+            ),
+        )))
+    }
+
+    /**
+     * Persist one live event in the session journal and hand it to the newest
+     * still-open follow for that session. A history reader's snapshot-only
+     * follow is never mistaken for the turn's stream.
+     */
+    private fun enqueueToSession(sessionId: String, value: JsonObject) {
+        val event = (value["value"] as? JsonObject)?.get("event") as? JsonObject
+        synchronized(lock) {
+            if (event != null) {
+                journals.getOrPut(sessionId) { mutableListOf() } += event
+            }
+            val target = follows.lastOrNull { it.sessionId == sessionId }
+                ?: follows.lastOrNull { it.sessionId == null }
+            target?.enqueue(value)
+        }
+    }
+
+    private fun journalCursor(sessionId: String?): Long {
+        if (sessionId == null) return 0L
+        return synchronized(lock) {
+            journals[sessionId].orEmpty()
+                .maxOfOrNull { (it["seq"] as? JsonNumber)?.asLongOrNull() ?: 0L } ?: 0L
+        }
     }
 
     private fun item(event: JsonObject): JsonObject = json(
@@ -299,19 +536,11 @@ class LocalBotSessionTransport(
 
     private inner class LocalFollow : BotFollowConnection {
         private val queue = LinkedBlockingQueue<JsonObject>()
-        private var sessionId: String? = null
+        @Volatile
+        var sessionId: String? = null
+        @Volatile
         private var closed = false
         private var snapshotSent = false
-
-        init {
-            queue.put(
-                json(
-                    "type" to JsonString("item"),
-                    "streamId" to JsonString("follow"),
-                    "value" to json("type" to JsonString("snapshot")),
-                ),
-            )
-        }
 
         override fun send(frame: JsonObject) {
             val request = ((frame["payload"] as? JsonObject)
@@ -323,39 +552,35 @@ class LocalBotSessionTransport(
         }
 
         override fun receive(): JsonObject? {
+            if (!snapshotSent) {
+                snapshotSent = true
+                return json(
+                    "type" to JsonString("item"),
+                    "streamId" to JsonString("follow"),
+                    "value" to json(
+                        "type" to JsonString("snapshot"),
+                        "cursor" to JsonNumber(journalCursor(sessionId).toString()),
+                    ),
+                )
+            }
             while (true) {
                 if (closed) return null
                 val item = queue.poll(1, TimeUnit.SECONDS) ?: continue
-                return if ((item["type"] as? JsonString)?.value == "end") {
+                if ((item["type"] as? JsonString)?.value == "end") {
                     closed = true
-                    item
-                } else {
-                    item
                 }
+                return item
             }
         }
 
         override fun close() {
             closed = true
             queue.clear()
+            synchronized(lock) { follows.remove(this) }
         }
 
         fun enqueue(item: JsonObject) {
             if (!closed) queue.put(item)
-        }
-
-        fun finishTurn(sessionId: String, cancelled: Boolean) {
-            enqueue(
-                event(
-                    type = "turn/end",
-                    seq = nextSeq(),
-                    data = json(
-                        "reason" to json(
-                            "kind" to JsonString(if (cancelled) "aborted" else "completed"),
-                        ),
-                    ),
-                ),
-            )
         }
     }
 

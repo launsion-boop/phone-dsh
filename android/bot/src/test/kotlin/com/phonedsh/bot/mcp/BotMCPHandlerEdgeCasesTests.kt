@@ -76,7 +76,7 @@ class BotMCPHandlerEdgeCasesTests {
             id = JsonNumber("1"),
             headers = mapOf("X-PDSH-Bot-Session" to " gb-restricted "),
         )
-        assertEquals(20, MCPTestSupport.toolNames(restricted).size)
+        assertEquals(21, MCPTestSupport.toolNames(restricted).size)
         assertFalse(MCPTestSupport.toolNames(restricted).contains("CreateTeammate"))
 
         val unknown = harness.handler.rpc(
@@ -84,7 +84,7 @@ class BotMCPHandlerEdgeCasesTests {
             id = JsonNumber("2"),
             headers = mapOf(BotMCPProtocol.CALLER_SESSION_HEADER to "gb-unknown"),
         )
-        assertEquals(21, MCPTestSupport.toolNames(unknown).size)
+        assertEquals(22, MCPTestSupport.toolNames(unknown).size)
         assertTrue(MCPTestSupport.toolNames(unknown).contains("CreateTeammate"))
 
         val empty = harness.handler.rpc(
@@ -92,7 +92,7 @@ class BotMCPHandlerEdgeCasesTests {
             id = JsonNumber("3"),
             headers = mapOf(BotMCPProtocol.CALLER_SESSION_HEADER to "   "),
         )
-        assertEquals(21, MCPTestSupport.toolNames(empty).size)
+        assertEquals(22, MCPTestSupport.toolNames(empty).size)
     }
 
     @Test
