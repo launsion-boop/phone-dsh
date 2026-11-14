@@ -53,3 +53,11 @@ No version bump. There is no separate deployed producer protocol: app/lib revisi
 | revision | owner | reason | notified |
 | --- | --- | --- | --- |
 | pending-own-document-commit | task agent | Freeze lifecycle projection before implementation | parent coordinator |
+
+## User scope override (final)
+
+The later user instruction supersedes the Android implementation/API scope above: **iOS only**.
+No Android public helper or producer change is included. Root owns the final implementation;
+`spec/ui/v1/bot/ios/activity-evidence.md` is the current normative refinement and
+`spec/ui/v1/bot/ios/activity-evidence-vectors.json` is its executable fixture set. Existing
+shared phrase/data schemas and Android contracts are retained, not weakened or skipped.
