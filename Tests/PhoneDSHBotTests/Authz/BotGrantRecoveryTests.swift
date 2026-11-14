@@ -51,26 +51,37 @@ final class BotGrantRecoveryTests: XCTestCase {
         XCTAssertNil(bashFound)
     }
 
-    func testEveryOperationGetsAStableStandingGrant() async throws {
+    func testExternalSendGetsAStableStandingGrantButDestructiveStaysExact() async throws {
         let store = BotGrantStore(now: { 10_000 })
         _ = try await store.add(BotGrant(
-            botId: "main", tool: "bash", operation: "rm-destructive",
-            resource: "operation:rm-destructive", scope: .session,
+            botId: "main", tool: "egress", operation: "egress.post",
+            resource: "operation:egress.post", scope: .session,
             sessionId: "s1", decision: .allow))
-        let next = BotToolEffect(
+        let nextHost = BotToolEffect(
+            tool: "egress", operation: "egress.post",
+            resource: "host=another.example",
+            mutability: .externalSend, policy: .ask)
+        XCTAssertTrue(nextHost.canUseStandingGrant)
+        XCTAssertEqual(nextHost.stableGrantResource, "operation:egress.post")
+        let found = await store.find(botId: "main", sessionId: "s1", effect: nextHost)
+        XCTAssertEqual(found?.resource, "operation:egress.post")
+
+        let destructive = BotToolEffect(
             tool: "bash", operation: "rm-destructive",
             resource: "/dsh/workspace/another-file",
             mutability: .destructive, policy: .ask)
-        XCTAssertEqual(next.stableGrantResource, "operation:rm-destructive")
-        let found = await store.find(botId: "main", sessionId: "s1", effect: next)
-        XCTAssertEqual(found?.resource, "operation:rm-destructive")
-        let otherOperation = BotToolEffect(
-            tool: "bash", operation: "git-destructive",
-            resource: "/dsh/workspace/another-file",
-            mutability: .destructive, policy: .ask)
-        let otherFound = await store.find(botId: "main", sessionId: "s1",
-                                           effect: otherOperation)
-        XCTAssertNil(otherFound)
+        XCTAssertFalse(destructive.canUseStandingGrant)
+        XCTAssertEqual(destructive.stableGrantResource, destructive.resource)
+        let destructiveFound = await store.find(botId: "main", sessionId: "s1",
+                                                 effect: destructive)
+        XCTAssertNil(destructiveFound)
+
+        let unclassified = BotToolEffect(
+            tool: "mystery", operation: "tool.unclassified",
+            resource: "unclassified=mystery&args=abc",
+            mutability: .write, policy: .ask, known: false)
+        XCTAssertFalse(unclassified.canUseStandingGrant)
+        XCTAssertEqual(unclassified.stableGrantResource, unclassified.resource)
     }
 
     func testLegacyWildcardStandingGrantStillMatches() async throws {
@@ -89,24 +100,24 @@ final class BotGrantRecoveryTests: XCTestCase {
     func testSpecificDenyStillBeatsTheStableStandingGrant() async throws {
         let store = BotGrantStore(now: { 10_000 })
         _ = try await store.add(BotGrant(
-            botId: "main", tool: "bash", operation: "rm-destructive",
-            resource: "operation:rm-destructive", scope: .session,
+            botId: "main", tool: "egress", operation: "egress.post",
+            resource: "operation:egress.post", scope: .session,
             sessionId: "s1", decision: .allow))
         _ = try await store.add(BotGrant(
-            botId: "main", tool: "bash", operation: "rm-destructive",
-            resource: "/dsh/workspace/protected", scope: .until,
+            botId: "main", tool: "egress", operation: "egress.post",
+            resource: "host=protected.example", scope: .until,
             decision: .deny))
         let protected = BotToolEffect(
-            tool: "bash", operation: "rm-destructive",
-            resource: "/dsh/workspace/protected",
-            mutability: .destructive, policy: .ask)
+            tool: "egress", operation: "egress.post",
+            resource: "host=protected.example",
+            mutability: .externalSend, policy: .ask)
         let protectedFound = await store.find(botId: "main", sessionId: "s1",
                                                effect: protected)
         XCTAssertEqual(protectedFound?.decision, .deny)
         let other = BotToolEffect(
-            tool: "bash", operation: "rm-destructive",
-            resource: "/dsh/workspace/other",
-            mutability: .destructive, policy: .ask)
+            tool: "egress", operation: "egress.post",
+            resource: "host=other.example",
+            mutability: .externalSend, policy: .ask)
         let otherFound = await store.find(botId: "main", sessionId: "s1", effect: other)
         XCTAssertEqual(otherFound?.decision, .allow)
     }

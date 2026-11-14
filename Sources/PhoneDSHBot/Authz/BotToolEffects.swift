@@ -39,12 +39,25 @@ public struct BotToolEffect: Codable, Sendable, Equatable {
     /// not create a second approval card.
     public let grantResource: String?
 
+    /// Whether a standing approval may cover more than this exact resource.
+    /// Unknown tools are never widened. Destructive bash/memory operations
+    /// stay exact; only external-send effects (images/network) and effects
+    /// that explicitly declare a grantResource (file egress uses its
+    /// directory) get a stable scope.
+    public var canUseStandingGrant: Bool {
+        guard known else { return false }
+        if grantResource != nil { return true }
+        return mutability == .externalSend
+    }
+
     /// The stable scope a standing approval stores. Images opt into the
-    /// narrower `model:image`; every other operation uses its operation id
-    /// (for example `operation:rm-destructive`), so the next same kind of
-    /// request in this Bot/session is covered without widening a one-shot.
+    /// narrower `model:image`; file/network egress declare their directory or
+    /// host; other external sends use `operation:<id>`. Destructive and
+    /// unclassified effects return their exact resource, so a standing
+    /// decision never widens them.
     public var stableGrantResource: String {
         if let grantResource { return grantResource }
+        guard canUseStandingGrant else { return resource }
         return operation.isEmpty ? resource : "operation:\(operation)"
     }
 

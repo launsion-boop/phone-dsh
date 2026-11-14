@@ -252,6 +252,8 @@ public actor BotGrantStore {
         }.filter {
             ($0.tool == "*" || $0.tool == effect.tool)
                 && ($0.operation == "*" || $0.operation == effect.operation)
+                // `resource == "*"` exists only to read grants written by the
+                // earlier experimental always build; new grants never store it.
                 && ($0.resource == "*"
                     || $0.resource == wantedResource
                     || $0.resource == wantedGrantScope)

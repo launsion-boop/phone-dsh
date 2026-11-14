@@ -12,7 +12,8 @@ Status: implemented on the device build of `06a80094e` + local fixes. No DSH sou
 
 ## P26: approval scope
 
-- `BotToolEffect.stableGrantResource` separates the per-call resource from the standing scope. Every operation defaults to `operation:<operation>`; `read_image` / `attach_to_model` opt into the narrower `model:image`. A `.always` stores that stable value (keeping the existing `session`/`until` scope), so the next same-kind request in the bot/session is covered. `.allowOnce` keeps the exact resource and is consumed; deny creates no grant. `find` matches either the exact or stable resource, keeping a specific deny effective and precedence over allow.
+- `BotToolEffect.canUseStandingGrant` is the security gate. Only `externalSend` and effects with an explicit `grantResource` may widen: images use `model:image`, file egress uses its directory, network egress uses host+method. Destructive operations and `tool.unclassified` stay exact-resource; their cards offer no `always` (`alwaysScope=none`), and unclassified `.always` is forced to a consumed once.
+- `stableGrantResource` returns that stable value only for eligible effects; otherwise it returns the exact per-call resource. `.allowOnce` keeps the exact resource and is consumed; deny creates no grant. `find` matches either exact or stable, keeping a specific deny effective and precedence over allow. The legacy `resource="*"` branch exists only to read grants written by the earlier experimental build; new grants never write `*`.
 - DSH Remote still uses `allowed-once` on the wire. The App adds a session+tool local “always” memory and silently answers later approvals with `allow_once`; allow-once/deny clears it. This is app-local state, not a wire change.
 - Sandbox escalation remains one-shot-only in the native permission card.
 
