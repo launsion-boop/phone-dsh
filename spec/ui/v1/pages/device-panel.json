@@ -7,13 +7,13 @@
   "sectionNote": null,
   "title": {
     "text": "设备面板",
-    "provenance": "DevicePanelPage.swift:950",
+    "provenance": "DevicePanelPage.swift:956",
     "anchor": ".navigationTitle(Text(verbatim: model.descriptor?.title ?? deviceName ?? \"设备面板\")"
   },
   "source": {
     "file": "DevicePanelPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/DevicePanelPage.swift",
-    "lines": 1575,
+    "lines": 1581,
     "structLine": 844,
     "renderedFrom": [
       "body",
@@ -89,7 +89,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-934",
+          "id": "text-940",
           "label": null,
           "labelExpr": "verbatim: error",
           "kind": "text",
@@ -99,17 +99,17 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "DevicePanelPage.swift:934",
+          "provenance": "DevicePanelPage.swift:940",
           "anchor": "Text(verbatim: error).font(.footnote).foregroundStyle(.red).lineLimit(4)",
           "extraction": "manual"
         }
       ],
-      "provenance": "DevicePanelPage.swift:933",
+      "provenance": "DevicePanelPage.swift:939",
       "anchor": "Section(\"提示\") {",
       "extraction": "syntax"
     },
     {
-      "id": "section-944",
+      "id": "section-950",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -118,22 +118,22 @@
       "condition": null,
       "collection": null,
       "rows": [],
-      "provenance": "DevicePanelPage.swift:944",
+      "provenance": "DevicePanelPage.swift:950",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "empty",
-        "provenance": "DevicePanelPage.swift:944"
+        "provenance": "DevicePanelPage.swift:950"
       },
       "footer": {
         "text": "只有你点按时才会调用设备。显示的是每次调用返回的结果，不是实时状态。",
         "labelExpr": null,
-        "provenance": "DevicePanelPage.swift:946",
+        "provenance": "DevicePanelPage.swift:952",
         "anchor": "Text(\"只有你点按时才会调用设备。显示的是每次调用返回的结果，不是实时状态。\")"
       }
     },
     {
-      "id": "section-959",
+      "id": "section-965",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -143,7 +143,7 @@
       "collection": "Array(model.controlGroups.enumerated()), id: \\.offset",
       "rows": [
         {
-          "id": "dynamic-960",
+          "id": "dynamic-966",
           "label": null,
           "labelExpr": "ForEach(Array(DevicePanelRun.runs(group.controls).enumerated()), id: \\.offset)",
           "kind": "dynamic",
@@ -153,24 +153,24 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "DevicePanelPage.swift:960",
+          "provenance": "DevicePanelPage.swift:966",
           "anchor": "ForEach(Array(DevicePanelRun.runs(group.controls).enumerated()), id: \\.offset) {",
           "extraction": "manual",
           "collection": "Array(DevicePanelRun.runs(group.controls).enumerated()), id: \\.offset"
         }
       ],
-      "provenance": "DevicePanelPage.swift:971",
+      "provenance": "DevicePanelPage.swift:977",
       "anchor": "Text(verbatim: title).lineLimit(1)",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row-expression",
         "labelExpr": "ForEach(Array(DevicePanelRun.runs(group.controls).enumerated()), id: \\.offset)",
-        "provenance": "DevicePanelPage.swift:960"
+        "provenance": "DevicePanelPage.swift:966"
       },
       "hasHeader": true
     },
     {
-      "id": "section-976",
+      "id": "section-982",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -190,18 +190,18 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "DevicePanelPage.swift:977",
+          "provenance": "DevicePanelPage.swift:983",
           "anchor": "Text(\"描述没有控件。\")",
           "extraction": "syntax"
         }
       ],
-      "provenance": "DevicePanelPage.swift:976",
+      "provenance": "DevicePanelPage.swift:982",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row",
         "label": "描述没有控件。",
-        "provenance": "DevicePanelPage.swift:977"
+        "provenance": "DevicePanelPage.swift:983"
       }
     },
     {
@@ -215,7 +215,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-986",
+          "id": "text-992",
           "label": null,
           "labelExpr": "verbatim: toolName",
           "kind": "text",
@@ -225,13 +225,13 @@
           "destination": null,
           "writes": false,
           "condition": "let record = model.lastResults[toolName]",
-          "provenance": "DevicePanelPage.swift:986",
+          "provenance": "DevicePanelPage.swift:992",
           "anchor": "Text(verbatim: toolName)",
           "extraction": "manual",
           "collection": "resultTools, id: \\.self"
         },
         {
-          "id": "custom-990",
+          "id": "custom-996",
           "label": null,
           "labelExpr": "DevicePanelResultView",
           "kind": "custom",
@@ -241,19 +241,19 @@
           "destination": null,
           "writes": false,
           "condition": "let record = model.lastResults[toolName]",
-          "provenance": "DevicePanelPage.swift:990",
+          "provenance": "DevicePanelPage.swift:996",
           "anchor": "DevicePanelResultView(model: model, toolName: toolName, record: record)",
           "extraction": "manual",
           "template": "DevicePanelResultView",
           "collection": "resultTools, id: \\.self"
         }
       ],
-      "provenance": "DevicePanelPage.swift:982",
+      "provenance": "DevicePanelPage.swift:988",
       "anchor": "Section(\"设备返回\") {",
       "extraction": "syntax"
     },
     {
-      "id": "section-1001",
+      "id": "section-1007",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -273,7 +273,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "DevicePanelPage.swift:1002",
+          "provenance": "DevicePanelPage.swift:1008",
           "anchor": "Text(model.isConnected ? \"设备没有自报可显示的工具。\" : \"设备已断开。回到蓝牙设备页重新连接后再打开面板。\")",
           "extraction": "syntax"
         },
@@ -288,22 +288,22 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "DevicePanelPage.swift:1005",
+          "provenance": "DevicePanelPage.swift:1011",
           "anchor": "Button(\"采用描述…\") { showingAdoption = true }",
           "extraction": "syntax"
         }
       ],
-      "provenance": "DevicePanelPage.swift:1001",
+      "provenance": "DevicePanelPage.swift:1007",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "采用描述…",
-        "provenance": "DevicePanelPage.swift:1005"
+        "provenance": "DevicePanelPage.swift:1011"
       }
     },
     {
-      "id": "section-1010",
+      "id": "section-1016",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -313,7 +313,7 @@
       "collection": "model.tools",
       "rows": [
         {
-          "id": "custom-1011",
+          "id": "custom-1017",
           "label": null,
           "labelExpr": "DevicePanelToolRow",
           "kind": "custom",
@@ -323,19 +323,19 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "DevicePanelPage.swift:1011",
+          "provenance": "DevicePanelPage.swift:1017",
           "anchor": "DevicePanelToolRow(model: model, tool: tool)",
           "extraction": "manual",
           "template": "DevicePanelToolRow"
         }
       ],
-      "provenance": "DevicePanelPage.swift:1013",
+      "provenance": "DevicePanelPage.swift:1019",
       "anchor": "Text(verbatim: tool.name).lineLimit(1)",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row-expression",
         "labelExpr": "DevicePanelToolRow",
-        "provenance": "DevicePanelPage.swift:1011"
+        "provenance": "DevicePanelPage.swift:1017"
       },
       "hasHeader": true
     }
@@ -351,14 +351,14 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "DevicePanelPage.swift:1005",
+      "provenance": "DevicePanelPage.swift:1011",
       "anchor": "Button(\"采用描述…\") { showingAdoption = true }",
       "extraction": "syntax",
       "labelAlternatives": [],
       "presents": "sheet-911"
     },
     {
-      "id": "gesture-952",
+      "id": "gesture-958",
       "label": null,
       "labelExpr": null,
       "kind": "gesture",
@@ -367,7 +367,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "DevicePanelPage.swift:952",
+      "provenance": "DevicePanelPage.swift:958",
       "anchor": ".refreshable { model.refresh() }",
       "extraction": "syntax"
     },
@@ -395,7 +395,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "DevicePanelPage.swift:1027",
+      "provenance": "DevicePanelPage.swift:1033",
       "anchor": "Button(\"完成\") { showingAdoption = false }",
       "extraction": "syntax"
     }
@@ -426,19 +426,19 @@
         {
           "renders": "描述没有控件。",
           "when": "descriptor.controls.isEmpty",
-          "provenance": "DevicePanelPage.swift:977",
+          "provenance": "DevicePanelPage.swift:983",
           "anchor": "Text(\"描述没有控件。\")"
         },
         {
           "renders": "设备没有自报可显示的工具。",
           "when": "model.tools.isEmpty",
-          "provenance": "DevicePanelPage.swift:1002",
+          "provenance": "DevicePanelPage.swift:1008",
           "anchor": "Text(model.isConnected ? \"设备没有自报可显示的工具。\" : \"设备已断开。回到蓝牙设备页重新连接后再打开面板。\")"
         }
       ],
       "data": [
         {
-          "renders": "描述失效 | 提示 | untitled section at 944 | untitled section at 971 | untitled section at 976 | 设备返回 | untitled section at 1001 | untitled section at 1013",
+          "renders": "描述失效 | 提示 | untitled section at 950 | untitled section at 977 | untitled section at 982 | 设备返回 | untitled section at 1007 | untitled section at 1019",
           "when": null,
           "provenance": "DevicePanelPage.swift:844",
           "anchor": "struct DevicePanelPage: View {",
@@ -471,7 +471,7 @@
     "regionsExtracted": 0,
     "sectionsExtracted": 8,
     "warnings": [
-      "unsupported control flow at DevicePanelPage.swift:961: switch run { case .presets(let controls): DevicePanelPresetG"
+      "unsupported control flow at DevicePanelPage.swift:967: switch run { case .presets(let controls): DevicePanelPresetG"
     ]
   }
 }
