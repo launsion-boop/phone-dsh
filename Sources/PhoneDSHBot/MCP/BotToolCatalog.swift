@@ -43,7 +43,7 @@ public enum BotToolCatalog {
             ], required: ["label"]), minItems: 2, maxItems: 4),
             "helpText": string(),
         ], required: ["question", "options"])),
-        tool("show_next_steps", "Offer 2-4 tappable next actions. Put a clearly best step first, mark at most one step recommended:true (or style:primary), and never recommend a danger step. A successful card ends the turn.", schema([
+        tool("show_next_steps", "Offer 2-4 tappable suggested next actions after your reply. Write your complete answer first, then call this as the last action; a successful card ends the turn, so output nothing after it. Put a clearly best step first, mark at most one step recommended:true (or style:primary), and never recommend a danger step. Use objects when a step needs a one-line reason or a value that differs from its label.", schema([
             "steps": array(.object(["anyOf": .array([string(), object([
                 "label": string(), "value": string(), "description": string(),
                 "style": enumString(["primary", "default", "danger"]), "recommended": bool(),

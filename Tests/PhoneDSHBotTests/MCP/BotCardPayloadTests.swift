@@ -273,6 +273,13 @@ final class BotCardPayloadTests: XCTestCase {
             XCTAssertTrue(description.contains("at most one"), "\(name) must cap recommendations")
             XCTAssertTrue(description.contains("never recommend a danger"), "\(name) must exclude danger")
             XCTAssertTrue(description.contains("first"), "\(name) must put the recommendation first")
+            if name == "show_next_steps" {
+                // The card is still closing, but the prose answer comes first;
+                // the host already preserves text emitted before the call.
+                XCTAssertTrue(description.contains("complete answer first"), name)
+                XCTAssertTrue(description.contains("last action"), name)
+                XCTAssertTrue(description.contains("ends the turn"), name)
+            }
         }
     }
 

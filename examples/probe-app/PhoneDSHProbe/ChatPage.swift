@@ -158,6 +158,9 @@ struct ChatPage: View {
     @State private var pasteLimitNoticed = false
     @State private var stopping = false
     @State private var scrollToLatestTrigger = 0
+    /// A haptic turn is one this page sent; page opens and history restores
+    /// must not buzz. Set on a successful send, cleared when the turn settles.
+    @State private var hapticTurnActive = false
     /// Coalesces follow-the-tail scrolls so one lands after the lazy stack
     /// has laid the new rows out (see `scheduleTailScroll`).
     @State private var tailScrollTask: Task<Void, Never>?
@@ -169,6 +172,9 @@ struct ChatPage: View {
     /// a keyboard change and must scroll with the current height.
     @State private var tailScrollViewportHeight: CGFloat = 0
     @State private var loadingEarlierTranscript = false
+    /// One auto-history page per top arrival; reset after the anchor is put
+    /// back so the sentinel cannot page in a same-frame loop.
+    @State private var historyAutoLoadScheduled = false
     /// The red banner's reason signature the person chose to continue past.
     /// A changed reason set shows the banner again (S1-D.1).
     @State private var dismissedRedReasons: String?
@@ -459,7 +465,15 @@ struct ChatPage: View {
             if running {
                 dismissedRedReasons = nil
                 model.flushStreamingText()
+                if hapticTurnActive { PhoneHaptics.thinking() }
+            } else if hapticTurnActive {
+                hapticTurnActive = false
+                PhoneHaptics.completed()
             }
+        }
+        .onChange(of: model.pendingPermission?.id) { _, id in
+            guard let id, !id.isEmpty else { return }
+            PhoneHaptics.approval()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
@@ -1245,10 +1259,59 @@ struct ChatPage: View {
     /// Card colours and buttons per the design spec: #F2F3F5 surface, 16pt
     /// inset, 12pt radius, one filled primary action and a plain text deny —
     /// denying is not destructive, so it is not red.
+    /// Passive top sentinel shared by phone and PC-backed DSH sessions. It
+    /// loads one page only when the reader reaches the top, then restores the
+    /// old first-row anchor so the sentinel moves out of view. No tap needed.
+    private func historySentinel(proxy: ScrollViewProxy, viewportHeight: CGFloat) -> some View {
+        HStack(spacing: 6) {
+            if loadingEarlierTranscript || historyAutoLoadScheduled {
+                ProgressView().controlSize(.mini)
+            }
+            Text(loadingEarlierTranscript ? "正在加载更早消息" : "上滑加载更早消息")
+                .font(.system(size: 12))
+                .foregroundStyle(NativeChatTheme.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 36)
+        .accessibilityIdentifier("chat.history.loader")
+        .onGeometryChange(for: CGFloat.self, of: { row in
+            row.frame(in: .named("chat-transcript")).maxY
+        }) { maxY in
+            loadEarlierIfNeeded(maxY, proxy: proxy, viewportHeight: viewportHeight)
+        }
+    }
+
+    private func loadEarlierIfNeeded(_ maxY: CGFloat, proxy: ScrollViewProxy,
+                                     viewportHeight: CGFloat) {
+        guard model.transcriptHasMore, !loadingEarlierTranscript,
+              !historyAutoLoadScheduled,
+              maxY.isFinite, maxY >= -1, maxY <= viewportHeight + 1 else { return }
+        historyAutoLoadScheduled = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            guard historyAutoLoadScheduled, model.transcriptHasMore,
+                  !loadingEarlierTranscript else {
+                historyAutoLoadScheduled = false
+                return
+            }
+            let anchor = visibleItems.first?.id
+            loadingEarlierTranscript = true
+            await model.loadEarlierTranscript()
+            // Let the LazyVStack mount the prepended page before restoring
+            // the old first-row anchor.
+            try? await Task.sleep(nanoseconds: 30_000_000)
+            if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            loadingEarlierTranscript = false
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            historyAutoLoadScheduled = false
+        }
+    }
+
     private func permissionCard(_ permission: ChatPermission) -> some View {
         PermissionCardView(permission: permission,
                            isBusy: model.busy,
                            onAllow: { respond(.allowOnce) },
+                           onAllowAlways: { respond(.allowAlways) },
+                           allowsAlways: permission.alwaysGrantKey != nil,
                            onDeny: { respond(.deny) })
     }
 
@@ -1276,22 +1339,7 @@ struct ChatPage: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if model.transcriptHasMore {
-                            Button {
-                                guard !loadingEarlierTranscript else { return }
-                                loadingEarlierTranscript = true
-                                Task {
-                                    await model.loadEarlierTranscript()
-                                    loadingEarlierTranscript = false
-                                }
-                            } label: {
-                                HStack {
-                                    if loadingEarlierTranscript { ProgressView().controlSize(.small) }
-                                    Text(loadingEarlierTranscript ? "正在加载…" : "加载更早消息")
-                                }
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(loadingEarlierTranscript)
+                            historySentinel(proxy: proxy, viewportHeight: viewport.size.height)
                         }
                         if let error = model.transcriptError {
                             Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -1490,6 +1538,9 @@ struct ChatPage: View {
                     }
                     guard followsTail, !loadingEarlierTranscript else { return }
                     scheduleTailScroll(proxy, viewportHeight: viewport.size.height)
+                }
+                .onChange(of: model.transcriptHasMore) { _, hasMore in
+                    if !hasMore { historyAutoLoadScheduled = false }
                 }
                 .onChange(of: model.isTranscriptReady) { _, ready in
                     guard ready, pendingInitialScroll, !visibleItems.isEmpty,
@@ -3112,6 +3163,9 @@ struct ChatPage: View {
         // 一按发送就清空:失败那条留在气泡里,重试原样再发,新打的字进新气泡。
         draft = ""
         slashMenuDismissed = false
+        let priorHapticTurn = hapticTurnActive
+        hapticTurnActive = true
+        PhoneHaptics.thinking()
         Task {
             let succeeded: Bool
             if steer {
@@ -3124,6 +3178,7 @@ struct ChatPage: View {
                     scrollToLatestTrigger += 1
                 }
             }
+            if !succeeded { hapticTurnActive = priorHapticTurn }
             if succeeded {
                 // 发送即收起键盘。官方 Web 端发完保持聚焦（输入框就是 combobox），
                 // 但手机上键盘会盖住刚发出去的那条和回复，也没有"再打一句"的富余
@@ -5423,6 +5478,11 @@ struct PermissionCardView: View {
     let permission: ChatPermission
     var isBusy: Bool = false
     var onAllow: () -> Void = {}
+    /// Present only where the host can remember an always decision. Sandbox
+    /// escalation deliberately keeps the one-shot-only card.
+    var onAllowAlways: (() -> Void)?
+    /// False for destructive/unknown requests: those must stay one-shot.
+    var allowsAlways: Bool = true
     var onDeny: () -> Void = {}
 
     var body: some View {
@@ -5466,6 +5526,21 @@ struct PermissionCardView: View {
             }
             .buttonStyle(.plain)
             .disabled(isBusy)
+
+            if let onAllowAlways, allowsAlways, !Self.isSandboxEscalation(permission) {
+                Button {
+                    onAllowAlways()
+                } label: {
+                    Text("总是允许")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(NativeChatTheme.accent)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                }
+                .buttonStyle(.plain)
+                .disabled(isBusy)
+                .accessibilityIdentifier("chat.permission.always")
+            }
 
             Button {
                 onDeny()
