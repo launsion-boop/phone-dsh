@@ -2035,7 +2035,8 @@ struct ChatPage: View {
                         + "tail=\(Self.traceValue(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
                 }
                 MainThreadHangMonitor.mark("chatTranscript.tailFollow")
-                model.flushStreamingText()
+                // Follow the last published frame. Draining pending tokens
+                // here would bypass the display cadence on every scroll tick.
                 scrollToTail(proxy, viewportHeight: tailScrollViewportHeight)
             }
         }

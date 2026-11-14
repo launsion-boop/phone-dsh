@@ -232,7 +232,7 @@ struct BotSessionLogReadCache {
     }
 
     mutating func refresh(_ source: URL?) throws -> Bool {
-        guard let source, FileManager.default.fileExists(atPath: source.path) else {
+        guard let source else {
             guard url != nil else { return false }
             reset(); url = nil; stamp = nil; revision += 1
             return true
@@ -523,6 +523,9 @@ actor BotProductionRowService {
         var domain = domainCache
         var changed = try await domain.refresh(domain: environment.domain)
         domainCache = domain
+        // Retain invalidation across a later file-read failure. The domain
+        // cursor has already advanced and cannot rediscover these UI events.
+        projectionDirty = projectionDirty || changed
         let uiEvents = domain.events
         var ordered: [String] = []
         var seen: Set<String> = []
@@ -534,6 +537,7 @@ actor BotProductionRowService {
         }
         if seen.insert(sessionID).inserted { ordered.append(sessionID) }
         changed = changed || epochIDs != ordered || lastSessionID != sessionID
+        projectionDirty = projectionDirty || changed
         var epochs: [BotSessionEpochProjection] = []
         for id in ordered {
             let explicit = id == sessionID ? snapshot.logURL : nil
@@ -541,11 +545,16 @@ actor BotProductionRowService {
                 ?? BotSessionLogLocator.latestFile(sessionID: id, workspaceRoot: environment.workspaceRoot)
             // Resolve a rotation inside the already located session directory;
             // do not re-walk every other session on each 800 ms UI tick.
-            let url = newestLog(near: candidate) ?? candidate
+            let url = newestLog(near: candidate, sessionID: id) ?? candidate
             logURLs[id] = url
             var cache = logCaches[id] ?? BotSessionLogReadCache()
-            let updated = try cache.refresh(url)
+            // A missing live log is a read failure, not authoritative deletion.
+            // Missing archived epochs keep the previous full-reader semantics.
+            let readable = id != sessionID && url.map({ !FileManager.default.fileExists(atPath: $0.path) }) == true
+                ? nil : url
+            let updated = try cache.refresh(readable)
             if updated || logSnapshots[id] == nil {
+                projectionDirty = true
                 logSnapshots[id] = cache.snapshot()
                 changed = true
                 if id == sessionID {
@@ -584,9 +593,12 @@ actor BotProductionRowService {
         epochIDs = ordered; lastSessionID = sessionID; lastHeldNonces = held
     }
 
-    private func newestLog(near url: URL?) -> URL? {
-        guard let url, url.lastPathComponent.hasPrefix("session.v"),
-              url.pathExtension == "jsonl" else { return url }
+    private func newestLog(near url: URL?, sessionID: String) -> URL? {
+        let sessionsRoot = environment.workspaceRoot
+            .appendingPathComponent("materialized/home/sessions", isDirectory: true).standardizedFileURL.path + "/"
+        guard let url, url.standardizedFileURL.path.hasPrefix(sessionsRoot),
+              url.deletingLastPathComponent().lastPathComponent == sessionID,
+              url.lastPathComponent.hasPrefix("session.v"), url.pathExtension == "jsonl" else { return url }
         let files = try? FileManager.default.contentsOfDirectory(
             at: url.deletingLastPathComponent(),
             includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey])
