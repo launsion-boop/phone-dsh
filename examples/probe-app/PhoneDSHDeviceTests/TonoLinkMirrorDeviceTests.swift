@@ -7,6 +7,7 @@ import UIKit
 import XCTest
 @testable import PhoneDSHBLE
 @testable import PhoneDSHProbe
+import PhoneDSHVenus
 
 @MainActor
 final class TonoLinkMirrorDeviceTests: XCTestCase {
@@ -487,5 +488,80 @@ final class TonoLinkMirrorDeviceTests: XCTestCase {
         XCTAssertTrue(restored)
         _ = try? await host.home()
         try? await host.hands.disableHID()
+    }
+
+    /// Experiment: which gesture closes Control Center on this phone? Opens it through
+    /// AssistiveTouch (as the mirror restart does), tries one way, and compares with the screen
+    /// before. Taps only Control Center's own background and the AssistiveTouch button.
+    func testWhatClosesControlCenter() async throws {
+        try requireFixture()
+        let host = IPhoneAgentHost.shared
+        host.screen.start()
+        let hands = host.hands
+        try await hands.ensureHID()
+        try await Task.sleep(for: .seconds(1))
+        func shot(_ name: String) async throws -> Data {
+            try await Task.sleep(for: .milliseconds(1200))
+            let frame = try await host.screen.snapshot(newerThan: host.screen.frameCount)
+            attach(frame.jpeg, name)
+            return frame.jpeg
+        }
+        let before = try await shot("0-before")
+        let ways: [(String, () async throws -> Void)] = [
+            ("esc", { try await hands.key("esc") }),
+            ("assistive-button", { try await hands.tap(hands.layout.assistiveButton) }),
+            ("blank-bottom", { try await hands.tap(500, 975) }),
+            ("swipe-up", { try await hands.swipe(from: TonoLinkPoint(500, 990), to: TonoLinkPoint(500, 450), ms: 300) }),
+        ]
+        for (name, way) in ways {
+            try await hands.tap(hands.layout.assistiveButton); try await Task.sleep(for: .milliseconds(900))
+            try await hands.tap(hands.layout.assistiveControlCenter)
+            let open = try await shot("\(name)-1-open")
+            try await way()
+            let after = try await shot("\(name)-2-after")
+            let openDiff = IPhoneScreenDiff.mean(before, open) ?? -1
+            let closedDiff = IPhoneScreenDiff.mean(before, after) ?? -1
+            note("close \(name): open_vs_before=\(Int(openDiff)) after_vs_before=\(Int(closedDiff)) closed=\(closedDiff >= 0 && closedDiff < 12)")
+            if closedDiff < 0 || closedDiff >= 12 {   // still covered: get back with the known-good way before the next try
+                try? await hands.key("esc"); try? await hands.tap(500, 975)
+                try await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    /// Regression for the 2026-11-14 demo: after `prepare()` restarted a dropped mirror, Control
+    /// Center stayed open and the task began under it. Ends the mirror along the learned route,
+    /// lets `prepare()` restart it, and checks the screen is the one from before.
+    func testRestartedMirrorLeavesNoControlCenter() async throws {
+        try requireFixture()
+        let host = IPhoneAgentHost.shared
+        host.screen.start()
+        let hands = host.hands
+        let stop = try XCTUnwrap(hands.layout.mirrorStop, "route not learned on this phone")
+        try await hands.ensureHID()
+        try await Task.sleep(for: .seconds(1))
+        let before = try await host.screen.snapshot(newerThan: host.screen.frameCount)
+        attach(before.jpeg, "0-before")
+        try await hands.openMirrorList()
+        try await hands.tap(stop)
+        var stopped = false
+        for _ in 0..<20 where !stopped {
+            try await Task.sleep(for: .milliseconds(500))
+            stopped = !(await hands.mirrorActive())
+        }
+        try XCTSkipUnless(stopped, "could not end the mirror along the learned route")
+        try await hands.key("esc")
+        try await hands.swipe(from: TonoLinkPoint(500, 990), to: TonoLinkPoint(500, 450), ms: 300)
+        try await Task.sleep(for: .seconds(2))
+        try await host.prepare()
+        let restarted = await hands.mirrorActive()
+        XCTAssertTrue(restarted)
+        try await Task.sleep(for: .seconds(1))
+        let after = try await host.screen.snapshot(newerThan: host.screen.frameCount)
+        attach(after.jpeg, "1-after-prepare")
+        let difference = IPhoneScreenDiff.mean(before.jpeg, after.jpeg) ?? -1
+        note("after prepare vs before: \(Int(difference))")
+        XCTAssertTrue(difference >= 0 && difference < 20, "the screen after the restart is not the one from before (Control Center left open?)")
+        try? await hands.disableHID()
     }
 }
