@@ -131,7 +131,8 @@ public object BotUiStrings {
     public const val CHAT_MENU_INFO: String = "Bot 信息与设置"
     public const val CHAT_DEEPLINK_UNAVAILABLE: String = "这条消息不可用或已过期。"
     public const val ERROR_RUNTIMEUNAVAILABLE: String = "Bot 运行时未连接：动作未执行。"
-    public const val ERROR_WATCHFAILED: String = "Bot 实时更新失败：{error}"
+    /** watch/live supervision degraded banner; cleared when the feed recovers */
+    public const val REALTIME_DEGRADED: String = "实时更新中断，正在重连"
     public const val ERROR_HISTORYFAILED: String = "历史加载失败：{error}"
     public const val ERROR_ATTACHMENTFAILED: String = "附件「{name}」未附加：{reason}"
     public const val RUNTIME_CONNECTING: String = "正在连接 Bot…"
@@ -260,7 +261,7 @@ public object BotUiStrings {
         "chat.menu.info" to CHAT_MENU_INFO,
         "chat.deeplink.unavailable" to CHAT_DEEPLINK_UNAVAILABLE,
         "error.runtimeUnavailable" to ERROR_RUNTIMEUNAVAILABLE,
-        "error.watchFailed" to ERROR_WATCHFAILED,
+        "realtime.degraded" to REALTIME_DEGRADED,
         "error.historyFailed" to ERROR_HISTORYFAILED,
         "error.attachmentFailed" to ERROR_ATTACHMENTFAILED,
         "runtime.connecting" to RUNTIME_CONNECTING,
