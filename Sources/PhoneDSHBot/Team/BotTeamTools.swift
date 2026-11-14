@@ -115,6 +115,17 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
         }
 
         let commContext = await host.agentCommContext(for: principal.botId)
+        let title = firstString(args, ["title"])
+        // A reply to the immediate previous hop ends the in-progress hand-off
+        // instead of starting a new one (`team.md` §2.3.1). It is checked
+        // before depth/cycle on purpose: a depth-2 receiver may answer the Bot
+        // that handed it that turn, and the reply adds no hop.
+        if let inbound = commContext.immediatePreviousHop(for: principal.botId),
+           inbound.senderID == target.id {
+            return await replyToPreviousHop(
+                inbound: inbound, commContext: commContext, sender: sender,
+                target: target, message: message, delivery: delivery, context: context)
+        }
         let depth = commContext.depth + 1
         guard depth <= Self.maximumHops else {
             return .failure(
@@ -153,7 +164,6 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
                 delivery: delivery, duplicated: true, heldID: nil)
         }
 
-        let title = firstString(args, ["title"])
         let seq = nextSequence()
         let rowID = BotAgentCommIdentity.outboundRowID(
             senderAgentID: sender.id, targetID: target.id, requestID: requestID, seq: seq)
@@ -185,7 +195,11 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
                 let enqueued = try await host.enqueueHeld(
                     BotTeamHeldRequest(
                         botID: target.id, item: item,
-                        handOff: BotAgentCommContext(depth: depth, chain: nextChain)))
+                        handOff: BotAgentCommContext(
+                            depth: depth, chain: nextChain,
+                            inbound: BotAgentInboundHop(
+                                senderID: sender.id, requestID: requestID,
+                                threadID: threadID, delivery: delivery, title: title))))
                 return sendToAgentSuccess(
                     target: target, threadID: threadID, requestID: requestID,
                     delivery: delivery, duplicated: enqueued.duplicate,
@@ -263,6 +277,106 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
         return sendToAgentSuccess(
             target: target, threadID: threadID, requestID: requestID,
             delivery: delivery, duplicated: false, heldID: nil)
+    }
+
+    // MARK: - Reply to the immediate previous hop
+
+    /// Records a `reply` row on the caller and writes the exchange-shaped held
+    /// reply into the previous hop's inbox (`team.md` §2.3.1/§2.9/§2.10).
+    ///
+    /// A reply is the end of the hand-off: it adds no hop, installs no chain,
+    /// and never opens a target turn. It wakes the target only when both the
+    /// inbound hop and this call requested `now`; any `queued` side stays
+    /// silent. The reply call's own `title` is accepted and intentionally not
+    /// stored: the held title names the message being answered.
+    private func replyToPreviousHop(inbound: BotAgentInboundHop,
+                                    commContext: BotAgentCommContext,
+                                    sender: BotAgentRef,
+                                    target: BotAgentRef,
+                                    message: String,
+                                    delivery: String,
+                                    context: BotMCPRequestContext) async -> BotMCPCallResult {
+        let callID = context.callId
+        let requestID = BotTurnOrigin.agentRequestId(callId: callID)
+        // A reply row carries the exchange's requestID, so the canonical lookup
+        // cannot see it; its own callID is the durable idempotency key. The
+        // bare-callID lookup is the same compatibility seam pre-WP4 outbound
+        // rows use (team.md §2.4).
+        var existingThread = await host.existingAgentCommThread(
+            botID: sender.id, requestID: requestID)
+        if existingThread == nil {
+            existingThread = await host.existingAgentCommThread(
+                botID: sender.id, requestID: callID)
+        }
+        if let existingThread {
+            return replySuccess(
+                target: target, threadID: existingThread, requestID: requestID,
+                delivery: delivery, duplicated: true)
+        }
+
+        let rowID = BotAgentCommIdentity.turnRowID(
+            turn: commContext.turn, existingIDs: commContext.existingRowIDs)
+        let record = BotTeamAgentCommRecord(
+            rowID: rowID, botID: sender.id, direction: .reply, role: "assistant",
+            text: message,
+            toAgent: BotAgentRef(id: target.id, name: target.name),
+            threadID: inbound.threadID, requestID: inbound.requestID,
+            callID: callID)
+        do { try await host.recordAgentComm(record) }
+        catch { return .failure("execution_failed", String(describing: error)) }
+
+        let replyTitle: String
+        if let title = inbound.title, !title.isEmpty {
+            replyTitle = "回复：\(title)"
+        } else {
+            replyTitle = "回复"
+        }
+        let heldItem: WakeInboxItem
+        do {
+            heldItem = try WakeInboxItem(
+                id: heldID(createdAt: now()), kind: "agent-held",
+                fromAgentId: sender.id, fromAgentName: sender.name,
+                title: replyTitle,
+                text: String(message.prefix(Self.heldTextLimit)),
+                requestId: "reply:\(requestID)",
+                threadId: inbound.threadID, createdAt: now())
+        } catch {
+            return .failure("execution_failed", String(describing: error))
+        }
+        do {
+            // No `handOff`: the reply is not a new hop and must not install a
+            // chain on the target. `wake` is the conservative §2.3.1 policy.
+            _ = try await host.enqueueHeld(BotTeamHeldRequest(
+                botID: target.id, item: heldItem,
+                wake: inbound.wakesReply(delivery: delivery)))
+        } catch {
+            // The reply row is already durable; reuse the existing held-write
+            // failure string instead of inventing a second code for the same
+            // meaning (team.md §2.10).
+            return .failure(
+                "execution_failed",
+                "held inbox write failed: \(String(describing: error))")
+        }
+        return replySuccess(
+            target: target, threadID: inbound.threadID, requestID: requestID,
+            delivery: delivery, duplicated: false)
+    }
+
+    private func replySuccess(target: BotAgentRef, threadID: String,
+                              requestID: String, delivery: String,
+                              duplicated: Bool) -> BotMCPCallResult {
+        var structured: [String: BotJSONValue] = [
+            "ok": .bool(true),
+            "threadId": .string(threadID),
+            "requestId": .string(requestID),
+            "target": .object(["id": .string(target.id), "name": .string(target.name)]),
+            "delivery": .string(delivery),
+            "reply": .bool(true),
+        ]
+        if duplicated { structured["duplicated"] = .bool(true) }
+        let text = "已回复 \(target.name)：回复已写入对方的 held inbox，"
+            + "这次回复不算新的转交。"
+        return .success(.object(structured), text: text)
     }
 
     private func sendToAgentSuccess(target: BotAgentRef, threadID: String,

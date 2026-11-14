@@ -103,6 +103,10 @@ final class BotAgentCommTracker {
     struct Context: Equatable {
         var depth = 0
         var chain: [String] = []
+        /// The hop that opened the current turn; makes an answer to the
+        /// immediate previous hop a reply instead of a cycle (`team.md`
+        /// §2.3.1). In-memory only, like `chain`.
+        var inbound: BotAgentInboundHop?
     }
 
     private var active: [String: Context] = [:]
@@ -1361,7 +1365,8 @@ extension BotRuntimeComposition: BotTeamHost {
             depth: context.depth,
             chain: context.chain,
             turn: turn,
-            existingRowIDs: agentCommTracker.existingRowIDs(for: botID))
+            existingRowIDs: agentCommTracker.existingRowIDs(for: botID),
+            inbound: context.inbound)
     }
 
     func existingAgentCommThread(botID: String, requestID: String) async -> String? {
@@ -1377,7 +1382,9 @@ extension BotRuntimeComposition: BotTeamHost {
         switch decision {
         case .openVisibleTurn:
             agentCommTracker.setActive(
-                .init(depth: request.hop, chain: request.chain), for: request.target.id)
+                .init(depth: request.hop, chain: request.chain,
+                      inbound: inboundHop(for: request)),
+                for: request.target.id)
             defer { agentCommTracker.clearActive(for: request.target.id) }
             let result = try await unit.remote.sendAgentMessage(
                 request.promptText, requestId: request.requestId)
@@ -1405,7 +1412,9 @@ extension BotRuntimeComposition: BotTeamHost {
                     status: "queued")
             }
             agentCommTracker.setActive(
-                .init(depth: request.hop, chain: request.chain), for: request.target.id)
+                .init(depth: request.hop, chain: request.chain,
+                      inbound: inboundHop(for: request)),
+                for: request.target.id)
             defer { agentCommTracker.clearActive(for: request.target.id) }
             let cursor = await latestCommitSeq()
             let deadline = Date().addingTimeInterval(300)
@@ -1428,13 +1437,23 @@ extension BotRuntimeComposition: BotTeamHost {
         let unit = try await ensureUnit(for: request.botID, reason: "team-held")
         // Only a new outbound hop installs a chain on the target. The tool
         // passes nil for a teammate's reply held item, so receiving an answer
-        // never makes the original sender look like part of the chain.
+        // never makes the original sender look like part of the chain. The
+        // hand-off also carries the inbound hop, which is what lets the target
+        // answer its immediate previous hop (`team.md` §2.3.1).
         if let handOff = request.handOff {
             agentCommTracker.setPendingHeld(
-                .init(depth: handOff.depth, chain: handOff.chain),
+                .init(depth: handOff.depth, chain: handOff.chain,
+                      inbound: handOff.inbound),
                 for: request.botID)
         }
-        return try await unit.wakeInbox.enqueue(request.item)
+        let enqueued = try await unit.wakeInbox.enqueue(request.item)
+        // The explicit reply to a `now` hand-off wakes the sender once,
+        // best-effort. A duplicate enqueue never wakes, and a busy sender
+        // simply folds the durable item into its next turn.
+        if request.wake, !enqueued.duplicate {
+            try? await unit.wakeHeldMessages()
+        }
+        return enqueued
     }
 
     func recordAgentComm(_ record: BotTeamAgentCommRecord) async throws {
@@ -1452,6 +1471,12 @@ extension BotRuntimeComposition: BotTeamHost {
         agentCommTracker.addRowID(record.rowID, for: record.botID)
         if record.direction == .outbound {
             agentCommThreads["\(record.botID)\u{0}\(record.requestID)"] = record.threadID
+        }
+        // A reply row carries the exchange requestID, so its own callID is the
+        // durable idempotency key (`team.md` §2.4). The bare-callID key is the
+        // same compatibility seam pre-WP4 outbound rows use.
+        if record.direction == .reply, let callID = record.callID, !callID.isEmpty {
+            agentCommThreads["\(record.botID)\u{0}\(callID)"] = record.threadID
         }
         let recipient = BotUnreadRules.recipient(for: record)
         if let recipient {
@@ -1482,11 +1507,31 @@ extension BotRuntimeComposition: BotTeamHost {
             if let rowID = data["rowID"]?.stringValue ?? data["id"]?.stringValue {
                 agentCommTracker.addRowID(rowID, for: botID)
             }
-            guard comm["direction"]?.stringValue == "outbound",
-                  let thread = comm["threadId"]?.stringValue,
-                  let request = comm["requestId"]?.stringValue else { continue }
-            agentCommThreads["\(botID)\u{0}\(request)"] = thread
+            guard let thread = comm["threadId"]?.stringValue else { continue }
+            switch comm["direction"]?.stringValue {
+            case "outbound":
+                guard let request = comm["requestId"]?.stringValue else { continue }
+                agentCommThreads["\(botID)\u{0}\(request)"] = thread
+            case "reply":
+                // A reply's idempotency key is its own callID (top-level data
+                // member), not the exchange requestID (`team.md` §2.4/§2.9).
+                guard let callID = data["callId"]?.stringValue, !callID.isEmpty else { continue }
+                agentCommThreads["\(botID)\u{0}\(callID)"] = thread
+            default:
+                continue
+            }
         }
+    }
+
+    /// The in-memory identity of the hop a delivery opens. `SendToAgent` turns
+    /// it into a reply instead of a cycle when the target answers this sender.
+    private func inboundHop(for request: BotAgentDeliveryRequest) -> BotAgentInboundHop {
+        BotAgentInboundHop(
+            senderID: request.sender.id,
+            requestID: request.requestId,
+            threadID: request.threadId,
+            delivery: request.delivery,
+            title: request.title)
     }
 
     private func makeHeldItem(for request: BotAgentDeliveryRequest) throws -> WakeInboxItem {

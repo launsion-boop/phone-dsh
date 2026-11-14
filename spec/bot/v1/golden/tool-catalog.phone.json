@@ -29,7 +29,9 @@
       "descriptionContains": [
         "Available bots:",
         "priority",
-        "Never send to yourself"
+        "Never send to yourself",
+        "is a legitimate reply",
+        "written back automatically"
       ]
     },
     "createTeammate": {
