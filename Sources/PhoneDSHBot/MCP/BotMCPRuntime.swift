@@ -2007,7 +2007,10 @@ public actor BotMCPRuntime {
 
     /// One plain Chinese sentence for the model-facing approval result. It
     /// mirrors the receipt wording the user saw, without ids or enum names.
-    private static func approvalResultSummary(_ outcome: BotApprovalOutcome) -> String {
+    /// Internal, not private: the copy table is contract data and a test asserts
+    /// every branch, including the standing-scope sentences that most phone
+    /// tools cannot reach any more (only a standing-eligible effect may).
+    static func approvalResultSummary(_ outcome: BotApprovalOutcome) -> String {
         if outcome.pending {
             return "审批请求已经发出，正在等用户确认。"
         }

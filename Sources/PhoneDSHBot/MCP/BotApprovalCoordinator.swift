@@ -934,10 +934,21 @@ public actor BotApprovalCoordinator {
     }
 
     private func expireDurable(approvalId: String) async {
-        guard let request = pending[approvalId], request.persistent else { return }
-        pending.removeValue(forKey: approvalId)
+        guard let request = pending.removeValue(forKey: approvalId), request.persistent else { return }
         request.timeout?.cancel()
         request.waitTimeout?.cancel()
+        // Record the terminal state before the first suspension: the audit
+        // append below is an async hop, and `durableStatus`/`resolve` run on
+        // this actor while it is in flight. An expired todo must read
+        // `expired` for that whole window, never `unknown_approval`
+        // (`BotApprovalExpiryRaceTests`). The append still persists the
+        // durable `approval.decided`; if it fails, the in-memory decision
+        // stands and a restart re-expires from the stored requested event in
+        // `ensureRestored`.
+        let notice = BotApprovalResolutionNotice(
+            approvalID: approvalId, principal: request.principal,
+            allowed: false, expired: true, decision: .deny, decidedAt: now())
+        record(notice)
         try? await eventWriter.append(
             type: "approval.decided", principal: request.principal,
             data: .object([
@@ -950,10 +961,6 @@ public actor BotApprovalCoordinator {
         request.continuation?.resume(returning: BotApprovalOutcome(
             ok: false, allowed: false, approvalId: approvalId,
             message: "approval expired"))
-        let notice = BotApprovalResolutionNotice(
-            approvalID: approvalId, principal: request.principal,
-            allowed: false, expired: true, decision: .deny, decidedAt: now())
-        record(notice)
         await deliver(notice)
     }
 
