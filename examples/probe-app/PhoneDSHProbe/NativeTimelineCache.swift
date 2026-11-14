@@ -417,6 +417,11 @@ struct ChatTranscriptGate: Equatable {
     /// Adoptions parked while hidden. Diagnostics only; the model owns the
     /// pending value because it also owns the rows.
     private(set) var deferredAdoptions = 0
+    /// Rows were delivered after the newest adoption parked. The App can still
+    /// execute while hidden (background keep-alive, a recovering event stream),
+    /// and those rows land on the old transcript, so the parked snapshot is
+    /// now **older** than the screen: committing it would drop them.
+    private(set) var parkedAdoptionIsStale = false
 
     init(isForeground: Bool = true) {
         self.isForeground = isForeground
@@ -437,12 +442,33 @@ struct ChatTranscriptGate: Equatable {
     }
 
     /// True when the caller may replace the rows now. While hidden the caller
-    /// parks the adoption and this records one deferral.
+    /// parks the adoption and this records one deferral. A fresh park starts
+    /// current: `noteRowsMayHaveChanged` marks it stale when the event pump
+    /// delivers rows behind the App's back.
     mutating func takeAdoptionSlot() -> Bool {
         guard isForeground else {
             deferredAdoptions &+= 1
+            parkedAdoptionIsStale = false
             return false
         }
         return true
+    }
+
+    /// The event pump delivered (or coalesced) rows that mutate the painted
+    /// transcript. Called for every handled event; it only matters while an
+    /// adoption is parked, where it supersedes the parked snapshot.
+    mutating func noteRowsMayHaveChanged() {
+        if deferredAdoptions > 0 { parkedAdoptionIsStale = true }
+    }
+
+    /// The parked adoption's commit decision, taken exactly once when the
+    /// scene is active again: `false` means rows changed after the snapshot
+    /// parked, so the caller must re-read the transcript in the foreground
+    /// instead of overwriting live rows with the older snapshot.
+    mutating func beginParkedAdoptionCommit() -> Bool {
+        let commit = !parkedAdoptionIsStale
+        if deferredAdoptions > 0 { deferredAdoptions -= 1 }
+        parkedAdoptionIsStale = false
+        return commit
     }
 }

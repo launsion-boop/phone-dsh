@@ -288,6 +288,29 @@ targets:
       - path: PhoneDSHProbe/Bot/BotLiveTurn.swift
       # Shared Bot display formatting; Foundation-only so both suites can test it.
       - path: PhoneDSHProbe/Bot/BotUIFormat.swift
+      # Pure approval-offer rules (what the card may offer, its receipt and the
+      # one-shot degrade); Foundation-only so the same rules run under test.
+      - path: PhoneDSHProbe/Bot/BotApprovalOffer.swift
+      # Real-time watch: the incremental session-log reader, the durable
+      # event tail, the row service poll and its health/instrumentation
+      # compile here so the append-only, no-op and degraded-path regressions
+      # drive the real production path.
+      - path: PhoneDSHProbe/Bot/BotProductionServices.swift
+      - path: PhoneDSHProbe/Bot/BotRuntimePresentation.swift
+      - path: PhoneDSHProbe/Bot/BotActivityPhrases.swift
+      - path: PhoneDSHProbe/Bot/BotRebindDiagnostics.swift
+      - path: PhoneDSHProbe/BotSessionRegistry.swift
+      - path: PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
+      # Phase 2 realtime supervision: the Bot chat model owns the supervised
+      # watch/live loops, so the stall/throw/stream-end/health regressions drive
+      # the real model instead of a copy. Its dependencies are Foundation,
+      # Combine and PhoneDSHBot only (no ChatModel, no SwiftUI).
+      - path: PhoneDSHProbe/Bot/BotChatModel.swift
+      - path: PhoneDSHProbe/Bot/BotUIModels.swift
+      - path: PhoneDSHProbe/Bot/BotProfileCenter.swift
+      # BotUIModels' deep-link helpers resolve the roster's main pointer
+      # through the production routing rule; Foundation + PhoneDSHBot only.
+      - path: PhoneDSHProbe/Bot/BotAppWiringLogic.swift
       # The scripted model upstream, the smoke evidence readers (WAL
       # replay/journal/step formats) and the kill-matrix support ship as the
       # regular SwiftPM target `PhoneDSHHarness`; this target links its
@@ -436,6 +459,24 @@ targets:
       - path: PhoneDSHProbe/Bot/BotLiveTurn.swift
       # Shared Bot display formatting; Foundation-only so both suites can test it.
       - path: PhoneDSHProbe/Bot/BotUIFormat.swift
+      # Pure approval-offer rules (what the card may offer, its receipt and the
+      # one-shot degrade); Foundation-only so the same rules run under test.
+      - path: PhoneDSHProbe/Bot/BotApprovalOffer.swift
+      # Same real-time watch sources as the simulator twin; the device session
+      # suite must compile the identical production poll.
+      - path: PhoneDSHProbe/Bot/BotProductionServices.swift
+      - path: PhoneDSHProbe/Bot/BotRuntimePresentation.swift
+      - path: PhoneDSHProbe/Bot/BotActivityPhrases.swift
+      - path: PhoneDSHProbe/Bot/BotRebindDiagnostics.swift
+      - path: PhoneDSHProbe/BotSessionRegistry.swift
+      - path: PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
+      # Same realtime supervision sources as the simulator twin.
+      - path: PhoneDSHProbe/Bot/BotChatModel.swift
+      - path: PhoneDSHProbe/Bot/BotUIModels.swift
+      - path: PhoneDSHProbe/Bot/BotProfileCenter.swift
+      # BotUIModels' deep-link helpers resolve the roster's main pointer
+      # through the production routing rule; Foundation + PhoneDSHBot only.
+      - path: PhoneDSHProbe/Bot/BotAppWiringLogic.swift
     dependencies:
       - target: PhoneDSHProbe
       - target: ProbeKit

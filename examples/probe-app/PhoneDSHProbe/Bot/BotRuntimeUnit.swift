@@ -212,8 +212,15 @@ final class BotRuntimeUnit {
     /// the single-Bot composition: invalidate the replaced Worker first (the
     /// composition does it once for all units), then transport, session,
     /// durable routines and interrupted tasks, then the scheduler.
+    ///
+    /// `started` is cleared *before* the first throwing step on purpose: a
+    /// restart of an already-started unit that fails midway (after the transport
+    /// was attached, before the main session/scheduler came back) must not be
+    /// reported as a live+started unit by ``rebindState``, or the next bind
+    /// would keep it and never retry `start`.
     func start(transport: any DSHRemoteTransport, attempt: Int,
                channelDetail: String = "") async throws {
+        started = false
         let unitDetail = "bot=\(botID)" + (channelDetail.isEmpty ? "" : " " + channelDetail)
         try await BotRebindDiagnostics.run(
             "unit.attach-transport", attempt: attempt, detail: unitDetail
@@ -292,6 +299,16 @@ final class BotRuntimeUnit {
         if await BotOnboarding.hasPending(in: wakeInbox) {
             try? await remote.wakeWithHeldMessages()
         }
+    }
+
+    /// The unit's state for a host bind's restart scope. A live transport and a
+    /// completed start are both required to keep the unit: anything else means
+    /// the unit cannot serve a turn on the current Worker incarnation and must
+    /// be attached again.
+    func rebindState() async -> BotRebindUnit {
+        await BotRebindUnit(botID: botID,
+                            hasLiveTransport: remote.hasLiveTransport(),
+                            isStarted: started)
     }
 
     /// The keep-alive condition includes routines due inside the window even

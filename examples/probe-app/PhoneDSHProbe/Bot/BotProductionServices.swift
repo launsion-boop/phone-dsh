@@ -397,6 +397,40 @@ struct BotProductionHistoryPage: Sendable, Equatable {
     var hasMore: Bool
 }
 
+/// Health of the Bot page's durable watch feed, as the row service reports it.
+///
+/// The realtime lane (`BotChatModel.watchHealthProvider`) reads this verdict
+/// through `BotProductionRowService.watchHealth()`: the thrown read error is
+/// transient and one-shot, while the verdict stays `.degraded` until the next
+/// successful rebuild, which is what keeps the page's「实时更新中断，正在重连」
+/// line armed across the failing polls. `reason` is a stable diagnostic token,
+/// never user copy; the page maps `.degraded` to its own reconnect line.
+enum BotProductionWatchHealth: Equatable, Sendable {
+    case healthy
+    case degraded(reason: String, since: Int64)
+
+    var isDegraded: Bool {
+        if case .degraded = self { return true }
+        return false
+    }
+
+    var reason: String? {
+        guard case .degraded(let reason, _) = self else { return nil }
+        return reason
+    }
+
+    var since: Int64? {
+        guard case .degraded(_, let since) = self else { return nil }
+        return since
+    }
+
+    /// The log token: `ok` or `degraded:<reason>`.
+    var verdict: String {
+        guard let reason else { return "ok" }
+        return "degraded:\(reason)"
+    }
+}
+
 /// Loads the main-chat epoch chain from durable `runtime.started` events. Each
 /// entry keeps its physical session id; the row projector stitches them in
 /// first-start order so an epoch switch does not make the old conversation
@@ -467,6 +501,10 @@ actor BotProductionRowService {
     private var liveGeneration = 0
     /// Read-only evidence of session-log records the last `rebuild()` skipped.
     private(set) var sessionLogDiagnostics = BotDSHSessionLogDiagnostics.empty
+    /// The realtime lane's verdict for `watchHealth()`: a failed read is kept
+    /// as `.degraded` until the next successful rebuild, so the page's
+    /// reconnect line survives the poll that threw.
+    private var health = BotProductionWatchHealth.healthy
 
     init(environment: BotProductionEnvironment, history: BotRowHistory = BotRowHistory(),
          remote: BotDSHRemoteRuntime? = nil) {
@@ -494,11 +532,34 @@ actor BotProductionRowService {
         defer { scheduleReadCacheExpiry() }
         // history/watch/start can overlap while the actor awaits its stores.
         // They share one read/projection instead of racing stale snapshots.
+        do {
+            try await rebuildShared()
+        } catch {
+            markReadDegraded()
+            throw error
+        }
+        health = .healthy
+    }
+
+    private func rebuildShared() async throws {
         if let rebuildTask { return try await rebuildTask.value }
         let task = Task { try await self.rebuildOnce() }
         rebuildTask = task
         defer { rebuildTask = nil }
         try await task.value
+    }
+
+    /// Current health of the watch feed's last rebuild. The Bot page's
+    /// supervised loops read it through `BotChatModel.watchHealthProvider`;
+    /// the thrown error is transient, the verdict is what stays.
+    func watchHealth() -> BotProductionWatchHealth { health }
+
+    private func markReadDegraded() {
+        if case .degraded(_, let since) = health {
+            health = .degraded(reason: "rebuild", since: since)
+        } else {
+            health = .degraded(reason: "rebuild", since: botProductionNowMilliseconds())
+        }
     }
 
     private func scheduleReadCacheExpiry() {

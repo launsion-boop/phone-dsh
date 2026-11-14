@@ -359,22 +359,29 @@ def settlement(inp, row):
     b = card['body']
     rid = row['id']
     if kind in ('question', 'steps'):
-        st = action_state(inp, f'card:{rid}')
-        if st in ('pending', 'failed'):
-            return None
+        # The durable card status settles first (ui-state.md §4.3): a newer
+        # question/steps card permanently supersedes this one, and a superseded
+        # row settles even while its own tap is still pending or failed.
         prompt = s(b, 'question', 'prompt')
         detail = prompt.strip() if prompt else None
         if not detail:
             detail = ST['settlement.stepsSuggestion'] if kind == 'steps' else None
         status = b.get('status') if isinstance(b.get('status'), str) else None
+        st = action_state(inp, f'card:{rid}')
+        if status == 'superseded':
+            return settle('minus.circle', ST['settlement.superseded'], detail)
         if rid in inp['dismissedCardIDs'] or status == 'dismissed':
             return settle('xmark.circle', ST['settlement.dismissed'], detail)
-        if st == 'accepted' or status == 'answered':
+        if status == 'answered':
             label = chosen_label(inp, row, card)
             title = ST['settlement.selected'].format(label=label) if label else ST['settlement.sent']
             return settle('checkmark.circle', title, detail)
-        if rid in muted_ids(inp, visible_rows(inp)):
-            return settle('minus.circle', ST['settlement.skipped'], detail)
+        if st in ('pending', 'failed'):
+            return None
+        if st == 'accepted':
+            label = chosen_label(inp, row, card)
+            title = ST['settlement.selected'].format(label=label) if label else ST['settlement.sent']
+            return settle('checkmark.circle', title, detail)
         return None
     if kind == 'checklist':
         if b.get('interactive') is False:
@@ -441,6 +448,8 @@ def chosen_label(inp, row, card):
     return None
 
 def muted_ids(inp, vis):
+    """Checklist-only (ui-state.md §4.4): question/steps staleness is the durable
+    P27 `status:"superseded"`, never this before-the-last-user-text heuristic."""
     last = None
     for i, r in enumerate(vis):
         if r.get('role') == 'user' and (r.get('body') or {}).get('type') == 'text':
@@ -450,16 +459,15 @@ def muted_ids(inp, vis):
     out = []
     for r in vis[:last]:
         card = card_parse(r)
-        if card is None or card['kind'] not in ('question', 'steps', 'checklist'):
+        if card is None or card['kind'] != 'checklist':
             continue
         if action_state(inp, f'card:{r["id"]}') is not None:
             continue
-        if card['kind'] == 'checklist':
-            p = inp['checklistProgress'].get(r['id'])
-            if p and (p.get('sending') or p.get('sent')):
-                continue
-            if card['body'].get('interactive') is False:
-                continue
+        p = inp['checklistProgress'].get(r['id'])
+        if p and (p.get('sending') or p.get('sent')):
+            continue
+        if card['body'].get('interactive') is False:
+            continue
         out.append(r['id'])
     return out
 

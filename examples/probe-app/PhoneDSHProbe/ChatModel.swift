@@ -1989,20 +1989,46 @@ final class ChatModel {
     /// Commits the parked adoption once, when the page is visible again. The
     /// scene-phase delivery calls this; `ChatPage` calls it too so a page that
     /// appears after a background launch cannot miss the one commit.
+    ///
+    /// Rows the event pump delivered while the App was hidden (the App can
+    /// still execute in the background, e.g. on the Bot keep-alive or while a
+    /// broken stream recovers) landed on the old transcript, which makes the
+    /// parked snapshot older than the screen. Committing it would silently
+    /// drop those rows, so the stale snapshot is replaced by a foreground
+    /// re-read instead of being painted.
     func adoptDeferredTranscriptIfForeground() {
         guard let pending = pendingTranscriptAdoption else { return }
         transcriptGate.isForeground = isAppForeground
         guard transcriptGate.isForeground else { return }
         pendingTranscriptAdoption = nil
+        // The commit decision is taken exactly once, whether the snapshot is
+        // applied or replaced by a fresh read.
+        let snapshotIsCurrent = transcriptGate.beginParkedAdoptionCommit()
         // A parked page belongs to the session it was loaded for. A switch (or
         // a newer adoption) makes it stale; never paint it late.
         guard pending.sessionID == nil || pending.sessionID == sessionID else { return }
+        guard snapshotIsCurrent else {
+            Task { [weak self] in
+                await self?.resyncTranscriptAfterStaleParkedAdoption()
+            }
+            return
+        }
         flushStreamingText()
         streamDraftTracker.clearAll()
         applyAdoptedTranscript(rows: pending.items, hasMore: pending.hasMore,
                                beforeSeq: pending.beforeSeq,
                                throughSeq: pending.throughSeq,
                                hidesCachedTranscript: pending.hidesCachedTranscript)
+    }
+
+    /// Re-reads the transcript in the foreground after a parked adoption was
+    /// superseded by rows delivered while the App was hidden. Reuses the
+    /// event-pump recovery path: it loads the history, adopts the fresh rows
+    /// (the gate is open now) and repositions the pump. A failure keeps the
+    /// live rows on screen — still the fresher picture.
+    private func resyncTranscriptAfterStaleParkedAdoption() async {
+        guard let sessionID else { return }
+        _ = try? await synchronizeInterruptedSession(sessionID: sessionID)
     }
 
     /// Adopts a host that has finished booting: opens the persisted (or a
@@ -4703,6 +4729,11 @@ final class ChatModel {
             handle(eventWhileViewingAnotherSession: event)
             return
         }
+        // This event mutates (or coalesces text that will mutate) the painted
+        // transcript. While a history adoption is parked behind a hidden
+        // scene, it supersedes the parked snapshot: see
+        // `adoptDeferredTranscriptIfForeground`.
+        transcriptGate.noteRowsMayHaveChanged()
         // Deltas are coalesced; every other event is an ordering boundary and
         // sees the transcript with the pending text already applied.
         switch event.kind {
