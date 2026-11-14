@@ -218,6 +218,33 @@ final class BotRuntimeLifecycleRebindTests: XCTestCase {
                       "a replaced Worker incarnation is the only reason a live unit restarts")
     }
 
+    // MARK: - Partial restart
+
+    /// A restart that fails midway must be retried by the next bind.
+    ///
+    /// `BotRebindScope` keeps a unit only when `hasLiveTransport && isStarted`.
+    /// A restart of an already-started unit attaches the new transport first
+    /// and only then rebuilds the main session/scheduler; if one of those steps
+    /// throws, the unit is half-attached with no main session. Unless `start`
+    /// clears `started` before its first throwing step, the stale `started`
+    /// from the previous successful start makes the *next* bind keep the broken
+    /// unit forever. The unit is App target code, so this guard scans its
+    /// source (same mechanism as `testSelectionNeverBindsTheWorkerLifecycle`).
+    func testAUnitRestartThatFailsIsNotReportedAsStarted() throws {
+        let source = try Self.productionUnitSource()
+        let start = try Self.functionBody("func start(transport:", in: source)
+        guard let reset = start.range(of: "started = false") else {
+            XCTFail("unit.start must reset `started` so a failed restart is retried")
+            return
+        }
+        let beforeReset = start[start.startIndex..<reset.lowerBound]
+        XCTAssertFalse(
+            beforeReset.contains("try await"),
+            "the reset must precede the first throwing step of start(), otherwise a mid-restart failure keeps the stale started flag")
+        XCTAssertTrue(start.contains("started = true"),
+                      "a successful start still sets `started` at the end")
+    }
+
     // MARK: - Helpers
 
     private func waitUntil(_ condition: @escaping @Sendable () async -> Bool,
@@ -285,6 +312,18 @@ private extension BotRuntimeLifecycleRebindTests {
             .deletingLastPathComponent()
         let url = root.appendingPathComponent(
             "examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeComposition.swift")
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    static func productionUnitSource() throws -> String {
+        // Tests/PhoneDSHBotTests/MCP/<this file> -> repository root.
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = root.appendingPathComponent(
+            "examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeUnit.swift")
         return try String(contentsOf: url, encoding: .utf8)
     }
 

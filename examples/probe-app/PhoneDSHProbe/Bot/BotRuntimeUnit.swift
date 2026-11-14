@@ -212,8 +212,15 @@ final class BotRuntimeUnit {
     /// the single-Bot composition: invalidate the replaced Worker first (the
     /// composition does it once for all units), then transport, session,
     /// durable routines and interrupted tasks, then the scheduler.
+    ///
+    /// `started` is cleared *before* the first throwing step on purpose: a
+    /// restart of an already-started unit that fails midway (after the transport
+    /// was attached, before the main session/scheduler came back) must not be
+    /// reported as a live+started unit by ``rebindState``, or the next bind
+    /// would keep it and never retry `start`.
     func start(transport: any DSHRemoteTransport, attempt: Int,
                channelDetail: String = "") async throws {
+        started = false
         let unitDetail = "bot=\(botID)" + (channelDetail.isEmpty ? "" : " " + channelDetail)
         try await BotRebindDiagnostics.run(
             "unit.attach-transport", attempt: attempt, detail: unitDetail

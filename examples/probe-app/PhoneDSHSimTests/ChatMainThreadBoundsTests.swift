@@ -611,6 +611,49 @@ final class ChatTranscriptBackgroundGateTests: XCTestCase {
         XCTAssertTrue(gate.takeAdoptionSlot())
         XCTAssertEqual(gate.deferredAdoptions, 2, "the commit is not a deferral")
     }
+
+    /// Rows delivered while the App is hidden (the event pump still runs on a
+    /// background keep-alive or a recovering stream) mutate the old transcript,
+    /// so the parked snapshot is older than the screen. Committing it would
+    /// drop those rows: the commit must be refused and replaced by a fresh
+    /// foreground read.
+    func testRowsDeliveredWhileParkedSupersedeTheSnapshot() {
+        var gate = ChatTranscriptGate(isForeground: false)
+        XCTAssertFalse(gate.takeAdoptionSlot())
+
+        // The pump delivers behind the hidden scene: the parked snapshot ages.
+        gate.noteRowsMayHaveChanged()
+        gate.isForeground = true
+        XCTAssertFalse(gate.beginParkedAdoptionCommit(),
+                       "a snapshot older than the live rows must not be committed")
+        XCTAssertEqual(gate.deferredAdoptions, 0, "the commit decision is taken once")
+
+        // No rows arrived after the park: the snapshot is the freshest picture.
+        gate.isForeground = false
+        XCTAssertFalse(gate.takeAdoptionSlot())
+        gate.isForeground = true
+        XCTAssertTrue(gate.beginParkedAdoptionCommit())
+
+        // A fresh park starts current again; a later row supersedes it again.
+        gate.isForeground = false
+        XCTAssertFalse(gate.takeAdoptionSlot())
+        gate.isForeground = true
+        XCTAssertTrue(gate.beginParkedAdoptionCommit())
+        gate.isForeground = false
+        XCTAssertFalse(gate.takeAdoptionSlot())
+        gate.noteRowsMayHaveChanged()
+        gate.noteRowsMayHaveChanged()
+        gate.isForeground = true
+        XCTAssertFalse(gate.beginParkedAdoptionCommit())
+
+        // Rows delivered while nothing is parked (the normal foreground case)
+        // never poison a later adoption.
+        gate.noteRowsMayHaveChanged()
+        gate.isForeground = false
+        XCTAssertFalse(gate.takeAdoptionSlot())
+        gate.isForeground = true
+        XCTAssertTrue(gate.beginParkedAdoptionCommit())
+    }
 }
 
 // MARK: - Bounded render window
