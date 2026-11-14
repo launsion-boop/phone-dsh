@@ -361,14 +361,15 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
 
     /// AssistiveTouch → Control Center → Screen Mirroring, then `row` in the device list. Blind:
     /// the caller checks where the mirror went.
-    public func startMirroring(row: TonoLinkPoint? = nil) async throws {
-        try await openMirrorList()
+    /// `menuOpen`: the AssistiveTouch menu is already open (the caller tapped the button itself).
+    public func startMirroring(row: TonoLinkPoint? = nil, menuOpen: Bool = false) async throws {
+        try await openMirrorList(menuOpen: menuOpen)
         try await tap(row ?? layout.mirrorTarget)
     }
 
     /// AssistiveTouch → Control Center → Screen Mirroring: opens the device list, blind.
-    public func openMirrorList() async throws {
-        try await tap(layout.assistiveButton); try await Task.sleep(for: .milliseconds(900))
+    public func openMirrorList(menuOpen: Bool = false) async throws {
+        if !menuOpen { try await tap(layout.assistiveButton); try await Task.sleep(for: .milliseconds(900)) }
         try await tap(layout.assistiveControlCenter); try await Task.sleep(for: .milliseconds(1500))
         try await tap(layout.mirrorButton); try await Task.sleep(for: .seconds(2))
     }

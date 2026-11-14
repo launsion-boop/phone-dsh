@@ -208,37 +208,214 @@ final class TonoLinkMirrorDeviceTests: XCTestCase {
         try? await host.hands.disableHID()
     }
 
-    /// Experiment, mirror on so screenshots show what happened: does the catching window get a
-    /// press (and hover) away from the AssistiveTouch button, and nothing on the button?
-    func testExperimentTapProbe() async throws {
+    // MARK: - Mirror down, app in front
+
+    /// One console line to the board over USB (`POST /cmd`, the board's own console).
+    private func boardConsole(_ line: String) async throws {
+        var request = URLRequest(url: TonoLinkUSB.baseURL.appendingPathComponent("cmd"), timeoutInterval: 8)
+        request.httpMethod = "POST"
+        request.httpBody = Data(line.utf8)
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200, "board console \(line)")
+    }
+
+    /// Ends the mirror from the board's side (its receiver goes off and on again), the way a cable
+    /// or receiver drop does: the phone stays in this app.
+    private func dropMirrorFromBoard(_ host: IPhoneAgentHost) async throws {
+        try await boardConsole("airplay off")
+        var stopped = false
+        for _ in 0..<20 where !stopped {
+            try await Task.sleep(for: .milliseconds(500))
+            stopped = !(await host.hands.mirrorActive())
+        }
+        XCTAssertTrue(stopped, "airplay off did not end the mirror")
+        try await boardConsole("airplay on")
+        try await Task.sleep(for: .seconds(3))   // the receiver advertises again
+    }
+
+    /// Mirror on, route learned and fresh, app in front.
+    private func mirroringWithLearnedRoute(_ host: IPhoneAgentHost) async throws {
+        host.screen.start()
+        let mirroring = await host.hands.mirrorActive()
+        try XCTSkipUnless(mirroring, "start the mirror to the board once by hand first")
+        try XCTSkipUnless(TonoLinkTapProbe.available, "this app is not in front")
+        try await host.hands.ensureHID()
+        try await Task.sleep(for: .milliseconds(800))
+        if !host.hands.layout.mirrorRouteUsable || host.hands.layout.mirrorRouteNeedsLearning() {
+            note("learning first: \(try await host.learnMirrorRoute())")
+            try XCTSkipUnless(TonoLinkTapProbe.available, "learning left this app (Control Center closed to Home)")
+        }
+    }
+
+    /// Taps `point` over the catching window: true when AssistiveTouch took the press (its menu is
+    /// then open and is closed again by a press outside it).
+    private func buttonAt(_ host: IPhoneAgentHost, _ point: TonoLinkPoint) async throws -> Bool {
+        let probe = TonoLinkTapProbe()
+        // Without the window every press would look like "AssistiveTouch took it".
+        guard probe.show() else { throw XCTSkip("this app is no longer in front; the probe cannot run") }
+        defer { probe.hide() }
+        try await Task.sleep(for: .milliseconds(300))
+        try await host.hands.tap(point)
+        try await Task.sleep(for: .milliseconds(900))
+        guard probe.touches.isEmpty else { return false }
+        probe.reset()
+        try await host.hands.tap(TonoLinkPoint(500, 120))   // outside the menu: closes it
+        try await Task.sleep(for: .milliseconds(700))
+        return true
+    }
+
+    /// Walks the probe along one screen edge: where the button rests after a drag. Starts below
+    /// y 260: on this iPhone the status bar is a column on the right edge (about y 90–220), and a
+    /// press there goes to the system, which the probe would read as "AssistiveTouch took it".
+    private func findButton(_ host: IPhoneAgentHost, edgeX: Double) async throws -> TonoLinkPoint? {
+        for y in stride(from: 260.0, through: 950.0, by: 40.0) {
+            let point = TonoLinkPoint(edgeX, y)
+            if try await buttonAt(host, point) { return point }
+        }
+        return nil
+    }
+
+    /// Locates the button on either edge with the probe alone.
+    private func findButtonOnEitherEdge(_ host: IPhoneAgentHost) async throws -> TonoLinkPoint? {
+        if let right = try await findButton(host, edgeX: 916) { return right }
+        return try await findButton(host, edgeX: 88)
+    }
+
+    /// Drags in hops of at most 250 (0–1000): the board takes at most 64 steps per batch, and a
+    /// long relative move needs more. The button stays where each hop releases it.
+    private func dragButton(_ host: IPhoneAgentHost, from: TonoLinkPoint, to: TonoLinkPoint) async throws {
+        let distance = max(abs(to.x - from.x), abs(to.y - from.y))
+        let hops = max(1, Int((distance / 250).rounded(.up)))
+        var start = from
+        for hop in 1...hops {
+            let f = Double(hop) / Double(hops)
+            let end = TonoLinkPoint(from.x + (to.x - from.x) * f, from.y + (to.y - from.y) * f)
+            try await host.hands.swipe(from: start, to: end, ms: 700)
+            try await Task.sleep(for: .milliseconds(900))
+            start = end
+        }
+        try await Task.sleep(for: .seconds(1.5))
+    }
+
+    /// Puts the button back at `original` with the screen dark: find it, drag it toward the same
+    /// edge at a corrected height, find it again. Long drags land imprecisely, so up to 6 rounds.
+    @discardableResult
+    private func restoreButtonBlind(_ host: IPhoneAgentHost, to original: TonoLinkPoint) async throws -> TonoLinkPoint? {
+        var found = try await findButtonOnEitherEdge(host)
+        note("restore: button found at \(String(describing: found))")
+        var aimY = original.y
+        for attempt in 1...6 {
+            guard let from = found else { return nil }
+            if abs(from.x - original.x) < 100 && abs(from.y - original.y) <= 40 { return from }
+            try await dragButton(host, from: from, to: TonoLinkPoint(original.x > 500 ? 995 : 5, aimY))
+            found = try await findButtonOnEitherEdge(host)
+            note("restore attempt \(attempt): now \(String(describing: found)), aimed y \(aimY)")
+            if let found, abs(found.x - original.x) < 100 { aimY = min(max(aimY + (original.y - found.y), 60), 990) }
+        }
+        return found
+    }
+
+    /// One hop-split drag `TEST_RUNNER_PDSH_DRAG=fx,fy,tx,ty`, for restoring a phone step by step
+    /// while watching it with `devicectl device capture screenshot`.
+    func testDragOnce() async throws {
+        try requireFixture()
+        let parts = (ProcessInfo.processInfo.environment["TEST_RUNNER_PDSH_DRAG"] ?? ProcessInfo.processInfo.environment["PDSH_DRAG"] ?? "").split(separator: ",").compactMap { Double($0) }
+        try XCTSkipUnless(parts.count == 4, "pass TEST_RUNNER_PDSH_DRAG=fx,fy,tx,ty")
+        let host = IPhoneAgentHost.shared
+        try await host.hands.ensureHID()
+        try await Task.sleep(for: .milliseconds(800))
+        try await dragButton(host, from: TonoLinkPoint(parts[0], parts[1]), to: TonoLinkPoint(parts[2], parts[3]))
+        try? await host.hands.disableHID()
+    }
+
+    /// Puts the phone back after a failed drag test: button at `TEST_RUNNER_PDSH_BUTTON_AT`
+    /// (default 917,815) with the screen dark, the saved route re-marked, mirror restarted.
+    func testRestoreButtonAndMirrorBlind() async throws {
         try requireFixture()
         let host = IPhoneAgentHost.shared
         host.screen.start()
-        let mirroring = await host.hands.mirrorActive()
-        try XCTSkipUnless(mirroring, "needs the mirror for the screenshots")
+        try XCTSkipUnless(TonoLinkTapProbe.available, "this app is not in front")
+        let env = ProcessInfo.processInfo.environment
+        let parts = (env["TEST_RUNNER_PDSH_BUTTON_AT"] ?? env["PDSH_BUTTON_AT"] ?? "917,815").split(separator: ",").compactMap { Double($0) }
+        let original = TonoLinkPoint(parts[0], parts[1])
         try await host.hands.ensureHID()
         try await Task.sleep(for: .milliseconds(800))
-        let button = host.hands.layout.assistiveButton
-        let probe = TonoLinkTapProbe()
-        note("probe available=\(TonoLinkTapProbe.available)")
-        XCTAssertTrue(probe.show(), "the app is not in front")
-        defer { probe.hide() }
-        try await Task.sleep(for: .milliseconds(400))
+        let restored = try await restoreButtonBlind(host, to: original)
+        note("button now \(String(describing: restored))")
+        let back = try await buttonAt(host, original)
+        XCTAssertTrue(back, "the button is not back at \(original)")
+        guard back else { return }
+        var layout = host.hands.layout
+        layout.assistiveButton = original
+        layout.markMirrorRouteLearned()
+        host.hands.layout = layout
+        layout.save()
+        let mirroring = await host.hands.mirrorActive()
+        if !mirroring { try await host.prepare() }
+        let after = await host.hands.mirrorActive()
+        XCTAssertTrue(after, "the mirror did not come back")
+        try? await host.hands.disableHID()
+    }
 
-        try await host.hands.hover(TonoLinkPoint(500, 500)); try await Task.sleep(for: .milliseconds(500))
-        note("hover centre: hovers=\(probe.hovers.suffix(3)) touches=\(probe.touches)")
-        probe.reset()
-        try await host.hands.hover(button); try await Task.sleep(for: .milliseconds(500))
-        note("hover button \(button): last hovers=\(probe.hovers.suffix(3))")
-        probe.reset()
-        try await host.hands.tap(TonoLinkPoint(500, 400)); try await Task.sleep(for: .milliseconds(800))
-        note("tap empty (500,400): touches=\(probe.touches)")
-        probe.reset()
-        try await host.hands.tap(button); try await Task.sleep(for: .milliseconds(900))
-        note("tap button \(button): touches=\(probe.touches)")
-        await shot(host, "after-button-tap")
-        try? await host.hands.key("esc"); try await Task.sleep(for: .milliseconds(600))
-        await shot(host, "after-esc")
+    /// Happy path: the mirror drops while this app is in front; the next `prepare()` checks the
+    /// button with one press over the catching window and restarts the mirror from the open menu.
+    func testRestartChecksTheButtonWhenTheAppIsInFront() async throws {
+        try requireFixture()
+        let host = IPhoneAgentHost.shared
+        try await mirroringWithLearnedRoute(host)
+        try await dropMirrorFromBoard(host)
+        XCTAssertTrue(TonoLinkTapProbe.available, "the app must still be in front after the drop")
+        let mark = host.screen.frameCount
+        let started = ContinuousClock.now
+        try await host.prepare()
+        note("restarted through the probe path in \(ContinuousClock.now - started)")
+        let restored = await host.hands.mirrorActive()
+        XCTAssertTrue(restored)
+        let fresh = try? await host.screen.snapshot(newerThan: mark, fresh: 2, timeout: .seconds(5))
+        XCTAssertNotNil(fresh, "no new picture after the restart")
+        if let fresh { attach(fresh.jpeg, "restarted") }
+        try? await host.hands.disableHID()
+    }
+
+    /// The button is dragged while the mirror is down: the next `prepare()` must find out with its
+    /// first press, invalidate the route and stop without opening Control Center. The phone is then
+    /// put back: the button dragged home (located by the probe, no screen), the route re-marked,
+    /// and `prepare()` restarts the mirror.
+    func testButtonDraggedWhileTheMirrorIsDownIsCaught() async throws {
+        try requireFixture()
+        let host = IPhoneAgentHost.shared
+        try await mirroringWithLearnedRoute(host)
+        let original = host.hands.layout.assistiveButton
+        let saved = host.hands.layout
+        try await dropMirrorFromBoard(host)
+
+        // Drag it away with the screen dark.
+        try await host.hands.swipe(from: original, to: TonoLinkPoint(original.x > 500 ? 5 : 995, min(max(original.y - 250, 300), 700)), ms: 1200)
+        try await Task.sleep(for: .seconds(2))
+        let stillThere = try await buttonAt(host, original)
+        try XCTSkipIf(stillThere, "the pointer drag did not move the button")
+
+        var caught: Error?
+        do { try await host.prepare() } catch { caught = error }
+        note("prepare() after the drag: \(String(describing: caught))")
+        XCTAssertTrue("\(caught.map { "\($0)" } ?? "")".contains("小圆点"), "the moved button was not reported")
+        XCTAssertFalse(TonoLinkPhoneLayout.load().mirrorRouteUsable, "the route was not invalidated")
+        let mirroringAfterCatch = await host.hands.mirrorActive()
+        XCTAssertFalse(mirroringAfterCatch, "nothing may have been started blind")
+        XCTAssertTrue(TonoLinkTapProbe.available, "the check must not leave this app (no Control Center)")
+
+        // Put the button back where it was, located by the probe alone.
+        try await restoreButtonBlind(host, to: original)
+        let back = try await buttonAt(host, original)
+        XCTAssertTrue(back, "the button is not back at \(original)")
+        var layout = saved
+        layout.markMirrorRouteLearned()
+        host.hands.layout = layout
+        layout.save()
+        try await host.prepare()
+        let mirroringAgain = await host.hands.mirrorActive()
+        XCTAssertTrue(mirroringAgain, "the mirror did not come back after the button was put back")
+        try? await host.hands.disableHID()
     }
 
     private func shot(_ host: IPhoneAgentHost, _ name: String) async {

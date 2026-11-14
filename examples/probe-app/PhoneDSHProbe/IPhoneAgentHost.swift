@@ -155,9 +155,24 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
     /// own audio is up, the AirPlay route), so it never taps a second guess; a miss ends at Home
     /// with a message.
     func restartMirror() async throws {
-        try await hands.home(); try await Task.sleep(for: .milliseconds(1500))
+        var menuOpen = false
+        if TonoLinkTapProbe.available {
+            // This app is in front, so Control Center and menus are closed: no Home. The first tap
+            // checks that the button is still where the route was learned (it may have been dragged
+            // while the mirror was down) before any further blind tap.
+            switch try await assistiveButtonCheckedByTap() {
+            case .menuOpened:
+                menuOpen = true
+            case .moved:
+                invalidateMirrorRoute("AssistiveTouch button moved while mirroring was down")
+                throw IPhoneAgentError("辅助触控小圆点的位置变了，没有自动投屏：请在控制中心 → 屏幕镜像里选择「\(await hands.airplayName() ?? "TonoLink USB")」一次，之后会自动重新学习")
+            case .unknown:
+                break
+            }
+        }
+        if !menuOpen { try await hands.home(); try await Task.sleep(for: .milliseconds(1500)) }
         let mark = screen.frameCount
-        try await hands.startMirroring()
+        try await hands.startMirroring(menuOpen: menuOpen)
         let deadline = ContinuousClock.now + .seconds(10)
         while ContinuousClock.now < deadline {
             if await hands.mirrorActive() {
@@ -200,6 +215,22 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
 
     /// Device tests drag the button twice within a minute.
     func resetButtonCheckForTesting() { lastButtonCheck = nil }
+
+    enum ButtonTap { case menuOpened, moved, unknown }
+
+    /// With this app in front and the mirror down: taps the saved AssistiveTouch position over an
+    /// invisible window of this app (`TonoLinkTapProbe`). Measured on an iPhone: a press on the
+    /// button reaches AssistiveTouch and opens its menu, the window gets nothing; a press anywhere
+    /// else lands on the window, which swallows it. `.unknown` when the window could not be shown.
+    func assistiveButtonCheckedByTap() async throws -> ButtonTap {
+        let probe = TonoLinkTapProbe()
+        guard probe.show() else { return .unknown }
+        defer { probe.hide() }
+        try await Task.sleep(for: .milliseconds(300))
+        try await hands.tap(hands.layout.assistiveButton)
+        try await Task.sleep(for: .milliseconds(900))
+        return probe.touches.isEmpty ? .menuOpened : .moved
+    }
 
     /// The saved route no longer fits this phone: stop replaying it and learn it again.
     func invalidateMirrorRoute(_ reason: String) {
