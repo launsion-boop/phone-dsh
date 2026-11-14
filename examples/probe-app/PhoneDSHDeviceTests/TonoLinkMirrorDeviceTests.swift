@@ -208,6 +208,39 @@ final class TonoLinkMirrorDeviceTests: XCTestCase {
         try? await host.hands.disableHID()
     }
 
+    /// Experiment, mirror on so screenshots show what happened: does the catching window get a
+    /// press (and hover) away from the AssistiveTouch button, and nothing on the button?
+    func testExperimentTapProbe() async throws {
+        try requireFixture()
+        let host = IPhoneAgentHost.shared
+        host.screen.start()
+        let mirroring = await host.hands.mirrorActive()
+        try XCTSkipUnless(mirroring, "needs the mirror for the screenshots")
+        try await host.hands.ensureHID()
+        try await Task.sleep(for: .milliseconds(800))
+        let button = host.hands.layout.assistiveButton
+        let probe = TonoLinkTapProbe()
+        note("probe available=\(TonoLinkTapProbe.available)")
+        XCTAssertTrue(probe.show(), "the app is not in front")
+        defer { probe.hide() }
+        try await Task.sleep(for: .milliseconds(400))
+
+        try await host.hands.hover(TonoLinkPoint(500, 500)); try await Task.sleep(for: .milliseconds(500))
+        note("hover centre: hovers=\(probe.hovers.suffix(3)) touches=\(probe.touches)")
+        probe.reset()
+        try await host.hands.hover(button); try await Task.sleep(for: .milliseconds(500))
+        note("hover button \(button): last hovers=\(probe.hovers.suffix(3))")
+        probe.reset()
+        try await host.hands.tap(TonoLinkPoint(500, 400)); try await Task.sleep(for: .milliseconds(800))
+        note("tap empty (500,400): touches=\(probe.touches)")
+        probe.reset()
+        try await host.hands.tap(button); try await Task.sleep(for: .milliseconds(900))
+        note("tap button \(button): touches=\(probe.touches)")
+        await shot(host, "after-button-tap")
+        try? await host.hands.key("esc"); try await Task.sleep(for: .milliseconds(600))
+        await shot(host, "after-esc")
+    }
+
     private func shot(_ host: IPhoneAgentHost, _ name: String) async {
         if let frame = try? await host.screen.snapshot() { attach(frame.jpeg, name) }
     }

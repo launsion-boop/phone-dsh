@@ -234,6 +234,15 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
     }
 
     public func tap(_ x: Double, _ y: Double) async throws { try await batch(Self.glideSteps(x, y, holdMs: 120)) }
+
+    /// Glides the pointer to `point` without pressing.
+    public func hover(_ point: TonoLinkPoint) async throws {
+        var steps: [[String: Any]] = []
+        for f in [0.0, 0.5, 0.85, 1.0] {
+            steps.append(Self.absolute(500 + (point.x - 500) * f, 500 + (point.y - 500) * f, 0)); steps.append(["delay_ms": 180])
+        }
+        try await batch(steps)
+    }
     public func tap(_ point: TonoLinkPoint) async throws { try await tap(point.x, point.y) }
 
     public func doubleTap(_ x: Double, _ y: Double) async throws {
