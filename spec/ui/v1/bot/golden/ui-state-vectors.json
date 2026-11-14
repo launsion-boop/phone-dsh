@@ -680,9 +680,9 @@
    }
   },
   {
-   "id": "question-muted",
-   "source": "BotChatModel.swift:412-430, BotChatModel.swift:462-463",
-   "note": "A question before the latest user text that was never handled is muted and settles to 已略过.",
+   "id": "question-before-user-text-open",
+   "source": "BotChatModel.swift:442-455, BotChatModel.swift:474-507",
+   "note": "A question before the latest user text is NOT muted: question/steps staleness is the durable P27 status only, so the card stays open until a newer choice card supersedes it.",
    "input": {
     "context": {
      "botID": "main",
@@ -793,24 +793,11 @@
      "question-1",
      "user-1"
     ],
-    "mutedCardIDs": [
-     "question-1"
-    ],
-    "settledRowIDs": [
-     "question-1"
-    ],
-    "settlements": [
-     {
-      "rowID": "question-1",
-      "glyph": "minus.circle",
-      "title": "已略过",
-      "detail": "要把这份整理好的内容保存到哪里？",
-      "tone": "neutral",
-      "monospacedDetail": false
-     }
-    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
     "pendingApprovalCount": 0,
-    "needsAttentionCount": 0,
+    "needsAttentionCount": 1,
     "followingCount": 0,
     "fishState": "idle",
     "header": {
@@ -839,9 +826,9 @@
    }
   },
   {
-   "id": "steps-muted",
-   "source": "BotChatModel.swift:412-430, BotChatModel.swift:472",
-   "note": "Muted steps use 建议下一步 as the detail when the card has no prompt.",
+   "id": "steps-before-user-text-open",
+   "source": "BotChatModel.swift:442-455, BotChatModel.swift:474-507",
+   "note": "Steps follow the same durable-only staleness rule; the before-the-last-user-text checklist heuristic no longer mutes or settles them.",
    "input": {
     "context": {
      "botID": "main",
@@ -950,18 +937,744 @@
      "steps-1",
      "user-1"
     ],
-    "mutedCardIDs": [
-     "steps-1"
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 1,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "question-superseded",
+   "source": "BotChatModel.swift:474-507, BotCardView.swift:180-181",
+   "note": "A newer question card permanently supersedes the older still-open one; the durable status settles it even if the row is drawn in full.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "question-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "question",
+       "question": "要把这份整理好的内容保存到哪里？",
+       "helpText": "推荐保存到文档库，之后可以继续编辑。",
+       "options": [
+        {
+         "id": "library",
+         "label": "保存到文档库",
+         "description": "保留版本并方便之后查找",
+         "recommended": true
+        },
+        {
+         "id": "pdf",
+         "label": "导出 PDF",
+         "description": "生成适合分享的固定版面"
+        },
+        {
+         "id": "later",
+         "label": "稍后决定"
+        }
+       ],
+       "status": "superseded",
+       "supersededBy": "question-2"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-question-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
     ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "covers": [
+    "settlement.superseded"
+   ],
+   "expected": {
+    "visibleRowIDs": [
+     "question-1"
+    ],
+    "displayRowIDs": [
+     "question-1"
+    ],
+    "mutedCardIDs": [],
     "settledRowIDs": [
-     "steps-1"
+     "question-1"
     ],
     "settlements": [
      {
-      "rowID": "steps-1",
+      "rowID": "question-1",
+      "glyph": "minus.circle",
+      "title": "已过期，用最新那张",
+      "detail": "要把这份整理好的内容保存到哪里？",
+      "tone": "neutral",
+      "monospacedDetail": false
+     }
+    ],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "question-superseded-pending",
+   "source": "BotChatModel.swift:474-507",
+   "note": "The durable superseded status outranks a local pending tap: the card settles instead of keeping buttons that the planner would refuse.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "question-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "question",
+       "question": "要把这份整理好的内容保存到哪里？",
+       "helpText": "推荐保存到文档库，之后可以继续编辑。",
+       "options": [
+        {
+         "id": "library",
+         "label": "保存到文档库",
+         "description": "保留版本并方便之后查找",
+         "recommended": true
+        },
+        {
+         "id": "pdf",
+         "label": "导出 PDF",
+         "description": "生成适合分享的固定版面"
+        },
+        {
+         "id": "later",
+         "label": "稍后决定"
+        }
+       ],
+       "status": "superseded",
+       "supersededBy": "question-2"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-question-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {
+     "card:question-1": "pending"
+    },
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "covers": [
+    "settlement.superseded-durable-over-local"
+   ],
+   "expected": {
+    "visibleRowIDs": [
+     "question-1"
+    ],
+    "displayRowIDs": [
+     "question-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [
+     "question-1"
+    ],
+    "settlements": [
+     {
+      "rowID": "question-1",
+      "glyph": "minus.circle",
+      "title": "已过期，用最新那张",
+      "detail": "要把这份整理好的内容保存到哪里？",
+      "tone": "neutral",
+      "monospacedDetail": false
+     }
+    ],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "question-pending",
+   "source": "BotChatModel.swift:474-507, BotCardView.swift:184-195",
+   "note": "A tap in flight keeps the whole card (spinner plus 正在送出…); it does not settle yet.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "question-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "question",
+       "question": "要把这份整理好的内容保存到哪里？",
+       "helpText": "推荐保存到文档库，之后可以继续编辑。",
+       "options": [
+        {
+         "id": "library",
+         "label": "保存到文档库",
+         "description": "保留版本并方便之后查找",
+         "recommended": true
+        },
+        {
+         "id": "pdf",
+         "label": "导出 PDF",
+         "description": "生成适合分享的固定版面"
+        },
+        {
+         "id": "later",
+         "label": "稍后决定"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-question-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     },
+     {
+      "id": "user-1",
+      "botID": "main",
+      "seq": 2,
+      "updatedSeq": 2,
+      "kind": "sendMessage",
+      "role": "user",
+      "body": {
+       "type": "text",
+       "text": "继续"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-user-1"
+       ],
+       "trust": "owner_direct",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000002000
+     }
+    ],
+    "actionStates": {
+     "card:question-1": "pending"
+    },
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "covers": [
+    "settlement.pending-keeps-card"
+   ],
+   "expected": {
+    "visibleRowIDs": [
+     "question-1",
+     "user-1"
+    ],
+    "displayRowIDs": [
+     "question-1",
+     "user-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "question-answered-pending",
+   "source": "BotChatModel.swift:474-507",
+   "note": "The durable answered status outranks a pending local tap and renders the chosen label.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "question-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "question",
+       "question": "要把这份整理好的内容保存到哪里？",
+       "helpText": "推荐保存到文档库，之后可以继续编辑。",
+       "options": [
+        {
+         "id": "library",
+         "label": "保存到文档库",
+         "description": "保留版本并方便之后查找",
+         "recommended": true
+        },
+        {
+         "id": "pdf",
+         "label": "导出 PDF",
+         "description": "生成适合分享的固定版面"
+        },
+        {
+         "id": "later",
+         "label": "稍后决定"
+        }
+       ],
+       "status": "answered",
+       "answeredOptionID": "library"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-question-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {
+     "card:question-1": "pending"
+    },
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "covers": [
+    "settlement.answered-durable-over-local"
+   ],
+   "expected": {
+    "visibleRowIDs": [
+     "question-1"
+    ],
+    "displayRowIDs": [
+     "question-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [
+     "question-1"
+    ],
+    "settlements": [
+     {
+      "rowID": "question-1",
+      "glyph": "checkmark.circle",
+      "title": "已选择：保存到文档库",
+      "detail": "要把这份整理好的内容保存到哪里？",
+      "tone": "neutral",
+      "monospacedDetail": false
+     }
+    ],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "checklist-muted",
+   "source": "BotChatModel.swift:442-455",
+   "note": "Only a checklist keeps the send-time mute rule: it sits before the latest user text and was never handled, so it settles to 已略过.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "checklist-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "checklist",
+       "title": "发布前检查",
+       "summary": "发布前需要确认 CI、截图和交互检查。",
+       "items": [
+        {
+         "id": "c0",
+         "text": "运行指定 CI 门禁",
+         "done": true
+        },
+        {
+         "id": "c1",
+         "text": "检查浅色与深色截图",
+         "done": true
+        },
+        {
+         "id": "c2",
+         "text": "验证重复点击和迟到结果",
+         "note": "今天"
+        },
+        {
+         "id": "c3",
+         "text": "记录未验证项目",
+         "note": "必填"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-checklist-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     },
+     {
+      "id": "user-1",
+      "botID": "main",
+      "seq": 2,
+      "updatedSeq": 2,
+      "kind": "sendMessage",
+      "role": "user",
+      "body": {
+       "type": "text",
+       "text": "继续"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-user-1"
+       ],
+       "trust": "owner_direct",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000002000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "covers": [
+    "muted.checklist"
+   ],
+   "expected": {
+    "visibleRowIDs": [
+     "checklist-1",
+     "user-1"
+    ],
+    "displayRowIDs": [
+     "checklist-1",
+     "user-1"
+    ],
+    "mutedCardIDs": [
+     "checklist-1"
+    ],
+    "settledRowIDs": [
+     "checklist-1"
+    ],
+    "settlements": [
+     {
+      "rowID": "checklist-1",
       "glyph": "minus.circle",
       "title": "已略过",
-      "detail": "建议下一步",
+      "detail": "发布前检查 · 已完成 2/4",
       "tone": "neutral",
       "monospacedDetail": false
      }

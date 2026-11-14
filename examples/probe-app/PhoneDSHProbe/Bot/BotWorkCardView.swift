@@ -261,7 +261,24 @@ private struct BotApprovalCardView: View {
     private var action: String { row.body.string("action", "title", "text") ?? ask["action"]?.string ?? "操作" }
     private var command: String { row.body.string("command", "target") ?? ask["target"]?.string ?? "" }
     private var detail: String? { row.body["detail"]?.string }
-    private var scope: String { row.body["alwaysScope"]?.string ?? ask["alwaysScope"]?.string ?? "until" }
+    /// The offered standing scope from the projected row. There is no default:
+    /// the durable `approval.requested`/`approval.decided` events carry
+    /// `alwaysScope`, but DSH `tool/call` rows (the model's `RequestApproval`
+    /// arguments have no such field) and legacy payloads do not, and a missing
+    /// value means the approval can only be allowed once.
+    private var offeredScope: String? {
+        row.body["alwaysScope"]?.string ?? ask["alwaysScope"]?.string
+    }
+    private var standingScope: BotApprovalOffer.Standing? {
+        BotApprovalOffer.standingScope(offeredScope)
+    }
+    /// The grant the approval tool result says the user actually received.
+    /// It wins over the offer: the coordinator forces a consumed once grant on
+    /// a `none`/unclassified decision even when the request asked for `always`.
+    private var effectiveScope: String? { row.body["scope"]?.string }
+    /// The durable `approval.decided` row keeps its own decision (`always`
+    /// included) beside the coordinator's `status: "allowed"`.
+    private var decision: String? { row.body["decision"]?.string ?? ask["decision"]?.string }
     private var key: String { "approval:\(row.id)" }
     private var busy: Bool { model.actionStates[key] == .pending }
     private var allowed: Bool {
@@ -275,7 +292,8 @@ private struct BotApprovalCardView: View {
         return risk?["level"]?.string == "high" || risk?["tags"]?.array?.contains(.string("irreversible")) == true
     }
     private var statusLabel: String {
-        BotApprovalReceipt.label(for: status, scope: scope)
+        BotApprovalOffer.receiptLabel(status: status, alwaysScope: offeredScope,
+                                      effectiveScope: effectiveScope, decision: decision)
     }
 
     var body: some View {
@@ -338,13 +356,13 @@ private struct BotApprovalCardView: View {
                 }
             }
             .disabled(busy)
-            if scope == "session" {
+            if offeredScope == "session" {
                 Text("仅对本次对话有效")
                     .botCardMeta()
                     .frame(maxWidth: .infinity, alignment: .center)
                     .accessibilityIdentifier("bot.approval.session.scope")
-            } else if scope == "none" {
-                Text("此操作仅支持单次授权")
+            } else if standingScope == nil {
+                Text(BotApprovalOffer.onceOnlyNote)
                     .botCardMeta()
                     .frame(maxWidth: .infinity, alignment: .center)
                     .accessibilityIdentifier("bot.approval.no-standing-scope")
@@ -366,8 +384,8 @@ private struct BotApprovalCardView: View {
     }
 
     @ViewBuilder private var alwaysButton: some View {
-        if scope != "none" {
-            Button("始终允许") { model.decide(row: row, decision: .always) }
+        if let standingScope {
+            Button(standingScope.buttonTitle) { model.decide(row: row, decision: .always) }
                 .lineLimit(1).minimumScaleFactor(0.8)
                 .buttonStyle(BotCardButtonStyle(kind: .primary, tint: BotCardCategory.approval.ink))
                 .accessibilityIdentifier("bot.approval.always")

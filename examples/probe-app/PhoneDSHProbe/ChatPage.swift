@@ -172,6 +172,15 @@ struct ChatPage: View {
     /// a keyboard change and must scroll with the current height.
     @State private var tailScrollViewportHeight: CGFloat = 0
     @State private var loadingEarlierTranscript = false
+    /// How many newest rows the transcript may materialize in one body pass.
+    /// The page starts with a tail window and grows it through the existing
+    /// "load earlier" sentinel, so a 600-row session never enumerates every
+    /// row in one `LazyVStack` pass (see `NativeTranscriptRenderWindow`).
+    @State private var renderRowLimit = NativeTranscriptRenderWindow.initialRows
+    /// While the person is reading older content, the window's top row is
+    /// pinned by id so an appended row cannot slide the transcript under their
+    /// eyes. Cleared when following the tail resumes.
+    @State private var frozenTopRowID: String?
     /// One auto-history page per top arrival; reset after the anchor is put
     /// back so the sentinel cannot page in a same-frame loop.
     @State private var historyAutoLoadScheduled = false
@@ -757,12 +766,24 @@ struct ChatPage: View {
     }
 
     var body: some View {
+        // The last completed phase names where the main thread was when the
+        // scene-update watchdog fired. `mark` is one lock plus a static string,
+        // far cheaper than the body pass it annotates; the existing marks in
+        // the pipeline stay unconditional for the same reason (a Release
+        // device is where the hang happens, and the perf switch is DEBUG-only).
+        MainThreadHangMonitor.mark("chatBody.start")
         NativePerfCounters.shared.bodyRendered()
         NativePerfCounters.shared.reportIfDue { ChatModel.appendDiagnostic($0) }
+        MainThreadHangMonitor.mark("chatBody.end")
         return pageLifecycle
     }
 
     private func onChatAppear() {
+        // A history page loaded while the scene was hidden was parked by the
+        // model; a page that appears now is the moment it may be painted.
+        model.adoptDeferredTranscriptIfForeground()
+        // origin/main's launch grace: keep the first frames of a cold launch
+        // from racing the engine's own start attempts.
         if !engineLaunchGraceOver {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(3))
@@ -875,6 +896,10 @@ struct ChatPage: View {
         scrollTrace.tailOffsetY = 0
         scrollTrace.lastBlankCorrectionHeight = nil
         pendingInitialScroll = true
+        // Another session is a different transcript: start from the bounded
+        // tail window, never the previous session's expanded one.
+        renderRowLimit = NativeTranscriptRenderWindow.initialRows
+        frozenTopRowID = nil
         management.refreshSoon()
 
     }
@@ -914,22 +939,45 @@ struct ChatPage: View {
         return HomeSpec.blockGap
     }
 
+    /// The rows this page may materialize right now.
+    ///
+    /// Normally the newest `renderRowLimit` rows. While the person is reading
+    /// older content (`userScrolledAway`) the top is pinned by row id and the
+    /// window only grows, so an appended row cannot shift the text being read;
+    /// that growth is bounded by the model's transcript cap (600 items).
+    private func renderWindow(in rows: [NativeTranscriptRow]) -> Range<Int> {
+        if userScrolledAway, let frozenTopRowID,
+           let index = rows.firstIndex(where: { $0.id == frozenTopRowID }) {
+            return index..<rows.count
+        }
+        return NativeTranscriptRenderWindow.tailRange(rowCount: rows.count,
+                                                      limit: renderRowLimit)
+    }
+
+    /// True when older rows exist: still in memory above the window, or on the
+    /// host (`transcriptHasMore`). The top sentinel is the one "load earlier"
+    /// affordance for both.
+    private func hasEarlierRows(in rows: [NativeTranscriptRow],
+                                window: Range<Int>) -> Bool {
+        model.transcriptHasMore || window.lowerBound > 0
+    }
+
     /// Official turn-tail: the action row is anchored after every content and
     /// process row of the Turn, independent of which assistant message closes it.
+    ///
+    /// Every value comes from the timeline snapshot's per-Turn facts. This used
+    /// to scan `visibleItems` three times per tail row inside `body` (copy
+    /// text, closing message, usage).
     @ViewBuilder
-    private func turnTailRow(_ turn: Int) -> some View {
-        let closing = visibleItems.last { $0.turn == turn && $0.kind == .assistant }
-        let text = visibleItems.filter { $0.turn == turn && $0.kind == .assistant }
-            .map(\.text).joined(separator: "\n\n")
-        let usage = NativeTranscriptProjector.usage(forTurn: turn, in: visibleItems)
-        if let closing {
+    private func turnTailRow(_ turn: Int, facts: NativeTimelineTurnFacts) -> some View {
+        if facts.closingAssistantID != nil {
             NativeTurnTail(
-                time: model.turnEndTimes[turn] ?? closing.timestamp,
+                time: model.turnEndTimes[turn] ?? facts.closingTimestamp,
                 isCopied: copiedTurn == turn,
                 isBranchAvailable: false,
-                showsUsage: usage != nil,
+                showsUsage: facts.usage != nil,
                 onCopy: {
-                    UIPasteboard.general.string = text
+                    UIPasteboard.general.string = facts.copyText
                     copiedTurn = turn
                     Task {
                         try? await Task.sleep(for: .seconds(1))
@@ -937,28 +985,16 @@ struct ChatPage: View {
                     }
                 },
                 onFeedback: { feedback in
-                    guard let messageID = closing.messageID else { return }
+                    guard let messageID = facts.closingMessageID else { return }
                     Task { _ = await model.rateMessage(messageID, positive: feedback == .like) }
                 },
-                onUsage: { tailUsage = usage })
+                onUsage: { tailUsage = facts.usage })
                 .sheet(isPresented: Binding(
                     get: { tailUsage != nil },
                     set: { if !$0 { tailUsage = nil } }
                 )) {
                     if let usage = tailUsage { NativeTurnUsageDetails(usage: usage) }
                 }
-        }
-    }
-
-    /// A closed Turn is foldable only when it has both a final answer and at
-    /// least one process row that would be hidden.
-    private func turnHasProcess(_ turn: Int) -> Bool {
-        guard let answerID = visibleItems.last(where: {
-            $0.turn == turn && $0.kind == .assistant
-        })?.id else { return false }
-        return visibleItems.contains { item in
-            item.turn == turn && item.id != answerID
-                && item.kind != .user && item.kind != .context
         }
     }
 
@@ -1262,6 +1298,9 @@ struct ChatPage: View {
     /// Passive top sentinel shared by phone and PC-backed DSH sessions. It
     /// loads one page only when the reader reaches the top, then restores the
     /// old first-row anchor so the sentinel moves out of view. No tap needed.
+    /// This is also the only "load earlier" trigger for the bounded render
+    /// window: a page first shows the newest rows and this grows that window
+    /// from memory before asking the host for an older page.
     private func historySentinel(proxy: ScrollViewProxy, viewportHeight: CGFloat) -> some View {
         HStack(spacing: 6) {
             if loadingEarlierTranscript || historyAutoLoadScheduled {
@@ -1282,22 +1321,45 @@ struct ChatPage: View {
 
     private func loadEarlierIfNeeded(_ maxY: CGFloat, proxy: ScrollViewProxy,
                                      viewportHeight: CGFloat) {
-        guard model.transcriptHasMore, !loadingEarlierTranscript,
-              !historyAutoLoadScheduled,
+        let rows = timelineRows
+        let window = renderWindow(in: rows)
+        guard hasEarlierRows(in: rows, window: window),
+              !loadingEarlierTranscript, !historyAutoLoadScheduled,
               maxY.isFinite, maxY >= -1, maxY <= viewportHeight + 1 else { return }
         historyAutoLoadScheduled = true
+        // The row to keep at the viewport top: the first row on screen now. It
+        // survives both a local window growth and a host page prepend, because
+        // the window always ends at the newest row.
+        let anchor = window.lowerBound < rows.count ? rows[window.lowerBound].scrollTargetID : nil
+        let hadHostPage = model.transcriptHasMore
+        let rowCountBefore = rows.count
+        let windowStartBefore = window.lowerBound
+        let frozenBefore = frozenTopRowID != nil
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 50_000_000)
-            guard historyAutoLoadScheduled, model.transcriptHasMore,
-                  !loadingEarlierTranscript else {
+            guard historyAutoLoadScheduled, !loadingEarlierTranscript else {
                 historyAutoLoadScheduled = false
                 return
             }
-            let anchor = visibleItems.first?.id
             loadingEarlierTranscript = true
-            await model.loadEarlierTranscript()
-            // Let the LazyVStack mount the prepended page before restoring
-            // the old first-row anchor.
+            MainThreadHangMonitor.mark("chatTranscript.loadEarlier")
+            if windowStartBefore > 0, frozenBefore {
+                // Reading older content with a pinned top: move the pin up.
+                let next = max(0, windowStartBefore - NativeTranscriptRenderWindow.pageRows)
+                frozenTopRowID = rows[next].id
+            } else if windowStartBefore > 0 {
+                // Older rows are already in memory: grow the window without a
+                // host round trip.
+                renderRowLimit = NativeTranscriptRenderWindow.grownLimit(
+                    renderRowLimit, rowCount: rowCountBefore)
+            } else if hadHostPage {
+                await model.loadEarlierTranscript()
+                let added = max(0, timelineRows.count - rowCountBefore)
+                renderRowLimit = NativeTranscriptRenderWindow.growing(
+                    renderRowLimit, by: added, rowCount: timelineRows.count)
+            }
+            // Let the LazyVStack mount the new rows before restoring the old
+            // first-row anchor.
             try? await Task.sleep(nanoseconds: 30_000_000)
             if let anchor { proxy.scrollTo(anchor, anchor: .top) }
             loadingEarlierTranscript = false
@@ -1333,12 +1395,85 @@ struct ChatPage: View {
     /// 警告色 #B45309:只用于状态词和图标,不做整块底色。
     static let warning = Color(red: 0xB4 / 255, green: 0x53 / 255, blue: 0x09 / 255)
 
+    /// The bounded row list. Kept out of `body`: the row closure plus the
+    /// window arithmetic pushed the merged page's modifier chain past the
+    /// type-checker budget, and this stays one expression per row.
+    @ViewBuilder
+    private func transcriptRows(_ snapshot: NativeTimelineSnapshot,
+                                window: Range<Int>) -> some View {
+        let _ = MainThreadHangMonitor.mark("chatTranscript.rows")
+        let rows = snapshot.rows
+        let rendered = Array(rows[window])
+        ForEach(Array(rendered.enumerated()), id: \.element.id) { offset, row in
+            transcriptRow(row, index: window.lowerBound + offset, snapshot: snapshot)
+        }
+    }
+
+    @ViewBuilder
+    private func transcriptRow(_ row: NativeTranscriptRow, index: Int,
+                               snapshot: NativeTimelineSnapshot) -> some View {
+        let _ = MainThreadHangMonitor.mark("chatTranscript.row")
+        Group {
+            switch row {
+            case .item(let item):
+                let facts: NativeTimelineTurnFacts = {
+                    guard let turn = item.turn else { return .empty }
+                    return snapshot.turnFacts[turn] ?? .empty
+                }()
+                VStack(alignment: .leading, spacing: 0) {
+                    ChatMessageRow(item: item, fileIndex: model.fileIndex,
+                                   isTurnClosingAssistant: facts.closingAssistantID == item.id,
+                                   submittedPlans: facts.plans,
+                                   turnChanges: facts.changes,
+                                   onOpenFile: openWorkspaceResult,
+                                   onOpenPlan: { plan, markdown in
+                                       previewPlan = NativePlanPreview(
+                                           id: plan.id, title: plan.title, markdown: markdown)
+                                   })
+                    queueLine(for: item)
+                    failureLineIfNeeded(for: item)
+                }
+            case .contexts(let items):
+                NativeContextSourceGroup(items: items)
+            case .tools(let items):
+                ToolRunRow(items: items, onOpenFile: openWorkspaceResult)
+            case .turnProcess(let turn):
+                if let state = model.turnProcessState(for: turn) {
+                    NativeTurnProcessRow(
+                        state: state,
+                        isOpen: !foldedTurns.contains(turn),
+                        isFoldable: snapshot.turnFacts[turn]?.hasProcess ?? false) {
+                            if foldedTurns.contains(turn) {
+                                foldedTurns.remove(turn)
+                                // Remember the hand-opened Turn: no later
+                                // auto-fold closes it.
+                                manuallyExpandedTurns.insert(turn)
+                            } else {
+                                foldedTurns.insert(turn)
+                                manuallyExpandedTurns.remove(turn)
+                            }
+                        }
+                }
+            case .turnTail(let turn):
+                turnTailRow(turn, facts: snapshot.turnFacts[turn] ?? .empty)
+            }
+        }
+        .padding(.top, Self.spacing(before: index, in: snapshot.rows))
+        // One id for ForEach and scrollTo: context rows used to expose
+        // `context-…` inside a `context-group-…` identity, so the last row
+        // could not be targeted.
+        .id(row.scrollTargetID)
+    }
+
     private var transcript: some View {
         ScrollViewReader { proxy in
             GeometryReader { viewport in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        if model.transcriptHasMore {
+                        let snapshot = timelineSnapshot
+                        let rows = snapshot.rows
+                        let window = renderWindow(in: rows)
+                        if hasEarlierRows(in: rows, window: window) {
                             historySentinel(proxy: proxy, viewportHeight: viewport.size.height)
                         }
                         if let error = model.transcriptError {
@@ -1369,61 +1504,7 @@ struct ChatPage: View {
                                 emptyTimeline(viewportHeight: viewport.size.height)
                             }
                         }
-                        let snapshot = timelineSnapshot
-                        let rows = snapshot.rows
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                            Group {
-                            switch row {
-                            case .item(let item):
-                                let facts: NativeTimelineTurnFacts = {
-                                    guard let turn = item.turn else { return .empty }
-                                    return snapshot.turnFacts[turn] ?? .empty
-                                }()
-                                VStack(alignment: .leading, spacing: 0) {
-                                    ChatMessageRow(item: item, fileIndex: model.fileIndex,
-                                                   isTurnClosingAssistant: facts.closingAssistantID == item.id,
-                                                   submittedPlans: facts.plans,
-                                                   turnChanges: facts.changes,
-                                                   onOpenFile: openWorkspaceResult,
-                                                   onOpenPlan: { plan, markdown in
-                                                       previewPlan = NativePlanPreview(
-                                                           id: plan.id, title: plan.title, markdown: markdown)
-                                                   })
-                                    queueLine(for: item)
-                                    failureLineIfNeeded(for: item)
-                                }
-                            case .contexts(let items):
-                                NativeContextSourceGroup(items: items)
-                            case .tools(let items):
-                                ToolRunRow(items: items,
-                                           onOpenFile: openWorkspaceResult)
-                            case .turnProcess(let turn):
-                                if let state = model.turnProcessState(for: turn) {
-                                    NativeTurnProcessRow(
-                                        state: state,
-                                        isOpen: !foldedTurns.contains(turn),
-                                        isFoldable: turnHasProcess(turn)) {
-                                            if foldedTurns.contains(turn) {
-                                                foldedTurns.remove(turn)
-                                                // Remember the hand-opened Turn:
-                                                // no later auto-fold closes it.
-                                                manuallyExpandedTurns.insert(turn)
-                                            } else {
-                                                foldedTurns.insert(turn)
-                                                manuallyExpandedTurns.remove(turn)
-                                            }
-                                        }
-                                }
-                            case .turnTail(let turn):
-                                turnTailRow(turn)
-                            }
-                            }
-                            .padding(.top, Self.spacing(before: index, in: rows))
-                            // One id for ForEach and scrollTo: context rows used
-                            // to expose `context-…` inside a `context-group-…`
-                            // identity, so the last row could not be targeted.
-                            .id(row.scrollTargetID)
-                        }
+                        transcriptRows(snapshot, window: window)
                         if model.turnRunning, !visibleItems.isEmpty {
                             NativeRunningStatus(startedAt: model.activeTurnStartedAt,
                                                 showsDivider: false)
@@ -1492,6 +1573,7 @@ struct ChatPage: View {
                                                viewportHeight: viewport.size.height)
                     },
                     onGeometry: { metrics in
+                        MainThreadHangMonitor.mark("chatTranscript.geometry")
                         // Check before updating near/follow state: a blank
                         // viewport reports itself as far from the tail, and
                         // that must not turn the correction off.
@@ -1526,6 +1608,7 @@ struct ChatPage: View {
                     applyTailMetrics(tailY: tailY, viewportHeight: viewport.size.height)
                 }
                 .onChange(of: transcriptScrollSignature) { _, _ in
+                    guard model.isAppForeground else { return }
                     if pendingInitialScroll, !visibleItems.isEmpty {
                         // Wait for the measured content height: scrolling
                         // before the layout is known cannot prove the content
@@ -1543,8 +1626,8 @@ struct ChatPage: View {
                     if !hasMore { historyAutoLoadScheduled = false }
                 }
                 .onChange(of: model.isTranscriptReady) { _, ready in
-                    guard ready, pendingInitialScroll, !visibleItems.isEmpty,
-                          scrollTrace.contentHeight > 0 else { return }
+                    guard ready, model.isAppForeground, pendingInitialScroll,
+                          !visibleItems.isEmpty, scrollTrace.contentHeight > 0 else { return }
                     pendingInitialScroll = false
                     nearBottom = true
                     scrollToTail(proxy, viewportHeight: viewport.size.height)
@@ -1557,6 +1640,36 @@ struct ChatPage: View {
                     scrollTrace.contentHeight = 0
                     scrollTrace.tailOffsetY = 0
                     scrollTrace.lastBlankCorrectionHeight = nil
+                }
+                // Background gate: while the App is hidden the follow loop and
+                // the initial jump are background CPU. The scene becoming
+                // active is the moment they may run again — a pending jump has
+                // no content change left to wake it.
+                .onChange(of: model.isAppActive) { _, active in
+                    guard active, model.isAppForeground else { return }
+                    if pendingInitialScroll, !visibleItems.isEmpty {
+                        guard scrollTrace.contentHeight > 0 else { return }
+                        pendingInitialScroll = false
+                        nearBottom = true
+                        scrollToTail(proxy, viewportHeight: viewport.size.height)
+                        return
+                    }
+                    scheduleTailScroll(proxy, viewportHeight: viewport.size.height)
+                }
+                // The render window follows the person: while they read older
+                // content its top row is pinned, and it returns to the bounded
+                // tail window once they are back at the tail.
+                .onChange(of: userScrolledAway) { _, away in
+                    guard away else {
+                        frozenTopRowID = nil
+                        renderRowLimit = NativeTranscriptRenderWindow.initialRows
+                        return
+                    }
+                    let rows = timelineRows
+                    let window = NativeTranscriptRenderWindow.tailRange(
+                        rowCount: rows.count, limit: renderRowLimit)
+                    frozenTopRowID = window.lowerBound < rows.count
+                        ? rows[window.lowerBound].id : nil
                 }
                 .onChange(of: scrollToLatestTrigger) { _, _ in
                     // A deliberate jump owns the next scroll; drop a pending
@@ -1655,10 +1768,15 @@ struct ChatPage: View {
     /// overshoots into empty space (the blank page). The last row is a real,
     /// laid-out frame; the lazy tail anchor can be scrolled past its estimate.
     private func scrollToTail(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
+        // Follow work while hidden is background CPU: the scene-update
+        // watchdog charges it to the same 10 s allowance as visible layout.
+        // The next `.active` re-arms the follow pass.
+        guard model.isAppForeground else { return }
         guard ChatTranscriptTailPolicy.shouldScrollToTail(
             contentHeight: scrollTrace.contentHeight,
             viewportHeight: viewportHeight,
             hasRows: !timelineRows.isEmpty) else { return }
+        MainThreadHangMonitor.mark("chatTranscript.scrollToTail.start")
         // The last row may be a folded tool-run group, not the last message;
         // scroll to the row that is actually last.
         if let last = timelineRows.last?.scrollTargetID {
@@ -1666,6 +1784,7 @@ struct ChatPage: View {
         } else {
             proxy.scrollTo("transcript-tail", anchor: .bottom)
         }
+        MainThreadHangMonitor.mark("chatTranscript.scrollToTail.end")
     }
 
     /// Receives the measured content height from the iOS 17 preference
@@ -1682,6 +1801,7 @@ struct ChatPage: View {
 
     private func contentHeightDidChange(_ height: CGFloat, proxy: ScrollViewProxy,
                                         viewportHeight: CGFloat) {
+        guard model.isAppForeground else { return }
         guard height.isFinite, height > 0, !visibleItems.isEmpty else { return }
         guard pendingInitialScroll else {
             // Rows that grow without changing the signature (a list card
@@ -1709,6 +1829,7 @@ struct ChatPage: View {
                                                   contentInsetTop: CGFloat,
                                                   contentInsetBottom: CGFloat,
                                                   proxy: ScrollViewProxy) {
+        guard model.isAppForeground else { return }
         guard !userScrolling else { return }
         guard followsTail || pendingInitialScroll else { return }
         guard !timelineSourceItems.isEmpty else { return }
@@ -1729,8 +1850,10 @@ struct ChatPage: View {
         }
         // Resolve the rows only when a correction is actually due: this runs
         // on every scroll frame, and the timeline snapshot must stay cheap.
-        guard let firstRow = timelineRows.first?.scrollTargetID,
-              let lastRow = timelineRows.last?.scrollTargetID else { return }
+        let rows = timelineRows
+        let window = renderWindow(in: rows)
+        guard window.lowerBound < rows.count, let lastRow = rows.last?.scrollTargetID else { return }
+        let firstRow = rows[window.lowerBound].scrollTargetID
         if let correctedHeight = scrollTrace.lastBlankCorrectionHeight,
            abs(correctedHeight - contentHeight) < 0.5 {
             // One correction per height used to be enough, but a lazy row
@@ -1823,7 +1946,7 @@ struct ChatPage: View {
     /// Debouncing by one short turn lets the height preference and the row
     /// frames settle, and the coalesced follow still tracks streaming.
     private func scheduleTailScroll(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
-        guard followsTail else { return }
+        guard model.isAppForeground, followsTail else { return }
         // Do not cancel the pending run: a streamed delta every <50ms used to
         // reset the sleep forever, so the one scroll never fired. The generation
         // tells the running loop that a newer target/height arrived.
@@ -1857,6 +1980,7 @@ struct ChatPage: View {
                         "scroll tail content=\(Self.traceValue(scrollTrace.contentHeight)) viewport=\(Self.traceValue(tailScrollViewportHeight)) "
                         + "tail=\(Self.traceValue(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
                 }
+                MainThreadHangMonitor.mark("chatTranscript.tailFollow")
                 model.flushStreamingText()
                 scrollToTail(proxy, viewportHeight: tailScrollViewportHeight)
             }

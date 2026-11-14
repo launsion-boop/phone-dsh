@@ -83,6 +83,9 @@ private actor BotScriptedGate {
 final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var scripts: [String: [[BotScriptedEvent]]]
+    /// Simulates the old Worker connection ending: every live mux returns nil
+    /// on its next receive, exactly like a WebSocket that lost its peer.
+    private var muxesClosed = false
     private let mainId: String
     private let honorRequestedSessionIDs: Bool
     private var nextCreateIndex = 0
@@ -148,6 +151,16 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     func resume(_ sessionId: String) {
         let gate = lock.withLock { gates[sessionId] }
         if let gate { Task { await gate.open() } }
+    }
+
+    /// Ends every open `session/follow` stream, like the replaced Worker's
+    /// connection dropping. The owning turn sees EOF on its next read.
+    func closeMuxes() {
+        let openGates = lock.withLock { () -> [BotScriptedGate] in
+            muxesClosed = true
+            return Array(self.gates.values)
+        }
+        for gate in openGates { Task { await gate.open() } }
     }
 
     func failPage(_ sessionId: String, times: Int? = nil) {
@@ -280,6 +293,9 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
             },
             gateForSession: { [weak self] sessionId in
                 self?.lock.withLock { self?.gates[sessionId] } ?? nil
+            },
+            isClosed: { [weak self] in
+                self?.lock.withLock { self?.muxesClosed ?? true } ?? true
             })
     }
 
@@ -289,6 +305,7 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
 private actor BotScriptedMux: DSHMuxConnection {
     private let eventsForSession: (String) -> [BotScriptedEvent]
     private let gateForSession: (String) -> BotScriptedGate?
+    private let isClosed: () -> Bool
     private var events: [BotScriptedEvent] = []
     private var snapshotReturned = false
     private var index = 0
@@ -296,9 +313,11 @@ private actor BotScriptedMux: DSHMuxConnection {
     private var gateWaited = false
 
     init(eventsForSession: @escaping (String) -> [BotScriptedEvent],
-         gateForSession: @escaping (String) -> BotScriptedGate?) {
+         gateForSession: @escaping (String) -> BotScriptedGate?,
+         isClosed: @escaping () -> Bool = { false }) {
         self.eventsForSession = eventsForSession
         self.gateForSession = gateForSession
+        self.isClosed = isClosed
     }
 
     func send(_ frame: BotJSONValue) async throws {
@@ -310,6 +329,7 @@ private actor BotScriptedMux: DSHMuxConnection {
     }
 
     func receive() async throws -> BotJSONValue? {
+        if isClosed() { return nil }
         if !snapshotReturned {
             snapshotReturned = true
             return .object([
@@ -321,6 +341,7 @@ private actor BotScriptedMux: DSHMuxConnection {
             gateWaited = true
             await gate.wait()
         }
+        if isClosed() { return nil }
         guard index < events.count else { return nil }
         let event = events[index]
         index += 1

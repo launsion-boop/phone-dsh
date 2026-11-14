@@ -235,6 +235,12 @@ public class BotChatModel(
     private val checklistProgress: MutableMap<String, BotChecklistProgress> = LinkedHashMap()
     private var runtimePresentation: BotRuntimePresentation = BotRuntimePresentation()
     private var livePresentation: BotRuntimePresentation? = null
+    /**
+     * The last failed watch/presentation poll message. Diagnostics only — the
+     * header line is the static [BotUiStrings.REALTIME_DEGRADED] banner, never
+     * the raw error (`ui-state.md` §3.6).
+     */
+    private var lastFeedError: String? = null
     private var live: BotLiveChatTurn? = null
     private var pendingDelta: String = ""
     private var streamingText: String? = null
@@ -293,12 +299,11 @@ public class BotChatModel(
                         tick()
                     }
                 } catch (error: Exception) {
-                    setRuntimeNotice(
-                        BotUiStrings.format(
-                            "error.watchFailed",
-                            "error" to (error.message ?: error.toString()),
-                        ),
-                    )
+                    // The user line is the static degraded banner (§3.6); the
+                    // reason stays diagnostic-only, like the reference's
+                    // `lastFeedError`.
+                    lastFeedError = error.message ?: error.toString()
+                    setRuntimeNotice(BotUiStrings.REALTIME_DEGRADED)
                     tick()
                 }
             }
@@ -330,12 +335,8 @@ public class BotChatModel(
                     }
                 } catch (error: Exception) {
                     failed = true
-                    setRuntimeNotice(
-                        BotUiStrings.format(
-                            "error.watchFailed",
-                            "error" to (error.message ?: error.toString()),
-                        ),
-                    )
+                    lastFeedError = error.message ?: error.toString()
+                    setRuntimeNotice(BotUiStrings.REALTIME_DEGRADED)
                     tick()
                 }
                 if (!failed || !pageActive) return@launch

@@ -183,7 +183,7 @@ final class BotChatModel: ObservableObject {
     private var watchGeneration = 0
 
     let context: BotRuntimeContext
-    private let driver: BotChatDriver?
+    private var driver: BotChatDriver?
     /// Only fixture/preview models may fabricate an accepted action without a
     /// production driver. The default must fail loudly, never pretend success.
     private let fixtureActions: Bool
@@ -253,6 +253,9 @@ final class BotChatModel: ObservableObject {
         runtimeNoticeExpiry?.cancel()
         runtimeNoticeExpiry = nil
         guard runtimeNotice != nil else { return }
+        // The reconnect line is not a six-second failure: it stays until the
+        // feed reports healthy again and `applyFeedHealth` clears it.
+        if runtimeNotice == Self.feedDegradedNotice, feedHealth.isDegraded { return }
         runtimeNoticeExpiry = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: Self.runtimeNoticeLifetime)
             guard !Task.isCancelled else { return }
@@ -429,8 +432,16 @@ final class BotChatModel: ObservableObject {
     }
 
     /// Interactive cards that were already on screen before the latest user
-    /// text and were never handled. Question, steps and the sendable checklist
-    /// all follow this one rule; approvals are auto-denied on send instead.
+    /// text and were never handled.
+    ///
+    /// Question and steps cards are deliberately absent: their staleness is the
+    /// durable projection's `status` (`superseded`), computed from the same
+    /// event stream the planner refuses with `card_expired`. A second local
+    /// rule could only disagree with it, which is exactly the bug this view had
+    /// (a card that looked active was expired, and a card that looked stale was
+    /// still answerable). A checklist has no durable expiry — its send is an
+    /// ordinary chat message — so the send-time guidance stays app-owned.
+    /// Approvals are auto-denied on send instead.
     var mutedCardIDs: Set<String> {
         guard let lastUserIndex = visibleRows.lastIndex(where: { $0.role == "user" && $0.body.type == "text" }) else {
             return []
@@ -438,12 +449,10 @@ final class BotChatModel: ObservableObject {
         let ordered = visibleRows
         return Set(ordered[..<lastUserIndex].compactMap { row in
             guard let card = BotUICardContent.parse(row: row),
-                  [.question, .steps, .checklist].contains(card.kind),
+                  card.kind == .checklist,
                   actionStates["card:\(row.id)"] == nil else { return nil }
-            if card.kind == .checklist {
-                if let state = checklistProgress[row.id], state.sending || state.sent { return nil }
-                if card.body["interactive"]?.bool == false { return nil }
-            }
+            if let state = checklistProgress[row.id], state.sending || state.sent { return nil }
+            if card.body["interactive"]?.bool == false { return nil }
             return row.id
         })
     }
@@ -467,22 +476,35 @@ final class BotChatModel: ObservableObject {
 
     private func choiceSettlement(row: BotUIRow, card: BotUICardContent) -> BotCardSettlement? {
         let key = "card:\(row.id)"
-        if actionBlocksSettlement(key) { return nil }
-
         let status = card.body["status"]?.string
         let detail = choiceDetail(card)
+        // The durable card status is the one truth for "can this still be
+        // answered". It settles even while a local tap is pending or failed: the
+        // planner refuses a card that a newer question/steps card replaced, so
+        // keeping its buttons would only produce a second refusal.
+        if status == "superseded" {
+            return BotCardSettlement(glyph: "minus.circle", title: BotChoiceCardUI.supersededTitle,
+                                     detail: detail)
+        }
         if dismissedCardIDs.contains(row.id) || status == "dismissed" {
             return BotCardSettlement(glyph: "xmark.circle", title: "已关闭", detail: detail)
         }
-        if actionStates[key] == .accepted || status == "answered" {
+        if status == "answered" {
             let label = chosenChoiceLabel(row: row, card: card)
             return BotCardSettlement(
                 glyph: "checkmark.circle",
                 title: label.map { "已选择：\($0)" } ?? "已送出",
                 detail: detail)
         }
-        if mutedCardIDs.contains(row.id) {
-            return BotCardSettlement(glyph: "minus.circle", title: "已略过", detail: detail)
+        // In flight (`.pending`) keeps the full card with its spinner, and a
+        // failed attempt keeps it retryable.
+        if actionBlocksSettlement(key) { return nil }
+        if actionStates[key] == .accepted {
+            let label = chosenChoiceLabel(row: row, card: card)
+            return BotCardSettlement(
+                glyph: "checkmark.circle",
+                title: label.map { "已选择：\($0)" } ?? "已送出",
+                detail: detail)
         }
         return nil
     }
@@ -546,8 +568,12 @@ final class BotChatModel: ObservableObject {
         // matching the label to the button the user actually pressed (P26
         // §2.7), so a session grant never renders as a one-off or「已处理」.
         let allowed = status == "allowed" || status == "allowed-session" || status == "always"
-        let scope = card.body["alwaysScope"]?.string ?? ask["alwaysScope"]?.string ?? "until"
-        let label = BotApprovalReceipt.label(for: status, scope: scope)
+        let offeredScope = card.body["alwaysScope"]?.string ?? ask["alwaysScope"]?.string
+        let effectiveScope = card.body["scope"]?.string
+        let decision = card.body["decision"]?.string ?? ask["decision"]?.string
+        let label = BotApprovalOffer.receiptLabel(status: status, alwaysScope: offeredScope,
+                                                  effectiveScope: effectiveScope,
+                                                  decision: decision)
         return BotCardSettlement(glyph: allowed ? "checkmark.circle.fill" : "xmark.circle",
                                  title: label, detail: detail,
                                  tone: allowed ? .success : .neutral,
@@ -701,16 +727,53 @@ final class BotChatModel: ObservableObject {
         }
     }
 
+    /// Taps one option. The tap is local, immediate and reversible: the choice
+    /// appears in the transcript at once (a `local-<nonce>` echo, the same
+    /// convention the composer uses), the card shows `正在送出…`, and a refused
+    /// or failed action rolls the echo back with human copy on the card.
     func answer(row: BotUIRow, optionID: String) {
         let key = "card:\(row.id)"
         guard BotUIActionRetry.accepts(intent: .answer, cardKind: .question,
                                        state: Self.retryState(actionStates[key])),
-              !mutedCardIDs.contains(row.id), !optionID.isEmpty else { return }
+              !optionID.isEmpty else { return }
+        // The projection already knows the card was replaced by a newer one
+        // (`status == superseded`). The planner would refuse the tap, so say so
+        // on the card instead of starting an action that must fail.
+        if cardStatus(row) == "superseded" {
+            actionStates[key] = .failed("card_expired")
+            return
+        }
+        let choice = BotUICardContent.parse(row: row).flatMap { card -> BotUIChoice? in
+            let listKey = card.kind == .steps ? "steps" : "options"
+            return BotUIChoice.parseList(card.body[listKey]).first { $0.id == optionID }
+        }
+        let nonce = UUID().uuidString
+        let echo = BotChoiceCardUI.echo(nonce: nonce, value: choice?.value ?? "",
+                                        label: choice?.label ?? "")
+        if let echo { appendChoiceEcho(echo, botID: row.botID) }
         answeredOptionIDs[row.id] = optionID
         actionStates[key] = .pending
-        let action = BotUIUserAction.cardAnswer(nonce: UUID().uuidString, botID: row.botID,
+        let action = BotUIUserAction.cardAnswer(nonce: nonce, botID: row.botID,
                                                 cardID: row.id, optionID: optionID)
-        Task { await perform(action, key: key, localRowID: nil) }
+        Task { await perform(action, key: key, localRowID: echo?.rowID) }
+    }
+
+    private func cardStatus(_ row: BotUIRow) -> String? {
+        row.body["status"]?.string
+    }
+
+    /// The composer's `local-<nonce>` user row, for a tapped option. The durable
+    /// user row of the same choice carries `chatActionNonce == <nonce>` (the
+    /// projection reads it from the frozen `card-answer:<nonce>` request id), so
+    /// `upsert` retires the echo with the same rule it uses for a typed message.
+    private func appendChoiceEcho(_ echo: BotChoiceEcho, botID: String) {
+        var local = BotUIRow.fixture(id: echo.rowID, botID: botID,
+                                     seq: (rows.map(\.seq).max() ?? 0) + 1,
+                                     kind: "sendMessage", role: "user",
+                                     body: BotUIBody(type: "text", values: ["text": .string(echo.text)]),
+                                     eventID: echo.eventID)
+        local.provenance.trust = "owner_direct"
+        rows.append(local)
     }
 
     func dismiss(row: BotUIRow) {
@@ -743,8 +806,18 @@ final class BotChatModel: ObservableObject {
         guard let approvalID = row.body.string("approvalID", "requestId", "id")
                 ?? row.body["ask"]?.object?["requestId"]?.string,
               let digest = row.body["digest"]?.string else { return nil }
+        // A stale row can still request `.always` after its projected
+        // `alwaysScope` became `none`/absent (a card rendered before the row
+        // refreshed). That decision can only ever create a consumed once grant
+        // (`BotApprovalCoordinator.resolve`), so send the decision the row can
+        // actually honour instead of one the coordinator must silently narrow.
+        let alwaysScope = row.body["alwaysScope"]?.string
+            ?? row.body["ask"]?.object?["alwaysScope"]?.string
+        let effective = BotApprovalOffer.effectiveDecision(decision.rawValue,
+                                                           alwaysScope: alwaysScope)
+        let resolved = BotUIApprovalDecision(rawValue: effective) ?? decision
         return BotUIUserAction.approval(nonce: UUID().uuidString, botID: row.botID,
-                                        approvalID: approvalID, decision: decision, digest: digest)
+                                        approvalID: approvalID, decision: resolved, digest: digest)
     }
 
     /// Runs the existing deny action for an approval the user implicitly
@@ -1005,41 +1078,265 @@ final class BotChatModel: ObservableObject {
     /// Polls the production row projection until the view's `.task` is
     /// cancelled. Fixture models have no driver and simply do not run it.
     ///
-    /// The first iteration runs immediately, so becoming visible again reads
-    /// the durable rows and presentation once before the normal 0.8s cadence.
+    /// The loop is **supervised**: a poll that throws, stalls, or loses its
+    /// observer never ends it. Each iteration is bounded by
+    /// ``BotChatSupervision/watchDeadline``; a call that outlives the deadline
+    /// is abandoned (its late result can no longer apply) and the next
+    /// iteration retries on the short degraded ladder. The first iteration —
+    /// and any ``forceResync`` — reads from cursor 0, so a lost window, a
+    /// scene resume or a Worker rebind replays the durable projection instead
+    /// of waiting for the next delta.
     func watchLoop() async {
-        guard let driver else { return }
+        guard driver != nil else { return }
         watchGeneration &+= 1
         let generation = watchGeneration
         while !Task.isCancelled, pageActive, generation == watchGeneration {
-            do {
-                let batch = try await driver.watch(watchCursor)
-                apply(batch)
-                let processes = await driver.turnProcesses()
-                if processes != turnProcesses { turnProcesses = processes }
-                settleLive()
-                if let presentation = try? await driver.presentation() {
-                    applyDurablePresentation(presentation)
-                }
-            } catch {
-                runtimeNotice = "Bot 实时更新失败：\(error.localizedDescription)"
-                liveFish.noteError("Bot 实时更新失败：\(error.localizedDescription)")
-                refreshLiveFishPresentation()
+            if watchResyncRequested {
+                watchResyncRequested = false
+                // Cursor 0 makes the row service return its reset batch: the
+                // durable state is replayed without re-reading the transcript
+                // twice (phase 1's incremental watch keeps the cost bounded).
+                watchCursor = 0
             }
+            watchIteration &+= 1
+            let iteration = watchIteration
+            let outcome = await runWatchIteration(generation: generation, iteration: iteration)
             guard !Task.isCancelled, pageActive, generation == watchGeneration else { return }
-            try? await Task.sleep(nanoseconds: 800_000_000)
+            switch outcome {
+            case .interrupted:
+                // A resync gave up on the in-flight poll: restart at once.
+                continue
+            case .timedOut:
+                markFeedDegraded(reason: "watch-timeout")
+            case .failed(let message):
+                lastFeedError = message
+                markFeedDegraded(reason: "watch-error")
+            case .completed(let health):
+                applyFeedHealth(health ?? .healthy)
+            }
+            watchFailures = feedHealth.isDegraded ? watchFailures + 1 : 0
+            let delay = feedHealth.isDegraded
+                ? supervision.degradedDelay(failures: watchFailures)
+                : supervision.watchInterval
+            // The wake-up makes a forced resync immediate instead of waiting
+            // out the remaining tick; it returns true when one was signalled.
+            _ = await watchWake.wait(nanoseconds: Self.nanoseconds(delay))
         }
     }
 
-    /// Follows the running turn's live frames until the view's `.task` ends.
-    /// Hiding the page cancels the stream; becoming visible starts a fresh
-    /// subscription after the durable catch-up.
+    /// One bounded watch poll. The call is an unstructured task so the loop
+    /// can walk away from a wedged API/actor call; the generation + iteration
+    /// token is what keeps the abandoned call's late batch from touching the
+    /// rows or the cursor.
+    private func runWatchIteration(generation: Int, iteration: Int) async -> BotWatchOutcome {
+        let cursor = watchCursor
+        let outcome = await withCheckedContinuation { continuation in
+            let race = BotWatchRace(continuation)
+            watchRace = race
+            let call = Task { @MainActor [weak self] in
+                var failure: String?
+                if let self, let driver = self.driver {
+                    do {
+                        let batch = try await driver.watch(cursor)
+                        if self.isCurrentWatch(generation: generation, iteration: iteration) {
+                            self.apply(batch)
+                            let processes = await driver.turnProcesses()
+                            if self.isCurrentWatch(generation: generation, iteration: iteration) {
+                                if processes != self.turnProcesses {
+                                    self.turnProcesses = processes
+                                }
+                                self.settleLive()
+                            }
+                            if let presentation = try? await driver.presentation(),
+                               self.isCurrentWatch(generation: generation, iteration: iteration) {
+                                self.applyDurablePresentation(presentation)
+                            }
+                        }
+                    } catch {
+                        failure = error.localizedDescription
+                    }
+                }
+                var health: BotFeedHealth?
+                if let self, let provider = self.watchHealthProvider {
+                    health = await provider()
+                }
+                if let failure {
+                    race.resolve(.failed(failure))
+                } else {
+                    race.resolve(.completed(health))
+                }
+            }
+            race.call = call
+            let deadline = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: Self.nanoseconds(self.supervision.watchDeadline))
+                guard !Task.isCancelled else { return }
+                call.cancel()
+                race.resolve(.timedOut)
+            }
+            race.deadline = deadline
+        }
+        watchRace = nil
+        return outcome
+    }
+
+    private func isCurrentWatch(generation: Int, iteration: Int) -> Bool {
+        generation == watchGeneration && iteration == watchIteration
+            && pageActive && !Task.isCancelled
+    }
+
+    /// Follows the running turn's live frames. A stream that ends (a replaced
+    /// observer or a rebind) or a running turn that stops producing frames is
+    /// re-subscribed instead of ending the loop; one generation token keeps a
+    /// superseded subscription from delivering anything.
     func liveLoop() async {
+        guard driver != nil else { return }
+        liveGeneration &+= 1
+        let generation = liveGeneration
+        while !Task.isCancelled, pageActive, generation == liveGeneration {
+            liveResyncRequested = false
+            lastLiveFrameAt = Date()
+            await liveSubscription(generation: generation)
+            guard !Task.isCancelled, pageActive, generation == liveGeneration else { return }
+            liveReconnects &+= 1
+            if liveResyncRequested {
+                // A forced resync already ended the pump: re-subscribe now.
+                liveResyncRequested = false
+                continue
+            }
+            _ = await liveWake.wait(
+                nanoseconds: Self.nanoseconds(supervision.liveReconnectDelay))
+        }
+    }
+
+    /// One live subscription. The consumer owns the driver stream; the
+    /// watchdog ends the pump when the subscription no longer belongs to the
+    /// current page/generation or a running turn went silent for
+    /// ``BotChatSupervision/liveStallTimeout``. Ending the pump (rather than
+    /// awaiting the stream) is what lets the loop re-subscribe without two
+    /// live consumers racing.
+    private func liveSubscription(generation: Int) async {
         guard let driver else { return }
-        for await frame in await driver.liveFrames() {
-            guard pageActive, !Task.isCancelled else { return }
+        let stream = await driver.liveFrames()
+        let (frames, continuation) = AsyncStream<BotLiveFrame>.makeStream(
+            bufferingPolicy: .bufferingNewest(512))
+        let pump = BotLivePump(continuation: continuation)
+        livePump = pump
+        let consumer = Task {
+            for await frame in stream { continuation.yield(frame) }
+            continuation.finish()
+        }
+        let watchdog = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                let interval = max(0.05, self?.supervision.liveStallCheckInterval ?? 2)
+                try? await Task.sleep(nanoseconds: Self.nanoseconds(interval))
+                guard !Task.isCancelled, let self else { return }
+                if !self.pageActive || generation != self.liveGeneration {
+                    pump.finish()
+                    return
+                }
+                if self.liveResyncRequested {
+                    pump.finish()
+                    return
+                }
+                guard self.liveTurnRunning else {
+                    // Idle: an empty stream is expected, not a stall.
+                    self.lastLiveFrameAt = Date()
+                    continue
+                }
+                guard Date().timeIntervalSince(self.lastLiveFrameAt)
+                        < self.supervision.liveStallTimeout else {
+                    self.actionLog.append("live:stall")
+                    pump.finish()
+                    return
+                }
+            }
+        }
+        defer {
+            watchdog.cancel()
+            consumer.cancel()
+            pump.finish()
+            if livePump === pump { livePump = nil }
+        }
+        for await frame in frames {
+            guard !Task.isCancelled, pageActive, generation == liveGeneration else { return }
+            lastLiveFrameAt = Date()
             receive(frame)
         }
+    }
+
+    private var liveTurnRunning: Bool { runningTurnID != nil || awaitingTurn }
+
+    /// One immediate pass over the durable projection from cursor 0 and a
+    /// fresh live subscription. The page calls this when the scene becomes
+    /// active (through ``setPageActive``) and when the composition reports a
+    /// completed rebind, so neither waits for `botPageActive` to flip nor for
+    /// the 800 ms tick.
+    func forceResync(_ reason: BotFeedResyncReason = .manual) {
+        lastResync = reason
+        guard pageActive else { return }
+        watchResyncRequested = true
+        liveResyncRequested = true
+        // Abandon an in-flight poll instead of letting a 5 s deadline delay
+        // the resync; its result could only be stale now.
+        watchRace?.interrupt()
+        livePump?.finish()
+        watchWake.signal()
+        liveWake.signal()
+    }
+
+    /// A rebind can hand the page a new driver. The supervised loops read
+    /// ``driver`` every iteration, so replacing it plus one forced resync is
+    /// enough to re-subscribe instead of staying on the old observer.
+    func replaceDriver(_ driver: BotChatDriver?) {
+        self.driver = driver
+        forceResync(.rebind)
+    }
+
+    /// Mirrors the row service's verdict onto the model and the header line.
+    /// The line uses the existing `runtimeNotice` problem channel, so the page
+    /// reuses `BotHeaderPresence.problem` (calm danger tint) and the frozen
+    /// seven-member driver never grows a health member. It stays put while
+    /// degraded and recovery clears it.
+    private func applyFeedHealth(_ next: BotFeedHealth) {
+        let wasDegraded = feedHealth.isDegraded
+        if next != feedHealth { feedHealth = next }
+        if next.isDegraded {
+            refreshFeedNotice()
+            if !wasDegraded {
+                liveFish.noteError(Self.feedDegradedNotice)
+                refreshLiveFishPresentation()
+            }
+        } else if runtimeNotice == Self.feedDegradedNotice {
+            runtimeNotice = nil
+        }
+    }
+
+    private func markFeedDegraded(reason: String) {
+        let since: Int64
+        if case .degraded(_, let existing) = feedHealth {
+            since = existing
+        } else {
+            since = Self.nowMilliseconds()
+        }
+        applyFeedHealth(.degraded(reason: reason, since: since))
+    }
+
+    /// Keeps the reconnect line armed while the feed is degraded. A specific
+    /// one-off failure notice may temporarily replace it (and expires on its
+    /// own six-second clock); the steady copy comes back on the next poll.
+    private func refreshFeedNotice() {
+        guard feedHealth.isDegraded else { return }
+        if runtimeNotice == nil || runtimeNotice == Self.feedDegradedNotice {
+            runtimeNotice = Self.feedDegradedNotice
+        }
+    }
+
+    private static func nanoseconds(_ seconds: TimeInterval) -> UInt64 {
+        UInt64(max(0, seconds) * 1_000_000_000)
+    }
+
+    private static func nowMilliseconds() -> Int64 {
+        Int64(Date().timeIntervalSince1970 * 1_000)
     }
 
     /// Called by `BotProductionPage` when the Bot tab/scene pause changes.
@@ -1048,7 +1345,23 @@ final class BotChatModel: ObservableObject {
     func setPageActive(_ active: Bool) {
         guard pageActive != active else { return }
         pageActive = active
-        guard !active else { return }
+        guard !active else {
+            // Scene resume / tab reselect: one immediate durable read from
+            // cursor 0 and a fresh live subscription, without waiting for the
+            // next 800 ms tick. This reuses the app's existing
+            // `botPageActive` plumbing instead of adding a second scene-phase
+            // observer.
+            forceResync(.sceneActive)
+            return
+        }
+        // A hidden page must not let a lingering poll or live consumer apply
+        // anything; the generations make both harmless until the next task.
+        watchGeneration &+= 1
+        liveGeneration &+= 1
+        watchRace?.interrupt()
+        livePump?.finish()
+        watchWake.signal()
+        liveWake.signal()
         stream.cancel()
         deltaFlush?.cancel()
         deltaFlush = nil
@@ -1228,6 +1541,12 @@ final class BotChatModel: ObservableObject {
             if let localRowID, let index = rows.firstIndex(where: { $0.id == localRowID }) {
                 rows[index].provenance.eventIDs = [eventID]
             }
+            if driver == nil, let localRowID, case .cardAnswer = action {
+                // A fixture/preview model has no durable projection to retire the
+                // optimistic choice echo; the accepted action is its own record,
+                // so drop the echo instead of duplicating it.
+                rows.removeAll { $0.id == localRowID }
+            }
             if case .cardDismiss = action { dismissedCardIDs.insert(action.cardID) }
             if case .approval(_, _, _, let decision, _) = action, let rowID = approvalRowID(action: action) {
                 updateApproval(rowID: rowID, decision: decision)
@@ -1235,9 +1554,15 @@ final class BotChatModel: ObservableObject {
         } else {
             let reason = result.reason ?? "动作未完成"
             actionStates[key] = .failed(reason)
-            if let localRowID { rows.removeAll { $0.id == localRowID } }
+            // The optimistic row only stands for a choice that reached the
+            // model; a failure rolls it back.
+            if let localRowID, BotChoiceCardUI.echoDisposition(for: .failed(reason)) == .remove {
+                rows.removeAll { $0.id == localRowID }
+            }
             clearAwaitingTurn()
-            runtimeNotice = reason
+            // A refused card action is a normal stale-card outcome: the card
+            // itself names it, so it must not become an error near the avatar.
+            if BotChoiceCardUI.refusalText(reason) == nil { runtimeNotice = reason }
         }
     }
 
@@ -1266,6 +1591,210 @@ final class BotChatModel: ObservableObject {
         rows[index].body.values["status"] = .string(status)
         rows[index].updatedSeq += 1
     }
+
+    // MARK: - Supervision state
+
+    /// Production timing for the two supervised loops. Tests replace this with
+    /// millisecond values; nothing else writes it.
+    var supervision = BotChatSupervision.production
+    /// The row service's verdict, mirrored after every watch poll. The page
+    /// renders it through `runtimeNotice` (see ``applyFeedHealth``).
+    @Published private(set) var feedHealth = BotFeedHealth.healthy
+    /// Reads the durable watch feed's health from the row service. It is a
+    /// separate injection because `spec/ui/v1/bot/ui-state.md` §1 freezes
+    /// `BotChatDriver` at seven members; folding health into that seam would be
+    /// a contract change.
+    var watchHealthProvider: (() async -> BotFeedHealth)?
+    /// The user-facing reconnect line. It rides the header's existing problem
+    /// channel, so a degraded feed never becomes a transcript row.
+    static let feedDegradedNotice = "实时更新中断，正在重连"
+
+    /// The last failed poll's message, kept for diagnostics (never rendered).
+    private(set) var lastFeedError: String?
+    private(set) var lastResync: BotFeedResyncReason?
+    /// Number of live re-subscriptions; diagnostics and tests only.
+    private(set) var liveReconnects = 0
+
+    private var watchIteration = 0
+    private var watchFailures = 0
+    private var watchResyncRequested = false
+    private var liveGeneration = 0
+    private var liveResyncRequested = false
+    private var lastLiveFrameAt = Date()
+    private var watchRace: BotWatchRace?
+    private var livePump: BotLivePump?
+    private let watchWake = BotLoopWakeup()
+    private let liveWake = BotLoopWakeup()
+}
+
+// MARK: - Realtime supervision plumbing
+
+/// How one bounded watch iteration ended for the supervisor.
+private enum BotWatchOutcome {
+    case completed(BotFeedHealth?)
+    case failed(String)
+    case timedOut
+    case interrupted
+}
+
+/// Health of the Bot page's durable watch feed, surfaced by the model.
+///
+/// It mirrors the row service's verdict without importing the production
+/// service: this file also compiles in the E2E chat-model bundle, which does
+/// not ship the service. `reason` is a stable diagnostic token, never user
+/// copy; the page maps `.degraded` to its own reconnect line.
+enum BotFeedHealth: Equatable, Sendable {
+    case healthy
+    case degraded(reason: String, since: Int64)
+
+    var isDegraded: Bool {
+        if case .degraded = self { return true }
+        return false
+    }
+
+    var reason: String? {
+        guard case .degraded(let reason, _) = self else { return nil }
+        return reason
+    }
+
+    var since: Int64? {
+        guard case .degraded(_, let since) = self else { return nil }
+        return since
+    }
+
+    /// The log token: `ok` or `degraded:<reason>`.
+    var verdict: String {
+        guard let reason else { return "ok" }
+        return "degraded:\(reason)"
+    }
+}
+
+/// Supervision timing for the Bot page's two loops. Production uses the
+/// defaults; tests shrink them so a stalled driver is observable in
+/// milliseconds instead of seconds.
+struct BotChatSupervision {
+    /// The healthy watch cadence (`ui-state.md` §4.11: 800 ms).
+    var watchInterval: TimeInterval = 0.8
+    /// One wedged watch/processes/presentation call may not freeze the loop.
+    var watchDeadline: TimeInterval = 5
+    /// The short retry ladder while degraded; it never changes the healthy
+    /// cadence above.
+    var degradedBackoff: [TimeInterval] = [0.25, 0.5, 1, 2]
+    /// Wait before a second live subscription after the stream ended.
+    var liveReconnectDelay: TimeInterval = 0.5
+    /// While a turn is running, this long without a frame re-subscribes.
+    var liveStallTimeout: TimeInterval = 20
+    /// How often the live watchdog checks the page, generation and frames.
+    var liveStallCheckInterval: TimeInterval = 2
+
+    static let production = BotChatSupervision()
+
+    func degradedDelay(failures: Int) -> TimeInterval {
+        guard !degradedBackoff.isEmpty else { return watchInterval }
+        return degradedBackoff[min(max(failures, 1), degradedBackoff.count) - 1]
+    }
+}
+
+/// Why the page asked for an immediate durable resync (diagnostics only).
+enum BotFeedResyncReason: String, Equatable {
+    case manual
+    case sceneActive
+    case rebind
+}
+
+/// Exactly-once resumption of a bounded watch poll.
+@MainActor
+private final class BotWatchRace {
+    private var continuation: CheckedContinuation<BotWatchOutcome, Never>?
+    var call: Task<Void, Never>?
+    var deadline: Task<Void, Never>?
+
+    init(_ continuation: CheckedContinuation<BotWatchOutcome, Never>) {
+        self.continuation = continuation
+    }
+
+    func resolve(_ outcome: BotWatchOutcome) {
+        guard let continuation else { return }
+        self.continuation = nil
+        deadline?.cancel()
+        deadline = nil
+        continuation.resume(returning: outcome)
+    }
+
+    /// Give up on the in-flight call without waiting for it. Used by a forced
+    /// resync and by page deactivation; the abandoned call's result is dropped
+    /// because it holds a stale generation/iteration token.
+    func interrupt() {
+        call?.cancel()
+        resolve(.interrupted)
+    }
+}
+
+/// Interruptible sleep for the two loops: a forced resync wakes it instead of
+/// waiting out the remaining tick.
+@MainActor
+private final class BotLoopWakeup {
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var timer: Task<Void, Never>?
+    private var pending = false
+
+    func signal() {
+        timer?.cancel()
+        timer = nil
+        if let continuation {
+            self.continuation = nil
+            continuation.resume(returning: true)
+        } else {
+            pending = true
+        }
+    }
+
+    /// Waits up to `nanoseconds`; true when signalled early (a resync or the
+    /// owning task being cancelled).
+    func wait(nanoseconds: UInt64) async -> Bool {
+        if pending {
+            pending = false
+            return true
+        }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                // The cancellation handler can run before this closure installs
+                // the continuation; consume that pending wake here.
+                if pending {
+                    pending = false
+                    continuation.resume(returning: true)
+                    return
+                }
+                self.continuation = continuation
+                timer?.cancel()
+                timer = Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: nanoseconds)
+                    guard !Task.isCancelled, let self else { return }
+                    self.timer = nil
+                    guard let waiting = self.continuation else { return }
+                    self.continuation = nil
+                    waiting.resume(returning: false)
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.signal() }
+        }
+    }
+
+    deinit { timer?.cancel() }
+}
+
+/// The pump half of one live subscription. Finishing it makes the loop's
+/// `for await` return, so a resync or a page pause never waits for a frame.
+@MainActor
+private final class BotLivePump {
+    private let continuation: AsyncStream<BotLiveFrame>.Continuation
+
+    init(continuation: AsyncStream<BotLiveFrame>.Continuation) {
+        self.continuation = continuation
+    }
+
+    func finish() { continuation.finish() }
 }
 
 private extension BotUIUserAction {

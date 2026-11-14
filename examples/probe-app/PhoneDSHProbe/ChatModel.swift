@@ -698,6 +698,14 @@ final class ChatModel {
     }
     private var transcriptReady = false
     var isTranscriptReady: Bool { transcriptReady }
+    /// Which transcript mutations may run while the App is not on screen. A
+    /// background relaunch that re-adopts a large session used to run the whole
+    /// page pass as background CPU and the scene-update watchdog killed the app
+    /// (`0x8BADF00D` in the SwiftUI display-list update).
+    @ObservationIgnored private var transcriptGate = ChatTranscriptGate()
+    /// A loaded history page waiting for the scene to become active again.
+    /// Always a full replacement, so only the newest one is kept.
+    @ObservationIgnored private var pendingTranscriptAdoption: PendingTranscriptAdoption?
     /// The last transcript is on screen from disk while the engine boots.
     private(set) var isShowingCachedTranscript = false
     private var transcriptThroughSeq: Int?
@@ -716,7 +724,19 @@ final class ChatModel {
     private var resumeWatchdogTask: Task<Void, Never>?
     /// Scene phase as last delivered to the App. Used to decide whether a
     /// cancelled resume should immediately re-arm or wait for the next active.
-    private var appIsActive = true
+    /// A background relaunch reports no transition, so the launch value comes
+    /// from the process state: the transcript gate must be closed before the
+    /// first delivery, not after it.
+    private var appIsActive = UIApplication.shared.applicationState != .background
+    /// Read-only scene state for `ChatPage`'s follow loop. Observation tracks
+    /// the stored property, so a phase change re-runs the page.
+    var isAppActive: Bool { appIsActive }
+    /// True only while the App is on screen. `appIsActive` is the delivered
+    /// signal; `applicationState` is the synchronous authority and also covers
+    /// a background relaunch, where iOS never reports a phase transition.
+    var isAppForeground: Bool {
+        appIsActive && UIApplication.shared.applicationState == .active
+    }
     private var recoveryFlushTask: Task<Void, Never>?
     /// Durable send queue (P06/W1-C). The file is the source of truth; this
     /// count only drives the lightweight queued hint.
@@ -737,6 +757,19 @@ final class ChatModel {
         var hasMore: Bool
         var beforeSeq: Int?
         var throughSeq: Int?
+    }
+    /// The transcript-shape half of a history adoption, parked while the App is
+    /// hidden. `items` is the one value whose replacement forces the page
+    /// through a fresh `LazyVStack` pass, so it must not change in the
+    /// background; the durable turn facts still land immediately because other
+    /// state machines read them.
+    private struct PendingTranscriptAdoption {
+        var sessionID: String?
+        var items: [ChatItem]
+        var hasMore: Bool
+        var beforeSeq: Int?
+        var throughSeq: Int?
+        var hidesCachedTranscript: Bool
     }
     private var projectedRestore: ProjectedRestore?
     @ObservationIgnored
@@ -927,6 +960,8 @@ final class ChatModel {
     /// Last durable seq carried by the cached transcript snapshot read for a
     /// session. The draft evidence line reports it without another disk read.
     private var cachedSnapshotLastSeq: [String: UInt64] = [:]
+    /// Supersedes an off-main cache read whose apply would be stale.
+    @ObservationIgnored private var cachedRestoreGeneration = 0
     private var trajectoryThroughSeq: Int?
     private var trajectoryBeforeSeq: Int?
     private var trajectoryRefreshTask: Task<Void, Never>?
@@ -1527,6 +1562,9 @@ final class ChatModel {
         // supersedes any pending retry, including a manual tap.
         if !backoffRetry { cancelBackoffRetry() }
         guard host == nil, !busy else { return }
+        // A parked adoption belongs to a page that is now visible again; land
+        // it before the new boot repaints anything.
+        adoptDeferredTranscriptIfForeground()
         if engineNeedsReset, failedHost != nil {
             await restartEngine()
             return
@@ -1905,6 +1943,61 @@ final class ChatModel {
             .filter { !$0.isEmpty })
     }
 
+    /// Replaces the painted transcript with a loaded history page, or parks it
+    /// while the App is hidden.
+    ///
+    /// The row replacement is the expensive mutation: the fresh `LazyVStack`
+    /// pass measures every row, and `.defaultScrollAnchor(.bottom)` forces the
+    /// longest path. iOS charges that work to the scene-update budget even when
+    /// nothing is visible (field evidence: iPhone 17 Pro, FRONTBOARD
+    /// `0x8BADF00D`, main thread in `DisplayList.ViewUpdater.ViewCache.update`
+    /// under `_UIHostingView.layoutSubviews`), so a background adoption waits
+    /// for the next `.active`.
+    private func adoptTranscript(rows: [ChatItem], hasMore: Bool, beforeSeq: Int?,
+                                 throughSeq: Int?, hidesCachedTranscript: Bool) {
+        transcriptGate.isForeground = isAppForeground
+        if transcriptGate.takeAdoptionSlot() {
+            applyAdoptedTranscript(rows: rows, hasMore: hasMore, beforeSeq: beforeSeq,
+                                   throughSeq: throughSeq,
+                                   hidesCachedTranscript: hidesCachedTranscript)
+            return
+        }
+        pendingTranscriptAdoption = PendingTranscriptAdoption(
+            sessionID: sessionID, items: rows, hasMore: hasMore, beforeSeq: beforeSeq,
+            throughSeq: throughSeq, hidesCachedTranscript: hidesCachedTranscript)
+        // Log only: the rows stay parked and the page is not invalidated.
+        Self.appendDiagnostic("transcript adoption parked while backgrounded rows=\(rows.count)")
+    }
+
+    private func applyAdoptedTranscript(rows: [ChatItem], hasMore: Bool, beforeSeq: Int?,
+                                        throughSeq: Int?, hidesCachedTranscript: Bool) {
+        items = rows
+        transcriptHasMore = hasMore
+        transcriptBeforeSeq = beforeSeq
+        transcriptThroughSeq = throughSeq
+        if hidesCachedTranscript { isShowingCachedTranscript = false }
+        persistTranscriptSnapshot()
+    }
+
+    /// Commits the parked adoption once, when the page is visible again. The
+    /// scene-phase delivery calls this; `ChatPage` calls it too so a page that
+    /// appears after a background launch cannot miss the one commit.
+    func adoptDeferredTranscriptIfForeground() {
+        guard let pending = pendingTranscriptAdoption else { return }
+        transcriptGate.isForeground = isAppForeground
+        guard transcriptGate.isForeground else { return }
+        pendingTranscriptAdoption = nil
+        // A parked page belongs to the session it was loaded for. A switch (or
+        // a newer adoption) makes it stale; never paint it late.
+        guard pending.sessionID == nil || pending.sessionID == sessionID else { return }
+        flushStreamingText()
+        streamDraftTracker.clearAll()
+        applyAdoptedTranscript(rows: pending.items, hasMore: pending.hasMore,
+                               beforeSeq: pending.beforeSeq,
+                               throughSeq: pending.throughSeq,
+                               hidesCachedTranscript: pending.hidesCachedTranscript)
+    }
+
     /// Adopts a host that has finished booting: opens the persisted (or a
     /// fresh) session, loads its history and starts the pumps.
     ///
@@ -1961,12 +2054,10 @@ final class ChatModel {
                 if !keepProjection {
                     flushStreamingText()
                     streamDraftTracker.clearAll()
-                    items = history.items
-                    transcriptHasMore = history.hasMore
-                    transcriptBeforeSeq = history.beforeSeq
-                    transcriptThroughSeq = history.throughSeq
-                    isShowingCachedTranscript = false
-                    persistTranscriptSnapshot()
+                    adoptTranscript(rows: history.items, hasMore: history.hasMore,
+                                    beforeSeq: history.beforeSeq,
+                                    throughSeq: history.throughSeq,
+                                    hidesCachedTranscript: true)
                 }
                 turnStartTimes = history.turnFacts.starts
                 turnEndReasons = history.turnFacts.endReasons
@@ -2760,7 +2851,11 @@ final class ChatModel {
             flushStreamDraft(immediately: true)
         }
         appIsActive = phase == .active
+        transcriptGate.isForeground = isAppForeground
         BotPresenceCenter.shared.update(appActive: appIsActive)
+        // The scene is the trigger that releases a parked history adoption:
+        // this is the one commit, done before any further scene work can paint.
+        if appIsActive { adoptDeferredTranscriptIfForeground() }
         // PC lifecycle is connection-only: nothing to park or keep alive. On
         // foreground return, nudge the relay client's reconnect loop. The
         // phone's resume/rebuild/keep-alive state machine below must never run
@@ -4495,34 +4590,32 @@ final class ChatModel {
         flushStreamingText()
         streamDraftTracker.clearAll()
         MainThreadHangMonitor.mark("historyRestore.start")
-        items = NativeTranscriptProjector.restoring(history.items, preservingInputsFrom: items,
-                                                    inputReceipts: history.inputReceipts)
+        var restored = NativeTranscriptProjector.restoring(
+            history.items, preservingInputsFrom: items,
+            inputReceipts: history.inputReceipts)
         MainThreadHangMonitor.mark("historyRestore.end")
+        // Settle the restored rows before the adoption is painted or parked:
+        // the post-replacement pass used to mutate `items` in place.
+        if !history.turnRunning { Self.settleRestoredRows(&restored) }
         turnStartTimes = history.turnFacts.starts
         turnEndReasons = history.turnFacts.endReasons
         turnEndTimes = history.turnFacts.ends
-        transcriptHasMore = history.hasMore
-        transcriptBeforeSeq = history.beforeSeq
-        transcriptThroughSeq = history.throughSeq
-        isShowingCachedTranscript = false
         lastSeq = history.after
         turnRunning = history.turnRunning
         activeTurn = history.turnRunning ? history.turnFacts.starts.keys.max() : nil
         activeStep = nil
         activeTurnStartedAt = activeTurn.flatMap { history.turnFacts.starts[$0] }
         if !history.turnRunning {
-            finishStreamingAssistant()
-            finishStreamingReasoning()
             clearQueueLines()
             pendingQuestion = nil
             pendingPermission = nil
-            for index in items.indices where items[index].toolState == .running {
-                items[index].toolState = .stopped
-                items[index].bumpRenderRevision()
-            }
         }
         syncIdleTimer()
-        persistTranscriptSnapshot()
+        // A parked adoption is committed whole on the next `.active`; the pump
+        // follows `lastSeq` immediately, so no event is lost meanwhile.
+        adoptTranscript(rows: restored, hasMore: history.hasMore,
+                        beforeSeq: history.beforeSeq, throughSeq: history.throughSeq,
+                        hidesCachedTranscript: true)
         scheduleNativeMetricsRefresh()
         if !turnRunning, !botTurnsRunning, keepingAlive {
             Task { await self.finishBackgroundKeepAlive() }
@@ -4906,6 +4999,24 @@ final class ChatModel {
         }
     }
 
+    /// The array form of `finishStreamingAssistant` + `finishStreamingReasoning`
+    /// plus the stopped-tool sweep. Used when a restored history snapshot lands
+    /// and must be prepared before it is painted or parked.
+    private static func settleRestoredRows(_ rows: inout [ChatItem]) {
+        if let index = rows.indices.last, rows[index].kind == .assistant, rows[index].streaming {
+            rows[index].streaming = false
+            rows[index].bumpRenderRevision()
+        }
+        for index in rows.indices where rows[index].kind == .reasoning && rows[index].streaming {
+            rows[index].streaming = false
+            rows[index].bumpRenderRevision()
+        }
+        for index in rows.indices where rows[index].toolState == .running {
+            rows[index].toolState = .stopped
+            rows[index].bumpRenderRevision()
+        }
+    }
+
     /// Applies every pending streamed delta to `items` now.
     ///
     /// Called at ordering boundaries (tool call/result, turn start/end, a
@@ -5006,8 +5117,13 @@ final class ChatModel {
         }
     }
 
+    /// A `Host` status row is a diagnostic, never transcript content the page
+    /// draws (`visibleItems` drops `.status`). While the App is hidden it only
+    /// invalidates the page for background CPU, so it waits for `.active` and
+    /// the status log keeps the line either way.
     private func appendStatus(_ text: String) {
-        items.append(ChatItem(kind: .status, title: "Host", text: text))
+        transcriptGate.isForeground = isAppForeground
+        if let row = transcriptGate.statusRow(text) { items.append(row) }
         Self.persistStatus(text)
     }
 
@@ -5162,10 +5278,46 @@ final class ChatModel {
     }
 
     /// Renders the last session's settled items before the host is ready.
+    ///
+    /// Reading and JSON-decoding a full cached transcript is disk work that
+    /// used to run on the main actor at launch, exactly where the scene-update
+    /// watchdog is already counting. The decode runs detached; only the row
+    /// adoption (bounded by the page's render window) lands on the main actor.
     private func restoreCachedTranscriptIfAvailable() {
         guard items.isEmpty,
               let sessionID = WorkspaceStorage.currentSessionID(for: backendID) else { return }
-        guard let cached = readCachedTranscript(sessionID: sessionID) else { return }
+        let urls = cachedTranscriptURLs(sessionID: sessionID)
+        guard !urls.isEmpty else { return }
+        cachedRestoreGeneration &+= 1
+        let generation = cachedRestoreGeneration
+        let backend = backendID
+        Task { [weak self] in
+            // Detached: the read/decode must not inherit the main actor.
+            let cached = await Task.detached(priority: .userInitiated) {
+                Self.decodeCachedTranscript(at: urls, backend: backend, sessionID: sessionID)
+            }.value
+            self?.applyCachedTranscript(cached, sessionID: sessionID, generation: generation)
+        }
+    }
+
+    /// Applies one decoded cache read. A newer restore (or a session switch)
+    /// supersedes it; an adoption that already painted leaves no empty window.
+    private func applyCachedTranscript(_ cached: CachedTranscriptSnapshot?,
+                                       sessionID: String, generation: Int) {
+        guard generation == cachedRestoreGeneration,
+              items.isEmpty,
+              WorkspaceStorage.currentSessionID(for: backendID) == sessionID else { return }
+        guard let cached else {
+            // No readable snapshot: do not let an earlier read's seq describe
+            // a cache that no longer exists.
+            cachedSnapshotLastSeq.removeValue(forKey: sessionID)
+            return
+        }
+        if let lastSeq = cached.lastSeq {
+            cachedSnapshotLastSeq[sessionID] = lastSeq
+        } else {
+            cachedSnapshotLastSeq.removeValue(forKey: sessionID)
+        }
         flushStreamingText()
         items = Self.chatItems(from: cached.items)
         guard !items.isEmpty else { return }
@@ -5173,27 +5325,39 @@ final class ChatModel {
         statusLine = "显示上次对话，引擎在后台启动…"
     }
 
-    /// Reads one session's cached tail. The envelope carries the scope, so a
-    /// file that belongs to another backend or session is ignored rather than
-    /// painted (P18). The phone's pre-envelope bare array still decodes.
+    /// One session's cached tail, newest scope first (P18).
+    private func cachedTranscriptURLs(sessionID: String) -> [URL] {
+        [snapshotURL(for: sessionID),
+         WorkspaceStorage.legacyTranscriptSnapshotURL(for: backendID, sessionID: sessionID)]
+            .compactMap { $0 }
+    }
+
+    /// Reads one session's cached tail on the main actor. The envelope carries
+    /// the scope, so a file that belongs to another backend or session is
+    /// ignored rather than painted (P18). The phone's pre-envelope bare array
+    /// still decodes.
     private func readCachedTranscript(sessionID: String) -> CachedTranscriptSnapshot? {
-        for url in [snapshotURL(for: sessionID),
-                    WorkspaceStorage.legacyTranscriptSnapshotURL(for: backendID, sessionID: sessionID)]
-            .compactMap({ $0 }) {
+        let cached = Self.decodeCachedTranscript(at: cachedTranscriptURLs(sessionID: sessionID),
+                                                 backend: backendID, sessionID: sessionID)
+        if let lastSeq = cached?.lastSeq {
+            cachedSnapshotLastSeq[sessionID] = lastSeq
+        } else {
+            cachedSnapshotLastSeq.removeValue(forKey: sessionID)
+        }
+        return cached
+    }
+
+    /// Pure decode with no actor state, safe to run off the main actor.
+    private nonisolated static func decodeCachedTranscript(
+        at urls: [URL], backend: BackendID, sessionID: String
+    ) -> CachedTranscriptSnapshot? {
+        for url in urls {
             guard let data = try? Data(contentsOf: url) else { continue }
-            if let snapshot = CachedTranscriptCodec.decode(data, backend: backendID,
+            if let snapshot = CachedTranscriptCodec.decode(data, backend: backend,
                                                            sessionID: sessionID) {
-                if let lastSeq = snapshot.lastSeq {
-                    cachedSnapshotLastSeq[sessionID] = lastSeq
-                } else {
-                    cachedSnapshotLastSeq.removeValue(forKey: sessionID)
-                }
                 return snapshot
             }
         }
-        // No readable snapshot: do not let an earlier read's seq describe a
-        // cache that no longer exists.
-        cachedSnapshotLastSeq.removeValue(forKey: sessionID)
         return nil
     }
 

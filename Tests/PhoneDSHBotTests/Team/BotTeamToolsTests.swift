@@ -224,6 +224,263 @@ final class BotTeamToolsTests: XCTestCase {
         XCTAssertNil(allHeld[1].handOff)
     }
 
+    // MARK: - Reply to the immediate previous hop
+
+    /// The reported device bug: B could not answer the Bot that just handed it
+    /// a `now` message. The round trip runs B's real `BotTeamTools` inside A's
+    /// real delivery, so the fake host's install/release of the active context
+    /// is exercised instead of a hand-set context.
+    func testReplyToPreviousHopIsAcceptedAndWakesOnce() async throws {
+        let fixedNow = self.fixedNow
+        let host = FakeBotTeamHost()
+        await host.setTurn(1, for: "bot-b")
+        let capture = BotTeamReplyCapture()
+        await host.setDeliveryHandler { request in
+            let replyTools = BotTeamTools(host: host, now: { fixedNow })
+            let reply = await replyTools.execute(
+                name: BotTeamTools.sendToAgentName,
+                arguments: .object([
+                    "agent_id": .string("bot-a"),
+                    "message": .string("the answer"),
+                    "priority": .bool(true),
+                ]),
+                principal: botTeamPrincipal("bot-b"),
+                context: BotMCPRequestContext(callId: "call-reply"))
+            await capture.set(reply)
+            return BotAgentDeliveryReply(text: "B final text", replyEntryId: "t1u")
+        }
+        let tools = makeTools(host)
+        let sent = await execute(tools, [
+            "agent_id": .string("bot-b"), "message": .string("question"),
+            "priority": .bool(true), "title": .string("Question"),
+        ], callID: "call-a")
+        XCTAssertNotEqual(sent.isError, true, botTeamResultText(sent))
+
+        let capturedReply = await capture.result
+        let reply = try XCTUnwrap(capturedReply)
+        XCTAssertNotEqual(reply.isError, true, botTeamResultText(reply))
+        XCTAssertEqual(reply.structuredContent?["reply"], .bool(true))
+        XCTAssertEqual(reply.structuredContent?["requestId"], .string("agent:call-reply"))
+        XCTAssertEqual(reply.structuredContent?["target"]?["id"], .string("bot-a"))
+        XCTAssertEqual(botTeamResultText(reply),
+                       "已回复 Alpha：回复已写入对方的 held inbox，这次回复不算新的转交。")
+
+        let records = await host.records
+        XCTAssertEqual(records.map(\.direction), [.outbound, .reply, .inbound])
+        let outbound = records[0]
+        let replyRow = records[1]
+        XCTAssertEqual(replyRow.botID, "bot-b")
+        XCTAssertEqual(replyRow.direction, .reply)
+        XCTAssertEqual(replyRow.role, "assistant")
+        XCTAssertEqual(replyRow.text, "the answer")
+        XCTAssertEqual(replyRow.toAgent?.id, "bot-a")
+        XCTAssertNil(replyRow.toAgent?.kind)
+        XCTAssertEqual(replyRow.threadID, outbound.threadID,
+                       "a reply joins the exchange thread")
+        XCTAssertEqual(replyRow.requestID, "agent:call-a",
+                       "a reply carries the exchange request id")
+        XCTAssertEqual(replyRow.callID, "call-reply",
+                       "the reply call id is the durable idempotency key")
+        XCTAssertEqual(replyRow.rowID, "t1u")
+        XCTAssertEqual(reply.structuredContent?["threadId"]?.stringValue,
+                       outbound.threadID)
+
+        // The reply must not open a second target turn.
+        let delivered = await host.delivered
+        XCTAssertEqual(delivered.count, 1)
+        XCTAssertEqual(delivered[0].target.id, "bot-b")
+
+        let held = await host.heldRequests
+        XCTAssertEqual(held.count, 2)
+        let explicitReply = held[0]
+        XCTAssertEqual(explicitReply.botID, "bot-a")
+        XCTAssertNil(explicitReply.handOff, "a reply must not install a chain")
+        XCTAssertTrue(explicitReply.wake)
+        XCTAssertEqual(explicitReply.item.fromAgentId, "bot-b")
+        XCTAssertEqual(explicitReply.item.fromAgentName, "Bee")
+        XCTAssertEqual(explicitReply.item.title, "回复：Question")
+        XCTAssertEqual(explicitReply.item.text, "the answer")
+        XCTAssertEqual(explicitReply.item.requestId, "reply:agent:call-reply")
+        XCTAssertEqual(explicitReply.item.threadId, outbound.threadID)
+        // The automatic held reply for A's own delivery is still written.
+        XCTAssertEqual(held[1].botID, "bot-a")
+        XCTAssertEqual(held[1].item.requestId, "reply:agent:call-a")
+        XCTAssertFalse(held[1].wake)
+
+        let wakeRequests = await host.wakeRequests
+        XCTAssertEqual(wakeRequests, ["bot-a"], "the previous hop is woken once")
+
+        // No chain is installed on the sender, so its next send is a new hop.
+        let senderContext = await host.agentCommContext(for: "bot-a")
+        XCTAssertEqual(senderContext.chain, [])
+        XCTAssertNil(senderContext.inbound)
+        let teammateContext = await host.agentCommContext(for: "bot-b")
+        XCTAssertEqual(teammateContext.chain, [], "the delivery context was released")
+        XCTAssertNil(teammateContext.inbound)
+        let second = await execute(tools, [
+            "agent_id": .string("bot-b"), "message": .string("another question"),
+            "priority": .bool(true),
+        ], callID: "call-b")
+        XCTAssertNotEqual(second.isError, true, botTeamResultText(second))
+    }
+
+    func testReplyToOlderHopStillFailsWithTheCycleSentence() async {
+        let host = FakeBotTeamHost()
+        await host.setContext(BotAgentCommContext(
+            depth: 1, chain: ["bot-a", "bot-c", "bot-b"], turn: 4,
+            existingRowIDs: ["t4u"],
+            inbound: BotAgentInboundHop(
+                senderID: "bot-c", requestID: "agent:call-chain",
+                threadID: "thread-chain", delivery: "now")), for: "bot-b")
+        let tools = makeTools(host)
+        let result = await execute(tools, [
+            "agent_id": .string("bot-a"), "message": .string("loop"),
+            "priority": .bool(true),
+        ], botID: "bot-b", callID: "call-reply-older")
+        XCTAssertEqual(result.isError, true)
+        XCTAssertEqual(botTeamResultText(result),
+                       "转交链已经走过 Alpha → Hidden → Bee → Alpha，Alpha 在这条链上，"
+                       + "不能再转回去。请直接回答当前请求。")
+        let delivered = await host.delivered
+        XCTAssertTrue(delivered.isEmpty)
+        let records = await host.records
+        XCTAssertTrue(records.isEmpty)
+        let held = await host.heldRequests
+        XCTAssertTrue(held.isEmpty)
+        let wake = await host.wakeRequests
+        XCTAssertTrue(wake.isEmpty)
+    }
+
+    func testReplyWithoutInboundContextKeepsTheOldCycleRejection() async {
+        // A host that does not supply the inbound hop behaves exactly like v1.
+        let host = FakeBotTeamHost()
+        await host.setContext(
+            BotAgentCommContext(depth: 1, chain: ["bot-a", "bot-b"]), for: "bot-b")
+        let tools = makeTools(host)
+        let result = await execute(tools, [
+            "agent_id": .string("bot-a"), "message": .string("loop"),
+            "priority": .bool(true),
+        ], botID: "bot-b", callID: "call-reply-no-inbound")
+        XCTAssertEqual(result.isError, true)
+        XCTAssertEqual(botTeamResultText(result),
+                       "转交链已经走过 Alpha → Bee → Alpha，Alpha 在这条链上，"
+                       + "不能再转回去。请直接回答当前请求。")
+    }
+
+    func testReplyAtDepthTwoDoesNotAddAHop() async {
+        let host = FakeBotTeamHost()
+        await host.setContext(BotAgentCommContext(
+            depth: 2, chain: ["bot-a", "bot-b", "bot-c"], turn: 2,
+            existingRowIDs: [],
+            inbound: BotAgentInboundHop(
+                senderID: "bot-b", requestID: "agent:call-two",
+                threadID: "thread-two", delivery: "now")), for: "bot-c")
+        let tools = makeTools(host)
+        let result = await execute(tools, [
+            "agent_id": .string("bot-b"), "message": .string("depth two reply"),
+            "priority": .bool(true),
+        ], botID: "bot-c", callID: "call-depth-reply")
+        XCTAssertNotEqual(result.isError, true, botTeamResultText(result))
+        XCTAssertEqual(result.structuredContent?["reply"], .bool(true))
+        let records = await host.records
+        XCTAssertEqual(records.map(\.direction), [.reply])
+        XCTAssertEqual(records[0].rowID, "t2u")
+        let wake = await host.wakeRequests
+        XCTAssertEqual(wake, ["bot-b"])
+    }
+
+    func testReplyLikeNewHopAboveTheLimitIsStillRejected() async {
+        let host = FakeBotTeamHost()
+        await host.setContext(BotAgentCommContext(
+            depth: 2, chain: ["bot-a", "bot-b", "bot-c"], turn: 2,
+            existingRowIDs: [],
+            inbound: BotAgentInboundHop(
+                senderID: "bot-b", requestID: "agent:call-two",
+                threadID: "thread-two", delivery: "now")), for: "bot-c")
+        let tools = makeTools(host)
+        let result = await execute(tools, [
+            "agent_id": .string("bot-x"), "message": .string("forward"),
+            "priority": .bool(true),
+        ], botID: "bot-c", callID: "call-reply-new-hop")
+        XCTAssertEqual(result.isError, true)
+        XCTAssertEqual(botTeamResultText(result),
+                       "转交层数已经达到上限（最多 2 层）。不要再转给别人了，请直接回答当前请求。")
+        let delivered = await host.delivered
+        XCTAssertTrue(delivered.isEmpty)
+    }
+
+    func testQueuedReplyOnEitherSideDoesNotWake() async {
+        // Queued reply call: the sender stays silent.
+        let host = FakeBotTeamHost()
+        await host.setContext(BotAgentCommContext(
+            depth: 1, chain: ["bot-a", "bot-b"], turn: 4, existingRowIDs: ["t4u"],
+            inbound: BotAgentInboundHop(
+                senderID: "bot-a", requestID: "agent:call-origin",
+                threadID: "thread-origin", delivery: "now",
+                title: "Question")), for: "bot-b")
+        let tools = makeTools(host)
+        let queuedReply = await execute(tools, [
+            "agent_id": .string("bot-a"), "message": .string("held answer"),
+            "priority": .bool(false),
+        ], botID: "bot-b", callID: "call-reply-queued")
+        XCTAssertNotEqual(queuedReply.isError, true, botTeamResultText(queuedReply))
+        XCTAssertEqual(queuedReply.structuredContent?["reply"], .bool(true))
+        XCTAssertEqual(queuedReply.structuredContent?["delivery"], .string("queued"))
+        var wake = await host.wakeRequests
+        XCTAssertTrue(wake.isEmpty)
+        var held = await host.heldRequests
+        XCTAssertEqual(held.first?.wake, false)
+        XCTAssertEqual(held.first?.item.requestId, "reply:agent:call-reply-queued")
+
+        // Queued original hand-off: an answer never escalates it into a wake.
+        let heldHost = FakeBotTeamHost()
+        await heldHost.setContext(BotAgentCommContext(
+            depth: 1, chain: ["bot-a", "bot-b"], turn: 2, existingRowIDs: ["t2u"],
+            inbound: BotAgentInboundHop(
+                senderID: "bot-a", requestID: "agent:call-held-origin",
+                threadID: "thread-held", delivery: "queued",
+                title: "FYI")), for: "bot-b")
+        let heldTools = makeTools(heldHost)
+        let nowReply = await execute(heldTools, [
+            "agent_id": .string("bot-a"), "message": .string("answering the held message"),
+            "priority": .bool(true),
+        ], botID: "bot-b", callID: "call-reply-from-held")
+        XCTAssertNotEqual(nowReply.isError, true, botTeamResultText(nowReply))
+        wake = await heldHost.wakeRequests
+        XCTAssertTrue(wake.isEmpty, "a queued hand-off stays silent")
+        held = await heldHost.heldRequests
+        XCTAssertEqual(held.first?.wake, false)
+        XCTAssertEqual(held.first?.item.title, "回复：FYI")
+    }
+
+    func testReplyReplayKeepsIdempotency() async throws {
+        let host = FakeBotTeamHost()
+        await host.setContext(BotAgentCommContext(
+            depth: 1, chain: ["bot-a", "bot-b"], turn: 4, existingRowIDs: ["t4u"],
+            inbound: BotAgentInboundHop(
+                senderID: "bot-a", requestID: "agent:call-origin",
+                threadID: "thread-origin", delivery: "now")), for: "bot-b")
+        let tools = makeTools(host)
+        let arguments: [String: BotJSONValue] = [
+            "agent_id": .string("bot-a"), "message": .string("the answer"),
+            "priority": .bool(true),
+        ]
+        let first = await execute(tools, arguments, botID: "bot-b", callID: "call-reply")
+        XCTAssertNotEqual(first.isError, true, botTeamResultText(first))
+        let second = await execute(tools, arguments, botID: "bot-b", callID: "call-reply")
+        XCTAssertNotEqual(second.isError, true, botTeamResultText(second))
+        XCTAssertEqual(second.structuredContent?["duplicated"], .bool(true))
+        XCTAssertEqual(second.structuredContent?["reply"], .bool(true))
+        XCTAssertEqual(first.structuredContent?["threadId"],
+                       second.structuredContent?["threadId"])
+        let records = await host.records
+        XCTAssertEqual(records.count, 1)
+        let held = await host.heldRequests
+        XCTAssertEqual(held.count, 1)
+        let wake = await host.wakeRequests
+        XCTAssertEqual(wake, ["bot-a"])
+    }
+
     // MARK: - Idempotency and delivery
 
     func testRequestIDIsIdempotentAndDoesNotRedeliver() async throws {
@@ -585,4 +842,10 @@ final class BotTeamToolsTests: XCTestCase {
         XCTAssertEqual(create.policy, .auto)
         XCTAssertTrue(create.resource.contains("name=Builder"))
     }
+}
+
+private actor BotTeamReplyCapture {
+    private(set) var result: BotMCPCallResult?
+
+    func set(_ value: BotMCPCallResult) { result = value }
 }

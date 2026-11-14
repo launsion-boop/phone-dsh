@@ -316,7 +316,18 @@ public data class BotUiState(
     )
 }
 
-/** Muted-card rule (`ui-state.md` §4.4). */
+/**
+ * Muted-card rule (`ui-state.md` §4.4): **checklist-only**.
+ *
+ * Question and steps cards are deliberately absent. Their staleness is the
+ * durable P27 `status:"superseded"` (§4.3.1, projection.md §6.4), computed from
+ * the same event stream the planner refuses with `card_expired`; a second local
+ * "before the last user text" rule could only disagree with it — exactly the
+ * defect fixed by `PC-20261114-card-superseded-and-pending`. A checklist has no
+ * durable expiry (its result is an ordinary chat message), so the send-time
+ * guidance stays app-owned. Muting is not dismissal: the card keeps its data and
+ * settles to 「已略过」. Approvals are auto-denied on send instead (§3.1).
+ */
 public object BotMutedCards {
     public fun ids(
         visibleRows: List<BotRow>,
@@ -330,16 +341,11 @@ public object BotMutedCards {
         val muted = mutableListOf<String>()
         for (row in visibleRows.take(lastUserIndex)) {
             val card = BotUICardContent.parse(row) ?: continue
-            if (card.kind !in setOf(
-                    BotUICardKind.QUESTION, BotUICardKind.STEPS, BotUICardKind.CHECKLIST)) {
-                continue
-            }
+            if (card.kind != BotUICardKind.CHECKLIST) continue
             if (actionStates[BotActionKeys.card(row.id)] != null) continue
-            if (card.kind == BotUICardKind.CHECKLIST) {
-                val progress = checklistProgress[row.id]
-                if (progress != null && (progress.sending || progress.sent)) continue
-                if (JsonSupport.bool(row.body["interactive"]) == false) continue
-            }
+            val progress = checklistProgress[row.id]
+            if (progress != null && (progress.sending || progress.sent)) continue
+            if (JsonSupport.bool(row.body["interactive"]) == false) continue
             muted.add(row.id)
         }
         return muted
@@ -362,7 +368,7 @@ public object BotSettlementRules {
         return when (card.kind) {
             BotUICardKind.QUESTION, BotUICardKind.STEPS ->
                 choiceSettlement(row, card, id, actionStates, dismissedCardIDs,
-                    mutedCardIDs, answeredOptionIDs)
+                    answeredOptionIDs)
             BotUICardKind.CHECKLIST ->
                 checklistSettlement(row, card, id, mutedCardIDs, checklistProgress)
             BotUICardKind.APPROVAL ->
@@ -371,23 +377,38 @@ public object BotSettlementRules {
         }
     }
 
+    /**
+     * The choice settlement order of §4.3, first match wins:
+     * durable `superseded` -> dismissed -> durable `answered` -> pending/failed
+     * (keep the full card) -> accepted.
+     *
+     * The durable card status is the one truth for "can this still be
+     * answered". It settles even while a local tap is `pending` or `failed`:
+     * the planner refuses a superseded card with `card_expired`, so keeping its
+     * buttons would only produce a second refusal.
+     */
     private fun choiceSettlement(
         row: BotRow,
         card: BotUICardContent,
         id: String,
         actionStates: Map<String, BotActionState>,
         dismissedCardIDs: Set<String>,
-        mutedCardIDs: Collection<String>,
         answeredOptionIDs: Map<String, String>,
     ): BotCardSettlement? {
         val state = actionStates[BotActionKeys.card(id)]
-        if (state is BotActionState.Pending || state is BotActionState.Failed) return null
         val prompt = JsonSupport.firstString(row.body.additionalProperties, "question", "prompt")
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
         val detail = prompt
             ?: if (card.kind == BotUICardKind.STEPS) BotUiStrings.SETTLEMENT_STEPSSUGGESTION else null
         val status = JsonSupport.string(row.body["status"])
+        if (status == "superseded") {
+            return BotCardSettlement(
+                glyph = BotSettlementGlyph.MINUS_CIRCLE,
+                title = BotUiStrings.SETTLEMENT_SUPERSEDED,
+                detail = detail,
+            )
+        }
         if (id in dismissedCardIDs || status == "dismissed") {
             return BotCardSettlement(
                 glyph = BotSettlementGlyph.XMARK_CIRCLE,
@@ -395,27 +416,41 @@ public object BotSettlementRules {
                 detail = detail,
             )
         }
-        if (state is BotActionState.Accepted || status == "answered") {
-            val label = chosenLabel(row, card, answeredOptionIDs)
-            val title = if (label != null) {
-                BotUiStrings.format("settlement.selected", "label" to label)
-            } else {
-                BotUiStrings.SETTLEMENT_SENT
-            }
+        if (status == "answered") {
             return BotCardSettlement(
                 glyph = BotSettlementGlyph.CHECKMARK_CIRCLE,
-                title = title,
+                title = chosenTitle(row, card, answeredOptionIDs),
                 detail = detail,
             )
         }
-        if (id in mutedCardIDs) {
+        // In flight (`.pending`) keeps the full card with its spinner, and a
+        // failed attempt keeps it retryable.
+        if (state is BotActionState.Pending || state is BotActionState.Failed) return null
+        if (state is BotActionState.Accepted) {
             return BotCardSettlement(
-                glyph = BotSettlementGlyph.MINUS_CIRCLE,
-                title = BotUiStrings.SETTLEMENT_SKIPPED,
+                glyph = BotSettlementGlyph.CHECKMARK_CIRCLE,
+                title = chosenTitle(row, card, answeredOptionIDs),
                 detail = detail,
             )
         }
         return null
+    }
+
+    /**
+     * `已选择：<label>` when the option label resolves, else `已送出`; an unknown
+     * option id never renders as the raw id (§4.3).
+     */
+    private fun chosenTitle(
+        row: BotRow,
+        card: BotUICardContent,
+        answeredOptionIDs: Map<String, String>,
+    ): String {
+        val label = chosenLabel(row, card, answeredOptionIDs)
+        return if (label != null) {
+            BotUiStrings.format("settlement.selected", "label" to label)
+        } else {
+            BotUiStrings.SETTLEMENT_SENT
+        }
     }
 
     private fun chosenLabel(
