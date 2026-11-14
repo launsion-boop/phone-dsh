@@ -3,6 +3,7 @@ package com.phonedsh.ui.bot.page.chat
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -82,7 +83,7 @@ internal fun BotCardView(
                 row, card, state, onAnswer, onDismiss,
             )
             BotUICardKind.TASK -> BotTaskCardView(row)
-            BotUICardKind.ATTACHMENT -> BotAttachmentCardView(row, onOpenPath)
+            BotUICardKind.ATTACHMENT -> BotAttachmentCardView(row, onOpenPath, onOpenDocument)
             BotUICardKind.DOCUMENT -> BotDocumentCardView(row, onOpenDocument)
             else -> BotWorkCardView(
                 row, card, state, onChecklistProgress, onChecklistSend, onApproval, onOpenUrl,
@@ -106,8 +107,8 @@ private fun BotChoiceCardView(
     val isSteps = card.kind == BotUICardKind.STEPS
     val key = BotActionKeys.card(row.id)
     val choices = card.choices
-    val prompt = firstString(card.body, "question", "prompt")
-    val help = firstString(card.body, "helpText", "help")
+    val prompt = if (isSteps) null else firstString(card.body, "question", "prompt")
+    val help = if (isSteps) null else firstString(card.body, "helpText", "help")
     val muted = row.id in state.mutedCardIDs
     val answered = JsonSupport.string(card.body["status"]) == "answered"
     val actionState = state.actionStates[key]
@@ -115,10 +116,11 @@ private fun BotChoiceCardView(
     val locked = answered || muted || actionState is BotActionState.Pending || accepted
     val canDismiss = !isSteps && JsonSupport.bool(card.body["dismissible"]) != false
 
-    BotCardSurface {
+    BotCardSurface(accentTone = BotCardTone.CHOICE) {
         Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
             BotCardHeading(
                 icon = if (isSteps) PdshIcon.SPARKLE else PdshIcon.INFO,
+                iconTint = botToneInk(BotCardTone.CHOICE),
                 eyebrow = if (isSteps) "建议下一步" else "需要你选择",
                 title = prompt,
                 detail = help,
@@ -166,18 +168,15 @@ private fun BotChoiceCardView(
                                 else tokens.colors.textPrimary,
                             ),
                         )
-                        if (choice.description != null && choice.description.isNotEmpty()) {
+                        if (!isSteps && choice.description != null && choice.description.isNotEmpty()) {
                             BasicText(
                                 text = choice.description,
                                 style = botMetaStyle().copy(color = tokens.colors.textPlaceholder),
                             )
                         }
                     }
-                    if (choice.recommended) {
-                        BotCardTag(BotChatCopy.RECOMMENDED)
-                    } else {
-                        PdshIconView(PdshIcon.CHEVRON_RIGHT, BotChatMetrics.ICON_13_PT.dp, tokens.colors.iconMuted, null)
-                    }
+                    if (choice.recommended) BotCardTag(BotChatCopy.RECOMMENDED, BotCardTone.CHOICE)
+                    PdshIconView(PdshIcon.CHEVRON_RIGHT, BotChatMetrics.ICON_13_PT.dp, tokens.colors.iconMuted, null)
                 }
             }
             statusLine(actionState, accepted, answered, muted)?.let { line ->
@@ -249,10 +248,11 @@ private fun BotTaskCardView(row: BotRow) {
     val verificationSummary = JsonSupport.string(verification?.get("summary"))
     val verificationRefs = (verification?.get("refs") as? com.phonedsh.agentcore.JsonArray)?.values?.size ?: 0
 
-    BotCardSurface {
+    BotCardSurface(accentTone = BotCardTone.WORK) {
         Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
             BotCardHeading(
                 icon = PdshIcon.LIST,
+                iconTint = botToneInk(BotCardTone.WORK),
                 eyebrow = "后台任务",
                 title = title,
                 trailing = { BotCardTag(stateTag.first, stateTag.second) },
@@ -362,42 +362,52 @@ private fun BotTaskCardView(row: BotRow) {
 // MARK: - Attachment
 
 @Composable
-private fun BotAttachmentCardView(row: BotRow, onOpenPath: (String) -> Unit) {
+private fun BotAttachmentCardView(
+    row: BotRow,
+    onOpenPath: (String) -> Unit,
+    onOpenDocument: (BotRow) -> Unit,
+) {
     val tokens = LocalUiTokens.current
     val path = JsonSupport.string(row.body["path"])
     val name = firstString(row.body, "fileName", "name")
         ?: path?.replace('\\', '/')?.split('/')?.lastOrNull()
         ?: path.orEmpty()
     val caption = firstString(row.body, "caption", "size", "description")
-    BotCardSurface {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(BotChatMetrics.GAP_12_PT.dp),
-        ) {
-            BotCardTile(BotCardFileIcon.icon(name, JsonSupport.string(row.body["mimeType"])))
+    val mime = JsonSupport.string(row.body["mimeType"])
+    if (isDocumentPreviewFile(name, mime)) {
+        BotDocumentArtifactCard(
+            title = firstString(row.body, "title", "name", "fileName") ?: name,
+            fileName = name,
+            typeLabel = fileTypeLabel(name, mime),
+            summary = firstString(row.body, "summary", "description", "caption"),
+            content = firstString(row.body, "content", "markdown"),
+            toc = parseDocumentToc(row),
+            size = firstString(row.body, "size", "fileSize"),
+            icon = BotCardFileIcon.icon(name, mime),
+            onOpen = {
+                if (!path.isNullOrBlank()) onOpenPath(path) else onOpenDocument(row)
+            },
+            testTag = BotChatTags.ATTACHMENT_OPEN,
+        )
+        return
+    }
+    // Images, audio, video and archives retain the compact attachment row.
+    BotCardSurface(accentTone = BotCardTone.WORK, modifier = Modifier
+        .clickable(enabled = !path.isNullOrBlank(), role = Role.Button) { path?.let(onOpenPath) }
+        .semantics { contentDescription = "打开附件：$name" }
+        .testTag(BotChatTags.ATTACHMENT_OPEN)) {
+        Row(verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(BotChatMetrics.GAP_12_PT.dp)) {
+            BotCardTile(BotCardFileIcon.icon(name, mime))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(BotChatMetrics.GAP_2_PT.dp)) {
-                BasicText(
-                    text = name,
-                    style = botRowStyle(FontWeight.Medium).copy(color = tokens.colors.textPrimary),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (!caption.isNullOrEmpty()) {
-                    BasicText(
-                        text = caption,
-                        style = botMetaStyle().copy(color = tokens.colors.textPlaceholder),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                BasicText(name, style = botRowStyle(FontWeight.Medium).copy(color = tokens.colors.textPrimary),
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (!caption.isNullOrEmpty() && caption != name) {
+                    BasicText(caption, style = botMetaStyle().copy(color = tokens.colors.textPlaceholder),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (!path.isNullOrEmpty()) {
-                BotPlainTextButton(
-                    label = BotChatCopy.OPEN,
-                    onClick = { onOpenPath(path) },
-                    tag = BotChatTags.ATTACHMENT_OPEN,
-                )
-            }
+            PdshIconView(PdshIcon.CHEVRON_RIGHT, BotChatMetrics.ICON_13_PT.dp, tokens.colors.iconMuted, null)
         }
     }
 }
@@ -406,115 +416,138 @@ private fun BotAttachmentCardView(row: BotRow, onOpenPath: (String) -> Unit) {
 
 @Composable
 private fun BotDocumentCardView(row: BotRow, onOpenDocument: (BotRow) -> Unit) {
-    val tokens = LocalUiTokens.current
-    var expanded by remember(row.id, row.updatedSeq) { mutableStateOf(false) }
     val path = firstString(row.body, "path", "url")
     val title = firstString(row.body, "title", "name", "fileName")
         ?: path?.replace('\\', '/')?.split('/')?.lastOrNull()
         ?: JsonSupport.string(row.body["summary"])
         ?: ""
     val summary = firstString(row.body, "summary", "description", "caption")
-    val toc = ((row.body["toc"] as? com.phonedsh.agentcore.JsonArray)?.values ?: emptyList())
-        .take(6)
-        .mapNotNull { item ->
-            JsonSupport.string(item)
-                ?: (item as? JsonObject)?.let { firstString(it.members, "title", "label", "text") }
-        }
-    val typeLabel = firstString(row.body, "docTypeLabel", "kindLabel") ?: when (
-        JsonSupport.string(row.body["docKind"])
-    ) {
-        "markdown" -> "Markdown"
-        "pdf" -> "PDF"
-        "code" -> "代码"
-        "table" -> "表格"
-        else -> "页面"
-    }
+    val content = firstString(row.body, "content", "markdown")
     val fileName = JsonSupport.string(row.body["fileName"]) ?: title
+    val typeLabel = firstString(row.body, "docTypeLabel", "kindLabel")
+        ?: fileTypeLabel(fileName, null, JsonSupport.string(row.body["docKind"]))
+    BotDocumentArtifactCard(
+        title = title,
+        fileName = fileName,
+        typeLabel = typeLabel,
+        summary = summary,
+        content = content,
+        toc = parseDocumentToc(row),
+        size = JsonSupport.string(row.body["size"]),
+        icon = BotCardFileIcon.icon(fileName, null),
+        onOpen = { onOpenDocument(row) },
+        testTag = BotChatTags.DOCUMENT_OPEN,
+    )
+}
 
-    BotCardSurface {
+@Composable
+private fun BotDocumentArtifactCard(
+    title: String,
+    fileName: String,
+    typeLabel: String,
+    summary: String?,
+    content: String?,
+    toc: List<String>,
+    size: String?,
+    icon: PdshIcon,
+    onOpen: () -> Unit,
+    testTag: String,
+) {
+    val tokens = LocalUiTokens.current
+    BotCardSurface(
+        accentTone = BotCardTone.DOCUMENT,
+        modifier = Modifier.clickable(role = Role.Button, onClick = onOpen)
+            .semantics { contentDescription = "打开文件：$fileName" }.testTag(testTag),
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(BotChatMetrics.BLOCK_GAP_PT.dp)) {
-            BotCardHeading(
-                icon = PdshIcon.DOCUMENT,
-                eyebrow = "文档 · $typeLabel",
-                title = title,
-                titleLineLimit = 2,
-                detailLineLimit = 0,
-            )
-            if (!summary.isNullOrEmpty()) {
-                Column(
-                    modifier = Modifier.clickable(role = Role.Button) { expanded = !expanded },
-                ) {
-                    BasicText(
-                        text = summary,
-                        style = botBodyStyle().copy(color = tokens.colors.textSecondary),
-                        maxLines = if (expanded) Int.MAX_VALUE else 3,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (!expanded) {
-                        BasicText(
-                            text = BotChatCopy.EXPAND,
-                            style = botMetaStyle().copy(
-                                color = tokens.colors.textSecondary,
-                                fontWeight = FontWeight.Medium,
-                            ),
-                            modifier = Modifier.padding(top = BotChatMetrics.GAP_2_PT.dp),
-                        )
-                    }
-                }
+            BasicText(title, style = botTitleStyle().copy(color = tokens.colors.textPrimary),
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            summary?.takeIf { it.isNotBlank() }?.let {
+                BasicText(it, style = botBodyStyle().copy(color = tokens.colors.textSecondary),
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            if (toc.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(BotChatMetrics.GAP_6_PT.dp)) {
-                    BasicText(
-                        text = BotChatCopy.DOCUMENT_CONTENTS,
-                        style = botMetaStyle().copy(color = tokens.colors.textPlaceholder),
-                    )
-                    toc.forEachIndexed { index, item ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(BotChatMetrics.GAP_8_PT.dp),
-                        ) {
-                            BasicText(
-                                text = "${index + 1}",
-                                style = botMetaStyle().copy(color = tokens.colors.textPlaceholder),
-                                modifier = Modifier.width(BotChatMetrics.GAP_14_PT.dp),
-                            )
-                            BasicText(
-                                text = item,
-                                style = botRowStyle().copy(color = tokens.colors.textPrimary),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+            content?.takeIf { it.isNotBlank() }?.let { rawPreview ->
+                val preview = rawPreview.take(1_800).let {
+                    if (rawPreview.length > 1_800) "$it…" else it
+                }
+                Box {
+                    BasicText(preview, style = botBodyStyle().copy(color = tokens.colors.textSecondary),
+                        maxLines = 5, overflow = TextOverflow.Ellipsis)
+                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(14.dp)
+                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                            listOf(Color.Transparent, tokens.colors.surface))))
+                }
+            } ?: if (toc.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(BotChatMetrics.GAP_4_PT.dp)) {
+                    toc.take(4).forEachIndexed { index, line ->
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(BotChatMetrics.GAP_8_PT.dp)) {
+                            BasicText("${index + 1}", style = botMetaStyle().copy(color = tokens.colors.textPlaceholder),
+                                modifier = Modifier.width(BotChatMetrics.GAP_14_PT.dp))
+                            BasicText(line, style = botRowStyle().copy(color = tokens.colors.textPrimary),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
+            } else {
+                BasicText("暂无内容预览", style = botMetaStyle().copy(color = tokens.colors.textPlaceholder))
             }
             BotCardDivider()
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(BotChatMetrics.GAP_12_PT.dp),
-            ) {
-                BotCardTile(BotCardFileIcon.icon(fileName, null))
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(BotChatMetrics.GAP_8_PT.dp)) {
+                BotCardTile(icon)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(BotChatMetrics.GAP_2_PT.dp)) {
-                    BasicText(
-                        text = fileName,
-                        style = botRowStyle(FontWeight.Medium).copy(color = tokens.colors.textPrimary),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    JsonSupport.string(row.body["size"])?.let { size ->
-                        BasicText(
-                            text = size,
-                            style = botMetaStyle().copy(color = tokens.colors.textPlaceholder),
-                        )
+                    BasicText(fileName, style = botRowStyle(FontWeight.Medium).copy(color = tokens.colors.textPrimary),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    size?.let {
+                        BasicText(it, style = botMetaStyle().copy(color = tokens.colors.textPlaceholder),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
-                BotPlainTextButton(
-                    label = BotChatCopy.OPEN,
-                    onClick = { onOpenDocument(row) },
-                    tag = BotChatTags.DOCUMENT_OPEN,
-                )
+                BotCardTag(typeLabel, BotCardTone.DOCUMENT)
+                PdshIconView(PdshIcon.CHEVRON_RIGHT, BotChatMetrics.ICON_13_PT.dp, tokens.colors.iconMuted, null)
             }
         }
+    }
+}
+
+private fun parseDocumentToc(row: BotRow): List<String> =
+    ((row.body["toc"] as? com.phonedsh.agentcore.JsonArray)?.values ?: emptyList())
+        .take(6)
+        .mapNotNull { item -> JsonSupport.string(item) ?: (item as? JsonObject)?.let {
+            firstString(it.members, "title", "label", "text")
+        } }
+
+private fun isDocumentPreviewFile(name: String, mime: String?): Boolean {
+    val ext = name.substringAfterLast('.', "").lowercase()
+    return ext in setOf("pdf", "md", "markdown", "html", "htm", "txt", "doc", "docx", "rtf",
+        "json", "csv", "tsv", "xml", "yaml", "yml") ||
+        mime?.let { it.contains("pdf") || it.startsWith("text/") || it.contains("wordprocessingml") ||
+            it.contains("msword") || it.contains("json") || it.contains("csv") } == true
+}
+
+private fun fileTypeLabel(name: String, mime: String?, kind: String? = null): String {
+    when (kind?.lowercase()) {
+        "markdown" -> return "Markdown"
+        "pdf" -> return "PDF"
+        "table", "csv" -> return "表格"
+        "code" -> return "代码"
+        "document" -> return "文档"
+        "library" -> return "文件库"
+    }
+    return when (name.substringAfterLast('.', "").lowercase()) {
+        "pdf" -> "PDF"
+        "md", "markdown" -> "Markdown"
+        "html", "htm" -> "HTML"
+        "txt" -> "TXT"
+        "doc", "docx" -> "Word"
+        "rtf" -> "RTF"
+        "json" -> "JSON"
+        "csv" -> "CSV"
+        "tsv" -> "TSV"
+        "xml" -> "XML"
+        "yaml", "yml" -> "YAML"
+        else -> mime?.substringAfter('/') ?: "文档"
     }
 }
 

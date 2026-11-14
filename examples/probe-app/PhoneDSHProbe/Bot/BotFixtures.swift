@@ -207,10 +207,11 @@ enum BotUIFixtures {
             ])
         case .steps:
             body = widget("steps", [
+                "question": "不应出现在下一步卡片中的说明标题",
                 "steps": [
                     ["id": "review", "label": "查看验收结果", "description": "先确认测试和截图证据", "recommended": true],
                     ["id": "pr", "label": "创建 Pull Request"],
-                    ["id": "pause", "label": "暂停，稍后继续", "style": "default"],
+                    ["id": "notes", "label": "查看改动说明", "style": "default"],
                 ],
             ])
         case .task:

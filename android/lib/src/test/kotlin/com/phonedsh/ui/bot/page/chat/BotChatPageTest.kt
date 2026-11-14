@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -21,8 +22,12 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.bot.rows.BotActionResult
+import com.phonedsh.bot.rows.BotApprovalDecision
 import com.phonedsh.bot.rows.BotRow
 import com.phonedsh.bot.rows.BotUserActionKind
+import com.phonedsh.agentcore.JsonArray
+import com.phonedsh.agentcore.JsonObject
+import com.phonedsh.agentcore.JsonString
 import com.phonedsh.ui.SpecFixtures
 import com.phonedsh.ui.bot.driver.BotChatModel
 import com.phonedsh.ui.bot.driver.FixtureBotChatDriver
@@ -66,9 +71,10 @@ class BotChatPageTest {
     private fun harness(
         scenario: String,
         results: List<BotActionResult> = emptyList(),
+        approvalScope: String? = null,
     ): Harness {
         val driver = FixtureBotChatDriver.fromJson(
-            fixtures = fixtures,
+            fixtures = approvalScope?.let(::fixturesWithApprovalScope) ?: fixtures,
             scenario = scenario,
             actionResults = results,
         )
@@ -81,6 +87,53 @@ class BotChatPageTest {
         )
         model.start()
         return Harness(model, driver, mutableListOf(), mutableListOf(), mutableListOf())
+    }
+
+    private fun fixturesWithApprovalScope(scope: String): JsonObject {
+        val exported = fixtures.members["exported"] as JsonArray
+        val rows = exported.values.map { scenarioValue ->
+            val scenario = scenarioValue as JsonObject
+            if (scenario.members["scenario"] != JsonString("approval")) return@map scenarioValue
+            val scenarioMembers = LinkedHashMap(scenario.members)
+            val rowValues = (scenario.members["rows"] as JsonArray).values.map { rowValue ->
+                val row = rowValue as JsonObject
+                val rowMembers = LinkedHashMap(row.members)
+                val body = row.members["body"] as JsonObject
+                rowMembers["body"] = JsonObject(LinkedHashMap(body.members).apply {
+                    this["alwaysScope"] = JsonString(scope)
+                })
+                JsonObject(rowMembers)
+            }
+            scenarioMembers["rows"] = JsonArray(rowValues)
+            JsonObject(scenarioMembers)
+        }
+        return JsonObject(LinkedHashMap(fixtures.members).apply { this["exported"] = JsonArray(rows) })
+    }
+
+    private fun fixturesWithDocumentFallback(): JsonObject {
+        val exported = fixtures.members["exported"] as JsonArray
+        val rows = exported.values.map { scenarioValue ->
+            val scenario = scenarioValue as JsonObject
+            if (scenario.members["scenario"] != JsonString("document")) return@map scenarioValue
+            val scenarioMembers = LinkedHashMap(scenario.members)
+            val rowValues = (scenario.members["rows"] as JsonArray).values.map { rowValue ->
+                val row = rowValue as JsonObject
+                val rowMembers = LinkedHashMap(row.members)
+                val body = row.members["body"] as JsonObject
+                rowMembers["body"] = JsonObject(LinkedHashMap(body.members).apply {
+                    remove("content")
+                    remove("summary")
+                    remove("toc")
+                    remove("docTypeLabel")
+                    this["docKind"] = JsonString("unknown")
+                    this["fileName"] = JsonString("unknown-format.bin")
+                })
+                JsonObject(rowMembers)
+            }
+            scenarioMembers["rows"] = JsonArray(rowValues)
+            JsonObject(scenarioMembers)
+        }
+        return JsonObject(LinkedHashMap(fixtures.members).apply { this["exported"] = JsonArray(rows) })
     }
 
     private fun show(
@@ -178,6 +231,8 @@ class BotChatPageTest {
         val harness = harness("attachment")
         show(harness)
         compose.onNodeWithText("phone-dsh-report.pdf").assertIsDisplayed()
+        compose.onNodeWithText("暂无内容预览").assertIsDisplayed()
+        compose.onNodeWithText("PDF").assertIsDisplayed()
         compose.onNodeWithTag(BotChatTags.ATTACHMENT_OPEN).performClick()
         compose.waitForIdle()
         assertEquals(listOf("/tmp/phone-dsh-report.pdf"), harness.paths)
@@ -188,7 +243,30 @@ class BotChatPageTest {
         val harness = harness("document")
         show(harness)
         compose.onNodeWithText("phoneDSH Bot 验收报告").assertIsDisplayed()
-        compose.onNodeWithText("本页内容").assertIsDisplayed()
+        compose.onNodeWithText("Markdown").assertIsDisplayed()
+        compose.onNodeWithText("18 kB").assertIsDisplayed()
+        compose.onNodeWithText("Steering", substring = true).assertIsDisplayed()
+        compose.onNodeWithTag(BotChatTags.DOCUMENT_OPEN).performClick()
+        compose.waitForIdle()
+        assertEquals(listOf("card-document"), harness.documents.map { it.id })
+    }
+
+    @Test
+    fun `document fallback uses truthful missing content and unknown type labels`() {
+        val driver = FixtureBotChatDriver.fromJson(fixturesWithDocumentFallback(), scenario = "document")
+        val model = BotChatModel(
+            context = BotUiContext(botID = "main", botName = "主 Bot"),
+            driver = driver,
+            clock = { now },
+            scope = CoroutineScope(Dispatchers.Unconfined),
+            isMainBot = true,
+        )
+        model.start()
+        val harness = Harness(model, driver, mutableListOf(), mutableListOf(), mutableListOf())
+        show(harness)
+        compose.onNodeWithText("暂无内容预览").assertIsDisplayed()
+        compose.onNodeWithText("unknown-format.bin").assertIsDisplayed()
+        compose.onNodeWithText("文档").assertIsDisplayed()
         compose.onNodeWithTag(BotChatTags.DOCUMENT_OPEN).performClick()
         compose.waitForIdle()
         assertEquals(listOf("card-document"), harness.documents.map { it.id })
@@ -238,6 +316,26 @@ class BotChatPageTest {
         assertEquals(BotUserActionKind.APPROVAL, action.kind)
         assertEquals("approval-fixture", action.approvalID)
         assertEquals("sha256:fixture", action.digest)
+    }
+
+    @Test
+    fun `session approval labels its scope and emits the existing always decision`() {
+        val harness = harness("approval", approvalScope = "session")
+        show(harness)
+        compose.onNodeWithText("始终允许仅对本次对话有效。").assertIsDisplayed()
+        compose.onNodeWithTag(BotChatTags.APPROVAL_ALWAYS).performClick()
+        compose.waitForIdle()
+        assertEquals(BotApprovalDecision.ALWAYS, harness.driver.performed.single().decision)
+    }
+
+    @Test
+    fun `none approval disables continuous authorization`() {
+        val harness = harness("approval", approvalScope = "none")
+        show(harness)
+        compose.onNodeWithText("此操作不支持持续授权，仅可允许一次或拒绝。").assertIsDisplayed()
+        compose.onNodeWithTag(BotChatTags.APPROVAL_ALWAYS).assertIsNotEnabled().performClick()
+        compose.waitForIdle()
+        assertTrue(harness.driver.performed.isEmpty())
     }
 
     @Test

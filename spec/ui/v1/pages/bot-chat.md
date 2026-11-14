@@ -42,6 +42,26 @@ document 卡只显示一个用户可读的类型名（文档、Markdown、PDF、
 
 会话纪元切换时追加一条 info notice（单个紧凑行）：说明被抹除的内容已从旧会话日志移除、对话已接续到新会话。`tone` 只是视觉提示，不是可见性开关：error/denial 用危险色，info 用中性色，任何非空 notice 文本都必须渲染；不得因 `tone=info` 把接续 notice 丢弃。notice 不得包含被抹除的文本或旧 session id；旧纪元中未命中的行仍按时间与新纪元拼接显示，墓碑行不显示。
 
+### 2026-11-14 用户确认的卡片展示修订
+
+本节覆盖上文冲突的旧视觉约束；不改变顶部头像/活动行，顶部新方案另行评审。
+以 `docs/previews/bot-cards-compare.html` 第 07 版为视觉参考，不使用 Tono 设计规范。
+选择/建议使用蓝色、文档紫色、任务绿色、授权琥珀色，保留深浅色与减少动态支持；
+图标固定等比，不因文本和窄屏挤压。现有 86% 最大内容宽度、44pt 命中区和结算语义保留。
+question/steps 的「建议」标签统一放右侧箭头前；steps 仅显示简短动作选项，省略
+prompt/help/description 的重复解释；question 的真实问题/帮助与拒绝选项仍保留。
+生成端遵守 cards.md §2 的非动作过滤，不能仅在 UI 藏掉已分配 ID 的选项。
+
+PDF、Markdown、HTML、TXT 等可预览文档统一使用标题、真实摘要、默认可见的有限正文/
+目录预览及底部文件名/格式入口；点击整卡走既有预览动作。没有提取结果时显示真实
+「暂无内容预览」占位，不能生成假正文/目录；文件访问边界、MIME/路径校验、打开能力
+与失败反馈保持原实现。不新增 wire 字段，不承诺新增格式解析器已存在。
+
+审批按钮顺序为「允许一次」「始终允许」「拒绝」，只有「始终允许」为高亮。
+`decision` 仍为 once/always/deny 的原枚举，不扩大授权范围：`alwaysScope=until`
+说明对同一既有授权范围持续有效；`session` 明示仅本次对话有效（按钮可统一文案，
+回执仍逐字区分本次对话）；`none` 禁用持续授权并说明仅支持单次，不绕过宿主限制。
+
 ## 3. 卡片清单
 
 P0 第一版必须实现：question、steps（含 recommended）、task、attachment、document、progress（cardKey 就地更新）、checklist、link、approval、automation routine 运行卡、agent-comm（Bot 间通讯）行、error/denial/info notice（解析与 fail-closed 规则保留；error/denial 不进入 Bot 消息流，error 转为头部状态行；会话纪元 info notice 仍按下文规则渲染）。
