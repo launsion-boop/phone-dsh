@@ -2,6 +2,8 @@
 
 import SwiftUI
 import UIKit
+import PDFKit
+import PhoneDSHBot
 
 struct BotCardActions {
     var openURL: (URL) -> Void = { UIApplication.shared.open($0) }
@@ -73,7 +75,7 @@ private struct BotChoiceCardView: View {
     }
     private var prompt: String? {
         let value = card.body.string("question", "prompt")
-        return isSteps && value == "建议下一步" ? nil : value
+        return isSteps ? nil : value
     }
     private var help: String? { card.body.string("helpText", "help") }
     private var muted: Bool { model.mutedCardIDs.contains(row.id) }
@@ -85,11 +87,12 @@ private struct BotChoiceCardView: View {
     private var canDismiss: Bool { !isSteps && card.body["dismissible"]?.bool != false }
 
     var body: some View {
-        BotCardSurface {
+        BotCardSurface(category: .choice) {
             VStack(alignment: .leading, spacing: 0) {
                 BotCardHeading(icon: isSteps ? "sparkles" : "questionmark.circle",
                                eyebrow: isSteps ? "建议下一步" : "需要你选择",
-                               title: prompt, detail: help) {
+                               title: prompt, detail: isSteps ? nil : help,
+                               category: .choice) {
                     if canDismiss { dismissButton }
                 }
                 .padding(.bottom, choices.isEmpty ? 0 : 4)
@@ -126,20 +129,19 @@ private struct BotChoiceCardView: View {
             selectedID = choice.id
             model.answer(row: row, optionID: choice.id)
         } label: {
-            BotCardRow(label: choice.label, detail: choice.description,
+            BotCardRow(label: choice.label, detail: isSteps ? nil : choice.description,
                        labelInk: choice.danger ? NativeParityTokens.error : HomeSpec.textPrimary) {
                 EmptyView()
             } trailing: {
+                if choice.recommended { BotCardTag(text: "建议", tone: .choice) }
                 if accepted && selectedID == choice.id {
                     Image(systemName: "checkmark")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(HomeSpec.textPrimary)
-                } else if choice.recommended {
-                    BotCardTag(text: "建议")
+                        .foregroundStyle(BotCardCategory.choice.ink)
                 } else {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(HomeSpec.iconMuted)
+                        .foregroundStyle(BotCardCategory.choice.ink.opacity(0.75))
                 }
             }
         }
@@ -225,7 +227,7 @@ private struct BotTaskCardView: View {
     }
 
     var body: some View {
-        BotCardSurface {
+        BotCardSurface(category: .work) {
             VStack(alignment: .leading, spacing: 0) {
                 BotCardHeading(icon: "checklist", eyebrow: "后台任务", title: title) {
                     BotCardTag(text: stateTag.text, tone: stateTag.tone)
@@ -307,7 +309,14 @@ private struct BotAttachmentCardView: View {
         if let explicit = row.body.string("fileName", "name") { return explicit }
         return path?.replacingOccurrences(of: "\\", with: "/").split(separator: "/").last.map(String.init) ?? path ?? ""
     }
-    private var icon: String { BotCardFileIcon.name(for: name, mime: row.body["mimeType"]?.string) }
+    private var isDocument: Bool {
+        let mime = (row.body["mimeType"]?.string ?? "").lowercased()
+        let ext = (name as NSString).pathExtension.lowercased()
+        return ["pdf", "md", "markdown", "html", "htm", "txt", "doc", "docx", "rtf",
+                "json", "csv", "tsv", "xml", "yaml", "yml"].contains(ext)
+            || mime == "application/pdf" || mime.hasPrefix("text/")
+            || mime.contains("wordprocessingml") || mime.contains("msword")
+    }
 
     var body: some View {
         if let path, actions.canOpenPath(path) {
@@ -328,27 +337,87 @@ private struct BotAttachmentCardView: View {
 
     /// One card face. `open` only controls the visible affordance; the whole
     /// surface is the button when a handler exists.
-    private func card(open: Bool) -> some View {
-        BotCardSurface {
-            HStack(spacing: 12) {
-                BotCardTile(systemImage: icon)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(name)
-                        .botCardRow(weight: .medium)
-                        .lineLimit(2)
-                    if let detail = row.body.string("caption", "size", "description") {
-                        Text(detail)
-                            .botCardMeta()
-                            .lineLimit(1)
+    @ViewBuilder private func card(open: Bool) -> some View {
+        BotCardSurface(padding: isDocument ? 0 : 12, category: isDocument ? .document : .work) {
+            if isDocument {
+                VStack(alignment: .leading, spacing: 0) {
+                    artifactTitle
+                    if let summary = row.body.string("caption", "description") {
+                        Text(summary).botCardBody().lineLimit(2)
+                            .padding(.horizontal, 16).padding(.top, 4)
                     }
+                BotCardArtifactPreview(path: path, fileName: name, title: name,
+                                       mime: row.body["mimeType"]?.string, category: .document)
+                        .padding(.horizontal, 16).padding(.top, 12)
+                    artifactFooter()
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                if open {
-                    BotCardOpenAffordance()
+            } else {
+                HStack(spacing: 12) {
+                    BotCardTile(systemImage: BotCardFileIcon.name(for: name, mime: row.body["mimeType"]?.string))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(name).botCardRow(weight: .medium).lineLimit(2)
+                        if let detail = row.body.string("caption", "size", "description") {
+                            Text(detail).botCardMeta().lineLimit(1)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    if open { BotCardOpenAffordance() }
                 }
             }
         }
         .contentShape(Rectangle())
+    }
+
+    private var artifactTitle: some View {
+        Text(name).font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(HomeSpec.textPrimary).lineLimit(2)
+            .padding(.horizontal, 16).padding(.top, 16)
+    }
+
+    private func artifactFooter() -> some View {
+        HStack(spacing: 12) {
+            BotCardFileTile(fileName: name, mime: row.body["mimeType"]?.string)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).botCardRow(weight: .medium).lineLimit(1)
+                Text(BotCardFileTypeLabel.make(name: name, mime: row.body["mimeType"]?.string,
+                                               size: row.body["size"]?.string))
+                    .botCardMeta().lineLimit(1)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(16)
+        .background(HomeSpec.userBubble.opacity(0.35))
+    }
+
+}
+
+private enum BotCardFileTypeLabel {
+    static func make(name: String, mime: String?, size: String?) -> String {
+        let ext = (name as NSString).pathExtension.uppercased()
+        let normalizedMime = (mime ?? "").lowercased()
+        let type: String
+        switch ext {
+        case "PDF": type = "PDF"
+        case "MD", "MARKDOWN", "MDOWN": type = "Markdown"
+        case "HTML", "HTM": type = "HTML"
+        case "TXT", "TEXT", "LOG": type = "纯文本"
+        case "DOC", "DOCX": type = "Word 文档"
+        case "RTF": type = "RTF 文档"
+        case "JSON", "JSONL": type = "JSON 数据"
+        case "CSV", "TSV": type = "CSV 表格"
+        default:
+            if normalizedMime.contains("pdf") { type = "PDF" }
+            else if normalizedMime.contains("markdown") { type = "Markdown" }
+            else if normalizedMime.contains("html") { type = "HTML" }
+            else if normalizedMime.contains("wordprocessingml") || normalizedMime.contains("msword") { type = "Word 文档" }
+            else if normalizedMime.contains("rtf") { type = "RTF 文档" }
+            else if normalizedMime.contains("json") { type = "JSON 数据" }
+            else if normalizedMime.contains("csv") { type = "CSV 表格" }
+            else if normalizedMime.hasPrefix("text/") { type = "纯文本" }
+            else { type = "文件" }
+        }
+        return [type, size].compactMap { value in
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }.joined(separator: " · ")
     }
 }
 
@@ -404,54 +473,42 @@ private struct BotDocumentCardView: View {
         }
     }
     private var fileName: String { row.body.string("fileName") ?? title }
+    private var inlinePreview: String? {
+        row.body.string("content", "markdown")?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
 
     var body: some View {
         Button { actions.openDocument(row) } label: {
-            BotCardSurface {
+            BotCardSurface(padding: 0, category: .document) {
                 VStack(alignment: .leading, spacing: BotCardMetrics.blockGap) {
-                    // `titleLineLimit: 0` keeps the heading's own expand
-                    // control out of the whole-card button; the preview is
-                    // the place to read the full title.
-                    BotCardHeading(icon: "doc.text", eyebrow: typeLabel, title: title,
-                                   titleLineLimit: 0) { EmptyView() }
+                    Text(title)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(HomeSpec.textPrimary)
+                        .lineLimit(2)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 18)
                     if let summary {
-                        // The summary is informational: the card's one action
-                        // is opening the document, not expanding this text.
-                        Text(summary)
-                            .botCardBody()
-                            .lineLimit(3)
-                            .fixedSize(horizontal: false, vertical: true)
+                        Text(summary).botCardBody().lineLimit(2)
+                            .padding(.horizontal, 16)
                     }
-                    if !toc.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("本页内容").botCardMeta()
-                            ForEach(Array(toc.enumerated()), id: \.offset) { index, item in
-                                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                    Text("\(index + 1)")
-                                        .botCardMeta()
-                                        .monospacedDigit()
-                                        .frame(width: 14, alignment: .trailing)
-                                    Text(item)
-                                        .botCardRow()
-                                        .lineLimit(1)
-                                }
-                            }
-                        }
-                    }
-                    BotCardDivider()
+                    BotCardArtifactPreview(path: path, fileName: fileName, title: title,
+                                           mime: row.body["mimeType"]?.string,
+                                           inlineContent: inlinePreview, toc: toc,
+                                           category: .document)
+                        .padding(.horizontal, 16)
                     HStack(spacing: 12) {
-                        BotCardTile(systemImage: BotCardFileIcon.name(for: fileName, mime: nil))
+                        BotCardFileTile(fileName: fileName, mime: row.body["mimeType"]?.string)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(fileName)
-                                .botCardRow(weight: .medium)
-                                .lineLimit(1)
-                            if let size = row.body["size"]?.string {
-                                Text(size).botCardMeta()
-                            }
+                            Text(fileName).botCardRow(weight: .medium).lineLimit(1)
+                            Text(BotCardFileTypeLabel.make(name: fileName,
+                                                           mime: row.body["mimeType"]?.string,
+                                                           size: row.body["size"]?.string))
+                                .botCardMeta().lineLimit(1)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        BotCardOpenAffordance()
                     }
+                    .padding(16)
+                    .background(HomeSpec.userBubble.opacity(0.35))
                 }
             }
             .contentShape(Rectangle())
@@ -460,6 +517,147 @@ private struct BotDocumentCardView: View {
         .accessibilityIdentifier("bot.document.open")
         .accessibilityLabel("打开 \(title)")
         .accessibilityHint("打开文档预览")
+    }
+
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+/// A compact, truthful preview. Embedded content wins; otherwise text files
+/// are read through the existing resolver and 256 KiB reader. Unsupported or
+/// missing content is stated plainly rather than replaced with sample copy.
+private struct BotCardArtifactPreview: View {
+    let path: String?
+    let fileName: String
+    let title: String
+    let mime: String?
+    var inlineContent: String? = nil
+    var toc: [String] = []
+    let category: BotCardCategory
+    @State private var loadedText: String?
+    @State private var message: String?
+    @State private var pdfPreview: UIImage?
+
+    private var content: String? {
+        let supplied = [inlineContent, loadedText].compactMap { $0 }.first
+        let parts = [supplied, toc.isEmpty ? nil : toc.joined(separator: "\n")].compactMap { $0 }
+        guard !parts.isEmpty else { return nil }
+        let source = parts.joined(separator: "\n\n")
+        let readable = isMarkdown ? Self.readableMarkdown(source) : source
+        var lines = readable.components(separatedBy: .newlines)
+        if let first = lines.first,
+           first.trimmingCharacters(in: .whitespacesAndNewlines)
+            .localizedCaseInsensitiveCompare(title.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame {
+            lines.removeFirst()
+        }
+        return String(lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines).prefix(1_800))
+    }
+    private var isMarkdown: Bool {
+        let ext = (fileName as NSString).pathExtension.lowercased()
+        return ["md", "markdown", "mdown"].contains(ext) || (mime ?? "").lowercased().contains("markdown")
+    }
+    private var isHTML: Bool {
+        let ext = (fileName as NSString).pathExtension.lowercased()
+        return ["html", "htm"].contains(ext) || (mime ?? "").lowercased() == "text/html"
+    }
+
+    var body: some View {
+        Group {
+            if let image = pdfPreview {
+                Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 150)
+            } else if let content {
+                VStack(alignment: .leading, spacing: 4) {
+                    if isHTML { Text("HTML 源码预览").botCardMeta() }
+                    Text(content)
+                        .font(.system(size: 12, weight: .regular, design: .rounded))
+                        .lineSpacing(4)
+                        .foregroundStyle(HomeSpec.textSecondary)
+                        .lineLimit(4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .mask {
+                            LinearGradient(stops: [
+                                .init(color: .black, location: 0),
+                                .init(color: .black, location: 0.58),
+                                .init(color: .clear, location: 1),
+                            ], startPoint: .top, endPoint: .bottom)
+                        }
+                }
+                .accessibilityIdentifier("bot.card.document.preview")
+            } else {
+                Text(message ?? (path == nil ? "暂无正文或目录预览" : "正在读取文件预览…"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(HomeSpec.textPlaceholder)
+                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                    .accessibilityIdentifier("bot.card.document.preview")
+            }
+        }
+        .padding(12)
+        .background(category.wash.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+        .clipped()
+        .task(id: path) { await loadFilePreview() }
+    }
+
+    @MainActor
+    private func loadFilePreview() async {
+        loadedText = nil
+        message = nil
+        pdfPreview = nil
+        guard inlineContent == nil, toc.isEmpty, let path else { return }
+        guard let url = PreviewPathResolver.fileURL(for: path) else {
+            message = "文件尚未同步到本机"
+            return
+        }
+        if url.previewKind == .pdf {
+            guard let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                  fileSize <= 20 * 1024 * 1024 else {
+                message = "PDF 文件较大，请打开文件查看"
+                return
+            }
+            let imageData = await Task.detached(priority: .utility) { () -> Data? in
+                guard let document = PDFDocument(url: url), let page = document.page(at: 0) else { return nil }
+                let image = page.thumbnail(of: CGSize(width: 520, height: 360), for: .mediaBox)
+                return image.pngData()
+            }.value
+            guard !Task.isCancelled else { return }
+            pdfPreview = imageData.flatMap { UIImage(data: $0) }
+            if pdfPreview == nil { message = "PDF 暂无可用页面预览" }
+            return
+        }
+        switch url.previewKind {
+        case .text, .markdown, .html: break
+        default:
+            message = "此格式请打开文件查看"
+            return
+        }
+        do {
+            let result = try await Task.detached(priority: .utility) {
+                try BotDocumentFileReader.readText(at: url)
+            }.value
+            guard !Task.isCancelled else { return }
+            loadedText = result.text
+            if result.text.isEmpty { message = "文件内容为空" }
+        } catch {
+            message = "无法读取文件内容"
+        }
+    }
+
+    private static func readableMarkdown(_ source: String) -> String {
+        source.components(separatedBy: .newlines).map { line in
+            var value = line.trimmingCharacters(in: .whitespaces)
+            while value.first == "#" { value.removeFirst() }
+            value = value.trimmingCharacters(in: .whitespaces)
+            if value.hasPrefix("- ") || value.hasPrefix("* ") { value.removeFirst(2) }
+            if let range = value.range(of: "](") , value.hasPrefix("[") {
+                let title = value[value.index(after: value.startIndex)..<range.lowerBound]
+                value = String(title)
+            }
+            value = value.replacingOccurrences(of: "**", with: "")
+                .replacingOccurrences(of: "__", with: "")
+                .replacingOccurrences(of: "`", with: "")
+            return value
+        }.filter { !$0.isEmpty }.joined(separator: "\n")
     }
 }
 

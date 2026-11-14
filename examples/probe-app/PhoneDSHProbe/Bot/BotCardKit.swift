@@ -11,11 +11,11 @@
 //   meta     12 regular  #888, 18 line   counts, sites, sizes, times
 //
 // Rows are at least 44pt with 0.5pt hairlines between them; glyphs are 17pt
-// in a 20pt column (or a 32pt gray tile for objects); buttons are 44pt
-// capsules. Color is monochrome: green and red mark only success and failure.
+// in a 20pt column (or a 40pt tinted tile for objects); buttons are 44pt.
 
 import PhoneDSHBot
 import SwiftUI
+import UIKit
 
 enum BotCardMetrics {
     // MARK: - Shared width
@@ -45,6 +45,25 @@ enum BotCardMetrics {
     static let bodyLine: CGFloat = 20
     static let metaSize: CGFloat = 12
     static let metaLine: CGFloat = 18
+}
+
+/// Semantic card palette from the approved v07 preview. Dynamic colors keep
+/// the same category separation in both appearances without borrowing any
+/// external design-system tokens.
+enum BotCardCategory {
+    case choice, work, document, approval, notice
+
+    var ink: Color {
+        switch self {
+        case .choice: Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.58, green: 0.72, blue: 1, alpha: 1) : UIColor(red: 0.15, green: 0.37, blue: 0.81, alpha: 1) })
+        case .work: Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.55, green: 0.84, blue: 0.73, alpha: 1) : UIColor(red: 0.14, green: 0.48, blue: 0.39, alpha: 1) })
+        case .document: Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.79, green: 0.67, blue: 0.98, alpha: 1) : UIColor(red: 0.47, green: 0.31, blue: 0.74, alpha: 1) })
+        case .approval: Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.94, green: 0.76, blue: 0.48, alpha: 1) : UIColor(red: 0.58, green: 0.38, blue: 0.09, alpha: 1) })
+        case .notice: HomeSpec.textSecondary
+        }
+    }
+
+    var wash: Color { ink.opacity(0.09) }
 }
 
 extension View {
@@ -177,21 +196,28 @@ struct BotAdaptiveBubbleLayout: Layout {
 /// its content asks for; the parent `BotContentWidth` supplies the 86% cap.
 struct BotCardSurface<Content: View>: View {
     var padding: CGFloat = BotCardMetrics.padding
+    var category: BotCardCategory = .work
     @ViewBuilder var content: Content
 
     var body: some View {
         content
             .padding(padding)
-            .background(HomeSpec.surface,
+            .background(LinearGradient(colors: [category.wash.opacity(0.48), HomeSpec.surface],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing),
                         in: RoundedRectangle(cornerRadius: BotCardMetrics.radius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: BotCardMetrics.radius, style: .continuous)
-                .strokeBorder(HomeSpec.borderList, lineWidth: 1))
+                .strokeBorder(category.ink.opacity(0.18), lineWidth: 1))
+            .overlay(alignment: .top) {
+                category.ink.frame(height: 3)
+                    .accessibilityHidden(true)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: BotCardMetrics.radius, style: .continuous))
     }
 }
 
 /// Card state, shown as a tag at the end of the eyebrow line.
 enum BotCardTone {
-    case neutral, success, danger, warning
+    case neutral, success, danger, warning, choice
 
     var ink: Color {
         switch self {
@@ -199,6 +225,7 @@ enum BotCardTone {
         case .success: HomeSpec.success
         case .danger: NativeParityTokens.error
         case .warning: NativeParityTokens.warning
+        case .choice: BotCardCategory.choice.ink
         }
     }
 }
@@ -230,6 +257,7 @@ struct BotCardHeading<Trailing: View>: View {
     var detail: String?
     var titleLineLimit: Int? = 2
     var detailLineLimit: Int? = 2
+    var category: BotCardCategory = .work
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
@@ -237,12 +265,16 @@ struct BotCardHeading<Trailing: View>: View {
             HStack(spacing: 6) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(category.ink)
+                    .frame(width: 28, height: 28)
+                    .background(category.wash, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 Text(eyebrow)
+                    .foregroundStyle(category.ink)
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 trailing
             }
-            .botCardEyebrow()
+            .font(.system(size: BotCardMetrics.metaSize, weight: .semibold))
             .frame(minHeight: 20)
             if let title, !title.isEmpty {
                 overflowText(title, limit: titleLineLimit, style: .title)
@@ -499,15 +531,83 @@ extension BotCardSettlementTone {
 /// A 32pt gray tile with an 17pt glyph, for files, links and routines.
 struct BotCardTile: View {
     let systemImage: String
+    var category: BotCardCategory = .work
 
     var body: some View {
         Image(systemName: systemImage)
             .font(.system(size: 17, weight: .medium))
-            .foregroundStyle(HomeSpec.textPrimary)
+            .foregroundStyle(category.ink)
             .frame(width: BotCardMetrics.tile, height: BotCardMetrics.tile)
-            .background(HomeSpec.userBubble.opacity(0.7),
+            .background(category.wash,
                         in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .accessibilityHidden(true)
+    }
+}
+
+/// Fixed square document mark with a format label; its footprint never flexes
+/// when a filename or neighboring text wraps.
+struct BotCardFileTile: View {
+    let fileName: String
+    var mime: String?
+    var category: BotCardCategory = .document
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var format: String {
+        let ext = ((fileName as NSString).pathExtension).uppercased()
+        switch ext {
+        case "PDF": return "PDF"
+        case "MD", "MARKDOWN", "MDOWN": return "MD"
+        case "HTML", "HTM": return "HTML"
+        case "TXT", "TEXT", "LOG": return "TXT"
+        case "DOC", "DOCX": return "DOCX"
+        case "RTF": return "RTF"
+        case "JSON", "JSONL": return "JSON"
+        case "CSV", "TSV": return "CSV"
+        default:
+            if mime?.localizedCaseInsensitiveContains("pdf") == true { return "PDF" }
+            if mime?.localizedCaseInsensitiveContains("markdown") == true { return "MD" }
+            if mime?.localizedCaseInsensitiveContains("html") == true { return "HTML" }
+            if mime?.hasPrefix("text/") == true { return "TXT" }
+            return ext.isEmpty ? "FILE" : String(ext.prefix(4))
+        }
+    }
+
+    private var formatInk: Color {
+        let light: UIColor
+        let dark: UIColor
+        switch format {
+        case "PDF": (light, dark) = (UIColor(red: 0.77, green: 0.29, blue: 0.27, alpha: 1), UIColor(red: 1, green: 0.55, blue: 0.51, alpha: 1))
+        case "MD": (light, dark) = (UIColor(red: 0.47, green: 0.31, blue: 0.74, alpha: 1), UIColor(red: 0.79, green: 0.67, blue: 0.98, alpha: 1))
+        case "HTML": (light, dark) = (UIColor(red: 0.72, green: 0.40, blue: 0.13, alpha: 1), UIColor(red: 1, green: 0.68, blue: 0.39, alpha: 1))
+        case "TXT": (light, dark) = (UIColor(red: 0.29, green: 0.48, blue: 0.64, alpha: 1), UIColor(red: 0.57, green: 0.75, blue: 0.91, alpha: 1))
+        case "DOCX": (light, dark) = (UIColor(red: 0.20, green: 0.40, blue: 0.74, alpha: 1), UIColor(red: 0.56, green: 0.72, blue: 1, alpha: 1))
+        case "RTF": (light, dark) = (UIColor(red: 0.57, green: 0.38, blue: 0.66, alpha: 1), UIColor(red: 0.80, green: 0.65, blue: 0.89, alpha: 1))
+        case "JSON": (light, dark) = (UIColor(red: 0.58, green: 0.45, blue: 0.15, alpha: 1), UIColor(red: 0.91, green: 0.76, blue: 0.40, alpha: 1))
+        case "CSV": (light, dark) = (UIColor(red: 0.22, green: 0.49, blue: 0.36, alpha: 1), UIColor(red: 0.52, green: 0.78, blue: 0.63, alpha: 1))
+        default: (light, dark) = (UIColor(red: 0.47, green: 0.31, blue: 0.74, alpha: 1), UIColor(red: 0.79, green: 0.67, blue: 0.98, alpha: 1))
+        }
+        return Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? dark : light })
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(category.wash)
+            Image(systemName: "doc")
+                .font(.system(size: 22, weight: .regular))
+                .foregroundStyle(formatInk)
+                .offset(y: -4)
+            Text(format)
+                .font(.system(size: 8, weight: .bold, design: .rounded))
+                .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
+                .background(formatInk, in: Capsule())
+                .offset(y: 3)
+        }
+        .frame(width: 44, height: 44)
+        .fixedSize()
+        .accessibilityHidden(true)
     }
 }
 
@@ -516,6 +616,7 @@ struct BotCardTile: View {
 struct BotCardButtonStyle: ButtonStyle {
     enum Kind { case primary, secondary, plain }
     var kind: Kind = .primary
+    var tint: Color?
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
@@ -523,10 +624,10 @@ struct BotCardButtonStyle: ButtonStyle {
         case .primary:
             configuration.label
                 .font(.system(size: HomeSpec.processSize, weight: .semibold))
-                .foregroundStyle(HomeSpec.primaryButtonInk)
+                .foregroundStyle(tint == nil ? HomeSpec.primaryButtonInk : Color.white)
                 .frame(maxWidth: .infinity)
                 .frame(height: BotCardMetrics.buttonHeight)
-                .background(HomeSpec.primaryButton.opacity(isEnabled ? 1 : 0.25), in: Capsule())
+                .background((tint ?? HomeSpec.primaryButton).opacity(isEnabled ? 1 : 0.25), in: Capsule())
                 .opacity(configuration.isPressed ? 0.8 : 1)
         case .secondary:
             configuration.label

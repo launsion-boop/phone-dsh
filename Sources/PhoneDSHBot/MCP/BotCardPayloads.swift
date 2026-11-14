@@ -66,10 +66,10 @@ public enum BotCardPayloads {
                 let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !label.isEmpty else { throw BotCardPayloadError.invalid("steps[\(index)] 不能为空。") }
                 let step: [String: BotJSONValue] = ["label": .string(label)]
-                return isSyntheticOther(step) ? nil : .object(step)
+                return isSyntheticOther(step) || isNonActionStep(step) ? nil : .object(step)
             }
             let step = try normalizedChoice(value, path: "steps[\(index)]")
-            return isSyntheticOther(step) ? nil : .object(step)
+            return isSyntheticOther(step) || isNonActionStep(step) ? nil : .object(step)
         }
         guard (2...4).contains(steps.count) else { throw BotCardPayloadError.invalid("show_next_steps 需要 2–4 个有效 steps。") }
         return .object(["cardType": .string("steps"),
@@ -121,6 +121,18 @@ public enum BotCardPayloads {
             choice["id"] = .string("o\(index)")
             return .object(choice)
         }
+    }
+
+    /// Suggestions are actions, not a mandatory choice: exact filler labels are
+    /// removed before recommendation ordering and host option-ID assignment.
+    /// This rule deliberately does not apply to real question-card refusals.
+    private static func isNonActionStep(_ choice: [String: BotJSONValue]) -> Bool {
+        guard let label = string(choice["label"])?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return false
+        }
+        return ["暂时不用", "暂不需要", "不用了", "先这样", "不需要", "暂不操作", "暂不继续",
+                "没有了", "以上都不", "暂时不需要", "先不用", "以后再说", "暂不处理", "无需操作", "暂停，稍后继续", "not now", "no thanks", "do nothing", "none of the above",
+                "skip", "none"].contains(label)
     }
 
     private static func isSyntheticOther(_ choice: [String: BotJSONValue]) -> Bool {

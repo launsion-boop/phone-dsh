@@ -56,6 +56,16 @@ The same algorithm applies to `options` and to object `steps`:
 4. A choice whose trimmed, lowercased label is exactly `其他`, `其它` or `other` is a synthetic
    “other” and is removed. After removal the array MUST still contain 2–4 entries; otherwise the
    “effective” count message in §8 is used. The host never renders a model-supplied “other”.
+4a. Phone next-step refinement (2026-11-14): **only `show_next_steps`**, after the same
+trim/lowercase normalization, also drops these exact non-action labels:
+`暂时不用`, `暂不需要`, `不用了`, `先这样`, `不需要`, `暂不操作`, `暂不继续`,
+`没有了`, `以上都不`, `暂时不需要`, `先不用`, `以后再说`, `暂不处理`, `无需操作`, `暂停，稍后继续`, `not now`, `no thanks`, `do nothing`, `none of the above`, `skip`, `none`.
+Do not apply this list to `ask_user`, substring matches, or actionable labels such as
+`取消正在运行的任务`. Retain 2–4 effective actions or return the existing effective-count error;
+never invent replacement options. IDs are assigned after removal, exactly as below.
+`description` remains accepted and persisted for compatibility; the compact steps UI omits it.
+The generator should produce 2–4 short actionable labels, omit explanations in the card,
+and omit the card entirely when there are fewer than two meaningful next actions.
 5. Recommendation ordering: find the first remaining choice that is not `danger` and either has
    `recommended:true` or `style:"primary"`. If one exists, remove it and insert it at index 0. If
    none exists, keep the caller order and recommend nothing.

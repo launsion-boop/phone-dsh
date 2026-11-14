@@ -39,7 +39,7 @@ import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
 
 /** The four semantic tones a card tag or status uses (`BotCardKit.swift:138-150`). */
-internal enum class BotCardTone { NEUTRAL, SUCCESS, DANGER, WARNING }
+internal enum class BotCardTone { NEUTRAL, SUCCESS, DANGER, WARNING, CHOICE, DOCUMENT, WORK, APPROVAL }
 
 @Composable
 internal fun botToneInk(tone: BotCardTone): Color {
@@ -49,6 +49,22 @@ internal fun botToneInk(tone: BotCardTone): Color {
         BotCardTone.SUCCESS -> tokens.colors.homeSuccess
         BotCardTone.DANGER -> tokens.colors.pageDanger
         BotCardTone.WARNING -> tokens.colors.pageWarning
+        BotCardTone.CHOICE -> if (tokens.dark) Color(0xFF95B8FF) else Color(0xFF275FCE)
+        BotCardTone.DOCUMENT -> if (tokens.dark) Color(0xFFC9A9FA) else Color(0xFF7950BD)
+        BotCardTone.WORK -> if (tokens.dark) Color(0xFF8BD7BB) else Color(0xFF237B64)
+        BotCardTone.APPROVAL -> if (tokens.dark) Color(0xFFF0C27B) else Color(0xFF946017)
+    }
+}
+
+@Composable
+internal fun botToneWash(tone: BotCardTone): Color {
+    val tokens = LocalUiTokens.current
+    return when (tone) {
+        BotCardTone.CHOICE -> if (tokens.dark) Color(0xFF222E47) else Color(0xFFEDF3FF)
+        BotCardTone.DOCUMENT -> if (tokens.dark) Color(0xFF32283E) else Color(0xFFF4EFFC)
+        BotCardTone.WORK -> if (tokens.dark) Color(0xFF213B32) else Color(0xFFEAF6F0)
+        BotCardTone.APPROVAL -> if (tokens.dark) Color(0xFF3E3222) else Color(0xFFFFF5E4)
+        else -> botToneInk(tone).copy(alpha = BotChatMetrics.TAG_TINT_ALPHA)
     }
 }
 
@@ -239,8 +255,7 @@ internal fun BotCardTag(
         modifier = modifier
             .height(BotChatMetrics.TAG_HEIGHT_PT.dp)
             .background(
-                if (tone == BotCardTone.NEUTRAL) tokens.colors.userBubble
-                else ink.copy(alpha = BotChatMetrics.TAG_TINT_ALPHA),
+                if (tone == BotCardTone.NEUTRAL) tokens.colors.userBubble else botToneWash(tone),
                 RoundedCornerShape(percent = 50),
             )
             .padding(horizontal = BotChatMetrics.TAG_PAD_H_PT.dp),

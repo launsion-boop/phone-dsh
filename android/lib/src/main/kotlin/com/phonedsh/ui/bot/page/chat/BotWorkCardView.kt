@@ -122,10 +122,11 @@ private fun BotProgressCardView(row: BotRow) {
         "cancelled" -> "已取消" to BotCardTone.NEUTRAL
         else -> "进行中" to BotCardTone.NEUTRAL
     }
-    BotCardSurface(modifier = Modifier.alpha(if (state == "cancelled") 0.72f else 1f)) {
+    BotCardSurface(modifier = Modifier.alpha(if (state == "cancelled") 0.72f else 1f), accentTone = BotCardTone.WORK) {
         Column(verticalArrangement = Arrangement.spacedBy(BotChatMetrics.BLOCK_GAP_PT.dp)) {
             BotCardHeading(
                 icon = PdshIcon.GAUGE,
+                iconTint = botToneInk(BotCardTone.WORK),
                 eyebrow = "进度",
                 title = title,
                 detail = firstString(row.body, "summary", "description"),
@@ -221,10 +222,11 @@ private fun BotChecklistCardView(
     val sending = progress?.sending == true
     val sent = progress?.sent == true
 
-    BotCardSurface {
+    BotCardSurface(accentTone = BotCardTone.WORK) {
         Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
             BotCardHeading(
                 icon = PdshIcon.CHECK,
+                iconTint = botToneInk(BotCardTone.WORK),
                 eyebrow = "检查清单",
                 title = title,
                 detail = JsonSupport.string(row.body["summary"]),
@@ -333,10 +335,11 @@ private fun BotLinkCardView(row: BotRow, onOpenUrl: (String) -> Unit) {
     val tokens = LocalUiTokens.current
     val clipboard = LocalClipboardManager.current
     val links = BotUILink.parseList(row.body["links"])
-    BotCardSurface {
+    BotCardSurface(accentTone = BotCardTone.CHOICE) {
         Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
             BotCardHeading(
                 icon = PdshIcon.GLOBE,
+                iconTint = botToneInk(BotCardTone.CHOICE),
                 eyebrow = "参考链接",
                 title = JsonSupport.string(row.body["title"]),
             )
@@ -463,10 +466,11 @@ private fun BotApprovalCardView(
         return
     }
 
-    BotCardSurface {
+    BotCardSurface(accentTone = BotCardTone.APPROVAL) {
         Column(verticalArrangement = Arrangement.spacedBy(BotChatMetrics.BLOCK_GAP_PT.dp)) {
             BotCardHeading(
                 icon = PdshIcon.LOCK_SHIELD,
+                iconTint = botToneInk(BotCardTone.APPROVAL),
                 eyebrow = "需要你确认",
                 title = JsonSupport.string(row.body["title"]) ?: BotChatCopy.APPROVAL_TITLE,
                 detail = action,
@@ -557,6 +561,14 @@ private fun BotApprovalCardView(
                     style = botBodyStyle().copy(color = tokens.colors.textSecondary),
                 )
             }
+            BasicText(
+                text = when (scope) {
+                    "session" -> "始终允许仅对本次对话有效。"
+                    "none" -> "此操作不支持持续授权，仅可允许一次或拒绝。"
+                    else -> "始终允许会在同一授权范围内持续有效。"
+                },
+                style = botMetaStyle().copy(color = tokens.colors.textPlaceholder),
+            )
             if (JsonSupport.bool(row.body["persistent"]) == true) {
                 BasicText(
                     text = BotChatCopy.APPROVAL_PERSISTENT,
@@ -570,10 +582,15 @@ private fun BotApprovalCardView(
                     style = botMetaStyle().copy(color = tokens.colors.pageDanger),
                 )
             }
-            Column(verticalArrangement = Arrangement.spacedBy(BotChatMetrics.GAP_8_PT.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(BotChatMetrics.GAP_4_PT.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 BotCardButton(
                     label = BotChatCopy.APPROVAL_ONCE,
-                    kind = BotCardButtonKind.PRIMARY,
+                    kind = BotCardButtonKind.SECONDARY,
+                    modifier = Modifier.weight(1f),
                     enabled = !busy,
                     tag = BotChatTags.APPROVAL_ONCE,
                     onClick = {
@@ -581,22 +598,23 @@ private fun BotApprovalCardView(
                         onApproval(row.id, BotApprovalDecision.ALLOW_ONCE)
                     },
                 )
-                if (scope != "none") {
-                    BotCardButton(
-                        label = if (scope == "session") BotChatCopy.APPROVAL_SESSION
-                        else BotChatCopy.APPROVAL_ALWAYS,
-                        kind = BotCardButtonKind.SECONDARY,
-                        enabled = !busy,
-                        tag = BotChatTags.APPROVAL_ALWAYS,
-                        onClick = {
-                            onInteraction()
-                            onApproval(row.id, BotApprovalDecision.ALWAYS)
-                        },
-                    )
-                }
+                BotCardButton(
+                    label = BotChatCopy.APPROVAL_ALWAYS,
+                    kind = BotCardButtonKind.PRIMARY,
+                    modifier = Modifier.weight(1f),
+                    enabled = !busy && scope != "none",
+                    tag = BotChatTags.APPROVAL_ALWAYS,
+                    primaryColor = botToneInk(BotCardTone.APPROVAL),
+                    primaryInk = if (tokens.dark) Color(0xFF141416) else Color.White,
+                    onClick = {
+                        onInteraction()
+                        onApproval(row.id, BotApprovalDecision.ALWAYS)
+                    },
+                )
                 BotCardButton(
                     label = BotChatCopy.APPROVAL_DENY,
-                    kind = BotCardButtonKind.PLAIN,
+                    kind = BotCardButtonKind.SECONDARY,
+                    modifier = Modifier.weight(1f),
                     enabled = !busy,
                     tag = BotChatTags.APPROVAL_DENY,
                     onClick = {
@@ -653,10 +671,11 @@ private fun BotAutomationCardView(row: BotRow) {
         )
     }
 
-    BotCardSurface(modifier = Modifier.testTag(BotChatTags.CARD_AUTOMATION)) {
+    BotCardSurface(modifier = Modifier.testTag(BotChatTags.CARD_AUTOMATION), accentTone = BotCardTone.WORK) {
         Column(verticalArrangement = Arrangement.spacedBy(BotChatMetrics.BLOCK_GAP_PT.dp)) {
             BotCardHeading(
                 icon = PdshIcon.REFRESH,
+                iconTint = botToneInk(BotCardTone.WORK),
                 eyebrow = "例行任务",
                 title = name,
                 detail = meta,

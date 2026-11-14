@@ -179,7 +179,8 @@
   },
   "delta": [
     "content-card final flag: show_attachment / show_document / show_progress / show_checklist / show_link accept an optional boolean final (default false). A successful final:true call suppresses later assistant text and SendToUser until turn/end, like ask_user/show_next_steps; a failed call and a missing/false final do not suppress. Mid-task updates under the same cardKey omit final.",
-    "The five p0 entries replace their upstream counterparts only to add that property and state the conditional turn-end; every other field and the upstream tool-catalog.json are unchanged."
+    "The five p0 entries replace their upstream counterparts only to add that property and state the conditional turn-end; every other field and the upstream tool-catalog.json are unchanged.",
+    "show_next_steps generation: concise actionable labels, omit descriptions and non-action filler; schema unchanged."
   ],
   "valid": {
     "p0": [
@@ -474,6 +475,60 @@
             "links"
           ],
           "additionalProperties": false
+        }
+      },
+      {
+        "name": "show_next_steps",
+        "description": "Offer 2-4 tappable suggested next actions after your reply. Write your complete answer first, then call this as the last action; a successful card ends the turn, so output nothing after it. Put a clearly best step first, mark at most one step recommended:true (or style:primary), and never recommend a danger step. Keep labels concise and actionable; omit descriptions and non-action fillers such as not now, no thanks, skip, none or other. If fewer than two meaningful actions exist, do not call this tool. Use objects only for recommendation/style or a value that differs from its label.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "steps": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 4,
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "style": {
+                        "type": "string",
+                        "enum": [
+                          "primary",
+                          "default",
+                          "danger"
+                        ],
+                        "description": "primary = your recommendation (at most one; never a danger step)."
+                      },
+                      "recommended": {
+                        "type": "boolean",
+                        "description": "Set true on at most one step that is clearly the best next move; same as style:\"primary\"."
+                      }
+                    },
+                    "required": [
+                      "label"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "required": [
+            "steps"
+          ]
         }
       }
     ]

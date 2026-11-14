@@ -68,16 +68,19 @@ public object BotChatMetrics {
     public const val ACTIVITY_SIZE_PT: Float = 13f
     public const val ACTIVITY_LINE_PT: Float = 18f
     public const val ACTIVITY_HORIZONTAL_PAD_PT: Float = 24f
-    public const val ACTIVITY_TOP_PAD_PT: Float = 4f
+    public const val ACTIVITY_TOP_PAD_PT: Float = 0f
+    public const val ACTIVITY_DOT_PT: Float = 5f
+    public const val ACTIVITY_DOT_GAP_PT: Float = 8f
+    public const val ACTIVITY_CHANGE_MS: Int = 250
     public const val ACTIVITY_BOTTOM_PAD_PT: Float = 14f
     public const val ACTIVITY_FADE_SHARE: Float = 0.55f
-    public const val ACTIVITY_SWAP_OFFSET_PT: Float = 8f
+    public const val ACTIVITY_SWAP_OFFSET_PT: Float = 3f
     public const val ACTIVITY_SWAP_BLUR_PT: Float = 2f
     public const val ACTIVITY_SHIMMER_MS: Int = 1_600
-    public const val ACTIVITY_BREATH_MS: Int = 1_400
-    public const val ACTIVITY_BREATH_MIN_ALPHA: Float = 0.70f
     public const val ACTIVITY_SWAP_RESPONSE: Float = 0.42f
     public const val ACTIVITY_SWAP_DAMPING: Float = 0.90f
+    public const val ACTIVITY_BREATH_MS: Int = 1_400
+    public const val ACTIVITY_BREATH_MIN_ALPHA: Float = 0.70f
     public const val ACTIVITY_APPEAR_MS: Int = 250
     public const val ACTIVITY_APPEAR_OFFSET_PT: Float = 6f
 
