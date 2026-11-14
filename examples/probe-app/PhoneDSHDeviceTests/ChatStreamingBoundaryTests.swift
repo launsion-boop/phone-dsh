@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 import PhoneDSHAgentCore
 import Observation
+import SwiftUI
+import ProbeKit
 import XCTest
 @testable import PhoneDSHProbe
 
@@ -8,6 +10,35 @@ import XCTest
 /// second implementation of the accumulator that could hide caller bugs.
 @MainActor
 final class ChatStreamingBoundaryTests: XCTestCase {
+    func testHiddenPageDoesNotBuildOrObservePresentation() async throws {
+        final class RenderCount { var value = 0 }
+        let count = RenderCount()
+        let model = ChatModel()
+        let items = [ChatItem(id: "visible-test", kind: .assistant, title: "", text: "# Visible answer\n\nBody")]
+        let page = ChatPage(modelOverride: model, previewItems: items,
+                            onPresentationRender: { count.value += 1 })
+        let controller = UIHostingController(rootView: page.environment(\.chatPageVisible, false))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        controller.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(count.value, 0)
+        controller.rootView = page.environment(\.chatPageVisible, true)
+        controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertGreaterThan(count.value, 0)
+        controller.rootView = page.environment(\.chatPageVisible, false)
+        controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(80))
+        let hiddenCount = count.value
+        model.debugInjectFailure(text: "background mutation")
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(count.value, hiddenCount,
+                       "hidden ChatPage must not stay subscribed through its sheet or composer subtree")
+    }
+
     private final class ChangeFlag: @unchecked Sendable {
         // Observation calls onChange synchronously inside this MainActor test.
         var changed = false

@@ -502,6 +502,53 @@ final class StatusAndHangMonitorTests: XCTestCase {
 // MARK: - Timeline tail reuse
 
 final class NativeTimelineTailUpdateTests: XCTestCase {
+    func testStreamingBeforeTurnTailUsesFastPathAndStructuralEditInvalidatesIt() {
+        var first = ChatItem(id: "first", kind: .user, title: "", text: "question")
+        first.turn = 1
+        var tail = ChatItem(id: "tail", kind: .assistant, title: "", text: "a", streaming: true)
+        tail.turn = 1
+        var items = [first, tail]
+        let cache = NativeTimelineCache(changesCache: NativeChangesCache())
+        func read(_ revision: Int, _ structure: Int) -> NativeTimelineSnapshot {
+            cache.snapshot(items: items, itemsRevision: revision, foldedTurns: [],
+                           endReasons: [1: "completed"], startTimes: [:], endTimes: [:],
+                           structureRevision: structure)
+        }
+        _ = read(1, 1)
+        items[1].text += "b"
+        let streamed = read(2, 1)
+        XCTAssertEqual(cache.tailUpdateCount, 1)
+        XCTAssertEqual(streamed.visibleItems.last?.text, "ab")
+        XCTAssertEqual(streamed.rows, NativeTimelineCache().snapshot(
+            items: items, itemsRevision: 2, foldedTurns: [], endReasons: [1: "completed"],
+            startTimes: [:], endTimes: [:]).rows)
+        items[0].text = "edited question"
+        _ = read(3, 2)
+        XCTAssertEqual(cache.fullRebuildCount, 2)
+    }
+
+    func testOneFourAndEightStreamingTimelinesReuseHistory() {
+        for streamCount in [1, 4, 8] {
+            let caches = (0..<streamCount).map { _ in NativeTimelineCache(changesCache: NativeChangesCache()) }
+            var histories = (0..<streamCount).map { stream in
+                (0..<600).map { index in
+                    ChatItem(id: "s\(stream)-\(index)", kind: .assistant, title: "",
+                             text: "history \(index)", streaming: index == 599)
+                }
+            }
+            let start = CFAbsoluteTimeGetCurrent()
+            for revision in 0..<100 {
+                for index in histories.indices {
+                    histories[index][599].text += "x"
+                    _ = caches[index].snapshot(items: histories[index], itemsRevision: revision,
+                        foldedTurns: [], endReasons: [:], startTimes: [:], endTimes: [:], structureRevision: 1)
+                }
+            }
+            XCTAssertTrue(caches.allSatisfy { $0.fullRebuildCount == 1 && $0.tailUpdateCount == 99 })
+            print("TIMELINE-PERF streams=\(streamCount) rows=600 ticks=100 ms=\((CFAbsoluteTimeGetCurrent() - start) * 1000)")
+        }
+    }
+
     func testStreamingDeltaReusesEveryRowExceptTheTail() {
         var items: [ChatItem] = []
         for index in 0..<299 {

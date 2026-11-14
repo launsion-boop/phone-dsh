@@ -77,6 +77,7 @@ enum NativeTurnStateResolver {
 final class NativeTimelineCache {
     struct Key: Equatable {
         let itemsRevision: Int
+        let structureRevision: Int?
         let foldedTurns: [Int]
         let endReasons: [Int: String]
         let startTimes: [Int: Date]
@@ -99,8 +100,9 @@ final class NativeTimelineCache {
 
     func snapshot(items: [ChatItem], itemsRevision: Int, foldedTurns: Set<Int>,
                   endReasons: [Int: String], startTimes: [Int: Date],
-                  endTimes: [Int: Date]) -> NativeTimelineSnapshot {
+                  endTimes: [Int: Date], structureRevision: Int? = nil) -> NativeTimelineSnapshot {
         let key = Key(itemsRevision: itemsRevision,
+                      structureRevision: structureRevision,
                       foldedTurns: foldedTurns.sorted(),
                       endReasons: endReasons,
                       startTimes: startTimes,
@@ -154,20 +156,27 @@ final class NativeTimelineCache {
               previous.streaming, last.streaming,
               previous.kind == last.kind, previous.turn == last.turn,
               last.kind == .assistant || last.kind == .reasoning,
-              items.indices.dropLast().allSatisfy({ items[$0] == cachedItems[$0] }),
+              (key.structureRevision != nil
+                ? key.structureRevision == cachedKey.structureRevision
+                : items.indices.dropLast().allSatisfy({ items[$0] == cachedItems[$0] })),
               cachedSnapshot.visibleItems.last?.id == last.id,
-              let lastRow = cachedSnapshot.rows.last else { return nil }
+              !cachedSnapshot.rows.isEmpty else { return nil }
 
         var rows = cachedSnapshot.rows
-        switch lastRow {
+        // A running turn can already carry a turnTail control row. It is not
+        // transcript content and must not force a full regroup per text tick.
+        var rowIndex = rows.count - 1
+        if case .turnTail = rows[rowIndex] { rowIndex -= 1 }
+        guard rowIndex >= 0 else { return nil }
+        switch rows[rowIndex] {
         case .item(let rowItem):
             guard rowItem.id == last.id, !Self.isProcessKind(last.kind) else { return nil }
-            rows[rows.count - 1] = .item(last)
+            rows[rowIndex] = .item(last)
         case .tools(let group):
             guard Self.isProcessKind(last.kind), group.last?.id == last.id else { return nil }
             var next = group
             next[next.count - 1] = last
-            rows[rows.count - 1] = .tools(next)
+            rows[rowIndex] = .tools(next)
         default:
             return nil
         }

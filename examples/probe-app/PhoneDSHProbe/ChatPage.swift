@@ -9,6 +9,17 @@ import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
 
+private struct ChatPageVisibleKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var chatPageVisible: Bool {
+        get { self[ChatPageVisibleKey.self] }
+        set { self[ChatPageVisibleKey.self] = newValue }
+    }
+}
+
 struct ChatPage: View {
     /// D2: the DSH tab keeps one ChatPage per backend alive. Overrides pin the
     /// instance to that backend; previews omit them and follow the drawer's
@@ -26,9 +37,11 @@ struct ChatPage: View {
     var previewItems: [ChatItem]? = nil
     /// 预览专用:进页面时输入框里已经有这段字(验超长文本用)。
     var previewDraft: String? = nil
+    var onPresentationRender: (() -> Void)? = nil
     #endif
 
     @Environment(\.workspaceModels) private var workspaceModels
+    @Environment(\.chatPageVisible) private var presentationVisible
     private var model: ChatModel { modelOverride ?? workspaceModels.currentChat ?? ChatModel.shared }
     private var management: DSHManagementModel {
         managementOverride ?? workspaceModels.currentManagement ?? DSHManagementModel.shared
@@ -140,6 +153,7 @@ struct ChatPage: View {
     /// Set when a session opens; the next transcript layout jumps to the tail
     /// without animation so history loading never leaves the view at the top.
     @State private var pendingInitialScroll = false
+    @State private var retainedScrollRowID: String?
     @State private var userScrolledAway = false
     /// The finger is on the transcript (or it is still coasting from a
     /// flick). Only this may switch following off: content growth alone
@@ -244,7 +258,14 @@ struct ChatPage: View {
                                foldedTurns: foldedTurns,
                                endReasons: model.turnEndReasons,
                                startTimes: model.turnStartTimes,
-                               endTimes: model.turnEndTimes)
+                               endTimes: model.turnEndTimes,
+                               structureRevision: previewStructureRevision)
+    }
+    private var previewStructureRevision: Int? {
+        #if DEBUG
+        if previewItems != nil { return nil }
+        #endif
+        return model.transcriptStructureRevision
     }
     private var visibleItems: [ChatItem] { timelineSnapshot.visibleItems }
     private var timelineRows: [NativeTranscriptRow] { timelineSnapshot.rows }
@@ -457,6 +478,8 @@ struct ChatPage: View {
     }
 
     private var pageChrome: some View {
+        Group {
+        if presentationVisible {
         pageStack
         // The composer is a bottom safe-area inset, not a stack item: the
         // keyboard then lifts only the composer and the content area shrinks
@@ -470,7 +493,12 @@ struct ChatPage: View {
                 composer
             }
         }
+        } else {
+            Color.clear
+        }
+        }
         .onChange(of: model.turnRunning) { _, running in
+            guard presentationVisible else { return }
             if running {
                 dismissedRedReasons = nil
                 model.flushStreamingText()
@@ -698,7 +726,16 @@ struct ChatPage: View {
             }
         }
         .onAppear { onChatAppear() }
-        .onChange(of: model.currentSessionID) { _, _ in onSessionIdentityChanged() }
+        .onChange(of: presentationVisible) { _, visible in
+            if visible { onChatAppear() }
+            else {
+                tailScrollTask?.cancel(); tailScrollTask = nil
+                voice.cancel(); voice.stopSpeaking()
+            }
+        }
+        .onChange(of: model.currentSessionID) { _, _ in
+            if presentationVisible { onSessionIdentityChanged() }
+        }
         .onChange(of: draft) { _, value in persistDraft(value, for: sessionKey) }
         // Folding timing. `false` keeps the official completion-time default:
         // every eligible closed Turn folds as soon as it ends. `true` is the
@@ -730,10 +767,12 @@ struct ChatPage: View {
             attachmentError = nil
             previewTarget = .workspaceFile(match.relativePath)
         }
-        .task(id: model.isSessionSwitchWorkStarted) {
+        .task(id: presentationVisible && model.isSessionSwitchWorkStarted) {
+            guard presentationVisible else { return }
             await updateSessionSwitchIndicator()
         }
-        .task(id: model.currentSessionID) {
+        .task(id: presentationVisible ? model.currentSessionID : nil) {
+            guard presentationVisible else { return }
             guard let id = model.currentSessionID else {
                 queue.prepare(for: nil)
                 return
@@ -745,11 +784,12 @@ struct ChatPage: View {
         // Re-read the durable queue after session open, Worker ready/restart,
         // stream resync, a successful send, any inbox splice and every turn
         // boundary. This is the event-driven half of I-2.
-        .task(id: queueRefreshKey) {
+        .task(id: presentationVisible ? queueRefreshKey : nil) {
+            guard presentationVisible else { return }
             await refreshComposerQueue(debounced: true)
         }
-        .task(id: model.turnRunning) {
-            guard model.turnRunning else { return }
+        .task(id: presentationVisible && model.turnRunning) {
+            guard presentationVisible, model.turnRunning else { return }
             while !Task.isCancelled, model.turnRunning {
                 model.refreshFiles()
                 try? await Task.sleep(for: .seconds(2))
@@ -762,23 +802,30 @@ struct ChatPage: View {
         // Perf counters flush every five seconds while the chat page is on
         // screen. DEBUG always enables them; Release needs the
         // `chat.perfCounters` default (off by default, so no Release log).
-        .task { await reportPerfCounters() }
+        .task(id: presentationVisible) {
+            guard presentationVisible else { return }
+            await reportPerfCounters()
+        }
     }
 
     var body: some View {
-        // The last completed phase names where the main thread was when the
-        // scene-update watchdog fired. `mark` is one lock plus a static string,
-        // far cheaper than the body pass it annotates; the existing marks in
-        // the pipeline stay unconditional for the same reason (a Release
-        // device is where the hang happens, and the perf switch is DEBUG-only).
-        MainThreadHangMonitor.mark("chatBody.start")
-        NativePerfCounters.shared.bodyRendered()
-        NativePerfCounters.shared.reportIfDue { ChatModel.appendDiagnostic($0) }
-        MainThreadHangMonitor.mark("chatBody.end")
+        // Keep the presentation anchors mounted (including system sheets),
+        // but remove the expensive chrome/transcript subtree while hidden.
+        // Local draft/fold/scroll state stays with this ChatPage instance.
+        if presentationVisible {
+            #if DEBUG
+            onPresentationRender?()
+            #endif
+            MainThreadHangMonitor.mark("chatBody.start")
+            NativePerfCounters.shared.bodyRendered()
+            NativePerfCounters.shared.reportIfDue { ChatModel.appendDiagnostic($0) }
+            MainThreadHangMonitor.mark("chatBody.end")
+        }
         return pageLifecycle
     }
 
     private func onChatAppear() {
+        guard presentationVisible else { return }
         if !engineLaunchGraceOver {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(3))
@@ -794,8 +841,11 @@ struct ChatPage: View {
         #if DEBUG
         if debugChatState != nil { debugInjectIfReady() }
         #endif
-        previousSessionKey = sessionKey
-        draft = savedDraft(for: sessionKey)
+        if previousSessionKey != sessionKey {
+            onSessionIdentityChanged()
+        }
+        autoFoldClosedTurns()
+        if followsTail { pendingInitialScroll = true }
         #if DEBUG
         // 预览:输入框里先放好那段超长文本,验行高和滚动。
         if let previewDraft, draft.isEmpty { draft = previewDraft }
@@ -864,6 +914,7 @@ struct ChatPage: View {
     }
 
     private func onSessionIdentityChanged() {
+        retainedScrollRowID = nil
         // A successful selection can update ChatModel from the sidebar's
         // async task before its completion callback reaches this sheet.
         // Close from the observed source of truth as well, so restoring a
@@ -1001,6 +1052,7 @@ struct ChatPage: View {
     /// stands after the Turn. Stopped/failed Turns are never auto-folded, and
     /// a Turn the person expanded by hand is never (re-)folded automatically.
     private func autoFoldClosedTurns() {
+        guard presentationVisible else { return }
         let eligible = model.turnEndReasons.filter {
             !["aborted", "interrupted", "error"].contains($0.value)
         }
@@ -1036,7 +1088,7 @@ struct ChatPage: View {
     /// Identity of the user/steering/trigger inputs. Appending one (a send, a
     /// steer, or a producer trigger) is what lets on-next-message folding run;
     /// streamed assistant deltas must not re-run it.
-    private var inputRowSignature: String { timelineSnapshot.inputRowSignature }
+    private var inputRowSignature: String { presentationVisible ? timelineSnapshot.inputRowSignature : "" }
 
     /// The card area never takes more than 40% of the screen, scrolls inside
     /// itself when it has more, and folds to one line while the keyboard is up
@@ -1531,6 +1583,7 @@ struct ChatPage: View {
                     // Room for the "回到最新" pill (28pt tall) so it never sits
                     // on top of the last rows.
                     .padding(.bottom, 48)
+                    .scrollTargetLayout()
                     .background {
                         if #available(iOS 18.0, *) {
                             EmptyView()
@@ -1544,6 +1597,9 @@ struct ChatPage: View {
                     }
                 }
                 .coordinateSpace(name: "chat-transcript")
+                .scrollPosition(id: Binding(
+                    get: { retainedScrollRowID },
+                    set: { if let id = $0 { retainedScrollRowID = id } }), anchor: .top)
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(ScrollInteractionObserver(
                     isInteracting: $userScrolling,
