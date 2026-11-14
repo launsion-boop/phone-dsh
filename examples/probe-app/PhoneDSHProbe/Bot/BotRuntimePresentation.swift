@@ -453,13 +453,45 @@ enum BotActivityEvidence {
         guard !text.isEmpty, text.count <= limit,
               text.split(whereSeparator: \.isWhitespace).count <= 7,
               !text.unicodeScalars.contains(where: CharacterSet.symbols.contains) else { return nil }
-        let forbidden = #"(?i)(https?:|www\.|[/\\`<>|{}\[\]=:：*?&#%“”‘’《》]|[\p{L}\p{N}_-]+\.[a-z0-9]{1,8}(?=$|[^a-z0-9])|mcp__|[a-z0-9]+_[a-z0-9_]+|bearer\s+\S+|(?:api[_-]?key|access[_-]?token|password|secret)\s*[:=])"#
-        guard text.range(of: forbidden, options: .regularExpression) == nil else { return nil }
+        if Self.forbiddenIntents.contains(where: { text.range(of: $0, options: .regularExpression) != nil }) {
+            return nil
+        }
+        let firstToken = text.split(whereSeparator: \.isWhitespace).first.map(String.init)?.lowercased() ?? ""
+        guard !Self.commandTokens.contains(firstToken) else { return nil }
         let generic = ["思考中", "整理思绪", "准备下一步", "马上就好", "正在处理", "处理中"]
         let completion = #"(?i)^(?:已(?:完成|成功|验证|发送|删除)|completed\b|verified\b|all tests passed\b|done\b)"#
         guard !generic.contains(text), text.range(of: completion, options: .regularExpression) == nil else { return nil }
         return text
     }
+
+    /// Shapes that must never reach a spoken label: destinations, code
+    /// punctuation, credentials, opaque identifiers and bare filenames.
+    /// A purpose that trips one of these is replaced by the tool-kind
+    /// fallback instead of being truncated or spoken.
+    private static let forbiddenIntents: [String] = [
+        #"(?i)(https?:|www\.|[/\\`<>|{}\[\]=:：*?&#%“”‘’《》]|mcp__|[a-z0-9]+_[a-z0-9_]+)"#,
+        // Dotfiles and `name.ext`; a bare version such as 3.5 stays allowed.
+        #"(?i)(^|\s)\.|[\p{L}\p{N}_-]+\.[a-z]{1,8}(?=$|[^a-z0-9])"#,
+        // Key material and assignments.
+        #"(?i)(bearer\s+\S+|(?:api[_-]?key|access[_-]?token|session[_-]?token|password|passwd|secret)\s*[:=])"#,
+        // Cloud, chat and GitHub style tokens.
+        #"(?i)(\bsk[-_][a-z0-9][a-z0-9_-]{5,}|\bxox[abprs][-_][a-z0-9-]{6,}|\b(?:ghp|gho|ghs|ghu|github_pat|akia|asia)[-_]?[a-z0-9]{8,})"#,
+        // Addresses, UUIDs, long hex, `job-7` style handles.
+        #"(?i)([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[0-9a-f]{16,}\b|\b[a-z]{2,}-[0-9]+\b)"#,
+    ]
+
+    /// Command words: a purpose never starts with one, and a tool call whose
+    /// `description` is a command must fall back to the tool-kind label.
+    private static let commandTokens: Set<String> = [
+        "git", "ls", "cd", "pwd", "cat", "sed", "awk", "grep", "rg", "find", "chmod",
+        "chown", "cp", "mv", "rm", "mkdir", "rmdir", "touch", "echo", "printf", "curl",
+        "wget", "ssh", "scp", "rsync", "tar", "zip", "unzip", "make", "npm", "npx",
+        "pnpm", "yarn", "node", "python", "python3", "pip", "pip3", "swift", "cargo",
+        "rustc", "go", "xcodebuild", "xcodegen", "pytest", "brew", "docker", "kubectl",
+        "terraform", "aws", "gcloud", "gh", "jq", "yq", "ps", "kill", "pkill", "sudo",
+        "systemctl", "launchctl", "defaults", "plutil", "osascript", "env", "export",
+        "xargs", "head", "tail", "wc", "sort", "uniq", "open", "az",
+    ]
 
     static func resultText(forToolNamed name: String, failed: Bool) -> String {
         if failed { return "这步遇到问题" }
