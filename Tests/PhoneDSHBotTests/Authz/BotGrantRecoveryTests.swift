@@ -31,6 +31,23 @@ final class BotGrantRecoveryTests: XCTestCase {
                                        resource: "memory:user&fact=shared", mutability: .destructive,
                                        policy: .ask, label: "private label", detail: "private detail")
 
+    func testAlwaysGrantCoversLaterResourcesOfTheSameOperation() async throws {
+        let store = BotGrantStore(now: { 10_000 })
+        _ = try await store.add(BotGrant(
+            botId: "main", tool: "bash", operation: "rm-destructive",
+            resource: "*", scope: .session, sessionId: "s1", decision: .allow))
+        let other = BotToolEffect(
+            tool: "bash", operation: "rm-destructive",
+            resource: "/dsh/workspace/another-file", mutability: .destructive, policy: .ask)
+        let found = await store.find(botId: "main", sessionId: "s1", effect: other)
+        XCTAssertEqual(found?.resource, "*")
+        let otherOperation = BotToolEffect(
+            tool: "bash", operation: "git-destructive",
+            resource: "/dsh/workspace/another-file", mutability: .destructive, policy: .ask)
+        let otherFound = await store.find(botId: "main", sessionId: "s1", effect: otherOperation)
+        XCTAssertNil(otherFound)
+    }
+
     func testColdRestartRestoresStandingDenyAndAuditRemainsDigestOnly() async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

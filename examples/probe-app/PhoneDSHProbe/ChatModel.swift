@@ -3921,10 +3921,49 @@ final class ChatModel {
         appendStatus("已停止（运行时未确认）。若之后没有响应，请在 ⋯ 菜单里停止主机再重新启动。")
     }
 
+    /// DSH Remote only has a one-shot wire outcome. The always decision is
+    /// remembered here and later requests for the same session + tool are
+    /// auto-answered with allow-once; deny/allow-once clear it.
+    private func presentPermission(_ permission: ChatPermission) {
+        if let sessionID,
+           DSHApprovalMemory.isAllowed(sessionID: sessionID, tool: permission.tool) {
+            autoApprove(permission, sessionID: sessionID)
+        } else {
+            pendingPermission = permission
+        }
+    }
+
+    private func autoApprove(_ permission: ChatPermission, sessionID: String) {
+        guard let harness else {
+            pendingPermission = permission
+            return
+        }
+        Task { @MainActor [weak self] in
+            do {
+                try await harness.send(
+                    .permissionResponse(requestID: permission.id, decision: .allowOnce),
+                    to: sessionID)
+                self?.appendStatus("Permission for \(permission.tool): always (this session)")
+            } catch {
+                self?.pendingPermission = permission
+                self?.reportError("自动授权发送失败：\(Self.condensed(String(describing: error)))")
+            }
+        }
+    }
+
     func respond(to permission: ChatPermission, decision: PermissionDecision) async {
         guard let harness, let sessionID else { return }
+        switch decision {
+        case .allowAlways:
+            DSHApprovalMemory.remember(sessionID: sessionID, tool: permission.tool)
+        case .allowOnce, .deny:
+            // Choosing once or deny must not leave an older always grant
+            // behind; the next request asks again.
+            DSHApprovalMemory.forget(sessionID: sessionID, tool: permission.tool)
+        }
+        let wire: PermissionDecision = decision == .deny ? .deny : .allowOnce
         do {
-            try await harness.send(.permissionResponse(requestID: permission.id, decision: decision), to: sessionID)
+            try await harness.send(.permissionResponse(requestID: permission.id, decision: wire), to: sessionID)
             if pendingPermission?.id == permission.id { pendingPermission = nil }
             clearError()
             appendStatus("Permission for \(permission.tool): \(decision.rawValue)")
@@ -4516,9 +4555,9 @@ final class ChatModel {
                 Task { await self.finishBackgroundKeepAlive() }
             }
         case .permissionRequested(let request):
-            pendingPermission = ChatPermission(id: request.requestID, tool: request.tool,
-                                               summary: request.summary,
-                                               arguments: recentToolArguments[request.tool] ?? [:])
+            presentPermission(ChatPermission(id: request.requestID, tool: request.tool,
+                                             summary: request.summary,
+                                             arguments: recentToolArguments[request.tool] ?? [:]))
         case .questionRequested(let question):
             pendingQuestion = question
         case .exited:
@@ -4702,9 +4741,9 @@ final class ChatModel {
             scheduleNativeMetricsRefresh()
             refreshFiles(debounced: true)
         case .permissionRequested(let request):
-            pendingPermission = ChatPermission(id: request.requestID, tool: request.tool,
-                                               summary: request.summary,
-                                               arguments: recentToolArguments[request.tool] ?? [:])
+            presentPermission(ChatPermission(id: request.requestID, tool: request.tool,
+                                             summary: request.summary,
+                                             arguments: recentToolArguments[request.tool] ?? [:]))
         case .questionRequested(let question):
             pendingQuestion = question
             appendStatus("The agent asks: len=\(question.prompt.count)")

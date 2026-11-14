@@ -47,6 +47,8 @@ struct BotChatPage: View {
     @State private var composerDockHeight: CGFloat = 0
     /// Bumped by the send button so the transcript can scroll after layout.
     @State private var sendScrollTick = 0
+    /// A haptic turn is one this page sent; opening history must stay quiet.
+    @State private var hapticTurnActive = false
     /// One coalesced autoscroll at a time. A streamed answer changes its
     /// height on every delta; calling `scrollTo` synchronously from every
     /// `onChange` keeps the stack re-measuring while the keyboard is also
@@ -418,7 +420,18 @@ struct BotChatPage: View {
                 // A send is an explicit "show me the new turn": re-arm the
                 // tail even if a previous tap/drag had turned following off.
                 followsTail = true
+                hapticTurnActive = true
+                PhoneHaptics.thinking()
                 followNewestContent(proxy: proxy)
+            }
+            .onChange(of: model.runningTurnID) { _, running in
+                if running == nil, hapticTurnActive {
+                    hapticTurnActive = false
+                    PhoneHaptics.completed()
+                }
+            }
+            .onChange(of: model.pendingApprovalCount) { _, count in
+                if count > 0 { PhoneHaptics.approval() }
             }
             // #132 settled cards: once a handled card collapses into its
             // one-line summary (or an older card is skipped by the next user

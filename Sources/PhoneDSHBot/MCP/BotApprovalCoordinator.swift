@@ -449,9 +449,13 @@ public actor BotApprovalCoordinator {
                     case .deny:
                         effectiveScope = .once
                     }
+                    // "Always" is a permission on the operation, not just the
+                    // one path/command in the card: a later rm, write or image
+                    // must not ask again. Scope (session/until) still bounds it.
+                    let grantResource = effectiveScope == .once ? effect.resource : "*"
                     let grant = try await grants.add(BotGrant(
                         botId: request.principal.botId, tool: effect.tool, operation: effect.operation,
-                        resource: effect.resource, scope: effectiveScope,
+                        resource: grantResource, scope: effectiveScope,
                         sessionId: request.principal.sessionId,
                         createdAt: now(), source: "approval-card", decision: .allow))
                     createdGrantIDs.append(grant.id)

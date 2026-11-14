@@ -155,6 +155,9 @@ struct ChatPage: View {
     @State private var pasteLimitNoticed = false
     @State private var stopping = false
     @State private var scrollToLatestTrigger = 0
+    /// A haptic turn is one this page sent; page opens and history restores
+    /// must not buzz. Set on a successful send, cleared when the turn settles.
+    @State private var hapticTurnActive = false
     /// Coalesces follow-the-tail scrolls so one lands after the lazy stack
     /// has laid the new rows out (see `scheduleTailScroll`).
     @State private var tailScrollTask: Task<Void, Never>?
@@ -456,7 +459,14 @@ struct ChatPage: View {
             if running {
                 dismissedRedReasons = nil
                 model.flushStreamingText()
+            } else if hapticTurnActive {
+                hapticTurnActive = false
+                PhoneHaptics.completed()
             }
+        }
+        .onChange(of: model.pendingPermission?.id) { _, id in
+            guard let id, !id.isEmpty else { return }
+            PhoneHaptics.approval()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
@@ -1240,6 +1250,7 @@ struct ChatPage: View {
         PermissionCardView(permission: permission,
                            isBusy: model.busy,
                            onAllow: { respond(.allowOnce) },
+                           onAllowAlways: { respond(.allowAlways) },
                            onDeny: { respond(.deny) })
     }
 
@@ -3100,6 +3111,8 @@ struct ChatPage: View {
             } else {
                 succeeded = await model.send(text, attachments: pendingAttachments)
                 if succeeded {
+                    hapticTurnActive = true
+                    PhoneHaptics.thinking()
                     nearBottom = true
                     userScrolledAway = false
                     scrollToLatestTrigger += 1
@@ -5404,6 +5417,9 @@ struct PermissionCardView: View {
     let permission: ChatPermission
     var isBusy: Bool = false
     var onAllow: () -> Void = {}
+    /// Present only where the host can remember an always decision. Sandbox
+    /// escalation deliberately keeps the one-shot-only card.
+    var onAllowAlways: (() -> Void)?
     var onDeny: () -> Void = {}
 
     var body: some View {
@@ -5447,6 +5463,21 @@ struct PermissionCardView: View {
             }
             .buttonStyle(.plain)
             .disabled(isBusy)
+
+            if let onAllowAlways, !Self.isSandboxEscalation(permission) {
+                Button {
+                    onAllowAlways()
+                } label: {
+                    Text("总是允许")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(NativeChatTheme.accent)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                }
+                .buttonStyle(.plain)
+                .disabled(isBusy)
+                .accessibilityIdentifier("chat.permission.always")
+            }
 
             Button {
                 onDeny()

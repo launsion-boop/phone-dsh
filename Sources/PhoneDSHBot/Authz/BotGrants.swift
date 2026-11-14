@@ -246,7 +246,7 @@ public actor BotGrantStore {
         }.filter {
             ($0.tool == "*" || $0.tool == effect.tool)
                 && ($0.operation == "*" || $0.operation == effect.operation)
-                && $0.resource == wantedResource
+                && ($0.resource == "*" || $0.resource == wantedResource)
         }.sorted { lhs, rhs in
             if lhs.decision != rhs.decision { return lhs.decision == .deny }
             return specificity(lhs) > specificity(rhs)
