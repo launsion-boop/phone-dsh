@@ -565,8 +565,12 @@ final class BotChatModel: ObservableObject {
         // matching the label to the button the user actually pressed (P26
         // §2.7), so a session grant never renders as a one-off or「已处理」.
         let allowed = status == "allowed" || status == "allowed-session" || status == "always"
-        let scope = card.body["alwaysScope"]?.string ?? ask["alwaysScope"]?.string ?? "until"
-        let label = BotApprovalReceipt.label(for: status, scope: scope)
+        let offeredScope = card.body["alwaysScope"]?.string ?? ask["alwaysScope"]?.string
+        let effectiveScope = card.body["scope"]?.string
+        let decision = card.body["decision"]?.string ?? ask["decision"]?.string
+        let label = BotApprovalOffer.receiptLabel(status: status, alwaysScope: offeredScope,
+                                                  effectiveScope: effectiveScope,
+                                                  decision: decision)
         return BotCardSettlement(glyph: allowed ? "checkmark.circle.fill" : "xmark.circle",
                                  title: label, detail: detail,
                                  tone: allowed ? .success : .neutral,
@@ -799,8 +803,18 @@ final class BotChatModel: ObservableObject {
         guard let approvalID = row.body.string("approvalID", "requestId", "id")
                 ?? row.body["ask"]?.object?["requestId"]?.string,
               let digest = row.body["digest"]?.string else { return nil }
+        // A stale row can still request `.always` after its projected
+        // `alwaysScope` became `none`/absent (a card rendered before the row
+        // refreshed). That decision can only ever create a consumed once grant
+        // (`BotApprovalCoordinator.resolve`), so send the decision the row can
+        // actually honour instead of one the coordinator must silently narrow.
+        let alwaysScope = row.body["alwaysScope"]?.string
+            ?? row.body["ask"]?.object?["alwaysScope"]?.string
+        let effective = BotApprovalOffer.effectiveDecision(decision.rawValue,
+                                                           alwaysScope: alwaysScope)
+        let resolved = BotUIApprovalDecision(rawValue: effective) ?? decision
         return BotUIUserAction.approval(nonce: UUID().uuidString, botID: row.botID,
-                                        approvalID: approvalID, decision: decision, digest: digest)
+                                        approvalID: approvalID, decision: resolved, digest: digest)
     }
 
     /// Runs the existing deny action for an approval the user implicitly

@@ -288,6 +288,9 @@ targets:
       - path: PhoneDSHProbe/Bot/BotLiveTurn.swift
       # Shared Bot display formatting; Foundation-only so both suites can test it.
       - path: PhoneDSHProbe/Bot/BotUIFormat.swift
+      # Pure approval-offer rules (what the card may offer, its receipt and the
+      # one-shot degrade); Foundation-only so the same rules run under test.
+      - path: PhoneDSHProbe/Bot/BotApprovalOffer.swift
       # Real-time watch: the incremental session-log reader, the durable
       # event tail, the row service poll and its health/instrumentation
       # compile here so the append-only, no-op and degraded-path regressions
@@ -442,6 +445,9 @@ targets:
       - path: PhoneDSHProbe/Bot/BotLiveTurn.swift
       # Shared Bot display formatting; Foundation-only so both suites can test it.
       - path: PhoneDSHProbe/Bot/BotUIFormat.swift
+      # Pure approval-offer rules (what the card may offer, its receipt and the
+      # one-shot degrade); Foundation-only so the same rules run under test.
+      - path: PhoneDSHProbe/Bot/BotApprovalOffer.swift
       # Same real-time watch sources as the simulator twin; the device session
       # suite must compile the identical production poll.
       - path: PhoneDSHProbe/Bot/BotProductionServices.swift
