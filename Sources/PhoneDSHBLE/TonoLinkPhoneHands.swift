@@ -32,6 +32,14 @@ public struct TonoLinkPhoneLayout: Codable, Equatable, Sendable {
     public var assistiveControlCenter = TonoLinkPoint(826, 820)
     public var mirrorButton = TonoLinkPoint(401, 564)
     public var mirrorTarget = TonoLinkPoint(567, 579)
+    /// True once `assistiveControlCenter`, `mirrorButton` and `mirrorTarget` were found on this
+    /// phone's own screen (`IPhoneAgentHost.learnMirrorRoute`). Until then they are another phone's
+    /// guesses and a blind replay may miss. Absent in layouts saved by older builds (= not learned).
+    public var mirrorRouteLearned: Bool?
+    /// 停止镜像 in the device list while a mirror is running, learned with the route.
+    /// `mirrorTarget` is the board's row while nothing is mirroring (the list is then shorter and
+    /// its rows sit lower); this is where a running mirror is ended.
+    public var mirrorStop: TonoLinkPoint?
     public init() {}
 
     static let key = "phone-dsh.tonolink.phone-layout.v1"
@@ -315,12 +323,18 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
         try await type(query)
     }
 
-    /// AssistiveTouch → Control Center → Screen Mirroring → the board's receiver.
-    public func startMirroring() async throws {
+    /// AssistiveTouch → Control Center → Screen Mirroring, then `row` in the device list. Blind:
+    /// the caller checks where the mirror went.
+    public func startMirroring(row: TonoLinkPoint? = nil) async throws {
+        try await openMirrorList()
+        try await tap(row ?? layout.mirrorTarget)
+    }
+
+    /// AssistiveTouch → Control Center → Screen Mirroring: opens the device list, blind.
+    public func openMirrorList() async throws {
         try await tap(layout.assistiveButton); try await Task.sleep(for: .milliseconds(900))
         try await tap(layout.assistiveControlCenter); try await Task.sleep(for: .milliseconds(1500))
         try await tap(layout.mirrorButton); try await Task.sleep(for: .seconds(2))
-        try await tap(layout.mirrorTarget); try await Task.sleep(for: .seconds(5))
     }
 
     /// Makes the board's USB network and AirPlay receiver come up (they are RAM-only on the board).
@@ -329,6 +343,20 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
         guard let status = try? await call("GET", "/v1/phone/status", timeout: 5),
               let airplay = status["airplay"] as? [String: Any] else { return false }
         return airplay["mirror_active"] as? Bool == true
+    }
+
+    /// `/v1/phone/status`; throws when the board is unreachable over USB.
+    public func phoneStatus() async throws -> [String: Any] { try await call("GET", "/v1/phone/status", timeout: 5) }
+
+    /// The name the board shows in Screen Mirroring, when its status reports one. Firmware 4359ac2
+    /// does not; its build-time default is "TonoLink USB" (`CONFIG_TONOLINK_AIRPLAY_NAME`).
+    public func airplayName() async -> String? {
+        for path in ["/v1/phone/status", "/airplay/status"] {
+            guard let status = try? await call("GET", path, timeout: 5) else { continue }
+            let airplay = status["airplay"] as? [String: Any] ?? status
+            if let name = airplay["name"] as? String, !name.isEmpty { return name }
+        }
+        return nil
     }
 
     public func enableUSB() async throws { try await call("POST", "/v1/usb", ["action": "enable"], timeout: 10) }

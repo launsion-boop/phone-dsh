@@ -120,27 +120,183 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
     func prepare() async throws {
         screen.start()
         try await hands.ensureHID()
-        if screen.currentStats.decodedFrames > 0, (try? await screen.snapshot()) != nil { return }
-        // A viewer that just connected gets the board's cached GOP within a moment; wait for it
-        // instead of assuming mirroring is off.
-        let warmup = ContinuousClock.now + .seconds(4)
-        while ContinuousClock.now < warmup {
-            if (try? await screen.snapshot()) != nil { return }
-            try await Task.sleep(for: .milliseconds(250))
-        }
-        // Mirroring is on but no picture yet: never touch Control Center, since the mirroring
-        // control there is a toggle and tapping it would end the session.
-        if await hands.mirrorActive() {
+        // The board decides whether a mirror is running: the viewer keeps the last decoded frame
+        // after a mirror ends, so a frame on hand is not proof of a live screen.
+        let status: [String: Any]
+        do { status = try await hands.phoneStatus() }
+        catch { throw IPhoneAgentError("连不上板子（USB 网络），请确认板子插在手机上：\(error.localizedDescription)") }
+        let mirroring = (status["airplay"] as? [String: Any])?["mirror_active"] as? Bool == true
+        if mirroring {
+            // A viewer that just connected gets the board's cached GOP within a moment.
+            let warmup = ContinuousClock.now + .seconds(4)
+            while ContinuousClock.now < warmup {
+                if (try? await screen.snapshot()) != nil { await learnMirrorRouteIfNeeded(); return }
+                try await Task.sleep(for: .milliseconds(250))
+            }
+            // Never touch Control Center here: the mirror is running and only the picture is late.
             throw IPhoneAgentError("板子在接收镜像但还没有画面（\(screen.currentStats.status)），请稍后重试")
         }
-        // No mirror session: start mirroring to the board ourselves, then wait for the first frames.
+        // No mirror session. Only a phone whose route was learned on its own screen is tapped blind;
+        // another phone's coordinates could land on anything.
+        guard hands.layout.mirrorRouteLearned == true else {
+            throw IPhoneAgentError("看不到手机画面：第一次需要你在控制中心 → 屏幕镜像里选择「\(await hands.airplayName() ?? "TonoLink USB")」，之后断开会自动重连")
+        }
+        try await restartMirror()
+    }
+
+    /// Starts the mirror to the board along the learned route, blind, in one try: Home (so Control
+    /// Center, the device list or a menu left open cannot shift the taps), AssistiveTouch →
+    /// 控制中心 → 屏幕镜像 → the board's row as it sits when nothing is mirroring. The app cannot
+    /// see which receiver a tap picked (iOS reports neither a second screen nor, once the app's
+    /// own audio is up, the AirPlay route), so it never taps a second guess; a miss ends at Home
+    /// with a message.
+    func restartMirror() async throws {
+        try await hands.home(); try await Task.sleep(for: .milliseconds(1500))
+        let mark = screen.frameCount
         try await hands.startMirroring()
         let deadline = ContinuousClock.now + .seconds(10)
         while ContinuousClock.now < deadline {
-            if (try? await screen.snapshot()) != nil { return }
+            if await hands.mirrorActive() {
+                try await waitForFrames(after: mark)
+                try? await closeControlCenter()
+                return
+            }
+            try await Task.sleep(for: .milliseconds(400))
+        }
+        try? await hands.home()
+        throw IPhoneAgentError("自动投屏没有成功：请在控制中心 → 屏幕镜像里选择「\(await hands.airplayName() ?? "TonoLink USB")」；投屏后会重新学习位置")
+    }
+
+    /// Frames decoded after `mark`: the viewer still holds the last picture of the ended mirror.
+    private func waitForFrames(after mark: Int) async throws {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
+            if (try? await screen.snapshot(newerThan: mark, fresh: 2, timeout: .seconds(1))) != nil { return }
             try await Task.sleep(for: .milliseconds(300))
         }
-        throw IPhoneAgentError("看不到手机画面：请在控制中心 → 屏幕镜像里选择板子（\(screen.currentStats.status)）")
+        throw IPhoneAgentError("板子在接收镜像但还没有画面（\(screen.currentStats.status)），请稍后重试")
+    }
+
+    /// Once per launch at most: a phone whose route is not learned yet learns it the first time
+    /// its screen is visible, so the next dropped mirror can be restarted without the user.
+    private var learnAttempted = false
+
+    /// Learns it if needed; never fails the caller's task.
+    func learnMirrorRouteIfNeeded() async {
+        guard hands.layout.mirrorRouteLearned != true, !learnAttempted else { return }
+        learnAttempted = true
+        do {
+            let route = try await learnMirrorRoute()
+            logger.info("mirror route learned: \(route, privacy: .public)")
+        }
+        catch { logger.error("mirror route not learned: \(String(describing: error), privacy: .public)") }
+    }
+
+    static let controlCenterItem = "the 控制中心 (Control Center) item inside the open AssistiveTouch menu panel: an icon of two toggle switches labelled 控制中心. Not the floating round button itself"
+    static let mirrorTile = "the 屏幕镜像 (Screen Mirroring) button in the open Control Center: a rounded tile with an icon of two overlapping rectangles"
+    static let mirrorLastRow = "the last receiver row of the open 屏幕镜像 device list, the one just above the divider line before 停止镜像"
+    static let mirrorStopItem = "the 停止镜像 (Stop Mirroring) item at the bottom of the open 屏幕镜像 device list"
+    static func mirrorRow(_ name: String) -> String {
+        "the row labelled \"\(name)\" in the open 屏幕镜像 (Screen Mirroring) device list"
+    }
+    /// Control Center covers and blurs the whole screen; the device list replaces most of it.
+    static let controlCenterOpened = 12.0
+    /// The device list is a small popover over Control Center: about 4 measured on an iPhone.
+    static let mirrorListOpened = 2.0
+
+    /// Taps `point` and returns the next screen only if it changed by at least `atLeast` (mean,
+    /// 0–255). UI-Venus answers with some point even when the thing is not there, so every step of a
+    /// blind route is accepted only when the tap visibly opened what it should.
+    private func tapAndSee(_ point: TonoLinkPoint, atLeast: Double) async throws -> IPhoneFrame? {
+        let before = try await screen.snapshot()
+        try await hands.tap(point)
+        try await Task.sleep(for: .milliseconds(900))
+        let after = try? await screen.snapshot(newerThan: before.frame, fresh: 2, timeout: .seconds(3))
+        let difference = after.flatMap { IPhoneScreenDiff.mean(before.jpeg, $0.jpeg) }
+        learnTrace.append((name: "tap (\(Int(point.x)),\(Int(point.y))) diff=\(difference.map { String(format: "%.1f", $0) } ?? "no new frame")",
+                           jpeg: after?.jpeg ?? before.jpeg))
+        guard let after, let difference, difference >= atLeast else { return nil }
+        try await Task.sleep(for: .milliseconds(500))   // let the panel finish animating
+        let settled = (try? await screen.snapshot()) ?? after
+        return IPhoneFrame(jpeg: settled.jpeg, width: settled.width, height: settled.height, frame: settled.frame)
+    }
+
+    private static func far(_ a: TonoLinkPoint, _ b: TonoLinkPoint) -> Bool { abs(a.x - b.x) > 60 || abs(a.y - b.y) > 60 }
+
+    /// Learns where AssistiveTouch → 控制中心 → 屏幕镜像 → the board's row are on this phone, from the
+    /// live mirror, and saves them for `startMirroring()`. Each step must visibly open the next panel.
+    /// It never taps the board's row and closes Control Center afterwards, so the running mirror
+    /// is left as it was. Needs mirroring on: the screen is what it reads.
+    /// What each step of the last `learnMirrorRoute()` saw, for diagnosis (memory only).
+    var learnTrace: [(name: String, jpeg: Data)] = []
+
+    @discardableResult
+    func learnMirrorRoute() async throws -> String {
+        learnTrace = []
+        _ = try await screen.snapshot()
+        try await hands.ensureHID()
+        // The floating button is wherever the user last dragged it: find it on screen, not in the
+        // saved layout.
+        guard let button = try await locate(Self.assistiveButton, waitForChange: false) else {
+            throw IPhoneAgentError("学习投屏路线失败：屏幕上没有辅助触控的小圆点（设置 → 辅助功能 → 触控 → 辅助触控）")
+        }
+        guard let menu = try await tapAndSee(button, atLeast: Self.menuOpened) else {
+            throw IPhoneAgentError("学习投屏路线失败：点小圆点没有打开辅助触控菜单")
+        }
+        guard let found = try await IPhoneGrounding.locate(Self.controlCenterItem, in: menu) else {
+            try? await hands.key("esc")
+            throw IPhoneAgentError("学习投屏路线失败：辅助触控菜单里没有「控制中心」，请在 设置 → 辅助功能 → 触控 → 辅助触控 → 自定顶层菜单 里加上它")
+        }
+        let controlCenter = TonoLinkPoint(found.x, found.y)
+        guard Self.far(controlCenter, button),
+              let center = try await tapAndSee(controlCenter, atLeast: Self.controlCenterOpened) else {
+            try? await hands.key("esc")
+            throw IPhoneAgentError("学习投屏路线失败：没能从辅助触控菜单打开控制中心")
+        }
+        guard let tilePoint = try await IPhoneGrounding.locate(Self.mirrorTile, in: center) else {
+            try? await closeControlCenter()
+            throw IPhoneAgentError("学习投屏路线失败：控制中心里没有找到「屏幕镜像」")
+        }
+        let tile = TonoLinkPoint(tilePoint.x, tilePoint.y)
+        guard let list = try await tapAndSee(tile, atLeast: Self.mirrorListOpened) else {
+            try? await closeControlCenter()
+            throw IPhoneAgentError("学习投屏路线失败：点「屏幕镜像」没有打开设备列表（或投屏因此断开了）")
+        }
+        let name = await hands.airplayName() ?? "TonoLink USB"
+        let rowPoint = try await IPhoneGrounding.locate(Self.mirrorRow(name), in: list)
+        let stopPoint = try await IPhoneGrounding.locate(Self.mirrorStopItem, in: list)
+        let lastPoint = try await IPhoneGrounding.locate(Self.mirrorLastRow, in: list)
+        try? await closeControlCenter()
+        guard let rowPoint else { throw IPhoneAgentError("学习投屏路线失败：设备列表里没有找到「\(name)」") }
+        guard let stopPoint else { throw IPhoneAgentError("学习投屏路线失败：设备列表里没有「停止镜像」") }
+        let active = TonoLinkPoint(rowPoint.x, rowPoint.y), stop = TonoLinkPoint(stopPoint.x, stopPoint.y)
+        guard stop.y - active.y > 30 else {
+            throw IPhoneAgentError("学习投屏路线失败：「停止镜像」不在板子那一行下面")
+        }
+        // Measured on an iPhone (iOS 27.2): with nothing mirroring the list has no 停止镜像 section and
+        // keeps its bottom edge, so every device row moves down by that section's height. Tapping
+        // the board's running-mirror position then picked the receiver above it (the user's Mac).
+        var last = lastPoint.map { TonoLinkPoint($0.x, $0.y) } ?? active
+        if last.y < active.y - 5 || last.y >= stop.y { last = active }
+        let row = TonoLinkPoint(active.x, active.y + (stop.y - last.y))
+        hands.layout.assistiveButton = button
+        hands.layout.assistiveControlCenter = controlCenter
+        hands.layout.mirrorButton = tile
+        hands.layout.mirrorTarget = row
+        hands.layout.mirrorStop = stop
+        hands.layout.mirrorRouteLearned = true
+        hands.layout.save()
+        return "button (\(Int(button.x)),\(Int(button.y))) → 控制中心 (\(Int(controlCenter.x)),\(Int(controlCenter.y)))"
+            + " → 屏幕镜像 (\(Int(tile.x)),\(Int(tile.y))) → \(name) (\(Int(row.x)),\(Int(row.y)))"
+            + "（不投屏时），停止镜像 (\(Int(stop.x)),\(Int(stop.y)))"
+    }
+
+    /// Leaves the device list and Control Center without touching the mirror: Escape closes the
+    /// list; Home through AssistiveTouch closes Control Center.
+    private func closeControlCenter() async throws {
+        try? await hands.key("esc")
+        try await Task.sleep(for: .milliseconds(800))
+        _ = try? await home()
     }
 
     func screenshot(after frame: Int?) async throws -> IPhoneFrame {
@@ -220,7 +376,7 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
 
     static let assistiveButton = "the AssistiveTouch floating button: a round, semi-transparent grey button with a white ring, usually at the left or right edge of the screen"
     static let searchButton = "the 搜索 (Search) button: a small pill labelled 搜索 with a magnifier, just above the dock at the bottom of the home screen"
-    static let assistiveHome = "the 主屏幕 (Home) item in the AssistiveTouch menu (a dark rounded panel with several icons)"
+    static let assistiveHome = "the 主屏幕 (Home) item inside the open AssistiveTouch menu (a dark rounded panel with several labelled icons): the icon labelled 主屏幕. Not the floating round button itself"
 
     /// Taps the element UI-Venus finds on a fresh screenshot.
     func tapLocated(_ target: String, waitForChange: Bool = false) async throws -> TonoLinkPoint {
@@ -398,8 +554,10 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
                 let p = try await IPhoneGrounding.locate(target, in: frame)
                 return .json(200, ["point": p.map { [$0.x, $0.y] } ?? []])
             } catch { return .error(500, "\(error)") }
+        case ("POST", "/agent/learn-mirror"):
+            do { return .json(200, ["did": try await learnMirrorRoute()]) } catch { return .error(500, "\(error)") }
         case ("POST", "/agent/mirror"):
-            do { try await hands.ensureHID(); try await hands.startMirroring(); return .json(200, ["ok": true]) }
+            do { try await hands.ensureHID(); try await restartMirror(); return .json(200, ["ok": true]) }
             catch { return .error(500, "\(error)") }
         default:
             return nil

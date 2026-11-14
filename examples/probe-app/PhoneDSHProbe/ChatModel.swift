@@ -417,6 +417,10 @@ final class ChatModel {
     /// The session's DSH goal (the input-dock GoalBar source).
     private(set) var goal: HarnessGoal?
     private(set) var busy = false
+    /// Local engine starts that actually began (past the busy/started guard), including restarts.
+    /// The chat page shows its "引擎还没启动" card only after one ended without an engine, not
+    /// while the launch start is still on its way.
+    private(set) var engineStartAttempts = 0
     private(set) var turnRunning = false
     /// Any Bot page turn (selected or a team/routine delivery) participates in
     /// the same background keep-alive decision as the DSH turn.
@@ -1524,6 +1528,7 @@ final class ChatModel {
         }
         busy = true
         isStartingEngine = true
+        engineStartAttempts += 1
         defer { busy = false; isStartingEngine = false }
         guard await prepareBotRuntime() else { return }
         // Every Host build reads the Bot MCP URL into the Worker environment;
@@ -1839,6 +1844,7 @@ final class ChatModel {
         }
         busy = true
         isStartingEngine = true
+        engineStartAttempts += 1
         defer { busy = false; isStartingEngine = false }
         statusLine = "Restarting the engine…"
         appendStatus("User reset: clearing the persisted failed controller")
