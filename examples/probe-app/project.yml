@@ -298,6 +298,16 @@ targets:
       - path: PhoneDSHProbe/Bot/BotRebindDiagnostics.swift
       - path: PhoneDSHProbe/BotSessionRegistry.swift
       - path: PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
+      # Phase 2 realtime supervision: the Bot chat model owns the supervised
+      # watch/live loops, so the stall/throw/stream-end/health regressions drive
+      # the real model instead of a copy. Its dependencies are Foundation,
+      # Combine and PhoneDSHBot only (no ChatModel, no SwiftUI).
+      - path: PhoneDSHProbe/Bot/BotChatModel.swift
+      - path: PhoneDSHProbe/Bot/BotUIModels.swift
+      - path: PhoneDSHProbe/Bot/BotProfileCenter.swift
+      # BotUIModels' deep-link helpers resolve the roster's main pointer
+      # through the production routing rule; Foundation + PhoneDSHBot only.
+      - path: PhoneDSHProbe/Bot/BotAppWiringLogic.swift
       # The scripted model upstream, the smoke evidence readers (WAL
       # replay/journal/step formats) and the kill-matrix support ship as the
       # regular SwiftPM target `PhoneDSHHarness`; this target links its
@@ -450,6 +460,13 @@ targets:
       - path: PhoneDSHProbe/Bot/BotRebindDiagnostics.swift
       - path: PhoneDSHProbe/BotSessionRegistry.swift
       - path: PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
+      # Same realtime supervision sources as the simulator twin.
+      - path: PhoneDSHProbe/Bot/BotChatModel.swift
+      - path: PhoneDSHProbe/Bot/BotUIModels.swift
+      - path: PhoneDSHProbe/Bot/BotProfileCenter.swift
+      # BotUIModels' deep-link helpers resolve the roster's main pointer
+      # through the production routing rule; Foundation + PhoneDSHBot only.
+      - path: PhoneDSHProbe/Bot/BotAppWiringLogic.swift
     dependencies:
       - target: PhoneDSHProbe
       - target: ProbeKit
