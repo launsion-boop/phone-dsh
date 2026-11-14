@@ -20,7 +20,7 @@ public object BotUiStrings {
     public const val SETTLEMENT_SELECTED: String = "已选择：{label}"
     /** answered/accepted but the option label cannot be resolved */
     public const val SETTLEMENT_SENT: String = "已送出"
-    /** card precedes the latest user text and was never handled */
+    /** muted checklist precedes the latest user text and was never handled */
     public const val SETTLEMENT_SKIPPED: String = "已略过"
     /** checklist result accepted */
     public const val SETTLEMENT_CHECKLISTSENT: String = "已发送勾选结果"
@@ -43,6 +43,22 @@ public object BotUiStrings {
     public const val SETTLEMENT_APPROVALDEFAULTACTION: String = "操作"
     /** steps prompt detail fallback */
     public const val SETTLEMENT_STEPSSUGGESTION: String = "建议下一步"
+    /** question/steps replaced by a newer choice card (durable P27 status superseded) */
+    public const val SETTLEMENT_SUPERSEDED: String = "已过期，用最新那张"
+    /** status line under the options while the tapped choice is in flight */
+    public const val CHOICE_PENDING: String = "正在送出…"
+    /** planner refusal card_expired shown on the card, never in the header notice */
+    public const val CHOICE_REFUSAL_CARDEXPIRED: String = "这张卡片已经过期，用最新那张"
+    /** planner refusal already_answered */
+    public const val CHOICE_REFUSAL_ALREADYANSWERED: String = "已经选过了"
+    /** planner refusal answer_in_flight */
+    public const val CHOICE_REFUSAL_ANSWERINFLIGHT: String = "正在送出，稍等"
+    /** planner refusal card_dismissed */
+    public const val CHOICE_REFUSAL_CARDDISMISSED: String = "这张卡片已经关闭"
+    /** planner refusal unknown_card */
+    public const val CHOICE_REFUSAL_UNKNOWNCARD: String = "这张卡片已失效"
+    /** planner refusal unknown_option */
+    public const val CHOICE_REFUSAL_UNKNOWNOPTION: String = "这张卡片已失效"
     public const val HEADER_WAITING_PLURAL: String = "{count} 项等你确认"
     /** single pending approval renders an empty detail; the activity line shows the waiting phrase */
     public const val HEADER_WAITING_SINGLE: String = ""
@@ -171,6 +187,14 @@ public object BotUiStrings {
         "settlement.approvalHandled" to SETTLEMENT_APPROVALHANDLED,
         "settlement.approvalDefaultAction" to SETTLEMENT_APPROVALDEFAULTACTION,
         "settlement.stepsSuggestion" to SETTLEMENT_STEPSSUGGESTION,
+        "settlement.superseded" to SETTLEMENT_SUPERSEDED,
+        "choice.pending" to CHOICE_PENDING,
+        "choice.refusal.cardExpired" to CHOICE_REFUSAL_CARDEXPIRED,
+        "choice.refusal.alreadyAnswered" to CHOICE_REFUSAL_ALREADYANSWERED,
+        "choice.refusal.answerInFlight" to CHOICE_REFUSAL_ANSWERINFLIGHT,
+        "choice.refusal.cardDismissed" to CHOICE_REFUSAL_CARDDISMISSED,
+        "choice.refusal.unknownCard" to CHOICE_REFUSAL_UNKNOWNCARD,
+        "choice.refusal.unknownOption" to CHOICE_REFUSAL_UNKNOWNOPTION,
         "header.waiting.plural" to HEADER_WAITING_PLURAL,
         "header.waiting.single" to HEADER_WAITING_SINGLE,
         "header.problem.join" to HEADER_PROBLEM_JOIN,
