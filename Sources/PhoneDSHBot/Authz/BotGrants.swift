@@ -231,7 +231,10 @@ public actor BotGrantStore {
     public func find(botId: String, sessionId: String?, effect: BotToolEffect) -> BotGrant? {
         guard case .ready = recoveryState else { return nil }
         let wantedBot = botId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let wantedResource = BotResourceNormalizer.normalize(effect.resource)
+        // A grant is matched against the effect's stable grant scope, not the
+        // per-call attachment path. For an image effect this is model:image;
+        // for bash/memory it remains the exact resource.
+        let wantedResource = BotResourceNormalizer.normalize(effect.grantResource ?? effect.resource)
         guard !wantedBot.isEmpty, !effect.tool.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !wantedResource.isEmpty else { return nil }
         let timestamp = now()
@@ -246,7 +249,7 @@ public actor BotGrantStore {
         }.filter {
             ($0.tool == "*" || $0.tool == effect.tool)
                 && ($0.operation == "*" || $0.operation == effect.operation)
-                && ($0.resource == "*" || $0.resource == wantedResource)
+                && $0.resource == wantedResource
         }.sorted { lhs, rhs in
             if lhs.decision != rhs.decision { return lhs.decision == .deny }
             return specificity(lhs) > specificity(rhs)

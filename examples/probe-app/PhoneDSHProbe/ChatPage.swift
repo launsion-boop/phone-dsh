@@ -459,6 +459,7 @@ struct ChatPage: View {
             if running {
                 dismissedRedReasons = nil
                 model.flushStreamingText()
+                if hapticTurnActive { PhoneHaptics.thinking() }
             } else if hapticTurnActive {
                 hapticTurnActive = false
                 PhoneHaptics.completed()

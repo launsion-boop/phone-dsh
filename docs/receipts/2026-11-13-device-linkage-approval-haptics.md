@@ -27,9 +27,10 @@ Build: Debug, `PDSH_WITH_XZSHELL=1`, team `KC5NZ8GRQ9`
 
 ### Bot
 
-- `BotApprovalCoordinator` 的 `.always` 决策现在为每个 effect 创建 **resource `*`** 的 grant，保留 tool/operation，scope 仍按 `session`/`until` 限制。
-- `BotGrantStore.find` 接受 resource 通配符；后续同 tool/operation 的不同路径/命令不再重复弹卡。
-- `.allowOnce` 仍只创建 exact-resource once grant，消费后下次重新审批；deny 不创建 grant。
+- `BotToolEffect` 新增 `grantResource`：是否放宽授权由 effect 自己声明，而不是把所有 `.always` 都变成通配符。
+- `read_image` / `attach_to_model` 声明 `grantResource = "model:image"`；`.always` 存 `model:image`（scope 仍按 session/until），同一会话后续另一张图自动放行。
+- `bash`、记忆等 effect 没有 `grantResource`，仍按具体命令/路径精确授权，不会被这次改动放宽。
+- `.allowOnce` 仍只创建 exact-resource once grant，消费后下次重新审批；deny 不创建 grant；deny 在 find 中仍优先于 allow。
 
 ### DSH session
 
@@ -41,10 +42,10 @@ Build: Debug, `PDSH_WITH_XZSHELL=1`, team `KC5NZ8GRQ9`
 ## 3. 轻震动
 
 - `PhoneHaptics` 统一使用低强度 `UIImpactFeedbackGenerator`：
-  - 发送后 agent 开始工作：`.light` intensity 0.34
-  - 回合结束：`.light` intensity 0.28
+  - 发送后 agent 开始工作：`.medium` intensity 0.28（send 与 turn-start 双触发，350ms 去重）
+  - 回合结束：`.light` intensity 0.30
   - 新审批卡：`.light` intensity 0.36
-- DSH 与 Bot 都接入；Bot 审批卡原来使用 `.light` 所以可感知，thinking/completion 原先 `.soft` 在 iPhone Air 上几乎不可感知，已改为 `.light`。
+- DSH 与 Bot 都接入；Bot 审批卡原来使用 `.light` 所以可感知，thinking/completion 原先 `.soft` 在 iPhone Air 上几乎不可感知。thinking 改为 `.medium` 低强度，并在 `turnRunning`/`runningTurnID` 的 nil→运行转换上再触发一次，避免只依赖 send 路径。
 - 仅用户发起/已发送的回合触发；打开历史页不会震动。
 
 ## 4. 验证

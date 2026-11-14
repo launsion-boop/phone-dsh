@@ -23,6 +23,18 @@ final class BotModelImageToolTests: XCTestCase {
         XCTAssertEqual(attribution.name, "read_image")
     }
 
+    func testImageEffectsShareTheStableModelGrantResource() {
+        for name in ["read_image", "attach_to_model"] {
+            let effect = BotToolEffectClassifier.effect(
+                for: name, arguments: .object(["path": .string("/dsh/workspace/photo.jpg")]))
+            XCTAssertEqual(effect.grantResource, "model:image", name)
+            XCTAssertEqual(effect.resource, "attachment=/dsh/workspace/photo.jpg", name)
+        }
+        let bash = BotToolEffectClassifier.effect(
+            for: "bash", arguments: .object(["command": .string("rm -f /x")]))
+        XCTAssertNil(bash.grantResource)
+    }
+
     func testAttachToModelIsDeniedWithoutAnApprovalGrant() async throws {
         let fixture = try makeBotMCPFixture(modelImageReader: { _ in
             XCTFail("the reader must not run before approval")

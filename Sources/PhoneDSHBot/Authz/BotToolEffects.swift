@@ -33,11 +33,16 @@ public struct BotToolEffect: Codable, Sendable, Equatable {
     public let execution: String?
     public let known: Bool
     public let isMcp: Bool
+    /// Stable resource to store for an `always`/`session` grant. `nil` keeps
+    /// the exact call resource, so bash/memory grants remain path-specific.
+    /// Image tools set `model:image` so the next image in the same scope does
+    /// not create a second approval card.
+    public let grantResource: String?
 
     public init(tool: String, operation: String, resource: String, target: String? = nil,
                 mutability: BotToolMutability, policy: BotToolPolicy, label: String = "",
                 detail: String = "", ui: Bool = false, execution: String? = nil,
-                known: Bool = true, isMcp: Bool = false) {
+                known: Bool = true, isMcp: Bool = false, grantResource: String? = nil) {
         self.tool = tool
         self.operation = operation
         self.resource = resource
@@ -50,6 +55,7 @@ public struct BotToolEffect: Codable, Sendable, Equatable {
         self.execution = execution
         self.known = known
         self.isMcp = isMcp
+        self.grantResource = grantResource
     }
 }
 
@@ -158,7 +164,7 @@ public enum BotToolEffectClassifier {
                 detail: language == .zh
                     ? "把工作区图片发送给模型服务，让模型看到像素。"
                     : "Sends a workspace image to the model service so the model can see its pixels.",
-                isMcp: isMcp)
+                isMcp: isMcp, grantResource: "model:image")
         case "attach_to_model":
             let purpose = clip(args["purpose"], max: 120)
             let target = clip(firstNonEmpty(args["path"], args["fileId"], args["photoId"]), max: 200)
@@ -171,7 +177,7 @@ public enum BotToolEffectClassifier {
                 detail: language == .zh
                     ? "把图片发送给模型服务，让模型看到像素。\(purpose.isEmpty ? "" : "用途：\(purpose)")"
                     : "Sends the image to the model service so the model can see its pixels.\(purpose.isEmpty ? "" : " Purpose: \(purpose)")",
-                isMcp: isMcp)
+                isMcp: isMcp, grantResource: "model:image")
         case "SendToUser":
             let preview = clip(args["message"], max: 180)
             return BotToolEffect(tool: bareName, operation: "dshbot.SendToUser",

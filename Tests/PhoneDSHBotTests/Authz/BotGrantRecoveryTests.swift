@@ -31,21 +31,24 @@ final class BotGrantRecoveryTests: XCTestCase {
                                        resource: "memory:user&fact=shared", mutability: .destructive,
                                        policy: .ask, label: "private label", detail: "private detail")
 
-    func testAlwaysGrantCoversLaterResourcesOfTheSameOperation() async throws {
+    func testImageGrantIsStoredAndMatchedByItsStableModelResource() async throws {
         let store = BotGrantStore(now: { 10_000 })
         _ = try await store.add(BotGrant(
-            botId: "main", tool: "bash", operation: "rm-destructive",
-            resource: "*", scope: .session, sessionId: "s1", decision: .allow))
-        let other = BotToolEffect(
+            botId: "main", tool: "attach_to_model", operation: "model.image.attach",
+            resource: "model:image", scope: .session, sessionId: "s1", decision: .allow))
+        let nextImage = BotToolEffect(
+            tool: "attach_to_model", operation: "model.image.attach",
+            resource: "attachment=/dsh/workspace/another-photo.jpg",
+            mutability: .externalSend, policy: .ask, grantResource: "model:image")
+        let found = await store.find(botId: "main", sessionId: "s1", effect: nextImage)
+        XCTAssertEqual(found?.resource, "model:image")
+        // Bash has no stable grant scope; it stays exact-resource.
+        let bash = BotToolEffect(
             tool: "bash", operation: "rm-destructive",
-            resource: "/dsh/workspace/another-file", mutability: .destructive, policy: .ask)
-        let found = await store.find(botId: "main", sessionId: "s1", effect: other)
-        XCTAssertEqual(found?.resource, "*")
-        let otherOperation = BotToolEffect(
-            tool: "bash", operation: "git-destructive",
-            resource: "/dsh/workspace/another-file", mutability: .destructive, policy: .ask)
-        let otherFound = await store.find(botId: "main", sessionId: "s1", effect: otherOperation)
-        XCTAssertNil(otherFound)
+            resource: "/dsh/workspace/another-photo.jpg",
+            mutability: .destructive, policy: .ask)
+        let bashFound = await store.find(botId: "main", sessionId: "s1", effect: bash)
+        XCTAssertNil(bashFound)
     }
 
     func testColdRestartRestoresStandingDenyAndAuditRemainsDigestOnly() async throws {
