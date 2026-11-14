@@ -2113,6 +2113,473 @@
         "category": "reading",
         "startedAt": 200
       }
+    },
+    {
+      "id": "unknown-return-no-stale-wait",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "private-tool",
+            "arguments": {}
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 4,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "toolCallId": "a"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "处理返回结果",
+        "category": "reviewing",
+        "startedAt": 300
+      }
+    },
+    {
+      "id": "analysis-channel-not-public",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "assistant/stream",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "channel": "analysis",
+            "text": "private"
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "等待模型响应",
+        "category": "thinking",
+        "startedAt": 150
+      }
+    },
+    {
+      "id": "task-title-is-intent",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "mcp__phone__Task",
+            "arguments": {
+              "task_title": "对照会议纪要",
+              "description": "其他说明",
+              "prompt": "内部完整指令"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "对照会议纪要",
+        "category": "messaging",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "task-prompt-not-status",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "Task",
+            "arguments": {
+              "prompt": "不应显示的内部指令"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "启动子任务",
+        "category": "messaging",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "null-error-not-failure",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/tmp/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 4,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "error": null,
+            "message": {
+              "toolCallId": "a",
+              "isError": false
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "处理返回结果 · 在翻文件 · report.md",
+        "category": "reviewing",
+        "startedAt": 300
+      }
+    },
+    {
+      "id": "malformed-result-id-is-not-missing",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 6,
+          "time": 350,
+          "data": {
+            "turn": 1,
+            "message": {
+              "toolCallId": 42
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "在翻文件 · report.md",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "conflicting-result-ids-are-ignored",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "callId": "b",
+            "name": "write",
+            "arguments": {
+              "path": "/dsh/workspace/notes.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 6,
+          "time": 350,
+          "data": {
+            "turn": 1,
+            "message": {
+              "toolCallId": "a"
+            },
+            "callId": "b"
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "在写文件 · notes.md",
+        "category": "writing",
+        "startedAt": 250
+      }
+    },
+    {
+      "id": "purpose-is-not-completion",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "bash",
+            "arguments": {
+              "description": "已完成所有验证"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "category": "running",
+        "detail": "等待命令返回",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "generic-purpose-not-fake-progress",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "bash",
+            "arguments": {
+              "description": "整理思绪…"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "category": "running",
+        "detail": "等待命令返回",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "rejected-task-title-not-target-fallback",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "Task",
+            "arguments": {
+              "task_title": "Bearer secret-value",
+              "prompt": "private"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "category": "messaging",
+        "detail": "启动子任务",
+        "startedAt": 200
+      }
     }
   ]
 }

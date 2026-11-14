@@ -58,10 +58,26 @@ No version bump. Android app/lib access must stay within existing module visibil
 The root agent owns final implementation after the user's takeover request. The subsequent
 user instruction explicitly deferred Android adaptation. Android exploration was preserved
 outside this change; no Android source, shared phrase data, or shared checker is changed.
-The final authority is `spec/ui/v1/bot/ios/activity-evidence.md` and its 43 regression vectors.
+The final authority is `spec/ui/v1/bot/ios/activity-evidence.md` and its 53 regression vectors.
 The iOS factory and `BotActivityEvidence` policy consume existing events and existing vocabulary;
 all product activities get a stable concrete detail before the legacy timing layer. Shared
 legacy APIs remain available for Android and compatibility tests. Persona guidance is corrected
 without repurposing business fields. Integration base is main 203c29bcb (including PR #171).
 
 Protocol impact: P09; P26; P16: none — generated persona prose only, no bootstrap/profile keys change; P27: none — no store, row, authorization, or action shape changes.
+
+## Final observed evidence
+
+Root completed the iOS-only implementation after reviewing the Grok archive and DSH event
+contracts. 35 Swift logic tests passed, including all 53 event vectors; the real UI capture
+harness built and produced 8 light/dark activity screenshots from simulated events. Persona
+regressions passed (8 tests), as did protocol-impact, cross-tree invariants (8/8) and diff checks.
+The shared Bot UI checker remains FAIL on the unchanged baseline BotChatPage source anchor
+for `chat.drawer.open`; the changed BotChatModel anchors were refreshed without changing
+string values. Actual device/model/Worker deployment remains NOT_RUN. Android code is unchanged.
+
+Reproduction: `xcodegen generate --spec scripts/ci/bot-activity-evidence/project.yml`, then
+`xcodebuild -project scripts/ci/bot-activity-evidence/BotActivityEvidence.xcodeproj -scheme
+BotActivityEvidenceTests -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test`.
+The dedicated logic target uses the real application source, without requiring a Worker
+bundle or the unrelated full BotChatModel UI-host test target.

@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: MIT
+# Logic-only activity regression target: no Worker bundle or UI host required.
+name: BotActivityEvidence
+options:
+  bundleIdPrefix: dev.phone-dsh.activity-evidence
+  deploymentTarget:
+    iOS: '17.0'
+packages:
+  PhoneDSH:
+    path: ../../..
+targets:
+  BotActivityEvidenceTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ../bot-e2e/app/TestsChatModel/BotActivityLineTests.swift
+      - path: ../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimePresentation.swift
+      - path: ../../../examples/probe-app/PhoneDSHProbe/Bot/BotActivityPhrases.swift
+      - path: ../../../examples/probe-app/PhoneDSHProbe/Bot/BotHeaderPresence.swift
+      - path: ../../../examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
+    dependencies:
+      - package: PhoneDSH
+        product: PhoneDSHBot
+      - package: PhoneDSH
+        product: PhoneDSHAgentCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.activity-evidence.tests
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+schemes:
+  BotActivityEvidenceTests:
+    build:
+      targets:
+        BotActivityEvidenceTests: all
+    test:
+      targets:
+        - BotActivityEvidenceTests
