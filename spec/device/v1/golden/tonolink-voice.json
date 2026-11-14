@@ -30,6 +30,14 @@
     {"seq": 9, "id": 3, "line": "9 listen 3"},
     {"seq": 65535, "id": 4294967295, "line": "65535 listen 4294967295"}
   ],
+  "fx_commands": [
+    {"seq": 7, "phase": "wake", "line": "7 fx wake"},
+    {"seq": 8, "phase": "task_start", "line": "8 fx task_start"},
+    {"seq": 9, "phase": "task_running", "line": "9 fx task_running"},
+    {"seq": 10, "phase": "task_report", "line": "10 fx task_report"},
+    {"seq": 11, "phase": "task_done", "line": "11 fx task_done"},
+    {"seq": 65535, "phase": "idle", "line": "65535 fx idle"}
+  ],
   "packets": [
     {"turn_id": 3, "hex": "000001037801aa", "expect": {"seq": 0, "first": true, "last": false, "opus_hex": "7801aa"}},
     {"turn_id": 3, "hex": "0100000378", "expect": {"seq": 1, "first": false, "last": false, "opus_hex": "78"}},
