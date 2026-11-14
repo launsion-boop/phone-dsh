@@ -4643,11 +4643,14 @@ final class ChatModel {
         case .assistantDelta(let text):
             recordLatency("first-assistant", event: event, once: true)
             clearSendingLabels()
-            finishStreamingReasoning()
             if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
                 streamAccumulator.append(text, to: items[index].id)
                 scheduleStreamingFlush()
             } else {
+                // Closing reasoning is a transition, not a per-token action:
+                // it drains the shared accumulator, so calling it above the
+                // fast path publishes the preceding assistant token early.
+                finishStreamingReasoning()
                 var item = ChatItem(id: eventItemID(event), kind: .assistant,
                                     title: "Assistant", text: "", streaming: true)
                 item.timestamp = event.time
@@ -5400,6 +5403,11 @@ final class ChatModel {
     /// 回复一旦开始流式输出,这条消息就已经送达:「发送中…」必须收掉,
     /// 否则它会一直挂在用户消息下面(线上反馈)。
     private func clearSendingLabels() {
+        // Even removeAll on an unchanged @Observable array invalidates its
+        // readers. Keep the composer quiet while text is only being buffered.
+        guard queueLineOrder.contains(where: {
+            queueLines[$0] == .sending || queueLines[$0] == nil
+        }) else { return }
         for id in queueLineOrder where queueLines[id] == .sending {
             queueLines[id] = nil
             queueLineRequests[id] = nil
@@ -5682,6 +5690,11 @@ final class ChatModel {
 
 #if DEBUG
 extension ChatModel {
+    /// Drives the production reducer without a host, relay or model request.
+    func debugHandleHarnessEvent(_ event: HarnessEvent) {
+        handle(event)
+    }
+
     /// Preview-only: park a message state that normally comes from a live turn
     /// so the failure and queued screens can be reviewed without a model.
     func debugInstallPreviewState(failedItemID itemID: String?, error: String?, queue: [String: String]) {
