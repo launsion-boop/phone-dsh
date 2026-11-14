@@ -83,11 +83,11 @@ DSH 基线 `plugins/dsh-pin.json` 为 `66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db`
 
 | 依据 | 单行内容示例 |
 | --- | --- |
-| read 的真实路径 | 读取 会议纪要.md |
+| read 的真实路径 | 读取相关资料 |
 | bash 的有效动作说明 | 检查卡片布局测试 |
-| fetch 的真实 URL | 读取 developer.apple.com |
+| fetch 的真实 URL | 查看网页内容 |
 | B 返回，A 仍在途 | 回到 A 的真实动作 |
-| 没有工具且模型请求仍等待 | 等待模型响应 |
+| 没有工具且模型请求仍等待 | 等待响应 |
 | 真正 text delta 到达 | 正在回复 |
 | 审批 pending | 等你确认 |
 
@@ -109,3 +109,7 @@ DSH 基线 `plugins/dsh-pin.json` 为 `66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db`
 - 真机、真实模型/设备执行、部署 Worker 镜像 NOT_RUN。客户端不能凭 UI 文案证明业务完成。
 
 复现逻辑回归：先 `xcodegen generate --spec scripts/ci/bot-activity-evidence/project.yml`，再运行生成项目的 `BotActivityEvidenceTests` scheme（iOS Simulator）。这个逻辑专用 target 直接编译产品 projection/phrase/presence 源文件，避免完整 BotE2E target 对 Worker bundle 和 UI host 的额外依赖。
+
+## 后续语音播报的文案收敛
+
+根据用户补充，活动 detail 优先是 8–14 字的自然短句，不再带文件名、路径、扩展名、网址或内部 ID。短的真实查询主题可以保留，例如 query 为“北京天气”时显示“查询北京天气”；技术查询、过长意图或代码样式文字退回真实操作类型对应的短句，而不是截成省略号。结果提示按真实返回事件显示“已收到读取结果”等，不等同于业务成功。此轮没有接入 TTS；未来应消费稳定 detail 并做语义去重，不消费动画帧或显示层耗时后缀。

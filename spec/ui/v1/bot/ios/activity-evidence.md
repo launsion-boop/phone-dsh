@@ -9,12 +9,11 @@ No field is added to BotActivity, DSH events, persisted rows, or the Worker stre
 ## Sources and labels
 
 `BotActivityEvidence.action` permits only bash.description and Task.task_title/description as
-an action description. Use the first nonblank allowed field's first line, existing 20-character
-cap and punctuation normalization. Reject credential-shaped assignments/Bearer text, generic thinking fillers and obvious completion assertions: an intent label is not a completion receipt. Task
+an action description. Use the first speech-compatible allowed intent and the spoken-label rules below. Reject credential-shaped assignments/Bearer text, generic thinking fillers and obvious completion assertions: an intent label is not a completion receipt. Task
 prompt and CreateTeammate.description retain their business meanings. Other description,
-summary and label fields are ignored; use the existing tool vocabulary and safe target rules.
+summary and label fields are ignored; use the tool kind for a short fallback, without a target suffix.
 Unknown calls wait for a tool result without exposing their internal name. Missing bash
-purpose says “等待命令返回”. Normalized empty activities use one stable phase label rather than
+purpose says “执行当前操作”. Normalized empty activities use one stable phase label rather than
 feeding the legacy synonym rotation pool. This does not expose raw reasoning or generate a
 new model request. First public text must actually be observed before “正在回复”.
 
@@ -31,8 +30,8 @@ call (visible or hidden). Unknown IDs, invalid/conflicting ID fields and ambiguo
 user steering do not cancel work. Turn end removes the activity; local stop retains existing
 suppression and cancellation behavior. Reconstruction uses the current turn history.
 
-After the last visible call returns, keep its action as context: “处理返回结果 · <action>”, or
-“操作失败 · <action>” for message.isError/error-object. A subsequent step keeps this context
+After the last visible call returns, keep its operation kind as context, e.g. “已收到读取结果”
+or “已收到查询结果”; use “这步遇到问题” for message.isError/error-object. A subsequent step keeps this context
 until actual text or a new action arrives. Receiving a result does not assert business success.
 If a tool remains unresolved, actual text streaming does not erase that in-flight action.
 Approval/problem precedence remains in BotHeaderPresence. Reasoning-only records do not count
@@ -51,8 +50,8 @@ or sensitive-field misuse. Additional tests check stable labels and approval pre
 ## Spoken-label refinement
 
 Activity detail is a short natural-language sentence suitable for future TTS (TTS delivery is
-not implemented here). Prefer 8–14 Chinese characters, with a 16-character cap for agent intent
-labels; reject overlong labels rather than speaking a truncated ellipsis. Do not include file
+not implemented here). Prefer 8–14 Chinese characters, with a 16-character cap for Chinese intent
+labels (at most 7 words / 48 characters for non-CJK labels); reject overlong labels rather than speaking a truncated ellipsis. Do not include file
 names, paths, extensions, URLs, internal IDs, code, or technical separators in activity detail.
 Use the operation kind as a truthful fallback when the intended purpose cannot be displayed.
 Only approved semantic description fields can provide the purpose; the actual tool/result
