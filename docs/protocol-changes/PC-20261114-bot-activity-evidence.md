@@ -9,7 +9,7 @@ status: frozen
 breaking: false
 version_decision: No wire or durable value shape change; existing BotActivity fields only.
 base: eb42afc1c3ce53d6cc94c434e016b1dd85267bd6
-contract_revision: pending-first-commit
+contract_revision: 654ac8308339dd8a5f33c3e68e05d7f29f5a3bdd
 ```
 
 ## 1. Roles and trigger
@@ -51,4 +51,4 @@ No version bump. Android app/lib access must stay within existing module visibil
 
 | revision | owner | reason | notified |
 | --- | --- | --- | --- |
-| pending-first-commit | task agent | Initial freeze before implementation | parent coordinator |
+| 654ac8308339dd8a5f33c3e68e05d7f29f5a3bdd | task agent | Initial freeze before implementation | parent coordinator |
