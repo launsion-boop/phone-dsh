@@ -1072,6 +1072,10 @@ private struct BotComposerDock: View {
         draft = ""
         pendingAttachments = []
         attachmentNotice = nil
+        // Fire on the gesture itself: waiting for the runtime's accepted-send
+        // callback made this cue depend on a round trip (and feel like it was
+        // missing), while approval haptics already proved the generator works.
+        PhoneHaptics.thinking()
         model.send(text: text, files: files)
         onSend()
         focus.wrappedValue = true

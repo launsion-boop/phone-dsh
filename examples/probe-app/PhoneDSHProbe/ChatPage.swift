@@ -3143,6 +3143,9 @@ struct ChatPage: View {
         // 一按发送就清空:失败那条留在气泡里,重试原样再发,新打的字进新气泡。
         draft = ""
         slashMenuDismissed = false
+        let priorHapticTurn = hapticTurnActive
+        hapticTurnActive = true
+        PhoneHaptics.thinking()
         Task {
             let succeeded: Bool
             if steer {
@@ -3150,13 +3153,12 @@ struct ChatPage: View {
             } else {
                 succeeded = await model.send(text, attachments: pendingAttachments)
                 if succeeded {
-                    hapticTurnActive = true
-                    PhoneHaptics.thinking()
                     nearBottom = true
                     userScrolledAway = false
                     scrollToLatestTrigger += 1
                 }
             }
+            if !succeeded { hapticTurnActive = priorHapticTurn }
             if succeeded {
                 // 发送即收起键盘。官方 Web 端发完保持聚焦（输入框就是 combobox），
                 // 但手机上键盘会盖住刚发出去的那条和回复，也没有"再打一句"的富余
