@@ -9,6 +9,17 @@
 // A streaming delta changes only the last visible item. When every earlier
 // item is unchanged the previous rows/turn facts are reused and only the tail
 // row is replaced, so a delta does not regroup the transcript.
+//
+// The per-Turn facts live here too: the Turn's copy text, its token usage, its
+// process-row presence and its closing assistant are accumulated in the same
+// single pass as the grouping. `ChatPage` used to recompute all three by
+// filtering the whole transcript inside `body`, once per process/tail row.
+//
+// This file also owns the two presentation policies that bound the page's
+// main-thread cost (the hostless simulator suite compiles this file):
+// `NativeTranscriptRenderWindow` (how many rows one body pass may materialize)
+// and `ChatTranscriptGate` (which transcript mutations may run while the App
+// is not on screen).
 
 import Foundation
 import ProbeKit
@@ -20,8 +31,21 @@ struct NativeTimelinePlanEntry: Equatable {
 
 struct NativeTimelineTurnFacts: Equatable {
     var closingAssistantID: String?
+    /// `closingAssistantID`'s message id, the feedback target.
+    var closingMessageID: String?
+    /// `closingAssistantID`'s row time, the tail clock fallback.
+    var closingTimestamp: Date?
     var plans: [NativeTimelinePlanEntry] = []
     var changes: NativeChangedFiles?
+    /// A closed Turn is foldable only with a final answer plus at least one
+    /// process row that folding would hide (the old `turnHasProcess`).
+    var hasProcess = false
+    /// Every assistant text of the Turn, joined exactly like the copy button
+    /// used to do on every body pass.
+    var copyText = ""
+    /// The Turn's token usage, deduplicated by message id like
+    /// `NativeTranscriptProjector.usage(forTurn:in:)`.
+    var usage: NativeTurnUsage?
 
     static let empty = NativeTimelineTurnFacts()
 }
@@ -150,6 +174,11 @@ final class NativeTimelineCache {
         var visible = cachedSnapshot.visibleItems
         visible[visible.count - 1] = last
         let signature = cachedSnapshot.scrollSignaturePrefix + last.text
+        // Turn facts stay cached. The only row whose text changed is a
+        // streaming assistant (or reasoning) row; a Turn with a streaming
+        // assistant has no closing assistant and therefore no tail row, so it
+        // consumes neither `copyText` nor `usage` until the next full rebuild
+        // (which the turn's end reason triggers).
         return NativeTimelineSnapshot(rows: rows,
                                       visibleItems: visible,
                                       turnFacts: cachedSnapshot.turnFacts,
@@ -174,16 +203,22 @@ final class NativeTimelineCache {
                                             startTimes: startTimes, endTimes: endTimes)
         }
 
-        // One pass over the visible transcript feeds both the grouping and the
-        // per-row facts that used to filter all items again inside each row.
+        // One pass over the visible transcript feeds the grouping, the Markdown
+        // cards and every per-Turn fact that used to filter all items again
+        // inside each row's `body` (copy text, usage, process presence).
         var lastAssistantByTurn: [Int: ChatItem] = [:]
+        var assistantTextsByTurn: [Int: [String]] = [:]
         var plansByTurn: [Int: [NativeTimelinePlanEntry]] = [:]
         var changeKeysByTurn: [Int: [String]] = [:]
+        var contentRowCountsByTurn: [Int: Int] = [:]
+        var usageByTurn: [Int: NativeTurnUsage] = [:]
+        var usageMessageIDsByTurn: [Int: Set<String>] = [:]
         for item in visibleItems {
             guard let turn = item.turn else { continue }
             switch item.kind {
             case .assistant:
                 lastAssistantByTurn[turn] = item
+                assistantTextsByTurn[turn, default: []].append(item.text)
             case .toolCall:
                 if item.toolName == "exit_plan_mode",
                    let markdown = item.arguments?["plan"]?.stringValue,
@@ -197,6 +232,24 @@ final class NativeTimelineCache {
                 }
             default:
                 break
+            }
+            if item.kind != .user && item.kind != .context {
+                contentRowCountsByTurn[turn, default: 0] += 1
+            }
+            if let usage = item.turnUsage {
+                // Same accumulation as `NativeTranscriptProjector.usage`, kept
+                // in one pass so the tail row never scans the transcript.
+                var counted = true
+                if let messageID = item.messageID {
+                    counted = usageMessageIDsByTurn[turn, default: []].insert(messageID).inserted
+                }
+                guard counted else { continue }
+                if var total = usageByTurn[turn] {
+                    total.add(usage)
+                    usageByTurn[turn] = total
+                } else {
+                    usageByTurn[turn] = usage
+                }
             }
         }
 
@@ -262,8 +315,15 @@ final class NativeTimelineCache {
         for (turn, assistant) in lastAssistantByTurn {
             var facts = NativeTimelineTurnFacts()
             facts.plans = plansByTurn[turn] ?? []
+            facts.copyText = (assistantTextsByTurn[turn] ?? []).joined(separator: "\n\n")
+            facts.usage = usageByTurn[turn]
+            // The closing assistant itself is one of the Turn's non-input rows,
+            // so more than one means folding would hide a process row.
+            facts.hasProcess = (contentRowCountsByTurn[turn] ?? 0) > 1
             if !assistant.streaming {
                 facts.closingAssistantID = assistant.id
+                facts.closingMessageID = assistant.messageID
+                facts.closingTimestamp = assistant.timestamp
                 let signature = (changeKeysByTurn[turn] ?? []).joined(separator: ",")
                 facts.changes = changesCache.changes(forTurn: turn, signature: signature) {
                     NativeTranscriptProjector.changes(forTurn: turn, in: visibleItems)
@@ -290,5 +350,90 @@ final class NativeTimelineCache {
         case .reasoning, .toolCall, .toolResult: return true
         default: return false
         }
+    }
+}
+
+// MARK: - Render window
+
+/// How many transcript rows one body pass may materialize.
+///
+/// Field evidence (iPhone 17 Pro, iPhoneOS 27.0): re-adopting a 600-row
+/// session put every row into one `LazyVStack` pass; the main thread spent
+/// the whole 10 s scene-update allowance in
+/// `DisplayList.ViewUpdater.ViewCache.update` and FRONTBOARD killed the app
+/// with `0x8BADF00D`. The page therefore renders the newest rows only and
+/// grows that window through the existing "load earlier" sentinel — first
+/// from rows already in memory, then from the host's older page.
+enum NativeTranscriptRenderWindow {
+    /// Rows a fresh page materializes behind the tail. A screen holds a
+    /// handful of blocks, so this is already far more than one viewport.
+    static let initialRows = 96
+    /// Rows one explicit "load earlier" adds.
+    static let pageRows = 64
+
+    /// The newest rows, clamped to what exists.
+    static func tailRange(rowCount: Int, limit: Int) -> Range<Int> {
+        let count = max(0, rowCount)
+        let keep = min(count, max(0, limit))
+        return (count - keep)..<count
+    }
+
+    /// One "load earlier" step. Clamped to `rowCount` so the sentinel can tell
+    /// when every loaded row is on screen; a host page is added on top through
+    /// `growing(by:)`.
+    static func grownLimit(_ limit: Int, rowCount: Int) -> Int {
+        min(max(0, rowCount), max(0, limit) + pageRows)
+    }
+
+    /// After a host page prepended `addedRows`, the same rows must stay on
+    /// screen and the new page must become reachable, so the window grows by
+    /// the delta.
+    static func growing(_ limit: Int, by addedRows: Int, rowCount: Int) -> Int {
+        min(max(0, rowCount), max(0, limit) + max(0, addedRows))
+    }
+}
+
+// MARK: - Background gate
+
+/// Which transcript mutations may run while the App is not on screen.
+///
+/// The scene-update watchdog measures wall-clock main-thread time, and iOS
+/// charges work done in the background to the same budget as visible work.
+/// Status rows are diagnostics nobody can read while hidden, and a history
+/// adoption replaces the whole transcript (the expensive page pass), so both
+/// wait for `.active` instead of invalidating the page in the background.
+struct ChatTranscriptGate: Equatable {
+    /// False while the scene is not active.
+    var isForeground: Bool
+    /// Adoptions parked while hidden. Diagnostics only; the model owns the
+    /// pending value because it also owns the rows.
+    private(set) var deferredAdoptions = 0
+
+    init(isForeground: Bool = true) {
+        self.isForeground = isForeground
+    }
+
+    /// True when a status row may be appended. Status rows are diagnostics the
+    /// page never draws, so while hidden the caller appends nothing and only
+    /// keeps the status log line.
+    var admitsStatusRow: Bool { isForeground }
+
+    /// The row a foreground caller may append. Built here so the one status-row
+    /// shape has a single definition; the caller owns the append because
+    /// `items` has a `didSet` that must only fire on a real mutation (passing
+    /// it `inout` would write it back and bump the revision either way).
+    func statusRow(_ text: String) -> ChatItem? {
+        guard isForeground else { return nil }
+        return ChatItem(kind: .status, title: "Host", text: text)
+    }
+
+    /// True when the caller may replace the rows now. While hidden the caller
+    /// parks the adoption and this records one deferral.
+    mutating func takeAdoptionSlot() -> Bool {
+        guard isForeground else {
+            deferredAdoptions &+= 1
+            return false
+        }
+        return true
     }
 }
