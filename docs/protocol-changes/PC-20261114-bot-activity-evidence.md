@@ -52,3 +52,16 @@ No version bump. Android app/lib access must stay within existing module visibil
 | revision | owner | reason | notified |
 | --- | --- | --- | --- |
 | 654ac8308339dd8a5f33c3e68e05d7f29f5a3bdd | task agent | Initial freeze before implementation | parent coordinator |
+
+## Final scope override — user-directed iOS first
+
+The root agent owns final implementation after the user's takeover request. The subsequent
+user instruction explicitly deferred Android adaptation. Android exploration was preserved
+outside this change; no Android source, shared phrase data, or shared checker is changed.
+The final authority is `spec/ui/v1/bot/ios/activity-evidence.md` and its 43 regression vectors.
+The iOS factory and `BotActivityEvidence` policy consume existing events and existing vocabulary;
+all product activities get a stable concrete detail before the legacy timing layer. Shared
+legacy APIs remain available for Android and compatibility tests. Persona guidance is corrected
+without repurposing business fields. Integration base is main 203c29bcb (including PR #171).
+
+Protocol impact: P09; P26; P16: none — generated persona prose only, no bootstrap/profile keys change; P27: none — no store, row, authorization, or action shape changes.
