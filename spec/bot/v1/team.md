@@ -3,7 +3,8 @@
 # Bot Team 契约（Bot v1）
 
 Status: normative. Contracts: P25 (durable events), P26 (BotToolSurface), P27 (BotRows).
-Contract revision: `bot-team-d12-v1` (`PC-20261113-bot-team-d12`). Swift is `implemented`;
+Contract revision: `bot-team-d12-v2` (`PC-20261114-bot-team-reply`; supersedes
+`bot-team-d12-v1` / `PC-20261113-bot-team-d12`). Swift is `implemented`;
 Kotlin B6 is `not started` and MUST implement this document, not the D12 outline.
 
 This document owns `SendToAgent`, `CreateTeammate`, target resolution, hop/cycle limits,
@@ -54,10 +55,14 @@ The handler validates in this order; the first failure wins and writes no row/de
 5. Roster load. A host failure is `execution_failed` with `String(describing:)`.
 6. Target resolution (§2.2); not found → exact target-not-found sentence (§2.2).
 7. Self check (§2.2).
-8. Depth (§2.3).
-9. Cycle (§2.3).
-10. Idempotency lookup (§2.4); a hit returns the existing thread and delivers nothing.
-11. Row id/thread id allocation (§2.5), outbound row write, then `queued` or `now` delivery.
+8. Reply branch (§2.3.1): when the resolved target is the **immediate previous hop** of the
+   in-progress hand-off and the host supplied its inbound identity, the call is a reply, not a
+   new hop. It skips the steps below (they describe a new hop) and follows §2.3.1, which performs
+   its own idempotency lookup and row/held writes.
+9. Depth (§2.3).
+10. Cycle (§2.3).
+11. Idempotency lookup (§2.4); a hit returns the existing thread and delivers nothing.
+12. Row id/thread id allocation (§2.5), outbound row write, then `queued` or `now` delivery.
 
 `title` is the first non-empty trimmed `title`; an absent/empty title is omitted everywhere.
 
@@ -103,31 +108,76 @@ The result is a `BotAgentRef{id,name,kind:"agent"}`. Consequences:
   `", "`, or `(none)` when empty. The leading Chinese corner bracket, the full-width colon and the
   trailing full stop are part of the frozen string. Hidden Bots and the caller never appear.
 
-### 2.3 Depth and cycle
+### 2.3 Depth, cycle and reply to the previous hop
 
 The host supplies one `BotAgentCommContext` per caller:
 `depth` (inbound hops; 0 for a user turn), `chain` (Bot ids already visited by the in-progress
-hand-off, including the caller), `turn`, `existingRowIDs`.
+hand-off, including the caller), `turn`, `existingRowIDs`, and the optional `inbound` hop
+(`BotAgentInboundHop{senderID,requestID,threadID,delivery,title?}`) that opened the current turn.
+`inbound` is in-memory only, like `chain`. A host that does not supply it keeps the v1 behaviour:
+there is no reply branch, and an answer to the previous hop is the cycle rejection below.
 
 - `depth = inbound depth + 1`. Reject when `depth > 2` with `invalid_arguments`
   `转交层数已经达到上限（最多 2 层）。不要再转给别人了，请直接回答当前请求。`
   Therefore A→B is hop 1, A→B→C is hop 2 and allowed; a further C→D is rejected.
-- A cycle is `target.id ∈ chain`. It is checked after depth and before idempotency. The error is
+- A cycle is `target.id ∈ chain` unless §2.3.1 already accepted the call as a reply to the
+  immediate previous hop (which requires the host-supplied `inbound` identity). It is checked
+  after depth and before idempotency. The error is
   `invalid_arguments` `转交链已经走过 <path>，<targetName> 在这条链上，不能再转回去。请直接回答当前请求。`
   `<path>` is the chain's display names (roster name, or `对方` when the record is gone) joined with
   `" → "`, followed by the target name. Internal `agent-…`/`bot-…` ids MUST NOT leak into the
   user-facing sentence.
 - On success the target's new chain is the old chain with the sender appended (if absent) and the
   target appended (if absent), preserving order. A `queued` held item carries that as
-  `handOff{depth,chain}`. A `now` delivery request carries the same `hop`/`chain`.
-- A teammate's reply is the end of the hand-off. The reply held item MUST have `handOff = nil`;
-  installing a chain on the sender would make the sender's next message look like a cycle.
+  `handOff{depth,chain,inbound}`; the `inbound` member is the new hop's identity (§2.3.1). A
+  `now` delivery request carries the same `hop`/`chain` and the host installs the matching
+  active context, including `inbound`.
+- A teammate's reply (automatic or explicit) is the end of the hand-off. The reply held item
+  MUST have `handOff = nil`; installing a chain on the sender would make the sender's next
+  message look like a cycle.
 - A `now` delivery installs the active context on the target only for the delivery turn; the host
   clears it when the delivery returns. A `queued` delivery installs a one-shot pending context on
   the target; the target's next `SendToAgent` call consumes it (`agentCommContext`), independently
-  of whether the held text has already been folded. The context is in-memory, not durable: a
-  process restart drops an unconsumed chain. A host MUST NOT persist the chain as if it were task
-  state.
+  of whether the held text has already been folded. The context (chain **and** inbound) is
+  in-memory, not durable: a process restart drops an unconsumed chain. A host MUST NOT persist the
+  chain or the inbound hop as if they were task state.
+
+#### 2.3.1 Reply to the immediate previous hop
+
+A caller may answer the Bot that just handed it the current turn. The host's `inbound` identity
+plus the chain decide it; the tool never guesses from the target name alone:
+
+```
+isReply = context.inbound != nil
+       && context.depth >= 1
+       && context.chain.count >= 2
+       && context.chain.last == caller.id
+       && context.chain[context.chain.count - 2] == target.id
+       && context.inbound.senderID == target.id
+```
+
+- **Accepted.** A call with `isReply` true is a valid operation regardless of the caller's
+  `depth`: a depth-2 receiver may answer the Bot that handed it that turn. A reply does not add
+  a hop — no depth increment, no new delivery turn on the target, no `handOff`/chain install —
+  and it skips the depth and cycle rejections. The reply ends the hand-off; the target reads it
+  through its held inbox (§2.10) and its next `SendToAgent` is a fresh hop-1 hand-off. The loop
+  guard is per in-progress hand-off, never across completed ones.
+- **Rejected.** Any other `chain` hit is a real cycle and keeps the exact §2.3 sentence: a target
+  that is an older, non-adjacent hop, or a chain that does not end with the caller, still fails
+  with `转交链已经走过 …`. A new hop whose `depth > 2` keeps the exact §2.3 depth sentence.
+  `isReply` false means the v1 path applies unchanged, including the idempotency order.
+- **Recording.** The reply writes one `reply`-direction `agent.comm` row owned by the caller
+  (§2.9) and then one `agent-held` item into the target's inbox (§2.10). The reply call's own
+  `title`, when present, is accepted and not stored: the held title names the message being
+  answered (`inbound.title`), and the reply row keeps the frozen reply shape. `inbound.requestID` /
+  `inbound.threadID` identify the exchange; the reply call's own `callId` becomes the row's
+  `callID` and the durable idempotency key (§2.4). A replay therefore returns the stored thread
+  with `duplicated:true` and writes nothing.
+- **Wake.** The target is woken at most once, best-effort, **iff** `inbound.delivery == "now"`
+  **and** the reply call's own delivery is `"now"`. Any `queued` side (the original hand-off or
+  the reply call) stays silent. A wake that cannot open a turn because the target is still busy
+  is not an error: the durable held item folds into the target's next turn. The wake never
+  installs a chain or a pending context on the target.
 
 ### 2.4 Idempotency
 
@@ -136,13 +186,18 @@ hand-off, including the caller), `turn`, `existingRowIDs`.
 - Before allocating an id or writing anything, the host looks up
   `(botId = caller, requestId)`. If that misses, it also looks up `(botId, callId)` for pre-WP4
   rows that stored the bare sender call id. The first hit wins.
+- A reply (§2.3.1) uses the same two lookups: its own canonical request id misses (the reply row
+  carries the exchange's request id), so the durable `callId` key is what deduplicates it. The
+  host indexes `reply` rows by `callID` alongside the `outbound` rows.
 - A hit is a replay: return success with the stored `threadId`, the canonical `requestId`
   (`agent:<callId>` even for a legacy bare-id hit), no new row, no delivery, no held item, and
   `"duplicated": true`. For a replayed `queued` call the response still says
   `"delivery":"queued","status":"held"` but MUST NOT invent a `heldId` (the original call was
-  already acknowledged).
+  already acknowledged). A replayed reply keeps `"reply":true` and does not wake.
 - A replay whose current caller/depth/cycle would now fail still fails at the earlier check; the
-  idempotency lookup is step 10, not a bypass.
+  idempotency lookup is step 11, not a bypass. A replayed reply whose host no longer supplies the
+  `inbound` context is therefore handled by the v1 path and deduplicates through the same bare
+  `callId` lookup.
 - The persistent lookup is the durable outbound `agent.comm` row map maintained by the host
   (`BotAgentCommThread`); an in-memory-only map is not conformant across process restart.
 
@@ -187,7 +242,9 @@ MUST reproduce the same bytes, including the NUL separators.
    - `threadId` = the exchange thread;
    - `createdAt` = `now()`;
    - `state:"pending"`;
-   - `handOff = {depth: newDepth, chain: newChain}`;
+   - `handOff = {depth: newDepth, chain: newChain, inbound: {senderID, requestID, threadID,
+     delivery, title?}}`; the `inbound` member is the identity of the hop being handed over
+     (§2.3.1), so the target can reply to its immediate previous hop;
    - dedupe key is `requestId`.
 3. Return without opening a target turn and without waking the target.
 
@@ -215,6 +272,11 @@ returns `execution_failed` (`held inbox write failed: <error>`), and the outboun
 The target turn itself may still finish after the caller's timeout; cancelling the wait does not
 cancel the target turn. A late result is not written as a second inbound row by this call.
 
+**Reply** (§2.3.1) is neither a `now` nor a `queued` hand-off: it writes the caller's `reply` row
+and the target's held item (§2.10) and returns without opening a target turn, without a delivery
+timeout, and without a delivery request. The reply call's own `delivery` only selects its wake
+policy (§2.3.1).
+
 ### 2.7 Prompt
 
 Exactly:
@@ -239,11 +301,19 @@ Success (no `isError`):
 Optional members: `"status":"held"` only for `delivery:"queued"`; `"heldId":"held-…"` only when the
 call actually enqueued (or the host reports an already-present item for the same key);
 `"duplicated":true` when the thread lookup hit a replay **or** the host's held enqueue reported the
-same key (the outbound row is still the idempotency authority for the normal replay path). `structuredContent` is the object above;
+same key (the outbound row is still the idempotency authority for the normal replay path);
+`"reply":true` only for a reply (§2.3.1). `structuredContent` is the object above;
 `content[0].text` is:
 
 - now: `已发送给 <name>，回复稍后以 agent-comm 消息送达。`
 - queued: `已扣住给 <name>：消息会在对方下一个回合开头交付，不会唤醒对方。`
+- reply: `已回复 <name>：回复已写入对方的 held inbox，这次回复不算新的转交。`
+
+For a reply the success object is
+`{"ok":true,"threadId":"<exchange thread>","requestId":"agent:<reply callId>",
+"target":{…},"delivery":"now|queued","reply":true}`; `threadId` is the inbound exchange thread,
+never a new one. The reply's wake policy (§2.3.1) is not a response member: the tool reports
+acceptance, not whether the target's turn started.
 
 Failure (always `isError:true`):
 
@@ -253,7 +323,8 @@ Failure (always `isError:true`):
 
 `content[0].text` equals `message`. Codes: `invalid_arguments` (all argument/target/self/depth/cycle
 failures), `timeout` (300 s delivery timeout), `execution_failed` (roster/row/held/enqueue/host
-failure), and `permission_denied` is not produced by `SendToAgent`.
+failure, including a reply whose held item could not be written), and `permission_denied` is not
+produced by `SendToAgent`.
 
 ### 2.9 Rows and `agent.comm`
 
@@ -267,10 +338,19 @@ The sender's two rows are `BotTeamAgentCommRecord` values:
 Both carry `rowID`, `botID` = sender, `threadID`, `requestID`. The target-side records use the
 same type: `incoming` (`role:"user"`, `fromAgent`, `message`, `hop`) and `reply`
 (`role:"assistant"`, `toAgent` = the peer the reply is for, `message`). phoneDSH's current App
-composition writes the sender-side rows through `agent.comm`; the target's visible turn remains a
-normal transcript. If a host writes the target-side rows, it MUST use these directions and MUST NOT
-invent a second row model. The frozen record/event projection is `team-cases.phone.json`
-`rowCases`.
+composition writes the sender-side rows through `agent.comm`, and an explicit reply (§2.3.1)
+writes the `reply` row owned by the **replier**:
+
+| direction | role | text | peer | extra |
+| --- | --- | --- | --- | --- |
+| `reply` | `assistant` | the reply message | `toAgent{id,name}` (no `kind`) | `callID` = the reply call id; `threadID`/`requestID` = the inbound exchange |
+
+The reply row's `rowID` is allocated from the replier's own context:
+`t<max(0,turn)>u[<n>]` with the decimal collision suffix while it is present in the replier's
+`existingRowIDs` (§2.5). A reply replay is deduplicated by `callID`, not by `requestID`
+(§2.4). The target's visible turn otherwise remains a normal transcript. If a host writes any
+other target-side row, it MUST use these directions and MUST NOT invent a second row model. The
+frozen record/event projection is `team-cases.phone.json` `rowCases`.
 
 Each row becomes one durable P25 `agent.comm` event (the only event type; no second type):
 
@@ -291,8 +371,9 @@ Each row becomes one durable P25 `agent.comm` event (the only event type; no sec
 `agentComm` maps the record exactly: outbound `{targetId,targetName,message,requestId,threadId,
 delivery,status?,title?,hop,callId}`; inbound `{fromAgentId,fromAgentName,replyText,requestId,
 threadId,replyEntryId?,error?}`; incoming `{fromAgentId,fromAgentName,message,requestId,threadId,
-hop}`; reply `{targetId,targetName,message,requestId,threadId}`. Omit nil members; never write an
-explicit `null` (README §1.2). Rows written before this revision may omit `agentComm` (the existing
+hop}`; reply `{targetId,targetName,message,requestId,threadId}`. A `reply` row additionally carries
+the top-level `callId` (the durable idempotency key, §2.4); the `agentComm.reply` object stays as
+frozen above. Omit nil members; never write an explicit `null` (README §1.2). Rows written before this revision may omit `agentComm` (the existing
 `event-envelope.phone.json` cases do); readers MUST accept those and fall back to the top-level
 `direction`/`toAgent`/`fromAgent`/`text`/`replyText`/`threadId`/`requestId` fields. New writers
 MUST include `agentComm`. `BotAgentRef.kind` is optional on `fromAgent`; an old/upstream row
@@ -305,8 +386,8 @@ the target; `inbound`/`incoming`/`reply` bump the row owner; never bump the sele
 
 ### 2.10 Held reply
 
-After a successful `now` reply the sender receives a second `agent-held` item (not an inbound
-`ui.send_to_user` and not a wake):
+**Automatic held reply.** After a successful `now` hand-off the sender receives a second
+`agent-held` item (not an inbound `ui.send_to_user` and not a wake):
 
 - `kind:"agent-held"`, `fromAgentId`/`fromAgentName` = target;
 - `title` = `回复：<title>` when the original title was non-empty, else `回复`;
@@ -321,6 +402,20 @@ After a successful `now` reply the sender receives a second `agent-held` item (n
 Failure to enqueue the reply item is reported as `execution_failed`
 `reply was received but the held inbox write failed: <error>` after the inbound row has been
 written: the reply happened, but the sender will not see it in its next turn.
+
+**Explicit reply item** (§2.3.1). An explicit reply writes the same `agent-held` shape into the
+immediate previous hop's inbox, owned by the replier:
+
+- `kind:"agent-held"`, `fromAgentId`/`fromAgentName` = the replier;
+- `title` = `回复：<inbound title>` when the inbound message carried a title, else `回复`;
+- `text` = the message's first **1,200 Unicode characters** (grapheme boundaries);
+- `requestId = "reply:agent:" + <reply callId>`; `threadId` = the inbound exchange thread;
+  `createdAt = now()`; `state:"pending"`; **no `handOff`**;
+- dedupe key is `requestId`, so a replay of the same reply call does not enqueue twice;
+- the item wakes the target at most once, best-effort, only under the §2.3.1 wake rule. The wake
+  never installs a chain or a pending context.
+- If the held write fails the reply row is already durable: return `execution_failed`
+  `held inbox write failed: <error>` (the existing string; a reply does not invent a second code).
 
 ## 3. `CreateTeammate`
 
@@ -413,6 +508,11 @@ The main Bot check happens before creation; a non-main caller creates nothing.
   both descriptions and removes `CreateTeammate` for a known non-main caller. `allDefinitions`
   is the full P0 list; `SendToAgent`/`CreateTeammate` remain in `tool-catalog.phone.json` as the
   phone-only additions.
+- The `SendToAgent` description tells the model that replying to the Bot that just handed it a
+  turn is a legitimate operation (`reply:true`, §2.3.1), that such a reply does not open a new
+  hand-off, and that the turn's final answer is also written back to the peer automatically
+  (§2.10). The description MUST NOT promise that a reply always wakes the peer (§2.3.1 wake rule)
+  and MUST NOT advertise a second reply tool.
 - The per-caller catalog check runs before the handler (`tool-contracts.md` §1): a caller that
   cannot see `CreateTeammate` receives `permission_denied` without running it.
 - Unread: on each row write, the recipient is the target for `outbound`, and the row owner for
@@ -429,14 +529,22 @@ The main Bot check happens before creation; a non-main caller creates nothing.
 - No new wire field, endpoint, header, event type or environment variable. `agent.comm` is the
   existing additive P25 event and P27 row projection. `SendToAgent`/`CreateTeammate` are the
   existing phone-only catalog additions; their input schemas and effect classes are unchanged.
+- The reply branch is additive inside the tool: `BotAgentCommContext.inbound` is an in-memory host
+  seam member with a default `nil`. A host that does not supply it (and every pre-v2 host) keeps
+  the v1 cycle rejection, so old-host→new-tool interoperates without a new row or item. The
+  `SendToAgent` success object's optional `"reply":true` is ignorable; no reader is required to
+  understand it. A `reply` row is the already-frozen `agent.comm` direction; old readers accept it.
 - Pre-WP4 outbound rows stored the bare `callId` as `requestId`. The compatibility lookup in §2.4
   keeps those rows deduplicating; the response still reports the canonical `agent:<callId>`
-  request id. A new writer MUST write only `agent:<callId>`.
+  request id. A new writer MUST write only `agent:<callId>`. A reply row carries the inbound
+  exchange's `requestId` and its own `callID`; its idempotency uses the `callID` lookup.
 - Hidden Bots remain resolvable; removing that would be a breaking behavior change for existing
   rosters and is not this revision.
 - The 300,000 ms delivery timeout, the 1,200-character held reply cap and the 60/300 UTF-16 bounds
   are model-visible contract values; changing any of them needs a new P26 revision and a new PC.
-- Old persisted rows are read, not rewritten. This document adds no migration.
+- Old persisted rows are read, not rewritten. This document adds no migration. Reply rows written
+  from this revision on are ordinary durable events; a rollback restores the cycle rejection and
+  leaves them readable.
 
 ## 7. Freeze rulings (D12 outline vs Swift/golden)
 
@@ -471,20 +579,31 @@ follow these rulings:
 10. **`SendToUser` in a hidden wake is refused.** The hidden `task-settled`/`task-interrupted`
     prompt is not a visible chat turn. The verifier instruction's `SendToUser` advice is not
     executable; this is recorded as a remaining owner decision in the PC, not silently relaxed.
+11. **A reply to the immediate previous hop is accepted, not a cycle** (`bot-team-d12-v2`). The
+    production device reported `转交链已经走过 联调 → 大肥鱼 → 联调` for exactly this case. The
+    frozen rule is §2.3.1: `context.inbound` plus `chain[count-2]` identify the previous hop; a
+    reply records a `reply` row, writes the exchange-shaped `agent-held` item, adds no hop and
+    installs no chain. Every other `chain` hit and every `depth > 2` new hop keeps the old exact
+    sentences. The cycle rejection is therefore **narrowed to real cycles**, never removed.
+12. **The reply wake is conservative.** Wake only when the inbound hand-off and the reply call are
+    both `now`; `queued` on either side stays silent. The wake is a single best-effort attempt and
+    never opens a hand-off; a busy target simply folds the durable item into its next turn.
 
 ## 8. Shared fixtures
 
 `golden/team-cases.phone.json` (phone-only; `upstream: []`):
 
 - `contract`: the values/strings above, checked for exact equality by the Python validator.
-- `valid` / `invalid`: 13/20 `SendToAgent` and `CreateTeammate` cases, including exact error
-  strings, target resolution, hidden/self, depth 2/3, cycle, duplicate call id, pre-WP4 bare id,
-  held reply cap, timeout and enqueue failures.
-- `rowCases`: one exact `BotTeamAgentCommRecord` + `eventData` for each direction.
+- `valid` / `invalid`: 17/23 `SendToAgent` and `CreateTeammate` cases, including exact error
+  strings, target resolution, hidden/self, depth 2/3, cycle, reply to the previous hop (now,
+  depth-2 and queued), reply to an older hop, reply-like new hop over the depth limit, duplicate
+  call id, pre-WP4 bare id, held reply cap, timeout and enqueue failures.
+- `rowCases`: one exact `BotTeamAgentCommRecord` + `eventData` for each direction; the `reply` case
+  carries the `callID` that keys reply idempotency.
 - `sendToUserCases`: visible chat, agent turn, task principal, hidden wake, card suppression and
   empty message.
 
 `Tests/PhoneDSHBotTests/Team/BotTeamCasesTests.swift` reads the file and drives the real
 `BotTeamTools`/`BotAgentCommIdentity`/`BotTeamAgentCommRecord`; it does not restate a vector.
 `tools/validate_vectors.py` checks shape, exact contract values, row hashes, held items against the
-v2 `held-inbox-item.schema.json`, and nine mutations. `export-manifest.json` records the digest.
+v2 `held-inbox-item.schema.json`, and eleven mutations. `export-manifest.json` records the digest.

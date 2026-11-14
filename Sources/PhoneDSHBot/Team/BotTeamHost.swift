@@ -2,11 +2,49 @@
 
 import Foundation
 
+/// The hand-off hop that opened the caller's current turn.
+///
+/// It is what makes an answer to the **immediate previous hop** a reply rather
+/// than a cycle (`team.md` §2.3.1): the `SendToAgent` tool can only write the
+/// exchange's `reply` row and the exchange-shaped held item if it knows which
+/// request/thread handed the turn over. The value is in-memory only, exactly
+/// like the chain; a host that cannot supply it keeps the historical cycle
+/// rejection.
+public struct BotAgentInboundHop: Sendable, Equatable {
+    /// The Bot that handed the current turn to the caller (`chain[count-2]`).
+    public var senderID: String
+    /// The exchange's `requestId` (`agent:<sender callId>`).
+    public var requestID: String
+    /// The exchange's `threadID`; the reply row and held item join it.
+    public var threadID: String
+    /// How the hop was delivered: `"now"` or `"queued"`. The reply wake policy
+    /// requires `"now"` here **and** on the reply call (`team.md` §2.3.1).
+    public var delivery: String
+    /// The inbound message's title, used for the held reply title
+    /// (`回复：<title>`); absent when the message had none.
+    public var title: String?
+
+    public init(senderID: String, requestID: String, threadID: String,
+                delivery: String, title: String? = nil) {
+        self.senderID = senderID
+        self.requestID = requestID
+        self.threadID = threadID
+        self.delivery = delivery
+        self.title = title
+    }
+
+    /// `now` on both sides is the only wake combination; `queued` stays silent.
+    public func wakesReply(delivery replyDelivery: String) -> Bool {
+        delivery == "now" && replyDelivery == "now"
+    }
+}
+
 /// Where one Bot stands inside the current hand-off chain.
 ///
 /// `depth` is the inbound hop depth (0 for a user turn). `chain` contains the
 /// Bot ids already visited by the current hand-off, including the caller, so a
-/// target already present in the chain is a cycle. `turn` and `existingRowIDs`
+/// target already present in the chain is a cycle — unless it is the immediate
+/// previous hop and `inbound` identifies that hop. `turn` and `existingRowIDs`
 /// let the caller allocate the upstream `t<turn>u` inbound row id without
 /// asking the transcript owner.
 public struct BotAgentCommContext: Sendable, Equatable {
@@ -14,13 +52,35 @@ public struct BotAgentCommContext: Sendable, Equatable {
     public var chain: [String]
     public var turn: Int
     public var existingRowIDs: Set<String>
+    /// The hop that opened the current turn, or `nil` for a user turn and for
+    /// hosts that do not record it.
+    public var inbound: BotAgentInboundHop?
 
     public init(depth: Int = 0, chain: [String] = [], turn: Int = 0,
-                existingRowIDs: Set<String> = []) {
+                existingRowIDs: Set<String> = [],
+                inbound: BotAgentInboundHop? = nil) {
         self.depth = depth
         self.chain = chain
         self.turn = turn
         self.existingRowIDs = existingRowIDs
+        self.inbound = inbound
+    }
+
+    /// The hop that handed the current turn to `callerID`, when that hop is the
+    /// target. This is the guard that separates a legitimate reply from a real
+    /// cycle: the chain must still end with the caller, the target must be the
+    /// element immediately before it, and the host must have recorded the
+    /// inbound identity. Anything else returns `nil` and follows the v1
+    /// depth/cycle rejection.
+    public func immediatePreviousHop(for callerID: String) -> BotAgentInboundHop? {
+        guard depth >= 1,
+              let inbound,
+              !callerID.isEmpty,
+              chain.count >= 2,
+              chain.last == callerID,
+              chain[chain.count - 2] == inbound.senderID,
+              inbound.senderID != callerID else { return nil }
+        return inbound
     }
 }
 
@@ -81,12 +141,18 @@ public struct BotTeamHeldRequest: Sendable, Equatable {
     /// look like it is already inside the chain and its next send would be
     /// rejected as a cycle.
     public var handOff: BotAgentCommContext?
+    /// Best-effort single wake of `botID` after the item is durably enqueued.
+    /// Only an explicit reply to a `now` hand-off sets this (`team.md`
+    /// §2.3.1); queued deliveries and automatic held replies leave it `false`
+    /// and stay silent. A duplicate enqueue never wakes.
+    public var wake: Bool
 
     public init(botID: String, item: WakeInboxItem,
-                handOff: BotAgentCommContext? = nil) {
+                handOff: BotAgentCommContext? = nil, wake: Bool = false) {
         self.botID = botID
         self.item = item
         self.handOff = handOff
+        self.wake = wake
     }
 }
 
@@ -277,10 +343,18 @@ public protocol BotTeamHost: Sendable {
 
     /// Open (or queue behind) a visible target turn and await its final
     /// assistant text. The implementation must not interrupt a running turn.
+    /// For the duration of the target turn it installs an active context on
+    /// the target (`depth = request.hop`, `chain = request.chain`) **including**
+    /// the `inbound` hop built from this request, then releases it; that is
+    /// what lets the target answer the sender with `SendToAgent` (`team.md`
+    /// §2.3.1).
     func deliverToAgent(_ request: BotAgentDeliveryRequest) async throws -> BotAgentDeliveryReply
 
     /// Enqueue one held item for `request.botID`; the idempotency key is
-    /// `item.requestId`.
+    /// `item.requestId`. A non-nil `handOff` installs a one-shot pending
+    /// context (chain and `inbound`) consumed by the target's next team-tool
+    /// call. `wake` asks for one best-effort wake after a non-duplicate
+    /// enqueue; a duplicate never wakes.
     func enqueueHeld(_ request: BotTeamHeldRequest) async throws -> WakeInboxEnqueue
 
     /// Persist one agent-comm row for `record.botID` and bump the unread

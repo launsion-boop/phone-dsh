@@ -269,10 +269,14 @@ public enum BotToolCatalog {
         "Send an asynchronous message to another bot in the roster. The target "
         + "receives it as a normal new turn and answers in its own transcript; "
         + "its reply later arrives here as an inbound agent-comm row on the same "
-        + "thread. You must pass priority or delivery: priority true / delivery "
-        + "\"now\" wakes the target now; priority false / delivery \"queued\" holds "
-        + "the message for their next turn and does not wake them. Never send to "
-        + "yourself and do not poll for the reply."
+        + "thread. If a teammate just handed a message to you, replying to that "
+        + "same Bot with SendToAgent is a legitimate reply: it records a reply "
+        + "row and writes your message into their held inbox without opening a "
+        + "new hand-off, and your final answer is also written back "
+        + "automatically. You must pass priority or delivery: priority true / "
+        + "delivery \"now\" wakes the target now; priority false / delivery "
+        + "\"queued\" holds the message for their next turn and does not wake "
+        + "them. Never send to yourself and do not poll for the reply."
 
     private static let createTeammateDescription =
         "Create a teammate Bot in this DSH Bot roster. Only the main Bot may call "
