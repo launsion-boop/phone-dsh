@@ -751,3 +751,12 @@ python3 spec/ui/v1/tools/ui_check.py --root .
 python3 spec/ui/v1/tools/extract_ios_pages.py --root . --check
 bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-p0-conformance
 ```
+
+### 2026-11-14 iOS-only evidence refinement
+
+For the production iOS activity line, [ios/activity-evidence.md](ios/activity-evidence.md)
+supersedes the legacy generic-rotation and latest-call presentation policy. Its wire/value
+shape is unchanged. `BotActivityPhrases` and the shared vectors retain the existing vocabulary
+for Android, whose adaptation the user explicitly deferred; iOS normalizes its activity
+through `BotActivityEvidence` before the timing/display layer. No new progress tool or raw
+reasoning display is introduced.

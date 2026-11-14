@@ -366,8 +366,8 @@ final class BotChatModel: ObservableObject {
     /// previous "running turn, no pending approval" behavior for other callers.
     var activity: BotActivity? {
         guard runningTurnID != nil, pendingApprovalCount == 0 else { return nil }
-        if live != nil { return livePresentation?.activity }
-        return runtimePresentation.activity
+        if live != nil { return livePresentation?.activity.map(BotActivityEvidence.normalized) }
+        return runtimePresentation.activity.map(BotActivityEvidence.normalized)
     }
 
     /// Whether reply text is arriving right now. Committed `.text` segments do
@@ -390,20 +390,13 @@ final class BotChatModel: ObservableObject {
         return false
     }
 
-    /// What the single status line shows, in priority order:
-    /// pending approval → waiting; streaming text → replying; the factory's
-    /// current phase; thinking fallback while waiting for the first event.
+    /// What the status line shows: approval, pending tool, actual reply stream,
+    /// then the current phase and waiting fallback.
     var lineActivity: BotActivity? {
-        guard showsActivityLine else { return nil }
-        if pendingApprovalCount > 0 {
-            return BotActivity(status: .thinking, detail: "", category: .waiting)
-        }
-        if isStreamingNow {
-            return BotActivity(status: .streaming, detail: "", category: .replying)
-        }
-        let factoryActivity = live != nil ? livePresentation?.activity : runtimePresentation.activity
-        return factoryActivity
-            ?? BotActivity(status: .thinking, detail: "", category: .thinking)
+        BotActivityEvidence.lineActivity(
+            factory: live != nil ? livePresentation?.activity : runtimePresentation.activity,
+            streaming: isStreamingNow, pendingApprovals: pendingApprovalCount,
+            visible: showsActivityLine)
     }
 
     /// The newest row that is still waiting for a person: a pending approval
