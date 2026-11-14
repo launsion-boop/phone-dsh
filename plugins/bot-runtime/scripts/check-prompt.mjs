@@ -19,6 +19,21 @@ for (const lang of ['zh', 'en']) {
   const custom = runtimePersonaBlock({ botName: 'Custom Fish', lang })
   if (!custom.includes('Custom Fish') || custom.includes('大肥鱼')) throw new Error(`runtime Bot name was not injected for ${lang}`)
 }
+// The suggestion card must not be described as the only "real choice" card,
+// and the model must be told to write the full answer before it. This is the
+// cheap, model-facing half of the show_next_steps usage fix.
+for (const lang of ['zh', 'en']) {
+  const persona = assemblePrompt({ lang }).persona
+  const required = lang === 'en'
+    ? ['complete answer in the reply first', 'is a suggestion card']
+    : ['先把完整结论写进正文', '`show_next_steps` 是建议卡']
+  for (const phrase of required) {
+    if (!persona.includes(phrase)) {
+      throw new Error(`suggestion-card guidance missing for ${lang}: ${phrase}`)
+    }
+  }
+}
+
 const allTools = [...new Set(reports.flatMap(report => report.tools))]
 const missing = PHONE_P0_TOOLS.filter(name => !allTools.includes(name))
 if (missing.length) throw new Error(`P0 tools absent from persona declarations: ${missing.join(', ')}`)

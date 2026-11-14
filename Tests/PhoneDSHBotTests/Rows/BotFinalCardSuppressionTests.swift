@@ -144,16 +144,31 @@ final class BotFinalCardSuppressionTests: XCTestCase {
         XCTAssertEqual(textRows(rows), ["先确认一下"])
     }
 
-    func testShowNextStepsStillSuppressesTrailingAssistantText() {
-        let rows = project([
-            turnStart(seq: 1),
-            assistant(seq: 2, text: "建议如下"),
-            toolCall(seq: 3, name: "mcp__phone__show_next_steps",
-                     arguments: #"{"steps":[{"id":"a","label":"A"},{"id":"b","label":"B"}]}"#),
-            toolResult(seq: 4, text: "已显示建议下一步卡片；回合应在此结束，等待用户选择。"),
-            assistant(seq: 5, text: "建议卡之后的正文"),
-            turnEnd(seq: 6),
-        ])
-        XCTAssertEqual(textRows(rows), ["建议如下"])
+    func testShowNextStepsKeepsCompleteProseBeforeTheCardButDropsTrailingText() {
+        let card = RowTestSupport.uiEvent(
+            type: "card.presented", id: "evt-steps", commitSeq: 4, time: 4,
+            data: [
+                "id": .string("card-steps"),
+                "cardType": .string("steps"),
+                "steps": .array([
+                    .object(["id": .string("o0"), "label": .string("A")]),
+                    .object(["id": .string("o1"), "label": .string("B")]),
+                ]),
+            ])
+        let rows = projector.project(
+            botID: "main", sessionID: "gb-main",
+            sessionEvents: [
+                turnStart(seq: 1),
+                assistant(seq: 2, text: "完整结论：已经定位到缓存目录，并给出了清理方案。"),
+                toolCall(seq: 3, name: "mcp__phone__show_next_steps",
+                         arguments: #"{"steps":[{"id":"a","label":"A"},{"id":"b","label":"B"}]}"#),
+                toolResult(seq: 4, text: "已显示建议下一步卡片；回合应在此结束，等待用户选择。"),
+                assistant(seq: 5, text: "建议卡之后的正文"),
+                turnEnd(seq: 6),
+            ],
+            uiEvents: [card]).rows
+        XCTAssertEqual(textRows(rows), ["完整结论：已经定位到缓存目录，并给出了清理方案。"])
+        let cards = rows.filter { $0.body.type == .widget && $0.body.cardType == .steps }
+        XCTAssertEqual(cards.count, 1, "the suggestions card must still be present")
     }
 }
