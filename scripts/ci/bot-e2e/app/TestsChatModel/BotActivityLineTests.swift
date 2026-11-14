@@ -327,7 +327,7 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(preview.activity?.startedAt, 1_000)
     }
 
-    func testHiddenFishActionNeverBecomesTheVisibleActivity() {
+    func testHiddenFishActionProducesNoActivity() {
         let turn = sessionEvent("turn/start", seq: 1, time: 1_000)
         let fish = sessionEvent("tool/call", seq: 2, time: 1_100, data: [
             "callId": .string("fish-1"),
@@ -368,6 +368,19 @@ final class BotActivityLineTests: XCTestCase {
         for raw in ["核对会议结论", "对比日记情绪", "检查页面布局", "Check meeting notes"] {
             XCTAssertEqual(BotActivityEvidence.spokenIntent(raw), raw)
         }
+        // Commands, dotfiles, credentials and opaque handles are never labels,
+        // even when they look like short prose.
+        for raw in ["git status", "ls -la", "cat .env", "npm run build", "swift test",
+                    "sk-proj-AbCdEf123456", "xoxb-1234-5678", "AKIAIOSFODNN7EXAMPLE",
+                    "ghp_0123456789abcdef", "550e8400-e29b-41d4-a716-446655440000",
+                    "联系 alice@corp.example.com", "job-7 结果", "task-123"] {
+            XCTAssertNil(BotActivityEvidence.spokenIntent(raw), raw)
+        }
+        for raw in ["检查 3.5 小时", "Meeting notes review"] {
+            XCTAssertEqual(BotActivityEvidence.spokenIntent(raw), raw)
+        }
+        XCTAssertEqual(BotActivityEvidence.action(forToolNamed: "bash",
+            arguments: arguments("{\"description\":\"git status\"}")).text, "执行当前操作")
         let call = BotActivityEvidence.action(forToolNamed: "read",
             arguments: arguments("{\"path\":\"/private/report.md\"}"))
         XCTAssertEqual(call.text, "读取相关资料")
