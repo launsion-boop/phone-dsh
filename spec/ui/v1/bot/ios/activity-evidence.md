@@ -47,3 +47,17 @@ legacy phrase APIs remain available; the production iOS line calls the evidence 
 cover encoded/object args, concurrent reverse completion, missing/unknown IDs, hidden calls,
 steering, stream/step boundaries, failure, duplicate replay, old-turn isolation, and semantic
 or sensitive-field misuse. Additional tests check stable labels and approval precedence.
+
+## Spoken-label refinement
+
+Activity detail is a short natural-language sentence suitable for future TTS (TTS delivery is
+not implemented here). Prefer 8–14 Chinese characters, with a 16-character cap for agent intent
+labels; reject overlong labels rather than speaking a truncated ellipsis. Do not include file
+names, paths, extensions, URLs, internal IDs, code, or technical separators in activity detail.
+Use the operation kind as a truthful fallback when the intended purpose cannot be displayed.
+Only approved semantic description fields can provide the purpose; the actual tool/result
+lifecycle remains authoritative. Result labels say a result was received, not that the task was
+verified successful. Generic fillers and completion assertions remain rejected.
+
+Future speech should consume this stable detail, not UI animation frames or the UI-only elapsed
+time suffix. Do not create extra model calls or status narration merely to keep speech active.
