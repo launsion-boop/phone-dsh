@@ -1308,8 +1308,49 @@ extension BotRuntimeComposition: BotTeamHost {
                 print("[BotRuntimeComposition] teammate author audit failed: \(error)")
             }
         }
+        await enqueueOnboarding(botID: created.id)
         await rosterModel.refresh()
+        try? await wakeOnboardingIfPossible(botID: created.id)
         return created
+    }
+
+    /// Creation enqueues the one-time opening item; do not run a turn here.
+    /// `BotRuntimeUnit.start` wakes it after the Worker/session is ready, or the
+    /// user's first turn stages it as a held block. The deterministic request
+    /// id makes a retry idempotent.
+    private func enqueueOnboarding(botID: String) async {
+        do {
+            let inbox = WakeInbox(store: SQLiteWakeInboxStore(domainStore: domain, botId: botID))
+            _ = try await inbox.enqueue(
+                try BotOnboarding.item(botID: botID, now: botProductionNowMilliseconds()))
+        } catch {
+            print("[BotRuntimeComposition] onboarding enqueue failed for \(botID): \(error)")
+        }
+    }
+
+    /// Creation should open promptly, not only when the user happens to tap
+    /// the new Bot. Starting a unit is asynchronous and may need the Worker;
+    /// if that fails the durable item stays pending for the first session.
+    private func wakeOnboardingIfPossible(botID: String) async {
+        let inbox = units[botID]?.wakeInbox
+            ?? WakeInbox(store: SQLiteWakeInboxStore(domainStore: domain, botId: botID))
+        guard await BotOnboarding.hasPending(in: inbox) else { return }
+        if let unit = units[botID] {
+            try? await unit.remote.wakeWithHeldMessages()
+            return
+        }
+        guard started else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let unit = try await self.ensureUnit(for: botID, reason: "onboarding")
+                if await BotOnboarding.hasPending(in: unit.wakeInbox) {
+                    try? await unit.remote.wakeWithHeldMessages()
+                }
+            } catch {
+                print("[BotRuntimeComposition] onboarding wake failed for \(botID): \(error)")
+            }
+        }
     }
 
     func agentCommContext(for botID: String) async -> BotAgentCommContext {
