@@ -61,3 +61,21 @@ All runtime/device checks must be reported separately, including NOT_RUN/BLOCKED
 - NOT_RUN: full production app/real-device/real-model end-to-end, deployed Worker image with the new prompt.
 - Android previews consume existing row content/summary/TOC only; no new path-only file extractor was added. iOS text preview uses the existing bounded reader; PDF first-page preview is size-budgeted; unsupported/missing data stays explicit.
 - Header/activity progress is HTML proposal only; native header behavior was not changed.
+
+## Addendum: approved silver single-line activity UI
+
+Base/head before addendum: eb42afc1c3ce53d6cc94c434e016b1dd85267bd6 (PR #171).
+This supersedes the earlier header-proposal-only scope **only for** the subsequently
+approved silver single passive line. The expanded activity-card prototype remains rejected.
+
+Contract revision: spec/ui/v1/pages/bot-chat.md, silver activity subsection dated 2026-11-14.
+P09 visual change; P27 has no data/state/permission/row semantics change. No version bump,
+new fields, wire changes, persisted data, API signatures or dependencies. Existing producers,
+consumers, stored rows and rollback all remain compatible.
+
+Ownership: Luna edits iOS BotActivityLine.swift and headerStatus spacing in BotChatPage.swift;
+Android activity renderer/spacing metrics plus focused tests. Root owns spec and PR metadata.
+
+Acceptance: native build + targeted running/waiting light/dark screenshots; long-label and
+single accessibility-label tests; quiet/problem/inactive/reduced-motion stop-animation checks;
+Android targeted UI unit tests. Report unavailable device/animation evidence as NOT_RUN.
