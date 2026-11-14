@@ -54,3 +54,28 @@ the Link tools `light.phase`, `light.effect.set`, `light.effect.get`, and the `p
 - A real voice turn driving start → running → report → done (the phone code is compiled and in the app, not exercised end to end).
 - Power draw at full brightness on the iPhone's USB supply.
 - The style editor in the panel shows raw argument names (`brightness`, `effect`, `hue`, `phase`, `speed`) and hue as a number; labels would need a descriptor-level change (contract).
+
+## Revision 2 (2026-11-14): Chinese labels and a Send that works
+
+User report on the phone: the style editor's Send stayed grey, and nothing was in Chinese.
+
+- Cause of the grey Send: all five arguments of `light.effect.set` were required and the panel starts every
+  editor unset (device-panel.md §2), so three sliders also had to be moved first.
+- **Firmware:** only `phase` and `style` are required; `color` (named: 红 橙 黄 绿 青 蓝 紫 粉 白), `brightness`
+  and `speed` are optional and keep their saved values; `hue` (0–359, 360 = white) is still accepted. Enum values
+  and `title`s are Chinese; English names stay accepted (agent, ctrl line). The read-out has one Chinese row per
+  phase. `tools/list` is 2,320 bytes (limit 4,096).
+- **Panel contract (P07, device-panel.md §2, fixtures device-panel-v1.1):** a property may carry `title`
+  (1–20 scalars, no C0/DEL) used as the editor label; an invalid title makes the property unsupported; presets
+  ignore it. Required editors come first, then optional; each group by code point. Vectors: mapping 36 → 44
+  (titles valid/invalid, required-first ordering), descriptor cases 59 → 62 (presets and editors on titled tools).
+  Old hosts treat a titled property as unsupported (a required one makes the tool agent-only), so firmware with
+  titles needs this app; the board is not released with titles to older apps.
+
+Commands → results (revision 2):
+- `python3 -m unittest discover -s spec/v1/tools -p 'test_device_panel_golden.py'` → PASS (6; new digests)
+- `swift test --filter 'DevicePanel|TonoLinkVoice'` → PASS (29, including order/title mutations)
+- firmware `host_tests/run.sh` → 34 passed, 0 failed (renderer 10: Chinese names, colours, white)
+- galic build → PASS, 2,105,392 B; USB OTA → confirmed `ota_0` (`valid`)
+- Device `testEffectsOverLinkToolsAndTheCtrlLine` → PASS (Chinese phases; a set with colour 粉 and no brightness kept the saved brightness)
+- Device `testEffectsPanel` → PASS: titles 阶段/效果/颜色/亮度 %/速度, Send inactive before and **active after choosing only 阶段 and 效果**, the editor's Send saved a style (restored afterwards)

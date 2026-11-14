@@ -73,25 +73,30 @@ final class TonoLinkLightDeviceTests: XCTestCase {
         note("styles before: \(String(decoding: (try? before.encoded()) ?? Data(), as: UTF8.self))")
         let originalWake = try XCTUnwrap(before["styles"]?["wake"])
 
-        for phase in ["wake", "task_start", "task_running", "task_report", "task_done", "idle"] {
-            let result = try await call("light.phase", ["phase": .string(phase)])
+        let phases = [("唤醒", "wake"), ("开始任务", "task_start"), ("任务进行", "task_running"),
+                      ("任务汇报", "task_report"), ("任务结束", "task_done"), ("关闭灯效", "idle")]
+        for (title, phase) in phases {
+            let result = try await call("light.phase", ["phase": .string(title)])
             // task_start moves on to task_running by itself after 1.6 s; right after the call it shows itself.
-            XCTAssertEqual(result["phase"]?.stringValue, phase, "light.phase \(phase)")
-            note("phase \(phase) -> \(result["phase"]?.stringValue ?? "?")")
+            XCTAssertEqual(result["phase"]?.stringValue, phase, "light.phase \(title)")
+            XCTAssertEqual(result["当前"]?.stringValue, title)
+            note("phase \(title) -> \(result["phase"]?.stringValue ?? "?")")
             try await Task.sleep(for: .milliseconds(phase == "idle" ? 200 : 1800))
         }
 
         // Change one phase, read it back, put it back.
-        let set = try await call("light.effect.set", ["phase": .string("wake"), "effect": .string("scanner"),
-                                                      "hue": .number(330), "brightness": .number(80), "speed": .number(9)])
+        let set = try await call("light.effect.set", ["phase": .string("唤醒"), "style": .string("扫描"),
+                                                      "color": .string("粉"), "speed": .number(9)])
         XCTAssertEqual(set["styles"]?["wake"]?["effect"]?.stringValue, "scanner")
-        XCTAssertEqual(set["styles"]?["wake"]?["hue"], .number(330))
+        XCTAssertEqual(set["styles"]?["wake"]?["hue"], .number(320))
+        XCTAssertEqual(set["styles"]?["wake"]?["brightness"], originalWake["brightness"], "an unset brightness keeps its value")
+        note("唤醒 row: \(set["唤醒"]?.stringValue ?? "?")")
         let after = try await call("light.effect.get", [:])
         XCTAssertEqual(after["styles"]?["wake"]?["effect"]?.stringValue, "scanner", "the change was not saved")
-        var restore: [String: JSONValue] = ["phase": .string("wake")]
-        for key in ["effect", "hue", "brightness", "speed"] { restore[key] = originalWake[key] ?? .null }
+        var restore: [String: JSONValue] = ["phase": .string("wake"), "style": originalWake["effect"] ?? .null]
+        for key in ["hue", "brightness", "speed"] { restore[key] = originalWake[key] ?? .null }
         _ = try await call("light.effect.set", restore)
-        _ = try await call("light.phase", ["phase": .string("idle")])
+        _ = try await call("light.phase", ["phase": .string("关闭灯效")])
 
         // The voice turn's line: a second ctrl link, like the OTA page's.
         let ctrl = TonoLinkCtrlBLE(nameHint: "PhoneAgent")
@@ -117,18 +122,19 @@ final class TonoLinkLightDeviceTests: XCTestCase {
         let store = BLEDeviceStore.shared
         let device = try await connectedBoard(store: store)
         func preset(_ label: String, _ phase: String, group: String) -> JSONValue {
+            // The phase values are the tool's own Chinese names.
             .object(["tool": .string("light.phase"), "label": .string(label), "group": .string(group),
                      "preset": .object(["phase": .string(phase)])])
         }
         let descriptor = try JSONValue.object([
             "v": .number(1), "device_id": .string(device.linkDeviceID), "title": .string("TonoLink 灯效"),
             "controls": .array([
-                preset("唤醒", "wake", group: "预览灯效"),
-                preset("开始任务", "task_start", group: "预览灯效"),
-                preset("任务进行", "task_running", group: "预览灯效"),
-                preset("任务汇报", "task_report", group: "预览灯效"),
-                preset("任务结束", "task_done", group: "预览灯效"),
-                preset("关闭灯效", "idle", group: "预览灯效"),
+                preset("唤醒", "唤醒", group: "预览灯效"),
+                preset("开始任务", "开始任务", group: "预览灯效"),
+                preset("任务进行", "任务进行", group: "预览灯效"),
+                preset("任务汇报", "任务汇报", group: "预览灯效"),
+                preset("任务结束", "任务结束", group: "预览灯效"),
+                preset("关闭灯效", "关闭灯效", group: "预览灯效"),
                 .object(["tool": .string("light.effect.set"), "label": .string("设置一个阶段的灯效"), "group": .string("设置")]),
                 .object(["tool": .string("light.effect.get"), "label": .string("查看全部灯效"), "group": .string("设置"),
                          "preset": .object([:])]),
@@ -143,8 +149,29 @@ final class TonoLinkLightDeviceTests: XCTestCase {
         model.refresh()
         let adopted = await model.adoptDescriptor(descriptor)
         XCTAssertEqual(adopted, .ok, "descriptor not adopted: \(model.errorText ?? "")")
+        // The style editor: Chinese labels, and Send is active once 阶段 and 效果 are chosen.
+        let editorTool = try XCTUnwrap(model.tool(named: "light.effect.set"))
+        XCTAssertEqual(editorTool.titles, ["phase": "阶段", "style": "效果", "color": "颜色", "brightness": "亮度 %", "speed": "速度"])
+        XCTAssertFalse(model.canSend(toolName: "light.effect.set", preset: nil))
+        model.setEditorValue(.picker("任务汇报"), tool: "light.effect.set", argument: "phase")
+        model.setEditorValue(.picker("彗星"), tool: "light.effect.set", argument: "style")
+        XCTAssertTrue(model.canSend(toolName: "light.effect.set", preset: nil), "Send must be active with only the required two")
         show(AnyView(DevicePanelPage(model: model, deviceName: device.name)))
         try await snapshot("panel")
+        // Save a style from the editor exactly as a tap on its Send would, then put it back.
+        let before = try await callReadOut(device)
+        await model.send(toolName: "light.effect.set", preset: nil)
+        guard case .completed? = model.lastResults["light.effect.set"]?.state else {
+            return XCTFail("the editor's Send did not complete: \(model.errorText ?? "")")
+        }
+        try await snapshot("panel-after-editor-send")
+        if let report = before["styles"]?["task_report"] {
+            _ = try? await callLinkTool(deviceID: device.id, name: "light.effect.set",
+                                        arguments: .object(["phase": .string("task_report"), "style": report["effect"] ?? .null,
+                                                            "hue": report["hue"] ?? .null, "brightness": report["brightness"] ?? .null,
+                                                            "speed": report["speed"] ?? .null]),
+                                        idempotencyKey: UUID().uuidString.lowercased(), origin: .user)
+        }
         let running = try XCTUnwrap(model.descriptor?.controls.first { $0.label == "任务进行" })
         await model.send(toolName: running.tool, preset: running.preset)
         note("preview task_running: \(String(describing: model.lastResults["light.phase"]?.state))")
@@ -158,6 +185,13 @@ final class TonoLinkLightDeviceTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    private func callReadOut(_ device: BLEDeviceStore.Device) async throws -> JSONValue {
+        let outcome = try await callLinkTool(deviceID: device.id, name: "light.effect.get", arguments: .object([:]),
+                                             idempotencyKey: UUID().uuidString.lowercased(), origin: .user)
+        guard case .completed(_, let reply) = outcome else { throw XCTSkip("light.effect.get did not complete") }
+        return reply["result"] ?? .null
+    }
 
     private func connectedBoard(store: BLEDeviceStore) async throws -> BLEDeviceStore.Device {
         var scanned = false, connecting = false

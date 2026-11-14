@@ -192,16 +192,21 @@ No frame draws more per LED than a white LED at `CONFIG_TONOLINK_WS2812_MAX_BRIG
 | --- | --- | --- |
 | `cmd` write | `<seq> fx <phase>` (`phase` one of the six names above) | Show that phase now (restarts it). `ack <seq> ok`; `err range` for an unknown name, `err unsupported` without WS2812. |
 
-Link tools (BLE Link profile, [ble-link.md](ble-link.md); journaled like any other call, `light.effect.get` read-only):
+Link tools (BLE Link profile, [ble-link.md](ble-link.md); journaled like any other call, `light.effect.get` read-only).
+The schemas carry Chinese `title`s and Chinese `enum` values for the device panel
+([device-panel.md](device-panel.md) §2); the board also accepts the English names below.
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `light.phase` | `{phase: wake\|task_start\|task_running\|task_report\|task_done\|idle}` | `{styles, phase}` |
-| `light.effect.set` | `{phase: wake…task_done, effect, hue 0–359, brightness 1–100, speed 1–10}`, all required | saves, previews that phase, returns `{styles, phase}` |
-| `light.effect.get` | `{}` | `{styles: {<phase>: {effect, hue, brightness, speed}}, phase}` |
+| `light.phase` | `{phase}` — 唤醒/wake, 开始任务/task_start, 任务进行/task_running, 任务汇报/task_report, 任务结束/task_done, 关闭灯效/idle | the read-out |
+| `light.effect.set` | required `phase` (not idle) and `style` (彗星 comet, 彩虹 rainbow, 呼吸 breathe, 心跳 pulse, 闪烁 sparkle, 扫描 scanner, 常亮 solid, 关闭 off); optional `color` (红 橙 黄 绿 青 蓝 紫 粉 白) **or** `hue` (0–359, 360 = white), `brightness` 1–100, `speed` 1–10 — an absent one keeps its saved value | saves, previews that phase, returns the read-out |
+| `light.effect.get` | `{}` | the read-out |
+
+The read-out: one Chinese row per phase (`"唤醒": "彗星 · 青 · 亮度90 · 速度8"`), `"当前"` (the
+phase showing, in Chinese), `styles` (`{<english phase>: {effect, hue, brightness, speed}}`) and `phase` (English).
 
 `light.get`/`light.set` results gain an additive `phase` member while the engine runs; `on` is the
-base light, not whether an effect is showing.
+base light, not whether an effect is showing. `light.set`'s `on` carries the title 白光.
 
 Consumer rules: the phone sends `fx` best effort. The ctrl link carries one command at a time, so
 the phone queues light changes and the next `listen` waits for them; a refused or lost `fx` never
