@@ -492,30 +492,13 @@ struct BotChatPage: View {
     private func transcriptContent(proxy: ScrollViewProxy) -> some View {
         let window = transcriptWindow
         if window.hidden > 0 {
-            earlierRowsButton
+            historySentinel(proxy: proxy, expandWindow: true, anchor: window.rows.first?.id)
         } else if model.hasMoreHistory {
-            // Explicit instead of `onAppear`: an eager `VStack` mounts every
-            // row, so the old top loader would fire immediately even though it
-            // is off screen, paging history into the transcript in a loop.
-            Button {
-                loadHistory(proxy: proxy)
-            } label: {
-                HStack {
-                    if model.loadingHistory { ProgressView() }
-                    Text(model.loadingHistory ? "正在加载历史" : "向上加载历史")
-                        .botCaptionFont()
-                        .foregroundStyle(HomeSpec.textTertiary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.plain)
-            .disabled(model.loadingHistory)
-            .accessibilityIdentifier("bot.history.loader")
-            .onGeometryChange(for: CGFloat.self, of: { loader in
-                loader.frame(in: .named("bot-transcript")).maxY
-            }) { maxY in
-                historyLoaderFrameChanged(maxY, proxy: proxy)
-            }
+            // A passive top sentinel, not a button. It only pages when the
+            // reader actually reaches the top; the eager VStack mounts it on
+            // every launch, so visibility is the trigger, not `onAppear`.
+            historySentinel(proxy: proxy, expandWindow: false,
+                            anchor: model.visibleRows.first?.id)
         }
         if isEmpty {
             // The old outer `GeometryReader` made the whole transcript subtree
@@ -566,17 +549,29 @@ struct BotChatPage: View {
                                           eager: BotTranscriptStackMode.current == .eager)
     }
 
-    private var earlierRowsButton: some View {
-        Button {
-            eagerRowLimit += 40
-        } label: {
-            Text("显示更早的消息")
+    /// Top sentinel. Scrolling it into view expands the rendered window or
+    /// asks the runtime for one more history page; the user never has to tap
+    /// a "load earlier" button. A batch stays bounded (40 rendered / 50
+    /// runtime rows) so opening a long Bot session does not build the whole
+    /// transcript.
+    private func historySentinel(proxy: ScrollViewProxy, expandWindow: Bool,
+                                 anchor: String?) -> some View {
+        HStack(spacing: 6) {
+            if model.loadingHistory || historyAutoLoadScheduled {
+                ProgressView().controlSize(.mini)
+            }
+            Text(expandWindow ? "正在加载更早消息" : "正在加载历史")
                 .botCaptionFont()
                 .foregroundStyle(HomeSpec.textTertiary)
-                .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("bot.history.local")
+        .frame(maxWidth: .infinity, minHeight: 36)
+        .accessibilityIdentifier("bot.history.loader")
+        .onGeometryChange(for: CGFloat.self, of: { row in
+            row.frame(in: .named("bot-transcript")).maxY
+        }) { maxY in
+            historyTopFrameChanged(maxY, proxy: proxy,
+                                   expandWindow: expandWindow, anchor: anchor)
+        }
     }
 
     /// Bring the newest *actionable* row (a pending approval or a question
@@ -731,34 +726,35 @@ struct BotChatPage: View {
                          renderProbe: transcriptProbe)
     }
 
-    private func loadHistory(proxy: ScrollViewProxy) {
-        guard !model.loadingHistory else { return }
-        let anchor = model.visibleRows.first?.id
-        preservingHistoryPosition = true
-        Task {
-            await model.loadHistory()
-            if let anchor { proxy.scrollTo(anchor, anchor: .top) }
-            preservingHistoryPosition = false
+    /// One auto-page per top arrival. The small defer lets the viewport
+    /// report its first height; the load itself runs outside layout. After a
+    /// page/window step the old anchor is put back at the top, which moves the
+    /// sentinel above the viewport and prevents a same-frame loop.
+    private func historyTopFrameChanged(_ maxY: CGFloat, proxy: ScrollViewProxy,
+                                        expandWindow: Bool, anchor: String?) {
+        guard model.hasMoreHistory || expandWindow,
+              !historyAutoLoadScheduled, !model.loadingHistory,
+              maxY.isFinite, maxY >= -1,
+              maxY <= scrollMetrics.viewportHeight + 1 else { return }
+        historyAutoLoadScheduled = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            guard historyAutoLoadScheduled, !model.loadingHistory else { return }
+            if expandWindow {
+                eagerRowLimit += 40
+                if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            } else {
+                await model.loadHistory()
+                // Let the prepended rows mount before re-anchoring the old
+                // first row; otherwise the lazy placement can jump.
+                try? await Task.sleep(nanoseconds: 30_000_000)
+                if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            }
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            historyAutoLoadScheduled = false
         }
     }
 
-    /// Auto-page once when the top loader is actually in the viewport,
-    /// matching the old lazy-stack `onAppear` without making an off-screen
-    /// eager row page history on every launch. The small defer lets the
-    /// viewport reader report its first height; the load itself still runs
-    /// outside the layout callback.
-    private func historyLoaderFrameChanged(_ maxY: CGFloat, proxy: ScrollViewProxy) {
-        guard model.hasMoreHistory, !model.loadingHistory, !historyAutoLoadScheduled,
-              maxY.isFinite, maxY >= -1 else { return }
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            guard model.hasMoreHistory, !model.loadingHistory, !historyAutoLoadScheduled,
-                  scrollMetrics.viewportHeight > 0,
-                  maxY <= scrollMetrics.viewportHeight + 1 else { return }
-            historyAutoLoadScheduled = true
-            loadHistory(proxy: proxy)
-        }
-    }
 }
 
 /// The composer owns the draft, the focus and the attachment tray. Keeping
