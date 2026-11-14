@@ -8,15 +8,16 @@ import UIKit
 enum PhoneHaptics {
     /// The agent accepted the message and started working.
     static func thinking() {
-        // `.soft` at low intensity was inaudible on the iPhone Air. `.medium`
-        // at low strength is still a short, gentle tap but has enough travel
-        // to be felt over the keyboard; send and turn-start may both call it.
-        impact(.medium, intensity: 0.28, dedupe: true)
+        // `.soft` was inaudible on the iPhone Air; the approval card proves
+        // `.light` is felt. Use that same actuator style at a slightly higher
+        // strength, still a single short tap. Send and turn-start may both
+        // call it; they share the thinking debounce.
+        impact(.light, intensity: 0.42, dedupe: true)
     }
 
     /// The turn settled (success, error or cancellation).
     static func completed() {
-        impact(.light, intensity: 0.30, dedupe: false)
+        impact(.light, intensity: 0.34, dedupe: false)
     }
 
     /// A new approval/confirmation card is waiting for the user.
