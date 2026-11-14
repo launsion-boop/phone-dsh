@@ -148,6 +148,7 @@ import com.phonedsh.probe.pc.retryPcRoster
 import com.phonedsh.probe.pc.selectPcBackend
 import com.phonedsh.probe.pc.startPcScan
 import com.phonedsh.probe.pc.toConnectedComputerUiState
+import com.phonedsh.probe.pc.PcNewSessionOutcome
 import com.phonedsh.probe.pc.toPcDrawerUiState
 import com.phonedsh.probe.pc.toPcPairingUiState
 import com.phonedsh.probe.pc.toPcSettingsValue
@@ -504,6 +505,7 @@ internal fun HostShell(
     var drawerRecords by remember { mutableStateOf<List<ChatRecord>?>(null) }
     var drawerFolders by remember { mutableStateOf<List<ChatWorkspaceGroup>?>(null) }
     var drawerSnapshotFailure by remember { mutableStateOf<String?>(null) }
+    var pcNewSessionFailure by remember(pcState?.record?.machineId) { mutableStateOf<String?>(null) }
     LaunchedEffect(settingsRevision, chatUi.chatId, chatUi.updatedAtMs, sessionSnapshot.sessions, sessionSnapshot.archivedSessions) {
         val loaded = withContext(Dispatchers.IO) {
             runCatching {
@@ -1276,6 +1278,7 @@ internal fun HostShell(
                         botAppearance = botPlatform?.appearance
                             ?: com.phonedsh.bot.profile.BotFishAppearance.CLASSIC,
                         botRoster = botPlatform?.roster ?: emptyList(),
+                        onBotDrawerIntent = engine::handleBotDrawer,
                         botIsMainBot = botPlatform?.isMainBot ?: true,
                         botDescription = botPlatform?.description.orEmpty(),
                         // §2 rule 9 / §4 rule 5: the same chain the SHEET layer
@@ -1820,7 +1823,7 @@ internal fun HostShell(
                         chatUi.running -> UiStrings.DRAWER_NEW_BLOCKED_TURN
                         else -> null
                     },
-                    failure = drawerSnapshotFailure,
+                    failure = if (pcDrawerState.selected == PcDrawerBackend.PC) pcNewSessionFailure else drawerSnapshotFailure,
                 )
                 val legacyCollapsed = remember(preferences.collapsedWorkspaceFolders) {
                     if (preferences.collapsedWorkspaceFolders == null) {
@@ -1865,17 +1868,38 @@ internal fun HostShell(
                     },
                     onClose = { closeHostDrawer(); drawerMounted = false },
                     onCreateSession = {
-                        val requestId = StateRequestId(UUID.randomUUID().toString())
-                        val receipt = engine.newChatSessionConfirmed(requestId)
-                        val created = receipt.confirms(requestId, receipt.sessionId, null)
-                        if (created) {
-                            notice = null
-                            resetTo(PdshRoute.Chat)
-                            settingsRevision++
+                        if (pcDrawerState.selected == PcDrawerBackend.PC) {
+                            when (val result = withContext(Dispatchers.IO) { pcController?.createSession() }) {
+                                is PcNewSessionOutcome.Created -> {
+                                    pcNewSessionFailure = null
+                                    val machineId = pcController?.state?.value?.record?.machineId
+                                    if (machineId != null) {
+                                        navigateFromDrawer(PdshRoute.PcSessionHistory(machineId, result.sessionId, "电脑会话"))
+                                    }
+                                    true
+                                }
+                                is PcNewSessionOutcome.Failed -> {
+                                    pcNewSessionFailure = result.error.message
+                                    false
+                                }
+                                null -> {
+                                    pcNewSessionFailure = "电脑连接不可用。"
+                                    false
+                                }
+                            }
                         } else {
-                            drawerSnapshotFailure = "新会话没有创建成功，列表未改变。请重试。"
+                            val requestId = StateRequestId(UUID.randomUUID().toString())
+                            val receipt = engine.newChatSessionConfirmed(requestId)
+                            val created = receipt.confirms(requestId, receipt.sessionId, null)
+                            if (created) {
+                                notice = null
+                                resetTo(PdshRoute.Chat)
+                                settingsRevision++
+                            } else {
+                                drawerSnapshotFailure = "新会话没有创建成功，列表未改变。请重试。"
+                            }
+                            created
                         }
-                        created
                     },
                     onCreateSessionInFolder = { folderId ->
                         val requestId = StateRequestId("ui.drawer.new-session.${UUID.randomUUID()}")
@@ -1918,7 +1942,14 @@ internal fun HostShell(
                         }
                         receipt
                     },
-                    onRetry = { settingsRevision++ },
+                    onRetry = {
+                        if (pcDrawerState.selected == PcDrawerBackend.PC) {
+                            pcNewSessionFailure = null
+                            pcController?.retryPcRoster()
+                        } else {
+                            settingsRevision++
+                        }
+                    },
                     onOpenSession = { id ->
                         engine.openChatSession(id)
                         notice = null

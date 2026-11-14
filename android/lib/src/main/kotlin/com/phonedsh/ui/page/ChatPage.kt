@@ -690,10 +690,10 @@ internal fun ChatPage(
                     modifier = Modifier.align(Alignment.Center),
                 )
                 state.error != null -> Column(
-                    modifier = Modifier.align(Alignment.Center).padding(horizontal = 24.dp),
+                    modifier = Modifier.align(Alignment.Center).padding(horizontal = HomeMetrics.contentInset),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    BasicText(state.error, style = type.secondary.copy(color = tokens.colors.pageDanger))
+                    BasicText(state.error, style = type.secondary.copy(color = tokens.colors.danger))
                     SessionTextAction(label = UiStrings.RETRY, onClick = onRetry, tone = SessionActionTone.ACCENT)
                 }
                 state.rows.isEmpty() -> BasicText(
@@ -706,7 +706,7 @@ internal fun ChatPage(
                         BasicText(
                             text = "仅显示电脑上最近的历史。",
                             style = type.caption.copy(color = tokens.colors.textSecondary),
-                            modifier = Modifier.padding(horizontal = HomeMetrics.contentInset, vertical = 8.dp),
+                            modifier = Modifier.padding(horizontal = HomeMetrics.contentInset, vertical = tokens.spacing.iconText),
                         )
                     }
                     val transcript = remember(state.sessionId, state.rows, expanded) {

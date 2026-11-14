@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: MIT
 package com.phonedsh.probe.bot
 
+import com.phonedsh.agentcore.JsonArray
+import com.phonedsh.agentcore.JsonObject
 import com.phonedsh.agentcore.JsonString
+import com.phonedsh.agentcore.JsonValue
+import com.phonedsh.bot.session.BotFollowConnection
+import com.phonedsh.bot.session.BotSessionTransport
 import com.phonedsh.bot.rows.BotActionResult
 import com.phonedsh.bot.rows.BotRowBodyType
 import com.phonedsh.bot.rows.BotUserAction
@@ -10,6 +15,10 @@ import com.phonedsh.bot.store.BotDomainStore
 import com.phonedsh.bot.fish.BotFishLifecycle
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -19,7 +28,9 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /**
  * K6a: the production driver over the real P25 store/projector and an explicit
@@ -27,11 +38,14 @@ import org.junit.Test
  * UI renderer is constructed here.
  */
 class AppBotChatDriverTest {
+    @get:Rule val temporaryFolder = TemporaryFolder()
+
     private lateinit var file: File
     private lateinit var sql: JdbcBotSqlDriver
     private lateinit var store: BotDomainStore
     private lateinit var transport: LocalBotSessionTransport
     private lateinit var driver: AppBotChatDriver
+    private val sharedStoreLock = Any()
 
     @Before
     fun setUp() {
@@ -43,6 +57,7 @@ class AppBotChatDriverTest {
             store = store,
             transport = transport,
             clock = { 1_000L },
+            storeLock = sharedStoreLock,
         )
     }
 
@@ -166,6 +181,158 @@ class AppBotChatDriverTest {
         assertTrue(page.hasMore)
     }
 
+    @Test
+    fun coldReopenProjectsPersistedLifecycleAndWorkerJournalOnce() = runBlocking {
+        driver.perform(chat("cold-1", "你好"))
+        awaitHistory { rows -> rows.any { rowText(it) == "收到：你好" } }
+        driver.close()
+
+        // `JdbcBotSqlDriver.close()` deletes its file, so the second connection
+        // is the process-reopen analogue while the first store object (the
+        // "old process") is still alive. WAL has the durable events committed.
+        val reopenedStore = BotDomainStore(JdbcBotSqlDriver.open(file))
+        val reopened = AppBotChatDriver(
+            store = reopenedStore,
+            transport = transport,
+            clock = { 2_000L },
+            storeLock = sharedStoreLock,
+        )
+        try {
+            val page = awaitHistoryOf(reopened) { rows ->
+                rows.any { rowText(it) == "你好" } &&
+                    rows.any { rowText(it) == "收到：你好" }
+            }
+            assertEquals(1, page.rows.count { rowText(it) == "你好" })
+            assertEquals(1, page.rows.count { rowText(it) == "收到：你好" })
+
+            val lifecycle = reopenedStore.events(0, 500)
+                .filter { it.type == "runtime.started" }
+            assertTrue("runtime.started must survive the force-stop", lifecycle.isNotEmpty())
+            assertTrue(lifecycle.all { it.principal.botId == "main" })
+            assertTrue(lifecycle.all { it.principal.kind == "chat" })
+            val data = (lifecycle.last().data as? JsonObject)?.members
+            assertNotNull(data?.get("sessionId"))
+            assertEquals("chat", lifecycle.last().principal.kind)
+            assertTrue(data?.get("cwd") is JsonString)
+        } finally {
+            reopened.close()
+            reopenedStore.close()
+        }
+    }
+
+    @Test
+    fun coldReopenShowsTheMaterializedConversationWithoutAWorker() = runBlocking {
+        driver.perform(chat("before-restart", "你好"))
+        awaitHistory { rows -> rows.any { rowText(it) == "收到：你好" } }
+        driver.close()
+
+        val golden = File(
+            System.getProperty("pdsh.repo.root"),
+            "spec/bot/v1/golden/projection.phone.json",
+        )
+        val fixture = JsonValue.parse(golden.readText()) as JsonObject
+        val valid = fixture["valid"] as JsonObject
+        val conversation = (valid["dshMapping"] as JsonArray).values
+            .map { it as JsonObject }
+            .single { it["name"] == JsonString("user-assistant") }
+        val invalid = (fixture["invalid"] as JsonArray).values
+            .map { it as JsonObject }
+            .single { it["name"] == JsonString("broken-json") }
+        val records = (conversation["records"] as JsonArray).values
+        val invalidLine = (invalid["records"] as JsonArray).values
+            .map { (it as JsonString).value }
+            .single { runCatching { JsonValue.parse(it) }.isFailure }
+
+        val sessions = temporaryFolder.newFolder("sessions")
+        val session = sessions.resolve("project/gb-main").apply { mkdirs() }
+        val journal = session.resolve("session.v4.jsonl")
+        journal.writeText(listOf(records[0], JsonString(invalidLine), records[1])
+            .joinToString("\n", postfix = "\n") { (it as JsonString).value })
+        session.resolve("session.v3.jsonl").apply {
+            writeText(invalidLine)
+            check(setLastModified(journal.lastModified() - 1_000))
+        }
+
+        val offlineWorker = object : BotSessionTransport {
+            override fun call(endpoint: String, args: JsonObject): JsonObject = error("Worker offline")
+            override fun openFollow(): BotFollowConnection = error("Worker offline")
+        }
+        val reopenedStore = BotDomainStore(JdbcBotSqlDriver.open(file))
+        val reopened = AppBotChatDriver(
+            store = reopenedStore,
+            transport = offlineWorker,
+            materializedSessions = sessions.toPath(),
+        )
+        try {
+            val page = withTimeout(3_000) {
+                reopened.watch(0).first { it.rows.isNotEmpty() }
+            }
+            assertEquals(listOf("你好", "可见回复"), page.rows.map(::rowText))
+        } finally {
+            reopened.close()
+            reopenedStore.close()
+        }
+    }
+
+    @Test
+    fun legacyMintedWorkerSessionIsRecoveredWithoutADurableLifecycle() = runBlocking {
+        driver.perform(chat("legacy-1", "旧消息"))
+        awaitHistory { rows -> rows.any { rowText(it) == "收到：旧消息" } }
+        driver.close()
+
+        val freshFile = Files.createTempFile("pdsh-app-bot-legacy-", ".sqlite").toFile()
+        val freshStore = BotDomainStore(JdbcBotSqlDriver.open(freshFile))
+        val recovered = AppBotChatDriver(
+            store = freshStore,
+            transport = transport,
+            clock = { 3_000L },
+            storeLock = sharedStoreLock,
+        )
+        try {
+            val page = awaitHistoryOf(recovered) { rows ->
+                rows.any { rowText(it) == "收到：旧消息" }
+            }
+            assertTrue(page.rows.any { rowText(it) == "旧消息" })
+            // The pre-fix install has no lifecycle event; recovery must read
+            // the Worker journal, not invent or persist a new epoch.
+            assertTrue(freshStore.events(0, 100).none { it.type == "runtime.started" })
+        } finally {
+            recovered.close()
+            freshStore.close()
+        }
+    }
+
+    @Test
+    fun twoDriversSharingOneStoreSerializeThroughTheInjectedLock() = runBlocking {
+        val secondTransport = LocalBotSessionTransport(clock = { 1_000L })
+        val second = AppBotChatDriver(
+            store = store,
+            transport = secondTransport,
+            clock = { 1_000L },
+            storeLock = sharedStoreLock,
+        )
+        try {
+            val results = coroutineScope {
+                listOf(
+                    async(Dispatchers.IO) { driver.perform(chat("shared-a", "one")) },
+                    async(Dispatchers.IO) { second.perform(chat("shared-b", "two")) },
+                    async(Dispatchers.IO) { driver.perform(chat("shared-c", "three")) },
+                    async(Dispatchers.IO) { second.perform(chat("shared-d", "four")) },
+                ).awaitAll()
+            }
+            assertTrue(results.all { it is BotActionResult.Accepted })
+            assertEquals(
+                4,
+                store.events(0, 200).count { it.type == "conversation.user_message" },
+            )
+        } finally {
+            second.close()
+        }
+    }
+
+    private fun rowText(row: com.phonedsh.bot.rows.BotRow): String? =
+        (row.body["text"] as? JsonString)?.value
+
     private fun chat(nonce: String, text: String): BotUserAction = BotUserAction(
         nonce = nonce,
         botID = "main",
@@ -175,11 +342,17 @@ class AppBotChatDriverTest {
 
     private suspend fun awaitHistory(
         predicate: (List<com.phonedsh.bot.rows.BotRow>) -> Boolean,
+    ): com.phonedsh.ui.bot.state.BotUIHistoryPage =
+        awaitHistoryOf(driver, predicate)
+
+    private suspend fun awaitHistoryOf(
+        source: AppBotChatDriver,
+        predicate: (List<com.phonedsh.bot.rows.BotRow>) -> Boolean,
     ): com.phonedsh.ui.bot.state.BotUIHistoryPage = withTimeout(10_000) {
-        var page = driver.history(null, 50)
+        var page = source.history(null, 50)
         while (!predicate(page.rows)) {
             kotlinx.coroutines.delay(10)
-            page = driver.history(null, 50)
+            page = source.history(null, 50)
         }
         page
     }

@@ -36,6 +36,7 @@ import com.phonedsh.pclink.PclinkRosterSession
 import com.phonedsh.pclink.PclinkRosterSnapshot
 import com.phonedsh.pclink.PclinkRosterWorkspace
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -289,6 +290,18 @@ internal data class PcSessionHistoryRead(
 /** A history read refusal or a malformed answer; the message is page copy. */
 internal class PcSessionHistoryReadException(message: String) : Exception(message)
 
+/**
+ * One PC `session/create` result.
+ *
+ * [Created.sessionId] is the id the PC returned, never a locally minted one:
+ * the PC's `session/list` stays authoritative for the drawer, and this value
+ * only lets the host correlate the action it just sent.
+ */
+internal sealed interface PcNewSessionOutcome {
+    data class Created(val sessionId: String, val workspaceId: String?) : PcNewSessionOutcome
+    data class Failed(val error: PcWorkspaceError) : PcNewSessionOutcome
+}
+
 /** The whole App-side state the page integrator maps. */
 internal data class PcWorkspaceState(
     val backend: PcBackend = PcBackend.PHONE,
@@ -367,6 +380,12 @@ internal class PcWorkspaceController(
     private var closed = false
     private var pairingJob: Job? = null
     private var pairingCancelJob: Job? = null
+    /**
+     * `session/create` is unsafe (P28): a second tap while one is in flight must
+     * answer [PcNewSessionOutcome.Failed] with `busy` instead of sending a
+     * second create that the PC would honour as two sessions.
+     */
+    private val creatingSession = AtomicBoolean(false)
     /**
      * The client state the last [applyStatus] saw. Unpaired only ends a busy
      * pairing when the client moved out of Pairing: the collector also replays the
@@ -720,6 +739,127 @@ internal class PcWorkspaceController(
             mutableState.update {
                 it.copy(rosterLoading = false, rosterError = error.toWorkspaceError())
             }
+        }
+    }
+
+    // ---- New session ----------------------------------------------------
+
+    /**
+     * One PC `session/create` (P28 `unsafe`: never resent after a lost reply).
+     *
+     * The workspace is the caller's choice, else the P18 last-used workspace for
+     * this paired PC; when neither exists the request omits `workspaceId` and
+     * the PC chooses its own recent/default workspace. On success the returned
+     * session is painted into the PC roster immediately and the roster is then
+     * re-read, so the drawer never shows the phone's list or an empty PC one.
+     *
+     * A missing pairing or an offline PC is a failure, never a fallback to the
+     * phone engine. Only one create can be in flight: a second tap answers
+     * `busy` instead of creating a second session on the PC.
+     */
+    suspend fun createSession(workspaceId: String? = null): PcNewSessionOutcome {
+        if (closed) return PcNewSessionOutcome.Failed(PcWorkspaceError("closed", "连接电脑的通道已关闭。"))
+        val record = mutableState.value.record
+            ?: return PcNewSessionOutcome.Failed(
+                PcWorkspaceError("not_paired", "还没有连接电脑，无法新建 PC 会话。"),
+            )
+        if (!mutableState.value.presence.isOnline && !client.status.value.state.isOnline) {
+            return PcNewSessionOutcome.Failed(
+                PcWorkspaceError("peer_offline", "电脑离线，无法新建会话。", retryable = true),
+            )
+        }
+        if (!creatingSession.compareAndSet(false, true)) {
+            return PcNewSessionOutcome.Failed(
+                PcWorkspaceError("busy", "正在新建电脑会话，请稍候。", retryable = true),
+            )
+        }
+        try {
+            val explicitWorkspaceId = workspaceId?.takeIf { it.isNotBlank() }
+            val targetWorkspaceId = explicitWorkspaceId
+                ?: storage.readLastWorkspace(record.machineId)?.takeIf { it.isNotBlank() }
+            val request = LinkedHashMap<String, JsonValue>()
+            if (targetWorkspaceId != null) request["workspaceId"] = JsonString(targetWorkspaceId)
+            val result = transport.call(
+                SESSION_CREATE_ENDPOINT,
+                JsonObject(linkedMapOf("request" to JsonObject(request))),
+            )
+            // The answer is only applied to the machine that asked for it. A
+            // pairing change during the call makes the id unusable here.
+            if (pairedMachineId() != record.machineId) {
+                return PcNewSessionOutcome.Failed(
+                    PcWorkspaceError("pairing_changed", "电脑配对已变化，本次新会话未加入列表。", retryable = true),
+                )
+            }
+            val sessionId = ((result as? JsonObject)?.get("sessionId") as? JsonString)
+                ?.value?.trim().orEmpty()
+            if (sessionId.isEmpty()) {
+                // A definitive but unusable reply: re-read the list so a session
+                // that landed despite the bad frame is still visible.
+                refreshRosterAfterCreate()
+                return PcNewSessionOutcome.Failed(
+                    PcWorkspaceError("invalid_response", "电脑没有返回新会话编号，请刷新列表确认。", retryable = true),
+                )
+            }
+            if (explicitWorkspaceId != null) {
+                // The session exists already; a local preference write failure
+                // must not turn the successful create into a failure.
+                try {
+                    selectWorkspace(record.machineId, explicitWorkspaceId)
+                } catch (_: Exception) {
+                    // The roster still shows the new row; the selection is only
+                    // the next create's default.
+                }
+            }
+            publishCreatedSession(sessionId, targetWorkspaceId)
+            refreshRoster().join()
+            // A list read that raced the PC's own write can omit the row just
+            // created; the returned id is authoritative, so keep it visible.
+            publishCreatedSession(sessionId, targetWorkspaceId)
+            return PcNewSessionOutcome.Created(sessionId, targetWorkspaceId)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            val mapped = error.toWorkspaceError()
+            // `session/create` is unsafe (P28): if the reply was lost the PC may
+            // already have created the session. Re-read the list instead of
+            // resending; a refusal code never causes a second create.
+            if (mapped.code in RECONCILE_AFTER_CREATE_CODES) refreshRosterAfterCreate()
+            return PcNewSessionOutcome.Failed(mapped)
+        } finally {
+            creatingSession.set(false)
+        }
+    }
+
+    private suspend fun refreshRosterAfterCreate() {
+        try {
+            refreshRoster().join()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // The create outcome is already decided; a roster error is exposed
+            // through `PcWorkspaceState.rosterError`.
+        }
+    }
+
+    /** Paints the returned id at the head of the PC list until `session/list` lands. */
+    private fun publishCreatedSession(sessionId: String, workspaceId: String?) {
+        mutableState.update { current ->
+            if (current.roster.sessions.any { it.id == sessionId }) return@update current
+            val workspacePath = workspaceId
+                ?.let { id -> current.roster.workspaces.firstOrNull { it.id == id }?.path }
+            val row = PcSessionRow(
+                id = sessionId,
+                title = "",
+                updatedAtMilliseconds = nowMillis().toDouble(),
+                running = false,
+                blank = true,
+                cwd = workspacePath,
+                parentSessionId = null,
+                searchSnippet = null,
+            )
+            current.copy(
+                roster = current.roster.copy(sessions = listOf(row) + current.roster.sessions),
+            )
         }
     }
 
@@ -1180,9 +1320,21 @@ internal class PcWorkspaceController(
 
     companion object {
         const val SESSION_LIST_ENDPOINT: String = "session/list"
+        const val SESSION_CREATE_ENDPOINT: String = "session/create"
         const val SESSION_PAGE_ENDPOINT: String = "session/page"
         const val SESSION_HISTORY_MAX_MESSAGES: Int = 60
         private const val PRESENCE_TICK_MILLIS: Long = 500
+
+        /**
+         * Outcomes where the PC may have created the session but the phone did
+         * not receive a definitive answer. The list is re-read; the create is
+         * never resent (`session/create` is `unsafe` in P28).
+         */
+        private val RECONCILE_AFTER_CREATE_CODES: Set<String> = setOf(
+            "unknown_outcome",
+            "unavailable",
+            "session_expired",
+        )
 
         /**
          * Decodes `session/list` rows. The shapes are DSH's, not PCLink's:

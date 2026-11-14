@@ -110,18 +110,18 @@ class ChatTranscriptTailDeviceTest {
         val state = mutableStateOf(chatState("session-image", ChatRow.Assistant("image-tail", markdown)))
         mount(state, loader = loader, imageSource = MarkdownImageSource())
         compose.waitUntil(5_000) {
-            compose.onAllNodesWithTag(MARKDOWN_IMAGE_LOADING_TAG).fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithTag(MARKDOWN_IMAGE_LOADING_TAG, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
         }
         compose.waitUntil(5_000) { requested.isCompleted }
-        val loading = compose.onNodeWithTag(MARKDOWN_IMAGE_LOADING_TAG).fetchSemanticsNode().boundsInRoot
+        val loading = compose.onNodeWithTag(MARKDOWN_IMAGE_LOADING_TAG, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         val bitmap = Bitmap.createBitmap(1800, 900, Bitmap.Config.ARGB_8888).apply {
             eraseColor(android.graphics.Color.MAGENTA)
         }
         imageBytes.complete(bitmap)
         compose.waitUntil(5_000) {
-            compose.onAllNodesWithTag(MARKDOWN_IMAGE_TAG).fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithTag(MARKDOWN_IMAGE_TAG, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
         }
-        val loaded = compose.onNodeWithTag(MARKDOWN_IMAGE_TAG).fetchSemanticsNode().boundsInRoot
+        val loaded = compose.onNodeWithTag(MARKDOWN_IMAGE_TAG, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         assertTrue("the scripted image must change the measured row height", loaded.height > loading.height + 100f)
         awaitImageAtTail()
         assertPillAbsent()
@@ -165,7 +165,7 @@ class ChatTranscriptTailDeviceTest {
         streaming = true,
     )
 
-    private fun bodyBounds() = compose.onNodeWithTag(UiTags.BUBBLE).fetchSemanticsNode().boundsInRoot
+    private fun bodyBounds() = compose.onNodeWithTag(UiTags.BUBBLE, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
 
     private fun awaitTextAtTail(text: String) {
         compose.waitUntil(10_000) {
@@ -176,7 +176,7 @@ class ChatTranscriptTailDeviceTest {
 
     private fun awaitImageAtTail() {
         compose.waitUntil(5_000) {
-            val images = compose.onAllNodesWithTag(MARKDOWN_IMAGE_TAG).fetchSemanticsNodes()
+            val images = compose.onAllNodesWithTag(MARKDOWN_IMAGE_TAG, useUnmergedTree = true).fetchSemanticsNodes()
             if (images.isEmpty()) return@waitUntil false
             val list = compose.onNodeWithTag(UiTags.CHAT_LIST).fetchSemanticsNode().boundsInRoot
             val image = images.last().boundsInRoot

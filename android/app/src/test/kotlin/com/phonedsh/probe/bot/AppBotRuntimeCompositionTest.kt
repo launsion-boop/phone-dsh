@@ -119,7 +119,7 @@ class AppBotRuntimeCompositionTest {
             store = store,
             driver = driver,
             roster = platform.roster,
-            platformConfig = platform,
+            initialPlatform = platform,
             proactiveSettings = com.phonedsh.bot.proactive.InMemoryProactiveSettingsStore(),
             mcpServer = mcp,
             routines = routines,

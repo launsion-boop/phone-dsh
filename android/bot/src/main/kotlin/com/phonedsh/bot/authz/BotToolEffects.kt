@@ -56,22 +56,61 @@ public data class BotToolEffect(
     public val execution: String? = null,
     public val known: Boolean = true,
     public val isMcp: Boolean = false,
+    /**
+     * Stable resource to store for an `always`/`session` grant. `null` keeps
+     * the exact call resource, so bash/memory grants remain path-specific.
+     * Image tools set `model:image` so the next image in the same scope does
+     * not create a second approval card.
+     */
+    public val grantResource: String? = null,
 ) {
-    /** The twelve frozen members, including explicit `null` for `execution`. */
-    public fun toJson(): JsonObject = BotJson.objectOf(
-        "tool" to JsonString(tool),
-        "operation" to JsonString(operation),
-        "resource" to JsonString(resource),
-        "target" to JsonString(target),
-        "mutability" to JsonString(mutability.wire),
-        "policy" to JsonString(policy.wire),
-        "label" to JsonString(label),
-        "detail" to JsonString(detail),
-        "ui" to JsonBool(ui),
-        "execution" to (execution?.let(::JsonString) ?: JsonNull),
-        "known" to JsonBool(known),
-        "isMcp" to JsonBool(isMcp),
-    )
+    /**
+     * Whether a standing approval may cover more than this exact resource.
+     * Unknown tools are never widened. Destructive bash/memory operations stay
+     * exact; only external-send effects (images/network) and effects that
+     * explicitly declare a grantResource get a stable scope.
+     */
+    public val canUseStandingGrant: Boolean
+        get() {
+            if (!known) return false
+            if (grantResource != null) return true
+            return mutability == BotToolMutability.EXTERNAL_SEND
+        }
+
+    /**
+     * The stable scope a standing approval stores. Images opt into the
+     * narrower `model:image`; other external sends use `operation:<id>`.
+     * Destructive and unclassified effects return their exact resource, so a
+     * standing decision never widens them.
+     */
+    public val stableGrantResource: String
+        get() {
+            grantResource?.let { return it }
+            if (!canUseStandingGrant) return resource
+            return if (operation.isEmpty()) resource else "operation:$operation"
+        }
+
+    /** The frozen members, including explicit `null` for `execution`. */
+    public fun toJson(): JsonObject {
+        val members = linkedMapOf<String, JsonValue>(
+            "tool" to JsonString(tool),
+            "operation" to JsonString(operation),
+            "resource" to JsonString(resource),
+            "target" to JsonString(target),
+            "mutability" to JsonString(mutability.wire),
+            "policy" to JsonString(policy.wire),
+            "label" to JsonString(label),
+            "detail" to JsonString(detail),
+            "ui" to JsonBool(ui),
+            "execution" to (execution?.let(::JsonString) ?: JsonNull),
+            "known" to JsonBool(known),
+            "isMcp" to JsonBool(isMcp),
+        )
+        // The shared tool-effects fixture predates P26: the member is absent
+        // for every existing effect and appears only when it has a value.
+        grantResource?.let { members["grantResource"] = JsonString(it) }
+        return JsonObject(members)
+    }
 
     public companion object {
         public fun fromJson(value: JsonValue?): BotToolEffect? {
@@ -96,6 +135,7 @@ public data class BotToolEffect(
                 execution = BotJson.string(members["execution"]),
                 known = BotJson.bool(members["known"]) ?: true,
                 isMcp = BotJson.bool(members["isMcp"]) ?: true,
+                grantResource = BotJson.string(members["grantResource"]),
             )
         }
     }
@@ -180,6 +220,58 @@ public object BotToolEffectClassifier {
                     label = if (language == BotToolLanguage.ZH) zhLabel else bareName,
                     detail = defaultDetail(name, args, language),
                     isMcp = isMcp,
+                )
+            }
+            "read_image" -> {
+                // DSH's built-in fs tool commits an image and asks the model
+                // route to inspect it. The Worker gate must present the same
+                // external send effect so the approval card and grants agree.
+                val target = clip(args["path"], 200)
+                BotToolEffect(
+                    tool = bareName,
+                    operation = "model.image.attach",
+                    resource = if (target.isEmpty()) "model:image" else "attachment=$target",
+                    target = if (target.isEmpty()) "model:image" else target,
+                    mutability = BotToolMutability.EXTERNAL_SEND,
+                    policy = BotToolPolicy.ASK,
+                    label = if (language == BotToolLanguage.ZH) {
+                        "把图片发送给模型"
+                    } else {
+                        "Send an image to the model"
+                    },
+                    detail = if (language == BotToolLanguage.ZH) {
+                        "把工作区图片发送给模型服务，让模型看到像素。"
+                    } else {
+                        "Sends a workspace image to the model service so the model can see its pixels."
+                    },
+                    isMcp = isMcp,
+                    grantResource = "model:image",
+                )
+            }
+            "attach_to_model" -> {
+                val purpose = clip(args["purpose"], 120)
+                val target = clip(firstNonEmpty(args["path"], args["fileId"], args["photoId"]), 200)
+                BotToolEffect(
+                    tool = bareName,
+                    operation = "model.image.attach",
+                    resource = if (target.isEmpty()) "model:image" else "attachment=$target",
+                    target = if (target.isEmpty()) "model:image" else target,
+                    mutability = BotToolMutability.EXTERNAL_SEND,
+                    policy = BotToolPolicy.ASK,
+                    label = if (language == BotToolLanguage.ZH) {
+                        "把图片发送给模型"
+                    } else {
+                        "Send an image to the model"
+                    },
+                    detail = if (language == BotToolLanguage.ZH) {
+                        "把图片发送给模型服务，让模型看到像素。" +
+                            if (purpose.isEmpty()) "" else "用途：$purpose"
+                    } else {
+                        "Sends the image to the model service so the model can see its pixels." +
+                            if (purpose.isEmpty()) "" else " Purpose: $purpose"
+                    },
+                    isMcp = isMcp,
+                    grantResource = "model:image",
                 )
             }
             "Task" -> {

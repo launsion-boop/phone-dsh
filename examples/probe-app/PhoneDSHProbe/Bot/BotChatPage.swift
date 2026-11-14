@@ -249,7 +249,7 @@ struct BotChatPage: View {
             if let activity = presence.line {
                 BotActivityLine(activity: activity, quiet: presence.lineIsQuiet,
                                 problem: presence.lineIsProblem)
-                    .padding(.top, 4)
+                    .padding(.top, 0)
                     .padding(.bottom, 14)
                     .background(alignment: .top) {
                         LinearGradient(

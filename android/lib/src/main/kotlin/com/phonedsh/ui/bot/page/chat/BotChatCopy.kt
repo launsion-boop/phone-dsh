@@ -74,7 +74,7 @@ public object BotChatCopy {
     public const val APPROVAL_COPIED: String = "已复制"
     public const val APPROVAL_EXPAND_ALL: String = "展开全部"
     public const val APPROVAL_ONCE: String = "允许一次"
-    public const val APPROVAL_ALWAYS: String = "总是允许"
+    public const val APPROVAL_ALWAYS: String = "始终允许"
     public const val APPROVAL_SESSION: String = "本次对话都允许"
     public const val APPROVAL_DENY: String = "拒绝"
     public const val APPROVAL_PERSISTENT: String = "用户不在场，已转为待办。"

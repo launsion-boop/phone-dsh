@@ -7,8 +7,8 @@ import com.phonedsh.bot.store.SqlRow
 import com.phonedsh.bot.store.SqlValue
 import java.io.File
 import java.sql.Connection
-import java.sql.DriverManager
 import java.sql.ResultSet
+import org.sqlite.SQLiteDataSource
 
 /** The real P25 store over a throwaway JVM SQLite database. */
 class JdbcBotSqlDriver private constructor(
@@ -100,8 +100,8 @@ class JdbcBotSqlDriver private constructor(
 
     companion object {
         fun open(file: File): JdbcBotSqlDriver {
-            val connection = DriverManager.getConnection("jdbc:sqlite:${file.absolutePath}")
-            return JdbcBotSqlDriver(connection, file)
+            val dataSource = SQLiteDataSource().apply { url = "jdbc:sqlite:${file.absolutePath}" }
+            return JdbcBotSqlDriver(dataSource.connection, file)
         }
     }
 }

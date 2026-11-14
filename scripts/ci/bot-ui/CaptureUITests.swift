@@ -66,6 +66,17 @@ final class BotCaptureUITests: XCTestCase {
         XCTAssertFalse(app.buttons["bot.choice.custom.send"].exists)
     }
 
+    func testStepsHideDescriptionsAndKeepSuppliedActions() throws {
+        launch("steps")
+        let suggested = app.buttons["bot.choice.option.review"]
+        XCTAssertTrue(suggested.waitForExistence(timeout: 3))
+        XCTAssertTrue(suggested.label.contains("建议"), suggested.label)
+        XCTAssertTrue(app.buttons["bot.choice.option.pr"].exists)
+        XCTAssertTrue(app.buttons["bot.choice.option.notes"].exists)
+        XCTAssertFalse(app.staticTexts["先确认测试和截图证据"].exists)
+        XCTAssertFalse(app.staticTexts["不应出现在下一步卡片中的说明标题"].exists)
+    }
+
     func testChecklistToggleAndSendBack() throws {
         launch("checklist")
         app.buttons["bot.checklist.item.c2"].tap()
@@ -95,8 +106,10 @@ final class BotCaptureUITests: XCTestCase {
         XCTAssertFalse(app.buttons["bot.approval.once"].exists)
 
         launch("overflow")
-        let always = app.buttons["bot.approval.always"]
-        XCTAssertFalse(always.exists)
+        let always = app.buttons["bot.approval.always.disabled"]
+        XCTAssertTrue(always.waitForExistence(timeout: 3))
+        XCTAssertFalse(always.isEnabled)
+        XCTAssertTrue(app.staticTexts["此操作仅支持单次授权"].exists)
         XCTAssertTrue(app.buttons["bot.approval.deny"].waitForExistence(timeout: 3))
     }
 
@@ -167,6 +180,9 @@ final class BotCaptureUITests: XCTestCase {
         // R5: the whole card is the button, and its VoiceOver label names the
         // action; there is no separate small control to hunt for.
         XCTAssertTrue(open.label.hasPrefix("打开"), open.label)
+        let preview = app.descendants(matching: .any)["bot.card.document.preview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 2))
+        XCTAssertTrue(preview.label.contains("Steering、停止和迟到输出"), preview.label)
         open.tap()
         XCTAssertTrue(app.navigationBars["文档"].waitForExistence(timeout: 2))
         // D2: an inline-content document renders its body. The old sheet

@@ -114,6 +114,7 @@ import com.phonedsh.platform.android.AndroidDurability
 import com.phonedsh.platform.android.AndroidLifecycleSignals
 import com.phonedsh.platform.android.ProotRuntime
 import com.phonedsh.platform.android.UbuntuRootfsStore
+import com.phonedsh.probe.bot.AppBotMcpEgress
 import com.phonedsh.probe.bot.AppBotRuntime
 import com.phonedsh.probe.bot.BotPlatformConfig
 import com.phonedsh.probe.bot.DshBotSessionTransport
@@ -1051,8 +1052,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         is WebSearchLaunchPlan.Off -> null
     }
 
-    /** The `/v1/http` policy the engine serves; `null` keeps the route at 503. */
-    private val httpEgress: LoopbackHttpEgress? = webSearchEgress ?: diagnosticHttpEgress
+    private val httpEgress = AppBotMcpEgress(webSearchEgress ?: diagnosticHttpEgress)
 
     /**
      * What this launch can honestly say about model traffic (P27).
@@ -1186,7 +1186,9 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // the provider is read again on every page load, so a recovered port is
         // never a stale URL.
         botMcpEnvironment = {
-            appBotRuntime?.mcpUrl?.let { url -> com.phonedsh.engine.BotMcpEnvironment(url) }
+            appBotRuntime?.mcpEndpoint?.let { endpoint ->
+                com.phonedsh.engine.BotMcpEnvironment(endpoint.mcpUrl(), httpEgress.install(endpoint))
+            }
         },
     )
 
@@ -1653,11 +1655,17 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
             AppBotRuntime.create(
                 context = getApplication(),
                 transport = DshBotSessionTransport(host.channel, ::logTurn),
+                materializedSessions = walPaths.materializedHome.resolve("sessions"),
                 logger = { line -> Log.i("AppBotRuntime", line) },
+                nativeMcp = AndroidAdbHost.get(getApplication()).server,
+                nativeAdmission = { controller.admission == Admission.OPEN },
             )
         }.onSuccess { runtime ->
             runtime?.let {
                 _botPlatformConfig.value = it.platformConfig
+                it.platformState?.let { state ->
+                    viewModelScope.launch { state.collect { config -> _botPlatformConfig.value = config } }
+                }
             }
         }.onFailure { error ->
             Log.w(TAG_TURN, "Bot platform unavailable: ${error.javaClass.simpleName}: ${error.message}")
@@ -1676,6 +1684,13 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                 .onFailure { error ->
                     Log.w(TAG_TURN, "Bot runtime start failed: ${error.javaClass.simpleName}")
                 }
+        }
+    }
+
+    internal fun handleBotDrawer(intent: com.phonedsh.ui.bot.state.BotDrawerIntent) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { appBotRuntime?.handleDrawer(intent) }
+                .onFailure { Log.w(TAG_TURN, "Bot profile change failed: ${it.javaClass.simpleName}") }
         }
     }
 
@@ -2325,12 +2340,14 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // The Bot listener must be live before the first page load: the engine
         // reads its URL into the Worker env at launch time. The Activity's
         // onStart/onStop then keep these services on the foreground lifecycle.
-        startBotRuntime()
         restoreSessionArchive()
         restoreChatSessions()
         // Asynchronous by contract: recovery, the final HELLO and engine.start()
         // run on the host's scope. Observe engine.state for the outcome.
-        host.start()
+        viewModelScope.launch(Dispatchers.IO) {
+            appBotRuntime?.start()
+            withContext(Dispatchers.Main) { host.start() }
+        }
         // C5: observe the PC client and load the identity/record in the
         // background. With no record this only creates the first-run identity;
         // it never dials the relay.

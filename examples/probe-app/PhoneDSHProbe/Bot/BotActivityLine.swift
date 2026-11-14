@@ -5,9 +5,8 @@ import PhoneDSHBot
 
 /// The one live-status line, centered right under the Bot header capsule.
 /// The header fish above it is the only avatar and carries the motion; this
-/// view is just the words: one 13/18 secondary line that slides and fades on
-/// every change and breathes while it stays the same, under a soft highlight
-/// sweep. It never captures touches.
+/// view is a passive 13/18 silver-gray line with a fixed activity point.
+/// Only its local highlight sweeps while work is active.
 struct BotActivityLine: View {
     let activity: BotActivity
     /// Waiting for the user: keep the words still (no shimmer, no breath).
@@ -22,8 +21,22 @@ struct BotActivityLine: View {
     private var text: String { line.text }
 
     var body: some View {
-        BotActivityShimmerText(text: text, quiet: quiet || problem,
-                               ink: problem ? BotUIPalette.danger : HomeSpec.textSecondary)
+        GeometryReader { proxy in
+            let textWidth = min(text.size(withAttributes: [.font: UIFont.systemFont(ofSize: 13, weight: .medium)]).width,
+                                max(0, proxy.size.width - 13))
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(problem ? BotUIPalette.danger : BotActivityShimmerText.silver)
+                    .frame(width: 5, height: 5)
+                    .accessibilityHidden(true)
+                BotActivityShimmerText(text: text, quiet: quiet || problem,
+                                       ink: problem ? BotUIPalette.danger : BotActivityShimmerText.silver)
+                    .frame(width: textWidth)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(height: proxy.size.height)
+        }
+        .frame(height: 18)
             .padding(.horizontal, 24)
             .frame(maxWidth: .infinity)
             .allowsHitTesting(false)
@@ -66,12 +79,11 @@ struct BotActivityLine: View {
     }
 }
 
-/// 13/18 centered secondary text. A change slides the old words up and out
-/// and the new ones up and in, with a short fade and blur, on one spring so
-/// a quick run of changes stays continuous. Both lines are centered in the
+/// 13/18 centered secondary text. A change moves the old words up and out
+/// and the new ones up and in, with a short fade. Both lines are centered in the
 /// same box, so a width change never shifts the line sideways. While the
-/// words stay the same the line breathes between 70% and 100% opacity under
-/// the DSH running-row shimmer sweep.
+/// words stay the same, a separate silver highlight sweeps over fully readable
+/// base text.
 private struct BotActivityShimmerText: View {
     let text: String
     let quiet: Bool
@@ -80,15 +92,19 @@ private struct BotActivityShimmerText: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.botPageActive) private var pageActive
     @State private var phase: CGFloat = -1
-    @State private var dim = false
-
     private static let height: CGFloat = 18
 
-    private static let highlight = NativeParityTokens.rgba(
-        light: 0x000000, lightAlpha: 0.30,
-        dark: 0xFFFFFF, darkAlpha: 0.45)
+    fileprivate static let silver = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 184/255, green: 190/255, blue: 199/255, alpha: 1)
+            : UIColor(red: 105/255, green: 113/255, blue: 124/255, alpha: 1)
+    })
 
-    private var animated: Bool { !reduceMotion && pageActive }
+    private static let highlight = NativeParityTokens.rgba(
+        light: 0xFFFFFF, lightAlpha: 0.78,
+        dark: 0xFFFFFF, darkAlpha: 0.68)
+
+    private var animated: Bool { !reduceMotion && pageActive && !quiet }
     /// Shimmer and breathing only while the Bot is doing something.
     private var ambient: Bool { animated && !quiet }
 
@@ -97,16 +113,15 @@ private struct BotActivityShimmerText: View {
             line(text)
                 .id(text)
                 .transition(animated ? .asymmetric(
-                    insertion: .modifier(active: BotStatusSwap(offset: 8, blur: 2, opacity: 0),
+                    insertion: .modifier(active: BotStatusSwap(offset: 3, blur: 0, opacity: 0),
                                          identity: BotStatusSwap.identity),
-                    removal: .modifier(active: BotStatusSwap(offset: -8, blur: 2, opacity: 0),
+                    removal: .modifier(active: BotStatusSwap(offset: -3, blur: 0, opacity: 0),
                                        identity: BotStatusSwap.identity))
                     : .identity)
         }
         .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height)
         .clipped()
-        .animation(animated ? .spring(response: 0.42, dampingFraction: 0.9) : nil, value: text)
-        .opacity(ambient ? (dim ? 0.7 : 1) : 1)
+        .animation(animated ? .easeOut(duration: 0.25) : nil, value: text)
         .onAppear { restart() }
         .onChange(of: reduceMotion) { _, _ in restart() }
         .onChange(of: pageActive) { _, _ in restart() }
@@ -155,14 +170,10 @@ private struct BotActivityShimmerText: View {
         reset.disablesAnimations = true
         withTransaction(reset) {
             phase = -1
-            dim = false
         }
         guard ambient else { return }
         withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) {
             phase = 1
-        }
-        withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-            dim = true
         }
     }
 }
