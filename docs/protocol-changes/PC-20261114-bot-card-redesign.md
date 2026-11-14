@@ -79,3 +79,10 @@ Android activity renderer/spacing metrics plus focused tests. Root owns spec and
 Acceptance: native build + targeted running/waiting light/dark screenshots; long-label and
 single accessibility-label tests; quiet/problem/inactive/reduced-motion stop-animation checks;
 Android targeted UI unit tests. Report unavailable device/animation evidence as NOT_RUN.
+
+Silver activity addendum verification: Android BotChatPageTest PASS (25/0); iOS capture
+harness build PASS and runningTool/runningAwaitingApproval light/dark captures PASS (4).
+The point and text reserve separate width; accessibility exposes one label; highlight uses
+actual text width; theme follows the app theme. Quiet/problem/inactive/reduced modes are
+gated in source; true-device animation/energy checks remain NOT_RUN. No activity-content
+projection rules were changed by this visual addendum.

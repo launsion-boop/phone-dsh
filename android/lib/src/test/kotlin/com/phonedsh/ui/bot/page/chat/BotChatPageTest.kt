@@ -11,9 +11,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -370,8 +372,22 @@ class BotChatPageTest {
     fun `a pending approval holds the header on waiting for you`() {
         val harness = harness("approval")
         show(harness)
+        compose.onNodeWithTag(BotChatTags.ACTIVITY_LINE)
+            .assertIsDisplayed()
+            .assertContentDescriptionEquals("等你确认")
+    }
+
+    @Test
+    fun `activity line exposes a long label exactly once`() {
+        val label = "正在读取一个很长的真实文件名称并继续处理相关内容.txt"
+        compose.setContent {
+            PdshTheme {
+                BotActivityLine(text = label, quiet = true, problem = false, pageActive = true)
+            }
+        }
         compose.onNodeWithTag(BotChatTags.ACTIVITY_LINE).assertIsDisplayed()
-        compose.onNodeWithText("等你确认").assertIsDisplayed()
+        compose.onNodeWithTag(BotChatTags.ACTIVITY_LINE).assertContentDescriptionEquals(label)
+        compose.onAllNodes(hasContentDescription(label), useUnmergedTree = true).assertCountEquals(1)
     }
 
     @Test
@@ -381,11 +397,12 @@ class BotChatPageTest {
         compose.onAllNodes(hasTestTag(BotChatTags.ACTIVITY_LINE)).assertCountEquals(0)
         harness.model.beginTurn("turn-1")
         compose.waitForIdle()
-        compose.onNodeWithText("思考中…").assertIsDisplayed()
+        compose.onNodeWithTag(BotChatTags.ACTIVITY_LINE).assertContentDescriptionEquals("思考中…")
         harness.model.showProblem("实时更新失败：断线")
         harness.model.tick(now + com.phonedsh.ui.bot.state.BotTimers.ACTIVITY_MIN_VISIBLE)
         compose.waitForIdle()
-        compose.onNodeWithText("实时更新失败：断线").assertIsDisplayed()
+        compose.onNodeWithTag(BotChatTags.ACTIVITY_LINE)
+            .assertContentDescriptionEquals("实时更新失败：断线")
     }
 
     @Test
