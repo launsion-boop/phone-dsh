@@ -7,49 +7,49 @@
   {
    "id": "settlement.dismissed",
    "value": "已关闭",
-   "source": "BotChatModel.swift:475",
+   "source": "BotChatModel.swift:487",
    "expect": "已关闭",
    "note": "question/steps settled by local dismiss id or durable status dismissed"
   },
   {
    "id": "settlement.selected",
    "value": "已选择：{label}",
-   "source": "BotChatModel.swift:481",
+   "source": "BotChatModel.swift:493",
    "expect": "已选择：",
    "note": "durable answered or accepted action; label resolved from optionID"
   },
   {
    "id": "settlement.sent",
    "value": "已送出",
-   "source": "BotChatModel.swift:481",
+   "source": "BotChatModel.swift:493",
    "expect": "已送出",
    "note": "answered/accepted but the option label cannot be resolved"
   },
   {
    "id": "settlement.skipped",
    "value": "已略过",
-   "source": "BotChatModel.swift:485",
+   "source": "BotChatModel.swift:538",
    "expect": "已略过",
-   "note": "card precedes the latest user text and was never handled"
+   "note": "muted checklist precedes the latest user text and was never handled"
   },
   {
    "id": "settlement.checklistSent",
    "value": "已发送勾选结果",
-   "source": "BotChatModel.swift:516",
+   "source": "BotChatModel.swift:535",
    "expect": "已发送勾选结果",
    "note": "checklist result accepted"
   },
   {
    "id": "settlement.checklistDetail",
    "value": "{title} · 已完成 {done}/{total}",
-   "source": "BotChatModel.swift:514",
+   "source": "BotChatModel.swift:533",
    "expect": "· 已完成",
    "note": "checklist settled detail"
   },
   {
    "id": "settlement.approvalAutoDeclined",
    "value": "已略过，视为拒绝",
-   "source": "BotChatModel.swift:537",
+   "source": "BotChatModel.swift:556",
    "expect": "已略过，视为拒绝",
    "note": "approval auto-denied by the next send"
   },
@@ -76,7 +76,7 @@
   {
    "id": "settlement.approvalDenied",
    "value": "已拒绝",
-   "source": "BotChatModel.swift:247",
+   "source": "Sources/PhoneDSHBot/Rows/BotApprovalReceipt.swift:20",
    "expect": "已拒绝",
    "note": "status denied/never"
   },
@@ -95,23 +95,79 @@
   {
    "id": "settlement.approvalHandled",
    "value": "已处理",
-   "source": "BotChatModel.swift:547",
+   "source": "Sources/PhoneDSHBot/Rows/BotApprovalReceipt.swift:25",
    "expect": "已处理",
    "note": "unknown settled status"
   },
   {
    "id": "settlement.approvalDefaultAction",
    "value": "操作",
-   "source": "BotChatModel.swift:530",
+   "source": "BotChatModel.swift:549",
    "expect": "操作",
    "note": "fallback when neither the card nor ask carries an action"
   },
   {
    "id": "settlement.stepsSuggestion",
    "value": "建议下一步",
-   "source": "BotChatModel.swift:494",
+   "source": "BotChatModel.swift:513",
    "expect": "建议下一步",
    "note": "steps prompt detail fallback"
+  },
+  {
+   "id": "settlement.superseded",
+   "value": "已过期，用最新那张",
+   "source": "Sources/PhoneDSHBot/UI/BotChoiceCardUI.swift:60",
+   "expect": "已过期，用最新那张",
+   "note": "question/steps replaced by a newer choice card (durable P27 status superseded)"
+  },
+  {
+   "id": "choice.pending",
+   "value": "正在送出…",
+   "source": "Sources/PhoneDSHBot/UI/BotChoiceCardUI.swift:56",
+   "expect": "正在送出…",
+   "note": "status line under the options while the tapped choice is in flight"
+  },
+  {
+   "id": "choice.refusal.cardExpired",
+   "value": "这张卡片已经过期，用最新那张",
+   "source": "Sources/PhoneDSHBot/UI/BotChoiceCardUI.swift:66",
+   "expect": "这张卡片已经过期，用最新那张",
+   "note": "planner refusal card_expired shown on the card, never in the header notice"
+  },
+  {
+   "id": "choice.refusal.alreadyAnswered",
+   "value": "已经选过了",
+   "source": "Sources/PhoneDSHBot/UI/BotChoiceCardUI.swift:67",
+   "expect": "已经选过了",
+   "note": "planner refusal already_answered"
+  },
+  {
+   "id": "choice.refusal.answerInFlight",
+   "value": "正在送出，稍等",
+   "source": "Sources/PhoneDSHBot/UI/BotChoiceCardUI.swift:68",
+   "expect": "正在送出，稍等",
+   "note": "planner refusal answer_in_flight"
+  },
+  {
+   "id": "choice.refusal.cardDismissed",
+   "value": "这张卡片已经关闭",
+   "source": "Sources/PhoneDSHBot/UI/BotChoiceCardUI.swift:69",
+   "expect": "这张卡片已经关闭",
+   "note": "planner refusal card_dismissed"
+  },
+  {
+   "id": "choice.refusal.unknownCard",
+   "value": "这张卡片已失效",
+   "source": "Sources/PhoneDSHBot/UI/BotChoiceCardUI.swift:70",
+   "expect": "这张卡片已失效",
+   "note": "planner refusal unknown_card"
+  },
+  {
+   "id": "choice.refusal.unknownOption",
+   "value": "这张卡片已失效",
+   "source": "Sources/PhoneDSHBot/UI/BotChoiceCardUI.swift:71",
+   "expect": "这张卡片已失效",
+   "note": "planner refusal unknown_option"
   },
   {
    "id": "header.waiting.plural",
@@ -477,31 +533,31 @@
   {
    "id": "chat.drawer.open",
    "value": "打开 Bot 列表",
-   "source": "BotChatPage.swift:163",
+   "source": "BotChatPage.swift:176",
    "expect": "打开 Bot 列表"
   },
   {
    "id": "chat.info.label",
    "value": "Bot 信息",
-   "source": "BotChatPage.swift:199",
+   "source": "BotChatPage.swift:212",
    "expect": "Bot 信息"
   },
   {
    "id": "chat.menu.summary",
    "value": "跟进中 {following} · 需要你处理 {attention}",
-   "source": "BotChatPage.swift:260",
+   "source": "BotChatPage.swift:273",
    "expect": "跟进中"
   },
   {
    "id": "chat.menu.info",
    "value": "Bot 信息与设置",
-   "source": "BotChatPage.swift:262",
+   "source": "BotChatPage.swift:275",
    "expect": "Bot 信息与设置"
   },
   {
    "id": "chat.deeplink.unavailable",
    "value": "这条消息不可用或已过期。",
-   "source": "BotChatModel.swift:1198",
+   "source": "BotChatModel.swift:1254",
    "expect": "这条消息不可用或已过期"
   },
   {
@@ -513,19 +569,19 @@
   {
    "id": "error.watchFailed",
    "value": "Bot 实时更新失败：{error}",
-   "source": "BotChatModel.swift:1025",
+   "source": "BotChatModel.swift:1081",
    "expect": "Bot 实时更新失败"
   },
   {
    "id": "error.historyFailed",
    "value": "历史加载失败：{error}",
-   "source": "BotChatModel.swift:1191",
+   "source": "BotChatModel.swift:1247",
    "expect": "历史加载失败"
   },
   {
    "id": "error.attachmentFailed",
    "value": "附件「{name}」未附加：{reason}",
-   "source": "BotChatModel.swift:653",
+   "source": "BotChatModel.swift:672",
    "expect": "未附加"
   },
   {
@@ -711,25 +767,25 @@
   {
    "id": "glyph.dismissed",
    "value": "xmark.circle",
-   "source": "BotChatModel.swift:475",
+   "source": "BotChatModel.swift:487",
    "expect": "xmark.circle"
   },
   {
    "id": "glyph.accepted",
    "value": "checkmark.circle",
-   "source": "BotChatModel.swift:480",
+   "source": "BotChatModel.swift:492",
    "expect": "checkmark.circle"
   },
   {
    "id": "glyph.approvalAllowed",
    "value": "checkmark.circle.fill",
-   "source": "BotChatModel.swift:551",
+   "source": "BotChatModel.swift:570",
    "expect": "checkmark.circle.fill"
   },
   {
    "id": "glyph.skipped",
    "value": "minus.circle",
-   "source": "BotChatModel.swift:485",
+   "source": "BotChatModel.swift:538",
    "expect": "minus.circle"
   }
  ]

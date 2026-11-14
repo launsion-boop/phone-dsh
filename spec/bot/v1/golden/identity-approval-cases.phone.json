@@ -9,6 +9,7 @@
   "delta": [
     "P05/P26: /identity/register uses the App-issued dshg_ token, never the body sessionId; missing/empty/unknown/revoked/expired/foreign tokens are one unauthorized answer, and a body argsDigest mismatch is argument digest mismatch. Success is {ok:true,id}; the id is the registration cancelled by /identity/cancel.",
     "P05/P26: /approval validation order and exact refusals are frozen: unattributed, stale:digest_mismatch, stale:command_mismatch, stale:sandbox_effect, stale:always_scope; the expected scope is until for a known effect and session for all-unknown effects, none is accepted as a one-shot override, and sandbox escalation requires none.",
+    "P05/P26: an always decision stores a standing grant only when every effect can use one (`canUseStandingGrant`: known, and external-send or an explicit grant resource). Destructive operations and every tool.unclassified effect (known false) have alwaysScope none on their card and resolve always to a consumed one-shot: the response carries approvalDecision always with scope once, and the user is asked again next time (PC-20261113-approval-scope-and-haptics; PC-20261114-approval-once-scope in mcp-endpoint.md section 8.4).",
     "P05/P26: approval outcomes carry pending plus optional approvalId/message/expiresAt/approvalDecision/scope; interactive card timeout is 300000 ms and a durable todo expires after 24 h. A /identity/cancel of a registration closes its interactive approvals with approval cancelled."
   ],
   "defaults": {
@@ -146,12 +147,13 @@
         "command": "rm -rf /tmp/c6-approval"
       },
       "decision": "always",
+      "note": "The destructive bash effect cannot use a standing grant, so its card offers alwaysScope none and an always decision resolves to a consumed one-shot.",
       "expect": {
         "ok": true,
         "allowed": true,
         "pending": false,
         "approvalDecision": "always",
-        "scope": "until"
+        "scope": "once"
       }
     },
     {
@@ -172,12 +174,42 @@
         "alwaysScope": "session"
       },
       "decision": "always",
+      "note": "The phone tool is tool.unclassified (known false); session was only the request-level expected scope for all-unknown effects and now resolves to a consumed one-shot.",
       "expect": {
         "ok": true,
         "allowed": true,
         "pending": false,
         "approvalDecision": "always",
-        "scope": "session"
+        "scope": "once"
+      }
+    },
+    {
+      "kind": "approval",
+      "name": "approval-always-file-until",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "appr-approval-always-file-until",
+        "tool": "write",
+        "arguments": {
+          "file_path": "/tmp/c6-approval-out.txt"
+        }
+      },
+      "argsDigest": "557a1ae91594605e5a4e8cbe06132d531e0f59351fb3b01d079774a01f4a80fe",
+      "approval": {
+        "alwaysScope": "until"
+      },
+      "decision": "always",
+      "note": "A file write outside the Bot workspace can use a standing grant (grantResource is the parent directory), so always + until keeps its requested standing scope.",
+      "expect": {
+        "ok": true,
+        "allowed": true,
+        "pending": false,
+        "approvalDecision": "always",
+        "scope": "until"
       }
     },
     {

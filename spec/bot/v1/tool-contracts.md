@@ -235,7 +235,10 @@ spelling for an existing member.
   as `bash`; the tool then always adds one unknown effect
   `{"tool":"RequestApproval","operation":"approval.weak-action","mutability":"destructive","policy":"ask","known":false}`.
   `alwaysScope` is `until` when any effect is known, otherwise `session`. Standing grants are
-  checked first; a matching grant returns immediately without a card.
+  checked first; a matching grant returns immediately without a card. Because the weak-action effect
+  is unclassified, the card offers `alwaysScope:"none"` and a user "always" answer is a consumed
+  one-shot (`scope:"once"`, no standing grant; mcp-endpoint.md §8.4): this tool is asked again on
+  every call (`PC-20261114-approval-once-scope`).
 - **Result.** `{"allowed","decision":"allowed"|"denied","approvalId"|null,"message"|null,"pending","expiresAt"?,"approvalDecision"?,"scope"?}`.
   `approvalDecision` is `allowOnce|always|deny` and `scope` is `once|session|until` when the user
   decided; both are omitted for pending/auto outcomes. The model-facing text is one plain Chinese

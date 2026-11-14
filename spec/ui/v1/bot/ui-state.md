@@ -241,7 +241,7 @@ mapping, the local duplicate rules, and the drawer/info/appearance surfaces that
 | Intent | Required fields | Forbidden locally | Local effect on acceptance |
 | --- | --- | --- | --- |
 | `chat` | `nonce`, `botID`, `text` (may be `""`), optional `attachments` | — | local row's `provenance.eventIDs` becomes `[eventID]`; any row with `chatActionNonce == nonce` replaces the local row |
-| `cardAnswer` | `nonce`, `botID`, `cardID`, `optionID` (non-empty) | `text`, `customText`, `attachments` | remembers `answeredOptionIDs[cardID] = optionID`; settlement uses it before the durable round-trip |
+| `cardAnswer` | `nonce`, `botID`, `cardID`, `optionID` (non-empty) | `text`, `customText`, `attachments` | inserts the `local-<nonce>` choice echo and sets the key `pending` (§4.3.2); remembers `answeredOptionIDs[cardID] = optionID`; the durable `card-answer:<nonce>` user row retires the echo |
 | `cardDismiss` | `nonce`, `botID`, `cardID` | — | adds `cardID` to `dismissedCardIDs`; the settled line is 「已关闭」 |
 | `approval` | `nonce`, `botID`, `approvalID`, `decision: allowOnce|always|deny`, `digest` (non-empty) | — | sets the approval row's `body.status` to `allowed` / `always` / `denied` and bumps `updatedSeq`; a deny issued as part of a send is also remembered in `autoDeclinedApprovalIDs` |
 | `stopTask` | `nonce`, `botID`, `threadID` | — | stop is a transport action; it does not create a message row |
@@ -257,8 +257,9 @@ mapping, the local duplicate rules, and the drawer/info/appearance surfaces that
   (`state == nil || state == .failed`).
 - `accepted`/`duplicate` set `accepted`; any other result sets `failed` and clears the awaiting-turn
   window.
-- A failing `chat` removes its local row; a failing attachment import is reported per file and never
-  blocks the remaining files/text.
+- A failing `chat` removes its local row; a failing `cardAnswer` rolls back its `local-<nonce>`
+  choice echo; a failing attachment import is reported per file and never blocks the remaining
+  files/text.
 - Sending the next `chat` implicitly denies every approval still awaiting a decision (id+digest
   present). The view marks those approvals `pending` synchronously, then performs deny actions in
   order **before** the chat action. This is the existing `approval` deny path; there is no new action
@@ -382,15 +383,16 @@ Per-kind data checks:
 
 ### 4.3 Settlement (one rule for interactive cards)
 
-`settlement(for:)` (`BotChatModel.swift:432-531`) returns `nil` (keep the full card) or
+`settlement(for:)` (`BotChatModel.swift:460-585`) returns `nil` (keep the full card) or
 `BotCardSettlement{glyph, title, detail: String?, tone: neutral|success, monospacedDetail: bool}`.
 `glyph` is a semantic id (`xmark.circle`, `checkmark.circle`, `checkmark.circle.fill`,
-`minus.circle`); the platform maps it to its icon. The only exception is **question/steps/checklist**
-rows handled as their kind; `task/document/progress/link/attachment/automation/notice` never settle.
+`minus.circle`); the platform maps it to its icon. `task/document/progress/link/attachment/
+automation/notice` never settle.
 
 Common gates:
 - Unparseable card → `nil`.
-- Question/steps: action state for `"card:<id>"` is `pending|failed` → `nil`.
+- Question/steps: the durable status settles first (see the table); only then does the local
+  action state matter, and `pending|failed` → `nil`.
 - Checklist: `interactive == false` → `nil`; progress `sending == true` → `nil`.
 - Approval: action state for `"approval:<id>"` is `pending|failed` → `nil`.
 
@@ -398,9 +400,11 @@ Priority and copy (first match wins):
 
 | Kind | Condition | `glyph` | `title` | `detail` | Other |
 | --- | --- | --- | --- | --- | --- |
+| question/steps | `status == "superseded"` | `minus.circle` | `已过期，用最新那张` | `promptDetail` | durable truth; settles even when `"card:<id>"` is `pending`/`failed` |
 | question/steps | `dismissedCardIDs` contains id **or** `status == "dismissed"` | `xmark.circle` | `已关闭` | `promptDetail` | |
-| question/steps | action accepted **or** `status == "answered"` | `checkmark.circle` | `已选择：<label>` when the option label resolves, else `已送出` | `promptDetail` | |
-| question/steps | id ∈ `mutedCardIDs` | `minus.circle` | `已略过` | `promptDetail` | |
+| question/steps | `status == "answered"` | `checkmark.circle` | `已选择：<label>` when the option label resolves, else `已送出` | `promptDetail` | durable answer outranks the local action state |
+| question/steps | action state `pending` or `failed` | — | `nil` (keep the full card) | — | `.pending` shows 「正在送出…」; `failed` stays retryable |
+| question/steps | action accepted | `checkmark.circle` | `已选择：<label>` when the option label resolves, else `已送出` | `promptDetail` | |
 | checklist | progress `sent == true` | `checkmark.circle` | `已发送勾选结果` | `<title> · 已完成 <done>/<total>` | |
 | checklist | id ∈ `mutedCardIDs` | `minus.circle` | `已略过` | same | |
 | approval | (`status == pending` **or any status**) and id ∈ `autoDeclinedApprovalIDs` | `xmark.circle` | `已略过，视为拒绝` | `command` else `action` | monospaced iff command non-empty |
@@ -419,17 +423,79 @@ default `until`. `command` = `body.command|target` or `ask.target`, default `""`
 applies to a pending approval and to any later durable status; it is a local truth that survives the
 round-trip.
 
+#### 4.3.1 Superseded choice cards
+
+A `question`/`steps` card is superseded by the P27 rule (projection.md §6.4): once a newer
+question/steps card is presented in the same Bot stream, every older still-open choice card is
+permanently stale, and the projection writes `status:"superseded"` + `supersededBy:"<newer id>"`.
+The view does not recompute that rule. A superseded card always settles to the `minus.circle`
+line above — even while its own tap key is `pending` or `failed` — because the planner would refuse
+the tap with `card_expired`; keeping its buttons would only produce a second refusal. If the full
+card is ever drawn for a superseded row, its options are disabled and it shows the same
+`已过期，用最新那张` line (`BotCardView.swift:85,102,180-181`). A tap on a locally
+`superseded` card is refused before any action is sent: the view marks the key
+`.failed("card_expired")` and renders the refusal copy below.
+
+#### 4.3.2 Pending tap and the optimistic choice echo
+
+A tap is local, immediate and reversible (`BotChatModel.answer(row:optionID:)`,
+`BotChatModel.swift:727-770`). It:
+
+1. refuses locally when `body.status == "superseded"` (step above);
+2. parses the choice and generates a nonce;
+3. appends the optimistic user row `local-<nonce>` — `id = local-<nonce>`,
+   `provenance = ["local:<nonce>"]`, `kind = sendMessage`, `role = user`, trust `owner_direct`,
+   body `{type:"text", text:<option value, falling back to label>}`, `seq = max(seq)+1`;
+4. records `answeredOptionIDs[cardID] = optionID` and sets `"card:<id>"` to `pending`;
+5. performs `cardAnswer` with the same nonce.
+
+While `pending`, the card stays full (settlement `nil`), the tapped option keeps its checkmark and
+the status line under the options is a spinner plus `正在送出…` (`BotChoiceCardUI.pendingStatus`,
+`BotCardView.swift`). The host sends the option value as an ordinary chat message with
+`rpcId = card-answer:<nonce>`; P27 projects that nonce onto the durable user row's in-memory
+`chatActionNonce` (projection.md §4.4 step 15), so the same nonce-keyed `upsert` rule that retires a
+typed composer echo retires this one — the choice never appears twice. On failure the echo is
+rolled back (`BotChoiceCardUI.echoDisposition`; a failed action still leaves the card full and
+retryable). In a fixture/preview model (`driver == nil`) an accepted tap drops the echo directly,
+because no durable row will arrive.
+
+#### 4.3.3 Refusals stay on the card
+
+The planner's refusal codes are normal stale-card outcomes, not app failures: the card names them
+and they never arm `runtimeNotice` (§3.6). The copy is `BotChoiceCardUI.refusalCopy`
+(`Sources/PhoneDSHBot/UI/BotChoiceCardUI.swift`) and is mirrored in `strings.json`:
+
+| `reason` | card copy |
+| --- | --- |
+| `card_expired` | `这张卡片已经过期，用最新那张` |
+| `already_answered` | `已经选过了` |
+| `answer_in_flight` | `正在送出，稍等` |
+| `card_dismissed` | `这张卡片已经关闭` |
+| `unknown_card` | `这张卡片已失效` |
+| `unknown_option` | `这张卡片已失效` |
+
+Any other failure keeps the full card and shows `未能送出：<reason>`; the raw reason code never
+reaches the screen. The header problem line still receives real transport/runtime failures
+(§3.6).
+
 `settledRowIDs` = ids of `displayRows` whose settlement is non-nil; the transcript scrolls to the
 bottom once after a collapse animation when this set changes (`BotChatModel.swift:274-280`).
 
 ### 4.4 Muted cards
 
-`mutedCardIDs` (`BotChatModel.swift:412-430`): find the **last** `visibleRows` index with
-`role == "user"` and `body.type == "text"`. No such row → empty set. For each earlier row, if it parses
-to `question`, `steps` or `checklist`, its `"card:<id>"` action state is absent (never attempted), and
-(for checklist) progress is neither `sending` nor `sent` and `interactive != false`, the id is muted.
-Muting is not dismissal: the card keeps its data and settles to `已略过`. Approvals are not muted;
-they are auto-denied on send (§3.1).
+`mutedCardIDs` (`BotChatModel.swift:442-455`) is **checklist-only**: find the **last**
+`visibleRows` index with `role == "user"` and `body.type == "text"`. No such row → empty set. For
+each earlier row, if it parses to `checklist`, its `"card:<id>"` action state is absent (never
+attempted), progress is neither `sending` nor `sent`, and `interactive != false`, the id is muted.
+
+Question and steps cards are deliberately **not** muted: their staleness is the durable P27
+`status:"superseded"` (§4.3, projection.md §6.4), computed from the same event stream the planner
+refuses with `card_expired`. A second local "before the last user text" rule could only disagree
+with it — that disagreement was the defect fixed by `PC-20261114-card-superseded-and-pending` (a
+card that looked active was expired, and a card that looked stale was still answerable). A
+checklist has no durable expiry — sending its result is an ordinary chat message — so the
+send-time guidance stays app-owned. Muting is not dismissal: a muted checklist keeps its data and
+settles to `已略过`. Approvals are not muted; they are auto-denied on send (§3.1).
 
 ### 4.5 Counts
 
@@ -643,11 +709,12 @@ routine shows unavailable and does not jump to another page. `phonedsh://bot/mai
 ## 5. Localized strings and phrase data
 
 `strings.json` and `activity-phrases.json` are the normative data for the strings named by this
-contract. Every entry carries `source` = `File.swift:line` (relative to
-`examples/probe-app/PhoneDSHProbe/Bot/`) and `expect`, a literal snippet that must still occur on that
-line; `check_bot_ui.py` resolves every anchor. The source is evidence, not authority: **this file and
-the JSON values are the contract**; changing a value is a contract change, and the Swift literal must
-change with it.
+contract. Every entry carries `source` = `File.swift:line` and `expect`, a literal snippet that must
+still occur on that line; `check_bot_ui.py` resolves every anchor. A probe-app path is relative to
+`examples/probe-app/PhoneDSHProbe/Bot/`; an entry whose `source` contains `/` (for example
+`Sources/PhoneDSHBot/UI/BotChoiceCardUI.swift:56`, where the shared choice-card copy lives) is
+repo-relative. The source is evidence, not authority: **this file and the JSON values are the
+contract**; changing a value is a contract change, and the Swift literal must change with it.
 
 `activity-phrases.json` freezes the complete tool → category/phrase table (70 entries), the 12
 categories, primary and rotation phrases, work-style mapping, text-cleaning policy (trim; strip
@@ -676,7 +743,10 @@ is a convenience for round 2, not conformance evidence.
   mutedCardIDs, settledRowIDs, settlements, pendingApprovalCount, needsAttentionCount,
   followingCount, fishState, header, lineActivity, activityLine, drawerStatus, unreadBadge}`. Cases
   are labeled `source` with the Swift lines that define the expectation; the projection cases also
-  carry `covers` labels, and the checker requires every §4.7 priority branch. `input.pendingApprovalCount`
+  carry `covers` labels, and the checker requires every §4.7 priority branch. Settlement cases cover
+  the durable `superseded` status winning over a pending tap, the `.pending` card staying full, the
+  durable `answered` status winning over a local tap, `question`/`steps` **not** being muted by the
+  before-the-last-user-text heuristic, and `checklist` keeping that mute. `input.pendingApprovalCount`
   must equal the count derived from rows/actionStates. `now` is pinned.
 - `golden/ui-state-vectors.json#intentCases` — `{action, cardKind, state, accepted}`; recomputes the
   §3.1 retry policy. It covers an absent key, a failed dismiss retry, pending/accepted rejection and
