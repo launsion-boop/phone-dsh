@@ -10,7 +10,7 @@ No field is added to BotActivity, DSH events, persisted rows, or the Worker stre
 
 `BotActivityEvidence.action` permits only bash.description and Task.task_title/description as
 an action description. Use the first nonblank allowed field's first line, existing 20-character
-cap and punctuation normalization. Reject credential-shaped assignments/Bearer text. Task
+cap and punctuation normalization. Reject credential-shaped assignments/Bearer text, generic thinking fillers and obvious completion assertions: an intent label is not a completion receipt. Task
 prompt and CreateTeammate.description retain their business meanings. Other description,
 summary and label fields are ignored; use the existing tool vocabulary and safe target rules.
 Unknown calls wait for a tool result without exposing their internal name. Missing bash
@@ -27,7 +27,7 @@ legacy compatibility, never overriding an explicit mismatched ID.
 Track all unresolved calls, including hidden FishAction, to correlate results. Display the
 newest unresolved visible call. Duplicated known call IDs do not reopen settled work. Results
 with an ID close only that ID; without an ID they close only a single unambiguous outstanding
-call (visible or hidden). Unknown IDs and ambiguous missing IDs close nothing. Step start and
+call (visible or hidden). Unknown IDs, invalid/conflicting ID fields and ambiguous missing IDs close nothing. Step start and
 user steering do not cancel work. Turn end removes the activity; local stop retains existing
 suppression and cancellation behavior. Reconstruction uses the current turn history.
 
