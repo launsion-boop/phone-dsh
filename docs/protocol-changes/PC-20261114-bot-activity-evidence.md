@@ -8,8 +8,8 @@ contracts: [P09]
 status: frozen
 breaking: false
 version_decision: No wire or durable value shape change; existing BotActivity fields only.
-base: 7a11fd5b7bfb136a67a9ed70ba2d4f67ffa35973
-contract_revision: spec/ui/v1/bot/ui-state.md@daf322120c5b108b9a0590d8857c021477f9af82
+base: eb42afc1c3ce53d6cc94c434e016b1dd85267bd6
+contract_revision: 654ac8308339dd8a5f33c3e68e05d7f29f5a3bdd
 ```
 
 ## 1. Roles and trigger
@@ -23,8 +23,8 @@ contract_revision: spec/ui/v1/bot/ui-state.md@daf322120c5b108b9a0590d8857c021477
 
 ## 2. Delta
 
-- Remove timer-driven semantic phrase rotation. Stable waiting states read “等待响应” or “等待操作结果”; actual tool/stream/approval/terminal events drive changes. Text deltas use “正在回复”. Approval remains higher priority. Turn end/cancel clears activity.
-- Tool detail comes only from `bash.description` and Task short title/description (not prompt), otherwise from the allowlisted tool mapping. A short, natural query/task topic may be used; file names, paths, extensions, URLs, commands, internal IDs and credential-shaped text are rejected rather than truncated. Ignore generic `summary` and `label`.
+- Remove timer-driven semantic phrase rotation. Stable waiting states read “等待模型响应” or “等待工具返回”; actual tool/stream/approval/terminal events drive changes. Text deltas use “正在回复”. Approval remains higher priority. Turn end/cancel clears activity.
+- Tool detail comes only from `bash.description` and Task short title/description (not prompt), otherwise from the allowlisted tool mapping and safe target metadata (filename/domain/query/task title). Ignore generic `summary` and `label`; redact commands, tokens, internal IDs, and URL query.
 - Track unresolved calls by call ID and event order. Latest visible pending call wins; completion restores the newest still-pending visible call. New steps do not complete calls. FishAction is not displayed and does not hide another call. A result without ID closes a call only if exactly one is unresolved. Unknown IDs are ignored.
 - Parse call arguments whether JSON object or encoded JSON string, matching the observed DSH 0.2.2-rc.1 form.
 - No P09 schema, BotActivity serialized shape, P01 wire, or P27 row changes. Existing persisted presentations remain readable.
@@ -62,20 +62,19 @@ The final authority is `spec/ui/v1/bot/ios/activity-evidence.md` and its 53 regr
 The iOS factory and `BotActivityEvidence` policy consume existing events and existing vocabulary;
 all product activities get a stable concrete detail before the legacy timing layer. Shared
 legacy APIs remain available for Android and compatibility tests. Persona guidance is corrected
-without repurposing business fields. Integration base is main 360147635 after the rebase (includes PRs #171–#176).
+without repurposing business fields. Integration base is main 203c29bcb (including PR #171).
 
 Protocol impact: P09; P26; P16: none — generated persona prose only, no bootstrap/profile keys change; P27: none — no store, row, authorization, or action shape changes.
 
 ## Final observed evidence
 
 Root completed the iOS-only implementation after reviewing the Grok archive and DSH event
-contracts. 36 Swift logic tests passed on the rebased head, including all 53 event vectors;
-the real UI capture harness built earlier and produced 8 light/dark activity screenshots from
-simulated events (local artifacts, not committed). The persona prompt check passed
-(`node plugins/bot-runtime/scripts/check-prompt.mjs`), as did protocol-impact, cross-tree
-invariants (8/8), `phone-spec` and the shared Bot UI checker (491 checks) after the rebase,
-which refreshed the BotChatModel anchors without changing string values. Actual device/model/
-Worker deployment remains NOT_RUN. Android code is unchanged.
+contracts. 35 Swift logic tests passed, including all 53 event vectors; the real UI capture
+harness built and produced 8 light/dark activity screenshots from simulated events. Persona
+regressions passed (8 tests), as did protocol-impact, cross-tree invariants (8/8) and diff checks.
+The shared Bot UI checker remains FAIL on the unchanged baseline BotChatPage source anchor
+for `chat.drawer.open`; the changed BotChatModel anchors were refreshed without changing
+string values. Actual device/model/Worker deployment remains NOT_RUN. Android code is unchanged.
 
 Reproduction: `xcodegen generate --spec scripts/ci/bot-activity-evidence/project.yml`, then
 `xcodebuild -project scripts/ci/bot-activity-evidence/BotActivityEvidence.xcodeproj -scheme
