@@ -2,6 +2,7 @@
 
 import SwiftUI
 import UIKit
+import PhoneDSHBot
 
 struct BotCardActions {
     var openURL: (URL) -> Void = { UIApplication.shared.open($0) }
@@ -76,11 +77,29 @@ private struct BotChoiceCardView: View {
         return isSteps && value == "建议下一步" ? nil : value
     }
     private var help: String? { card.body.string("helpText", "help") }
-    private var muted: Bool { model.mutedCardIDs.contains(row.id) }
+    /// The durable verdict of the projection: a newer question/steps card
+    /// replaced this one, so the planner refuses it (`card_expired`). The card
+    /// normally settles into its grey one-line summary through
+    /// `BotChatModel.settlement`; this flag keeps the options disabled if it is
+    /// ever drawn in full, so a stale card can never look tappable.
+    private var superseded: Bool { card.body["status"]?.string == "superseded" }
     private var answered: Bool { card.body["status"]?.string == "answered" }
     private var accepted: Bool { model.actionStates[key] == .accepted }
+    /// The card's one local tap state, including a dismissal: the close button
+    /// uses its own `dismiss:<id>` key, and a refused dismissal must read the
+    /// same human copy on the card instead of surfacing under the avatar.
+    private var tapPhase: BotChoiceTapPhase {
+        if model.actionStates["dismiss:\(row.id)"] == .pending { return .pending }
+        if case .failed(let reason) = model.actionStates["dismiss:\(row.id)"] { return .failed(reason) }
+        switch model.actionStates[key] {
+        case .pending: return .pending
+        case .accepted: return .accepted
+        case .failed(let reason): return .failed(reason)
+        case nil: return answered ? .accepted : .idle
+        }
+    }
     private var locked: Bool {
-        answered || muted || model.actionStates[key] == .pending || accepted
+        answered || superseded || isPending || accepted
     }
     private var canDismiss: Bool { !isSteps && card.body["dismissible"]?.bool != false }
 
@@ -130,7 +149,9 @@ private struct BotChoiceCardView: View {
                        labelInk: choice.danger ? NativeParityTokens.error : HomeSpec.textPrimary) {
                 EmptyView()
             } trailing: {
-                if accepted && selectedID == choice.id {
+                if selectedID == choice.id, accepted || isPending {
+                    // The tap is already recorded locally: mark it before the
+                    // durable answer round-trips.
                     Image(systemName: "checkmark")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(HomeSpec.textPrimary)
@@ -145,24 +166,39 @@ private struct BotChoiceCardView: View {
         }
         .buttonStyle(BotCardRowButtonStyle())
         .disabled(locked)
-        .opacity(muted && selectedID != choice.id ? 0.45 : 1)
+        .opacity(superseded ? 0.45 : 1)
         .accessibilityLabel(choice.recommended ? "\(choice.label)，建议" : choice.label)
         .accessibilityIdentifier("bot.choice.option.\(choice.id)")
     }
 
+    private var isPending: Bool { tapPhase == .pending }
+
+    /// One line under the options: the spinner while the choice is in flight,
+    /// the human copy for a refusal or a failure, and the durable settlement
+    /// copy. The raw reason code never reaches the screen.
     @ViewBuilder private var statusLine: some View {
-        if accepted || answered {
+        if superseded {
+            Text(BotChoiceCardUI.supersededTitle)
+                .botCardMeta()
+                .padding(.top, 8)
+        } else if isPending {
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.mini)
+                Text(BotChoiceCardUI.pendingStatus)
+                    .botCardMeta()
+            }
+            .padding(.top, 8)
+            .accessibilityIdentifier("bot.choice.pending")
+        } else if case .failed(let reason) = tapPhase {
+            Text(BotChoiceCardUI.failureText(reason))
+                .botCardMeta()
+                .foregroundStyle(BotChoiceCardUI.refusalText(reason) == nil
+                                 ? NativeParityTokens.error : HomeSpec.textSecondary)
+                .padding(.top, 8)
+        } else if accepted || answered {
             Label("已送出", systemImage: "checkmark")
                 .botCardMeta()
-                .padding(.top, 8)
-        } else if muted {
-            Text("已略过")
-                .botCardMeta()
-                .padding(.top, 8)
-        } else if case .failed(let reason) = model.actionStates[key] {
-            Text("未能送出：\(reason)")
-                .botCardMeta()
-                .foregroundStyle(NativeParityTokens.error)
                 .padding(.top, 8)
         }
     }

@@ -429,8 +429,16 @@ final class BotChatModel: ObservableObject {
     }
 
     /// Interactive cards that were already on screen before the latest user
-    /// text and were never handled. Question, steps and the sendable checklist
-    /// all follow this one rule; approvals are auto-denied on send instead.
+    /// text and were never handled.
+    ///
+    /// Question and steps cards are deliberately absent: their staleness is the
+    /// durable projection's `status` (`superseded`), computed from the same
+    /// event stream the planner refuses with `card_expired`. A second local
+    /// rule could only disagree with it, which is exactly the bug this view had
+    /// (a card that looked active was expired, and a card that looked stale was
+    /// still answerable). A checklist has no durable expiry — its send is an
+    /// ordinary chat message — so the send-time guidance stays app-owned.
+    /// Approvals are auto-denied on send instead.
     var mutedCardIDs: Set<String> {
         guard let lastUserIndex = visibleRows.lastIndex(where: { $0.role == "user" && $0.body.type == "text" }) else {
             return []
@@ -438,12 +446,10 @@ final class BotChatModel: ObservableObject {
         let ordered = visibleRows
         return Set(ordered[..<lastUserIndex].compactMap { row in
             guard let card = BotUICardContent.parse(row: row),
-                  [.question, .steps, .checklist].contains(card.kind),
+                  card.kind == .checklist,
                   actionStates["card:\(row.id)"] == nil else { return nil }
-            if card.kind == .checklist {
-                if let state = checklistProgress[row.id], state.sending || state.sent { return nil }
-                if card.body["interactive"]?.bool == false { return nil }
-            }
+            if let state = checklistProgress[row.id], state.sending || state.sent { return nil }
+            if card.body["interactive"]?.bool == false { return nil }
             return row.id
         })
     }
@@ -467,22 +473,35 @@ final class BotChatModel: ObservableObject {
 
     private func choiceSettlement(row: BotUIRow, card: BotUICardContent) -> BotCardSettlement? {
         let key = "card:\(row.id)"
-        if actionBlocksSettlement(key) { return nil }
-
         let status = card.body["status"]?.string
         let detail = choiceDetail(card)
+        // The durable card status is the one truth for "can this still be
+        // answered". It settles even while a local tap is pending or failed: the
+        // planner refuses a card that a newer question/steps card replaced, so
+        // keeping its buttons would only produce a second refusal.
+        if status == "superseded" {
+            return BotCardSettlement(glyph: "minus.circle", title: BotChoiceCardUI.supersededTitle,
+                                     detail: detail)
+        }
         if dismissedCardIDs.contains(row.id) || status == "dismissed" {
             return BotCardSettlement(glyph: "xmark.circle", title: "已关闭", detail: detail)
         }
-        if actionStates[key] == .accepted || status == "answered" {
+        if status == "answered" {
             let label = chosenChoiceLabel(row: row, card: card)
             return BotCardSettlement(
                 glyph: "checkmark.circle",
                 title: label.map { "已选择：\($0)" } ?? "已送出",
                 detail: detail)
         }
-        if mutedCardIDs.contains(row.id) {
-            return BotCardSettlement(glyph: "minus.circle", title: "已略过", detail: detail)
+        // In flight (`.pending`) keeps the full card with its spinner, and a
+        // failed attempt keeps it retryable.
+        if actionBlocksSettlement(key) { return nil }
+        if actionStates[key] == .accepted {
+            let label = chosenChoiceLabel(row: row, card: card)
+            return BotCardSettlement(
+                glyph: "checkmark.circle",
+                title: label.map { "已选择：\($0)" } ?? "已送出",
+                detail: detail)
         }
         return nil
     }
@@ -701,16 +720,53 @@ final class BotChatModel: ObservableObject {
         }
     }
 
+    /// Taps one option. The tap is local, immediate and reversible: the choice
+    /// appears in the transcript at once (a `local-<nonce>` echo, the same
+    /// convention the composer uses), the card shows `正在送出…`, and a refused
+    /// or failed action rolls the echo back with human copy on the card.
     func answer(row: BotUIRow, optionID: String) {
         let key = "card:\(row.id)"
         guard BotUIActionRetry.accepts(intent: .answer, cardKind: .question,
                                        state: Self.retryState(actionStates[key])),
-              !mutedCardIDs.contains(row.id), !optionID.isEmpty else { return }
+              !optionID.isEmpty else { return }
+        // The projection already knows the card was replaced by a newer one
+        // (`status == superseded`). The planner would refuse the tap, so say so
+        // on the card instead of starting an action that must fail.
+        if cardStatus(row) == "superseded" {
+            actionStates[key] = .failed("card_expired")
+            return
+        }
+        let choice = BotUICardContent.parse(row: row).flatMap { card -> BotUIChoice? in
+            let listKey = card.kind == .steps ? "steps" : "options"
+            return BotUIChoice.parseList(card.body[listKey]).first { $0.id == optionID }
+        }
+        let nonce = UUID().uuidString
+        let echo = BotChoiceCardUI.echo(nonce: nonce, value: choice?.value ?? "",
+                                        label: choice?.label ?? "")
+        if let echo { appendChoiceEcho(echo, botID: row.botID) }
         answeredOptionIDs[row.id] = optionID
         actionStates[key] = .pending
-        let action = BotUIUserAction.cardAnswer(nonce: UUID().uuidString, botID: row.botID,
+        let action = BotUIUserAction.cardAnswer(nonce: nonce, botID: row.botID,
                                                 cardID: row.id, optionID: optionID)
-        Task { await perform(action, key: key, localRowID: nil) }
+        Task { await perform(action, key: key, localRowID: echo?.rowID) }
+    }
+
+    private func cardStatus(_ row: BotUIRow) -> String? {
+        row.body["status"]?.string
+    }
+
+    /// The composer's `local-<nonce>` user row, for a tapped option. The durable
+    /// user row of the same choice carries `chatActionNonce == <nonce>` (the
+    /// projection reads it from the frozen `card-answer:<nonce>` request id), so
+    /// `upsert` retires the echo with the same rule it uses for a typed message.
+    private func appendChoiceEcho(_ echo: BotChoiceEcho, botID: String) {
+        var local = BotUIRow.fixture(id: echo.rowID, botID: botID,
+                                     seq: (rows.map(\.seq).max() ?? 0) + 1,
+                                     kind: "sendMessage", role: "user",
+                                     body: BotUIBody(type: "text", values: ["text": .string(echo.text)]),
+                                     eventID: echo.eventID)
+        local.provenance.trust = "owner_direct"
+        rows.append(local)
     }
 
     func dismiss(row: BotUIRow) {
@@ -1228,6 +1284,12 @@ final class BotChatModel: ObservableObject {
             if let localRowID, let index = rows.firstIndex(where: { $0.id == localRowID }) {
                 rows[index].provenance.eventIDs = [eventID]
             }
+            if driver == nil, let localRowID, case .cardAnswer = action {
+                // A fixture/preview model has no durable projection to retire the
+                // optimistic choice echo; the accepted action is its own record,
+                // so drop the echo instead of duplicating it.
+                rows.removeAll { $0.id == localRowID }
+            }
             if case .cardDismiss = action { dismissedCardIDs.insert(action.cardID) }
             if case .approval(_, _, _, let decision, _) = action, let rowID = approvalRowID(action: action) {
                 updateApproval(rowID: rowID, decision: decision)
@@ -1235,9 +1297,15 @@ final class BotChatModel: ObservableObject {
         } else {
             let reason = result.reason ?? "动作未完成"
             actionStates[key] = .failed(reason)
-            if let localRowID { rows.removeAll { $0.id == localRowID } }
+            // The optimistic row only stands for a choice that reached the
+            // model; a failure rolls it back.
+            if let localRowID, BotChoiceCardUI.echoDisposition(for: .failed(reason)) == .remove {
+                rows.removeAll { $0.id == localRowID }
+            }
             clearAwaitingTurn()
-            runtimeNotice = reason
+            // A refused card action is a normal stale-card outcome: the card
+            // itself names it, so it must not become an error near the avatar.
+            if BotChoiceCardUI.refusalText(reason) == nil { runtimeNotice = reason }
         }
     }
 
