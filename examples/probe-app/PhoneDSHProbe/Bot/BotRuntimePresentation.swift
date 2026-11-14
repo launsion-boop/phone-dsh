@@ -218,21 +218,18 @@ enum BotRuntimePresentationFactory {
         if let call = pending.last(where: { BotDisplayContract.isToolCallVisible(named: $0.name) }) {
             let phrase = BotActivityEvidence.action(forToolNamed: call.name, arguments: call.arguments)
             return BotActivity(status: .toolRunning,
-                               detail: phrase.text.isEmpty ? "等待工具返回" : phrase.text,
+                               detail: phrase.text.isEmpty ? "等待操作结果" : phrase.text,
                                category: phrase.category, startedAt: call.time)
         }
         if let phase, phase.streaming, phase.index > (lastReturn?.index ?? -1) {
             return BotActivity(status: .streaming, detail: "正在回复", category: .replying, startedAt: phase.time)
         }
         if let result = lastReturn {
-            let action = BotActivityEvidence.action(forToolNamed: result.call.name,
-                                                         arguments: result.call.arguments).text
-            let prefix = result.failed ? "操作失败" : "处理返回结果"
             return BotActivity(status: .thinking,
-                               detail: action.isEmpty || ["等待工具返回", "等待命令返回"].contains(action) ? prefix : "\(prefix) · \(action)",
+                               detail: BotActivityEvidence.resultText(forToolNamed: result.call.name, failed: result.failed),
                                category: .reviewing, startedAt: (phase?.index ?? -1) > result.index ? phase!.time : result.time)
         }
-        return BotActivity(status: .thinking, detail: "等待模型响应", category: .thinking,
+        return BotActivity(status: .thinking, detail: "等待响应", category: .thinking,
                            startedAt: phase?.time ?? startTime)
     }
 
@@ -394,40 +391,85 @@ struct BotLiveFishProjection {
 /// for other clients; only semantic action fields can override it here.
 /// No raw reasoning, command, task prompt or business-summary text is displayed.
 enum BotActivityEvidence {
+    /// Only a purpose, never a file identifier or command, enters this label.
+    /// Metadata is deliberately not passed to the legacy target-suffix builder.
     static func action(forToolNamed name: String,
                        arguments: [String: PhoneDSHBot.BotJSONValue]) -> BotToolActivityPhrase {
         let bare = BotActivityPhrases.bareToolName(name).lowercased()
-        var safe = arguments
-        for key in ["description", "summary", "label"] { safe.removeValue(forKey: key) }
+        var result = BotActivityPhrases.toolActivity(forToolNamed: name, arguments: [:])
+        let fallbacks: [String: String] = [
+            "bash": "执行当前操作", "read": "读取相关资料", "write": "保存处理结果",
+            "edit": "更新相关内容", "glob": "查找相关资料", "grep": "查找相关内容",
+            "web_search": "查找相关信息", "web_fetch": "查看网页内容",
+            "job_list": "查看任务进展", "job_output": "等待任务结果", "job_kill": "停止当前任务",
+            "todo_write": "整理待办事项", "create_goal": "确定处理目标",
+            "get_goal": "查看处理目标", "update_goal": "更新处理目标",
+            "updatememory": "更新记忆内容", "readmemory": "查阅相关记忆", "recallmemory": "查找相关记忆",
+            "task": "安排协作任务", "awaittask": "等待协作结果", "stopsubagent": "停止协作任务",
+            "sendtoagent": "联系协作助手", "createteammate": "创建协作助手",
+            "sendtouser": "发送回复", "send_to_user": "发送回复", "botvolatilecontext": "读取当前信息",
+            "show_attachment": "展示处理结果", "show_document": "展示整理结果",
+            "show_progress": "更新任务进度", "show_checklist": "整理检查清单", "show_link": "整理参考来源",
+        ]
+        result.text = fallbacks[bare] ?? (result.text.isEmpty ? "等待操作结果" : result.text)
+        if bare == "updateroutine" {
+            let actions = ["create": "创建例行安排", "update": "更新例行安排", "delete": "删除例行安排",
+                           "list": "查看例行安排", "get": "查看例行安排", "pause": "暂停例行安排", "resume": "恢复例行安排"]
+            result.text = actions[arguments["action"]?.runtimeString ?? ""] ?? "处理例行安排"
+        }
+        if bare == "web_search" {
+            var topic = arguments["query"]?.runtimeString
+            if topic == nil, case .array(let queries)? = arguments["queries"] {
+                topic = queries.compactMap { $0.runtimeString }.first
+            }
+            if let topic, let spoken = spokenIntent(topic), spoken.count <= 10 {
+                result.text = "查询" + spoken
+            }
+        }
         let keys: [String]
         switch bare {
         case "bash": keys = ["description"]
         case "task": keys = ["task_title", "description"]
         default: keys = []
         }
-        for key in keys { safe.removeValue(forKey: key) }
         for key in keys {
             guard let raw = arguments[key]?.runtimeString,
-                  let line = raw.components(separatedBy: .newlines).first,
-                  !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-            // A description is an action label, not a place to repeat credentials.
-            let pattern = #"(?i)(bearer\s+\S+|(?:api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*\S+)"#
-            guard line.range(of: pattern, options: .regularExpression) == nil else { continue }
-            if let text = BotActivityPhrases.cleanedModelText(line) {
-                let generic = ["思考中", "整理思绪", "准备下一步", "马上就好", "正在处理", "处理中"]
-                let completion = #"(?i)^(?:已(?:完成|成功|验证|发送|删除)|completed\b|verified\b|all tests passed\b|done\b)"#
-                guard !generic.contains(text), text.range(of: completion, options: .regularExpression) == nil else {
-                    safe.removeValue(forKey: key)
-                    continue
-                }
-                safe["description"] = .string(text)
-                break
-            }
+                  let text = spokenIntent(raw) else { continue }
+            result.text = text
+            break
         }
-        var result = BotActivityPhrases.toolActivity(forToolNamed: name, arguments: safe)
-        if bare == "bash", safe["description"] == nil { result.text = "等待命令返回" }
-        if result.text.isEmpty { result.text = "等待工具返回" }
         return result
+    }
+
+    /// Reject unsuitable prose instead of cutting a sentence into an ellipsis.
+    /// This is a display policy; original tool arguments are never rewritten.
+    static func spokenIntent(_ raw: String) -> String? {
+        let first = raw.components(separatedBy: .newlines).first ?? ""
+        let punctuation = CharacterSet(charactersIn: "。！？!?；;，,、.…")
+        let text = first.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: punctuation).trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasCJK = text.unicodeScalars.contains { (0x3400...0x9FFF).contains($0.value) }
+        let limit = hasCJK ? 16 : 48
+        guard !text.isEmpty, text.count <= limit,
+              text.split(whereSeparator: \.isWhitespace).count <= 7,
+              !text.unicodeScalars.contains(where: CharacterSet.symbols.contains) else { return nil }
+        let forbidden = #"(?i)(https?:|www\.|[/\\`<>|{}\[\]=:：*?&#%“”‘’《》]|[\p{L}\p{N}_-]+\.[a-z0-9]{1,8}(?=$|[^a-z0-9])|mcp__|[a-z0-9]+_[a-z0-9_]+|bearer\s+\S+|(?:api[_-]?key|access[_-]?token|password|secret)\s*[:=])"#
+        guard text.range(of: forbidden, options: .regularExpression) == nil else { return nil }
+        let generic = ["思考中", "整理思绪", "准备下一步", "马上就好", "正在处理", "处理中"]
+        let completion = #"(?i)^(?:已(?:完成|成功|验证|发送|删除)|completed\b|verified\b|all tests passed\b|done\b)"#
+        guard !generic.contains(text), text.range(of: completion, options: .regularExpression) == nil else { return nil }
+        return text
+    }
+
+    static func resultText(forToolNamed name: String, failed: Bool) -> String {
+        if failed { return "这步遇到问题" }
+        switch BotActivityPhrases.bareToolName(name).lowercased() {
+        case "read", "readmemory", "get_goal": return "已收到读取结果"
+        case "glob", "grep", "web_search", "web_fetch", "recallmemory": return "已收到查询结果"
+        case "write", "edit", "updatememory", "updateroutine": return "已收到更新结果"
+        case "task", "awaittask", "sendtoagent": return "已收到协作反馈"
+        default: return "已收到操作结果"
+        }
     }
 
     static func lineActivity(factory: BotActivity?, streaming: Bool,
@@ -437,7 +479,7 @@ enum BotActivityEvidence {
         let phase = factory.map(normalized)
         if phase?.status == .toolRunning { return phase }
         if streaming { return BotActivity(status: .streaming, detail: "正在回复", category: .replying) }
-        return phase ?? BotActivity(status: .thinking, detail: "等待模型响应", category: .thinking)
+        return phase ?? BotActivity(status: .thinking, detail: "等待响应", category: .thinking)
     }
 
     /// Every activity entering the iOS line has one stable, evidence-based
@@ -448,12 +490,12 @@ enum BotActivityEvidence {
         switch activity.category {
         case .waiting: result.detail = "等你确认"
         case .replying: result.detail = "正在回复"
-        case .reviewing: result.detail = "处理返回结果"
+        case .reviewing: result.detail = "已收到操作结果"
         default:
             switch activity.status {
-            case .toolRunning: result.detail = "等待工具返回"
+            case .toolRunning: result.detail = "等待操作结果"
             case .streaming: result.detail = "正在回复"
-            case .thinking: result.detail = "等待模型响应"
+            case .thinking: result.detail = "等待响应"
             }
         }
         return result

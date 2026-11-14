@@ -294,14 +294,14 @@ final class BotActivityLineTests: XCTestCase {
         let reviewing = presentation([turn, call, result], now: 1_300)
         XCTAssertEqual(reviewing.activity?.status, .thinking)
         XCTAssertEqual(reviewing.activity?.category, .reviewing)
-        XCTAssertEqual(reviewing.activity?.detail, "处理返回结果 · 在翻文件 · report.md")
+        XCTAssertEqual(reviewing.activity?.detail, "已收到读取结果")
         XCTAssertEqual(reviewing.activity?.startedAt, 1_200)
 
         let step = sessionEvent("step/start", seq: 4, time: 1_400)
         let thinking = presentation([turn, call, result, step], now: 1_500)
         XCTAssertEqual(thinking.activity?.status, .thinking)
         XCTAssertEqual(thinking.activity?.category, .reviewing)
-        XCTAssertEqual(thinking.activity?.detail, "处理返回结果 · 在翻文件 · report.md")
+        XCTAssertEqual(thinking.activity?.detail, "已收到读取结果")
         XCTAssertEqual(thinking.activity?.startedAt, 1_400)
     }
 
@@ -314,12 +314,12 @@ final class BotActivityLineTests: XCTestCase {
         let running = presentation([turn, call], now: 1_200)
         XCTAssertEqual(running.activity?.status, .toolRunning)
         XCTAssertEqual(running.activity?.category, .reading)
-        XCTAssertEqual(running.activity?.detail, "在翻文件 · report.md")
+        XCTAssertEqual(running.activity?.detail, "读取相关资料")
         XCTAssertEqual(running.activity?.startedAt, 1_100)
 
         let stream = sessionEvent("assistant/stream", seq: 3, time: 1_300,
                                   data: ["channel": .string("text")])
-        XCTAssertEqual(presentation([turn, call, stream], now: 1_400).activity?.detail, "在翻文件 · report.md")
+        XCTAssertEqual(presentation([turn, call, stream], now: 1_400).activity?.detail, "读取相关资料")
 
         let preview = presentation([turn], now: 1_500)
         XCTAssertEqual(preview.activity?.status, .thinking)
@@ -334,7 +334,7 @@ final class BotActivityLineTests: XCTestCase {
             "name": .string("mcp__phone__FishAction"),
             "arguments": .string("{\"action\":\"waving\"}"),
         ])
-        XCTAssertEqual(presentation([turn, fish], now: 1_200).activity?.detail, "等待模型响应")
+        XCTAssertEqual(presentation([turn, fish], now: 1_200).activity?.detail, "等待响应")
     }
 
     // iOS-only evidence contract. These exercise the real factory and policy;
@@ -357,6 +357,31 @@ final class BotActivityLineTests: XCTestCase {
             XCTAssertEqual(actual?.category.rawValue, expected.category, vector.id)
             XCTAssertEqual(actual?.startedAt, expected.startedAt, vector.id)
         }
+    }
+
+    func testSpokenActivityLabelsOmitTechnicalTargetsAndAvoidTruncation() {
+        for raw in ["读取 report.md", "检查 /tmp/report", "查看 example.com", "执行 task_123",
+                    "检查 `swift test`", "核对《会议记录》", "正在检查这个非常长的说明并继续处理许多更多细节",
+                    "检查结果✅", "查找 *.swift", "搜索 site:example"] {
+            XCTAssertNil(BotActivityEvidence.spokenIntent(raw), raw)
+        }
+        for raw in ["核对会议结论", "对比日记情绪", "检查页面布局", "Check meeting notes"] {
+            XCTAssertEqual(BotActivityEvidence.spokenIntent(raw), raw)
+        }
+        let call = BotActivityEvidence.action(forToolNamed: "read",
+            arguments: arguments("{\"path\":\"/private/report.md\"}"))
+        XCTAssertEqual(call.text, "读取相关资料")
+        XCTAssertEqual(BotActivityEvidence.resultText(forToolNamed: "read", failed: false), "已收到读取结果")
+        XCTAssertEqual(BotActivityEvidence.resultText(forToolNamed: "read", failed: true), "这步遇到问题")
+        let unsafeIntent = BotActivityEvidence.action(forToolNamed: "bash",
+            arguments: arguments("{\"description\":\"读取 report.md\",\"command\":\"cat report.md\"}"))
+        XCTAssertEqual(unsafeIntent.text, "执行当前操作")
+        XCTAssertEqual(BotActivityEvidence.action(forToolNamed: "web_search",
+            arguments: arguments("{\"query\":\"北京天气\"}")).text, "查询北京天气")
+        XCTAssertEqual(BotActivityEvidence.action(forToolNamed: "web_search",
+            arguments: arguments("{\"query\":\"report.md\"}")).text, "查找相关信息")
+        XCTAssertEqual(BotActivityEvidence.action(forToolNamed: "UpdateRoutine",
+            arguments: arguments("{\"action\":\"list\"}")).text, "查看例行安排")
     }
 
     func testProductionEvidenceLabelsDoNotInventTimedProgress() {
@@ -385,7 +410,7 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(BotActivityEvidence.lineActivity(factory: nil, streaming: true,
             pendingApprovals: 0, visible: true)?.detail, "正在回复")
         XCTAssertEqual(BotActivityEvidence.lineActivity(factory: nil, streaming: false,
-            pendingApprovals: 0, visible: true)?.detail, "等待模型响应")
+            pendingApprovals: 0, visible: true)?.detail, "等待响应")
     }
 
     // MARK: - 800 ms latest-wins

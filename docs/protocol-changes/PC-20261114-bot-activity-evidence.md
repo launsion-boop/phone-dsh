@@ -81,3 +81,13 @@ Reproduction: `xcodegen generate --spec scripts/ci/bot-activity-evidence/project
 BotActivityEvidenceTests -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test`.
 The dedicated logic target uses the real application source, without requiring a Worker
 bundle or the unrelated full BotChatModel UI-host test target.
+
+## Spoken-label refinement
+
+Activity labels now omit technical targets and use short natural phrases, while retaining the
+same event/call correlation. Valid short semantic search topics can be used; file/URL/code-like
+inputs and overlong intent labels use a tool-kind fallback. Returned-result labels contain no
+filename or concatenated technical separator. This only prepares text for later speech; no TTS
+service, automatic announcement, extra model call, or event field is introduced.
+
+Spoken-label validation: iOS logic target PASS (36 tests including 53 lifecycle vectors and new speech-label cases); persona tests PASS (8). Earlier native capture screenshots predate this wording-only refinement; TTS and true-device validation remain NOT_RUN.
