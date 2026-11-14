@@ -1513,6 +1513,14 @@ struct ChatPage: View {
         // `context-…` inside a `context-group-…` identity, so the last row
         // could not be targeted.
         .id(row.scrollTargetID)
+        .onGeometryChange(for: Bool.self, of: { geometry in
+            let frame = geometry.frame(in: .named("chat-transcript"))
+            return frame.minY <= 1 && frame.maxY > 1
+        }) { containsTop in
+            if containsTop, retainedScrollRowID != row.scrollTargetID {
+                retainedScrollRowID = row.scrollTargetID
+            }
+        }
     }
 
     private var transcript: some View {
@@ -1583,7 +1591,6 @@ struct ChatPage: View {
                     // Room for the "回到最新" pill (28pt tall) so it never sits
                     // on top of the last rows.
                     .padding(.bottom, 48)
-                    .scrollTargetLayout()
                     .background {
                         if #available(iOS 18.0, *) {
                             EmptyView()
@@ -1597,9 +1604,15 @@ struct ChatPage: View {
                     }
                 }
                 .coordinateSpace(name: "chat-transcript")
-                .scrollPosition(id: Binding(
-                    get: { retainedScrollRowID },
-                    set: { if let id = $0 { retainedScrollRowID = id } }), anchor: .top)
+                .task { @MainActor in
+                    // Restore a reading anchor once after remount. A bound
+                    // scrollPosition competes with the reader's tail alignment
+                    // during lazy height changes and can expose only blank tail.
+                    guard userScrolledAway, let anchor = retainedScrollRowID else { return }
+                    await Task.yield()
+                    guard !Task.isCancelled else { return }
+                    proxy.scrollTo(anchor, anchor: .top)
+                }
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(ScrollInteractionObserver(
                     isInteracting: $userScrolling,

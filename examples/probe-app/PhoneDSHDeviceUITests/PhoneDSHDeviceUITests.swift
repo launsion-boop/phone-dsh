@@ -17,6 +17,26 @@ final class PhoneDSHDeviceUITests: XCTestCase {
         app.terminate()
     }
 
+    func testLongTranscriptInitialTailStaysAboveTallComposer() throws {
+        app.launchArguments = ["-uiPreview", "chat.long"]
+        app.launch()
+        let answer = app.staticTexts.matching(NSPredicate(
+            format: "label CONTAINS %@", "这段是模型的回答")).firstMatch
+        XCTAssertTrue(answer.waitForExistence(timeout: 30))
+        let composer = app.textViews.firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        // Wait through the initial lazy layout and its tail correction. A
+        // forced top anchor used to move the tail sentinel above the viewport
+        // and leave the entire transcript blank beside a tall composer.
+        let visible = NSPredicate { _, _ in
+            answer.exists && answer.frame.maxY > 120
+                && answer.frame.minY < composer.frame.minY && answer.isHittable
+        }
+        let settled = expectation(for: visible, evaluatedWith: app)
+        wait(for: [settled], timeout: 10)
+        XCTAssertTrue(answer.isHittable)
+    }
+
     func testDailyBriefEntryIsNotExposed() throws {
         app.launch()
         let open = app.buttons["打开会话列表"]
