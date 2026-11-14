@@ -32,7 +32,9 @@ enum PhoneHaptics {
                                intensity: CGFloat, dedupe: Bool) {
         let now = CACurrentMediaTime()
         if dedupe {
-            guard now - lastImpactAt > 0.35 else { return }
+            // A send tap and the runtime's turn-start observation describe the
+            // same moment but can be a network round trip apart. Keep one cue.
+            guard now - lastImpactAt > 1.5 else { return }
             lastImpactAt = now
         }
         let generator = UIImpactFeedbackGenerator(style: style)
