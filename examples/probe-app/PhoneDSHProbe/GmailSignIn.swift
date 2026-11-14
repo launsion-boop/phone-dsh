@@ -7,9 +7,15 @@ import UIKit
 enum GmailSignIn {
     static let readScope = "https://www.googleapis.com/auth/gmail.readonly"
 
+    private static let sendScope = "https://www.googleapis.com/auth/gmail.send"
+    static var replyEnabled: Bool {
+        Bundle.main.object(forInfoDictionaryKey: "PDSH_GMAIL_REPLY_ENABLED") as? String == "YES"
+    }
+
     enum Failure: Error {
         case notAuthorized
         case readPermissionRequired
+        case sendPermissionRequired
         case cannotPresent
     }
 
@@ -58,6 +64,27 @@ enum GmailSignIn {
             throw Failure.readPermissionRequired
         }
         return refreshedUser.accessToken.tokenString
+    }
+
+    static func replyToken(expectedEmail: String) async throws -> String {
+        let signIn = GIDSignIn.sharedInstance
+        guard replyEnabled, let user = signIn.currentUser,
+              user.profile?.email.caseInsensitiveCompare(expectedEmail) == .orderedSame
+        else { throw Failure.notAuthorized }
+
+        let authorized: GIDGoogleUser
+        if user.grantedScopes?.contains(sendScope) == true {
+            authorized = user
+        } else {
+            guard let controller = presenter() else { throw Failure.cannotPresent }
+            authorized = try await user.addScopes([sendScope], presenting: controller).user
+        }
+        let refreshed = try await authorized.refreshTokensIfNeeded()
+        guard refreshed.profile?.email.caseInsensitiveCompare(expectedEmail) == .orderedSame,
+              signIn.currentUser?.profile?.email.caseInsensitiveCompare(expectedEmail) == .orderedSame
+        else { throw Failure.notAuthorized }
+        guard refreshed.grantedScopes?.contains(sendScope) == true else { throw Failure.sendPermissionRequired }
+        return refreshed.accessToken.tokenString
     }
 
     static func disconnect() async -> Bool {

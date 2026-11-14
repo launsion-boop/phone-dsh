@@ -123,6 +123,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.probe
         PRODUCT_NAME: PhoneDSHProbe
         INFOPLIST_FILE: Config/PhoneDSHProbe-Info.plist
+        PDSH_GMAIL_REPLY_ENABLED: "NO"
         PDSH_GMAIL_IOS_CLIENT_ID: ""
         PDSH_GMAIL_REDIRECT_SCHEME: dev.phone-dsh.gmail.unconfigured
         # The app's own Keychain items (model provider API keys) need the

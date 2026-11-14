@@ -307,7 +307,9 @@ private struct ConnectorDetailSheet: View {
                 ("tray.full", NativeText("读取和搜索邮件", "Read and search mail"),
                  NativeText("按发件人、主题或时间查找邮件，点开查看正文。",
                             "Find mail by sender, subject or date and open the message to read it.")),
-                ("lock.shield", NativeText("只读授权", "Read-only access"),
+                ("lock.shield", GmailSignIn.replyEnabled
+                    ? NativeText("Google 账号授权", "Google account access")
+                    : NativeText("只读授权", "Read-only access"),
                  NativeText("你可以随时断开 Google 账号。", "You can disconnect your Google account at any time.")),
             ]
         case .github:
