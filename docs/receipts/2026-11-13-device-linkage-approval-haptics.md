@@ -42,10 +42,10 @@ Build: Debug, `PDSH_WITH_XZSHELL=1`, team `KC5NZ8GRQ9`
 ## 3. 轻震动
 
 - `PhoneHaptics` 统一使用低强度 `UIImpactFeedbackGenerator`：
-  - 发送后 agent 开始工作：`.medium` intensity 0.28（send 与 turn-start 双触发，350ms 去重）
-  - 回合结束：`.light` intensity 0.30
+  - 发送手势按下即触发：`.light` intensity 0.42（与审批同 actuator，send 与 turn-start 1.5s 去重）
+  - 回合结束：`.light` intensity 0.34
   - 新审批卡：`.light` intensity 0.36
-- DSH 与 Bot 都接入；Bot 审批卡原来使用 `.light` 所以可感知，thinking/completion 原先 `.soft` 在 iPhone Air 上几乎不可感知。thinking 改为 `.medium` 低强度，并在 `turnRunning`/`runningTurnID` 的 nil→运行转换上再触发一次，避免只依赖 send 路径。
+- DSH 与 Bot 都接入；thinking 现在在发送按钮/`submitDraft` 的异步发送**之前**直接触发，并在 `turnRunning`/`runningTurnID` 的运行转换上兜底一次。审批卡一直使用 `.light` 且可感知，thinking 也回到 `.light` actuator，避免 `.medium/.soft` 在该设备上不可感知。
 - 仅用户发起/已发送的回合触发；打开历史页不会震动。
 
 ## 4. 验证
