@@ -1,4 +1,4 @@
-// Test-only reader for the two WAL golden vectors and a minimal JSON tree.
+// Test-only reader for the three WAL golden vectors and a minimal JSON tree.
 // SPDX-License-Identifier: MIT
 
 package com.phonedsh.wire
@@ -63,14 +63,18 @@ class WalGoldenVector(
 }
 
 /**
- * The fixed two-vector WAL corpus.
+ * The fixed three-vector WAL corpus.
  *
  * The file list is pinned so a removed, renamed or extra vector fails instead
  * of silently shrinking the suite; the golden directory is read from the
  * `pdsh.repo.root` system property Gradle injects.
  */
 internal object WalGoldenCorpus {
-    val NAMES: List<String> = listOf("segment-1.json", "segment-epoch-only.json")
+    val NAMES: List<String> = listOf(
+        "segment-1.json",
+        "segment-blob-write.json",
+        "segment-epoch-only.json",
+    )
 
     fun load(): List<WalGoldenVector> {
         val directory = File(repoRoot(), "spec/v1/golden/wal")
