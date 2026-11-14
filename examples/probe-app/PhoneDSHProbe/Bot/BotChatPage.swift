@@ -560,7 +560,9 @@ struct BotChatPage: View {
             if model.loadingHistory || historyAutoLoadScheduled {
                 ProgressView().controlSize(.mini)
             }
-            Text(expandWindow ? "正在加载更早消息" : "正在加载历史")
+            Text(model.loadingHistory || historyAutoLoadScheduled
+                 ? "正在加载更早消息"
+                 : "上滑加载更早消息")
                 .botCaptionFont()
                 .foregroundStyle(HomeSpec.textTertiary)
         }
