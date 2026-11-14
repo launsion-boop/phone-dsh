@@ -5,12 +5,12 @@ change: PC-20261113-tonolink-mirror-route
 contracts: [P07, P09, P18]
 status: implemented
 breaking: false
-version_decision: Additive. Two optional members in the existing app-private UserDefaults layout record; no board API, wire field or endpoint change.
+version_decision: Additive. Three optional members in the existing app-private UserDefaults layout record; no board API, wire field or endpoint change.
 base: 06a80094 (main, after PR #157 merged)
 contract_revision: none (no owning spec text changes; the board HTTP API used is the existing /v1/phone/status and /v1/hid/*)
 ```
 
-Protocol impact: P07; P09; P18. P07 — 只用既有板子接口（`/v1/phone/status` 的 `airplay.mirror_active`、`/v1/hid/*`），新增的只是 iOS 端怎么用它们。P09 — 对话页启动期的空状态与 TonoLink 调试中继新增的 `/agent/learn-mirror` 路由（DEBUG）。P18 — UserDefaults `phone-dsh.tonolink.phone-layout.v1` 新增两个可选成员。
+Protocol impact: P07; P09; P18. P07 — 只用既有板子接口（`/v1/phone/status` 的 `airplay.mirror_active`、`/v1/hid/*`），新增的只是 iOS 端怎么用它们。P09 — 对话页启动期的空状态与 TonoLink 调试中继新增的 `/agent/learn-mirror` 路由（DEBUG）。P18 — UserDefaults `phone-dsh.tonolink.phone-layout.v1` 新增三个可选成员（`mirrorRouteLearned`、`mirrorStop`、`mirrorRouteLearnedAt`）。
 
 ## 1. 触发 → 现状 → 期望
 
@@ -38,6 +38,18 @@ Protocol impact: P07; P09; P18. P07 — 只用既有板子接口（`/v1/phone/st
 - 实测：未投屏时点「投屏中学到的板子行」，手机去连了它上面的「李光浩的电脑」（longshu 的 AirPlay 接收端同时出现活动）；点「停止镜像」原来的位置，6 秒内板子报告 `mirror_active=true`，longshu 无活动。
 - 因此保存的 `mirrorTarget` 是**未投屏时**板子的行：投屏中的行 + （停止镜像 − 最后一个设备行）。
 
+### 路线何时重新学习
+
+学过的路线会过时：接收端会出现或消失（开一台电视会让列表行移动），用户也会拖动小圆点。以下情况把路线标为需要重新学习，下一次任务前只要画面在线就重新学（每个路线版本每次启动最多尝试一次，失败不会在每个任务前重复）：
+
+| 触发 | 处理 |
+| --- | --- |
+| 自动重连失败 | 路线**作废**：不再盲点；提示用户手动投屏一次，投屏后自动重新学习 |
+| 回主屏时发现小圆点不在保存的位置 | 路线作废（菜单跟着小圆点走，「控制中心」的位置也变了） |
+| 学习时间超过 7 天，或没有学习时间（旧版本学的），或学习时间在未来（改过时钟） | 继续可用于盲点重连，但下次画面在线时重新学习 |
+
+判定逻辑在 `TonoLinkPhoneLayout.mirrorRouteNeedsLearning(now:)`／`mirrorRouteUsable`，由 `TonoLinkPhoneLayoutTests` 覆盖。
+
 ### 为什么只盲点一次
 
 App 无法知道一次盲点连到了哪个接收端：iOS 不把 AirPlay 镜像报告成第二块屏幕（`UIScreen.screens.count == 1`）；音频路由只在 App 启动瞬间显示 `AirPlay|TonoLink USB`，App 自己的音频会话起来后约 0.5 秒就变回扬声器。所以重连只点学到的那一个位置，10 秒内板子没报告镜像就回主屏并提示用户，不尝试第二个猜测。
@@ -57,12 +69,16 @@ App 无法知道一次盲点连到了哪个接收端：iOS 不把 AirPlay 镜像
 - 真机 `testPrepareRestartsADroppedMirror`（镜像已断、路线已学）→ PASS：`prepare()` 用 24.9 s 自动连回板子，板子 `mirror_active=true`，取得重连后的新帧
 - 真机几何实验（见 §2）→ 结论如上；测试本身未保留在仓库
 - `swift test --filter 'TonoLink|DevicePanel|LinkAdmission|IPhoneAgent'` → PASS（93 tests）
+- `swift test --filter TonoLinkPhoneLayoutTests` → PASS（4 tests：旧数据不可盲点、7 天后重学、无日期重学、作废后不可用且可往返编码）
+- 真机 `testPrepareRelearnsAnInvalidatedRouteThenRestarts` → PASS：路线作废后，`prepare()` 在画面在线时 24.3 s 内重新学会路线；随后沿新路线停止投屏，下一次 `prepare()` 24.8 s 自动连回板子并取得新帧。这也补上了「学习 → 停止 → 自动重连」三步的完整证据
 - `python3 spec/ui/v1/tools/extract_ios_pages.py` → 重新生成 `chat`、`runtime-details` 页面契约（只有行号相关字段变化）
 - 对话页启动不闪：真机测试进程启动时的截图显示正常空对话（Phone DSH 图标），不是「引擎还没启动」卡片；没有逐帧录像证据
 
 ## 5. 未验证 / 剩余风险
 
-- **接收端列表变化**：学习之后若出现新的 AirPlay 接收端（例如排在板子后面的电视），未投屏列表里板子行的位置会变，盲点可能连到别的设备，而 App 无法察觉。缓解：每次任务前看到画面且路线未学习时才学习；失败后用户手动投屏一次，下一次会按新画面判断（目前只在 `mirrorRouteLearned != true` 时学习，**已学习的路线不会自动重新学习**，这是待做项）。
+- **接收端列表变化**：学习之后若出现新的 AirPlay 接收端（例如排在板子后面的电视），未投屏列表里板子行的位置会变，盲点可能连到别的设备，而 App 无法察觉。缓解：路线 7 天重学一次；重连失败即作废、不再盲点。但在两次学习之间出现的新接收端，仍可能让一次盲点连到别的设备。
+- **小圆点移动的检测**只在 Agent 回主屏、且第一次点不开菜单时发生；用户拖动了小圆点但 Agent 没走回主屏，路线不会立刻作废（下次重连会失败并作废）。
+- 7 天重学的路径只有单元测试，没有在真机上等满 7 天。
 - **重连期间会动用户的手机**：回主屏、打开控制中心，约 25 秒。只在手机任务开始前、镜像已断时发生。
 - 收尾关闭控制中心（Esc + 回主屏）在真机截图里没有得到清晰证据：重连后的第一张新帧仍显示控制中心与辅助触控菜单，下一次启动时手机在 App 内。
 - 只在一台 iPhone、一个 iOS 版本、一块板子上验证；横屏、其他控制中心布局、辅助触控菜单里没有「控制中心」项的情况未测。

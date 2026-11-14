@@ -70,6 +70,55 @@ final class TonoLinkMirrorDeviceTests: XCTestCase {
         try? await host.hands.disableHID()
     }
 
+    /// Re-learning, on the product path only: the route is invalidated (as a missed restart does),
+    /// the next `prepare()` with the mirror on learns it again from the screen, then a dropped
+    /// mirror is restarted by the next `prepare()` with the re-learned route.
+    func testPrepareRelearnsAnInvalidatedRouteThenRestarts() async throws {
+        try requireFixture()
+        let host = IPhoneAgentHost.shared
+        host.screen.start()
+        let mirroring = await host.hands.mirrorActive()
+        try XCTSkipUnless(mirroring, "start the mirror to the board once by hand first")
+
+        host.hands.layout.markMirrorRouteLearned()
+        host.invalidateMirrorRoute("device test")
+        XCTAssertFalse(TonoLinkPhoneLayout.load().mirrorRouteUsable, "the invalidation was not saved")
+
+        let learnStarted = Date()
+        try await host.prepare()
+        let learned = TonoLinkPhoneLayout.load()
+        note("relearned in \(Date().timeIntervalSince(learnStarted)) s: \(learned)")
+        XCTAssertTrue(learned.mirrorRouteUsable, "prepare() did not learn the route again")
+        XCTAssertFalse(learned.mirrorRouteNeedsLearning())
+        XCTAssertGreaterThanOrEqual(learned.mirrorRouteLearnedAt ?? .distantPast, learnStarted)
+        let stillMirroring = await host.hands.mirrorActive()
+        XCTAssertTrue(stillMirroring, "learning must leave the mirror running")
+
+        // Drop the mirror along the re-learned route.
+        try await host.hands.home(); try await Task.sleep(for: .milliseconds(1500))
+        try await host.hands.openMirrorList()
+        try await host.hands.tap(try XCTUnwrap(learned.mirrorStop))
+        var stopped = false
+        for _ in 0..<20 where !stopped {
+            try await Task.sleep(for: .milliseconds(500))
+            stopped = !(await host.hands.mirrorActive())
+        }
+        XCTAssertTrue(stopped, "停止镜像 on the re-learned route did not end the mirror")
+        try? await host.hands.key("esc")
+        try await Task.sleep(for: .seconds(2))
+
+        let mark = host.screen.frameCount
+        let restartStarted = ContinuousClock.now
+        try await host.prepare()
+        note("restarted in \(ContinuousClock.now - restartStarted)")
+        let restored = await host.hands.mirrorActive()
+        XCTAssertTrue(restored)
+        let fresh = try? await host.screen.snapshot(newerThan: mark, fresh: 2, timeout: .seconds(5))
+        XCTAssertNotNil(fresh, "no new picture after the restart")
+        if let fresh { attach(fresh.jpeg, "restarted") }
+        try? await host.hands.disableHID()
+    }
+
     private func shot(_ host: IPhoneAgentHost, _ name: String) async {
         if let frame = try? await host.screen.snapshot() { attach(frame.jpeg, name) }
     }

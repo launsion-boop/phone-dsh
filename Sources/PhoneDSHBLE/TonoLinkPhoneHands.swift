@@ -40,7 +40,34 @@ public struct TonoLinkPhoneLayout: Codable, Equatable, Sendable {
     /// `mirrorTarget` is the board's row while nothing is mirroring (the list is then shorter and
     /// its rows sit lower); this is where a running mirror is ended.
     public var mirrorStop: TonoLinkPoint?
+    /// When the route was last learned on this phone's screen. Absent in older layouts.
+    public var mirrorRouteLearnedAt: Date?
     public init() {}
+
+    /// A learned route goes stale: receivers come and go (a TV switched on shifts the rows), so it
+    /// is re-learned once a week even when nothing failed.
+    public static let mirrorRouteMaxAge: TimeInterval = 7 * 24 * 3600
+
+    /// True when the route should be learned again the next time the screen is visible: never
+    /// learned, invalidated, learned by a build that kept no date, older than a week, or dated in
+    /// the future (a clock change).
+    public func mirrorRouteNeedsLearning(now: Date = Date()) -> Bool {
+        guard mirrorRouteLearned == true, let learnedAt = mirrorRouteLearnedAt else { return true }
+        return now.timeIntervalSince(learnedAt) > Self.mirrorRouteMaxAge || learnedAt > now.addingTimeInterval(60)
+    }
+
+    /// Only a route that is learned and not invalidated may be tapped blind; age alone does not
+    /// stop a restart.
+    public var mirrorRouteUsable: Bool { mirrorRouteLearned == true }
+
+    public mutating func markMirrorRouteLearned(at date: Date = Date()) {
+        mirrorRouteLearned = true
+        mirrorRouteLearnedAt = date
+    }
+
+    /// The route no longer matches the phone (a restart missed, or the AssistiveTouch button moved
+    /// and its menu with it): never replay it blind, learn it again from the screen.
+    public mutating func invalidateMirrorRoute() { mirrorRouteLearned = false }
 
     static let key = "phone-dsh.tonolink.phone-layout.v1"
     public static func load(_ defaults: UserDefaults = .standard) -> TonoLinkPhoneLayout {

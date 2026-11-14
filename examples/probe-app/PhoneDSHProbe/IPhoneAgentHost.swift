@@ -138,7 +138,7 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         }
         // No mirror session. Only a phone whose route was learned on its own screen is tapped blind;
         // another phone's coordinates could land on anything.
-        guard hands.layout.mirrorRouteLearned == true else {
+        guard hands.layout.mirrorRouteUsable else {
             throw IPhoneAgentError("看不到手机画面：第一次需要你在控制中心 → 屏幕镜像里选择「\(await hands.airplayName() ?? "TonoLink USB")」，之后断开会自动重连")
         }
         try await restartMirror()
@@ -164,7 +164,17 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
             try await Task.sleep(for: .milliseconds(400))
         }
         try? await hands.home()
-        throw IPhoneAgentError("自动投屏没有成功：请在控制中心 → 屏幕镜像里选择「\(await hands.airplayName() ?? "TonoLink USB")」；投屏后会重新学习位置")
+        invalidateMirrorRoute("restart missed")
+        throw IPhoneAgentError("自动投屏没有成功，这条路线已作废：请在控制中心 → 屏幕镜像里选择「\(await hands.airplayName() ?? "TonoLink USB")」，投屏后会自动重新学习")
+    }
+
+    /// The saved route no longer fits this phone: stop replaying it and learn it again.
+    func invalidateMirrorRoute(_ reason: String) {
+        guard hands.layout.mirrorRouteLearned == true else { return }
+        hands.layout.invalidateMirrorRoute()
+        hands.layout.save()
+        learnAttempted = false
+        logger.info("mirror route invalidated: \(reason, privacy: .public)")
     }
 
     /// Frames decoded after `mark`: the viewer still holds the last picture of the ended mirror.
@@ -177,13 +187,14 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         throw IPhoneAgentError("板子在接收镜像但还没有画面（\(screen.currentStats.status)），请稍后重试")
     }
 
-    /// Once per launch at most: a phone whose route is not learned yet learns it the first time
-    /// its screen is visible, so the next dropped mirror can be restarted without the user.
+    /// One learning attempt per route generation: a failed attempt is not repeated before every task
+    /// of this launch, but an invalidated route gets a new attempt.
     private var learnAttempted = false
 
-    /// Learns it if needed; never fails the caller's task.
+    /// Learns the route when it is missing, invalidated or a week old, the first time the screen is
+    /// visible, so the next dropped mirror can be restarted without the user. Never fails the task.
     func learnMirrorRouteIfNeeded() async {
-        guard hands.layout.mirrorRouteLearned != true, !learnAttempted else { return }
+        guard hands.layout.mirrorRouteNeedsLearning(), !learnAttempted else { return }
         learnAttempted = true
         do {
             let route = try await learnMirrorRoute()
@@ -284,7 +295,7 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         hands.layout.mirrorButton = tile
         hands.layout.mirrorTarget = row
         hands.layout.mirrorStop = stop
-        hands.layout.mirrorRouteLearned = true
+        hands.layout.markMirrorRouteLearned()
         hands.layout.save()
         return "button (\(Int(button.x)),\(Int(button.y))) → 控制中心 (\(Int(controlCenter.x)),\(Int(controlCenter.y)))"
             + " → 屏幕镜像 (\(Int(tile.x)),\(Int(tile.y))) → \(name) (\(Int(row.x)),\(Int(row.y)))"
@@ -407,6 +418,8 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
                 + "its own visible button (取消 / 完成 / 关闭 / <) first; for a permission prompt use CallUser.")
         }
         try await hands.tap(item)
+        // The menu opens next to the button, so a moved button moves 控制中心 too.
+        if Self.far(button, hands.layout.assistiveButton) { invalidateMirrorRoute("AssistiveTouch button moved") }
         hands.layout.assistiveButton = button
         hands.layout.assistiveHome = item
         hands.layout.save()
