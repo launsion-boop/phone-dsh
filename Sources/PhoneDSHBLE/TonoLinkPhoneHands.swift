@@ -32,7 +32,42 @@ public struct TonoLinkPhoneLayout: Codable, Equatable, Sendable {
     public var assistiveControlCenter = TonoLinkPoint(826, 820)
     public var mirrorButton = TonoLinkPoint(401, 564)
     public var mirrorTarget = TonoLinkPoint(567, 579)
+    /// True once `assistiveControlCenter`, `mirrorButton` and `mirrorTarget` were found on this
+    /// phone's own screen (`IPhoneAgentHost.learnMirrorRoute`). Until then they are another phone's
+    /// guesses and a blind replay may miss. Absent in layouts saved by older builds (= not learned).
+    public var mirrorRouteLearned: Bool?
+    /// 停止镜像 in the device list while a mirror is running, learned with the route.
+    /// `mirrorTarget` is the board's row while nothing is mirroring (the list is then shorter and
+    /// its rows sit lower); this is where a running mirror is ended.
+    public var mirrorStop: TonoLinkPoint?
+    /// When the route was last learned on this phone's screen. Absent in older layouts.
+    public var mirrorRouteLearnedAt: Date?
     public init() {}
+
+    /// A learned route goes stale: receivers come and go (a TV switched on shifts the rows), so it
+    /// is re-learned once a week even when nothing failed.
+    public static let mirrorRouteMaxAge: TimeInterval = 7 * 24 * 3600
+
+    /// True when the route should be learned again the next time the screen is visible: never
+    /// learned, invalidated, learned by a build that kept no date, older than a week, or dated in
+    /// the future (a clock change).
+    public func mirrorRouteNeedsLearning(now: Date = Date()) -> Bool {
+        guard mirrorRouteLearned == true, let learnedAt = mirrorRouteLearnedAt else { return true }
+        return now.timeIntervalSince(learnedAt) > Self.mirrorRouteMaxAge || learnedAt > now.addingTimeInterval(60)
+    }
+
+    /// Only a route that is learned and not invalidated may be tapped blind; age alone does not
+    /// stop a restart.
+    public var mirrorRouteUsable: Bool { mirrorRouteLearned == true }
+
+    public mutating func markMirrorRouteLearned(at date: Date = Date()) {
+        mirrorRouteLearned = true
+        mirrorRouteLearnedAt = date
+    }
+
+    /// The route no longer matches the phone (a restart missed, or the AssistiveTouch button moved
+    /// and its menu with it): never replay it blind, learn it again from the screen.
+    public mutating func invalidateMirrorRoute() { mirrorRouteLearned = false }
 
     static let key = "phone-dsh.tonolink.phone-layout.v1"
     public static func load(_ defaults: UserDefaults = .standard) -> TonoLinkPhoneLayout {
@@ -199,6 +234,15 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
     }
 
     public func tap(_ x: Double, _ y: Double) async throws { try await batch(Self.glideSteps(x, y, holdMs: 120)) }
+
+    /// Glides the pointer to `point` without pressing.
+    public func hover(_ point: TonoLinkPoint) async throws {
+        var steps: [[String: Any]] = []
+        for f in [0.0, 0.5, 0.85, 1.0] {
+            steps.append(Self.absolute(500 + (point.x - 500) * f, 500 + (point.y - 500) * f, 0)); steps.append(["delay_ms": 180])
+        }
+        try await batch(steps)
+    }
     public func tap(_ point: TonoLinkPoint) async throws { try await tap(point.x, point.y) }
 
     public func doubleTap(_ x: Double, _ y: Double) async throws {
@@ -315,12 +359,19 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
         try await type(query)
     }
 
-    /// AssistiveTouch → Control Center → Screen Mirroring → the board's receiver.
-    public func startMirroring() async throws {
-        try await tap(layout.assistiveButton); try await Task.sleep(for: .milliseconds(900))
+    /// AssistiveTouch → Control Center → Screen Mirroring, then `row` in the device list. Blind:
+    /// the caller checks where the mirror went.
+    /// `menuOpen`: the AssistiveTouch menu is already open (the caller tapped the button itself).
+    public func startMirroring(row: TonoLinkPoint? = nil, menuOpen: Bool = false) async throws {
+        try await openMirrorList(menuOpen: menuOpen)
+        try await tap(row ?? layout.mirrorTarget)
+    }
+
+    /// AssistiveTouch → Control Center → Screen Mirroring: opens the device list, blind.
+    public func openMirrorList(menuOpen: Bool = false) async throws {
+        if !menuOpen { try await tap(layout.assistiveButton); try await Task.sleep(for: .milliseconds(900)) }
         try await tap(layout.assistiveControlCenter); try await Task.sleep(for: .milliseconds(1500))
         try await tap(layout.mirrorButton); try await Task.sleep(for: .seconds(2))
-        try await tap(layout.mirrorTarget); try await Task.sleep(for: .seconds(5))
     }
 
     /// Makes the board's USB network and AirPlay receiver come up (they are RAM-only on the board).
@@ -329,6 +380,20 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
         guard let status = try? await call("GET", "/v1/phone/status", timeout: 5),
               let airplay = status["airplay"] as? [String: Any] else { return false }
         return airplay["mirror_active"] as? Bool == true
+    }
+
+    /// `/v1/phone/status`; throws when the board is unreachable over USB.
+    public func phoneStatus() async throws -> [String: Any] { try await call("GET", "/v1/phone/status", timeout: 5) }
+
+    /// The name the board shows in Screen Mirroring, when its status reports one. Firmware 4359ac2
+    /// does not; its build-time default is "TonoLink USB" (`CONFIG_TONOLINK_AIRPLAY_NAME`).
+    public func airplayName() async -> String? {
+        for path in ["/v1/phone/status", "/airplay/status"] {
+            guard let status = try? await call("GET", path, timeout: 5) else { continue }
+            let airplay = status["airplay"] as? [String: Any] ?? status
+            if let name = airplay["name"] as? String, !name.isEmpty { return name }
+        }
+        return nil
     }
 
     public func enableUSB() async throws { try await call("POST", "/v1/usb", ["action": "enable"], timeout: 10) }
