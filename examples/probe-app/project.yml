@@ -219,6 +219,9 @@ targets:
     platform: iOS
     sources:
       - path: PhoneDSHSimTests
+      # The session-scoped DSH always-allow memory is app code but pure
+      # UserDefaults logic; compile it into the hostless simulator suite.
+      - path: PhoneDSHProbe/DSHApprovalMemory.swift
       # The frozen GitHub OAuth fixture is shared with the broker and the spec;
       # copy the one contract-owned file instead of keeping a test-only clone.
       - path: ../../spec/v1/golden/github-oauth/github-oauth-cases.json
