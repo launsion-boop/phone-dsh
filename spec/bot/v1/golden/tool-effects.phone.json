@@ -562,7 +562,8 @@
         "ui": false,
         "execution": null,
         "known": true,
-        "isMcp": false
+        "isMcp": false,
+        "grantResource": "model:image"
       }
     },
     {
@@ -583,7 +584,8 @@
         "ui": false,
         "execution": null,
         "known": true,
-        "isMcp": false
+        "isMcp": false,
+        "grantResource": "model:image"
       }
     }
   ],

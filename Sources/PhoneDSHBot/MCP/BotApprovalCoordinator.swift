@@ -294,6 +294,10 @@ public actor BotApprovalCoordinator {
                         onPending: (@Sendable (String) -> Void)? = nil,
                         interactiveWaitMilliseconds: Int64 = 0) async -> BotApprovalOutcome {
         await ensureRestored()
+        // A card whose effects cannot safely stand must not offer "always":
+        // unknown tools and destructive operations keep the one-shot answer
+        // only, and the card's scope says so.
+        let offeredScope = effects.allSatisfy(\.canUseStandingGrant) ? alwaysScope : "none"
         let deferConsumption = effects.allSatisfy { $0.execution != nil }
         if let standing = await standingDecision(
             call: call, effects: effects, deferConsumption: deferConsumption) { return standing }
@@ -314,7 +318,7 @@ public actor BotApprovalCoordinator {
             "approvalID": .string(approvalId), "status": .string("pending"),
             "action": .string(action), "detail": .string(detail),
             "digest": .string(digest), "command": .string(command),
-            "alwaysScope": .string(alwaysScope),
+            "alwaysScope": .string(offeredScope),
             "deferConsumption": .bool(deferConsumption),
             "effects": .array(effects.map(Self.effectJSON)),
             "persistent": .bool(persistence.isPersistent),
@@ -339,7 +343,7 @@ public actor BotApprovalCoordinator {
             pending[approvalId] = Pending(
                 principal: principal, callId: call.callId, effects: effects, digest: digest,
                 action: action, detail: detail, command: command,
-                alwaysScope: alwaysScope, deferConsumption: deferConsumption,
+                alwaysScope: offeredScope, deferConsumption: deferConsumption,
                 persistent: true, origin: origin, requestedAt: requestedAt,
                 expiresAt: expiresAt, continuation: nil, timeout: nil,
                 waitTimeout: nil)
@@ -368,7 +372,7 @@ public actor BotApprovalCoordinator {
             pending[approvalId] = Pending(
                 principal: principal, callId: call.callId, effects: effects, digest: digest,
                 action: action, detail: detail, command: command,
-                alwaysScope: alwaysScope, deferConsumption: deferConsumption,
+                alwaysScope: offeredScope, deferConsumption: deferConsumption,
                 persistent: false, origin: origin, requestedAt: requestedAt,
                 expiresAt: 0, continuation: continuation, timeout: nil,
                 waitTimeout: nil)
@@ -441,17 +445,33 @@ public actor BotApprovalCoordinator {
                     case .allowOnce:
                         effectiveScope = .once
                     case .always:
-                        switch request.alwaysScope {
-                        case "until": effectiveScope = .until
-                        case "session": effectiveScope = .session
-                        default: effectiveScope = .once
+                        if !effect.known {
+                            // An unclassified tool has no stable operation
+                            // classification; a standing decision would grant
+                            // every future call of that tool without looking
+                            // at arguments. Force this one to a consumed once.
+                            effectiveScope = .once
+                        } else {
+                            switch request.alwaysScope {
+                            case "until": effectiveScope = .until
+                            case "session": effectiveScope = .session
+                            default: effectiveScope = .once
+                            }
                         }
                     case .deny:
                         effectiveScope = .once
                     }
+                    // A once decision is exact. A standing decision uses the
+                    // effect's stable scope only when it has one (images use
+                    // model:image, file/network egress its directory/host);
+                    // destructive and unclassified effects keep their exact
+                    // resource, so "always" cannot widen them.
+                    let storedResource = effectiveScope == .once
+                        ? effect.resource
+                        : effect.stableGrantResource
                     let grant = try await grants.add(BotGrant(
                         botId: request.principal.botId, tool: effect.tool, operation: effect.operation,
-                        resource: effect.resource, scope: effectiveScope,
+                        resource: storedResource, scope: effectiveScope,
                         sessionId: request.principal.sessionId,
                         createdAt: now(), source: "approval-card", decision: .allow))
                     createdGrantIDs.append(grant.id)

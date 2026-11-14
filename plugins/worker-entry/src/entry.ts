@@ -728,6 +728,9 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
         PDSH_EXEC_BRIDGE_URL: process.env.PDSH_EXEC_BRIDGE_URL,
         PDSH_CHANNEL_TOKEN: process.env.PDSH_CHANNEL_TOKEN,
         PDSH_EXEC_BRIDGE_TOKEN: process.env.PDSH_EXEC_BRIDGE_TOKEN,
+      }, {
+        accelerators: surface.accelerators,
+        jqEngine: jqWiring !== undefined,
       }),
       hostCaps: channel.hostHello?.caps ?? [],
       pythonModules,

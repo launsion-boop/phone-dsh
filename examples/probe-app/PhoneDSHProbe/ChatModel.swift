@@ -263,6 +263,11 @@ struct ChatPermission: Identifiable, Equatable {
     let summary: String
     /// 这次工具调用的参数,只用来在卡上写相对路径/命令原文;拿不到就是空。
     var arguments: [String: String] = [:]
+
+    /// nil means this request must stay one-shot (destructive/unknown).
+    var alwaysGrantKey: String? {
+        DSHApprovalPolicy.grantKey(tool: tool, arguments: arguments)
+    }
 }
 
 /// One current-session permission mode returned by the active DSH Worker.
@@ -3921,10 +3926,51 @@ final class ChatModel {
         appendStatus("已停止（运行时未确认）。若之后没有响应，请在 ⋯ 菜单里停止主机再重新启动。")
     }
 
+    /// DSH Remote only has a one-shot wire outcome. The always decision is
+    /// remembered here and later requests for the same session + tool are
+    /// auto-answered with allow-once; deny/allow-once clear it.
+    private func presentPermission(_ permission: ChatPermission) {
+        if let sessionID, let scope = permission.alwaysGrantKey,
+           DSHApprovalMemory.isAllowed(sessionID: sessionID, scope: scope) {
+            autoApprove(permission, sessionID: sessionID)
+        } else {
+            pendingPermission = permission
+        }
+    }
+
+    private func autoApprove(_ permission: ChatPermission, sessionID: String) {
+        guard let harness else {
+            pendingPermission = permission
+            return
+        }
+        Task { @MainActor [weak self] in
+            do {
+                try await harness.send(
+                    .permissionResponse(requestID: permission.id, decision: .allowOnce),
+                    to: sessionID)
+                self?.appendStatus("Permission for \(permission.tool): always (this session)")
+            } catch {
+                self?.pendingPermission = permission
+                self?.reportError("自动授权发送失败：\(Self.condensed(String(describing: error)))")
+            }
+        }
+    }
+
     func respond(to permission: ChatPermission, decision: PermissionDecision) async {
         guard let harness, let sessionID else { return }
+        if let scope = permission.alwaysGrantKey {
+            switch decision {
+            case .allowAlways:
+                DSHApprovalMemory.remember(sessionID: sessionID, scope: scope)
+            case .allowOnce, .deny:
+                // Choosing once or deny must not leave an older always grant
+                // behind; the next request asks again.
+                DSHApprovalMemory.forget(sessionID: sessionID, scope: scope)
+            }
+        }
+        let wire: PermissionDecision = decision == .deny ? .deny : .allowOnce
         do {
-            try await harness.send(.permissionResponse(requestID: permission.id, decision: decision), to: sessionID)
+            try await harness.send(.permissionResponse(requestID: permission.id, decision: wire), to: sessionID)
             if pendingPermission?.id == permission.id { pendingPermission = nil }
             clearError()
             appendStatus("Permission for \(permission.tool): \(decision.rawValue)")
@@ -4516,9 +4562,9 @@ final class ChatModel {
                 Task { await self.finishBackgroundKeepAlive() }
             }
         case .permissionRequested(let request):
-            pendingPermission = ChatPermission(id: request.requestID, tool: request.tool,
-                                               summary: request.summary,
-                                               arguments: recentToolArguments[request.tool] ?? [:])
+            presentPermission(ChatPermission(id: request.requestID, tool: request.tool,
+                                             summary: request.summary,
+                                             arguments: recentToolArguments[request.tool] ?? [:]))
         case .questionRequested(let question):
             pendingQuestion = question
         case .exited:
@@ -4702,9 +4748,9 @@ final class ChatModel {
             scheduleNativeMetricsRefresh()
             refreshFiles(debounced: true)
         case .permissionRequested(let request):
-            pendingPermission = ChatPermission(id: request.requestID, tool: request.tool,
-                                               summary: request.summary,
-                                               arguments: recentToolArguments[request.tool] ?? [:])
+            presentPermission(ChatPermission(id: request.requestID, tool: request.tool,
+                                             summary: request.summary,
+                                             arguments: recentToolArguments[request.tool] ?? [:]))
         case .questionRequested(let question):
             pendingQuestion = question
             appendStatus("The agent asks: len=\(question.prompt.count)")
