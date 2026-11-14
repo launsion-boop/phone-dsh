@@ -11,17 +11,17 @@ enum PhoneHaptics {
         // `.soft` at low intensity was inaudible on the iPhone Air. `.medium`
         // at low strength is still a short, gentle tap but has enough travel
         // to be felt over the keyboard; send and turn-start may both call it.
-        impact(.medium, intensity: 0.28)
+        impact(.medium, intensity: 0.28, dedupe: true)
     }
 
     /// The turn settled (success, error or cancellation).
     static func completed() {
-        impact(.light, intensity: 0.30)
+        impact(.light, intensity: 0.30, dedupe: false)
     }
 
     /// A new approval/confirmation card is waiting for the user.
     static func approval() {
-        impact(.light, intensity: 0.36)
+        impact(.light, intensity: 0.36, dedupe: false)
     }
 
     /// Send and the turn-start observer both want the thinking cue; suppress
@@ -29,10 +29,12 @@ enum PhoneHaptics {
     private static var lastImpactAt: CFTimeInterval = 0
 
     private static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle,
-                               intensity: CGFloat) {
+                               intensity: CGFloat, dedupe: Bool) {
         let now = CACurrentMediaTime()
-        guard now - lastImpactAt > 0.35 else { return }
-        lastImpactAt = now
+        if dedupe {
+            guard now - lastImpactAt > 0.35 else { return }
+            lastImpactAt = now
+        }
         let generator = UIImpactFeedbackGenerator(style: style)
         generator.prepare()
         generator.impactOccurred(intensity: intensity)
