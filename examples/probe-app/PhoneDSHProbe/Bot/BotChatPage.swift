@@ -739,7 +739,11 @@ struct BotChatPage: View {
         historyAutoLoadScheduled = true
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 50_000_000)
-            guard historyAutoLoadScheduled, !model.loadingHistory else { return }
+            guard historyAutoLoadScheduled else { return }
+            guard !model.loadingHistory else {
+                historyAutoLoadScheduled = false
+                return
+            }
             if expandWindow {
                 eagerRowLimit += 40
                 if let anchor { proxy.scrollTo(anchor, anchor: .top) }
