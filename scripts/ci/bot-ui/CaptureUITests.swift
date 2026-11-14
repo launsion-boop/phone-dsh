@@ -175,6 +175,8 @@ final class BotCaptureUITests: XCTestCase {
             NSPredicate(format: "label CONTAINS %@", "phoneDSH Bot 验收报告")).firstMatch
         XCTAssertTrue(heading.waitForExistence(timeout: 2))
         XCTAssertFalse(app.staticTexts["没有内嵌正文。"].exists)
+        XCTAssertTrue(app.buttons["bot.document.share"].waitForExistence(timeout: 2),
+                      "the document sheet must offer share")
 
         launch("link")
         app.buttons["bot.link.open.docs"].tap()
