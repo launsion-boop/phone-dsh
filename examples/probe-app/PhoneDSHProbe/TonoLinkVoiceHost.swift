@@ -26,6 +26,9 @@ import ProbeKit
     private var asr: CloudASRSession?
     private var tally = TonoLinkVoiceTally()
     private var seq: UInt16 = 40_000
+    /// The ctrl link carries one command at a time, so light changes run one after another and the
+    /// next `listen` waits for them (a light must never make a turn fail).
+    private var lightChain: Task<Void, Never>?
     private var holdsKeepAlive = false
     private let player = VoicePCMPlayer()
     private let tts = CloudTTSClient()
@@ -171,6 +174,27 @@ import ProbeKit
         }
     }
 
+    /// Moves the board's LED effect to a phase of this turn (tonolink-board.md §4.3). Best effort:
+    /// no board, an older firmware (`err`) or a timeout only means no light, never a failed turn.
+    /// `wake` is lit by the board itself when it hears the wake word.
+    private func light(_ phase: TonoLinkLightPhase) {
+        guard let ctrl, ctrl.isConnected else { return }
+        let previous = lightChain
+        lightChain = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
+            self.seq = self.seq &+ 1
+            let seq = self.seq
+            do {
+                let ack = try await ctrl.command(try TonoLinkVoiceCommand.fx(seq: seq, phase: phase), seq: seq,
+                                                 timeout: .milliseconds(1500))
+                self.log("light \(phase.rawValue) \(ack.ok ? "ok" : "err \(ack.error ?? "?")")")
+            } catch {
+                self.log("light \(phase.rawValue) failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func note(_ key: String, _ value: Any) {
         lastTurn[key] = value
         log("turn \(turnID) \(key)=\(value)")
@@ -222,6 +246,7 @@ import ProbeKit
         note("here_ms", ms())
         guard !Task.isCancelled else { await session.cancel(); return }
         guard let ctrl, ctrl.isConnected else { await session.cancel(); note("error", "板子已断开"); return }
+        await lightChain?.value   // the ctrl link takes one command at a time
         do {
             seq = seq &+ 1
             let ack = try await ctrl.command(TonoLinkVoiceCommand.listen(seq: seq, id: id), seq: seq, timeout: .seconds(3))
@@ -243,6 +268,7 @@ import ProbeKit
         guard up, !Task.isCancelled else {
             let why = await session.outcome()
             note("error", "语音识别没有连上（\(why)）")
+            if !Task.isCancelled { light(.idle) }
             return
         }
         note("asr_ready_ms", ms())
@@ -262,6 +288,7 @@ import ProbeKit
         switch outcome {
         case .text(let text):
             note("heard", text)
+            light(.taskStart)
             // Say at once that the command was understood; the reply follows when the turn ends
             // (same player, so it plays after this, never over it).
             await acknowledge(credential: credential)
@@ -269,8 +296,10 @@ import ProbeKit
             await answer(text, credential: credential, start: start)
         case .silent:
             note("heard", "")
+            light(.idle)
         case .failed(let why):
             note("error", "语音识别失败：\(why)")
+            light(.idle)
         case .pending:
             break
         }
@@ -283,24 +312,27 @@ import ProbeKit
             return
         }
         let chat = ChatModel.shared
-        guard await chat.send(text) else { note("error", "当前对话没有接受这条消息"); return }
+        guard await chat.send(text) else { note("error", "当前对话没有接受这条消息"); light(.idle); return }
         var waited = 0
         while !chat.turnRunning && waited < 300 {   // up to 30 s: the engine may be resuming
             try? await Task.sleep(for: .milliseconds(100)); waited += 1
             if Task.isCancelled { return }
         }
-        guard chat.turnRunning else { note("error", "聊天没有开始运行（引擎暂停或忙）"); return }
+        guard chat.turnRunning else { note("error", "聊天没有开始运行（引擎暂停或忙）"); light(.idle); return }
+        light(.taskRunning)
         while chat.turnRunning {
             if Task.isCancelled { return }
             try? await Task.sleep(for: .milliseconds(300))
         }
         guard let userIndex = chat.items.lastIndex(where: { $0.kind == .user && $0.text.contains(text) }),
               let reply = chat.items[(userIndex + 1)...].last(where: { $0.kind == .assistant && !$0.text.isEmpty }) else {
-            note("reply", ""); return
+            note("reply", ""); light(.taskDone); return
         }
         note("reply", String(reply.text.prefix(500)))
         note("reply_ms", Int(Date().timeIntervalSince(start) * 1000))
+        light(.taskReport)
         do { try await speak(reply.text, credential: credential) } catch { note("speak_error", error.localizedDescription) }
+        if !Task.isCancelled { light(.taskDone) }
     }
 
     /// A clear one-step volume command is handled locally, without the LLM or UI-Venus screen loop.
@@ -316,7 +348,9 @@ import ProbeKit
             note("volume_error", error.localizedDescription)
             note("reply", reply)
             note("reply_ms", Int(Date().timeIntervalSince(start) * 1000))
+            light(.taskReport)
             do { try await speak(reply, credential: credential) } catch { note("speak_error", error.localizedDescription) }
+            if !Task.isCancelled { light(.taskDone) }
             return
         }
         do { try await hands.disableHID() }
@@ -335,7 +369,9 @@ import ProbeKit
                          "changed": changed, "at_limit": atLimit])
         note("reply", reply)
         note("reply_ms", Int(Date().timeIntervalSince(start) * 1000))
+        light(.taskReport)
         do { try await speak(reply, credential: credential) } catch { note("speak_error", error.localizedDescription) }
+        if !Task.isCancelled { light(.taskDone) }
     }
 
     // MARK: - Speech
