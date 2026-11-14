@@ -16,7 +16,7 @@ The consumer is `Sources/PhoneDSHBLE/TonoLink*.swift` plus
 
 | Need | Channel | Contract |
 | --- | --- | --- |
-| LED, Home HTTP | BLE Link Tools profile (`light.set`, `light.get`, `home.http`) | [ble-link.md](ble-link.md); reached by the agent through native MCP `ble_link_call` ([native-mcp.md](../../v1/native-mcp.md)) |
+| LED, LED effects, Home HTTP | BLE Link Tools profile (`light.set`, `light.get`, `light.phase`, `light.effect.set`, `light.effect.get`, `home.http`; effects §4.3) | [ble-link.md](ble-link.md); reached by the agent through native MCP `ble_link_call` ([native-mcp.md](../../v1/native-mcp.md)) |
 | Taps, swipes, typing, system media volume keys | Board HTTP over USB NCM (§2), emitted as BLE HID reports | this document |
 | Screen | APV1 stream over USB NCM (§3) | this document |
 | Pairing, console, BLE OTA (DEBUG) | TonoLink ctrl GATT service (§4) | this document |
@@ -162,6 +162,55 @@ playback stopped) and starts a new one. The phone keeps this link while in the b
 restorable CoreBluetooth central with a parked reconnect, so `ev wake` wakes a suspended app
 (`spec/platform/whitelist.json` `platform.tonolink-voice-background-wake`). The firmware is unchanged by
 this registration.
+
+### 4.3 LED effects (voice task phases)
+
+Producer: `tonolink-m21-r4-firmware` branch `feat/led-effects` (`main/fx/fx_render.c` pure renderer
+with host tests `host_tests/test_fx_render.c`, `main/fx/fx.c` engine, `main/link_tools.c`,
+`main/ctrl_svc.c`, `main/wake.c`). Present when the board's `tools/list` advertises `light.phase`;
+older firmware has neither the tools nor the ctrl verb. Consumers: `TonoLinkVoiceCommand.fx` /
+`TonoLinkLightPhase` (`Sources/PhoneDSHBLE/TonoLinkVoice.swift`), the app's `TonoLinkVoiceHost.swift`, and the
+device panel through the Link tools. Shared cases: `fx_commands` in [golden/tonolink-voice.json](golden/tonolink-voice.json).
+
+The board's 6 WS2812 LEDs (two strips of 3) follow the phases of a voice task. Each phase has a
+style: an effect (`off solid breathe comet rainbow pulse sparkle scanner`), a hue (0–359°), a
+brightness (1–100 %) and a speed (1–10), saved in the board's NVS. Defaults: `wake` cyan comet,
+`task_start` violet pulse, `task_running` rainbow, `task_report` green breathe, `task_done` gold
+sparkle. `idle` shows the base light (`light.set`: on = white at the board's cap, off = dark).
+No frame draws more per LED than a white LED at `CONFIG_TONOLINK_WS2812_MAX_BRIGHTNESS`.
+
+| Phase | Who starts it | Lasts |
+| --- | --- | --- |
+| `wake` | the board itself when it accepts 你好小智 (no round trip) | 15 s, or until the next phase |
+| `task_start` | phone, when the command was heard | 1.6 s, then `task_running` by itself |
+| `task_running` | phone, when the chat turn runs | until the next phase (300 s safety net) |
+| `task_report` | phone, while it speaks the answer | until the next phase (60 s) |
+| `task_done` | phone, after the answer | 2.6 s fading out, then `idle` |
+| `idle` | phone, on silence or an error | — |
+
+| Direction | Bytes | Meaning |
+| --- | --- | --- |
+| `cmd` write | `<seq> fx <phase>` (`phase` one of the six names above) | Show that phase now (restarts it). `ack <seq> ok`; `err range` for an unknown name, `err unsupported` without WS2812. |
+
+Link tools (BLE Link profile, [ble-link.md](ble-link.md); journaled like any other call, `light.effect.get` read-only).
+The schemas carry Chinese `title`s and Chinese `enum` values for the device panel
+([device-panel.md](device-panel.md) §2); the board also accepts the English names below.
+
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `light.phase` | `{phase}` — 唤醒/wake, 开始任务/task_start, 任务进行/task_running, 任务汇报/task_report, 任务结束/task_done, 关闭灯效/idle | the read-out |
+| `light.effect.set` | required `phase` (not idle) and `style` (彗星 comet, 彩虹 rainbow, 呼吸 breathe, 心跳 pulse, 闪烁 sparkle, 扫描 scanner, 常亮 solid, 关闭 off); optional `color` (红 橙 黄 绿 青 蓝 紫 粉 白) **or** `hue` (0–359, 360 = white), `brightness` 1–100, `speed` 1–10 — an absent one keeps its saved value | saves, previews that phase, returns the read-out |
+| `light.effect.get` | `{}` | the read-out |
+
+The read-out: one Chinese row per phase (`"唤醒": "彗星 · 青 · 亮度90 · 速度8"`), `"当前"` (the
+phase showing, in Chinese), `styles` (`{<english phase>: {effect, hue, brightness, speed}}`) and `phase` (English).
+
+`light.get`/`light.set` results gain an additive `phase` member while the engine runs; `on` is the
+base light, not whether an effect is showing. `light.set`'s `on` carries the title 白光.
+
+Consumer rules: the phone sends `fx` best effort. The ctrl link carries one command at a time, so
+the phone queues light changes and the next `listen` waits for them; a refused or lost `fx` never
+fails the turn and is never retried. The phone does not send `wake` (the board lights it itself).
 
 ## 5. DEBUG relay (developer builds only)
 

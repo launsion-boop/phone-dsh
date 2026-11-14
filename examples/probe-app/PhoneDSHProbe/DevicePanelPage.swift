@@ -37,6 +37,8 @@ struct DevicePanelTool: Identifiable, Equatable, Sendable {
     let inputSchema: JSONValue
     let render: DevicePanelRender
     let raw: JSONValue
+    /// Display names from the schema's `title`s (device-panel.md §2); requests use the argument names.
+    let titles: [String: String]
 
     var id: String { name }
 
@@ -46,6 +48,7 @@ struct DevicePanelTool: Identifiable, Equatable, Sendable {
         self.description = description
         self.inputSchema = inputSchema
         self.render = render
+        self.titles = devicePanelEditorTitles(inputSchema: inputSchema)
         if let raw {
             self.raw = raw
         } else {
@@ -1338,10 +1341,15 @@ private struct DevicePanelEditorRow: View {
         }
     }
 
+    /// The schema's `title` for this argument, else its name.
+    private func label(_ argument: String) -> String {
+        model.tool(named: toolName)?.titles[argument] ?? argument
+    }
+
     private func toggleEditor(_ argument: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(verbatim: argument).lineLimit(1)
+                Text(verbatim: label(argument)).lineLimit(1)
                 Spacer()
                 if model.editorValue(tool: toolName, argument: argument) == nil {
                     Text("未设置").font(.caption).foregroundStyle(.secondary)
@@ -1353,14 +1361,14 @@ private struct DevicePanelEditorRow: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .accessibilityLabel(Text(verbatim: argument))
+            .accessibilityLabel(Text(verbatim: label(argument)))
         }
     }
 
     private func sliderEditor(_ argument: String, integer: Bool, min: Double, max: Double) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(verbatim: argument).lineLimit(1)
+                Text(verbatim: label(argument)).lineLimit(1)
                 Spacer()
                 if let value = currentSliderValue(argument) {
                     Text(verbatim: Self.numberText(value, integer: integer))
@@ -1371,7 +1379,7 @@ private struct DevicePanelEditorRow: View {
                 }
             }
             Slider(value: sliderBinding(argument, min: min, max: max, integer: integer), in: min...max)
-                .accessibilityLabel(Text(verbatim: argument))
+                .accessibilityLabel(Text(verbatim: label(argument)))
             Text(verbatim: "范围 \(Self.numberText(min, integer: integer))…\(Self.numberText(max, integer: integer))")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
@@ -1386,12 +1394,12 @@ private struct DevicePanelEditorRow: View {
             }
         } label: {
             HStack {
-                Text(verbatim: argument).lineLimit(1)
+                Text(verbatim: label(argument)).lineLimit(1)
                 Spacer()
             }
         }
         .pickerStyle(.menu)
-        .accessibilityLabel(Text(verbatim: argument))
+        .accessibilityLabel(Text(verbatim: label(argument)))
     }
 
     private func toggleBinding(_ argument: String) -> Binding<Bool?> {

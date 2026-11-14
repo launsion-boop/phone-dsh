@@ -34,6 +34,9 @@ struct ChatPage: View {
         managementOverride ?? workspaceModels.currentManagement ?? DSHManagementModel.shared
     }
     @State private var voice = ComposerVoiceInput()
+    /// Set a few seconds after the page appears: if no engine start has begun by then (the
+    /// launch start did not run), the start card is shown.
+    @State private var engineLaunchGraceOver = false
     @State private var showDeviceConnections = false
     @State private var deviceCoordinator = DeviceSessionCoordinator.shared
     @Environment(\.colorScheme) private var colorScheme
@@ -436,7 +439,7 @@ struct ChatPage: View {
            let error = model.userFacingError,
            ChatEngineStoppedNoticePolicy.shouldShow(
                message: error,
-               engineEmptyStateVisible: visibleItems.isEmpty && !model.isStarted) {
+               engineEmptyStateVisible: visibleItems.isEmpty && showsEngineNotStarted) {
             errorBanner(error)
         }
         if let error = model.commandsError { commandErrorBanner(error) }
@@ -779,6 +782,14 @@ struct ChatPage: View {
         // A history page loaded while the scene was hidden was parked by the
         // model; a page that appears now is the moment it may be painted.
         model.adoptDeferredTranscriptIfForeground()
+        // origin/main's launch grace: keep the first frames of a cold launch
+        // from racing the engine's own start attempts.
+        if !engineLaunchGraceOver {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(3))
+                engineLaunchGraceOver = true
+            }
+        }
         if let initialPreviewTarget, previewTarget == nil {
             previewTarget = initialPreviewTarget
         }
@@ -2024,9 +2035,13 @@ struct ChatPage: View {
         if model.backendID != .phone {
             pcEmptyTimeline
                 .padding(.top, 88)
-        } else if !model.isStarted {
+        } else if showsEngineNotStarted {
             engineNotStartedState
                 .padding(.top, 88)
+        } else if !model.isStarted {
+            // Launch: the engine starts by itself. Show the empty chat it is about to become
+            // instead of flashing 引擎还没启动 → 正在启动… for the moment that takes.
+            readyState(viewportHeight: viewportHeight)
         } else if providerNeedsKey {
             providerSetupState
                 .padding(.top, 88)
@@ -2073,6 +2088,12 @@ struct ChatPage: View {
             // cannot. The retry lives on the drawer's offline card.
             return "打开过的会话仍可查看上次同步的内容；连上后自动恢复，也可以在会话列表里点「重试」。"
         }
+    }
+
+    /// Case A only when the engine is really not coming: a start ended without one (a failure or
+    /// the user stopped it), or nothing tried to start it within a few seconds of opening.
+    private var showsEngineNotStarted: Bool {
+        !model.isStarted && !model.busy && (model.engineStartAttempts > 0 || engineLaunchGraceOver)
     }
 
     /// A:引擎还没启动。标题 + 说明 + 黑色主按钮,左右按内容边距 20 撑满。

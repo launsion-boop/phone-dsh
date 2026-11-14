@@ -35,7 +35,7 @@ iOS 端已实现 §2 的分类器、§4.2 的求值器、§3 的调用路径与�
 
 否则整个工具是 `agent_only`。
 
-**属性 → 编辑器。** 属性 schema 的成员集合必须**恰好**是下表某一行，多一个成员（包括 `description`）就不受支持：
+**属性 → 编辑器。** 属性 schema 的成员集合去掉可选的 `title` 后必须**恰好**是下表某一行，多一个成员（包括 `description`）就不受支持：
 
 | 属性 schema | 编辑器 | 条件 |
 | --- | --- | --- |
@@ -44,9 +44,12 @@ iOS 端已实现 §2 的分类器、§4.2 的求值器、§3 的调用路径与�
 | `{type: "number", minimum, maximum}` | `slider`，`integer: false` | 两个界都是有限数，`minimum < maximum` |
 | `{type: "string", enum}` | `picker` | 1–32 个互不相同的字符串，每个 1–64 个 Unicode 标量值 |
 
+- `title`（JSON Schema 的标准关键字）是编辑器的显示名：1–20 个 Unicode 标量值的字符串，不含 U+0000–U+001F 与 U+007F；
+  存在但不满足这些条件时，该属性不受支持。没有 `title` 时显示参数名。`title` 只影响显示，请求里仍用参数名。
 - 必填属性不受支持时，整个工具是 `agent_only`。
 - 可选属性不受支持时，该属性没有编辑器，面板永远不发送它；工具仍可渲染。
-- 编辑器按参数名的 Unicode 码位升序排列（JSON 对象成员顺序不可移植）。工具按 `tools/list` 的数组顺序排列。
+- 必填参数的编辑器在前，可选的在后；每组内按参数名的 Unicode 码位升序排列（JSON 对象成员顺序不可移植）。
+  工具按 `tools/list` 的数组顺序排列。
 - 没有属性的工具是 `editors` 且列表为空：只有一个发送动作，参数是 `{}`。
 
 **编辑器是参数输入，不是设备状态。** 宿主无法从工具表得知一个工具是否只读，也无法得知两个工具之间的关系：
@@ -138,7 +141,7 @@ Agent 不会被告知面板操作，它要了解设备状态只能自己调用�
 - `tool` 不在 `tools` 中 → `tool_not_advertised`。
 - 没有 `preset`：该工具的 §2 分类不是 `editors` → `tool_not_supported`。
 - 有 `preset`：
-  - 工具的 `inputSchema` 不满足 §2 的根形式，或有属性 schema 用了 `type`、`enum`、`minimum`、`maximum` 之外的成员，
+  - 工具的 `inputSchema` 不满足 §2 的根形式，或有属性 schema 用了 `type`、`enum`、`minimum`、`maximum`、`title` 之外的成员（`title` 不参与预设校验），
     或 `type` 不是 `boolean`、`integer`、`number`、`string`、`object` 之一，或 `enum` 不是数组，
     或 `minimum`／`maximum` 出现在非数值类型上或不是有限数 → `tool_not_supported`。
   - `preset` 有 `properties` 之外的成员，缺少 `required` 的成员，或某个值不满足其属性的 `type`、`enum`、

@@ -403,6 +403,10 @@ targets:
       # production presentation source is compiled into this test module too.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
       - path: PhoneDSHProbe/DailyBriefModel.swift
+      # PhoneDSHSimTests/NativeStreamDraftTests needs it here too (parity with PhoneDSHSimTests).
+      - path: PhoneDSHProbe/NativeStreamDraftStore.swift
+      # PhoneDSHSimTests/DSHApprovalMemoryTests needs it here too (parity with PhoneDSHSimTests).
+      - path: PhoneDSHProbe/DSHApprovalMemory.swift
       # NativeConversationModels / NativeTranscriptProjector moved into
       # ProbeKit/Transcript, and the perf helpers into ProbeKit/Perf;
       # the test targets import ProbeKit instead.

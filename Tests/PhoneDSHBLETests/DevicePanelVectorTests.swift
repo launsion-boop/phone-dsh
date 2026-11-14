@@ -29,13 +29,13 @@ final class DevicePanelVectorTests: XCTestCase {
 
     private func mappingRows() throws -> [JSONValue] {
         let rows = try rows("device-panel-mapping.jsonl")
-        XCTAssertEqual(rows.count, 36, "device-panel-mapping.jsonl must hold 36 vectors")
+        XCTAssertEqual(rows.count, 44, "device-panel-mapping.jsonl must hold 44 vectors")
         return rows
     }
 
     private func descriptorRows() throws -> [JSONValue] {
         let rows = try rows("device-panel-descriptor-cases.jsonl")
-        XCTAssertEqual(rows.count, 59, "device-panel-descriptor-cases.jsonl must hold 59 vectors")
+        XCTAssertEqual(rows.count, 62, "device-panel-descriptor-cases.jsonl must hold 62 vectors")
         return rows
     }
 
@@ -50,7 +50,9 @@ final class DevicePanelVectorTests: XCTestCase {
     }
 
     private static func vectorEditor(_ value: JSONValue) -> VectorEditor? {
-        guard case .object(let object) = value,
+        guard case .object(var object) = value else { return nil }
+        object.removeValue(forKey: "title")   // compared separately (devicePanelEditorTitles)
+        guard
               case .string(let arg)? = object["arg"],
               case .string(let kind)? = object["kind"],
               case .bool(let required)? = object["required"] else { return nil }
@@ -121,6 +123,14 @@ final class DevicePanelVectorTests: XCTestCase {
             let actual = editors.map(vectorEditor)
             guard actual == expected else {
                 return "\(name): editors \(actual) != expected \(expected)"
+            }
+            var expectedTitles: [String: String] = [:]
+            for value in expectedEditorValues {
+                if case .string(let arg)? = value["arg"], case .string(let title)? = value["title"] { expectedTitles[arg] = title }
+            }
+            let titles = devicePanelEditorTitles(inputSchema: inputSchema)
+            guard titles == expectedTitles else {
+                return "\(name): titles \(titles) != expected \(expectedTitles)"
             }
             return nil
         default:
@@ -194,7 +204,7 @@ final class DevicePanelVectorTests: XCTestCase {
 
     func testEveryMappingVectorMatchesTheRealClassifier() throws {
         let vectors = try mappingRows()
-        XCTAssertEqual(vectors.count, 36)
+        XCTAssertEqual(vectors.count, 44)
         for row in vectors {
             let name = row["name"]?.stringValue ?? "<unnamed>"
             XCTAssertNil(Self.mappingMismatch(row), name)
@@ -216,7 +226,7 @@ final class DevicePanelVectorTests: XCTestCase {
 
     func testEveryDescriptorVectorMatchesTheRealEvaluator() throws {
         let vectors = try descriptorRows()
-        XCTAssertEqual(vectors.count, 59)
+        XCTAssertEqual(vectors.count, 62)
         for row in vectors {
             let name = row["name"]?.stringValue ?? "<unnamed>"
             XCTAssertNil(Self.descriptorMismatch(row), name)
@@ -249,16 +259,31 @@ final class DevicePanelVectorTests: XCTestCase {
         // 3. Flip one field of a real expected editor: the full-list comparison
         //    must notice, not just the render name.
         let sortedRow = try XCTUnwrap(mapping.first {
-            $0["name"]?.stringValue == "editors_sorted_by_arg"
+            $0["name"]?.stringValue == "editors_required_first_then_by_arg"
         })
         var sortedObject = try XCTUnwrap(sortedRow.objectValue)
         var editorValues = try XCTUnwrap(sortedObject["editors"]?.arrayValue)
-        var slider = try XCTUnwrap(editorValues[1].objectValue)
+        var slider = try XCTUnwrap(editorValues[0].objectValue)
         XCTAssertEqual(slider["kind"]?.stringValue, "slider")
         slider["min"] = .number(1)
-        editorValues[1] = .object(slider)
+        editorValues[0] = .object(slider)
         sortedObject["editors"] = .array(editorValues)
         XCTAssertNotNil(Self.mappingMismatch(.object(sortedObject)))
+
+        // 3b. Swap the order (required first) and drop a title: both must be noticed.
+        var swapped = try XCTUnwrap(sortedRow.objectValue)
+        var swappedEditors = try XCTUnwrap(swapped["editors"]?.arrayValue)
+        swappedEditors.swapAt(0, 1)
+        swapped["editors"] = .array(swappedEditors)
+        XCTAssertNotNil(Self.mappingMismatch(.object(swapped)))
+        let titledRow = try XCTUnwrap(mapping.first { $0["name"]?.stringValue == "title_labels_every_editor_kind" })
+        var titled = try XCTUnwrap(titledRow.objectValue)
+        var titledEditors = try XCTUnwrap(titled["editors"]?.arrayValue)
+        var first = try XCTUnwrap(titledEditors[0].objectValue)
+        first.removeValue(forKey: "title")
+        titledEditors[0] = .object(first)
+        titled["editors"] = .array(titledEditors)
+        XCTAssertNotNil(Self.mappingMismatch(.object(titled)))
 
         // 4. Flip a real `ok` descriptor row's expected result.
         let okRow = try XCTUnwrap(descriptor.first { $0["result"]?.stringValue == "ok" })

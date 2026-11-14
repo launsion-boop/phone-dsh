@@ -3,11 +3,25 @@
   "title": "Device panel inputSchema-to-editor mapping vector (device-panel.md §2)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["name", "input_schema", "render", "editors"],
+  "required": [
+    "name",
+    "input_schema",
+    "render",
+    "editors"
+  ],
   "properties": {
-    "name": {"type": "string", "pattern": "[a-z0-9_]+"},
+    "name": {
+      "type": "string",
+      "pattern": "[a-z0-9_]+"
+    },
     "input_schema": {},
-    "render": {"type": "string", "enum": ["editors", "agent_only"]},
+    "render": {
+      "type": "string",
+      "enum": [
+        "editors",
+        "agent_only"
+      ]
+    },
     "editors": {
       "type": "array",
       "items": {
@@ -15,35 +29,102 @@
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["arg", "kind", "required"],
+            "required": [
+              "arg",
+              "kind",
+              "required"
+            ],
             "properties": {
-              "arg": {"type": "string"},
-              "kind": {"type": "string", "const": "toggle"},
-              "required": {"type": "boolean"}
+              "arg": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "const": "toggle"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              }
             }
           },
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["arg", "kind", "required", "integer", "min", "max"],
+            "required": [
+              "arg",
+              "kind",
+              "required",
+              "integer",
+              "min",
+              "max"
+            ],
             "properties": {
-              "arg": {"type": "string"},
-              "kind": {"type": "string", "const": "slider"},
-              "required": {"type": "boolean"},
-              "integer": {"type": "boolean"},
-              "min": {"type": "number"},
-              "max": {"type": "number"}
+              "arg": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "const": "slider"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "integer": {
+                "type": "boolean"
+              },
+              "min": {
+                "type": "number"
+              },
+              "max": {
+                "type": "number"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              }
             }
           },
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["arg", "kind", "required", "options"],
+            "required": [
+              "arg",
+              "kind",
+              "required",
+              "options"
+            ],
             "properties": {
-              "arg": {"type": "string"},
-              "kind": {"type": "string", "const": "picker"},
-              "required": {"type": "boolean"},
-              "options": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"type": "string", "minLength": 1, "maxLength": 64}}
+              "arg": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "const": "picker"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "options": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 32,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                }
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              }
             }
           }
         ]
