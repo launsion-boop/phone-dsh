@@ -68,6 +68,43 @@ final class BotProjectionReadCacheTests: XCTestCase {
         try await domain.close()
     }
 
+    func testUnlistableSessionDirectoryFailsTheReadWithoutClearingHistory() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sessionDirectory = directory
+            .appendingPathComponent("materialized/home/sessions/main", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let url = sessionDirectory.appendingPathComponent("session.v1.jsonl")
+        try record(1).write(to: url)
+        let domain = try SQLiteDomainStore(fileURL: directory.appendingPathComponent("domain.sqlite"))
+        let environment = BotProductionEnvironment(
+            domain: domain, botID: "main", sessionID: "main",
+            routineMachine: RoutineMachine(store: SQLiteRoutineStore(domainStore: domain)),
+            memory: BotMemory(store: SQLiteBotMemoryDocumentStore(eventLog: domain, botID: "main"), botID: "main"),
+            grants: BotGrantStore(domainStore: domain), sessionLogURL: url, workspaceRoot: directory)
+        let service = BotProductionRowService(environment: environment)
+        let first = try await service.watch(after: 0)
+        XCTAssertEqual(first.rows.count, 1)
+        XCTAssertEqual(first.rows.first?.body["text"], .string("answer"))
+        // Removing the whole session directory makes the rotation listing
+        // fail while the retained URL still names the file. That is a read
+        // failure: it must not silently delete the painted history rows.
+        try FileManager.default.removeItem(at: sessionDirectory)
+        do {
+            _ = try await service.watch(after: first.cursor)
+            XCTFail("an unlistable session directory must report a read failure, not clear history")
+        } catch {}
+        // The log returns: the next watch re-reads it whole and reports the
+        // appended row on top of the retained history.
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try record(1).write(to: url)
+        try append(record(2, text: "after recovery"), to: url)
+        let recovered = try await service.watch(after: first.cursor)
+        XCTAssertEqual(recovered.rows.count, 1)
+        XCTAssertEqual(recovered.rows.first?.body["text"], .string("after recovery"))
+        try await domain.close()
+    }
+
     private func record(_ seq: Int, text: String = "answer") throws -> Data {
         let event = BotDSHSessionEvent(type: "assistant/message", seq: seq, time: Int64(seq),
             data: ["message": .object(["role": .string("assistant"),

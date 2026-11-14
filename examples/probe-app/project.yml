@@ -376,8 +376,6 @@ targets:
     sources:
       - path: PhoneDSHSimTests
       - path: PhoneDSHDeviceTests
-      - path: PhoneDSHProbe/DSHApprovalMemory.swift
-      - path: PhoneDSHProbe/NativeStreamDraftStore.swift
       # Keep the device twin at parity with PhoneDSHSimTests: each shared
       # production presentation source is compiled into this test module too.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
