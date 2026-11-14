@@ -96,24 +96,29 @@ public actor BotRemoteActionPlanner: BotUserActionPlanning {
             guard let option = card.choices.first(where: { $0.id == optionID }) else {
                 return .stale(reason: "unknown_option")
             }
-            let result = try await remote.sendUserMessage(
-                option.value, requestId: BotTurnOrigin.cardAnswerRequestId(nonce: action.nonce))
-            guard result.status == "completed" else {
-                return .rejected(reason: result.error ?? "turn_not_completed")
-            }
-            // The remote turn is a side effect outside the SQLite plan. Re-read the
-            // durable card state so a concurrent answer cannot commit twice.
-            if let latest = try await cardState(cardID) {
-                if latest.answeredOptionID != nil { return .stale(reason: "already_answered") }
-                if latest.dismissed { return .stale(reason: "card_dismissed") }
-            }
-            return try await acceptCard(
-                action, card: card, turnID: result.turnId,
+            // Commit the durable answer before the turn runs. The tap is then
+            // visible at once, a crash or a backgrounded app during the reply
+            // cannot lose it, and the dispatcher replaying this same nonce finds
+            // the recorded event instead of starting a second turn.
+            // `performAndRecord` writes the event and the action nonce in one
+            // transaction, so a replay or a concurrent second tap can never
+            // commit twice.
+            let plan = try await cardPlan(
+                action, card: card, turnID: nil,
                 extra: [
                     "optionID": .string(option.id),
                     "label": .string(option.label),
                     "value": .string(option.value),
                 ])
+            _ = try await store.performAndRecord(action: action, plan: plan)
+            // The turn is the delivery of the recorded choice, not the record
+            // itself: its result only updates the action status.
+            let result = try await remote.sendUserMessage(
+                option.value, requestId: BotTurnOrigin.cardAnswerRequestId(nonce: action.nonce))
+            guard result.status == "completed" else {
+                return .rejected(reason: result.error ?? "turn_not_completed")
+            }
+            return .commit(plan)
         case .cardDismiss:
             guard let cardID = action.cardID, !cardID.isEmpty else {
                 return .rejected(reason: "missing_card_id")
@@ -128,7 +133,7 @@ public actor BotRemoteActionPlanner: BotUserActionPlanning {
             if card.dismissed { return .stale(reason: "card_dismissed") }
             if card.expired { return .stale(reason: "card_expired") }
             try await enqueueDismissedCard(card)
-            return try await acceptCard(action, card: card, turnID: nil, extra: [:])
+            return .commit(try await cardPlan(action, card: card, turnID: nil, extra: [:]))
         case .approval:
             guard let approvalID = action.approvalID, let decision = action.decision,
                   let digest = action.digest else { return .rejected(reason: "invalid_approval") }
@@ -170,8 +175,12 @@ public actor BotRemoteActionPlanner: BotUserActionPlanning {
         return .commit(BotUserActionPlan(event: event))
     }
 
-    private func acceptCard(_ action: BotUserAction, card: CardState, turnID: String?,
-                            extra: [String: BotJSONValue]) async throws -> BotUserActionPlanOutcome {
+    /// The durable `card.answered` / `card.dismissed` event for one validated
+    /// card action. The caller decides when it is committed: a dismissal commits
+    /// it immediately, a card answer commits it *before* the turn it starts, so
+    /// the tap is durable even while the model reply is still streaming.
+    private func cardPlan(_ action: BotUserAction, card: CardState, turnID: String?,
+                          extra: [String: BotJSONValue]) async throws -> BotUserActionPlan {
         let sessionID: String?
         if let existing = card.sessionID {
             sessionID = existing
@@ -194,7 +203,7 @@ public actor BotRemoteActionPlanner: BotUserActionPlanning {
             principal: BotPrincipal(botId: botID, sessionId: sessionID, kind: "chat"),
             causationId: card.eventID, correlationId: action.nonce, turnId: turnID,
             data: .object(data))
-        return .commit(BotUserActionPlan(event: event))
+        return BotUserActionPlan(event: event)
     }
 
     private func enqueueDismissedCard(_ card: CardState) async throws {
@@ -210,49 +219,48 @@ public actor BotRemoteActionPlanner: BotUserActionPlanning {
     }
 
     private func cardState(_ id: String) async throws -> CardState? {
-        var cards: [String: CardState] = [:]
-        var open: [String] = []
+        var events: [BotEvent] = []
         var cursor = 0
         while true {
-            let events = try await store.events(after: cursor, limit: 500)
-            for event in events where event.principal.botId == nil || event.principal.botId == botID {
-                guard case .object(let data) = event.data else { continue }
-                switch event.type {
-                case "card.presented":
-                    let cardID = string(data["id"]) ?? string(data["rowID"]) ?? "e-ui-\(event.eventId)"
-                    let card = object(data["card"]) ?? data
-                    let kind = string(data["cardType"]) ?? string(card["cardType"])
-                        ?? string(data["kind"]) ?? string(card["kind"])
-                    guard let kind, kind == "question" || kind == "steps" else { continue }
-                    for openID in open { cards[openID]?.expired = true }
-                    open.removeAll()
-                    let rawChoices = array(data[kind == "question" ? "options" : "steps"])
-                        ?? array(card[kind == "question" ? "options" : "steps"]) ?? []
-                    let choices = rawChoices.compactMap(choice)
-                    cards[cardID] = CardState(
-                        id: cardID, kind: kind,
-                        title: string(data["question"]) ?? string(card["question"])
-                            ?? string(data["title"]) ?? string(card["title"]),
-                        choices: choices, sessionID: event.principal.sessionId,
-                        eventID: event.eventId, answeredOptionID: nil,
-                        dismissed: false, expired: false)
-                    open.append(cardID)
-                case "card.answered":
-                    guard let cardID = string(data["cardID"]), var card = cards[cardID] else { continue }
-                    card.answeredOptionID = string(data["optionID"])
-                    cards[cardID] = card
-                    open.removeAll { $0 == cardID }
-                case "card.dismissed":
-                    guard let cardID = string(data["cardID"]), var card = cards[cardID] else { continue }
-                    card.dismissed = true
-                    cards[cardID] = card
-                    open.removeAll { $0 == cardID }
-                default:
-                    continue
-                }
-            }
-            guard events.count == 500, let last = events.last?.commitSeq else { break }
+            let page = try await store.events(after: cursor, limit: 500)
+            events.append(contentsOf: page)
+            guard page.count == 500, let last = page.last?.commitSeq else { break }
             cursor = last
+        }
+        // One staleness truth: the projection paints the older row from this
+        // same function, so a card that looks active here is the card the UI
+        // drew as active.
+        let superseded = BotChoiceCardStaleness.supersededCards(in: events, botID: botID)
+        var cards: [String: CardState] = [:]
+        for event in events where event.principal.botId == nil || event.principal.botId == botID {
+            guard case .object(let data) = event.data else { continue }
+            switch event.type {
+            case "card.presented":
+                guard let cardID = BotChoiceCardStaleness.cardIdentity(data, eventID: event.eventId),
+                      let kind = BotChoiceCardStaleness.cardKind(data),
+                      BotChoiceCardStaleness.choiceKinds.contains(kind) else { continue }
+                let card = object(data["card"]) ?? data
+                let rawChoices = array(data[kind == "question" ? "options" : "steps"])
+                    ?? array(card[kind == "question" ? "options" : "steps"]) ?? []
+                let choices = rawChoices.compactMap(choice)
+                cards[cardID] = CardState(
+                    id: cardID, kind: kind,
+                    title: string(data["question"]) ?? string(card["question"])
+                        ?? string(data["title"]) ?? string(card["title"]),
+                    choices: choices, sessionID: event.principal.sessionId,
+                    eventID: event.eventId, answeredOptionID: nil,
+                    dismissed: false, expired: superseded[cardID] != nil)
+            case "card.answered":
+                guard let cardID = string(data["cardID"]), var card = cards[cardID] else { continue }
+                card.answeredOptionID = string(data["optionID"])
+                cards[cardID] = card
+            case "card.dismissed":
+                guard let cardID = string(data["cardID"]), var card = cards[cardID] else { continue }
+                card.dismissed = true
+                cards[cardID] = card
+            default:
+                continue
+            }
         }
         return cards[id]
     }

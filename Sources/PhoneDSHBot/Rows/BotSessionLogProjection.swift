@@ -286,6 +286,68 @@ public struct BotSessionEpochProjection: Sendable, Equatable {
     }
 }
 
+/// The one question/steps staleness rule (`spec/bot/v1/README.md`, P27).
+///
+/// A choice card is stale the moment a newer question or steps card is
+/// presented in the same Bot stream, and it stays stale even when the newer
+/// card is answered or dismissed. This function is the single implementation of
+/// that rule: the row projection paints the older card `status:"superseded"`
+/// from it and the action planner refuses the same card with `card_expired`, so
+/// the greyed-out card and the refusal cannot disagree.
+public enum BotChoiceCardStaleness {
+    /// The card kinds this rule applies to. Approvals, checklists and content
+    /// cards are never superseded by a newer card.
+    public static let choiceKinds: Set<String> = ["question", "steps"]
+
+    /// `cardID -> the newer cardID that superseded it`, for every choice card
+    /// that was still open when a newer choice card was presented.
+    ///
+    /// Events are ordered by `commitSeq` (then `time`, then `eventId`), the same
+    /// order the projection applies them in. A card that was answered or
+    /// dismissed *before* the newer card appeared was already closed and is not
+    /// reported; a card answered afterwards is still stale, because the
+    /// planner would have refused that answer.
+    public static func supersededCards(in events: [BotEvent], botID: String) -> [String: String] {
+        var superseded: [String: String] = [:]
+        var open: [String] = []
+        for event in events.sorted(by: stableUIEventOrder) {
+            guard event.principal.botId == nil || event.principal.botId == botID,
+                  let data = objectValue(event.data) else { continue }
+            switch event.type {
+            case "card.presented":
+                guard let cardID = cardIdentity(data, eventID: event.eventId),
+                      let kind = cardKind(data), choiceKinds.contains(kind) else { continue }
+                for openID in open { superseded[openID] = cardID }
+                open = [cardID]
+            case "card.answered", "card.dismissed":
+                guard let cardID = nonEmpty(data, "cardID") else { continue }
+                open.removeAll { $0 == cardID }
+            default:
+                continue
+            }
+        }
+        return superseded
+    }
+
+    /// The host-owned id of the card a `card.presented` event announces. The
+    /// card payload is flattened at the top level (`card.presented` adds `id`),
+    /// so this is the id the projection puts on the row and the id a later
+    /// `card.answered` / `card.dismissed` names.
+    static func cardIdentity(_ data: [String: BotJSONValue], eventID: String) -> String? {
+        let card = objectValue(data["card"]) ?? [:]
+        return nonEmpty(data, "id") ?? nonEmpty(data, "rowID")
+            ?? nonEmpty(card, "id") ?? nonEmpty(card, "rowID")
+            ?? "e-ui-\(eventID)"
+    }
+
+    /// The card kind from the same members the planner reads.
+    static func cardKind(_ data: [String: BotJSONValue]) -> String? {
+        let card = objectValue(data["card"]) ?? [:]
+        return nonEmpty(data, "cardType") ?? nonEmpty(card, "cardType")
+            ?? nonEmpty(data, "kind") ?? nonEmpty(card, "kind")
+    }
+}
+
 public struct BotSessionLogProjector: Sendable {
     public init() {}
 
@@ -564,6 +626,7 @@ public struct BotSessionLogProjector: Sendable {
         var result: [BotRowMutation] = []
         var seenEventIDs: Set<String> = []
         let (answeredCards, dismissedCards) = cardOutcomes(botID: botID, events: events)
+        let supersededCards = BotChoiceCardStaleness.supersededCards(in: events, botID: botID)
         for (index, event) in events.sorted(by: stableUIEventOrder).enumerated() {
             // A physically erased payload must not be projected back into a
             // row: the header/digest stay, the content does not.
@@ -601,9 +664,15 @@ public struct BotSessionLogProjector: Sendable {
             if event.type == "card.presented" {
                 // A closed card is locally hidden and must stay hidden after a cache rebuild.
                 if dismissedCards.contains(id) { continue }
+                // An answer recorded before a newer choice card appeared keeps
+                // its answered state; every other card that a newer choice card
+                // replaced is projected as superseded and cannot be tapped.
                 if let optionID = answeredCards[id] {
                     payload["status"] = .string("answered")
                     payload["answeredOptionID"] = .string(optionID)
+                } else if let newer = supersededCards[id] {
+                    payload["status"] = .string("superseded")
+                    payload["supersededBy"] = .string(newer)
                 }
             }
             var kind: BotRowKind = .sendMessage
@@ -999,7 +1068,22 @@ private func isApprovalTool(_ name: String) -> Bool {
 
 private func chatActionNonce(_ source: [String: BotJSONValue]?) -> String? {
     guard stringValue(source?["kind"]) == "user" else { return nil }
-    return BotTurnOrigin.userActionNonce(from: stringValue(source?["rpcId"]))
+    let rpcId = stringValue(source?["rpcId"])
+    return BotTurnOrigin.userActionNonce(from: rpcId) ?? cardAnswerActionNonce(rpcId)
+}
+
+/// A card tap is the user's action too: the option value is sent as an ordinary
+/// chat message whose request id carries the frozen `card-answer:<nonce>` origin
+/// (`spec/bot/v1/README.md` §4.1). Projecting that nonce lets the transcript
+/// retire the local `local-<nonce>` echo of the tapped option with the same rule
+/// it already uses for a typed message, so the choice never appears twice.
+private func cardAnswerActionNonce(_ rpcId: String?) -> String? {
+    guard let rpcId, rpcId.hasPrefix("card-answer:") else { return nil }
+    let nonce = String(rpcId.dropFirst("card-answer:".count))
+    guard nonce.unicodeScalars.contains(where: {
+        !CharacterSet.whitespacesAndNewlines.contains($0)
+    }) else { return nil }
+    return nonce
 }
 
 private func approvalStatus(_ text: String) -> String {
