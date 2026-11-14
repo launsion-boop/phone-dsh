@@ -451,11 +451,18 @@ final class ChatModel {
     /// again through `loadEarlierTranscript`.
     static let maximumTranscriptItems = 600
     private(set) var items: [ChatItem] = [] {
-        didSet { itemsRevision &+= 1 }
+        didSet {
+            itemsRevision &+= 1
+            if !applyingStreamChunks { transcriptStructureRevision &+= 1 }
+        }
     }
     /// Monotonic transcript revision. The timeline cache keys on this instead
     /// of re-filtering/grouping `items` in every view body.
     private(set) var itemsRevision = 0
+    /// Only the stream drain may promise that all preceding rows are intact.
+    /// Every other mutation invalidates the timeline's incremental fast path.
+    private(set) var transcriptStructureRevision = 0
+    @ObservationIgnored private var applyingStreamChunks = false
     private(set) var transcriptHasMore = false
     private(set) var transcriptError: String?
     private(set) var trajectoryEntries: [NativeTrajectoryEntry] = []
@@ -4767,11 +4774,14 @@ final class ChatModel {
         case .assistantDelta(let text):
             recordLatency("first-assistant", event: event, once: true)
             clearSendingLabels()
-            finishStreamingReasoning()
             if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
                 streamAccumulator.append(text, to: items[index].id)
                 scheduleStreamingFlush()
             } else {
+                // Closing reasoning is a transition, not a per-token action:
+                // it drains the shared accumulator, so calling it above the
+                // fast path publishes the preceding assistant token early.
+                finishStreamingReasoning()
                 var item = ChatItem(id: eventItemID(event), kind: .assistant,
                                     title: "Assistant", text: "", streaming: true)
                 item.timestamp = event.time
@@ -5067,7 +5077,9 @@ final class ChatModel {
         }
         // Mutate the stored array in place: a `var next = items` copy makes the
         // buffer non-unique, so the first append copies the whole transcript.
+        applyingStreamChunks = chunks.allSatisfy { $0.itemID == items.last?.id }
         items.applyStreamChunks(chunks)
+        applyingStreamChunks = false
         MainThreadHangMonitor.mark("flushStreamingText.end")
         flushStreamDraft(immediately: false)
     }
@@ -5106,7 +5118,12 @@ final class ChatModel {
 
     private func scheduleStreamingFlush() {
         guard streamFlushTask == nil else { return }
-        let delay = resourceMeter.level.streamUpdateIntervalNanoseconds
+        // Remote execution still renders on this phone. Thermal/low-power
+        // pressure must cap the display even when no local host meter runs.
+        let constrained = ProcessInfo.processInfo.isLowPowerModeEnabled
+            || ProcessInfo.processInfo.thermalState != .nominal
+        let level = max(resourceMeter.level, constrained ? .yellow : .green)
+        let delay = level.streamUpdateIntervalNanoseconds
         streamFlushTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: delay)
             guard !Task.isCancelled, let self else { return }
@@ -5595,6 +5612,11 @@ final class ChatModel {
     /// 回复一旦开始流式输出,这条消息就已经送达:「发送中…」必须收掉,
     /// 否则它会一直挂在用户消息下面(线上反馈)。
     private func clearSendingLabels() {
+        // Even removeAll on an unchanged @Observable array invalidates its
+        // readers. Keep the composer quiet while text is only being buffered.
+        guard queueLineOrder.contains(where: {
+            queueLines[$0] == .sending || queueLines[$0] == nil
+        }) else { return }
         for id in queueLineOrder where queueLines[id] == .sending {
             queueLines[id] = nil
             queueLineRequests[id] = nil
@@ -5877,6 +5899,11 @@ final class ChatModel {
 
 #if DEBUG
 extension ChatModel {
+    /// Drives the production reducer without a host, relay or model request.
+    func debugHandleHarnessEvent(_ event: HarnessEvent) {
+        handle(event)
+    }
+
     /// Preview-only: park a message state that normally comes from a live turn
     /// so the failure and queued screens can be reviewed without a model.
     func debugInstallPreviewState(failedItemID itemID: String?, error: String?, queue: [String: String]) {

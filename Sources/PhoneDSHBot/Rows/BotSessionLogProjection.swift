@@ -233,7 +233,7 @@ public struct BotRowProjectionSnapshot: Sendable, Equatable {
     }
 }
 
-private struct BotRowOrder: Comparable {
+private struct BotRowOrder: Comparable, Sendable {
     var time: Int64
     var source: Int
     var sourceSeq: Int
@@ -247,7 +247,7 @@ private struct BotRowOrder: Comparable {
     }
 }
 
-private struct BotRowDraft {
+private struct BotRowDraft: Sendable {
     var id: String
     var seq: Int
     var kind: BotRowKind
@@ -258,7 +258,7 @@ private struct BotRowDraft {
     var chatActionNonce: String? = nil
 }
 
-private enum BotRowMutation {
+private enum BotRowMutation: Sendable {
     case upsert(BotRowDraft, BotRowOrder)
     case delete(String, BotRowDraft, BotRowOrder)
 
@@ -348,6 +348,18 @@ public enum BotChoiceCardStaleness {
     }
 }
 
+private struct BotDSHProjectionState: Sendable {
+    var turn = 0
+    var hiddenTurns: Set<Int> = []
+    var hiddenFallback = false
+    var awaitingCard = false
+    var suppressTrailingText = false
+    var toolNames: [String: String] = [:]
+    var toolFinals: [String: Bool] = [:]
+    var calls: [String: (name: String, rowID: String, body: BotRowBody)] = [:]
+    var seenEventIDs: Set<String> = []
+}
+
 public struct BotSessionLogProjector: Sendable {
     public init() {}
 
@@ -387,6 +399,63 @@ public struct BotSessionLogProjector: Sendable {
         return apply(mutations, botID: botID)
     }
 
+    /// Internal, disposable acceleration for BotRowHistory. The public pure
+    /// projector remains the rebuild oracle. Non-append edits and attribution
+    /// changes invalidate a whole epoch; ordinary appends reduce only its tail.
+    struct IncrementalCache: Sendable {
+        fileprivate struct Epoch: Sendable {
+            var source: Int
+            var events: [BotDSHSessionEvent] = []
+            var held: [Int: String] = [:]
+            var requestNonces: [String: String] = [:]
+            var state = BotDSHProjectionState()
+            var mutations: [BotRowMutation] = []
+        }
+        fileprivate var botID: String?
+        fileprivate var epochs: [String: Epoch] = [:]
+        fileprivate(set) var processedEvents = 0
+    }
+
+    func project(botID: String, epochs: [BotSessionEpochProjection],
+                 uiEvents: [BotEvent], heldRequestNonces: [String: String],
+                 cache: inout IncrementalCache) -> BotRowProjectionSnapshot {
+        if cache.botID != botID {
+            cache = IncrementalCache()
+            cache.botID = botID
+        }
+        let active = Set(epochs.map(\.sessionID))
+        cache.epochs = cache.epochs.filter { active.contains($0.key) }
+        var mutations: [BotRowMutation] = []
+        for (source, epoch) in epochs.enumerated() {
+            let held = heldActionNonces(botID: botID, sessionID: epoch.sessionID,
+                                        sessionEvents: epoch.events, uiEvents: uiEvents)
+            var previous = cache.epochs[epoch.sessionID] ?? IncrementalCache.Epoch(source: source)
+            if previous.source != source || previous.held != held
+                || previous.requestNonces != heldRequestNonces
+                || previous.events.count > epoch.events.count
+                || !epoch.events.prefix(previous.events.count).elementsEqual(previous.events) {
+                previous = IncrementalCache.Epoch(source: source)
+            }
+            let suffix = Array(epoch.events.dropFirst(previous.events.count))
+            previous.mutations.append(contentsOf: projectDSH(
+                botID: botID, sessionID: epoch.sessionID, events: suffix,
+                heldActionNonces: held, heldRequestNonces: heldRequestNonces, source: source,
+                state: &previous.state, startIndex: previous.events.count))
+            cache.processedEvents += suffix.count
+            previous.events = epoch.events
+            previous.held = held
+            previous.requestNonces = heldRequestNonces
+            mutations.append(contentsOf: previous.mutations)
+            cache.epochs[epoch.sessionID] = previous
+        }
+        // UI outcomes can revise an earlier card, so this compact overlay is
+        // intentionally reprojected against the canonical full UI event set.
+        mutations.append(contentsOf: projectUI(botID: botID, events: uiEvents,
+                                               source: max(1, epochs.count)))
+        mutations.sort { $0.order < $1.order }
+        return apply(mutations, botID: botID)
+    }
+
     private func heldActionNonces(botID: String, sessionID: String,
                                   sessionEvents: [BotDSHSessionEvent], uiEvents: [BotEvent]) -> [Int: String] {
         let directNonces = Set(sessionEvents.compactMap { event -> String? in
@@ -411,6 +480,16 @@ public struct BotSessionLogProjector: Sendable {
     private func projectDSH(botID: String, sessionID: String, events: [BotDSHSessionEvent],
                             heldActionNonces: [Int: String], heldRequestNonces: [String: String],
                             source: Int) -> [BotRowMutation] {
+        var state = BotDSHProjectionState()
+        return projectDSH(botID: botID, sessionID: sessionID, events: events,
+                          heldActionNonces: heldActionNonces, heldRequestNonces: heldRequestNonces,
+                          source: source, state: &state, startIndex: 0)
+    }
+
+    private func projectDSH(botID: String, sessionID: String, events: [BotDSHSessionEvent],
+                            heldActionNonces: [Int: String], heldRequestNonces: [String: String],
+                            source: Int, state: inout BotDSHProjectionState,
+                            startIndex: Int) -> [BotRowMutation] {
         let ignored: Set<String> = [
             "session", "permission/preset", "sandbox/mode", "approval/policy",
             "system/message", "developer/message", "agent/inbox/spliced",
@@ -420,17 +499,24 @@ public struct BotSessionLogProjector: Sendable {
             "step/start", "step/end", "turn/start", "assistant/stream"
         ]
         var result: [BotRowMutation] = []
-        var turn = 0
-        var hiddenTurns: Set<Int> = []
-        var hiddenFallback = false
-        var awaitingCard = false
-        var suppressTrailingText = false
-        var toolNames: [String: String] = [:]
-        var toolFinals: [String: Bool] = [:]
-        var calls: [String: (name: String, rowID: String, body: BotRowBody)] = [:]
-        var seenEventIDs: Set<String> = []
+        var turn = state.turn
+        var hiddenTurns = state.hiddenTurns
+        var hiddenFallback = state.hiddenFallback
+        var awaitingCard = state.awaitingCard
+        var suppressTrailingText = state.suppressTrailingText
+        var toolNames = state.toolNames
+        var toolFinals = state.toolFinals
+        var calls = state.calls
+        var seenEventIDs = state.seenEventIDs
+        defer {
+            state = BotDSHProjectionState(turn: turn, hiddenTurns: hiddenTurns,
+                hiddenFallback: hiddenFallback, awaitingCard: awaitingCard,
+                suppressTrailingText: suppressTrailingText, toolNames: toolNames,
+                toolFinals: toolFinals, calls: calls, seenEventIDs: seenEventIDs)
+        }
 
-        for (index, event) in events.enumerated() {
+        for (relativeIndex, event) in events.enumerated() {
+            let index = startIndex + relativeIndex
             if let eventID = event.eventID, !seenEventIDs.insert(eventID).inserted { continue }
             let order = BotRowOrder(time: event.time, source: source, sourceSeq: event.seq, index: index)
             if event.type == "turn/start" {
@@ -893,6 +979,21 @@ public struct BotSessionLogProjector: Sendable {
 public actor BotRowHistory {
     private var snapshot: BotRowProjectionSnapshot
     private let projector: BotSessionLogProjector
+    private var projectionCache = BotSessionLogProjector.IncrementalCache()
+    private var projectionCacheExpiry: Task<Void, Never>?
+
+    private func keepProjectionCacheWarm() {
+        projectionCacheExpiry?.cancel()
+        projectionCacheExpiry = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            await self?.expireProjectionCache()
+        }
+    }
+
+    private func expireProjectionCache() {
+        projectionCache = BotSessionLogProjector.IncrementalCache()
+        projectionCacheExpiry = nil
+    }
 
     public init(snapshot: BotRowProjectionSnapshot = .empty, projector: BotSessionLogProjector = BotSessionLogProjector()) {
         self.snapshot = snapshot
@@ -916,9 +1017,11 @@ public actor BotRowHistory {
     @discardableResult
     public func rebuild(botID: String, epochs: [BotSessionEpochProjection],
                         uiEvents: [BotEvent], heldRequestNonces: [String: String] = [:]) throws -> BotRowBatch {
+        keepProjectionCacheWarm()
         let projected = projector.project(botID: botID, epochs: epochs,
                                           uiEvents: uiEvents,
-                                          heldRequestNonces: heldRequestNonces)
+                                          heldRequestNonces: heldRequestNonces,
+                                          cache: &projectionCache)
         snapshot = reconciled(projected)
         return resetBatch()
     }
@@ -928,6 +1031,7 @@ public actor BotRowHistory {
     }
 
     public func watch(after cursor: Int) -> BotRowBatch {
+        keepProjectionCacheWarm()
         if cursor <= 0 || cursor > snapshot.cursor { return resetBatch() }
         let selected = snapshot.changes.filter { $0.updatedSeq > cursor }
         var latest: [String: BotRowChange] = [:]
