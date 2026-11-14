@@ -152,97 +152,113 @@ enum BotRuntimePresentationFactory {
 
     private static func currentTurn(sessionID: String, events: [BotDSHSessionEvent]) -> (id: String, seq: Int)? {
         var current: (id: String, seq: Int)?
-        for event in events.sorted(by: { $0.seq < $1.seq }) {
+        for event in events.enumerated().sorted(by: { ($0.element.seq, $0.offset) < ($1.element.seq, $1.offset) }).map(\.element) {
             switch event.type {
             case "turn/start":
                 let id = event.data["turn"]?.runtimeString ?? event.data["turn"]?.runtimeInt.map(String.init)
                     ?? "\(sessionID):\(event.seq)"
                 current = (id, event.seq)
-            case "turn/end": current = nil
+            case "turn/end":
+                let ended = event.data["turn"]?.runtimeString ?? event.data["turn"]?.runtimeInt.map(String.init)
+                if ended == nil || ended == current?.id { current = nil }
             default: break
             }
         }
         return current
     }
 
-    /// The current phase of the running turn. Only the tail after the last
-    /// user message counts: a finished tool call becomes `reviewing` until a
-    /// new tool call or the next `step/start`, a stream hides the line, and a
-    /// hidden cosmetic tool (FishAction) never produces one at all.
+    /// Derive activity from the whole open turn. Every call participates in
+    /// correlation (including hidden calls); only visible in-flight work can
+    /// become the displayed action. Steering and step boundaries do not end it.
     private static func activity(turn: (id: String, seq: Int)?,
-                                 events: [BotDSHSessionEvent],
-                                 now: Int64) -> BotActivity? {
+                                 events: [BotDSHSessionEvent], now: Int64) -> BotActivity? {
         guard let turn else { return nil }
-        let active = events.filter { $0.seq >= turn.seq }
-        let lastUser = active.lastIndex(where: {
-            $0.type == "user/message" && $0.data["role"]?.runtimeString == "user"
-        }) ?? active.startIndex
-        let tail = Array(active[lastUser...])
-        let lastStep = tail.lastIndex(where: { $0.type == "step/start" })
-        let lastCall = tail.lastIndex(where: { $0.type == "tool/call" })
-        let lastStream = tail.lastIndex(where: { $0.type == "assistant/stream" })
-
-        // The latest phase is a tool call (no newer step yet).
-        if let lastCall, lastStep == nil || lastCall > lastStep! {
-            // A stream that starts after the latest call means the body is
-            // visible; keep the existing rule and hide the line.
-            if let lastStream, lastStream > lastCall { return nil }
-            let call = tail[lastCall]
-            let name = call.data["name"]?.runtimeString ?? ""
-            // FishAction is cosmetic and hidden from process rows; it must not
-            // become the visible activity line or leak its tool name into the
-            // sidebar's status text. The director still plays its reaction.
-            guard BotDisplayContract.isToolCallVisible(named: name) else { return nil }
-            let arguments = toolArguments(call.data["arguments"])
-            let startedAt = max(0, call.time) > 0 ? call.time : now
-            if let result = matchingResult(after: lastCall, in: tail) {
-                return BotActivity(
-                    status: .toolRunning,
-                    detail: BotActivityPhrases.reviewingText(forToolNamed: name,
-                                                             arguments: arguments),
-                    category: .reviewing,
-                    startedAt: max(0, tail[result].time) > 0 ? tail[result].time : startedAt)
+        let tail = events.enumerated().filter { $0.element.seq >= turn.seq }
+            .sorted { ($0.element.seq, $0.offset) < ($1.element.seq, $1.offset) }
+            .map(\.element).filter { event in
+                let id = event.data["turn"]?.runtimeString ?? event.data["turn"]?.runtimeInt.map(String.init)
+                return id == nil || id == turn.id
             }
-            let phrase = BotActivityPhrases.toolActivity(forToolNamed: name, arguments: arguments)
-            return BotActivity(status: .toolRunning, detail: phrase.text,
-                               category: phrase.category, startedAt: startedAt)
+        struct Call {
+            var id: String
+            var name: String
+            var arguments: [String: PhoneDSHBot.BotJSONValue]
+            var time: Int64
         }
-
-        // Streaming in the current step hides the line.
-        if let lastStream, lastStep == nil || lastStream > lastStep! { return nil }
-        // A new step without a tool call is back to thinking; the previous
-        // tool's "running" detail must not linger.
-        if let lastStep {
-            let startedAt = max(0, tail[lastStep].time) > 0 ? tail[lastStep].time : now
-            return BotActivity(status: .thinking, category: .thinking, startedAt: startedAt)
+        var pending: [Call] = []
+        var seenIDs = Set<String>()
+        var lastReturn: (call: Call, index: Int, failed: Bool, time: Int64)?
+        var phase: (index: Int, streaming: Bool, time: Int64)?
+        let startTime = max(0, tail.first?.time ?? 0)
+        for (index, event) in tail.enumerated() {
+            let time = max(0, event.time)
+            switch event.type {
+            case "tool/call":
+                let id = event.data["callId"]?.runtimeString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !id.isEmpty && !seenIDs.insert(id).inserted { continue }
+                pending.append(Call(id: id, name: event.data["name"]?.runtimeString ?? "",
+                                    arguments: toolArguments(event.data["arguments"]), time: time))
+            case "tool/result":
+                guard let id = toolResultCallID(event.data) else { continue }
+                let match = id.isEmpty ? (pending.count == 1 ? pending.startIndex : nil)
+                    : pending.firstIndex(where: { !$0.id.isEmpty && $0.id == id })
+                if let match {
+                    let call = pending.remove(at: match)
+                    if BotDisplayContract.isToolCallVisible(named: call.name) {
+                        let message = event.data["message"]?.runtimeObject ?? [:]
+                        lastReturn = (call, index, message["isError"]?.runtimeBool == true || event.data["error"]?.runtimeObject != nil, time)
+                    }
+                }
+            case "step/start": phase = (index, false, time)
+            case "assistant/stream", "assistant/message":
+                if visibleAssistantText(event.data) { phase = (index, true, time) }
+            default: break
+            }
         }
-        if lastStream != nil { return nil }
-        let start = active.first(where: { $0.seq == turn.seq })
-        let startedAt: Int64
-        if let start, start.time > 0 { startedAt = start.time } else { startedAt = now }
-        return BotActivity(status: .thinking, category: .thinking, startedAt: startedAt)
+        if let call = pending.last(where: { BotDisplayContract.isToolCallVisible(named: $0.name) }) {
+            let phrase = BotActivityEvidence.action(forToolNamed: call.name, arguments: call.arguments)
+            return BotActivity(status: .toolRunning,
+                               detail: phrase.text.isEmpty ? "等待操作结果" : phrase.text,
+                               category: phrase.category, startedAt: call.time)
+        }
+        if let phase, phase.streaming, phase.index > (lastReturn?.index ?? -1) {
+            return BotActivity(status: .streaming, detail: "正在回复", category: .replying, startedAt: phase.time)
+        }
+        if let result = lastReturn {
+            return BotActivity(status: .thinking,
+                               detail: BotActivityEvidence.resultText(forToolNamed: result.call.name, failed: result.failed),
+                               category: .reviewing, startedAt: (phase?.index ?? -1) > result.index ? phase!.time : result.time)
+        }
+        return BotActivity(status: .thinking, detail: "等待响应", category: .thinking,
+                           startedAt: phase?.time ?? startTime)
     }
 
-    /// The matching `tool/result` after `callIndex`, using the real event
-    /// shape (`message.toolCallId` / `source.callId`) with the older
-    /// `data.callId` as a fallback. Events from before call IDs were carried
-    /// still count as a result for the last call.
-    private static func matchingResult(after callIndex: Int,
-                                       in events: [BotDSHSessionEvent]) -> Int? {
-        let callID = events[callIndex].data["callId"]?.runtimeString ?? ""
-        for index in events.indices where index > callIndex {
-            guard events[index].type == "tool/result" else { continue }
-            let resultID = toolResultCallID(events[index].data)
-            if callID.isEmpty || resultID.isEmpty || resultID == callID { return index }
+    private static func visibleAssistantText(_ data: [String: PhoneDSHBot.BotJSONValue]) -> Bool {
+        if let channel = data["channel"]?.runtimeString, channel != "text" { return false }
+        if let text = data["text"]?.runtimeString, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        let content = data["message"]?.runtimeObject?["content"]
+        if let text = content?.runtimeString { return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard case .array(let parts)? = content else { return false }
+        return parts.contains { part in
+            guard let value = part.runtimeObject, value["type"]?.runtimeString == "text",
+                  let text = value["text"]?.runtimeString else { return false }
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-        return nil
     }
 
-    private static func toolResultCallID(_ data: [String: PhoneDSHBot.BotJSONValue]) -> String {
-        data["message"]?.runtimeObject?["toolCallId"]?.runtimeString
-            ?? data["callId"]?.runtimeString
-            ?? data["message"]?.runtimeObject?["source"]?.runtimeObject?["callId"]?.runtimeString
-            ?? ""
+    /// nil means invalid/conflicting correlation, "" means truly absent.
+    private static func toolResultCallID(_ data: [String: PhoneDSHBot.BotJSONValue]) -> String? {
+        let message = data["message"]?.runtimeObject ?? [:]
+        let values = [message["toolCallId"], data["callId"], message["source"]?.runtimeObject?["callId"]]
+        var ids = Set<String>()
+        for value in values {
+            guard let value, value != .null else { continue }
+            guard let raw = value.runtimeString else { return nil }
+            let id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !id.isEmpty { ids.insert(id) }
+        }
+        guard ids.count <= 1 else { return nil }
+        return ids.first ?? ""
     }
 
     private static func toolArguments(_ value: PhoneDSHBot.BotJSONValue?) -> [String: PhoneDSHBot.BotJSONValue] {
@@ -258,7 +274,7 @@ enum BotRuntimePresentationFactory {
 enum BotToolActivity {
     static func describe(name: String,
                          arguments: [String: PhoneDSHBot.BotJSONValue]) -> String {
-        BotActivityPhrases.toolActivity(forToolNamed: name, arguments: arguments).text
+        BotActivityEvidence.action(forToolNamed: name, arguments: arguments).text
     }
 }
 
@@ -368,5 +384,120 @@ struct BotLiveFishProjection {
         let kind = (reason["kind"]?.stringValue ?? reason["status"]?.stringValue ?? "")
             .lowercased()
         return ["error", "failed", "failure", "timeout", "timed_out"].contains(kind)
+    }
+}
+
+/// iOS evidence policy. The shared phrase table remains the legacy vocabulary
+/// for other clients; only semantic action fields can override it here.
+/// No raw reasoning, command, task prompt or business-summary text is displayed.
+enum BotActivityEvidence {
+    /// Only a purpose, never a file identifier or command, enters this label.
+    /// Metadata is deliberately not passed to the legacy target-suffix builder.
+    static func action(forToolNamed name: String,
+                       arguments: [String: PhoneDSHBot.BotJSONValue]) -> BotToolActivityPhrase {
+        let bare = BotActivityPhrases.bareToolName(name).lowercased()
+        var result = BotActivityPhrases.toolActivity(forToolNamed: name, arguments: [:])
+        let fallbacks: [String: String] = [
+            "bash": "执行当前操作", "read": "读取相关资料", "write": "保存处理结果",
+            "edit": "更新相关内容", "glob": "查找相关资料", "grep": "查找相关内容",
+            "web_search": "查找相关信息", "web_fetch": "查看网页内容",
+            "job_list": "查看任务进展", "job_output": "等待任务结果", "job_kill": "停止当前任务",
+            "todo_write": "整理待办事项", "create_goal": "确定处理目标",
+            "get_goal": "查看处理目标", "update_goal": "更新处理目标",
+            "updatememory": "更新记忆内容", "readmemory": "查阅相关记忆", "recallmemory": "查找相关记忆",
+            "task": "安排协作任务", "awaittask": "等待协作结果", "stopsubagent": "停止协作任务",
+            "sendtoagent": "联系协作助手", "createteammate": "创建协作助手",
+            "sendtouser": "发送回复", "send_to_user": "发送回复", "botvolatilecontext": "读取当前信息",
+            "show_attachment": "展示处理结果", "show_document": "展示整理结果",
+            "show_progress": "更新任务进度", "show_checklist": "整理检查清单", "show_link": "整理参考来源",
+        ]
+        result.text = fallbacks[bare] ?? (result.text.isEmpty ? "等待操作结果" : result.text)
+        if bare == "updateroutine" {
+            let actions = ["create": "创建例行安排", "update": "更新例行安排", "delete": "删除例行安排",
+                           "list": "查看例行安排", "get": "查看例行安排", "pause": "暂停例行安排", "resume": "恢复例行安排"]
+            result.text = actions[arguments["action"]?.runtimeString ?? ""] ?? "处理例行安排"
+        }
+        if bare == "web_search" {
+            var topic = arguments["query"]?.runtimeString
+            if topic == nil, case .array(let queries)? = arguments["queries"] {
+                topic = queries.compactMap { $0.runtimeString }.first
+            }
+            if let topic, let spoken = spokenIntent(topic), spoken.count <= 10 {
+                result.text = "查询" + spoken
+            }
+        }
+        let keys: [String]
+        switch bare {
+        case "bash": keys = ["description"]
+        case "task": keys = ["task_title", "description"]
+        default: keys = []
+        }
+        for key in keys {
+            guard let raw = arguments[key]?.runtimeString,
+                  let text = spokenIntent(raw) else { continue }
+            result.text = text
+            break
+        }
+        return result
+    }
+
+    /// Reject unsuitable prose instead of cutting a sentence into an ellipsis.
+    /// This is a display policy; original tool arguments are never rewritten.
+    static func spokenIntent(_ raw: String) -> String? {
+        let first = raw.components(separatedBy: .newlines).first ?? ""
+        let punctuation = CharacterSet(charactersIn: "。！？!?；;，,、.…")
+        let text = first.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: punctuation).trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasCJK = text.unicodeScalars.contains { (0x3400...0x9FFF).contains($0.value) }
+        let limit = hasCJK ? 16 : 48
+        guard !text.isEmpty, text.count <= limit,
+              text.split(whereSeparator: \.isWhitespace).count <= 7,
+              !text.unicodeScalars.contains(where: CharacterSet.symbols.contains) else { return nil }
+        let forbidden = #"(?i)(https?:|www\.|[/\\`<>|{}\[\]=:：*?&#%“”‘’《》]|[\p{L}\p{N}_-]+\.[a-z0-9]{1,8}(?=$|[^a-z0-9])|mcp__|[a-z0-9]+_[a-z0-9_]+|bearer\s+\S+|(?:api[_-]?key|access[_-]?token|password|secret)\s*[:=])"#
+        guard text.range(of: forbidden, options: .regularExpression) == nil else { return nil }
+        let generic = ["思考中", "整理思绪", "准备下一步", "马上就好", "正在处理", "处理中"]
+        let completion = #"(?i)^(?:已(?:完成|成功|验证|发送|删除)|completed\b|verified\b|all tests passed\b|done\b)"#
+        guard !generic.contains(text), text.range(of: completion, options: .regularExpression) == nil else { return nil }
+        return text
+    }
+
+    static func resultText(forToolNamed name: String, failed: Bool) -> String {
+        if failed { return "这步遇到问题" }
+        switch BotActivityPhrases.bareToolName(name).lowercased() {
+        case "read", "readmemory", "get_goal": return "已收到读取结果"
+        case "glob", "grep", "web_search", "web_fetch", "recallmemory": return "已收到查询结果"
+        case "write", "edit", "updatememory", "updateroutine": return "已收到更新结果"
+        case "task", "awaittask", "sendtoagent": return "已收到协作反馈"
+        default: return "已收到操作结果"
+        }
+    }
+
+    static func lineActivity(factory: BotActivity?, streaming: Bool,
+                             pendingApprovals: Int, visible: Bool) -> BotActivity? {
+        guard visible else { return nil }
+        if pendingApprovals > 0 { return BotActivity(status: .thinking, detail: "等你确认", category: .waiting) }
+        let phase = factory.map(normalized)
+        if phase?.status == .toolRunning { return phase }
+        if streaming { return BotActivity(status: .streaming, detail: "正在回复", category: .replying) }
+        return phase ?? BotActivity(status: .thinking, detail: "等待响应", category: .thinking)
+    }
+
+    /// Every activity entering the iOS line has one stable, evidence-based
+    /// label. The legacy synonym pool is never used by this display path.
+    static func normalized(_ activity: BotActivity) -> BotActivity {
+        guard activity.detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return activity }
+        var result = activity
+        switch activity.category {
+        case .waiting: result.detail = "等你确认"
+        case .replying: result.detail = "正在回复"
+        case .reviewing: result.detail = "已收到操作结果"
+        default:
+            switch activity.status {
+            case .toolRunning: result.detail = "等待操作结果"
+            case .streaming: result.detail = "正在回复"
+            case .thinking: result.detail = "等待响应"
+            }
+        }
+        return result
     }
 }

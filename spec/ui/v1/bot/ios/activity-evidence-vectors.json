@@ -1,0 +1,2585 @@
+{
+  "schemaVersion": 1,
+  "platform": "ios",
+  "now": 1000,
+  "cases": [
+    {
+      "id": "no-turn",
+      "events": [],
+      "expected": null
+    },
+    {
+      "id": "turn-start-is-not-reply",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "等待响应",
+        "category": "thinking",
+        "startedAt": 100
+      }
+    },
+    {
+      "id": "step-is-model-wait",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "等待响应",
+        "category": "thinking",
+        "startedAt": 150
+      }
+    },
+    {
+      "id": "read-object",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "read-json-string",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": "{\"path\": \"/dsh/workspace/report.md\"}"
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "action-description",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "bash",
+            "arguments": {
+              "description": "检查卡片布局。",
+              "command": "private command"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "检查卡片布局",
+        "category": "running",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "read-business-summary-ignored",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md",
+              "summary": "已完成所有任务",
+              "label": "已经成功"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "unknown-description-not-authority",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "unknown_private_tool",
+            "arguments": {
+              "description": "已完成付款"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "等待操作结果",
+        "category": "generic",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "teammate-profile-not-status",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "mcp__phone__CreateTeammate",
+            "arguments": {
+              "name": "研究员",
+              "description": "所有工作已完成"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "创建协作助手",
+        "category": "messaging",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "document-summary-not-status",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "show_document",
+            "arguments": {
+              "title": "会议报告",
+              "summary": "所有测试通过"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "展示整理结果",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "two-pending-show-newest",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "callId": "b",
+            "name": "write",
+            "arguments": {
+              "path": "/dsh/workspace/notes.md"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "保存处理结果",
+        "category": "writing",
+        "startedAt": 250
+      }
+    },
+    {
+      "id": "second-finishes-first",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "callId": "b",
+            "name": "write",
+            "arguments": {
+              "path": "/dsh/workspace/notes.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 5,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false,
+              "toolCallId": "b"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "first-finishes-first",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "callId": "b",
+            "name": "write",
+            "arguments": {
+              "path": "/dsh/workspace/notes.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 5,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false,
+              "toolCallId": "a"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "保存处理结果",
+        "category": "writing",
+        "startedAt": 250
+      }
+    },
+    {
+      "id": "unknown-result-does-not-close",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "callId": "b",
+            "name": "write",
+            "arguments": {
+              "path": "/dsh/workspace/notes.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 5,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false,
+              "toolCallId": "other"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "保存处理结果",
+        "category": "writing",
+        "startedAt": 250
+      }
+    },
+    {
+      "id": "missing-id-ambiguous",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "callId": "b",
+            "name": "write",
+            "arguments": {
+              "path": "/dsh/workspace/notes.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 5,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "保存处理结果",
+        "category": "writing",
+        "startedAt": 250
+      }
+    },
+    {
+      "id": "new-step-does-not-close",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "step": 2
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "steering-does-not-close",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "user/message",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "role": "user",
+            "content": "补充要求"
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "hidden-call-does-not-cover",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "callId": "h",
+            "name": "mcp__phone__FishAction",
+            "arguments": {}
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "hidden-result-does-not-close-visible",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "callId": "h",
+            "name": "mcp__phone__FishAction",
+            "arguments": {}
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 5,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false,
+              "toolCallId": "h"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "missing-id-with-hidden-is-ambiguous",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "callId": "h",
+            "name": "mcp__phone__FishAction",
+            "arguments": {}
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 5,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "single-missing-result-id",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 4,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "已收到读取结果",
+        "category": "reviewing",
+        "startedAt": 300
+      }
+    },
+    {
+      "id": "result-is-not-business-success",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 4,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false,
+              "toolCallId": "a"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "已收到读取结果",
+        "category": "reviewing",
+        "startedAt": 300
+      }
+    },
+    {
+      "id": "failed-result",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 4,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": true,
+              "toolCallId": "a"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "这步遇到问题",
+        "category": "reviewing",
+        "startedAt": 300
+      }
+    },
+    {
+      "id": "step-after-result-keeps-context",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 4,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false,
+              "toolCallId": "a"
+            }
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 5,
+          "time": 350,
+          "data": {
+            "turn": 1,
+            "step": 2
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "已收到读取结果",
+        "category": "reviewing",
+        "startedAt": 350
+      }
+    },
+    {
+      "id": "actual-reply-after-result",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 4,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false,
+              "toolCallId": "a"
+            }
+          }
+        },
+        {
+          "type": "assistant/stream",
+          "seq": 5,
+          "time": 350,
+          "data": {
+            "channel": "text",
+            "text": "这是回复"
+          }
+        }
+      ],
+      "expected": {
+        "status": "streaming",
+        "detail": "正在回复",
+        "category": "replying",
+        "startedAt": 350
+      }
+    },
+    {
+      "id": "pending-tool-before-stream",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "assistant/stream",
+          "seq": 5,
+          "time": 350,
+          "data": {
+            "channel": "text",
+            "text": "这是回复"
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "reasoning-is-not-public-progress",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "assistant/stream",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "channel": "reasoning",
+            "text": "private thoughts"
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "等待响应",
+        "category": "thinking",
+        "startedAt": 150
+      }
+    },
+    {
+      "id": "hidden-only-not-shown",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "callId": "h",
+            "name": "mcp__phone__FishAction",
+            "arguments": {}
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "等待响应",
+        "category": "thinking",
+        "startedAt": 150
+      }
+    },
+    {
+      "id": "known-result-cannot-match-idless-call",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 4,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false,
+              "toolCallId": "unknown"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "single-legacy-idless-pair",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 4,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "已收到读取结果",
+        "category": "reviewing",
+        "startedAt": 300
+      }
+    },
+    {
+      "id": "duplicate-call-does-not-reopen",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 4,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false,
+              "toolCallId": "a"
+            }
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 5,
+          "time": 350,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "已收到读取结果",
+        "category": "reviewing",
+        "startedAt": 300
+      }
+    },
+    {
+      "id": "turn-end-clears",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "turn/end",
+          "seq": 4,
+          "time": 400,
+          "data": {
+            "turn": 1,
+            "reason": {
+              "kind": "cancelled"
+            }
+          }
+        }
+      ],
+      "expected": null
+    },
+    {
+      "id": "old-turn-result-isolated",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "turn/start",
+          "seq": 5,
+          "time": 500,
+          "data": {
+            "turn": 2
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 6,
+          "time": 550,
+          "data": {
+            "turn": 2,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 7,
+          "time": 600,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false,
+              "toolCallId": "a"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 550
+      }
+    },
+    {
+      "id": "old-turn-end-isolated",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "turn/start",
+          "seq": 5,
+          "time": 500,
+          "data": {
+            "turn": 2
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 6,
+          "time": 550,
+          "data": {
+            "turn": 2,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "turn/end",
+          "seq": 7,
+          "time": 600,
+          "data": {
+            "turn": 1
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 550
+      }
+    },
+    {
+      "id": "unknown-start-time-stays-unknown",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 0,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 0
+      }
+    },
+    {
+      "id": "bad-json-does-not-kill-stream",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": "{broken"
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "description-first-line",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "bash",
+            "arguments": {
+              "description": "检查会议记录\n不显示第二行"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "检查会议记录",
+        "category": "running",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "credential-description-not-display",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "bash",
+            "arguments": {
+              "description": "Bearer secret-value"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "执行当前操作",
+        "category": "running",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "url-only-safe-host",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "web_fetch",
+            "arguments": {
+              "url": "https://user:password@example.com/report?token=secret"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "查看网页内容",
+        "category": "browsing",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "assistant-reasoning-block-not-reply",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "assistant/message",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "message": {
+              "content": [
+                {
+                  "type": "reasoning",
+                  "text": "private"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "等待响应",
+        "category": "thinking",
+        "startedAt": 150
+      }
+    },
+    {
+      "id": "assistant-text-message",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "assistant/message",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "message": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "公开回复"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "streaming",
+        "detail": "正在回复",
+        "category": "replying",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "nested-source-call-id",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 4,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "source": {
+                "callId": "a"
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "已收到读取结果",
+        "category": "reviewing",
+        "startedAt": 300
+      }
+    },
+    {
+      "id": "replay-out-of-order",
+      "events": [
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "callId": "b",
+            "name": "write",
+            "arguments": {
+              "path": "/dsh/workspace/notes.md"
+            }
+          }
+        },
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 5,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "isError": false,
+              "toolCallId": "b"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "unknown-return-no-stale-wait",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "private-tool",
+            "arguments": {}
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 4,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "message": {
+              "toolCallId": "a"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "已收到操作结果",
+        "category": "reviewing",
+        "startedAt": 300
+      }
+    },
+    {
+      "id": "analysis-channel-not-public",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "assistant/stream",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "channel": "analysis",
+            "text": "private"
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "等待响应",
+        "category": "thinking",
+        "startedAt": 150
+      }
+    },
+    {
+      "id": "task-title-is-intent",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "mcp__phone__Task",
+            "arguments": {
+              "task_title": "对照会议纪要",
+              "description": "其他说明",
+              "prompt": "内部完整指令"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "对照会议纪要",
+        "category": "messaging",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "task-prompt-not-status",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "Task",
+            "arguments": {
+              "prompt": "不应显示的内部指令"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "安排协作任务",
+        "category": "messaging",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "null-error-not-failure",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/tmp/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 4,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "error": null,
+            "message": {
+              "toolCallId": "a",
+              "isError": false
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "thinking",
+        "detail": "已收到读取结果",
+        "category": "reviewing",
+        "startedAt": 300
+      }
+    },
+    {
+      "id": "malformed-result-id-is-not-missing",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 6,
+          "time": 350,
+          "data": {
+            "turn": 1,
+            "message": {
+              "toolCallId": 42
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "读取相关资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "conflicting-result-ids-are-ignored",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "path": "/dsh/workspace/report.md"
+            }
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "callId": "b",
+            "name": "write",
+            "arguments": {
+              "path": "/dsh/workspace/notes.md"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 6,
+          "time": 350,
+          "data": {
+            "turn": 1,
+            "message": {
+              "toolCallId": "a"
+            },
+            "callId": "b"
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "保存处理结果",
+        "category": "writing",
+        "startedAt": 250
+      }
+    },
+    {
+      "id": "purpose-is-not-completion",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "bash",
+            "arguments": {
+              "description": "已完成所有验证"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "category": "running",
+        "detail": "执行当前操作",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "generic-purpose-not-fake-progress",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "bash",
+            "arguments": {
+              "description": "整理思绪…"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "category": "running",
+        "detail": "执行当前操作",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "rejected-task-title-not-target-fallback",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "callId": "a",
+            "name": "Task",
+            "arguments": {
+              "task_title": "Bearer secret-value",
+              "prompt": "private"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "category": "messaging",
+        "detail": "安排协作任务",
+        "startedAt": 200
+      }
+    }
+  ]
+}

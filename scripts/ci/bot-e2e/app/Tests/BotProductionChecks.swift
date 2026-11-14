@@ -246,7 +246,7 @@ enum BotProductionChecks {
         try require(working.fishState == .working && working.runningTurnID == "7"
                     && working.activity?.status == .toolRunning
                     && working.activity?.category == .reading
-                    && working.activity?.detail.contains("report.md") == true
+                    && working.activity?.detail == "读取相关资料"
                     && working.activity?.startedAt == 1_100,
                     "real turn/tool presentation failed")
         let toolResult = BotDSHSessionEvent(type: "tool/result", seq: 12, time: 1_150, data: [
@@ -255,9 +255,9 @@ enum BotProductionChecks {
         let reviewing = BotRuntimePresentationFactory.make(
             botID: "main", sessionID: "main", sessionEvents: [turn, tool, toolResult],
             uiEvents: [], now: 1_200)
-        try require(reviewing.activity?.status == .toolRunning
+        try require(reviewing.activity?.status == .thinking
                     && reviewing.activity?.category == .reviewing
-                    && reviewing.activity?.detail.contains("report.md") == true
+                    && reviewing.activity?.detail == "已收到读取结果"
                     && reviewing.activity?.startedAt == 1_150,
                     "finished tool call did not become the reviewing phase")
         let step = BotDSHSessionEvent(type: "step/start", seq: 13, time: 1_250, data: [:])
@@ -265,19 +265,21 @@ enum BotProductionChecks {
             botID: "main", sessionID: "main", sessionEvents: [turn, tool, toolResult, step],
             uiEvents: [], now: 1_300)
         try require(thinking.activity?.status == .thinking
-                    && thinking.activity?.category == .thinking
-                    && thinking.activity?.detail.isEmpty == true
+                    && thinking.activity?.category == .reviewing
+                    && thinking.activity?.detail == "已收到读取结果"
                     && thinking.activity?.startedAt == 1_250,
                     "step/start did not return the activity line to thinking")
         let stream = BotDSHSessionEvent(type: "assistant/stream", seq: 14, time: 1_400,
                                         data: ["channel": .string("text")])
         let speaking = BotRuntimePresentationFactory.make(
             botID: "main", sessionID: "main", sessionEvents: [turn, stream], uiEvents: [], now: 1_200)
-        // The factory deliberately keeps its activity nil while text streams;
-        // the Bot page overlays the replying status line from its own pending
-        // delta / live buffer state, so this is not the old visibility rule.
-        try require(speaking.fishState == .speaking && speaking.activity == nil,
-                    "stream changed the factory activity; the page owns the replying line")
+        // A stream marker without text is not a reply yet: the factory keeps the
+        // stable waiting detail, and the page overlays "正在回复" from its own
+        // pending delta once real text arrives.
+        try require(speaking.fishState == .speaking
+                    && speaking.activity?.detail == "等待响应"
+                    && speaking.activity?.startedAt == 1_000,
+                    "a textless stream must keep the waiting detail")
         let approval = BotEvent(type: "approval.requested", eventId: "fish-approval", time: 1_300,
                                 origin: .local(source: "card-bridge"), traceId: "fish-approval",
                                 principal: BotPrincipal(botId: "main", sessionId: "main", kind: "chat"),
