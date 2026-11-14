@@ -60,7 +60,7 @@ Build: Debug, `PDSH_WITH_XZSHELL=1`, team `KC5NZ8GRQ9`
 | `xcodebuild build`（`PDSH_WITH_XZSHELL=1`, generic iOS） | **PASS**；`nm` 有 `_pdsh_caps_json` |
 | 真机安装/启动 | **PASS**，devicectl install + launch（2026-11-13 22:11 最终 haptic3 构建） |
 | 真机 linked host HELLO | 已观察到 `accelerator:jaq/jq/phone/rg/ts-*` |
-| 真机震动 | **NOT_VERIFIED（自动化无法测量）**；thinking/completed 已由 `.soft` 改为 `.light`，需用户手感确认 |
+| 真机震动 | **NOT_VERIFIED（自动化无法测量）**；最终构建把 thinking 改为发送手势直接触发、`.light` 0.42；仍需用户手感确认 |
 | DSH “总是允许” | **NOT_VERIFIED（需真机点一次卡片）** |
 
 ## 5. 注意

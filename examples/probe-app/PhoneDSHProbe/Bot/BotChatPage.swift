@@ -425,6 +425,9 @@ struct BotChatPage: View {
                 followNewestContent(proxy: proxy)
             }
             .onChange(of: model.runningTurnID) { _, running in
+                if running == nil {
+                    BotNextStepsMetrics.recordTurn(rows: model.displayRows)
+                }
                 if running != nil, hapticTurnActive {
                     // The send cue may have fired a moment earlier; the
                     // generator debounces it. If the send path missed, this

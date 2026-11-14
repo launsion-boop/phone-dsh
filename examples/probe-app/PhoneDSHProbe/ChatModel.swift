@@ -263,6 +263,11 @@ struct ChatPermission: Identifiable, Equatable {
     let summary: String
     /// 这次工具调用的参数,只用来在卡上写相对路径/命令原文;拿不到就是空。
     var arguments: [String: String] = [:]
+
+    /// nil means this request must stay one-shot (destructive/unknown).
+    var alwaysGrantKey: String? {
+        DSHApprovalPolicy.grantKey(tool: tool, arguments: arguments)
+    }
 }
 
 /// One current-session permission mode returned by the active DSH Worker.
@@ -3925,8 +3930,8 @@ final class ChatModel {
     /// remembered here and later requests for the same session + tool are
     /// auto-answered with allow-once; deny/allow-once clear it.
     private func presentPermission(_ permission: ChatPermission) {
-        if let sessionID,
-           DSHApprovalMemory.isAllowed(sessionID: sessionID, tool: permission.tool) {
+        if let sessionID, let scope = permission.alwaysGrantKey,
+           DSHApprovalMemory.isAllowed(sessionID: sessionID, scope: scope) {
             autoApprove(permission, sessionID: sessionID)
         } else {
             pendingPermission = permission
@@ -3953,13 +3958,15 @@ final class ChatModel {
 
     func respond(to permission: ChatPermission, decision: PermissionDecision) async {
         guard let harness, let sessionID else { return }
-        switch decision {
-        case .allowAlways:
-            DSHApprovalMemory.remember(sessionID: sessionID, tool: permission.tool)
-        case .allowOnce, .deny:
-            // Choosing once or deny must not leave an older always grant
-            // behind; the next request asks again.
-            DSHApprovalMemory.forget(sessionID: sessionID, tool: permission.tool)
+        if let scope = permission.alwaysGrantKey {
+            switch decision {
+            case .allowAlways:
+                DSHApprovalMemory.remember(sessionID: sessionID, scope: scope)
+            case .allowOnce, .deny:
+                // Choosing once or deny must not leave an older always grant
+                // behind; the next request asks again.
+                DSHApprovalMemory.forget(sessionID: sessionID, scope: scope)
+            }
         }
         let wire: PermissionDecision = decision == .deny ? .deny : .allowOnce
         do {

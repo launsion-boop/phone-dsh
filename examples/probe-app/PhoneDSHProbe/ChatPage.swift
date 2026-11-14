@@ -1302,6 +1302,7 @@ struct ChatPage: View {
                            isBusy: model.busy,
                            onAllow: { respond(.allowOnce) },
                            onAllowAlways: { respond(.allowAlways) },
+                           allowsAlways: permission.alwaysGrantKey != nil,
                            onDeny: { respond(.deny) })
     }
 
@@ -5461,6 +5462,8 @@ struct PermissionCardView: View {
     /// Present only where the host can remember an always decision. Sandbox
     /// escalation deliberately keeps the one-shot-only card.
     var onAllowAlways: (() -> Void)?
+    /// False for destructive/unknown requests: those must stay one-shot.
+    var allowsAlways: Bool = true
     var onDeny: () -> Void = {}
 
     var body: some View {
@@ -5505,7 +5508,7 @@ struct PermissionCardView: View {
             .buttonStyle(.plain)
             .disabled(isBusy)
 
-            if let onAllowAlways, !Self.isSandboxEscalation(permission) {
+            if let onAllowAlways, allowsAlways, !Self.isSandboxEscalation(permission) {
                 Button {
                     onAllowAlways()
                 } label: {
