@@ -51,6 +51,66 @@ final class BotGrantRecoveryTests: XCTestCase {
         XCTAssertNil(bashFound)
     }
 
+    func testEveryOperationGetsAStableStandingGrant() async throws {
+        let store = BotGrantStore(now: { 10_000 })
+        _ = try await store.add(BotGrant(
+            botId: "main", tool: "bash", operation: "rm-destructive",
+            resource: "operation:rm-destructive", scope: .session,
+            sessionId: "s1", decision: .allow))
+        let next = BotToolEffect(
+            tool: "bash", operation: "rm-destructive",
+            resource: "/dsh/workspace/another-file",
+            mutability: .destructive, policy: .ask)
+        XCTAssertEqual(next.stableGrantResource, "operation:rm-destructive")
+        let found = await store.find(botId: "main", sessionId: "s1", effect: next)
+        XCTAssertEqual(found?.resource, "operation:rm-destructive")
+        let otherOperation = BotToolEffect(
+            tool: "bash", operation: "git-destructive",
+            resource: "/dsh/workspace/another-file",
+            mutability: .destructive, policy: .ask)
+        let otherFound = await store.find(botId: "main", sessionId: "s1",
+                                           effect: otherOperation)
+        XCTAssertNil(otherFound)
+    }
+
+    func testLegacyWildcardStandingGrantStillMatches() async throws {
+        let store = BotGrantStore(now: { 10_000 })
+        _ = try await store.add(BotGrant(
+            botId: "main", tool: "bash", operation: "rm-destructive",
+            resource: "*", scope: .until, decision: .allow))
+        let next = BotToolEffect(
+            tool: "bash", operation: "rm-destructive",
+            resource: "/dsh/workspace/any-other-file",
+            mutability: .destructive, policy: .ask)
+        let found = await store.find(botId: "main", sessionId: "s1", effect: next)
+        XCTAssertEqual(found?.resource, "*")
+    }
+
+    func testSpecificDenyStillBeatsTheStableStandingGrant() async throws {
+        let store = BotGrantStore(now: { 10_000 })
+        _ = try await store.add(BotGrant(
+            botId: "main", tool: "bash", operation: "rm-destructive",
+            resource: "operation:rm-destructive", scope: .session,
+            sessionId: "s1", decision: .allow))
+        _ = try await store.add(BotGrant(
+            botId: "main", tool: "bash", operation: "rm-destructive",
+            resource: "/dsh/workspace/protected", scope: .until,
+            decision: .deny))
+        let protected = BotToolEffect(
+            tool: "bash", operation: "rm-destructive",
+            resource: "/dsh/workspace/protected",
+            mutability: .destructive, policy: .ask)
+        let protectedFound = await store.find(botId: "main", sessionId: "s1",
+                                               effect: protected)
+        XCTAssertEqual(protectedFound?.decision, .deny)
+        let other = BotToolEffect(
+            tool: "bash", operation: "rm-destructive",
+            resource: "/dsh/workspace/other",
+            mutability: .destructive, policy: .ask)
+        let otherFound = await store.find(botId: "main", sessionId: "s1", effect: other)
+        XCTAssertEqual(otherFound?.decision, .allow)
+    }
+
     func testColdRestartRestoresStandingDenyAndAuditRemainsDigestOnly() async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

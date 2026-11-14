@@ -456,7 +456,7 @@ public actor BotApprovalCoordinator {
                     // their exact resource unless they opt in.
                     let storedResource = effectiveScope == .once
                         ? effect.resource
-                        : (effect.grantResource ?? effect.resource)
+                        : effect.stableGrantResource
                     let grant = try await grants.add(BotGrant(
                         botId: request.principal.botId, tool: effect.tool, operation: effect.operation,
                         resource: storedResource, scope: effectiveScope,

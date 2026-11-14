@@ -39,6 +39,15 @@ public struct BotToolEffect: Codable, Sendable, Equatable {
     /// not create a second approval card.
     public let grantResource: String?
 
+    /// The stable scope a standing approval stores. Images opt into the
+    /// narrower `model:image`; every other operation uses its operation id
+    /// (for example `operation:rm-destructive`), so the next same kind of
+    /// request in this Bot/session is covered without widening a one-shot.
+    public var stableGrantResource: String {
+        if let grantResource { return grantResource }
+        return operation.isEmpty ? resource : "operation:\(operation)"
+    }
+
     public init(tool: String, operation: String, resource: String, target: String? = nil,
                 mutability: BotToolMutability, policy: BotToolPolicy, label: String = "",
                 detail: String = "", ui: Bool = false, execution: String? = nil,

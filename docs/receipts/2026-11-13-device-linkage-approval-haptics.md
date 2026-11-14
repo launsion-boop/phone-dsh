@@ -27,10 +27,10 @@ Build: Debug, `PDSH_WITH_XZSHELL=1`, team `KC5NZ8GRQ9`
 
 ### Bot
 
-- `BotToolEffect` 新增 `grantResource`：是否放宽授权由 effect 自己声明，而不是把所有 `.always` 都变成通配符。
-- `read_image` / `attach_to_model` 声明 `grantResource = "model:image"`；`.always` 存 `model:image`（scope 仍按 session/until），同一会话后续另一张图自动放行。
-- `bash`、记忆等 effect 没有 `grantResource`，仍按具体命令/路径精确授权，不会被这次改动放宽。
-- `.allowOnce` 仍只创建 exact-resource once grant，消费后下次重新审批；deny 不创建 grant；deny 在 find 中仍优先于 allow。
+- `BotToolEffect` 的 standing scope 对所有操作统一：默认 `stableGrantResource = operation:<operation>`；图片显式用更窄的 `model:image`。
+- `.always` 存稳定 scope（图片 `model:image`，bash `operation:rm-destructive`，记忆 `operation:memory.forget` 等），scope 仍按 session/until；同一个 Bot/session 下次同类操作自动放行。
+- `.allowOnce` 仍只创建 exact-resource once grant，消费后下次重新审批；deny 不创建 grant；`find` 同时匹配 exact 与 stable，deny 仍优先。
+- 具体资源 deny 可以压过稳定 allow；测试覆盖。
 
 ### DSH session
 
