@@ -130,7 +130,11 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
             // A viewer that just connected gets the board's cached GOP within a moment.
             let warmup = ContinuousClock.now + .seconds(4)
             while ContinuousClock.now < warmup {
-                if (try? await screen.snapshot()) != nil { await learnMirrorRouteIfNeeded(); return }
+                if (try? await screen.snapshot()) != nil {
+                    await checkAssistiveButtonMoved()
+                    await learnMirrorRouteIfNeeded()
+                    return
+                }
                 try await Task.sleep(for: .milliseconds(250))
             }
             // Never touch Control Center here: the mirror is running and only the picture is late.
@@ -167,6 +171,35 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         invalidateMirrorRoute("restart missed")
         throw IPhoneAgentError("自动投屏没有成功，这条路线已作废：请在控制中心 → 屏幕镜像里选择「\(await hands.airplayName() ?? "TonoLink USB")」，投屏后会自动重新学习")
     }
+
+    /// When the button was last confirmed on screen (task start, Home or learning).
+    private var lastButtonCheck: ContinuousClock.Instant?
+    /// Back-to-back tasks do not pay for a check each; a drag is still found at the next task.
+    static let buttonCheckInterval: Duration = .seconds(60)
+
+    /// Finds a dragged AssistiveTouch button before it breaks anything: with the screen visible at
+    /// the start of a task, look for the button and compare it with the saved place. The menu, and
+    /// 控制中心 in it, opens next to the button, so a moved button invalidates the learned route,
+    /// which `learnMirrorRouteIfNeeded()` then learns again right away. `prepare()` has attached the
+    /// board's keyboard first, which hides the software keyboard, so the button is not caught in
+    /// its temporary place above it. A move must be seen twice in a row: one wrong UI-Venus answer
+    /// must not throw a good route away.
+    func checkAssistiveButtonMoved() async {
+        guard hands.layout.mirrorRouteUsable else { return }
+        if let last = lastButtonCheck, ContinuousClock.now - last < Self.buttonCheckInterval { return }
+        lastButtonCheck = .now
+        let saved = hands.layout.assistiveButton
+        guard let first = try? await locate(Self.assistiveButton, waitForChange: false), Self.far(first, saved) else { return }
+        try? await Task.sleep(for: .milliseconds(400))
+        guard let second = try? await locate(Self.assistiveButton, waitForChange: false),
+              !Self.far(first, second), Self.far(second, saved) else { return }
+        hands.layout.assistiveButton = second
+        hands.layout.save()
+        invalidateMirrorRoute("AssistiveTouch button moved from (\(Int(saved.x)),\(Int(saved.y))) to (\(Int(second.x)),\(Int(second.y)))")
+    }
+
+    /// Device tests drag the button twice within a minute.
+    func resetButtonCheckForTesting() { lastButtonCheck = nil }
 
     /// The saved route no longer fits this phone: stop replaying it and learn it again.
     func invalidateMirrorRoute(_ reason: String) {
@@ -205,7 +238,8 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
 
     static let controlCenterItem = "the 控制中心 (Control Center) item inside the open AssistiveTouch menu panel: an icon of two toggle switches labelled 控制中心. Not the floating round button itself"
     static let mirrorTile = "the 屏幕镜像 (Screen Mirroring) button in the open Control Center: a rounded tile with an icon of two overlapping rectangles"
-    static let mirrorLastRow = "the last receiver row of the open 屏幕镜像 device list, the one just above the divider line before 停止镜像"
+    /// Board-row-to-停止镜像 gap (0–1000) below which only the divider and 停止镜像 follow the board.
+    static let boardIsLastRowGap = 120.0
     static let mirrorStopItem = "the 停止镜像 (Stop Mirroring) item at the bottom of the open 屏幕镜像 device list"
     static func mirrorRow(_ name: String) -> String {
         "the row labelled \"\(name)\" in the open 屏幕镜像 (Screen Mirroring) device list"
@@ -232,7 +266,7 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         return IPhoneFrame(jpeg: settled.jpeg, width: settled.width, height: settled.height, frame: settled.frame)
     }
 
-    private static func far(_ a: TonoLinkPoint, _ b: TonoLinkPoint) -> Bool { abs(a.x - b.x) > 60 || abs(a.y - b.y) > 60 }
+    static func far(_ a: TonoLinkPoint, _ b: TonoLinkPoint) -> Bool { abs(a.x - b.x) > 60 || abs(a.y - b.y) > 60 }
 
     /// Learns where AssistiveTouch → 控制中心 → 屏幕镜像 → the board's row are on this phone, from the
     /// live mirror, and saves them for `startMirroring()`. Each step must visibly open the next panel.
@@ -276,7 +310,6 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         let name = await hands.airplayName() ?? "TonoLink USB"
         let rowPoint = try await IPhoneGrounding.locate(Self.mirrorRow(name), in: list)
         let stopPoint = try await IPhoneGrounding.locate(Self.mirrorStopItem, in: list)
-        let lastPoint = try await IPhoneGrounding.locate(Self.mirrorLastRow, in: list)
         try? await closeControlCenter()
         guard let rowPoint else { throw IPhoneAgentError("学习投屏路线失败：设备列表里没有找到「\(name)」") }
         guard let stopPoint else { throw IPhoneAgentError("学习投屏路线失败：设备列表里没有「停止镜像」") }
@@ -286,10 +319,15 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         }
         // Measured on an iPhone (iOS 27.2): with nothing mirroring the list has no 停止镜像 section and
         // keeps its bottom edge, so every device row moves down by that section's height. Tapping
-        // the board's running-mirror position then picked the receiver above it (the user's Mac).
-        var last = lastPoint.map { TonoLinkPoint($0.x, $0.y) } ?? active
-        if last.y < active.y - 5 || last.y >= stop.y { last = active }
-        let row = TonoLinkPoint(active.x, active.y + (stop.y - last.y))
+        // the board's running-mirror position then picked the receiver above it (the user's Mac);
+        // tapping where 停止镜像 was picked the board. That holds when the board is the last row, i.e.
+        // only the divider and 停止镜像 lie below it (measured gap 91 of 1000; one more row adds ~63).
+        // With another receiver below the board the idle position cannot be read off the two labelled
+        // anchors, and asking UI-Venus for "the last row" proved unreliable, so no blind route is kept.
+        guard stop.y - active.y <= Self.boardIsLastRowGap else {
+            throw IPhoneAgentError("学习投屏路线失败：设备列表里板子下面还有别的接收设备，无法安全地自动重连；断开后请在控制中心手动选择板子")
+        }
+        let row = TonoLinkPoint(active.x, stop.y)
         hands.layout.assistiveButton = button
         hands.layout.assistiveControlCenter = controlCenter
         hands.layout.mirrorButton = tile
@@ -297,6 +335,7 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         hands.layout.mirrorStop = stop
         hands.layout.markMirrorRouteLearned()
         hands.layout.save()
+        lastButtonCheck = .now
         return "button (\(Int(button.x)),\(Int(button.y))) → 控制中心 (\(Int(controlCenter.x)),\(Int(controlCenter.y)))"
             + " → 屏幕镜像 (\(Int(tile.x)),\(Int(tile.y))) → \(name) (\(Int(row.x)),\(Int(row.y)))"
             + "（不投屏时），停止镜像 (\(Int(stop.x)),\(Int(stop.y)))"
@@ -420,6 +459,7 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         try await hands.tap(item)
         // The menu opens next to the button, so a moved button moves 控制中心 too.
         if Self.far(button, hands.layout.assistiveButton) { invalidateMirrorRoute("AssistiveTouch button moved") }
+        lastButtonCheck = .now
         hands.layout.assistiveButton = button
         hands.layout.assistiveHome = item
         hands.layout.save()
