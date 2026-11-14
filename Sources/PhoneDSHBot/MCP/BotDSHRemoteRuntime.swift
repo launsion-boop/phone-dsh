@@ -41,6 +41,17 @@ public struct BotLiveFrameSubscription: Hashable, Sendable {
     }
 }
 
+/// Marker for the transport a `BotRuntimeUnit` owns while it is not attached to
+/// a live Worker: the placeholder before its first bind, and the transport a
+/// detached unit is swapped to.
+///
+/// `attachTransport` treats such a transport as "nothing can carry this unit's
+/// work": the unit is being torn down, so its in-flight attempts are cancelled.
+/// Any other replacement transport is *adopted* — no cancel is sent and the
+/// running turn is marked interrupted instead — because a host bind must never
+/// turn a live turn into an unrelated cancellation.
+public protocol BotUnattachedTransport: DSHRemoteTransport {}
+
 /// A live view of the main chat turn for the Bot page, taken from the same
 /// `session/follow` stream `collectTurn` already reads. In-process only: it is
 /// not persisted, not a row and not part of any wire contract. Hidden
@@ -135,9 +146,19 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         let attemptId: String
         let kind: BotSessionKind
         let hidden: Bool
+        /// DSH prompt idempotency key. An interrupted turn keeps its requestId,
+        /// so a restart after the replacement transport is adopted replays the
+        /// same turn instead of opening a second one.
+        let requestId: String
         let work: Task<BotRemoteTurnResult, Error>
         var cancelRequested: Bool
         var promptAccepted: Bool
+        /// Set by `attachTransport` when the Worker transport this attempt was
+        /// collecting from was replaced (or by the bounded adopt wait). The
+        /// attempt settles as an explicit `interrupted` result with this reason
+        /// instead of a generic cancellation, so a caller never has to guess
+        /// whether the user stopped the turn or a rebind cut it.
+        var interruption: String?
     }
 
     private struct QueuedTurn {
@@ -168,6 +189,12 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// its result belongs to no later bind. Session credentials keep their own
     /// `claimGeneration`; this one changes only when the transport does.
     private var transportGeneration: UInt64 = 0
+    /// Whether the current transport is a real Worker transport. It is false
+    /// for the placeholder a fresh unit owns and after a detach, and true after
+    /// a bind attaches a replacement Worker transport. The composition reads it
+    /// to keep a live unit out of a rebind: re-attaching a live unit would cut
+    /// its running turn for no reason.
+    private var transportIsAttached = false
     private var coordinators: [String: TurnCoordinator] = [:]
     private var queuedTurns: [String: QueuedTurn] = [:]
     private var recentHeldChatActions: [(requestId: String, nonce: String)] = []
@@ -219,6 +246,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         self.now = now
         ledger = BotLLMLedger(eventLog: runtime.store)
         watchdog = BotWatchdogMonitor(eventLog: runtime.store, now: now)
+        transportIsAttached = !(transport is any BotUnattachedTransport)
         try await runtime.grants.recover()
         await runtime.attachTaskExecutor(self, botID: botId)
         await restoreMainSessionEpochs()
@@ -243,9 +271,49 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         await runtime.approvals.durableStatus(approvalId: approvalId)
     }
 
+    /// True while a real Worker transport is attached. False before the unit's
+    /// first bind and after a detach. The composition's rebind uses it to keep
+    /// a live unit (and its running turn) attached: only a unit without a live
+    /// transport may be restarted.
+    public func hasLiveTransport() -> Bool {
+        transportIsAttached
+    }
+
+    /// Sessions with a turn this runtime is still collecting (a running turn
+    /// and/or one queued behind it). The App's background keep-alive reads it
+    /// through `BotRuntimeComposition`: a graceful park must not abort these.
+    public func inFlightSessionIDs() -> Set<String> {
+        Set(coordinators.keys).union(queuedTurns.keys)
+    }
+
+    /// Sessions whose running attempt a transport replacement marked
+    /// `interrupted`. Diagnostics/test seam: the attempt settles on its own
+    /// stream end, so this is the window in which a restart must reuse the
+    /// turn's requestId.
+    public func interruptedSessionIDs() -> Set<String> {
+        Set(coordinators.filter { $0.value.interruption != nil }.keys)
+    }
+
+    /// Swaps the Worker transport without turning a live turn into a
+    /// cancellation.
+    ///
+    /// A bind may decide that a unit needs a replacement transport (its
+    /// transport really died, or the unit never attached). That is not a user
+    /// cancel: the turn may still be running on the Worker, so this method
+    /// marks the running attempt(s) `interrupted` with the precise
+    /// `transport_replaced` reason, keeps the coordinator/queued entries, and
+    /// re-attaches to the replacement transport. The attempt settles on its own
+    /// stream end (a replaced mux ends) or on the bounded adoption wait; its
+    /// `requestId` remains the idempotency key for a restart.
+    ///
+    /// Only a placeholder (`BotUnattachedTransport`) means the unit is being
+    /// torn down; then nothing can carry the work and the in-flight turns are
+    /// cancelled with the `unit_detached` reason.
     public func attachTransport(_ newTransport: any DSHRemoteTransport) async {
+        let adoptingLiveTransport = !(newTransport is any BotUnattachedTransport)
         transport = newTransport
         transportGeneration &+= 1
+        transportIsAttached = adoptingLiveTransport
         // A recovery that ran on the replaced transport may be suspended on an
         // API request the old/not-yet-ready Worker never answered. Cancel it
         // and forget the task: a later bind owns a fresh recovery and must not
@@ -257,17 +325,99 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         // the host-side tokens (the BotTokenRegistry incarnation is still the
         // current one) but require a fresh issue+claim before the next turn.
         claimGeneration &+= 1
-        guard mainSessionId != nil else { return }
-        for (sessionId, coordinator) in coordinators {
-            do {
-                try await cancelTurn(sessionId: sessionId, includeQueued: true)
-            } catch {
-                coordinator.work.cancel()
-                if coordinators[sessionId]?.attemptId == coordinator.attemptId {
-                    coordinators.removeValue(forKey: sessionId)
-                }
-                await runtime.endTurn(sessionId: sessionId)
+        if !adoptingLiveTransport {
+            // Detach: the unit is being torn down (delete/reconcile), so no
+            // transport can carry an answer. Cancel at the task level; the
+            // caller already aborted the visible turn.
+            await cancelTurnsForDetach()
+            return
+        }
+        // Adopt: keep every coordinator/queued entry. The collector settles as
+        // `interrupted` on the replaced stream's own end; a bounded wait below
+        // covers a transport that never signals.
+        if !coordinators.isEmpty {
+            await markTurnsInterrupted(reason: "transport_replaced")
+            await awaitInterruptedAttemptsToSettle(budgetMilliseconds: 2_000)
+        }
+        mainSessionId = nil
+    }
+
+    private func markTurnsInterrupted(reason: String) async {
+        for (sessionId, coordinator) in coordinators where coordinator.interruption == nil {
+            guard var current = coordinators[sessionId] else { continue }
+            current.interruption = reason
+            coordinators[sessionId] = current
+        }
+    }
+
+    /// One durable marker per interrupted *visible chat* turn. Hidden/task/
+    /// routine work has its own interrupted record and wake path. Called where
+    /// the attempt actually settles as interrupted, so a turn that happened to
+    /// finish on the replaced stream never gets a false "被打断" row. The event
+    /// id derives from the turn's requestId, so calling it twice is a no-op.
+    private func recordInterruptedTurnNoticeIfNeeded(sessionId: String,
+                                                     coordinator: TurnCoordinator?) async {
+        guard let coordinator, coordinator.kind == .chat, !coordinator.hidden,
+              let reason = coordinator.interruption else { return }
+        await recordInterruptedTurnNotice(
+            sessionId: sessionId, requestId: coordinator.requestId, reason: reason)
+    }
+
+    /// Durable, idempotent "被打断" marker for a visible turn cut by a Worker
+    /// transport replacement. The event id is derived from the session and the
+    /// turn's requestId, so a retried bind (or a crash between the interruption
+    /// and this write) cannot duplicate the row.
+    private func recordInterruptedTurnNotice(sessionId: String,
+                                             requestId: String,
+                                             reason: String) async {
+        let principal = sessions[sessionId]?.principal ?? BotGatewayPrincipal(
+            botId: botId, sessionId: sessionId, kind: .chat, expiresAt: Int64.max)
+        _ = try? await runtime.eventWriter.append(
+            type: "ui.notice", principal: principal,
+            data: .object([
+                "tone": .string("info"),
+                "text": .string("刚才这一步被 App 重启打断了，回答还不完整。你可以说「继续」，我会接着做。"),
+                "interrupted": .bool(true),
+                "sessionId": .string(sessionId),
+                "requestId": .string(requestId),
+                "reason": .string(reason),
+            ]),
+            eventId: "turn-interrupted:\(sessionId):\(requestId)",
+            origin: .local(source: "runtime"))
+    }
+
+    /// A replaced transport normally ends its mux promptly. If it does not, a
+    /// collector suspended on it would hold the coordinator forever, and the
+    /// next turn on that session would queue behind it. The bound polls the
+    /// attempt state instead of awaiting the work task: awaiting an orphaned
+    /// task that never settles would make the bind itself hang (the exact
+    /// failure mode a rebind is supposed to avoid). On expiry only the
+    /// interrupted attempt is cancelled and dropped, never a queued turn.
+    private func awaitInterruptedAttemptsToSettle(budgetMilliseconds: Int) async {
+        let budget = max(0, budgetMilliseconds)
+        let deadline = ContinuousClock.now.advanced(by: .milliseconds(budget))
+        while ContinuousClock.now < deadline {
+            if coordinators.values.allSatisfy({ $0.interruption == nil }) { return }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        for (sessionId, coordinator) in coordinators where coordinator.interruption != nil {
+            coordinator.work.cancel()
+            await recordInterruptedTurnNoticeIfNeeded(
+                sessionId: sessionId, coordinator: coordinator)
+            if coordinators[sessionId]?.attemptId == coordinator.attemptId {
+                coordinators.removeValue(forKey: sessionId)
             }
+            await runtime.endTurn(sessionId: sessionId)
+        }
+    }
+
+    private func cancelTurnsForDetach() async {
+        for (sessionId, coordinator) in coordinators {
+            coordinator.work.cancel()
+            if coordinators[sessionId]?.attemptId == coordinator.attemptId {
+                coordinators.removeValue(forKey: sessionId)
+            }
+            await runtime.endTurn(sessionId: sessionId)
         }
         for queued in queuedTurns.values { queued.work.cancel() }
         queuedTurns.removeAll()
@@ -2413,7 +2563,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             attemptId: attemptId, requestId: requestId, origin: origin) }
         coordinators[sessionId] = TurnCoordinator(
             sessionId: sessionId, attemptId: attemptId, kind: kind, hidden: hidden,
-            work: work, cancelRequested: false, promptAccepted: false)
+            requestId: requestId, work: work, cancelRequested: false,
+            promptAccepted: false, interruption: nil)
         return try await work.value
     }
 
@@ -2452,11 +2603,31 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             let result = try await collectTurn(
                 mux: opened, sessionId: sessionId, kind: kind, hidden: hidden, attemptId: attemptId)
             await opened.close()
+            if result.status == "interrupted" {
+                await recordInterruptedTurnNoticeIfNeeded(
+                    sessionId: sessionId, coordinator: coordinators[sessionId].flatMap {
+                        $0.attemptId == attemptId ? $0 : nil
+                    })
+            }
             await finishCoordinatedTurn(sessionId: sessionId, attemptId: attemptId)
             return result
         } catch {
             if let mux { await mux.close() }
+            // A transport replacement, or the bounded adoption wait, ends the
+            // attempt with an explicit interruption. That is not a lost turn:
+            // the caller gets a typed result it can retry with the same
+            // requestId, instead of a generic cancellation.
+            let attempt = coordinators[sessionId].flatMap {
+                $0.attemptId == attemptId ? $0 : nil
+            }
             await finishCoordinatedTurn(sessionId: sessionId, attemptId: attemptId)
+            if let reason = attempt?.interruption {
+                await recordInterruptedTurnNoticeIfNeeded(
+                    sessionId: sessionId, coordinator: attempt)
+                return BotRemoteTurnResult(
+                    sessionId: sessionId, turnId: nil, status: "interrupted",
+                    text: "", error: reason)
+            }
             throw error
         }
     }
@@ -2517,7 +2688,25 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     sessionId: sessionId, turnId: currentTurn, status: "cancelled",
                     text: "", error: "stale turn attempt")
             }
+            // The bounded adoption wait cancels an attempt that a replaced
+            // transport never settled. If this attempt was marked interrupted,
+            // report that precise outcome instead of a bare cancellation.
+            if Task.isCancelled {
+                if let interruption = coordinators[sessionId]?.interruption {
+                    return BotRemoteTurnResult(
+                        sessionId: sessionId, turnId: currentTurn,
+                        status: "interrupted", text: texts.joined(),
+                        error: interruption)
+                }
+                throw CancellationError()
+            }
             guard let frame = try await mux.receive() else {
+                if let interruption = coordinators[sessionId]?.interruption {
+                    return BotRemoteTurnResult(
+                        sessionId: sessionId, turnId: currentTurn,
+                        status: "interrupted", text: texts.joined(),
+                        error: interruption)
+                }
                 if hostParkExpected {
                     return BotRemoteTurnResult(
                         sessionId: sessionId, turnId: currentTurn,
@@ -2529,6 +2718,12 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                                            error: "session/follow ended before turn/end")
             }
             if frame["type"]?.stringValue == "error" {
+                if let interruption = coordinators[sessionId]?.interruption {
+                    return BotRemoteTurnResult(
+                        sessionId: sessionId, turnId: currentTurn,
+                        status: "interrupted", text: texts.joined(),
+                        error: interruption)
+                }
                 if hostParkExpected {
                     return BotRemoteTurnResult(
                         sessionId: sessionId, turnId: currentTurn,

@@ -294,6 +294,16 @@ final class BotRuntimeUnit {
         }
     }
 
+    /// The unit's state for a host bind's restart scope. A live transport and a
+    /// completed start are both required to keep the unit: anything else means
+    /// the unit cannot serve a turn on the current Worker incarnation and must
+    /// be attached again.
+    func rebindState() async -> BotRebindUnit {
+        await BotRebindUnit(botID: botID,
+                            hasLiveTransport: remote.hasLiveTransport(),
+                            isStarted: started)
+    }
+
     /// The keep-alive condition includes routines due inside the window even
     /// when no turn is running.
     func hasRoutineDueSoon(within windowMs: Int64 = RoutinePresencePolicy.keepAliveWindowMs) async -> Bool {

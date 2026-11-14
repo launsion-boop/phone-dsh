@@ -197,6 +197,10 @@ final class BotRuntimeComposition {
     /// automatic `.workerHello` recovery would race that manual sequence with
     /// a second attach, so it stays out until the manual rebind completes.
     private var suppressesWorkerBootRebind = false
+    /// True while the session-epoch eraser parks/resumes the host on purpose.
+    /// That park is not a background keep-alive transition, so the host's
+    /// background-park hold must not refuse it.
+    private var suppressesParkHold = false
     /// The live MCP egress policy this composition installed the Bot write
     /// approver on. Cleared on detach so a stopped Bot runtime cannot answer
     /// for a later `/v1/http` write.
@@ -498,6 +502,9 @@ final class BotRuntimeComposition {
 
     @discardableResult
     func ensureUnit(for botID: String, reason: String = "selected") async throws -> BotRuntimeUnit {
+        // Guard: an existing unit is returned untouched. Re-attaching it here
+        // (as a selection side effect) would swap a live transport and cut the
+        // unit's running turn, so a switch must never reach transport creation.
         if let existing = units[botID] { return existing }
         let profile = try await profileStore.profile(id: botID)
         guard let profile else { throw BotTeamHostError.botNotFound(botID) }
@@ -544,6 +551,15 @@ final class BotRuntimeComposition {
 
     /// The hub calls this when the user switches Bots: attach the unit first so
     /// the first message is not sent into an unstarted transport.
+    ///
+    /// Selection is a page/route change, never a Worker lifecycle event. It must
+    /// never call `bind`, `retry` or the worker-recovery scheduler: those
+    /// replace every unit's transport, and doing that from a switch is what made
+    /// the *other* Bot's running turn disconnect. The only side effect here is
+    /// `ensureUnit`, which returns an existing unit untouched (transport and
+    /// turn stay live) and attaches a unit that does not exist yet once, to the
+    /// host incarnation the current bind already owns. A unit created while a
+    /// bind is in flight is picked up by that bind's own unit pass.
     func select(_ botID: String) async throws {
         guard rosterModel.bots.contains(where: { $0.id == botID }) else {
             throw BotTeamHostError.botNotFound(botID)
@@ -600,16 +616,37 @@ final class BotRuntimeComposition {
             detail: "recovering=\(recovering ? 1 : 0) "
                 + BotRebindDiagnostics.channelDetail(await newHost.channelSelection()))
         state = recovering ? .recovering : .connecting
+        // A bind is a Worker-incarnation operation, not a UI selection. Compare
+        // the boot the units are attached to with the one this host is serving:
+        // a bind that is not for a replaced Worker must keep every live unit
+        // untouched. Restarting a unit swaps its transport and (before the
+        // adopt fix) cancelled its running turn, which is exactly the "the other
+        // Bot disconnected when I switched" report.
+        let workerReplaced = BotWorkerIncarnation.isReplaced(
+            previousBootID: workerRecovery.recoveredBootID,
+            currentBootID: await newHost.currentWorkerBootID)
+        // Tell the host which turns the App is keeping alive. A graceful
+        // background park that would abort one of them is refused instead of
+        // cancelling it (see `PhoneDSHHost.setBackgroundTurnHoldProvider`).
+        await installParkHold(on: newHost)
         // Units must not attach themselves inside `ensureUnit` while this
         // method is iterating them; the loop below owns transport creation.
         started = false
         do {
-            // Invalidate the replaced Worker incarnation once; every attached
-            // Bot remote receives `workerRestarted` through the shared runtime.
-            _ = try await BotRebindDiagnostics.run(
-                "worker-restarted", attempt: attempt
-            ) {
-                await runtime.workerRestarted()
+            if workerReplaced {
+                // Invalidate the replaced Worker incarnation once; every
+                // attached Bot remote receives `workerRestarted` through the
+                // shared runtime. A bind for the same incarnation skips this:
+                // its task/approval invalidation would interrupt work the
+                // Worker process is still running.
+                _ = try await BotRebindDiagnostics.run(
+                    "worker-restarted", attempt: attempt
+                ) {
+                    await runtime.workerRestarted()
+                }
+            } else {
+                BotRebindDiagnostics.emit(
+                    "bot-rebind step=worker-kept attempt=\(attempt) reason=same-incarnation")
             }
             try Task.checkCancellation()
             // The host gateway calls this seam only for Bot-attributed
@@ -668,33 +705,9 @@ final class BotRuntimeComposition {
             }
             try Task.checkCancellation()
 
-            for (botID, unit) in units {
-                try Task.checkCancellation()
-                do {
-                    let channelDetail = BotRebindDiagnostics.channelDetail(
-                        await newHost.channelSelection())
-                    let transport = try await BotRebindDiagnostics.run(
-                        "transport", attempt: attempt,
-                        detail: "bot=\(botID) " + channelDetail
-                    ) {
-                        try await newHost.makeTransport()
-                    }
-                    try Task.checkCancellation()
-                    try await unit.start(transport: transport, attempt: attempt,
-                                         channelDetail: channelDetail)
-                    try Task.checkCancellation()
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    if botID == selected {
-                        throw error
-                    }
-                    BotRebindDiagnostics.emit(
-                        "bot-rebind step=unit-skipped attempt=\(attempt) bot=\(botID) "
-                            + BotRebindDiagnostics.errorToken(error))
-                    print("[BotRuntimeComposition] unit \(botID) start failed: \(error)")
-                }
-            }
+            let restartErrors = try await rebindUnits(
+                on: newHost, attempt: attempt,
+                forceRestart: workerReplaced, selected: selected)
 
             #if canImport(PhoneDSHADB) && canImport(PhoneDSHLoopback)
             #if canImport(PhoneDSHBLE) && canImport(PhoneDSHVenus)
@@ -756,6 +769,88 @@ final class BotRuntimeComposition {
         }
     }
 
+    /// Restarts only the units that cannot serve the current Worker
+    /// incarnation. A live unit keeps its transport, main session, scheduler and
+    /// running turn; only a unit that never attached, was detached, or whose
+    /// last start failed is started again (and every unit when the bind is for a
+    /// replaced Worker process).
+    ///
+    /// Returns the start errors of the skipped (non-selected) units. The
+    /// selected Bot's error is rethrown: the page the user is on must show
+    /// recovering/failed, while another Bot that failed to attach is skipped,
+    /// logged, and retried by the next bind (it has no live transport, so it is
+    /// always in the restart set).
+    private func rebindUnits(on host: PhoneDSHHost, attempt: Int,
+                             forceRestart: Bool,
+                             selected: String?) async throws -> [String: Error] {
+        var errors: [String: Error] = [:]
+        var visited = Set<String>()
+        // `select()` during this bind can create a unit after a pass took its
+        // snapshot; take a bounded second look so a newly selected Bot is
+        // attached before the bind completes instead of waiting for the next
+        // one. No bind is ever started from the selection path.
+        for _ in 0..<3 {
+            let pending = units.filter { !visited.contains($0.key) }
+            guard !pending.isEmpty else { break }
+            let ordered = pending.sorted { lhs, rhs in
+                if lhs.key == selected { return true }
+                if rhs.key == selected { return false }
+                return lhs.key < rhs.key
+            }
+            let outcome = await BotRebindScope.apply(
+                ordered,
+                forceRestart: forceRestart,
+                state: { entry in await entry.value.rebindState() },
+                restart: { entry in
+                    do {
+                        try await self.startUnit(entry.value, botID: entry.key,
+                                                 on: host, attempt: attempt)
+                    } catch {
+                        errors[entry.key] = error
+                        throw error
+                    }
+                })
+            visited.formUnion(ordered.map(\.key))
+            for botID in outcome.kept {
+                BotRebindDiagnostics.emit(
+                    "bot-rebind step=unit-kept attempt=\(attempt) bot=\(botID)")
+            }
+            for botID in outcome.restarted {
+                BotRebindDiagnostics.emit(
+                    "bot-rebind step=unit-restarted attempt=\(attempt) bot=\(botID)")
+            }
+            for (botID, token) in outcome.failed where botID != selected {
+                BotRebindDiagnostics.emit(
+                    "bot-rebind step=unit-skipped attempt=\(attempt) bot=\(botID) \(token)")
+                print("[BotRuntimeComposition] unit \(botID) start failed: \(token)")
+            }
+            if outcome.wasCancelled { throw CancellationError() }
+            if let selected, let error = errors[selected] { throw error }
+        }
+        if let selected, let error = errors[selected] { throw error }
+        return errors
+    }
+
+    /// Creates this unit's transport for the bind and attaches it. Kept as one
+    /// awaited step so the transport diagnostics carry the same `attempt` as
+    /// the rest of the bind.
+    private func startUnit(_ unit: BotRuntimeUnit, botID: String,
+                           on host: PhoneDSHHost, attempt: Int) async throws {
+        try Task.checkCancellation()
+        let channelDetail = BotRebindDiagnostics.channelDetail(
+            await host.channelSelection())
+        let transport = try await BotRebindDiagnostics.run(
+            "transport", attempt: attempt,
+            detail: "bot=\(botID) " + channelDetail
+        ) {
+            try await host.makeTransport()
+        }
+        try Task.checkCancellation()
+        try await unit.start(transport: transport, attempt: attempt,
+                             channelDetail: channelDetail)
+        try Task.checkCancellation()
+    }
+
     private func routineOwnerBotIDs() async -> [String] {
         var ids = Set<String>()
         for event in (try? await BotProductionEventReader.all(domain: domain)) ?? [] {
@@ -789,6 +884,7 @@ final class BotRuntimeComposition {
     }
 
     private func detachBinding() async {
+        if let host { await host.setBackgroundTurnHoldProvider(nil) }
         botEgressPolicy?.installBotEgressApprover(nil)
         await runtime.installWorkbenchTurnProbe(nil)
         botEgressPolicy = nil
@@ -859,6 +955,29 @@ final class BotRuntimeComposition {
                 print("[BotRuntimeComposition] device task result delivery failed: \(error)")
             }
         }
+    }
+
+    /// Declares the live Bot turns to the host so a graceful background park
+    /// refuses to abort them. Before this seam, the host's park cancelled every
+    /// tracked session (`abortOpenSessionTurns`), so a park that won a race with
+    /// the App's keep-alive decision silently killed the other Bot's turn.
+    private func installParkHold(on host: PhoneDSHHost) async {
+        await host.setBackgroundTurnHoldProvider { [weak self] in
+            guard let self else { return nil }
+            return await self.heldParkSessions()
+        }
+    }
+
+    /// The sessions whose turn the App is still holding. Asked at park time, so
+    /// a turn that finished (or a unit that was detached) is not protected.
+    private func heldParkSessions() async -> PhoneDSHBackgroundTurnHold? {
+        guard !suppressesParkHold else { return nil }
+        var sessions = Set<String>()
+        for unit in units.values where unit.started {
+            sessions.formUnion(await unit.remote.inFlightSessionIDs())
+        }
+        guard !sessions.isEmpty else { return nil }
+        return PhoneDSHBackgroundTurnHold(sessionIDs: sessions, reason: "Bot 正在执行任务")
     }
 
     /// The background keep-alive branch: any attached Bot with a routine due
@@ -971,6 +1090,10 @@ final class BotRuntimeComposition {
 
     private func beginManualWorkerRebind() async {
         suppressesWorkerBootRebind = true
+        // This rebind parks the host itself. Its author wants the in-flight Bot
+        // work interrupted (the eraser marks the window with
+        // `beginHostPark`), so the background-park hold must not refuse it.
+        suppressesParkHold = true
         // The manual path is the only rebind for this Worker boot. Release
         // any armed ready gate/attempt so it cannot race the park/start.
         workerRecovery.beginManualRebind()
@@ -982,6 +1105,7 @@ final class BotRuntimeComposition {
     }
 
     private func endManualWorkerRebind(succeeded: Bool) async {
+        suppressesParkHold = false
         if succeeded, let host {
             // The manual eraser parked/started the host and re-attached the
             // unit itself, including the new main session. Record the current
@@ -1659,7 +1783,7 @@ struct BotNativeMCPForwarder: BotNativeMCPForwarding {
 }
 #endif
 
-struct UnstartedBotTransport: DSHRemoteTransport {
+struct UnstartedBotTransport: BotUnattachedTransport {
     func call(_ endpoint: String, args: PhoneDSHBot.BotJSONValue) async throws -> PhoneDSHBot.BotJSONValue {
         throw BotMCPError.unavailable("Host transport is not attached")
     }
