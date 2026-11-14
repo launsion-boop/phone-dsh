@@ -288,6 +288,16 @@ targets:
       - path: PhoneDSHProbe/Bot/BotLiveTurn.swift
       # Shared Bot display formatting; Foundation-only so both suites can test it.
       - path: PhoneDSHProbe/Bot/BotUIFormat.swift
+      # Real-time watch: the incremental session-log reader, the durable
+      # event tail, the row service poll and its health/instrumentation
+      # compile here so the append-only, no-op and degraded-path regressions
+      # drive the real production path.
+      - path: PhoneDSHProbe/Bot/BotProductionServices.swift
+      - path: PhoneDSHProbe/Bot/BotRuntimePresentation.swift
+      - path: PhoneDSHProbe/Bot/BotActivityPhrases.swift
+      - path: PhoneDSHProbe/Bot/BotRebindDiagnostics.swift
+      - path: PhoneDSHProbe/BotSessionRegistry.swift
+      - path: PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
       # The scripted model upstream, the smoke evidence readers (WAL
       # replay/journal/step formats) and the kill-matrix support ship as the
       # regular SwiftPM target `PhoneDSHHarness`; this target links its
@@ -432,6 +442,14 @@ targets:
       - path: PhoneDSHProbe/Bot/BotLiveTurn.swift
       # Shared Bot display formatting; Foundation-only so both suites can test it.
       - path: PhoneDSHProbe/Bot/BotUIFormat.swift
+      # Same real-time watch sources as the simulator twin; the device session
+      # suite must compile the identical production poll.
+      - path: PhoneDSHProbe/Bot/BotProductionServices.swift
+      - path: PhoneDSHProbe/Bot/BotRuntimePresentation.swift
+      - path: PhoneDSHProbe/Bot/BotActivityPhrases.swift
+      - path: PhoneDSHProbe/Bot/BotRebindDiagnostics.swift
+      - path: PhoneDSHProbe/BotSessionRegistry.swift
+      - path: PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
     dependencies:
       - target: PhoneDSHProbe
       - target: ProbeKit
