@@ -138,6 +138,13 @@ Producer: `tonolink-m21-r4-firmware` at `4763811` (`main/wake.c`, `main/voice.c`
 Shared cases: [golden/tonolink-voice.json](golden/tonolink-voice.json), the judge where
 this text could be read two ways.
 
+Audio source (firmware branch `feat/dual-mic-afe`, `CONFIG_TONOLINK_WAKE_AFE`, on by default): both
+microphones feed ESP-SR's two-mic AFE (BSS speech enhancement, WakeNet `DET_MODE_2CH_95`), and the AFE
+decides the wake. The turn's Opus packets carry one raw microphone, as before: measured on the board,
+the cloud ASR understood the raw microphone and not reliably the BSS output. If the AFE cannot start,
+the board wakes on one microphone, as before. Nothing on the wire changes: the phone cannot tell the
+two apart and must not depend on which ran (the console's `wake info` says, for diagnosis only).
+
 | Direction | Bytes | Meaning |
 | --- | --- | --- |
 | `status` notify | `ev wake n=<u32> up=<u32>` | The board heard 你好小智. `n` counts hits from 1; `n=0` is the console's simulated wake. A new wake cancels the board's current recording. |
