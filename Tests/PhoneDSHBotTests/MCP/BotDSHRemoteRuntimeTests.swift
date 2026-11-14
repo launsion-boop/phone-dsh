@@ -1027,6 +1027,30 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         XCTAssertEqual(live[heldRequestID], "nonce-2")
     }
 
+    func testOnboardingWakeOpensVisibleHeldTurn() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [
+                [.turn(), .assistant("ready"), .end()],
+                [.turn(2), .assistant("opening"), .end(turn: 2)],
+            ],
+        ])
+        let inbox = WakeInbox(store: SQLiteWakeInboxStore(domainStore: fixture.store, botId: "main"))
+        let remote = try await BotDSHRemoteRuntime(
+            transport: transport, runtime: fixture.runtime,
+            wakeInbox: inbox, now: { 1_000 })
+        _ = try await remote.sendUserMessage("establish")
+        _ = try await inbox.enqueue(try BotOnboarding.item(botID: "main", now: 1_000))
+        try await remote.wakeWithHeldMessages()
+        let prompt = try XCTUnwrap(transport.prompts["gb-main"]?.text)
+        XCTAssertTrue(prompt.contains("这是你被创建后的第一次开场"))
+        XCTAssertTrue(prompt.contains("[onboarding]"))
+        XCTAssertTrue(transport.promptRequestIds.last?.requestId.hasPrefix("held:") == true)
+        let remaining = try await inbox.items()
+        XCTAssertTrue(remaining.isEmpty)
+    }
+
     func testWorkerRestartInterruptsTaskAndWakesParentOnce() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }

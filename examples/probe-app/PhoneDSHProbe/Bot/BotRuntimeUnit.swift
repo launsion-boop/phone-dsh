@@ -284,6 +284,14 @@ final class BotRuntimeUnit {
         // main-chat idle, pending approvals and triggers itself.
         Task { await maintenance.maybeRun(reason: "foreground") }
         started = true
+        // A newly created Bot has its opening instruction in the durable
+        // WakeInbox before its first unit starts. Only the onboarding item may
+        // open a turn here; ordinary agent/routine held items keep their old
+        // wait-for-user behavior. If the user already opened a turn, the item
+        // stays pending and folds into that turn instead.
+        if await BotOnboarding.hasPending(in: wakeInbox) {
+            try? await remote.wakeWithHeldMessages()
+        }
     }
 
     /// The keep-alive condition includes routines due inside the window even
