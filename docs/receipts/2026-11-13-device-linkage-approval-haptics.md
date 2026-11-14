@@ -54,7 +54,7 @@ Build: Debug, `PDSH_WITH_XZSHELL=1`, team `KC5NZ8GRQ9`
 | --- | --- |
 | `PDSHShellProviderTests` | **PASS** 6（stub 不再广告 phone） |
 | `worker-entry/src/capability-manifest.test.ts` | **PASS** 21（unavailable facts、jq/jaq host accelerator） |
-| `BotGrantRecoveryTests` | **PASS** 8（wildcard always grant） |
+| `BotGrantRecoveryTests` | **PASS** 11（stable scope、具体 deny 优先、legacy wildcard） |
 | `BotMCPRuntimeTests` / `BotModelImageToolTests` | **PASS** 33 |
 | `xcodebuild build`（simulator） | **PASS** |
 | `xcodebuild build`（`PDSH_WITH_XZSHELL=1`, generic iOS） | **PASS**；`nm` 有 `_pdsh_caps_json` |
