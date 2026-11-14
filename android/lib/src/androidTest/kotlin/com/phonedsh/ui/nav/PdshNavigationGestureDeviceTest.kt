@@ -101,15 +101,15 @@ closeBoundsPx=$closeBounds
         index.assertIsDisplayed()
 
         // Exercise the three actual local children through their stable index tags.
-        compose.onNodeWithTag(UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "fontSize").performScrollTo().performClick()
+        openSettingsRow("fontSize")
         compose.onNodeWithTag("pdsh.settings.font-size.list").assertIsDisplayed()
         consumeToSettingsIndex(backLevel)
 
-        compose.onNodeWithTag(UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "workDetails").performScrollTo().performClick()
+        openSettingsRow("workDetails")
         compose.onNodeWithTag("pdsh.settings.conversation.list").assertIsDisplayed()
         consumeToSettingsIndex(backLevel)
 
-        compose.onNodeWithTag(UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "permissionDefaults").performScrollTo().performClick()
+        openSettingsRow("permissionDefaults")
         compose.onNodeWithTag("pdsh.settings.permission-defaults").assertIsDisplayed()
         consumeToSettingsIndex(backLevel)
         assertTrue("local child back should not pop the settings route", outerBacks.isEmpty())
@@ -161,7 +161,7 @@ closeBoundsPx=$closeBounds
             }
         }
         compose.waitForIdle()
-        compose.onNodeWithTag(UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "fontSize").performScrollTo().performClick()
+        openSettingsRow("fontSize")
         compose.onNodeWithTag("pdsh.settings.font-size.list").assertIsDisplayed()
         // Replacing the route disposes the child registration; it must not leak
         // into the next route or consume its outer back.
@@ -172,6 +172,12 @@ closeBoundsPx=$closeBounds
         assertFalse("a replaced route has no inner level to consume", backLevel.consume())
         assertTrue("consuming stale settings state must not invoke route back", outerBacks.isEmpty())
         compose.onNodeWithTag(UiPageTags.AUTOMATION_ROOT).assertIsDisplayed()
+    }
+
+    private fun openSettingsRow(id: String) {
+        val tag = UiPageTags.SETTINGS_INDEX_ROW_PREFIX + id
+        compose.onNodeWithTag(UiTags.SETTINGS_LIST).performScrollToNode(hasTestTag(tag))
+        compose.onNodeWithTag(tag).performClick()
     }
 
     private fun consumeToSettingsIndex(backLevel: PdshBackLevel) {

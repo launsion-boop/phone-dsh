@@ -4,6 +4,7 @@ package com.phonedsh.bot.authz
 import com.phonedsh.agentcore.JsonObject
 import com.phonedsh.agentcore.JsonValue
 import com.phonedsh.bot.BotJson
+import com.phonedsh.bot.mcp.BotToolCatalog
 import com.phonedsh.bot.session.BotSessionKind
 import java.nio.file.Path
 
@@ -109,6 +110,11 @@ public object BotTaskAuthorizationGate : BotTaskAuthorizationPort {
         command: String,
     ): String? {
         if (call.principal.kind != BotSessionKind.TASK) return null
+        if (bareName == BotToolCatalog.ATTACH_TO_MODEL_NAME) {
+            // A background task has no present user to approve model egress;
+            // keep the image in the workspace and let the parent chat decide.
+            return "task_scope:model_image_denied"
+        }
         if (bareName != "write" && bareName != "edit" && bareName != "bash") return null
         val authorization = BotTaskAuthorization.fromCapabilities(call.principal.capabilities)
             ?: return "task_scope:missing_authorization"

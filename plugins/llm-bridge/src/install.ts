@@ -227,6 +227,21 @@ function cookieWebToolBase(env: NodeJS.ProcessEnv): string | undefined {
   return canonicalIndependentSearchBase(base) === base ? base : undefined
 }
 
+function cookieBotMcpRoutes(env: NodeJS.ProcessEnv): string[] {
+  if (!env.PDSH_MCP_EGRESS_TOKEN || env.PDSH_PHONE_MCP_TOKEN !== 'phone-host-injects-bot-mcp-token') return []
+  const raw = env.PDSH_PHONE_MCP_URL
+  if (!raw) return []
+  let endpoint: URL
+  try {
+    endpoint = new URL(raw)
+  } catch {
+    return []
+  }
+  if (endpoint.protocol !== 'http:' || endpoint.hostname !== '127.0.0.1'
+    || endpoint.port === '' || endpoint.href !== endpoint.origin + '/mcp') return []
+  return ['/mcp', '/identity/register', '/identity/cancel', '/approval'].map(path => endpoint.origin + path)
+}
+
 /** The implicit Worker host route on the same loopback origin as the channel. */
 export function defaultHostProxy(): HostProxyOptions | undefined {
   const env = process.env
@@ -235,7 +250,8 @@ export function defaultHostProxy(): HostProxyOptions | undefined {
   // independent Search/Fetch operations still need the host to inject their key,
   // so exactly those two URLs ride /v1/http with the launch bearer.
   const webToolBase = channelToken ? undefined : cookieWebToolBase(env)
-  const token = webToolBase !== undefined ? env.PDSH_DSH_LAUNCH_TOKEN : channelToken
+  const botRoutes = channelToken ? [] : cookieBotMcpRoutes(env)
+  const token = webToolBase !== undefined || botRoutes.length > 0 ? env.PDSH_DSH_LAUNCH_TOKEN : channelToken
   const origin = globalThis.location?.origin
   const url = env.PDSH_CHANNEL_ORIGIN
     ?? env.PDSH_EXEC_BRIDGE_URL
@@ -250,8 +266,12 @@ export function defaultHostProxy(): HostProxyOptions | undefined {
     }
     return undefined
   }
-  if (webToolBase === undefined) return { url, token }
-  const operations = new Set([`${webToolBase}/search`, `${webToolBase}/fetch`])
+  if (webToolBase === undefined && botRoutes.length === 0) return { url, token }
+  const operations = new Set(botRoutes)
+  if (webToolBase !== undefined) {
+    operations.add(`${webToolBase}/search`)
+    operations.add(`${webToolBase}/fetch`)
+  }
   return { url, token, match: target => operations.has(target.href) }
 }
 

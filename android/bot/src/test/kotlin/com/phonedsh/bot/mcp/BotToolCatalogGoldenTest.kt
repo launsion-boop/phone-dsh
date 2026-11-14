@@ -95,7 +95,7 @@ class BotToolCatalogGoldenTest {
     }
 
     @Test
-    fun staticCatalogIsTheFrozenTwentyOneWithTeamTools() {
+    fun staticCatalogIsTheFrozenTwentyTwoWithTeamTools() {
         val names = catalog.definitions(null).map { it.name }
         assertEquals(
             listOf(
@@ -103,7 +103,7 @@ class BotToolCatalogGoldenTest {
                 "show_checklist", "show_link", "UpdateMemory", "ReadMemory", "RecallMemory",
                 "Task", "AwaitTask", "StopSubagent", "UpdateRoutine", "ListRoutines",
                 "RequestApproval", "SendToUser", "FishAction", "BotVolatileContext",
-                "SendToAgent", "CreateTeammate",
+                "attach_to_model", "SendToAgent", "CreateTeammate",
             ),
             names,
         )

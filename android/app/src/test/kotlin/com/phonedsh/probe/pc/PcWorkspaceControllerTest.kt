@@ -28,6 +28,7 @@ import com.phonedsh.pclink.PclinkRosterSession
 import com.phonedsh.pclink.PclinkRosterSnapshot
 import com.phonedsh.pclink.PclinkRosterWorkspace
 import com.phonedsh.pclink.PclinkRpc
+import com.phonedsh.pclink.PclinkRpcError
 import com.phonedsh.pclink.PclinkUnpairedReason
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
@@ -83,6 +84,24 @@ class PcWorkspaceControllerTest {
         fixture.client.setOnline()
         return fixture
     }
+
+    /** A `session/list` answer with exactly [ids], newest first. */
+    private fun sessionListResponse(vararg ids: String): JsonObject = JsonObject(
+        linkedMapOf(
+            "items" to JsonArray(
+                ids.map { id ->
+                    JsonObject(
+                        linkedMapOf(
+                            "sessionId" to JsonString(id),
+                            "updatedAt" to JsonNumber("1700000000000"),
+                            "running" to JsonBool(false),
+                            "blank" to JsonBool(true),
+                        ),
+                    )
+                },
+            ),
+        ),
+    )
 
     // ---- Presence mapping ----------------------------------------------
 
@@ -361,6 +380,244 @@ class PcWorkspaceControllerTest {
             assertNotNull(loaded.rosterCapturedAtMilliseconds)
             val cached = fixture.storage.readRoster(record.peerMachineId)
             assertTrue(cached is com.phonedsh.pclink.PclinkRosterCacheEntry.Stored)
+        } finally {
+            fixture.close()
+        }
+    }
+
+    // ---- PC new session -------------------------------------------------
+
+    @Test
+    fun `pc new session uses the stored workspace and refreshes the roster`() = runBlocking {
+        val fixture = Fixture()
+        try {
+            val record = PcTestValues.record()
+            fixture.storage.writeLastWorkspace(record.peerMachineId, "workspace-1")
+            fixture.client.setOnline(record)
+            await(fixture.controller.state) { it.record != null }
+            fixture.transport.handler = { endpoint, args ->
+                when (endpoint) {
+                    PcWorkspaceController.SESSION_CREATE_ENDPOINT -> {
+                        val request = (args as JsonObject)["request"] as JsonObject
+                        assertEquals("workspace-1", (request["workspaceId"] as JsonString).value)
+                        assertNull("the workspace id is the one selector", request["cwd"])
+                        JsonObject(linkedMapOf("sessionId" to JsonString("new-session")))
+                    }
+
+                    PcWorkspaceController.SESSION_LIST_ENDPOINT -> sessionListResponse("new-session")
+                    else -> throw AssertionError("unexpected endpoint $endpoint")
+                }
+            }
+
+            val outcome = fixture.controller.createSession()
+
+            assertEquals(
+                PcNewSessionOutcome.Created("new-session", "workspace-1"),
+                outcome,
+            )
+            assertEquals(
+                listOf("session/create", "session/list"),
+                fixture.transport.calls.map { it.first },
+            )
+            val state = await(fixture.controller.state) { current ->
+                current.roster.sessions.any { it.id == "new-session" }
+            }
+            assertEquals("workspace-1", state.lastWorkspaceId)
+            assertEquals("new-session", state.roster.sessions.first().id)
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun `an explicit PC workspace is sent and remembered for the next create`() = runBlocking {
+        val fixture = onlineFixture()
+        try {
+            val record = PcTestValues.record()
+            await(fixture.controller.state) { it.record != null }
+            fixture.transport.handler = { endpoint, args ->
+                when (endpoint) {
+                    PcWorkspaceController.SESSION_CREATE_ENDPOINT -> {
+                        val request = (args as JsonObject)["request"] as JsonObject
+                        assertEquals("picked-2", (request["workspaceId"] as JsonString).value)
+                        JsonObject(linkedMapOf("sessionId" to JsonString("new-in-picked")))
+                    }
+
+                    PcWorkspaceController.SESSION_LIST_ENDPOINT ->
+                        sessionListResponse("new-in-picked")
+
+                    else -> throw AssertionError("unexpected endpoint $endpoint")
+                }
+            }
+
+            val outcome = fixture.controller.createSession("picked-2")
+
+            assertEquals(
+                PcNewSessionOutcome.Created("new-in-picked", "picked-2"),
+                outcome,
+            )
+            assertEquals("picked-2", fixture.controller.state.value.lastWorkspaceId)
+            assertEquals("picked-2", fixture.storage.readLastWorkspace(record.peerMachineId))
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun `pc new session without a stored workspace lets the PC choose and keeps the returned row`() =
+        runBlocking {
+            val fixture = onlineFixture()
+            try {
+                await(fixture.controller.state) { it.record != null }
+                fixture.transport.handler = { endpoint, args ->
+                    when (endpoint) {
+                        PcWorkspaceController.SESSION_CREATE_ENDPOINT -> {
+                            val request = (args as JsonObject)["request"] as JsonObject
+                            assertTrue("no workspace selector was chosen", request.members.isEmpty())
+                            JsonObject(linkedMapOf("sessionId" to JsonString("adopted")))
+                        }
+
+                        // The list can race the PC's own write; the returned id
+                        // is still the authority for the row this action made.
+                        PcWorkspaceController.SESSION_LIST_ENDPOINT -> sessionListResponse()
+                        else -> throw AssertionError("unexpected endpoint $endpoint")
+                    }
+                }
+
+                val outcome = fixture.controller.createSession()
+
+                assertEquals(PcNewSessionOutcome.Created("adopted", null), outcome)
+                val state = fixture.controller.state.value
+                assertEquals("adopted", state.roster.sessions.single().id)
+                assertTrue(state.roster.sessions.single().blank)
+                assertNull(state.lastWorkspaceId)
+            } finally {
+                fixture.close()
+            }
+        }
+
+    @Test
+    fun `pc new session offline is an honest failure and never calls the transport`() = runBlocking {
+        val fixture = onlineFixture()
+        try {
+            await(fixture.controller.state) { it.record != null }
+            fixture.client.setOffline()
+            // The presence machine keeps an 8 s reconnecting grace, so the
+            // check is "not online" rather than the latched OFFLINE value.
+            await(fixture.controller.state) { !it.presence.isOnline }
+
+            val outcome = fixture.controller.createSession()
+
+            assertTrue(outcome is PcNewSessionOutcome.Failed)
+            assertEquals("peer_offline", (outcome as PcNewSessionOutcome.Failed).error.code)
+            assertTrue("no phone fallback: nothing was sent", fixture.transport.calls.isEmpty())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun `pc new session without a paired computer is a failure, not a phone session`() = runBlocking {
+        val fixture = Fixture()
+        try {
+            val outcome = fixture.controller.createSession()
+
+            assertTrue(outcome is PcNewSessionOutcome.Failed)
+            assertEquals("not_paired", (outcome as PcNewSessionOutcome.Failed).error.code)
+            assertTrue(fixture.transport.calls.isEmpty())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun `a refused pc create is propagated and adds no roster row`() = runBlocking {
+        val fixture = onlineFixture()
+        try {
+            await(fixture.controller.state) { it.record != null }
+            fixture.transport.handler = { endpoint, _ ->
+                assertEquals(PcWorkspaceController.SESSION_CREATE_ENDPOINT, endpoint)
+                // A definite DSH refusal is not an unknown outcome: never
+                // re-read on its behalf and never create a local fallback row.
+                throw PclinkRpcError("workspace_not_found", "no such workspace")
+            }
+
+            val outcome = fixture.controller.createSession()
+
+            assertTrue(outcome is PcNewSessionOutcome.Failed)
+            assertEquals("workspace_not_found", (outcome as PcNewSessionOutcome.Failed).error.code)
+            assertEquals(1, fixture.transport.calls.size)
+            assertTrue(fixture.controller.state.value.roster.sessions.isEmpty())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun `a lost pc create reply re-reads the list instead of resending the unsafe create`() =
+        runBlocking {
+            val fixture = onlineFixture()
+            try {
+                await(fixture.controller.state) { it.record != null }
+                fixture.transport.handler = { endpoint, _ ->
+                    when (endpoint) {
+                        PcWorkspaceController.SESSION_CREATE_ENDPOINT ->
+                            throw PclinkRpcError("unknown_outcome", "no definitive reply")
+
+                        PcWorkspaceController.SESSION_LIST_ENDPOINT ->
+                            sessionListResponse("landed-on-pc")
+
+                        else -> throw AssertionError("unexpected endpoint $endpoint")
+                    }
+                }
+
+                val outcome = fixture.controller.createSession()
+
+                assertTrue(outcome is PcNewSessionOutcome.Failed)
+                assertEquals("unknown_outcome", (outcome as PcNewSessionOutcome.Failed).error.code)
+                assertEquals(
+                    listOf("session/create", "session/list"),
+                    fixture.transport.calls.map { it.first },
+                )
+                assertEquals(
+                    "the unsafe create is never resent",
+                    1,
+                    fixture.transport.calls.count { it.first == "session/create" },
+                )
+                val state = await(fixture.controller.state) {
+                    it.roster.sessions.any { row -> row.id == "landed-on-pc" }
+                }
+                assertEquals("landed-on-pc", state.roster.sessions.single().id)
+            } finally {
+                fixture.close()
+            }
+        }
+
+    @Test
+    fun `a malformed pc create answer is an invalid response and re-reads the list`() = runBlocking {
+        val fixture = onlineFixture()
+        try {
+            await(fixture.controller.state) { it.record != null }
+            fixture.transport.handler = { endpoint, _ ->
+                when (endpoint) {
+                    PcWorkspaceController.SESSION_CREATE_ENDPOINT -> JsonObject(emptyMap())
+                    PcWorkspaceController.SESSION_LIST_ENDPOINT -> sessionListResponse("visible-after-read")
+                    else -> throw AssertionError("unexpected endpoint $endpoint")
+                }
+            }
+
+            val outcome = fixture.controller.createSession()
+
+            assertTrue(outcome is PcNewSessionOutcome.Failed)
+            assertEquals("invalid_response", (outcome as PcNewSessionOutcome.Failed).error.code)
+            assertEquals(
+                listOf("session/create", "session/list"),
+                fixture.transport.calls.map { it.first },
+            )
+            assertEquals(
+                "visible-after-read",
+                fixture.controller.state.value.roster.sessions.single().id,
+            )
         } finally {
             fixture.close()
         }
