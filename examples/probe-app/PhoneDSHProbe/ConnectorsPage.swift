@@ -278,8 +278,8 @@ private struct ConnectorDetailSheet: View {
             return NativeText("连接 GitHub 账号后，可以在手机上查看你选择的仓库。",
                               "Connect a GitHub account to browse the repositories you choose on this phone.")
         case .feishu:
-            return NativeText("连接飞书账号后，可以在手机上浏览你的云文档。",
-                              "Connect a Feishu account to browse your cloud documents on this phone.")
+            return NativeText("通过 TonoLive 使用你已授权的飞书云文档。",
+                              "Use your authorized Feishu documents through TonoLive.")
         }
     }
 
@@ -331,12 +331,12 @@ private struct ConnectorDetailSheet: View {
             ]
         case .feishu:
             return [
-                ("doc.text", NativeText("只读云文档清单", "Read-only document listing"),
-                 NativeText("只读取云空间根目录的文档名称、类型和链接，不下载文件内容。",
-                            "Reads the names, types and links of files in your cloud space root; no file content is downloaded.")),
+                ("doc.text", NativeText("访问云文档", "Cloud documents"),
+                 NativeText("使用 TonoLive 账号关联的飞书连接访问已授权的文档。",
+                            "Use the Feishu connection on your TonoLive account to access authorized documents.")),
                 ("lock.shield", NativeText("飞书授权", "Feishu authorization"),
-                 NativeText("在飞书完成授权，应用密钥只保存在平台侧，不下发到手机。",
-                            "Authorize in Feishu; the app secret stays on the platform and never reaches this phone.")),
+                 NativeText("首次连接按 TonoLive 提示创建应用并在飞书授权，无需填写应用凭据。",
+                            "On first connection, follow TonoLive to create and authorize an app in Feishu. No app credentials are required.")),
             ]
         }
     }

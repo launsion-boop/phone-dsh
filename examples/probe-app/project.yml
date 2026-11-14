@@ -125,11 +125,6 @@ targets:
         INFOPLIST_FILE: Config/PhoneDSHProbe-Info.plist
         PDSH_GMAIL_IOS_CLIENT_ID: ""
         PDSH_GMAIL_REDIRECT_SCHEME: dev.phone-dsh.gmail.unconfigured
-        # Feishu connector: the tono-api broker origin and the Feishu App ID.
-        # Both are intentionally empty in the committed project; the connector
-        # page then reports an unconfigured build.
-        PDSH_FEISHU_OAUTH_ORIGIN: ""
-        PDSH_FEISHU_APP_ID: ""
         # The app's own Keychain items (model provider API keys) need the
         # default access group; a build without this entitlement gets
         # errSecMissingEntitlement for every keychain query.
