@@ -6,16 +6,17 @@ contracts: [P09]
 status: frozen
 breaking: false
 version_decision: Existing BotActivity value shape and event encoding; no wire or persistence change.
-base: eb42afc1c3ce53d6cc94c434e016b1dd85267bd6
-contract_revision: pending-own-document-commit
+base: 7a11fd5b7bfb136a67a9ed70ba2d4f67ffa35973
+contract_revision: spec/ui/v1/bot/ui-state.md@daf322120c5b108b9a0590d8857c021477f9af82
 ```
 
 ## 1. Trigger and roles
 
 - Trigger → current → expected: event consumers infer one last call/step/stream; Android producer and consumer independently project incomplete event subsets → one event lifecycle authority per platform maintains unresolved calls by call ID within turn/session, restores the newest still-pending visible call after out-of-order results, and applies identical semantics at producer and consumer.
 - Contract owner and implementer: this task agent. Reviewer/integrator: parent coordinator.
-- Owning contract: P09 `spec/ui/v1/bot/ui-state.md` §4.8 and this frozen change record. Shared lifecycle vectors: `spec/ui/v1/bot/golden/activity-call-lifecycle.phone.json`.
+- Owning contract: P09 `spec/ui/v1/bot/ui-state.md` §4.8 and this frozen change record. Shared lifecycle vectors: `spec/ui/v1/bot/ios/activity-evidence-vectors.json`.
 - Ends: iOS app runtime projection and ChatModel live-stream priority; Android `:lib` consumer and `:app` event producer. Both Android paths call one pure projector in `:lib`.
+  **Scope (user-directed, 2026-11-14):** this delivery implements the iOS end only. The Android rows in this record stay the frozen target and are `NOT_RUN` here; the user deferred that adaptation, and no Android source changed in this PR.
 
 ## 2. Delta
 

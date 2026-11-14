@@ -114,7 +114,7 @@ final class BotChatModelTests: XCTestCase {
         model.receive(.textDelta("我先看一下构建日志"))
         XCTAssertTrue(model.showsActivityLine)
         XCTAssertEqual(model.lineActivity?.category, .replying)
-        XCTAssertEqual(model.lineActivity?.detail, "")
+        XCTAssertEqual(model.lineActivity?.detail, "正在回复")
 
         // After the coalescer flushes, the uncommitted live buffer is the
         // signal, and it is still "replying".
@@ -147,7 +147,8 @@ final class BotChatModelTests: XCTestCase {
             ]),
         ]))
         XCTAssertFalse(model.isStreamingNow)
-        XCTAssertEqual(model.lineActivity?.category, .thinking)
+        XCTAssertEqual(model.lineActivity?.category, .replying)
+        XCTAssertEqual(model.lineActivity?.detail, "正在回复")
 
         model.receive(liveEvent("tool/call", turn: 1, seq: 4, data: [
             "callId": .string("call-read-1"),
@@ -156,7 +157,7 @@ final class BotChatModelTests: XCTestCase {
         ]))
         XCTAssertTrue(model.showsActivityLine)
         XCTAssertEqual(model.lineActivity?.category, .reading)
-        XCTAssertEqual(model.lineActivity?.detail, "在翻文件 · report.md")
+        XCTAssertEqual(model.lineActivity?.detail, "读取相关资料")
     }
 
     func testFinalHidesActivityLine() {

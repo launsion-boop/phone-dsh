@@ -327,7 +327,7 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(preview.activity?.startedAt, 1_000)
     }
 
-    func testHiddenFishActionProducesNoActivity() {
+    func testHiddenFishActionNeverBecomesTheVisibleActivity() {
         let turn = sessionEvent("turn/start", seq: 1, time: 1_000)
         let fish = sessionEvent("tool/call", seq: 2, time: 1_100, data: [
             "callId": .string("fish-1"),
