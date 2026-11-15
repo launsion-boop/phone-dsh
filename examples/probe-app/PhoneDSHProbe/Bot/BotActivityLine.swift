@@ -21,21 +21,21 @@ struct BotActivityLine: View {
     private var text: String { line.text }
 
     var body: some View {
-        GeometryReader { proxy in
-            let textWidth = min(text.size(withAttributes: [.font: UIFont.systemFont(ofSize: 13, weight: .medium)]).width,
-                                max(0, proxy.size.width - 13))
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(problem ? BotUIPalette.danger : BotActivityShimmerText.silver)
-                    .frame(width: 5, height: 5)
-                    .accessibilityHidden(true)
-                BotActivityShimmerText(text: text, quiet: quiet || problem,
-                                       ink: problem ? BotUIPalette.danger : BotActivityShimmerText.silver)
-                    .frame(width: textWidth)
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
-            .frame(height: proxy.size.height)
+        // One stable frame: the line fills the width it is given, the dot is
+        // the fixed activity point and the words are centered inside the
+        // remaining box. No string measurement enters layout, so a rotation,
+        // minute-suffix or activity tick can never resize or re-center the
+        // line (and nothing it floats over is asked to lay out again).
+        HStack(spacing: 8) {
+            Circle()
+                .fill(problem ? BotUIPalette.danger : BotActivityShimmerText.silver)
+                .frame(width: 5, height: 5)
+                .accessibilityHidden(true)
+            BotActivityShimmerText(text: text, quiet: quiet || problem,
+                                   ink: problem ? BotUIPalette.danger : BotActivityShimmerText.silver)
+                .frame(maxWidth: .infinity)
         }
+        .frame(maxWidth: .infinity)
         .frame(height: 18)
             .padding(.horizontal, 24)
             .frame(maxWidth: .infinity)
@@ -91,7 +91,6 @@ private struct BotActivityShimmerText: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.botPageActive) private var pageActive
-    @State private var phase: CGFloat = -1
     private static let height: CGFloat = 18
 
     fileprivate static let silver = Color(uiColor: UIColor { traits in
@@ -122,10 +121,6 @@ private struct BotActivityShimmerText: View {
         .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height)
         .clipped()
         .animation(animated ? .easeOut(duration: 0.25) : nil, value: text)
-        .onAppear { restart() }
-        .onChange(of: reduceMotion) { _, _ in restart() }
-        .onChange(of: pageActive) { _, _ in restart() }
-        .onChange(of: quiet) { _, _ in restart() }
     }
 
     private func line(_ value: String) -> some View {
@@ -149,32 +144,41 @@ private struct BotActivityShimmerText: View {
     }
 
     /// A full-width gradient whose 40–60% band is translated across the text.
+    /// The band position comes from the timeline, not from a state animation:
+    /// the line appears inside a transition, and a `repeatForever` animation
+    /// started in `onAppear` can be absorbed by that insertion and never run,
+    /// which leaves the highlight parked off-screen (the "glint disappeared"
+    /// report). A timeline is also layout-neutral: it only changes the mask's
+    /// offset, never the text's size or position.
     private var sweep: some View {
         GeometryReader { proxy in
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black, location: 0.4),
-                    .init(color: .black, location: 0.6),
-                    .init(color: .clear, location: 1),
-                ],
-                startPoint: .leading,
-                endPoint: .trailing)
-            .frame(width: proxy.size.width)
-            .offset(x: phase * proxy.size.width)
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !ambient)) { timeline in
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.4),
+                        .init(color: .black, location: 0.6),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing)
+                .frame(width: proxy.size.width)
+                .offset(x: BotActivitySweep.phase(at: timeline.date) * proxy.size.width)
+            }
         }
     }
+}
 
-    private func restart() {
-        var reset = Transaction()
-        reset.disablesAnimations = true
-        withTransaction(reset) {
-            phase = -1
-        }
-        guard ambient else { return }
-        withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) {
-            phase = 1
-        }
+/// The one sweeping glint: −1 → 1 every 1.6 s, so the 40–60% band crosses the
+/// words once per period. Pure, so the timing is easy to check without a view.
+enum BotActivitySweep {
+    static let period: TimeInterval = 1.6
+
+    static func phase(at date: Date = Date()) -> CGFloat {
+        let seconds = date.timeIntervalSinceReferenceDate
+        let remainder = seconds.truncatingRemainder(dividingBy: period)
+        let fraction = remainder < 0 ? remainder / period + 1 : remainder / period
+        return CGFloat(fraction * 2 - 1)
     }
 }
 
