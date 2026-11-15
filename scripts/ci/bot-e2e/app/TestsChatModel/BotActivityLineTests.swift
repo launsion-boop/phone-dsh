@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import CoreGraphics
 import PhoneDSHAgentCore
 import PhoneDSHBot
 
@@ -244,6 +245,30 @@ final class BotActivityLineTests: XCTestCase {
         for category in BotActivityCategory.allCases {
             XCTAssertEqual(BotActivityPhrases.workStyle(for: category), expected[category],
                            "work style for \(category.rawValue)")
+        }
+    }
+
+    // MARK: - Shimmer sweep
+
+    /// The glint is a pure function of time: −1 → 1 across one 1.6s period,
+    /// wrapping on both ends of the reference interval. Keeping it here means
+    /// the view only applies it to a mask offset and the logic-only targets
+    /// can check it without a renderer.
+    func testActivitySweepPhaseIsPureAndWraps() {
+        func phase(_ seconds: TimeInterval) -> CGFloat {
+            BotActivitySweep.phase(at: Date(timeIntervalSinceReferenceDate: seconds))
+        }
+        XCTAssertEqual(BotActivitySweep.period, 1.6, accuracy: 0.0001)
+        XCTAssertEqual(phase(0), -1, accuracy: 0.0001)
+        XCTAssertEqual(phase(BotActivitySweep.period * 0.25), -0.5, accuracy: 0.0001)
+        XCTAssertEqual(phase(BotActivitySweep.period * 0.5), 0, accuracy: 0.0001)
+        XCTAssertEqual(phase(BotActivitySweep.period * 0.75), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(phase(BotActivitySweep.period), -1, accuracy: 0.0001)
+        XCTAssertEqual(phase(-BotActivitySweep.period * 0.5), 0, accuracy: 0.0001)
+        for step in 0...32 {
+            let value = phase(Double(step) * 0.05)
+            XCTAssertGreaterThanOrEqual(value, -1)
+            XCTAssertLessThanOrEqual(value, 1)
         }
     }
 
@@ -617,6 +642,7 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(presence.workStyle, .reading)
         XCTAssertEqual(presence.fishState, .working)
         XCTAssertFalse(presence.lineIsQuiet)
+        XCTAssertTrue(presence.showsActivityBubble)
     }
 
     func testHeaderWorkingBeforeFirstEventLooksBusy() {
@@ -636,6 +662,7 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(presence.fishState, .alerting)
         XCTAssertTrue(presence.lineIsQuiet)
         XCTAssertEqual(presence.workStyle, .generic)
+        XCTAssertTrue(presence.showsActivityBubble)
     }
 
     func testHeaderPendingApprovalAfterTurnKeepsStaticLine() {
@@ -644,6 +671,7 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(one.phase, .waitingForYou)
         XCTAssertEqual(one.motion, .standard)
         XCTAssertTrue(one.lineIsQuiet)
+        XCTAssertTrue(one.showsActivityBubble)
         var line = BotActivityLineState()
         line.receive(one.line, at: 0)
         XCTAssertEqual(line.text, "等你确认")
@@ -663,15 +691,16 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertNil(presence.line)
         XCTAssertEqual(presence.motion, .standard)
         XCTAssertEqual(presence.fishState, .sleeping)
+        XCTAssertFalse(presence.showsActivityBubble)
     }
 
-    /// The typing bubble reads the same `BotHeaderPresence` as the activity
-    /// line: it is on for every running-turn activity fixture and off the
-    /// moment the turn settles (final assistant row), fails or stops, even
-    /// while a notice/approval line is still visible above it.
-    func testTypingBubbleOnlyEchoesARunningTurn() {
+    /// The bottom bubble is the one activity surface: it is on for every
+    /// phase that carries a sentence — a running turn, an approval after its
+    /// turn, and a failure report — and off when the Bot is settled. The old
+    /// working-only `showsTypingBubble` mapping is gone.
+    func testActivityBubbleFollowsThePresenceLine() {
         // Thinking / awaiting reply / tool running / streaming all resolve
-        // to `.working` and must carry both the line and the bubble.
+        // to `.working` and must carry the bubble and its sentence.
         let running: [(BotActivity, Int)] = [
             (BotActivity(status: .thinking, detail: "等待响应", category: .thinking), 0),
             (BotActivity(status: .thinking, detail: "", category: .waiting), 0),
@@ -684,28 +713,36 @@ final class BotActivityLineTests: XCTestCase {
                                                      fishState: .thinking)
             XCTAssertEqual(presence.phase, .working, "\(activity.category)")
             XCTAssertNotNil(presence.line, "\(activity.category)")
-            XCTAssertTrue(presence.showsTypingBubble, "\(activity.category)")
+            XCTAssertTrue(presence.showsActivityBubble, "\(activity.category)")
+            XCTAssertFalse(presence.lineIsProblem, "\(activity.category)")
         }
 
-        // The final assistant row: the turn is over and the activity card is
-        // gone, so the bubble is gone too.
+        // The final assistant row: the turn is over and the sentence is gone,
+        // so the bubble is gone too.
         let settled = BotHeaderPresence.resolve(turnActive: false, lineActivity: nil,
                                                 pendingApprovals: 0, fishState: .idle)
         XCTAssertNil(settled.line)
-        XCTAssertFalse(settled.showsTypingBubble)
+        XCTAssertFalse(settled.showsActivityBubble)
 
-        // An error keeps the line for its six seconds but is not a turn.
+        // An error keeps its sentence for six seconds: the bubble shows it in
+        // the danger tint, quietly (no glint).
         let failed = BotHeaderPresence.resolve(turnActive: false, lineActivity: nil,
                                                pendingApprovals: 0, fishState: .sad,
                                                problem: "连接中断")
         XCTAssertNotNil(failed.line)
-        XCTAssertFalse(failed.showsTypingBubble)
+        XCTAssertTrue(failed.showsActivityBubble)
+        XCTAssertTrue(failed.lineIsQuiet)
+        XCTAssertTrue(failed.lineIsProblem)
 
-        // Waiting for the user's approval after the turn: a line, no bubble.
+        // Waiting for the user's approval after the turn: the bubble shows
+        // the static「等你确认」sentence (resolved from the empty detail by
+        // `BotActivityLineState`), no glint.
         let waiting = BotHeaderPresence.resolve(turnActive: false, lineActivity: nil,
                                                 pendingApprovals: 1, fishState: .alerting)
         XCTAssertNotNil(waiting.line)
-        XCTAssertFalse(waiting.showsTypingBubble)
+        XCTAssertTrue(waiting.showsActivityBubble)
+        XCTAssertTrue(waiting.lineIsQuiet)
+        XCTAssertFalse(waiting.lineIsProblem)
     }
 
     func testHeaderProblemWinsAndJoinsLinesQuietly() {
@@ -717,6 +754,7 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(presence.line?.detail, "附件「a」未附加：超限；附件「b」未附加：超限")
         XCTAssertTrue(presence.lineIsQuiet)
         XCTAssertTrue(presence.lineIsProblem)
+        XCTAssertTrue(presence.showsActivityBubble)
         XCTAssertEqual(presence.motion, .standard)
         XCTAssertEqual(presence.fishState, .sad)
     }
@@ -728,6 +766,7 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(presence.phase, .idle)
         XCTAssertNil(presence.line)
         XCTAssertFalse(presence.lineIsProblem)
+        XCTAssertFalse(presence.showsActivityBubble)
     }
 
     private func activity(_ detail: String, category: BotActivityCategory,

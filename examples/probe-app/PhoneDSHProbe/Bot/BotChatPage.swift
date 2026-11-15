@@ -122,8 +122,7 @@ struct BotChatPage: View {
         VStack(spacing: 0) {
             header
             transcript
-                .overlay(alignment: .top) { headerStatus }
-            typingBubbleBand
+            activityBubbleBand
             composerDock
         }
         .background(HomeSpec.page.ignoresSafeArea())
@@ -158,7 +157,8 @@ struct BotChatPage: View {
     /// Grok-style Bot header: one centered avatar+name capsule, and the DSH
     /// page's own 92×44 device/menu capsule on the trailing side. The leading
     /// spacer mirrors the trailing capsule so the Bot capsule is centered on
-    /// the screen and can never grow under the menu.
+    /// the screen and can never grow under the menu. The header has no activity
+    /// line of its own; the one activity surface is the bottom bubble.
     private var header: some View {
         HStack(spacing: 0) {
             if let openDrawer {
@@ -190,8 +190,8 @@ struct BotChatPage: View {
             } label: {
                 HStack(spacing: 8) {
                     // The only avatar on screen: its state, motion profile
-                    // and work style come from the same header lifecycle as
-                    // the status line under it.
+                    // and work style come from the same lifecycle as the
+                    // activity sentence in the bottom bubble.
                     BotFishView(state: presence.fishState, size: 32, appearance: model.appearance,
                                 crowned: isMainBot, reaction: model.reaction,
                                 motionProfile: presence.motion,
@@ -232,8 +232,8 @@ struct BotChatPage: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// One lifecycle for the whole header: fish state, motion and the status
-    /// line all read this value, so they always change together.
+    /// One lifecycle for the whole Bot page: fish state, motion and the
+    /// activity bubble all read this value, so they always change together.
     private var presence: BotHeaderPresence {
         BotHeaderPresence.resolve(turnActive: model.showsActivityLine,
                                   lineActivity: model.lineActivity,
@@ -242,60 +242,43 @@ struct BotChatPage: View {
                                   problem: model.runtimeNotice)
     }
 
-    /// One centered status line right under the header capsule. It floats
-    /// over the top of the transcript on a page-colored fade instead of
-    /// taking layout space, so showing or hiding it never moves a message.
-    private var headerStatus: some View {
-        ZStack(alignment: .top) {
-            if let activity = presence.line {
-                BotActivityLine(activity: activity, quiet: presence.lineIsQuiet,
-                                problem: presence.lineIsProblem)
-                    .padding(.top, 0)
-                    .padding(.bottom, 14)
-                    .background(alignment: .top) {
-                        LinearGradient(
-                            stops: [
-                                .init(color: HomeSpec.page, location: 0),
-                                .init(color: HomeSpec.page, location: 0.55),
-                                .init(color: HomeSpec.page.opacity(0), location: 1),
-                            ],
-                            startPoint: .top, endPoint: .bottom)
-                    }
-                    .transition(.opacity.combined(with: .offset(y: -6)))
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .animation(.easeInOut(duration: 0.25), value: presence.line != nil)
-        .allowsHitTesting(false)
-    }
-
-    /// The bottom-leading echo of `headerStatus`: three dots in a Bot bubble
-    /// immediately above the composer. It reads `presence`, the same value as
-    /// the activity line, so it can never be on while the line is off for a
-    /// settled turn.
+    /// The only activity surface: the bottom-leading bubble carries the
+    /// lifecycle's sentence (three dots + resolved activity text + glint)
+    /// immediately above the composer. It replaced the floating line under
+    /// the header, so the page draws no separate status line.
     ///
     /// Layout is deliberately inert. The band is a sibling between the
     /// transcript's ScrollView and `BotComposerDock` — it is not in the scroll
     /// content, not inside `BotComposerDockHeightKey`, and not observed by
     /// `BotTranscriptViewportReader` or the tail preference. Its height is
-    /// pinned to `BotTypingBubble.height` + 4pt in both states, so a bubble
-    /// appearing or disappearing performs no layout pass, moves no message and
-    /// cannot re-trigger autoscroll; only the child's opacity transitions.
-    /// `allowsHitTesting(false)` keeps the reserved band from stealing a tap
-    /// from the transcript or the composer.
-    private var typingBubbleBand: some View {
-        ZStack(alignment: .leading) {
-            if presence.showsTypingBubble {
-                BotTypingBubble()
-                    .transition(.opacity)
+    /// pinned to `BotActivityBubble.height` in both states, so a bubble
+    /// appearing, disappearing or swapping to a longer sentence performs no
+    /// vertical layout pass, moves no message and cannot re-trigger autoscroll.
+    /// The cap is 86% of the transcript column; the bubble itself hugs its
+    /// text. `allowsHitTesting(false)` keeps the reserved band from stealing a
+    /// tap from the transcript or the composer.
+    private var activityBubbleBand: some View {
+        GeometryReader { proxy in
+            let contentWidth = max(0, proxy.size.width)
+            ZStack(alignment: .leading) {
+                if let activity = presence.line {
+                    BotActivityBubble(
+                        activity: activity,
+                        quiet: presence.lineIsQuiet,
+                        problem: presence.lineIsProblem,
+                        maxWidth: contentWidth > 0
+                            ? contentWidth * BotActivityBubble.maxWidthRatio
+                            : .infinity)
+                        .transition(.opacity)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, minHeight: BotTypingBubble.height,
-               maxHeight: BotTypingBubble.height, alignment: .leading)
+        .frame(height: BotActivityBubble.height)
         .padding(.horizontal, HomeSpec.contentInset)
         .padding(.top, 4)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2),
-                   value: presence.showsTypingBubble)
+                   value: presence.showsActivityBubble)
         .allowsHitTesting(false)
     }
 
@@ -337,10 +320,10 @@ struct BotChatPage: View {
                                 value: content.size.height)
                         }
                     }
-                    // Room for the header status line, reserved at all times
-                    // so the floating line never shifts the transcript when
-                    // it shows or hides (#132).
-                    .padding(.top, HomeSpec.blockGap + 14)
+                    // The status line under the header was removed, so the
+                    // transcript starts one block gap below the chrome; no
+                    // empty band is reserved for a floating line any more.
+                    .padding(.top, HomeSpec.blockGap)
                     .padding(.bottom, 16)
             }
             .coordinateSpace(name: "bot-transcript")
@@ -478,8 +461,8 @@ struct BotChatPage: View {
             // one-line summary (or an older card is skipped by the next user
             // message) the content gets shorter. Wait for the 0.25s collapse
             // animation, then give the shorter transcript one more scroll
-            // through the same coalesced tail path. The status line floats
-            // over the transcript and reserves its 14pt at all times, so its
+            // through the same coalesced tail path. The activity bubble lives
+            // in its own fixed band outside the scroll content, so its
             // show/hide is deliberately not a scroll trigger.
             .onChange(of: model.settledRowIDs) { _, _ in
                 followNewestContent(proxy: proxy,
@@ -549,7 +532,7 @@ struct BotChatPage: View {
         }
         // #126: the transcript only shows user messages, answers, cards and
         // agent-comm rows. Finished process rows and live tool rows are gone;
-        // the activity line above the composer carries the running phase.
+        // the activity bubble above the composer carries the running phase.
         ForEach(window.rows) { row in
             transcriptRow(row)
                 .id(row.id)
@@ -811,7 +794,7 @@ private struct BotComposerDock: View {
     var focus: FocusState<Bool>.Binding
     let initialComposerFocus: Bool
     /// Main's #126 scroll contract: after a send, let the local echo and the
-    /// activity line lay out, then scroll the transcript once.
+    /// activity bubble lay out, then scroll the transcript once.
     var onSend: () -> Void = {}
 
     @State private var draft: String
@@ -836,8 +819,8 @@ private struct BotComposerDock: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            // Failures are reported once, on the header status line; the
-            // composer carries no notice of its own.
+            // Failures are reported once, in the activity bubble above this
+            // dock; the composer carries no notice of its own.
             attachmentTray
             // Grok-style composer: one white r26 rounded card with the 36pt
             // attach button leading, the growing text field in the middle,
@@ -1403,7 +1386,7 @@ private struct BotAnswerBubbleContent: View {
 
 /// The running turn in arrival order: committed text bubbles, then the text
 /// still streaming. Tool calls are not rendered in the Bot transcript; they
-/// exist only as the activity line's category/phrase.
+/// exist only as the activity bubble's category/phrase.
 private struct BotLiveTurnView: View {
     let live: BotLiveTurn
 

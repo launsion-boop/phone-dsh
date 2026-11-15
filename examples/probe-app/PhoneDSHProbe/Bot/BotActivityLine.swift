@@ -3,10 +3,10 @@
 import SwiftUI
 import PhoneDSHBot
 
-/// The one live-status line, centered right under the Bot header capsule.
-/// The header fish above it is the only avatar and carries the motion; this
-/// view is a passive 13/18 silver-gray line with a fixed activity point.
-/// Only its local highlight sweeps while work is active.
+/// The legacy centered live-status line. The Bot chat page no longer mounts
+/// it — the one activity surface there is `BotActivityBubble` — but the view
+/// stays compiled so another page can reuse it without duplicating the
+/// timing machine or the glint.
 struct BotActivityLine: View {
     let activity: BotActivity
     /// Waiting for the user: keep the words still (no shimmer, no breath).
@@ -14,35 +14,63 @@ struct BotActivityLine: View {
     /// A failure report: quiet, in the danger tint.
     var problem = false
 
-    @Environment(\.botPageActive) private var pageActive
-    @State private var line = BotActivityLineState()
-    @State private var clockTask: Task<Void, Never>?
-
-    private var text: String { line.text }
-
     var body: some View {
         // One stable frame: the line fills the width it is given, the dot is
         // the fixed activity point and the words are centered inside the
         // remaining box. No string measurement enters layout, so a rotation,
         // minute-suffix or activity tick can never resize or re-center the
         // line (and nothing it floats over is asked to lay out again).
-        HStack(spacing: 8) {
-            Circle()
-                .fill(problem ? BotUIPalette.danger : BotActivityShimmerText.silver)
-                .frame(width: 5, height: 5)
-                .accessibilityHidden(true)
-            BotActivityShimmerText(text: text, quiet: quiet || problem,
-                                   ink: problem ? BotUIPalette.danger : BotActivityShimmerText.silver)
-                .frame(maxWidth: .infinity)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 18)
+        BotActivityText(activity: activity) { text in
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(problem ? BotUIPalette.danger : BotActivityShimmerText.silver)
+                    .frame(width: 5, height: 5)
+                    .accessibilityHidden(true)
+                BotActivityShimmerText(
+                    text: text,
+                    quiet: quiet || problem,
+                    ink: problem ? BotUIPalette.danger : BotActivityShimmerText.silver)
+                    .frame(maxWidth: .infinity)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 18)
             .padding(.horizontal, 24)
             .frame(maxWidth: .infinity)
             .allowsHitTesting(false)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(text)
             .accessibilityIdentifier("bot.activity.line")
+        }
+    }
+}
+
+/// The timing half shared by every activity surface: receives the lifecycle's
+/// `BotActivity`, resolves it through `BotActivityLineState` (800ms
+/// latest-wins, generic-phrase rotation, `· N 分钟`) and hands the current
+/// sentence to its content. One clock task sleeps until the next deadline, so
+/// the resolved words are identical wherever the activity is drawn and no
+/// per-frame work or string measurement enters layout.
+struct BotActivityText<Content: View>: View {
+    private let activity: BotActivity
+    private let content: (String) -> Content
+
+    @Environment(\.botPageActive) private var pageActive
+    @State private var line: BotActivityLineState
+    @State private var clockTask: Task<Void, Never>?
+
+    init(activity: BotActivity, @ViewBuilder content: @escaping (String) -> Content) {
+        self.activity = activity
+        self.content = content
+        // Resolve the first sentence before the first body pass: the bubble's
+        // accessibility label (and its visible words) must not flash the
+        // fallback for one frame while `onAppear` runs.
+        var initial = BotActivityLineState()
+        initial.receive(activity, at: BotActivityLineState.now)
+        _line = State(initialValue: initial)
+    }
+
+    var body: some View {
+        content(line.text)
             .onAppear { receive(activity) }
             .onDisappear {
                 clockTask?.cancel()
@@ -79,21 +107,27 @@ struct BotActivityLine: View {
     }
 }
 
-/// 13/18 centered secondary text. A change moves the old words up and out
-/// and the new ones up and in, with a short fade. Both lines are centered in the
-/// same box, so a width change never shifts the line sideways. While the
-/// words stay the same, a separate silver highlight sweeps over fully readable
-/// base text.
-private struct BotActivityShimmerText: View {
+/// 13/18 activity text. A change moves the old words up and out and the new
+/// ones up and in, with a short fade. Both lines are centered in the same box,
+/// so a width change never shifts the line sideways. While the words stay the
+/// same, a separate silver highlight sweeps over fully readable base text.
+///
+/// `fillsWidth` is true for the legacy centered line and false for the bubble,
+/// which sizes to its sentence. `animatesSwap` is false in the bubble so a new
+/// sentence changes width only once instead of holding the max of the old and
+/// new strings for the duration of a transition.
+struct BotActivityShimmerText: View {
     let text: String
     let quiet: Bool
     let ink: Color
+    var fillsWidth = true
+    var animatesSwap = true
+    var height: CGFloat = 18
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.botPageActive) private var pageActive
-    private static let height: CGFloat = 18
 
-    fileprivate static let silver = Color(uiColor: UIColor { traits in
+    static let silver = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 184/255, green: 190/255, blue: 199/255, alpha: 1)
             : UIColor(red: 105/255, green: 113/255, blue: 124/255, alpha: 1)
@@ -106,21 +140,23 @@ private struct BotActivityShimmerText: View {
     private var animated: Bool { !reduceMotion && pageActive && !quiet }
     /// Shimmer and breathing only while the Bot is doing something.
     private var ambient: Bool { animated && !quiet }
+    private var swaps: Bool { animated && animatesSwap }
 
     var body: some View {
         ZStack {
             line(text)
                 .id(text)
-                .transition(animated ? .asymmetric(
+                .transition(swaps ? .asymmetric(
                     insertion: .modifier(active: BotStatusSwap(offset: 3, blur: 0, opacity: 0),
                                          identity: BotStatusSwap.identity),
                     removal: .modifier(active: BotStatusSwap(offset: -3, blur: 0, opacity: 0),
                                        identity: BotStatusSwap.identity))
                     : .identity)
         }
-        .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height)
+        .frame(maxWidth: fillsWidth ? .infinity : nil,
+               minHeight: height, maxHeight: height)
         .clipped()
-        .animation(animated ? .easeOut(duration: 0.25) : nil, value: text)
+        .animation(swaps ? .easeOut(duration: 0.25) : nil, value: text)
     }
 
     private func line(_ value: String) -> some View {
@@ -166,19 +202,6 @@ private struct BotActivityShimmerText: View {
                 .offset(x: BotActivitySweep.phase(at: timeline.date) * proxy.size.width)
             }
         }
-    }
-}
-
-/// The one sweeping glint: −1 → 1 every 1.6 s, so the 40–60% band crosses the
-/// words once per period. Pure, so the timing is easy to check without a view.
-enum BotActivitySweep {
-    static let period: TimeInterval = 1.6
-
-    static func phase(at date: Date = Date()) -> CGFloat {
-        let seconds = date.timeIntervalSinceReferenceDate
-        let remainder = seconds.truncatingRemainder(dividingBy: period)
-        let fraction = remainder < 0 ? remainder / period + 1 : remainder / period
-        return CGFloat(fraction * 2 - 1)
     }
 }
 

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+import CoreGraphics
 import Foundation
 import PhoneDSHAgentCore
 import PhoneDSHBot
@@ -391,6 +392,22 @@ enum BotActivityPhrases {
     static func drawerStatusText(for activity: BotActivity, now: Int64) -> String {
         let base = activity.detail.isEmpty ? primaryPhrase(for: activity.category) : activity.detail
         return textWithDurationSuffix(base, for: activity, now: now)
+    }
+}
+
+/// The one sweeping glint shared by every activity surface: −1 → 1 every 1.6 s,
+/// so the 40–60% band crosses the words once per period. It lives beside the
+/// timing machine (and not in a view file) so the pure phase can be checked by
+/// the logic-only test targets; `BotActivityShimmerText` applies it to a mask
+/// offset only, never to layout.
+enum BotActivitySweep {
+    static let period: TimeInterval = 1.6
+
+    static func phase(at date: Date = Date()) -> CGFloat {
+        let seconds = date.timeIntervalSinceReferenceDate
+        let remainder = seconds.truncatingRemainder(dividingBy: period)
+        let fraction = remainder < 0 ? remainder / period + 1 : remainder / period
+        return CGFloat(fraction * 2 - 1)
     }
 }
 
