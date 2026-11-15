@@ -67,9 +67,11 @@ the newly resolved value differs. Every other status is reported as the turn's f
 
 For iOS TonoLink, the native consumer snapshots the existing local DSH session and allocates
 one request ID at wake, before recognition/unlock waits. Recognised non-volume text enters that
-session's durable SendOutbox through the same local admission path as the composer. Only after
-durable enqueue does the phone say a short acknowledgement (「好的，已经记下了」, synthesized once
-and kept in memory like 「我在」). This confirms saved work, not immediate execution. Missing targets
+session's durable SendOutbox through the same local admission path as the composer. Work that
+executes speaks only its answer. Only when admitted text cannot execute now (deferred, or no engine
+within the admission bound) does the phone say a short acknowledgement after durable enqueue
+(「已经记下了，打开手机后继续处理」, synthesized once and kept in memory like 「我在」); it confirms
+saved work, not execution. Missing targets
 or unavailable protected storage produce no acceptance. While the board's keep-alive holds the
 process resident, admitted text executes in the background; otherwise it waits for foreground.
 

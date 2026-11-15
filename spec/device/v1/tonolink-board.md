@@ -177,7 +177,9 @@ unlock waits, and allocates one lowercase UUIDv4 request ID. Recognized non-volu
 that session's existing durable SendOutbox (§10 of the host contract) using the same ID. A
 missing target or unavailable protected storage produces no acceptance. The board wake counter
 is not a globally stable task ID. No new BLE frame, permission or authentication is introduced.
-The acknowledgement is spoken only after durable enqueue and describes saved work, not execution.
+The saved-work acknowledgement follows durable enqueue and is spoken only when execution
+cannot start now (deferred, or no engine within the admission bound); work that executes speaks
+only its answer, with the LED showing it running.
 Canceling recognition before admission sends nothing; canceling voice after admission does not
 cancel or resend the accepted task. While the board is connected its keep-alive holds the process
 resident, so admitted voice starts, resumes or delivers on the engine without the user opening

@@ -135,3 +135,18 @@ keep-alive, and found two native gaps with no contract change: (1) after start/r
 preparation task drained once mid-recovery and nothing retried in background — it now loops
 until `.ready` with one preparation per task; (2) a pump that failed while parked could hang in
 a resync against the parked page — a resume now restarts it from `lastSeq` while recovering.
+
+
+### Spoken acknowledgement only when deferred (revision 8)
+
+Device use: the owner found 「好的，已经记下了」 before every answer redundant once background
+execution is direct. P07 §4.1.1 / P05 `cloud-voice.md`: admission is unchanged (durable enqueue
+before any acceptance), but the acknowledgement is spoken once only when execution cannot start
+now (deferred, or no engine within the admission bound), worded 「已经记下了，打开手机后继续处理」.
+Executable work speaks only its answer; the LED shows it running. No wire, BLE or record change.
+
+### Background AirPlay speech (P08 ios-audio-session revision 3)
+
+See `spec/platform/ios-audio-session.md` §2: a speaker claim switches to playAndRecord only for an
+AirPlay output; the voice host keeps its foreground-armed claim through a background board drop
+and keeps the keep-alive for 600 s. Device evidence in the receipt.

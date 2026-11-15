@@ -126,3 +126,27 @@ bash scripts/ci/smoke.sh
 
 NOT_RUN：rev 7 中 park 之后的 pump 重启（需要再断电一次板子）；强退 / 系统回收后由 BLE
 冷启动；30/60 分钟耗电。
+
+### 后台 AirPlay 播报修复（2026-11-15，ios-audio-session revision 3）
+
+原因：只有 playAndRecord 类别才能把 AirPlay 输出强制改到扬声器，而 iOS 拒绝在后台切换到这个类别
+（`'!int'`）。板子一断开，前台预先切好的扬声器就被释放，后台重连后的回合只能重新切，因此失败；
+另外，即使输出是 Speaker，旧代码也会切换一次类别。
+
+修复：只有输出是 AirPlay 时才切换类别；后台断开时保留前台预先切好的扬声器，回到前台且板子
+仍不在时才释放；后台断开后保活再维持 600 s。
+
+| 检查 | 结果 |
+| --- | --- |
+| 真机 XCTest（SpeakerOutputLease、BackgroundSpeakerOutputLease、ChatDeliveryPreparation、NativeVoiceRequest、ChatInputRecovery） | 26/26 PASS |
+| 真机：镜像到板子（AirPlay）→ App 进后台 → 板子关机再开机 → 后台重连 → 语音 | PASS：05:41:53 在后台重连（`app=2`），05:42:27 wake，没有 `output_error`，输出 `after: Speaker`，「我在」和回复均播出，05:42:43 task_done，用时 8.6 s |
+| 修复前同一类场景 | FAIL：03:56 / 03:58 / 03:59 每次都有 `output_error … OSStatus 560557684` |
+
+NOT_RUN：超过 600 s 的后台断开（保活释放后 App 被挂起，再由 BLE 唤醒）；耗电。
+
+### 只有延期时才播报确认语（revision 8）
+
+真机（05:47，App 在后台，板子已连接）：wake →「我在」→ heard「今天几？现在几点了？」→ admitted
+`011f7f8a…` → running → 05:47:29 回复「今天是 2026 年 11 月 14 日，星期六；现在是 9:47 PM」（9.6 s）
+→ 05:47:38 task_done。日志中没有 `ack_ms`，即没有播报确认语。延期时播报一次的路径 NOT_RUN（需要
+无法执行的状态）。

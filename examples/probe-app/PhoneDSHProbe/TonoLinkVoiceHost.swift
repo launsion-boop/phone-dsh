@@ -35,8 +35,9 @@ import ProbeKit
     private let player = VoicePCMPlayer()
     private let tts = CloudTTSClient()
     private var hereAudio: Data?
-    /// Spoken only after native admission succeeds; execution may wait for foreground.
-    static let acknowledgement = "好的，已经记下了"
+    /// Spoken once after durable admission, and only when execution cannot start now
+    /// (deferred or no engine within the admission bound); executable work speaks only its answer.
+    static let acknowledgement = "已经记下了，打开手机后继续处理"
     private var ackAudio: Data?
     private static let keepAliveOwner = "tonolink-voice"
 
@@ -56,16 +57,29 @@ import ProbeKit
         link.onReady = { [weak self] in self?.linkReady(link) }
         ctrl = link
         var beat = 0
+        var disconnectedSince: Date?
         while !Task.isCancelled {
             if !link.isConnected {
-                if let token = armedSpeaker { PhoneAudioSessionLease.releaseSpeakerOutput(token); armedSpeaker = nil }
-                setKeepAlive(false)
+                let since = disconnectedSince ?? Date()
+                disconnectedSince = since
+                let foreground = UIApplication.shared.applicationState == .active
+                // iOS refuses a background switch to playAndRecord ('!int'). Keep the profile
+                // armed in the foreground while the App is hidden, so a board that reconnects in
+                // the background can still force AirPlay output to the speaker. A short drop
+                // also keeps the keep-alive, so the session stays active for the reconnect.
+                if foreground, let token = armedSpeaker {
+                    PhoneAudioSessionLease.releaseSpeakerOutput(token); armedSpeaker = nil
+                }
+                if foreground || Date().timeIntervalSince(since) > Self.backgroundReconnectGrace {
+                    setKeepAlive(false)
+                }
                 do { try await link.connect(timeout: .seconds(20)) }
                 catch {
                     state = "没有连上板子：\(error.localizedDescription)"
                     log("connect failed: \(error.localizedDescription) parked=\(link.peripheralID != nil)")
                 }
             }
+            if link.isConnected { disconnectedSince = nil }
             armSpeakerIfForeground()
             beat += 1
             if beat % 20 == 1 {
@@ -77,12 +91,16 @@ import ProbeKit
     }
 
     static let restoreIdentifier = "dev.phone-dsh.tonolink-voice"
+    /// How long a background board drop keeps the keep-alive (and the armed speaker profile
+    /// active) for a reconnect; after it the App may suspend until the board wakes it.
+    static let backgroundReconnectGrace: TimeInterval = 600
 
     /// True while the board's link is up: a wake may arrive, so the chat host stays alive in the background.
     var isArmed: Bool { ctrl?.isConnected == true }
 
-    /// Taken while the app is in the foreground and kept while armed: iOS refuses to switch a
-    /// background app to the playAndRecord profile ('!int'), so a background turn must find it set.
+    /// Taken while the app is in the foreground and kept while armed, and also through a board
+    /// drop while the App is hidden: iOS refuses to switch a background app to the
+    /// playAndRecord profile ('!int'), so a background turn on AirPlay must find it set.
     private var armedSpeaker: PhoneAudioSessionLease.SpeakerToken?
 
     private func linkReady(_ link: TonoLinkCtrlBLE) {
@@ -349,8 +367,12 @@ import ProbeKit
         // The queue owns delivery from this point, even if a new wake cancels this voice task.
         guard !Task.isCancelled else { return }
         note("admitted", ["session": receipt.sessionID, "request": receipt.rpcID])
-        await acknowledge(credential: credential)
-        note("ack_ms", Int(Date().timeIntervalSince(start) * 1000))
+        // Executable work speaks only its answer (the light shows it running). The saved-work
+        // acknowledgement is spoken once, and only when execution cannot start now.
+        func acknowledgeDeferred() async {
+            await acknowledge(credential: credential)
+            note("ack_ms", Int(Date().timeIntervalSince(start) * 1000))
+        }
         // The 30 s admission bound counts only time the engine is idle and still not
         // taking the request; a bounded boot/resume/rebuild in progress extends it.
         var admissionDeadline = Date().addingTimeInterval(30)
@@ -371,6 +393,7 @@ import ProbeKit
                 }
                 guard !chat.voiceExecutionDeferred, Date() < admissionDeadline else {
                     note("deferred", "消息已保存，等待引擎就绪；不会重复发送")
+                    await acknowledgeDeferred()
                     light(.idle)
                     return
                 }
