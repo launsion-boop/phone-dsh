@@ -65,7 +65,7 @@ public class BotDomainStore(
                 migrateToV3(version)
                 migrateToV4()
             }
-            3 -> migrateToV4()
+            3 -> migrateToV4(ensureV3Schema = true)
             4 -> Unit
         }
         driver.execute("PRAGMA foreign_keys=ON")
@@ -207,11 +207,15 @@ public class BotDomainStore(
 
     /**
      * v3 → v4 (`store.md` §7): add the durable outbox table without touching
-     * v3 rows, then advance `user_version` in the same transaction. Only v1–v3
-     * files call this; a v4 open does not run DDL.
+     * v3 rows, then advance `user_version` in the same transaction. For a v3
+     * `user_version`, [ensureV3Schema] first re-runs the idempotent v3 DDL so
+     * a fixture/rollback file whose tables are missing or partial self-heals,
+     * as the pre-v4 `3` branch did. v1/v2 files already rebuilt v3 in
+     * `migrateToV3` and pass `false`.
      */
-    private fun migrateToV4() {
+    private fun migrateToV4(ensureV3Schema: Boolean = false) {
         inTransaction {
+            if (ensureV3Schema) BotStoreSchema.create(driver)
             BotStoreSchema.createPendingActions(driver)
             driver.setUserVersion(BotStoreSchema.CURRENT_VERSION)
         }

@@ -106,6 +106,56 @@ class BotDomainStoreV4Test {
     }
 
     @Test
+    fun v3UserVersionWithoutTablesSelfHealsAtVersion4() {
+        // The pre-v4 open re-ran the idempotent v3 DDL for `user_version=3`.
+        // Keep that self-heal: a fixture/rollback file may carry the version
+        // without the tables, and it must still open at v4.
+        withTempDatabase { path ->
+            SqliteJdbcDriver(path).use { driver ->
+                assertEquals(
+                    "the fixture must start without schema objects",
+                    0,
+                    driver.query("SELECT name FROM sqlite_master WHERE type = 'table'").size,
+                )
+                driver.setUserVersion(3)
+            }
+
+            BotDomainStore(SqliteJdbcDriver(path), clock = { 1_000 }).use { store ->
+                assertEquals(4, store.driver.userVersion())
+                val objects = store.driver.query(
+                    "SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_autoindex_%'",
+                )
+                assertEquals(
+                    "the full v3 table set plus the v4 table",
+                    setOf(
+                        "bot_event_headers", "bot_event_payloads", "bot_effects",
+                        "bot_effect_inbox", "bot_user_action_nonces", "bot_pending_actions",
+                    ),
+                    objects.filter { it.text("type") == "table" }.map { it.text("name") }.toSet(),
+                )
+                assertEquals(
+                    setOf(
+                        "bot_event_headers_reject_update", "bot_event_headers_reject_delete",
+                        "bot_event_payloads_erase_only", "bot_event_payloads_reject_delete",
+                    ),
+                    objects.filter { it.text("type") == "trigger" }.map { it.text("name") }.toSet(),
+                )
+                assertEquals(
+                    "the bot_events compatibility view",
+                    setOf("bot_events"),
+                    objects.filter { it.text("type") == "view" }.map { it.text("name") }.toSet(),
+                )
+                assertEquals(
+                    setOf("bot_effects_lease_candidates", "bot_effect_inbox_lookup"),
+                    objects.filter { it.text("type") == "index" }.map { it.text("name") }.toSet(),
+                )
+                assertEquals(1L, store.append(durableEvent("healed")))
+                assertEquals("healed", store.event("healed")?.eventId)
+            }
+        }
+    }
+
+    @Test
     fun v3FixtureGainsPendingActionsAndKeepsEventsAndNonces() {
         withTempDatabase { path ->
             val event = durableEvent("v3-event")
