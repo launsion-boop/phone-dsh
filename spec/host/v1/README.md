@@ -346,3 +346,15 @@ references plus minimal metadata, never inline bytes.
 - **No UI restriction.** The queue never refuses a send for a closed admission, an engine that is
   starting, or a running turn; it accepts and shows `queued`. The only new visible state is the
   existing "排队中" (queued) projection.
+
+
+### 10.1 iOS queued engine preparation
+
+The iOS local queue may accept an already-bound session while the engine is absent, parked or
+busy. Acceptance means the existing outbox entry is durable, not that execution has started.
+Foreground delivery joins one preparation task and uses existing start/resume transitions.
+Background delivery requires an already-ready host and existing execution eligibility; a
+background callback alone never authorizes cold WebContent boot/resume. Manual recovery and
+explicit stop gates remain authoritative. Foreground return retries retained queued work.
+A first-ever UI send must establish a foreground session and then enqueue before submitting;
+there is no durable receipt while no session or protected storage is available.
