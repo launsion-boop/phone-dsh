@@ -508,6 +508,9 @@ actor BotProductionRowService {
     private let environment: BotProductionEnvironment
     private let history: BotRowHistory
     private let remote: BotDSHRemoteRuntime?
+    /// Delivers a committed card answer's prompt after a crash/rebind. nil in
+    /// library/tests, where a committed-but-undelivered answer stays pending.
+    private let cardAnswerPromptResumer: (any BotCardAnswerPromptResuming)?
     private var dispatcher: BotUserActionDispatcher?
     private var plannerIdentity: ObjectIdentifier?
     private var started = false
@@ -534,10 +537,12 @@ actor BotProductionRowService {
     private var health = BotProductionWatchHealth.healthy
 
     init(environment: BotProductionEnvironment, history: BotRowHistory = BotRowHistory(),
-         remote: BotDSHRemoteRuntime? = nil) {
+         remote: BotDSHRemoteRuntime? = nil,
+         cardAnswerPromptResumer: (any BotCardAnswerPromptResuming)? = nil) {
         self.environment = environment
         self.history = history
         self.remote = remote
+        self.cardAnswerPromptResumer = cardAnswerPromptResumer
     }
 
     func start() async throws {
@@ -552,7 +557,9 @@ actor BotProductionRowService {
         let identity = ObjectIdentifier(planner)
         guard identity != plannerIdentity else { return }
         plannerIdentity = identity
-        dispatcher = BotUserActionDispatcher(store: environment.domain, planner: planner)
+        dispatcher = BotUserActionDispatcher(
+            store: environment.domain, planner: planner,
+            cardAnswerPromptResumer: cardAnswerPromptResumer)
     }
 
     private func rebuild() async throws {

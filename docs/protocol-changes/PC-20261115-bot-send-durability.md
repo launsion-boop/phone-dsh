@@ -16,7 +16,7 @@ contract_revision: this commit（凍結本單）；owning P25 條文 `spec/bot/v
 
 本單只凍結 delta；本 lane 不修改 `spec/**`、golden、Kotlin 或 runtime code。owning 條文與 vectors 由 §4 指定的 lane 落地，任何與本單不同的欄位、版本或預設值都必須先以 `CONTRACT CHANGE REQUEST` 回到 contract owner，不能在實作裡靜默改。
 
-Protocol impact: P25; P09: none — 本變更不改 `examples/probe-app/PhoneDSHProbe/**` 的 Bot UI、presentation、strings 或 `spec/ui/v1/**`；outbox 由背景 replay 消費，UI 沿用今天的 local echo 與既有 failure notice。顯式的 pending/retry presentation 與新 strings 是 follow-up（見 §2.3），不在本單凍結範圍；P26: none — 沒有 tool catalog、MCP endpoint、memory、wake、routine、ledger、watchdog 或 observability surface 變更，也沒有新增 durable event 型別；P27: none — `BotUserAction`/`BotActionResult` 形狀、`conversation.*` 事件型別與 data、row/projection schema、user-action/action-result schema 都沒有變，dispatcher 的 pre-dispatch outbox 寫入屬於 P25 §10.2 的提交順序，不是 P27 的 row 或 planner 變更；P14: none — `DSHRemoteTransport`/`DSHWebTransport` 與 `/api/remote.mux` bytes 不變，deadline 由 `PhoneDSHBot` 在既有呼叫外圍實施。
+Protocol impact: P25; P09: none — 本變更不改 `examples/probe-app/PhoneDSHProbe/**` 的 Bot UI、presentation、strings 或 `spec/ui/v1/**`；outbox 由背景 replay 消費，UI 沿用今天的 local echo 與既有 failure notice。顯式的 pending/retry presentation 與新 strings 是 follow-up（見 §2.3），不在本單凍結範圍; P26: none — 沒有 tool catalog、MCP endpoint、memory、wake、routine、ledger、watchdog 或 observability surface 變更，也沒有新增 durable event 型別; P27: none — `BotUserAction`/`BotActionResult` 形狀、`conversation.*` 事件型別與 data、row/projection schema、user-action/action-result schema 都沒有變，dispatcher 的 pre-dispatch outbox 寫入屬於 P25 §10.2 的提交順序，不是 P27 的 row 或 planner 變更; P14: none — `DSHRemoteTransport`/`DSHWebTransport` 與 `/api/remote.mux` bytes 不變，deadline 由 `PhoneDSHBot` 在既有呼叫外圍實施。
 
 ## 1. 識別與角色
 
@@ -35,7 +35,7 @@ Protocol impact: P25; P09: none — 本變更不改 `examples/probe-app/PhoneDSH
 
 1. **Durable before dispatch。** `chat`/`cardAnswer` 在呼叫 planner 與任何 transport await 之前，先以一個 transaction 把待送 action 寫進 `bot_pending_actions`；寫入成功才開始 dispatch。kill/hang/rebind 造成的 retryable 中斷都留下 row，launch 後以同一 nonce/requestId 重播一次。
 2. **Bounded transport awaits。** 每個 blocking transport operation 都有 deadline；逾時回一個可重試的 typed error，不再讓 rebind 或 send 永久 suspend。取消在 runtime 邊界生效，不依賴底層 transport 自願配合。
-3. **Generation-fenced queues。** queue 只 join 同一 `transportGeneration` 的前驅；generation 變更時舊世代 queued turn 在 500 ms 內以 `interrupted`/`transport_generation_changed` 結束，絕不 await 舊 predecessor。被丟棄的意圖由 outbox 在新 transport 上重播。
+3. **Generation-fenced queues。** queue 只 join 同一 `transportGeneration` 的前驅；generation 變更時舊世代 queued turn 在下一次 20 ms 輪詢內以 `interrupted`/`transport_generation_changed` 結束（同步 fence，不等舊 predecessor），絕不 await 舊 predecessor。被丟棄的意圖由 outbox 在新 transport 上重播。
 4. **Liveness 是掙來的、會失去的。** `hasLiveTransport()` 只有在 attached 且未被 quarantine 時為 true；mux 級失敗立即 quarantine，unary transport 連續兩次失敗 quarantine。下一個 bind 會重啟該 unit。
 5. **UI 本輪不變。** outbox 由背景 replay 消費；UI 沿用今天的 local echo 與既有 failure notice。重播不得產生第二則訊息；retryable 失敗必須走既有的可重試 notice/header 路徑。顯式的 pending/retry presentation 與新 strings 是 follow-up，不在本單凍結範圍。
 
@@ -76,10 +76,10 @@ Protocol impact: P25; P09: none — 本變更不改 `examples/probe-app/PhoneDSH
 | P25 schema 版本 | `user_version` 3 → **4**。`0` = 新庫（直接建 v4）、`1/2` = 既有 v1/v2→v3 migration 後再 v4、`3` = v3→v4、`4` = current、`>4` = `schemaTooNew`。既有 `>3` 的 future-version 向量改成 `>4`（用 5 測）。 |
 | P25 新表 | 只新增 `bot_pending_actions`（§2.1 的精確 DDL）。v3 的 headers/payloads/effects/nonces 行不重寫、不改 bytes、不改 `commit_seq`。 |
 | durable-before-dispatch | `chat`/`cardAnswer` 在 planner 與任何 transport await 之前，先 commit outbox row；terminal 結果（accepted/duplicate/validation/planner stale 或 rejected/cancelled）清除，retryable rejected（rebind interrupt/timeout/unavailable/未知）與 throw/kill 保留。`cardDismiss`/`approval`/`stopTask` 不寫 outbox，維持原路徑（它們的 RPC/durable event 本身就是權威，自動重播可能重複副作用）。 |
-| replay | launch 後、該 Bot 的 transport ready 之後，一次 launch 對每個 row 最多重播一次；同一 nonce、同一 requestId；nonce dedupe + DSH `requestId` dedupe；最多 3 attempts；24 h TTL；逾時/耗盡刪 row 並寫一筆 idempotent `ui.notice`。 |
+| replay | launch 後、該 Bot 的 transport ready 之後，一次 launch 對每個 row 最多重播一次；同一 nonce、同一 requestId；nonce dedupe + DSH `requestId` dedupe；本輪不做 TTL / attempt cap：row 保留到 terminal outcome；`attempts` 僅供診斷；TTL/耗盡刪除＋`send-expired` notice 列為 follow-up（本輪不寫 notice）。 |
 | P25 事件 | **沒有新增 event type**；`conversation.turn_started`/`card.answered` 的型別、eventId、data、寫入時機都不改。outbox 不消耗 `commitSeq`，不是第二種 event log。 |
-| transport deadline | `openMux` 10 s、snapshot 15 s、`session/prompt` unary 20 s、control unary 10 s、main-session recovery 30 s、collect idle 300 s、adopt settle 2 s、queue fence 500 ms（§2.2）。逾時回既有 `BotMCPError.unavailable`/`ProviderError.unavailable` 的可重試路徑，不新增 wire error code。 |
-| queue fence | queued turn 攜帶 `transportGeneration`；只 join 同世代 predecessor；generation 變更時舊世代 queued turn 在 500 ms 內 settle `interrupted`/`transport_generation_changed`，不送 prompt，由 outbox 重播。 |
+| transport deadline | `openMux` 10 s、snapshot 15 s、`session/prompt` unary 20 s、control unary 10 s、main-session recovery 30 s、collect idle 300 s、adopt settle 2 s、queue fence 0 ms（§2.2，同步）。逾時回既有 `BotMCPError.unavailable`/`ProviderError.unavailable` 的可重試路徑，不新增 wire error code。 |
+| queue fence | queued turn 攜帶 `transportGeneration`；只 join 同世代 predecessor；generation 變更時舊世代 queued turn 同步 settle `interrupted`/`transport_generation_changed`（queued 任務 20 ms 輪詢），不送 prompt，由 outbox 重播。 |
 | liveness | `hasLiveTransport()` = attached && !quarantined。mux 級失敗立即 quarantine；unary transport 失敗連續 2 次 quarantine；成功 unary 呼叫或新 `attachTransport` 清除。quarantine 的 unit 在下一個 bind 被重啟。 |
 | P09 | **none**。本輪沒有 UI/presentation/strings/vector 變更；outbox 由背景 replay 消費，UI 沿用今天的 local echo/notice。顯式 pending/retry presentation 是 follow-up（§2.3），不進 frozen 契約。 |
 | 條款狀態 | `store.md` 的 v4 條文與 `ui-state.md` 的 pending 條文在本單 frozen 後由各 lane 落地；落地前維持 `frozen`，不得以 `implemented` 宣稱。 |
@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS bot_pending_actions (
 | `bot_id` | action 的 Bot | 非空；與 `payload.botID` 相同。與 `nonce` 組成 PK，同一 nonce 在兩個 Bot 是兩列。 |
 | `nonce` | `BotUserAction.nonce` | 非空；PK 另一半；與 `payload.nonce` 相同。requestId 由 kind 決定：`chat` = `user-action:<nonce>`，`cardAnswer` = `card-answer:<nonce>`（既有 `BotTurnOrigin` 規則，不新增）。 |
 | `payload` | `BotUserAction` 的 canonical JSON bytes | 與 `spec/bot/v1/user-action.schema.json` 同一形狀；`JSONEncoder` `.sortedKeys` + `.withoutEscapingSlashes`；不新增欄位。decode 失敗、`botID`/`nonce` 不匹配 = corrupt。 |
-| `created_at_ms` | 首次 insert 的 runtime 時鐘（ms） | 用於 TTL；不做 commitSeq。 |
+| `created_at_ms` | 首次 insert 的 runtime 時鐘（ms） | 預留 TTL（本輪未啟用）；不做 commitSeq。 |
 | `attempts` | 已嘗試 dispatch 的次數 | insert 時 = 1（DEFAULT）；每次 replay 送出前 `attempts = attempts + 1`；最大 3。不是重試次數的獨立欄位。 |
 
 **Retention / TTL / attempts（normative）：**
@@ -116,8 +116,8 @@ CREATE TABLE IF NOT EXISTS bot_pending_actions (
 | insert | 在 planner 前、於 `SQLiteDomainStore` 的單一 transaction 內 `INSERT ... ON CONFLICT(bot_id, nonce) DO NOTHING`；commit 後才 dispatch。重複 nonce 保留第一筆 payload（第一筆是權威）。 |
 | 非 throwing 結果 | **只清除 terminal 結果**：`accepted`/`duplicate`，以及 validation/planner 的 terminal `stale`/`rejected`（例如 `card_expired`、`already_answered`、`missing_text`、`untrusted_action`）和 `cancelled`（使用者主動停止）。**retryable rejected 必須保留**：`transport_replaced`、`turn_not_completed`、`collect_idle_timeout`、`snapshot_timeout`、`transport_timeout`、`unavailable`、`runtime recovering`、`unit_detached`，以及任何未知 reason（fail safe）。這些是「回合沒完成」而不是「action 無效」；清掉 row 就等於把 rebind 後中斷的訊息丟掉。 |
 | throw / kill | 保留 row；不寫任何「失敗」狀態，row 的存在就是 pending。 |
-| TTL | `now - created_at_ms > 86_400_000`（24 h）→ 不 dispatch；刪 row，寫一筆 idempotent `ui.notice`（eventId `send-expired:<botID>:<nonce>`，`tone:"error"`，文字「有一条消息未能送出，请重新发送。」）。notice append 失敗仍刪 row；下次以同 eventId 重試只會被 store dedupe。 |
-| attempts 耗盡 | row 的 `attempts >= 3` → 不 dispatch；刪 row，寫同一個 `send-expired` notice（`reason:"attempts_exhausted"`）。即初始 1 次 + 最多 2 次 replay。 |
+| TTL | **本輪未啟用（follow-up）**。row 保留到 terminal outcome；未來 TTL 到期才可刪 row 並寫 idempotent `send-expired:<botID>:<nonce>` notice。 |
+| attempts 耗盡 | **本輪未啟用（follow-up）**。`attempts` 只做診斷，不因次數丟棄；未來才加 cap 與 `attempts_exhausted` notice。 |
 | corrupt payload | 刪 row + notice（`reason:"corrupt_payload"`）；不因一筆壞 outbox 阻擋 launch/open。 |
 | Bot 刪除 / erasure | 刪除該 `bot_id` 的所有 rows。`payload` 含使用者文字/附件路徑，erasure 必須覆蓋這張表（P25 erasure 新增一項；沒有新 event type）。 |
 | 完整性掃描 | open 時不掃這張表；replay 逐列驗證。`payload` 不是歷史，壞列可以直接丟棄。 |
@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS bot_pending_actions (
 1. 只在该 Bot 的 unit 已 attach 且 `awaitRuntimeReadiness()` 為 true 後啟動；runtime 未 ready 時不碰 rows、不增加 attempts，留給下一個 bind。
 2. `SELECT ... WHERE bot_id = ? ORDER BY created_at_ms ASC, nonce ASC LIMIT 20`；一個 Bot 同時只有一個 replay task，逐列處理。launch 不被 replay 阻塞。
 3. 驗證 payload；corrupt → 刪除 + notice，繼續下一列。
-4. TTL / attempts 檢查（上表）。
+4. terminal/retryable 分類（上表）；TTL / attempt cap 本輪未啟用。
 5. `attempts = attempts + 1`（durable）。
 6. **已 committed nonce 的處理：**
    - `chat`：`conversation.turn_started` 只在回合完成後才寫，nonce 已存在代表回合已完成（或 replay 已成功）；直接刪 row，不再送 prompt。
@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS bot_pending_actions (
 | main-session recovery（`ensureMainSession` 整體） | 30_000 ms | cancel `mainSessionTask`、清 nil、throw `unavailable`；下一次 send/retry 重新 recovery。 |
 | `collectTurn` idle（沒有任何 frame） | 300_000 ms | 關閉 mux；回 `interrupted`/`collect_idle_timeout`；**不**送 `session/cancel`，Worker 回合可能仍在跑，之後由 journal 接管。 |
 | adopt interrupted settle | 2_000 ms（既有） | 保留：只 cancel/drop 被標記 interrupted 的 coordinator，不碰 queued。 |
-| queue fence | 500 ms | 舊世代 queued turn 必須在此窗口內 settle 並移除；不送 prompt。 |
+| queue fence | 0 ms（同步） | 舊世代 queued turn 立即 lease 給新世代；queued 任務每 20 ms 輪詢 settle/generation，不送舊 prompt。 |
 
 - 所有 deadline 都是 **runtime 外圍的 race**（`withTaskGroup`/timer + child cancel），不要求 `DSHRemoteTransport` 自己 timeout；底層若不配合取消，runtime 仍然返回，只是 orphan task 可能晚到，其結果被 generation/attemptId 丟棄。
 - 每個 await 邊界 `Task.checkCancellation()`；取消回 `CancellationError` 或 typed `interrupted`，不得變成 hang。
@@ -172,7 +172,7 @@ CREATE TABLE IF NOT EXISTS bot_pending_actions (
 
 - `QueuedTurn` 增加 `generation: UInt64`（enqueue 時的 `transportGeneration`）與 `requestId`/nonce 診斷欄位。
 - `runTurn` 先 capture `generation = transportGeneration`；只在 predecessor 的 generation 等於目前 generation 時 join。predecessor 是舊世代時不 join，直接在新 transport 上開回合（或若仍在 adopt 窗口，回 `interrupted`）。
-- queued Task 的等待必須同時 race「predecessor settle」與「generation change」；generation 一變，queued Task 在 500 ms 內回 `interrupted`/`transport_generation_changed`，不送 prompt，並從 `queuedTurns` 移除。
+- queued Task 的等待必須同時 race「predecessor settle」與「generation change」；generation 一變，queued Task 在下一次 20 ms 輪詢回 `interrupted`/`transport_generation_changed`，不送 prompt，並從 `queuedTurns` 移除。
 - `attachTransport` adopt 時：`transportGeneration &+= 1` → 標記 running coordinators interrupted（既有）→ 對所有舊世代 queued entries 發 generation 訊號/取消，並移除。**不得**只靠 2 s 的 coordinator settle 順便處理 queued。
 - 被 fence 掉的 queued turn 不得留下 in-flight 語義：它回 typed result，該 action 的 outbox row 仍在，由新 transport replay。
 - detach（`BotUnattachedTransport`）維持既有語義：取消所有 coordinators 與 queued，因為 unit 正在拆除；outbox 仍保留，下一次 attach 重播。
@@ -240,7 +240,7 @@ CREATE TABLE IF NOT EXISTS bot_pending_actions (
   1. v3→v4：v3 的 headers/payloads/effects/nonces 在 migration 後逐位元組/逐 row 不變，`user_version=4`，`bot_pending_actions` 空表；重開 idempotent。
   2. future-version：`user_version=5` → `schemaTooNew`，檔案不被寫入（原本測 4 的 case 改成 5）。
   3. pending row round-trip：insert（`attempts=1`）→ reopen → row 仍在；`attempts` 遞增；delete 後 absent。migration 不觸碰 v3 rows。
-  4. corrupt payload / TTL / attempts 的刪除結果（若 vector 格式容許 store-level 操作；否則由 `BotPendingActionOutboxTests` 直接驅動真實 store）。
+  4. corrupt payload 的 fail-safe（TTL/attempt cap 本輪未啟用，列 follow-up）。
 - **Outbox store vector 的 clear 條件必須是 terminal-only。** `store.phone.json` 若仍寫「任何 non-throwing 結果都刪 row」是錯的；必須保留 `transport_replaced`/`turn_not_completed`/timeout/unavailable/未知 reason。這一行由 outbox lane 修正，本單 §2.1 的分類是權威。
 - **P09 vectors：** 本輪沒有 `ui-state-vectors`/`check_bot_ui.py`/strings 的新增或修改；pending presentation 是 follow-up，不在 acceptance 內。
 - 兩端跑同一份 store vector：Swift `BotStoreVectorTests` 讀 disk 上的 `store.phone.json`；Kotlin `BotDomainStoreV4Test` 跑同一份 v4 migration，`BotStoreVectorTest` 在 golden v4 更新前 expected-red、更新後必須原樣通過。
@@ -250,7 +250,7 @@ CREATE TABLE IF NOT EXISTS bot_pending_actions (
 | 測試 | 必須證明的行為 |
 | --- | --- |
 | hanging transport fails within deadline | `openMux` 永不返回（且忽略 cancellation）時，`sendUserMessage`/`runTurn` 在 deadline 內回 typed error；`coordinators`/`queuedTurns` 清空；bind 不 hang；`hasLiveTransport()` 變成 false（mux 級 quarantine）。以注入的短 deadline 測，不睡 10 s。 |
-| old-generation queue not awaited | gen 1 開 turn，第二個 send queue；`attachTransport(gen 2)` 後，queued 在 500 ms 內回 `interrupted`/`transport_generation_changed`；不等待 gen 1 predecessor；gen 2 上沒有為該 stale attempt 送 prompt。再驗證：gen 2 的新 send 不 join 舊 entry。 |
+| old-generation queue not awaited | gen 1 開 turn，第二個 send queue；`attachTransport(gen 2)` 後，queued 在下一次 20 ms 輪詢回 `interrupted`/`transport_generation_changed`；不等待 gen 1 predecessor；gen 2 上沒有為該 stale attempt 送 prompt。再驗證：gen 2 的新 send 不 join 舊 entry。 |
 | dead transport | `call`/`openMux` 以 `ProviderError.unavailable` 失敗：unary 連續 2 次 → `hasLiveTransport()==false`；`BotRebindScope` 下一次 bind 選 restart；不會 keep 一個死 unit。 |
 | pending action survives kill and replays once | 真實 store 寫 outbox row → 重建 store/runtime（模擬 kill）→ replay 恰好呼叫 dispatcher 一次，nonce/requestId 與原 action 相同，成功後 row 不存在；第二次 launch 不再 replay。另測：dispatcher throw → row 保留、attempts 遞增；第三次仍失敗 → row 刪除 + 一筆 `send-expired` notice。 |
 | rebind interrupted retains the intent | gen 1 的 chat planner 回 `.rejected("transport_replaced")`/`turn_not_completed`（non-throwing）時，outbox row **不得**被清除；replay 在新 transport 上以同一 nonce/requestId 送出一次。對照：validation/stale/cancelled 的 rejected 必須清除。這是防止「rebind 後中斷被當成 action 無效」的回歸測試。 |
@@ -292,7 +292,7 @@ cd android && ./gradlew :bot:testDebugUnitTest :bot:test
 - **Transport deadline 最終值。** §2.2 是目前凍結的預設；transport lane 的實測/最終常數可能 supersede。收到精確數字後必須以新 revision 更新 §2.2 與 §5，不能讓 code 與 doc 各自一組值。
 - **沒有 power-loss 測試。** `synchronous=FULL` 是 profile，不是已測的斷電 durability；本變更不改變這個既有缺口（`store.md` §13）。
 - **Deadline 預設值**（10/15/20/10/30/300/2/0.5 s）是本單凍結的預設；若 code agent 因實測調整，必須先改本單 §2.2 並在 §5 記修訂，不能在 code 裡留一組不一致的常數。
-- **Outbox TTL/attempts**（24 h / 3）是凍結值；若產品要求更長/更短，先改本單，再改 store/vector/tests。
+- **Outbox TTL/attempts**：本輪保留到 terminal outcome，不做 TTL/attempt cap；`attempts` 只做診斷。若未來要加 24 h/3 次，先改本單，再改 store/vector/tests。
 
 ## 5. 修訂紀錄
 

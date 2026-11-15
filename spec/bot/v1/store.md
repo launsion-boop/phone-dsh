@@ -920,11 +920,12 @@ persists the action before planning, in a transaction independent of the action 
   no network: every dispatch throws or returns a retryable rejection before commit, the
   rows stay, and the App does not crash. Nonce idempotency (§10.3) makes a replay after a
   committed-but-uncleared crash return `duplicate` instead of a second turn.
-- **Replay policy (App-owned).** Frozen defaults: TTL 24 h from `created_at_ms`, at most
-  3 attempts (`attempts` starts at 1 on insert and gains 1 per thrown/replay attempt), and
-  a generous dispatch deadline. An expired row is deleted and the App writes one
-  `ui.notice` with event id `send-expired:<botID>:<nonce>` so the user sees the loss
-  instead of an eternal spinner.
+- **Replay policy (App-owned).** This change retains a row until a terminal outcome or
+  an erasure; `attempts` starts at 1 on insert and gains 1 per thrown/replay attempt and
+  is diagnostic only. A TTL / attempt cap and the idempotent
+  `send-expired:<botID>:<nonce>` notice are a follow-up App policy, not implemented by
+  this revision; when added, an expired row MUST be deleted and the notice written so the
+  user sees the loss instead of an eternal spinner.
 - **Not an event.** The pending row is a local outbox row, not a `conversation.*` event
   and not a wire format. It never appears in `bot_events` and is not replayable across
   hosts (the `send-expired` notice is an ordinary `ui.notice`).

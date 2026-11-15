@@ -586,6 +586,7 @@ final class BotRuntimeComposition {
                 let transport = try await host.makeTransport()
                 try await unit.start(transport: transport, attempt: 0,
                                      channelDetail: channelDetail)
+                installTransportFailureHandler(for: unit, botID: botID)
                 schedulePendingActionReplay(for: unit, reason: "unit-start")
             } catch {
                 units.removeValue(forKey: botID)
@@ -879,6 +880,23 @@ final class BotRuntimeComposition {
         return errors
     }
 
+    /// A Worker transport that stops answering must not surface as a silent
+    /// infinite send. The runtime quarantines it once per generation; ask the
+    /// existing recovery scheduler for a fresh bind without awaiting it here
+    /// (the runtime actor must stay free to fail other waiters).
+    private func installTransportFailureHandler(for unit: BotRuntimeUnit, botID: String) {
+        Task { [weak self] in
+            await unit.remote.setTransportFailureHandler { [weak self] in
+                guard let self else { return }
+                await MainActor.run {
+                    BotRebindDiagnostics.emit(
+                        "bot-rebind step=transport-stall bot=\(botID)")
+                    self.workerRecovery.forceRetry()
+                }
+            }
+        }
+    }
+
     /// Creates this unit's transport for the bind and attaches it. Kept as one
     /// awaited step so the transport diagnostics carry the same `attempt` as
     /// the rest of the bind.
@@ -896,6 +914,7 @@ final class BotRuntimeComposition {
         try Task.checkCancellation()
         try await unit.start(transport: transport, attempt: attempt,
                              channelDetail: channelDetail)
+        installTransportFailureHandler(for: unit, botID: botID)
         // The main session is live, so any action a previous process persisted
         // before its remote turn can be replayed now. Detached: the bind must
         // not wait for a turn that may take minutes.
