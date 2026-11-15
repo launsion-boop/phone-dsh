@@ -29,6 +29,7 @@ struct BotWorkCardView: View {
 private struct BotProgressCardView: View {
     let row: BotUIRow
     @State private var expanded = false
+    @Environment(\.botCardTheme) private var theme
 
     private var title: String { row.body["title"]?.string ?? row.body["name"]?.string ?? "" }
     private var state: String {
@@ -64,7 +65,7 @@ private struct BotProgressCardView: View {
                 }
                 if let percent {
                     BotCardProgressBar(percent: percent,
-                                       ink: state == "failed" ? NativeParityTokens.error : HomeSpec.textPrimary)
+                                       ink: state == "failed" ? NativeParityTokens.error : nil)
                 }
                 if !steps.isEmpty {
                     VStack(spacing: 0) {
@@ -75,7 +76,7 @@ private struct BotProgressCardView: View {
                             BotCardRow(label: step.label,
                                        labelInk: stepState == .pending ? HomeSpec.textSecondary : HomeSpec.textPrimary,
                                        strikethrough: stepState == .skipped) {
-                                BotCardGlyph(systemImage: stepState.glyph, ink: stepState.ink)
+                                BotCardGlyph(systemImage: stepState.glyph, ink: stepState.ink(theme: theme))
                             } trailing: {
                                 if let detail = step.detail {
                                     Text(detail).botCardMeta().monospacedDigit().lineLimit(1)
@@ -112,6 +113,7 @@ private struct BotChecklistCardView: View {
     @ObservedObject var model: BotChatModel
     @State private var items: [BotUIChecklistItem]
     @State private var dirty = false
+    @Environment(\.botCardTheme) private var theme
 
     init(row: BotUIRow, model: BotChatModel) {
         self.row = row
@@ -137,7 +139,7 @@ private struct BotChecklistCardView: View {
                                detail: row.body["summary"]?.string, category: .work) {
                     Text("\(doneCount)/\(items.count)")
                         .monospacedDigit()
-                        .foregroundStyle(doneCount == items.count ? HomeSpec.success : HomeSpec.textPlaceholder)
+                        .foregroundStyle(doneCount == items.count ? theme.accent : HomeSpec.textPlaceholder)
                 }
                 .padding(.bottom, 4)
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
@@ -152,7 +154,7 @@ private struct BotChecklistCardView: View {
                                    labelInk: item.done ? HomeSpec.textPlaceholder : HomeSpec.textPrimary,
                                    strikethrough: item.done) {
                             BotCardGlyph(systemImage: item.done ? "checkmark.square.fill" : "square",
-                                         ink: item.done ? HomeSpec.textPrimary : HomeSpec.iconMuted)
+                                         ink: item.done ? theme.accent : HomeSpec.iconMuted)
                         } trailing: {
                             if let note = item.note {
                                 Text(note).botCardMeta().lineLimit(1)
@@ -254,6 +256,7 @@ private struct BotApprovalCardView: View {
     @ObservedObject var model: BotChatModel
     @State private var expanded = false
     @State private var copied = false
+    @Environment(\.botCardTheme) private var theme
 
     private var ask: [String: BotJSONValue] { row.body["ask"]?.object ?? [:] }
     private var status: String { row.body["status"]?.string ?? ask["status"]?.string ?? "pending" }
@@ -306,7 +309,7 @@ private struct BotApprovalCardView: View {
     private var decidedContent: some View {
         HStack(spacing: 12) {
             BotCardGlyph(systemImage: allowed ? "checkmark.circle.fill" : "xmark.circle",
-                         ink: allowed ? HomeSpec.success : HomeSpec.textPlaceholder)
+                         ink: allowed ? theme.accent : HomeSpec.textPlaceholder)
             VStack(alignment: .leading, spacing: 2) {
                 Text(statusLabel)
                     .botCardRow(weight: .medium)
@@ -387,7 +390,7 @@ private struct BotApprovalCardView: View {
         if let standingScope {
             Button(standingScope.buttonTitle) { model.decide(row: row, decision: .always) }
                 .lineLimit(1).minimumScaleFactor(0.8)
-                .buttonStyle(BotCardButtonStyle(kind: .primary, tint: BotCardCategory.approval.ink))
+                .buttonStyle(BotCardButtonStyle(kind: .primary, tint: theme.accent))
                 .accessibilityIdentifier("bot.approval.always")
         } else {
             Button("始终允许") { }
@@ -417,7 +420,7 @@ private struct BotApprovalCardView: View {
                     copied = true
                 }
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(HomeSpec.textPrimary)
+                .foregroundStyle(theme.accent)
                 .buttonStyle(.plain)
                 .frame(minWidth: 44, minHeight: 28, alignment: .trailing)
                 .accessibilityIdentifier("bot.approval.copy")
@@ -432,7 +435,7 @@ private struct BotApprovalCardView: View {
             if longCommand {
                 Button(expanded ? "收起" : "展开全部") { expanded.toggle() }
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(HomeSpec.textPrimary)
+                    .foregroundStyle(theme.accent)
                     .buttonStyle(.plain)
                     .frame(minHeight: 28)
                     .accessibilityValue(expanded ? "已展开" : "已折叠")

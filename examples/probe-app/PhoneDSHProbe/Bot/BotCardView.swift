@@ -35,6 +35,8 @@ struct BotCardView: View {
                         .transition(.opacity)
                 } else {
                     cardContent
+                        .environment(\.botCardTheme, BotCardTheme(appearance: model.appearance))
+                        .tint(BotCardTheme(appearance: model.appearance).accent)
                         .transition(.opacity)
                 }
             }
@@ -66,6 +68,7 @@ private struct BotChoiceCardView: View {
     let row: BotUIRow
     let card: BotUICardContent
     @ObservedObject var model: BotChatModel
+    @Environment(\.botCardTheme) private var theme
     @State private var selectedID: String?
 
     private var isSteps: Bool { card.kind == .steps }
@@ -157,11 +160,11 @@ private struct BotChoiceCardView: View {
                     // durable answer round-trips.
                     Image(systemName: "checkmark")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(BotCardCategory.choice.ink)
+                        .foregroundStyle(theme.accent)
                 } else {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(BotCardCategory.choice.ink.opacity(0.75))
+                        .foregroundStyle(theme.accent.opacity(0.75))
                 }
             }
         }
@@ -211,6 +214,7 @@ private struct BotChoiceCardView: View {
 private struct BotTaskCardView: View {
     let row: BotUIRow
     @State private var expanded = false
+    @Environment(\.botCardTheme) private var theme
 
     private var steps: [BotUIProgressStep] { BotUIProgressStep.parseList(row.body["tasks"] ?? row.body["steps"]) }
     private var title: String { row.body.string("title", "text", "question") ?? "后台任务" }
@@ -274,10 +278,10 @@ private struct BotTaskCardView: View {
                                   ? "checkmark.seal" : verificationVerdict == "failed"
                                   ? "xmark.octagon" : "questionmark.circle")
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(verificationTone.ink)
+                                .foregroundStyle(verificationTone.ink(theme: theme))
                             Text(verificationLabel)
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(verificationTone.ink)
+                                .foregroundStyle(verificationTone.ink(theme: theme))
                             if verificationRefCount > 0 {
                                 Text("依据 \(verificationRefCount) 条记录")
                                     .botCardMeta()
@@ -319,7 +323,7 @@ private struct BotTaskCardView: View {
                                 let state = BotCardStepState(step.state)
                                 BotCardRow(label: step.label, detail: step.detail,
                                            labelInk: state == .pending ? HomeSpec.textSecondary : HomeSpec.textPrimary) {
-                                    BotCardGlyph(systemImage: state.glyph, ink: state.ink)
+                                    BotCardGlyph(systemImage: state.glyph, ink: state.ink(theme: theme))
                                 } trailing: { EmptyView() }
                             }
                         }
@@ -574,6 +578,7 @@ private struct BotCardArtifactPreview: View {
     @State private var loadedText: String?
     @State private var message: String?
     @State private var pdfPreview: UIImage?
+    @Environment(\.botCardTheme) private var theme
 
     private var content: String? {
         let supplied = [inlineContent, loadedText].compactMap { $0 }.first
@@ -629,7 +634,7 @@ private struct BotCardArtifactPreview: View {
             }
         }
         .padding(12)
-        .background(category.wash.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+        .background(category.wash(theme: theme).opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
         .clipped()
         .task(id: path) { await loadFilePreview() }
     }
