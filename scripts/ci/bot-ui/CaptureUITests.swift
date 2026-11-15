@@ -29,7 +29,7 @@ final class BotCaptureUITests: XCTestCase {
         return element.label
     }
 
-    /// The one activity surface: three dots + the current activity sentence.
+    /// The one activity surface: the current activity sentence with its sweep.
     private var activityBubble: XCUIElement {
         app.descendants(matching: .any)
             .matching(identifier: "bot.activity.bubble").firstMatch
