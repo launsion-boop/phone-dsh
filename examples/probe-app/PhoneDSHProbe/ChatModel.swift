@@ -1863,7 +1863,7 @@ final class ChatModel {
     }
 
     private func ensureEngineRunning() async {
-        guard isAppForeground, host == nil, !busy else { return }
+        guard pcRuntime != nil || isAppForeground, host == nil, !busy else { return }
         await start(autoRecover: true)
     }
 
