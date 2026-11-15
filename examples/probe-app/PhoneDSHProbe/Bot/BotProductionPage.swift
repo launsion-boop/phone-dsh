@@ -108,6 +108,17 @@ final class BotProductionHub {
         error = nil
     }
 
+    /// The chat model of a Bot without switching the page to it, connecting the hub to the app's
+    /// Bot runtime first when needed (a device's voice turn arrives while another page is open).
+    func chatModel(ensuring botID: String) async throws -> BotChatModel {
+        if composition == nil { await connect(chat: ChatModel.shared) }
+        guard let composition, let roster else { throw BotRuntimeError.unavailable }
+        guard roster.bots.contains(where: { $0.id == botID }) else { throw BotTeamHostError.botNotFound(botID) }
+        if chatModels[botID] == nil { try await installModels(botID: botID, composition: composition) }
+        guard let model = chatModels[botID] else { throw BotRuntimeError.unavailable }
+        return model
+    }
+
     /// A link names a Bot explicitly. A legacy `main` link resolves through
     /// the current main pointer; a link to a live Bot switches the page first.
     /// Row links go to the chat row; routine links present the routine list.

@@ -106,6 +106,7 @@ import ProbeKit
     private func linkReady(_ link: TonoLinkCtrlBLE) {
         state = "等待「你好小智」（\(link.peripheralName ?? "board")）"
         log("connected \(link.peripheralName ?? "?") app=\(UIApplication.shared.applicationState.rawValue)")
+        if let name = link.peripheralName { DeviceBotRegistry.shared.boardConnected(name: name) }
         setKeepAlive(true)
         armSpeakerIfForeground()
         // The board is back (this link only comes up when it is present): bring its Link tools back too.
@@ -354,6 +355,15 @@ import ProbeKit
             await answerVolumeCommand(direction, credential: credential, start: start)
             return
         }
+        // tonolink-board.md §4.1: the board's own Bot takes the heard text first. A paused engine
+        // is resumed while the App may execute (host contract §10.1), so the Bot path does not
+        // wait out its start bound in the background; an unreachable Bot falls back to the
+        // durable chat path below.
+        if let botID = DeviceBotRegistry.shared.tonoLinkBotID() {
+            let chat = ChatModel.shared
+            if chat.parked, chat.executionEligible { await chat.resumeParkedHost() }
+            if await answerThroughBot(botID, text: text, credential: credential, start: start) { return }
+        }
         guard let request else {
             note("error", "请先在手机上打开一个本地对话，再使用语音")
             light(.idle)
@@ -422,6 +432,40 @@ import ProbeKit
             catch { return }
         }
         if !Task.isCancelled { note("deferred", "语音等待已结束，请在手机上查看任务"); light(.idle) }
+    }
+
+    /// tonolink-board.md §4.1: the board's own Bot takes the heard text, so every voice turn lands
+    /// in one conversation whatever page is open. False when that Bot cannot be reached (the
+    /// caller then uses the current chat).
+    private func answerThroughBot(_ botID: String, text: String, credential: String, start: Date) async -> Bool {
+        let model: BotChatModel
+        do { model = try await BotProductionHub.shared.chatModel(ensuring: botID) }
+        catch { note("bot_error", error.localizedDescription); return false }
+        note("bot", botID)
+        let before = Set(model.rows.map(\.id))
+        model.send(text: text)
+        // The answer row reaches the model after the turn ends, sometimes seconds later: wait for a
+        // new answer with no turn running (up to 2 min), not just for the turn to stop.
+        func newAnswer() -> String? {
+            model.rows.last { !before.contains($0.id) && BotChatModel.isAnswer($0) }?.body["text"]?.string
+        }
+        var sawRunning = false
+        let deadline = ContinuousClock.now + .seconds(120)
+        while ContinuousClock.now < deadline {
+            if Task.isCancelled { return true }
+            if model.runningTurnID != nil, !sawRunning { sawRunning = true; light(.taskRunning) }
+            if model.runningTurnID == nil, let text = newAnswer(), !text.isEmpty { break }
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        let reply = newAnswer() ?? ""
+        if !sawRunning && reply.isEmpty { note("error", "Bot 没有开始运行（引擎暂停或忙）"); light(.idle); return true }
+        note("reply", String(reply.prefix(500)))
+        note("reply_ms", Int(Date().timeIntervalSince(start) * 1000))
+        guard !reply.isEmpty else { light(.taskDone); return true }
+        light(.taskReport)
+        do { try await speak(reply, credential: credential) } catch { note("speak_error", error.localizedDescription) }
+        if !Task.isCancelled { light(.taskDone) }
+        return true
     }
 
     /// A clear one-step volume command is handled locally, without the LLM or UI-Venus screen loop.
