@@ -418,7 +418,9 @@ struct BotChatPage: View {
                         if BotTranscriptLayoutSupport.shouldScrollToTail(
                             contentHeight: scrollMetrics.contentHeight,
                             viewportHeight: scrollMetrics.viewportHeight) {
-                            proxy.scrollTo("bot-transcript-tail", anchor: .bottom)
+                            withAnimation(.easeOut(duration: 0.18)) {
+                                proxy.scrollTo("bot-transcript-tail", anchor: .bottom)
+                            }
                         } else if let first = model.displayRows.first?.id {
                             proxy.scrollTo(first, anchor: .top)
                         }
@@ -675,8 +677,10 @@ struct BotChatPage: View {
                     arrivedGeneration = generation
                     corrected = false
                 }
-                proxy.scrollTo(transcriptScrollRequest.target,
-                               anchor: transcriptScrollRequest.anchor)
+                withAnimation(.easeOut(duration: 0.18)) {
+                    proxy.scrollTo(transcriptScrollRequest.target,
+                                   anchor: transcriptScrollRequest.anchor)
+                }
             }
         }
     }
