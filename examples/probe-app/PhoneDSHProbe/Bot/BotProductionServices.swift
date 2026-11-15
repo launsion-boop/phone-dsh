@@ -789,6 +789,16 @@ actor BotProductionRowService {
         }
         report.loaded = pending.count
         guard !pending.isEmpty else { return report }
+        // A live turn already owns the session: those rows are that turn's
+        // durable intent (or a duplicate dispatch). Do not start a second turn
+        // behind it from launch/bind replay; the next launch or an idle bind
+        // retries them.
+        if let remote, await remote.isMainTurnBusy() {
+            report.deferred = pending.count
+            report.lastErrorType = "turn_busy"
+            report.remaining = pending.count
+            return report
+        }
         do {
             try await start()
         } catch {

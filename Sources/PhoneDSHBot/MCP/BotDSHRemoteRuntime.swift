@@ -250,6 +250,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private var mainSessionEpochs: Set<String> = []
 
     public private(set) var mainSessionId: String?
+    /// The transport generation in which a prompt was rebuilt once because the
+    /// host accepted it but never opened a turn. Prevents a rebuild loop and
+    /// session churn; reset by a completed turn.
+    private var rebuiltTurnNotStartedGeneration: UInt64?
 
     public init(
         transport: any DSHRemoteTransport,
@@ -707,18 +711,28 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         do {
             var result = try await runTurn(sessionId: sessionId, kind: .chat, prompt: prompt,
                                            requestId: promptRequestId)
-            if result.status != "completed", result.error == "turn_not_started" {
+            if result.status != "completed", result.error == "turn_not_started",
+               rebuiltTurnNotStartedGeneration != transportGeneration {
                 // The host accepted the prompt but never opened a turn. A
                 // sealed/forked or otherwise dead main session cannot run
                 // another turn; start a fresh epoch and retry the same prompt
-                // once. The durable outbox keeps the intent if this fails too.
+                // once. Adopt the new id as THE main session, otherwise the
+                // next send recovers the old id and starts a second turn on a
+                // different session (which the host fails as a turn conflict).
+                // Once per transport generation; a completed turn clears it.
+                rebuiltTurnNotStartedGeneration = transportGeneration
                 BotSendDiagnostics.log("sendUserMessage rebuild-after-no-turn")
                 let rebuilt = try await rebuildMainSession(
                     from: sessionId, cwd: botRoot())
+                mainSessionId = rebuilt
+                mainSessionTask = nil
                 BotSendDiagnostics.log("sendUserMessage rebuilt=\(rebuilt.prefix(20))")
                 result = try await runTurn(
                     sessionId: rebuilt, kind: .chat, prompt: prompt,
                     requestId: promptRequestId)
+            }
+            if result.status == "completed" {
+                rebuiltTurnNotStartedGeneration = nil
             }
             BotSendDiagnostics.log("sendUserMessage runTurn-done status=\(result.status)")
             if let stagedKey { _ = try await wakeInbox?.commit(stagedKey) }
