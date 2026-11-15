@@ -2,11 +2,14 @@
 package com.phonedsh.bot.store
 
 /**
- * The exact P25 schema v3 DDL (`spec/bot/v1/store.md` §3). The statements are
+ * The exact P25 schema DDL (`spec/bot/v1/store.md` §3). The statements are
  * split because a trigger body contains `;`; the string content and object
  * names are normative.
  */
 public object BotStoreSchema {
+    /** The `PRAGMA user_version` this store creates and accepts. */
+    public const val CURRENT_VERSION: Int = 4
+
     public val V3_STATEMENTS: List<String> = listOf(
         """
         CREATE TABLE IF NOT EXISTS bot_event_headers (
@@ -132,7 +135,31 @@ public object BotStoreSchema {
         """.trimIndent(),
     )
 
+    /**
+     * Schema v4 adds the durable Bot outbox. It is deliberately not part of
+     * [V3_STATEMENTS]: a v3 fixture built from those statements must not
+     * silently contain a v4 table (`store.md` §7).
+     */
+    public val PENDING_ACTIONS_STATEMENTS: List<String> = listOf(
+        """
+        CREATE TABLE IF NOT EXISTS bot_pending_actions (
+            bot_id TEXT NOT NULL,
+            nonce TEXT NOT NULL,
+            payload BLOB NOT NULL,
+            created_at_ms INTEGER NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY(bot_id, nonce)
+        )
+        """.trimIndent(),
+    )
+
+    /** Creates the v3 tables and any pre-existing objects. Idempotent. */
     public fun create(driver: BotSqlDriver) {
         for (statement in V3_STATEMENTS) driver.execute(statement)
+    }
+
+    /** Creates the v4-only tables. Idempotent. */
+    public fun createPendingActions(driver: BotSqlDriver) {
+        for (statement in PENDING_ACTIONS_STATEMENTS) driver.execute(statement)
     }
 }
