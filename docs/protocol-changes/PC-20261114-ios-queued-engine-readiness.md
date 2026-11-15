@@ -68,3 +68,12 @@ background, first session preparation, queue reopen and unknown outcome. No new 
 vector is necessary because encoded bytes and schema are unchanged. Acceptance commands:
 `swift test` against the real policy/outbox sources; native iOS build; repository spec,
 conformance and cross-tree checks; host smoke. Device wake/energy remain NOT_RUN unless run.
+
+### Attribution clarification (revision 3)
+
+Source review of the pinned DSH `session-turn-outline` confirms `turn/start` precedes the
+prompt, but `user/message` need not contain `data.turn`. The consumer must fold observed
+turn/start/end boundaries, as the DSH projection does, rather than require a nonexistent
+field. Live acknowledgement receives the current open turn from the same ordered event pump;
+history projection derives it only from boundaries actually present in the page. A page that
+starts mid-turn cannot invent attribution. Tests use a real mapped user event without `turn`.
