@@ -77,3 +77,12 @@ turn/start/end boundaries, as the DSH projection does, rather than require a non
 field. Live acknowledgement receives the current open turn from the same ordered event pump;
 history projection derives it only from boundaries actually present in the page. A page that
 starts mid-turn cannot invent attribution. Tests use a real mapped user event without `turn`.
+
+### Pre-transport deferral clarification (revision 4)
+
+If lifecycle eligibility changes during the durable `markSubmitting` await, the same live
+sender still knows it has not called transport. It may use the existing submitting →
+outcomeUnknown → queued edges to defer that unsent entry with the same ID. This proof is local
+to that live pre-transport branch and must never be inferred from a persisted error string or
+from an entry recovered after a crash. A crash between the two writes remains ambiguous and
+requires authoritative reconciliation. No new stored state, field or transition is added.

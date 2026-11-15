@@ -358,3 +358,9 @@ background callback alone never authorizes cold WebContent boot/resume. Manual r
 explicit stop gates remain authoritative. Foreground return retries retained queued work.
 A first-ever UI send must establish a foreground session and then enqueue before submitting;
 there is no durable receipt while no session or protected storage is available.
+
+If execution eligibility is lost while writing the submitting marker, the same live sender
+may defer an entry before calling transport, using submitting → outcomeUnknown → queued
+with its original ID. This branch has direct proof that no transport attempt occurred. That
+proof does not survive a crash and cannot be inferred from a saved error string; recovered
+submitting/unknown entries still require authoritative reconciliation before retry.
