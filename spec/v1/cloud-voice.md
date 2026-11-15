@@ -65,8 +65,16 @@ the newly resolved value differs. Every other status is reported as the turn's f
 
 ## 4. The turn
 
-The recognised text is sent as an ordinary user message to the current chat, through the same path
-as the composer. Right after recognition the phone says a short acknowledgement (「好的，马上处理」, synthesized
-once and kept in memory like 「我在」) so the user knows the command was understood; the reply is
-queued behind it. What is spoken back is the last assistant text of that chat turn. A turn that is
-still running in the chat when a new wake arrives keeps running; only its speech is stopped.
+For iOS TonoLink, the native consumer snapshots the existing local DSH session and allocates
+one request ID at wake, before recognition/unlock waits. Recognised non-volume text enters that
+session's durable SendOutbox through the same local admission path as the composer. Only after
+durable enqueue does the phone say a short acknowledgement (「好的，已经记下了」, synthesized once
+and kept in memory like 「我在」). This confirms saved work, not immediate execution. Missing targets
+or unavailable protected storage produce no acceptance; unavailable execution waits for foreground.
+
+The spoken reply requires the exact authoritative user request, its observed turn and a completed
+terminal event; only settled assistant text of that turn is eligible. Another session's reply,
+a text match or a global running flag is not sufficient. A new wake stops old recognition/speech,
+but an already admitted task remains queued/running. See
+[voice admission and playback](../device/v1/tonolink-board.md#411-ios-voice-admission-and-playback).
+Cloud request/response formats and audio handling in §§1–3 are unchanged.

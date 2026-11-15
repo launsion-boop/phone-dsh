@@ -1,7 +1,7 @@
 # iOS queued delivery readiness — first residency increment
 
 Base: 29a733cb8f8f764e27629b5e126fcf572b042168.
-Protocol impact: P09; P06; P07; P12: none — no SDK module or ABI changes; P16: none — Worker bootstrap and wire remain unchanged; P27: none — Bot rows and user actions remain unchanged.
+Protocol impact: P09; P06; P07; P05; P12: none — no SDK module or ABI changes; P16: none — Worker bootstrap and wire remain unchanged; P27: none — Bot rows and user actions remain unchanged.
 
 This implements the architecture's first existing-outbox delivery slice, not APNs or a new
 cold-target admission store. Scope is iOS and already-bound local DSH sessions. Bot-specific
@@ -86,3 +86,12 @@ outcomeUnknown → queued edges to defer that unsent entry with the same ID. Thi
 to that live pre-transport branch and must never be inferred from a persisted error string or
 from an entry recovered after a crash. A crash between the two writes remains ambiguous and
 requires authoritative reconciliation. No new stored state, field or transition is added.
+
+
+### Cross-document alignment (revision 5)
+
+P05 `cloud-voice.md` §4 described the former current-chat routing and pre-admission wording.
+Align that native-consumer paragraph with the P07 frozen admission/receipt rules. Cloud ASR/TTS
+endpoints, credentials, audio bytes, chunk limits and error handling remain unchanged; only
+when the native consumer acknowledges and which proven reply it selects change. Existing cloud
+producers/consumers require no wire migration.
