@@ -95,3 +95,34 @@ Align that native-consumer paragraph with the P07 frozen admission/receipt rules
 endpoints, credentials, audio bytes, chunk limits and error handling remain unchanged; only
 when the native consumer acknowledges and which proven reply it selects change. Existing cloud
 producers/consumers require no wire migration.
+
+
+### Resident execution eligibility (revision 6)
+
+Review of the frozen revision found that background preparation only honoured the chat's own
+`keepingAlive`. A connected TonoLink board holds `SilentAudioKeepAlive` under its own owner, so
+the process stayed resident while a host parked before the board connected was never resumed:
+voice was saved ("已经记下了") and waited for the user to open the App. The foreground gate on
+`start()`/`resumeHost` also refused every caller, including a cold launch still `.inactive`.
+
+Delta (P06 §10.1, P07 §4.1.1; no wire, schema, outbox or BLE byte change):
+
+- One eligibility answer `ChatDeliveryPreparation.executionEligible`: not in background, or
+  the chat keep-alive, or any resident `SilentAudioKeepAlive` owner. Preparation, drain, the
+  pre-transport recheck, start/resume and voice deferral all read it.
+- While eligible, background preparation may start or resume through the existing methods.
+  A background delivery takes the chat's own keep-alive for that turn; the existing turn-end
+  path then parks unless the board is still armed.
+- A start refused for eligibility is remembered and performed at the next foreground return.
+- An explicit stop pauses queued preparation and cancels the preparation task before the busy
+  check, so a boot started by queued work never drains afterwards.
+- A send pinned to another session no longer becomes the on-screen session's retry target.
+- Voice waiting does not time out while preparation is in flight, and re-derives progress only
+  when events, items, turn boundaries or sessions change.
+
+Not changed after source review: a mid-turn `.prompt` is a DSH `followup` (next-turn inbox), so
+its `user/message` follows the next `turn/start`; live attribution by open turn stays correct.
+
+Compatibility: same records and requests old↔new; rollback restores foreground-only preparation
+without losing queued entries. Android/firmware unchanged. Device background boot/resume under a
+board keep-alive, BLE cold relaunch and power are NOT_RUN until executed on hardware.

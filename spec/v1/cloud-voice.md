@@ -70,7 +70,8 @@ one request ID at wake, before recognition/unlock waits. Recognised non-volume t
 session's durable SendOutbox through the same local admission path as the composer. Only after
 durable enqueue does the phone say a short acknowledgement (「好的，已经记下了」, synthesized once
 and kept in memory like 「我在」). This confirms saved work, not immediate execution. Missing targets
-or unavailable protected storage produce no acceptance; unavailable execution waits for foreground.
+or unavailable protected storage produce no acceptance. While the board's keep-alive holds the
+process resident, admitted text executes in the background; otherwise it waits for foreground.
 
 The spoken reply requires the exact authoritative user request, its observed turn and a completed
 terminal event; only settled assistant text of that turn is eligible. Another session's reply,

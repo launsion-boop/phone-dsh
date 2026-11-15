@@ -179,7 +179,9 @@ missing target or unavailable protected storage produces no acceptance. The boar
 is not a globally stable task ID. No new BLE frame, permission or authentication is introduced.
 The acknowledgement is spoken only after durable enqueue and describes saved work, not execution.
 Canceling recognition before admission sends nothing; canceling voice after admission does not
-cancel or resend the accepted task. Unavailable execution waits for foreground recovery.
+cancel or resend the accepted task. While the board is connected its keep-alive holds the process
+resident, so admitted voice starts, resumes or delivers on the engine without the user opening
+the App (host contract §10.1). Execution waits for foreground recovery only without residency.
 
 Playback is scoped to the receipt's session/request ID and an authoritative user message with
 its actual turn. Only settled assistant text in that turn after a normal terminal event may be

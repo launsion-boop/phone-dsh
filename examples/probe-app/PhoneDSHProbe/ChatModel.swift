@@ -744,6 +744,17 @@ final class ChatModel {
     var isAppForeground: Bool {
         appIsActive && UIApplication.shared.applicationState == .active
     }
+    /// Whether the engine may boot, resume or deliver now (host contract §10.1): the App is not in
+    /// the background (a cold launch is still `.inactive`), or the process is held resident by an
+    /// audio keep-alive — this model's own or another owner's, such as a connected TonoLink board.
+    /// Every preparation, drain and voice gate reads this one answer.
+    var executionEligible: Bool {
+        ChatDeliveryPreparation.executionEligible(
+            foreground: UIApplication.shared.applicationState != .background,
+            keepingAlive: keepingAlive, residentAudio: SilentAudioKeepAlive.shared.isActive)
+    }
+    /// A start refused while ineligible; the next foreground return performs it.
+    private var startDeferredUntilEligible = false
     private var recoveryFlushTask: Task<Void, Never>?
     private var queuedPreparationPaused = false
     private var explicitStopRevision = 0
@@ -1572,7 +1583,12 @@ final class ChatModel {
         // Every start except the scheduled backoff retry is a new intent: it
         // supersedes any pending retry, including a manual tap.
         if !backoffRetry { cancelBackoffRetry() }
-        guard isAppForeground, !Task.isCancelled, host == nil, !busy else { return }
+        guard !Task.isCancelled, host == nil, !busy else { return }
+        guard executionEligible else {
+            startDeferredUntilEligible = true
+            return
+        }
+        startDeferredUntilEligible = false
         // A parked adoption belongs to a page that is now visible again; land
         // it before the new boot repaints anything.
         adoptDeferredTranscriptIfForeground()
@@ -1588,7 +1604,10 @@ final class ChatModel {
         // Every Host build reads the Bot MCP URL into the Worker environment;
         // heal a reaped listener before that snapshot is taken.
         _ = await botListenerSupervisor?.willStartEngine()
-        guard isAppForeground, !Task.isCancelled else { return }
+        guard executionEligible, !Task.isCancelled else {
+            startDeferredUntilEligible = !Task.isCancelled
+            return
+        }
         guard let launch = makeHostLaunch() else { return }
         hostResumeWatchdogTimeout = launch.resumeWatchdogTimeout
         // Show the last conversation from disk immediately; the engine boots
@@ -1600,11 +1619,12 @@ final class ChatModel {
         do {
             try await ADBMCPServer.shared.setWorkspaceDirectory(materializedWorkspace)
             await botLaunch?.composition.attachNativeMCP(PhoneNativeMCP.server)
-            // Native preparation yields. A queued foreground intent is not
-            // permission to create WebContent after the App has left foreground.
-            guard isAppForeground, !Task.isCancelled else {
+            // Native preparation yields. Leaving foreground without a resident
+            // keep-alive is not permission to create WebContent.
+            guard executionEligible, !Task.isCancelled else {
                 hostEventTask?.cancel(); hostEventTask = nil
                 anchor.shutdown()
+                startDeferredUntilEligible = !Task.isCancelled
                 statusLine = "消息已保存，等待回到 App 后继续"
                 return
             }
@@ -1872,7 +1892,7 @@ final class ChatModel {
     }
 
     private func ensureEngineRunning() async {
-        guard pcRuntime != nil || isAppForeground, host == nil, !busy else { return }
+        guard pcRuntime != nil || executionEligible, host == nil, !busy else { return }
         await start(autoRecover: true)
     }
 
@@ -2798,14 +2818,17 @@ final class ChatModel {
             statusLine = "电脑会话已关闭"
             return
         }
+        // An explicit stop always pauses queued preparation first, including a
+        // boot that queued work started: that boot must not drain afterwards.
+        explicitStopRevision &+= 1
+        queuedPreparationPaused = true
+        recoveryFlushTask?.cancel()
+        startDeferredUntilEligible = false
         guard !busy && !hostLifecycleTransition else {
-            reportError("引擎操作尚未完成，请稍候再停止")
+            reportError("引擎操作尚未完成，排队消息已暂停；请稍候再停止")
             return
         }
         guard let host else {
-            explicitStopRevision &+= 1
-            queuedPreparationPaused = true
-            recoveryFlushTask?.cancel()
             stopBotTurnPolling()
             await botLaunch?.composition.stop()
             if let composition = botLaunch?.composition {
@@ -2813,9 +2836,6 @@ final class ChatModel {
             }
             return
         }
-        explicitStopRevision &+= 1
-        queuedPreparationPaused = true
-        recoveryFlushTask?.cancel()
         busy = true
         defer { busy = false }
         pumpTask?.cancel(); pumpTask = nil
@@ -2935,6 +2955,12 @@ final class ChatModel {
             resumeWatchdogTask = nil
         }
         if phase == .active, outboxNeedsDrain { scheduleRecoveryQueueFlush() }
+        // A start refused while the App was ineligible (background without a
+        // resident keep-alive) runs now; queued work joins it through the flush.
+        if phase == .active, host == nil, startDeferredUntilEligible, !busy, pcRuntime == nil {
+            startDeferredUntilEligible = false
+            Task { @MainActor [weak self] in await self?.start(autoRecover: true) }
+        }
         guard let host else { return }
         switch phase {
         case .background:
@@ -3094,7 +3120,7 @@ final class ChatModel {
     }
 
     private func resumeHost(_ host: PhoneDSHHost) async {
-        guard isAppForeground, !Task.isCancelled, parked, !hostLifecycleTransition else { return }
+        guard executionEligible, !Task.isCancelled, parked, !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
         // The Worker booted with the URL captured at Host construction. If the
         // listener had to move to a new port, resuming would just replay the
@@ -3102,7 +3128,7 @@ final class ChatModel {
         // environment. A same-port rebind keeps the URL valid and resumes.
         if let supervisor = botListenerSupervisor {
             _ = await supervisor.willResumeHost()
-            guard isAppForeground, !Task.isCancelled else {
+            guard executionEligible, !Task.isCancelled else {
                 hostLifecycleTransition = false
                 return
             }
@@ -3341,8 +3367,7 @@ final class ChatModel {
     /// ``sessionSwitchGate`` and performs the latest optimistic target after the
     /// lifecycle settles, so there is exactly one pending switch structure.
     private func flushPendingRecoveryUIActions() async {
-        guard !isHostRecovering, !busy, !engineNeedsReset, host != nil,
-              isAppForeground || keepingAlive else {
+        guard !isHostRecovering, !busy, !engineNeedsReset, host != nil, executionEligible else {
             if recoveryFlushTask == nil { scheduleRecoveryQueueFlush() }
             return
         }
@@ -3366,25 +3391,30 @@ final class ChatModel {
                 self.recoveryFlushTask = nil
                 // A fresh send may arrive while a canceled preparation unwinds.
                 if (Task.isCancelled || self.recoveryFlushRequested), !self.queuedPreparationPaused,
-                   self.outboxNeedsDrain, (self.isAppForeground || self.keepingAlive), !self.engineNeedsReset {
+                   self.outboxNeedsDrain, self.executionEligible, !self.engineNeedsReset {
                     self.scheduleRecoveryQueueFlush()
                 }
             }
             for _ in 0..<300 {
                 guard !Task.isCancelled, self.outboxNeedsDrain else { return }
                 let decision = ChatDeliveryPreparation.decide(
-                    foreground: self.isAppForeground, keepingAlive: self.keepingAlive,
+                    foreground: UIApplication.shared.applicationState != .background,
+                    keepingAlive: self.keepingAlive,
                     hostPresent: self.host != nil, parked: self.parked,
                     transitioning: self.hostLifecycleTransition || self.engineRebuildInProgress,
                     busy: self.busy || self.backoffRetryTask != nil,
                     transportReady: self.harness != nil && self.sessionID != nil,
-                    requiresRecovery: self.engineNeedsReset, userPaused: self.queuedPreparationPaused)
+                    requiresRecovery: self.engineNeedsReset, userPaused: self.queuedPreparationPaused,
+                    residentAudio: SilentAudioKeepAlive.shared.isActive)
+                if decision == .ready || decision == .start || decision == .resume {
+                    self.holdResidencyForBackgroundDelivery()
+                }
                 switch decision {
                 case .ready:
                     await self.flushPendingRecoveryUIActions()
                     return
                 case .start:
-                    self.appendStatus("Queued delivery: preparing the foreground engine")
+                    self.appendStatus("Queued delivery: preparing the engine")
                     await self.start(autoRecover: true)
                     guard !Task.isCancelled, !self.queuedPreparationPaused else { return }
                     // start/adoption owns retries. Never spin on a failed boot.
@@ -3392,13 +3422,13 @@ final class ChatModel {
                     return
                 case .resume:
                     guard let host = self.host else { return }
-                    self.appendStatus("Queued delivery: resuming the foreground engine")
+                    self.appendStatus("Queued delivery: resuming the parked engine")
                     await self.resumeHost(host)
                     guard !Task.isCancelled, !self.queuedPreparationPaused else { return }
                     await self.flushPendingRecoveryUIActions()
                     return
                 case .deferred:
-                    self.appendStatus("Queued delivery saved; waiting for foreground execution eligibility")
+                    self.appendStatus("Queued delivery saved; waiting for foreground or a resident keep-alive")
                     return
                 case .needsAttention:
                     self.appendStatus("Queued delivery saved; engine recovery requires user attention")
@@ -3409,6 +3439,20 @@ final class ChatModel {
                 }
             }
             self.appendStatus("Queued delivery saved; engine preparation is still waiting on lifecycle readiness")
+        }
+    }
+
+    /// Background delivery borrowed another owner's resident audio (a connected
+    /// board). Take this model's own keep-alive for the turn, so the existing
+    /// turn-end path decides whether to park and the foreground return releases it.
+    private func holdResidencyForBackgroundDelivery() {
+        guard UIApplication.shared.applicationState == .background,
+              backgroundKeepAlive, !keepingAlive else { return }
+        do {
+            try beginKeepAlive()
+            appendStatus("Background delivery: keep-alive audio held for the queued turn")
+        } catch {
+            appendStatus("Background delivery: keep-alive failed (\(NativeLogRedaction.error(error)))")
         }
     }
 
@@ -3742,7 +3786,19 @@ final class ChatModel {
     }
 
     var voiceExecutionDeferred: Bool {
-        queuedPreparationPaused || engineNeedsReset || (!isAppForeground && (!keepingAlive || parked || host == nil))
+        queuedPreparationPaused || engineNeedsReset || !executionEligible
+    }
+
+    /// The engine is booting, resuming or rebuilding for queued work; a voice
+    /// wait must not time out on that bounded preparation.
+    var voicePreparing: Bool {
+        recoveryFlushTask != nil || isStartingEngine || hostLifecycleTransition || engineRebuildInProgress
+    }
+
+    /// Changes whenever ``voiceProgress(_:)`` could change, so a waiting voice
+    /// turn re-derives progress only after an event, a session switch or a turn boundary.
+    var voiceObservationKey: String {
+        "\(eventsHandled)|\(items.count)|\(turnBoundaryRevision)|\(sessionID ?? "")|\(currentSessionID ?? "")"
     }
 
     /// The pre-W1 direct send is retained only for the PC backend.
@@ -3849,12 +3905,14 @@ final class ChatModel {
         var input = ChatItem(id: rowID, kind: .user, title: "You",
                              text: Self.visiblePrompt(prompt, attachments: attachments))
         input.promptRequestID = entry.rpcId
+        // A send pinned to another session (voice captured at wake) must not
+        // become the retry target of the session on screen.
         if currentSessionID == target {
             NativeTranscriptProjector.acceptInput(input, in: &items)
             markQueued(itemID: rowID, requestID: entry.rpcId)
+            lastPrompt = (prompt, attachments)
+            lastPromptRequestID = entry.rpcId
         }
-        lastPrompt = (prompt, attachments)
-        lastPromptRequestID = entry.rpcId
         clearError()
         syncIdleTimer()
         SessionTitleHints.remember(prompt, for: target, backend: backendID)
@@ -3937,7 +3995,7 @@ final class ChatModel {
             return
         }
         guard host != nil, !busy, !hostLifecycleTransition, !parked, !engineNeedsReset,
-              isAppForeground || keepingAlive else {
+              executionEligible else {
             await refreshQueuedSendCount()
             return
         }
@@ -4017,7 +4075,7 @@ final class ChatModel {
     private func queuedEntryCanDispatch(_ entry: SendOutboxEntry) -> Bool {
         !queuedPreparationPaused && !engineNeedsReset && !busy && !parked
             && !hostLifecycleTransition && sessionID == entry.sessionId
-            && (isAppForeground || keepingAlive)
+            && executionEligible
     }
 
     /// Reads the same authoritative history that makes an entry durable. The

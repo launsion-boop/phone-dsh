@@ -20,13 +20,36 @@ final class ChatDeliveryPreparationTests: XCTestCase {
         XCTAssertEqual(decision(host: false, ready: false), .start)
     }
 
-    func testBackgroundNeverStartsOrResumesEvenWithKeepAlive() {
-        for kept in [false, true] {
-            XCTAssertEqual(decision(foreground: false, keepingAlive: kept, host: false), .deferred)
-            XCTAssertEqual(decision(foreground: false, keepingAlive: kept, parked: true), .deferred)
-        }
+    func testBackgroundWithoutResidentAudioNeverStartsOrResumes() {
+        XCTAssertEqual(decision(foreground: false, host: false), .deferred)
+        XCTAssertEqual(decision(foreground: false, parked: true), .deferred)
         XCTAssertEqual(decision(foreground: false), .deferred)
-        XCTAssertEqual(decision(foreground: false, keepingAlive: true), .ready)
+        XCTAssertFalse(ChatDeliveryPreparation.executionEligible(
+            foreground: false, keepingAlive: false, residentAudio: false))
+    }
+
+    func testResidentAudioMakesBackgroundDeliveryDirect() {
+        // The chat's own keep-alive, or another owner's (a connected board), keeps the
+        // process resident: a device command boots, resumes or delivers without the user.
+        for (kept, resident) in [(true, false), (false, true), (true, true)] {
+            func d(host: Bool = true, parked: Bool = false, ready: Bool = true) -> ChatDeliveryPreparation {
+                ChatDeliveryPreparation.decide(foreground: false, keepingAlive: kept,
+                    hostPresent: host, parked: parked, transitioning: false, busy: false,
+                    transportReady: ready, requiresRecovery: false, residentAudio: resident)
+            }
+            XCTAssertEqual(d(), .ready)
+            XCTAssertEqual(d(parked: true), .resume)
+            XCTAssertEqual(d(host: false, ready: false), .start)
+            XCTAssertTrue(ChatDeliveryPreparation.executionEligible(
+                foreground: false, keepingAlive: kept, residentAudio: resident))
+        }
+        // Residency never overrides manual recovery or an explicit stop.
+        XCTAssertEqual(ChatDeliveryPreparation.decide(foreground: false, keepingAlive: false,
+            hostPresent: true, parked: true, transitioning: false, busy: false,
+            transportReady: false, requiresRecovery: true, residentAudio: true), .needsAttention)
+        XCTAssertEqual(ChatDeliveryPreparation.decide(foreground: false, keepingAlive: false,
+            hostPresent: false, parked: false, transitioning: false, busy: false,
+            transportReady: false, requiresRecovery: false, userPaused: true, residentAudio: true), .needsAttention)
     }
 
     func testRecoveryAndTransitionsRemainAuthoritative() {

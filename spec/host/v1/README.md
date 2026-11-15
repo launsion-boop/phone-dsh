@@ -353,9 +353,15 @@ references plus minimal metadata, never inline bytes.
 The iOS local queue may accept an already-bound session while the engine is absent, parked or
 busy. Acceptance means the existing outbox entry is durable, not that execution has started.
 Foreground delivery joins one preparation task and uses existing start/resume transitions.
-Background delivery requires an already-ready host and existing execution eligibility; a
-background callback alone never authorizes cold WebContent boot/resume. Manual recovery and
-explicit stop gates remain authoritative. Foreground return retries retained queued work.
+Execution eligibility is one answer: the App is not in the background (a cold launch is still
+inactive), or the process is held resident by an audio keep-alive — the chat's own or another
+owner's, such as a connected TonoLink board. While eligible, queued work may start, resume or
+deliver through the existing transitions, in foreground or background, and a background
+delivery takes the chat's own keep-alive for that turn so the existing turn-end path decides
+whether to park. Without eligibility a background callback alone never authorizes WebContent
+boot/resume; a start refused for that reason runs at the next foreground return. Manual
+recovery and explicit stop gates remain authoritative; an explicit stop pauses queued
+preparation even while a boot is in flight. Foreground return retries retained queued work.
 A first-ever UI send must establish a foreground session and then enqueue before submitting;
 there is no durable receipt while no session or protected storage is available.
 

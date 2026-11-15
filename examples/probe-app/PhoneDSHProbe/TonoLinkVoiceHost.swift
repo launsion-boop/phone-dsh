@@ -351,12 +351,24 @@ import ProbeKit
         note("admitted", ["session": receipt.sessionID, "request": receipt.rpcID])
         await acknowledge(credential: credential)
         note("ack_ms", Int(Date().timeIntervalSince(start) * 1000))
-        let admissionDeadline = Date().addingTimeInterval(30)
+        // The 30 s admission bound counts only time the engine is idle and still not
+        // taking the request; a bounded boot/resume/rebuild in progress extends it.
+        var admissionDeadline = Date().addingTimeInterval(30)
         let replyDeadline = Date().addingTimeInterval(1_800)
         var indicatedRunning = false
+        var observed: String?
+        var progress = NativeVoiceProgress.queued
         while !Task.isCancelled, Date() < replyDeadline {
-            switch chat.voiceProgress(receipt) {
+            let key = chat.voiceObservationKey
+            if key != observed {
+                observed = key
+                progress = chat.voiceProgress(receipt)
+            }
+            switch progress {
             case .queued:
+                if chat.voicePreparing {
+                    admissionDeadline = max(admissionDeadline, Date().addingTimeInterval(30))
+                }
                 guard !chat.voiceExecutionDeferred, Date() < admissionDeadline else {
                     note("deferred", "消息已保存，等待引擎就绪；不会重复发送")
                     light(.idle)
