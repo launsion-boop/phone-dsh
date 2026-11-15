@@ -272,10 +272,17 @@ struct BotChatPage: View {
     /// The bottom-leading echo of `headerStatus`: three dots in a Bot bubble
     /// immediately above the composer. It reads `presence`, the same value as
     /// the activity line, so it can never be on while the line is off for a
-    /// settled turn. The band keeps `BotTypingBubble.height` + 4pt reserved
-    /// whether the bubble is drawn or not, so a turn starting or ending never
-    /// moves the transcript or the composer; `allowsHitTesting(false)` keeps
-    /// the reserved band from stealing a tap from either.
+    /// settled turn.
+    ///
+    /// Layout is deliberately inert. The band is a sibling between the
+    /// transcript's ScrollView and `BotComposerDock` — it is not in the scroll
+    /// content, not inside `BotComposerDockHeightKey`, and not observed by
+    /// `BotTranscriptViewportReader` or the tail preference. Its height is
+    /// pinned to `BotTypingBubble.height` + 4pt in both states, so a bubble
+    /// appearing or disappearing performs no layout pass, moves no message and
+    /// cannot re-trigger autoscroll; only the child's opacity transitions.
+    /// `allowsHitTesting(false)` keeps the reserved band from stealing a tap
+    /// from the transcript or the composer.
     private var typingBubbleBand: some View {
         ZStack(alignment: .leading) {
             if presence.showsTypingBubble {

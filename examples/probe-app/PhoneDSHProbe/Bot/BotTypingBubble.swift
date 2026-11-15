@@ -15,6 +15,12 @@ import SwiftUI
 /// Style: the Bot answer bubble's surface/border/shape and 12pt inset, three
 /// 6pt `textSecondary` dots with a staggered opacity+scale pulse on a 1.2s
 /// loop. Reduced motion keeps the dots static (no pulse, no scale).
+///
+/// Motion touches no layout: dot frames are constant 6pt circles and only
+/// `opacity`/`scaleEffect` animate. The `repeatForever` animation is attached
+/// per dot to those two render properties; nothing here changes a width,
+/// height, offset or the view's ideal size, so the enclosing fixed band cannot
+/// oscillate and the page cannot re-scroll.
 struct BotTypingBubble: View {
     /// Reserved band height, visible or not. Dot 6 + 12pt vertical inset each
     /// side = 30.

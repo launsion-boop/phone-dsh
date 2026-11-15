@@ -467,6 +467,13 @@ final class BotCaptureUITests: XCTestCase {
         launch("runningToolUnauthorized")
         let runtime = app.descendants(matching: .any)["bot.fixture.runtime"]
         XCTAssertTrue(runtime.waitForExistence(timeout: 5))
+        // The running fixture drives both the header activity line and the
+        // bottom typing bubble from the same presence; while the turn is
+        // live the bubble must be there.
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(identifier: "bot.typing.bubble").firstMatch
+            .waitForExistence(timeout: 5),
+            "the running fixture did not show the typing bubble")
         XCTAssertTrue(waitUntil(timeout: 8) { runtime.label.contains("running=none") },
                       "live turn did not settle: \(runtime.label)")
         XCTAssertFalse(app.buttons["bot.composer.stop"].exists)
@@ -476,6 +483,9 @@ final class BotCaptureUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)
             .matching(identifier: "bot.activity.line").firstMatch.exists,
             "the running activity line stayed after the durable turn settled")
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(identifier: "bot.typing.bubble").firstMatch.exists,
+            "the typing bubble stayed after the durable turn settled")
         XCTAssertFalse(app.descendants(matching: .any)
             .matching(identifier: "bot.tool.row").firstMatch.exists,
             "a process/tool row reappeared after #126")
