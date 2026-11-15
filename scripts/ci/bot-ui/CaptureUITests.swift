@@ -29,6 +29,18 @@ final class BotCaptureUITests: XCTestCase {
         return element.label
     }
 
+    /// The one activity surface: the current activity sentence with its sweep.
+    private var activityBubble: XCUIElement {
+        app.descendants(matching: .any)
+            .matching(identifier: "bot.activity.bubble").firstMatch
+    }
+
+    /// The removed top-of-transcript line. It must never be mounted again.
+    private var activityLine: XCUIElement {
+        app.descendants(matching: .any)
+            .matching(identifier: "bot.activity.line").firstMatch
+    }
+
     private func assertCount(_ token: String, _ expected: Int, file: StaticString = #filePath, line: UInt = #line) {
         let count = actionLog.components(separatedBy: token).count - 1
         XCTAssertEqual(count, expected, "action log: \(actionLog)", file: file, line: line)
@@ -461,27 +473,73 @@ final class BotCaptureUITests: XCTestCase {
 
     /// A lost live `turn/end` must not pin the live turn forever. The 800ms
     /// durable watch is authoritative; once it carries the answer the stop
-    /// control, the activity line and the live text all give way to the
+    /// control, the one activity bubble and the live text all give way to the
     /// durable answer. #126 keeps no process/tool row in between.
     func testLostTurnEndSettlesToDurableRows() throws {
         launch("runningToolUnauthorized")
         let runtime = app.descendants(matching: .any)["bot.fixture.runtime"]
         XCTAssertTrue(runtime.waitForExistence(timeout: 5))
+        // The running fixture drives the bottom bubble from the same presence
+        // the old header line used; while the turn is live it must be there
+        // with a sentence, and the old top line must stay unmounted.
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5),
+                      "the running fixture did not show the activity bubble")
+        XCTAssertFalse(activityBubble.label.isEmpty,
+                       "the activity bubble has no sentence")
+        XCTAssertFalse(activityLine.exists,
+                       "the removed top activity line is still mounted")
         XCTAssertTrue(waitUntil(timeout: 8) { runtime.label.contains("running=none") },
                       "live turn did not settle: \(runtime.label)")
         XCTAssertFalse(app.buttons["bot.composer.stop"].exists)
         XCTAssertTrue(app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", "两次都没有连上 App")).firstMatch
             .waitForExistence(timeout: 4), "durable answer did not take over")
-        XCTAssertFalse(app.descendants(matching: .any)
-            .matching(identifier: "bot.activity.line").firstMatch.exists,
-            "the running activity line stayed after the durable turn settled")
+        XCTAssertFalse(activityBubble.exists,
+                       "the activity bubble stayed after the durable turn settled")
+        XCTAssertFalse(activityLine.exists,
+                       "the top activity line reappeared after the durable turn settled")
         XCTAssertFalse(app.descendants(matching: .any)
             .matching(identifier: "bot.tool.row").firstMatch.exists,
             "a process/tool row reappeared after #126")
         XCTAssertFalse(app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH %@", "已完成")).firstMatch.exists,
             "the removed finished-process row is still rendered")
+    }
+
+    /// The bubble is the one activity surface for every phase that has a
+    /// sentence: a running tool shows its activity text, an approval after its
+    /// turn shows the static「等你确认」, and a failure shows its report. The
+    /// bubble stays inside the 30–34pt band, and no separate top line exists.
+    /// Shimmer on/off is visual (the quiet phases are unit-checked through
+    /// `lineIsQuiet`), so this test only proves the text surface.
+    func testActivityBubbleCarriesThePresenceSentence() throws {
+        launch("runningToolDescribed")
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 3) {
+            activityBubble.label.contains("对比三篇日记的情绪")
+        }, "working bubble label: \(activityBubble.label)")
+        XCTAssertGreaterThanOrEqual(activityBubble.frame.height, 30,
+                                    "bubble is shorter than the reserved band")
+        XCTAssertLessThanOrEqual(activityBubble.frame.height, 34,
+                                 "bubble is taller than the 30–34pt band")
+        XCTAssertFalse(activityLine.exists,
+                       "the removed top activity line is still mounted")
+
+        // No running turn, one approval still pending: the waitingForYou
+        // phase keeps the bubble on the static「等你确认」sentence.
+        launch("approval")
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 3) { activityBubble.label == "等你确认" },
+                      "waiting bubble label: \(activityBubble.label)")
+        XCTAssertFalse(activityLine.exists,
+                       "the removed top activity line is still mounted")
+
+        launch("error")
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
+        XCTAssertTrue(activityBubble.label.contains("生成报告失败"),
+                      "problem bubble label: \(activityBubble.label)")
+        XCTAssertFalse(activityLine.exists,
+                       "the removed top activity line is still mounted")
     }
 
     // MARK: - Bot drawer

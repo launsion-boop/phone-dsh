@@ -1845,11 +1845,12 @@ def content_card_final_mutations(catalog):
 
 # --- P25 store / user-action transaction vectors (phone-owned) -----------------
 
+STORE_SCHEMA_VERSION = 4
 STORE_ERRORS = frozenset({
     "INVALID_EVENT", "SCHEMA_TOO_NEW", "EPHEMERAL_HAS_COMMIT_SEQ", "UNKNOWN_REQUIRED_EVENT",
     "COMMIT_SEQ_ASSIGNED_BY_STORE", "MISSING_COMMIT_SEQ",
     "invalidTransition", "invalidCursor", "invalidConfiguration", "corrupted",
-    "staleLease", "unknownEffect", "schemaTooNew:4", "commitGap:2:3",
+    "staleLease", "unknownEffect", "schemaTooNew:5", "commitGap:2:3",
     "simulatedCrash:abort-before-commit", "simulatedCrash:abort-after-commit",
 })
 TERMINAL_EFFECT_STATES = frozenset({"acked", "dead_letter", "canceled"})
@@ -1960,7 +1961,7 @@ class _StoreModel:
         self.inbox_executions = {}
         self.crash_point = None
         self.closed = False
-        self.version = 3
+        self.version = STORE_SCHEMA_VERSION
         self.migrated_from = 0
         self.open_failed = open_failed
         self.ephemeral = []
@@ -1980,14 +1981,14 @@ class _StoreModel:
                 self.nonces[(nonce["botId"], nonce["nonce"])] = nonce["eventId"]
         # A refused migration rolls back: the file keeps its old version and
         # the old rows. Successful cases (and fresh databases) are v3.
-        self.version = user_version if open_failed else 3
+        self.version = user_version if open_failed else STORE_SCHEMA_VERSION
 
     def open_failure_detail(self):
         """The detail that names the first migration gap, or None."""
         for index, seq in enumerate(sorted(self.events), start=1):
             if seq != index:
                 return f"commit_seq gap: expected {index}, found {seq}"
-        if self.version > 3:
+        if self.version > STORE_SCHEMA_VERSION:
             return f"schemaTooNew:{self.version}"
         return None
 
@@ -2109,7 +2110,7 @@ class _StoreModel:
                 "dropped": self.dropped, "head": self.head}
 
     def _op_reopen(self, step):
-        if self.version > 3:
+        if self.version > STORE_SCHEMA_VERSION:
             raise _StoreModelError(f"schemaTooNew:{self.version}")
         expected = sorted(self.events)
         if expected != list(range(1, len(expected) + 1)):
@@ -2137,7 +2138,7 @@ class _StoreModel:
         if query.startswith("PRAGMA user_version"):
             return {"rows": [[str(self.version)]]}
         if "sqlite_master WHERE name = 'bot_events'" in query:
-            if self.migrated_from and self.version == 3:
+            if self.migrated_from and self.version == STORE_SCHEMA_VERSION:
                 return {"rows": [["view"]]}
             return {"rows": [["table"]]}
         if query == "SELECT COUNT(*) FROM bot_event_headers":

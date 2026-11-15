@@ -93,8 +93,11 @@ struct NativeShell: View {
 
     @State private var drawerOpen = NativeDebugDefaults.drawerOpen(
         environment: ProcessInfo.processInfo.environment)
-    /// Bottom menu selection; 任务 (the chat page) is where the app opens.
-    @State private var selectedTab: HomeTab = .tasks
+    /// Bottom menu selection. Every launch opens on Bot; the Bot page restores
+    /// the last selected Bot while it connects (`BotRosterModel` via
+    /// `BotSelectionStore`/UserDefaults, falling back to the main Bot), so this
+    /// does not depend on a prior Bot deep link. DSH stays mounted on its tab.
+    @State private var selectedTab: HomeTab = .bot
     @State private var keyboardVisible = false
     /// Tabs whose root page is covered by a pushed page. The bar belongs to
     /// the first-level pages only, so it leaves while the selected tab has

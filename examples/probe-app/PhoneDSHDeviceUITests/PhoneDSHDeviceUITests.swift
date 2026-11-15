@@ -37,6 +37,34 @@ final class PhoneDSHDeviceUITests: XCTestCase {
         XCTAssertTrue(answer.isHittable)
     }
 
+    /// Launch contract: every launch opens on Bot, never on the DSH/chat tab.
+    /// The Bot page restores the last selected Bot itself
+    /// (`BotRosterModel` → `BotSelectionStore`), so this needs no prior deep
+    /// link; the tab bar must still switch both ways from there.
+    func testLaunchOpensOnBotTab() throws {
+        app.launch()
+        let bot = app.buttons["Bot"]
+        let dsh = app.buttons["DSH"]
+        XCTAssertTrue(bot.waitForExistence(timeout: 60), "the tab bar did not appear")
+        XCTAssertTrue(bot.isSelected, "launch must open on the Bot tab")
+        XCTAssertFalse(dsh.isSelected, "launch must not open on the DSH/chat tab")
+
+        dsh.tap()
+        XCTAssertTrue(app.buttons["打开会话列表"].waitForExistence(timeout: 30),
+                      "the DSH page did not appear after tapping its tab")
+        XCTAssertTrue(waitUntil(timeout: 5) { dsh.isSelected })
+        bot.tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { bot.isSelected },
+                      "the tab bar did not return to the Bot tab")
+
+        // A second cold launch must land on Bot too, not only the first launch
+        // after a Bot was opened.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(bot.waitForExistence(timeout: 60), "the tab bar did not appear on relaunch")
+        XCTAssertTrue(bot.isSelected, "a relaunch must open on the Bot tab too")
+    }
+
     func testDailyBriefEntryIsNotExposed() throws {
         app.launch()
         let open = app.buttons["打开会话列表"]

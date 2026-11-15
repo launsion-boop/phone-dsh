@@ -4,6 +4,15 @@ import Foundation
 import PhoneDSH
 import PhoneDSHAgentCore
 import PhoneDSHBot
+
+/// The production prompt-only resume seam for a card answer that was committed
+/// before a kill/rebind but whose prompt never reached the Worker.
+extension BotDSHRemoteRuntime: BotCardAnswerPromptResuming {
+    public func resumeCardAnswerPrompt(text: String, nonce: String) async throws {
+        try await resumePendingPrompt(
+            text, requestId: BotTurnOrigin.cardAnswerRequestId(nonce: nonce))
+    }
+}
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -102,7 +111,9 @@ final class BotRuntimeUnit {
             remote: remote, runtime: runtime, handler: handler,
             store: store, botID: botID, wakeInbox: inbox)
         let routineOutbox = BotRoutineOutbox(store: store, machine: machine, botID: botID)
-        let rows = BotProductionRowService(environment: environment, remote: remote)
+        let rows = BotProductionRowService(
+            environment: environment, remote: remote,
+            cardAnswerPromptResumer: remote)
         let routineActivity = BotRoutineActivityFlag()
         let resolvedNow = now ?? { Int64(Date().timeIntervalSince1970 * 1000) }
         let settingsStore = ProactiveSettingsStore.shared

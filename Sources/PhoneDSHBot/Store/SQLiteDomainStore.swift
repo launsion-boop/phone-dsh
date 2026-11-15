@@ -99,13 +99,16 @@ final class SQLiteDatabase: @unchecked Sendable {
             // and VACUUMs, but secure_delete is the first line of defence.
             _ = try query("PRAGMA secure_delete=ON")
             let version = try query("PRAGMA user_version").first?["user_version"]?.integer ?? 0
-            guard version <= 3 else { throw SQLiteDomainStoreError.schemaTooNew(Int(version)) }
+            guard version <= Self.schemaVersion else {
+                throw SQLiteDomainStoreError.schemaTooNew(Int(version))
+            }
             if version > 0, version < 3 {
                 try migrateToV3()
             }
+            try migrateToV4(ifNeeded: version)
             try execute(Self.schemaSQL)
             if version == 0 {
-                _ = try query("PRAGMA user_version=3")
+                _ = try query("PRAGMA user_version=\(Self.schemaVersion)")
             }
             _ = try query("PRAGMA foreign_keys=ON")
             // One quick_check per open, after migration. The event-by-event
@@ -429,6 +432,48 @@ final class SQLiteDatabase: @unchecked Sendable {
         }
     }
 
+    /// Current on-disk schema. v4 is v3 plus the pending-action outbox; the
+    /// version lives beside the DDL so a port cannot bump one without the
+    /// other.
+    static let schemaVersion: Int64 = 4
+
+    /// v4 is additive: a durable row per user action, written before its
+    /// remote turn starts and deleted only after a non-throwing dispatch
+    /// outcome. The primary key is the same `(bot_id, nonce)` idempotency key
+    /// as `bot_user_action_nonces`; the payload is the canonical JSON of
+    /// `BotUserAction` so a later open can replay every action kind.
+    private static let pendingActionSchemaSQL = """
+        CREATE TABLE IF NOT EXISTS bot_pending_actions (
+            bot_id TEXT NOT NULL,
+            nonce TEXT NOT NULL,
+            payload BLOB NOT NULL,
+            created_at_ms INTEGER NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY(bot_id, nonce)
+        );
+        """
+
+    /// Adds the v4 table during open for a v3 file. Existing v3 rows are not
+    /// read or rewritten; the DDL and the version bump commit together, so a
+    /// crash leaves a v3 file that retries the same migration.
+    private func migrateToV4(ifNeeded version: Int64) throws {
+        guard version > 0, version < Self.schemaVersion else { return }
+        let current = try query("PRAGMA user_version").first?["user_version"]?.integer ?? 0
+        guard current == 3 else {
+            throw SQLiteDomainStoreError.corrupted(
+                "unexpected schema version \(current) during v4 migration")
+        }
+        try execute("BEGIN IMMEDIATE")
+        do {
+            try execute(Self.pendingActionSchemaSQL)
+            _ = try query("PRAGMA user_version=\(Self.schemaVersion)")
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
     static func payloadDigest(_ payload: Data) -> String {
         SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
     }
@@ -560,6 +605,7 @@ final class SQLiteDatabase: @unchecked Sendable {
             created_commit_seq INTEGER NOT NULL CHECK (created_commit_seq > 0),
             PRIMARY KEY(bot_id, nonce)
         );
+        \(pendingActionSchemaSQL)
         """
 }
 
