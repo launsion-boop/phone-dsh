@@ -929,6 +929,12 @@ struct DevicePanelPage: View {
                 }
             }
 
+            #if !PDSH_PROBE_HOSTLESS_TESTS
+            if TonoLinkPhoneControlSection.applies(to: deviceName) {
+                TonoLinkPhoneControlSection()
+            }
+            #endif
+
             if let error = model.errorText {
                 Section("提示") {
                     Text(verbatim: error).font(.footnote).foregroundStyle(.red).lineLimit(4)

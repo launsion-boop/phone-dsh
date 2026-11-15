@@ -9,6 +9,7 @@ import OSLog
 import PhoneDSHBLE
 import PhoneDSHLoopback
 import PhoneDSHVenus
+import UIKit
 
 /// The app's one native MCP endpoint: `iphone_agent_run` in front of the BLE tools (which fall
 /// through to ADB). Both the Worker's direct `/mcp/native` and the Bot listener's forwarder use this
@@ -118,6 +119,7 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
     // MARK: IPhoneAgentDevice
 
     func prepare() async throws {
+        try await unlockIfLocked()
         screen.start()
         try await hands.ensureHID()
         // The board decides whether a mirror is running: the viewer keeps the last decoded frame
@@ -154,6 +156,43 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
     /// see which receiver a tap picked (iOS reports neither a second screen nor, once the app's
     /// own audio is up, the AirPlay route), so it never taps a second guess; a miss ends at Home
     /// with a message.
+    /// tonolink-board.md §4.4: a locked phone is unlocked with its owner's saved numeric passcode,
+    /// typed by the board's keyboard over BLE (USB may be cut while locked). Only when the owner
+    /// turned it on, once per locked period, at most three failures a day. The passcode is never
+    /// logged or put in an error.
+    /// `link`: an open ctrl link to reuse (the voice host's); nil opens a link of its own.
+    func unlockIfLocked(link shared: TonoLinkCtrlLink? = nil) async throws {
+        guard PhoneLockState.isLocked else { return }
+        let store = TonoLinkUnlockStore.shared
+        guard let passcode = store.passcode() else {
+            throw IPhoneAgentError("手机锁着：请先解锁手机。在 TonoLink 小程序里存一次锁屏密码，以后会自动解锁")
+        }
+        if let reason = store.beginAttempt() { throw IPhoneAgentError(reason) }
+        logger.info("unlock: phone locked, typing the saved passcode through the board")
+        let own = shared == nil ? TonoLinkCtrlBLE(nameHint: "PhoneAgent") : nil
+        defer { own?.disconnect() }
+        let link: TonoLinkCtrlLink = shared ?? own!
+        let outcome = try await TonoLinkUnlock.run(link: link, seq: UInt16.random(in: 50_000...60_000), passcode: passcode,
+                                                   stillLocked: { PhoneLockState.isLocked })
+        if outcome == .unlockedByWake { logger.info("unlock: the wake key alone unlocked it"); return }
+        guard outcome == .typed else {
+            logger.info("unlock: board stopped it: \(String(describing: outcome), privacy: .public)")
+            throw IPhoneAgentError("自动解锁没有完成：板子没有执行键盘命令，请手动解锁手机")
+        }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline {
+            if !PhoneLockState.isLocked {
+                logger.info("unlock: unlocked")
+                try await Task.sleep(for: .seconds(1))   // let the home screen or the last app settle
+                return
+            }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        store.recordFailure()
+        logger.info("unlock: still locked after typing (failures today \(store.failuresToday, privacy: .public))")
+        throw IPhoneAgentError("自动解锁没有成功（密码可能不对），这次锁屏不再尝试：请手动解锁手机，或在设置里更新密码")
+    }
+
     func restartMirror() async throws {
         var menuOpen = false
         if TonoLinkTapProbe.available {

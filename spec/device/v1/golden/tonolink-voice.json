@@ -30,6 +30,15 @@
     {"seq": 9, "id": 3, "line": "9 listen 3"},
     {"seq": 65535, "id": 4294967295, "line": "65535 listen 4294967295"}
   ],
+  "unlock_commands": [
+    {"seq": 20, "passcode": "0000", "lines": ["20 hid_mode 1", "21 key backspace", "22 key backspace", "23 key 0", "24 key 0", "25 key 0", "26 key 0"]},
+    {"seq": 30, "passcode": "135790", "lines": ["30 hid_mode 1", "31 key backspace", "32 key backspace", "33 key 1", "34 key 3", "35 key 5", "36 key 7", "37 key 9", "38 key 0"]},
+    {"seq": 40, "passcode": "24680", "lines": ["40 hid_mode 1", "41 key backspace", "42 key backspace", "43 key 2", "44 key 4", "45 key 6", "46 key 8", "47 key 0", "48 key enter"]},
+    {"seq": 50, "passcode": "1234567890", "lines": ["50 hid_mode 1", "51 key backspace", "52 key backspace", "53 key 1", "54 key 2", "55 key 3", "56 key 4", "57 key 5", "58 key 6", "59 key 7", "60 key 8", "61 key 9", "62 key 0", "63 key enter"]},
+    {"seq": 65529, "passcode": "9999", "lines": ["65529 hid_mode 1", "65530 key backspace", "65531 key backspace", "65532 key 9", "65533 key 9", "65534 key 9", "65535 key 9"]},
+    {"seq": 65530, "passcode": "9999", "lines": null}
+  ],
+  "unlock_rejected": ["", "123", "12a4", "12345678901", " 1234", "1234\n", "１２３４"],
   "fx_commands": [
     {"seq": 7, "phase": "wake", "line": "7 fx wake"},
     {"seq": 8, "phase": "task_start", "line": "8 fx task_start"},
