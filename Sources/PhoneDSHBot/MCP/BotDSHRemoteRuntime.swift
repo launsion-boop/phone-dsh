@@ -146,10 +146,16 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         let attemptId: String
         let kind: BotSessionKind
         let hidden: Bool
+        /// The transport generation this attempt opened its mux on. A turn
+        /// queued behind an attempt of an older generation must never await
+        /// it: that stream belongs to a transport this runtime replaced and
+        /// may never settle.
+        let generation: UInt64
         /// DSH prompt idempotency key. An interrupted turn keeps its requestId,
         /// so a restart after the replacement transport is adopted replays the
         /// same turn instead of opening a second one.
         let requestId: String
+        let settlement: BotTurnSettlement
         let work: Task<BotRemoteTurnResult, Error>
         var cancelRequested: Bool
         var promptAccepted: Bool
@@ -163,8 +169,21 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
 
     private struct QueuedTurn {
         let attemptId: String
+        /// The generation this turn was queued on. A queued turn whose
+        /// predecessor belongs to a replaced generation is released with a
+        /// retryable result instead of waiting for a stream that is gone.
+        let generation: UInt64
+        let settlement: BotTurnSettlement
         let work: Task<BotRemoteTurnResult, Error>
         var cancelled: Bool
+    }
+
+    private enum PredecessorWaitOutcome {
+        case settled
+        /// The transport was replaced while this turn waited.
+        case superseded
+        /// The waiting task itself was cancelled (detach or explicit cancel).
+        case cancelled
     }
 
     private var transport: any DSHRemoteTransport
@@ -195,6 +214,14 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// to keep a live unit out of a rebind: re-attaching a live unit would cut
     /// its running turn for no reason.
     private var transportIsAttached = false
+    /// Bounds for a single await on the live transport. Only set by the test
+    /// seam; nil means the per-operation defaults in `BotTransportDeadline`.
+    private var transportDeadlineOverrideMilliseconds: Int?
+    private var collectIdleOverrideMilliseconds: Int?
+    /// The App's rebind hook. Fired at most once per failing transport
+    /// generation, after `transportIsAttached` has already become false.
+    private var transportFailureHandler: (@Sendable () async -> Void)?
+    private var reportedTransportFailureGeneration: UInt64?
     private var coordinators: [String: TurnCoordinator] = [:]
     private var queuedTurns: [String: QueuedTurn] = [:]
     private var recentHeldChatActions: [(requestId: String, nonce: String)] = []
@@ -279,6 +306,40 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         transportIsAttached
     }
 
+    /// Test/App seam: overrides every non-idle transport budget (openMux 10 s,
+    /// snapshot 15 s, prompt 20 s, control 10 s, recovery 30 s). A value of
+    /// `nil` restores the protocol defaults. A turn that legitimately runs for
+    /// minutes is not affected because the bound only covers one request.
+    public func setTransportDeadlineMilliseconds(_ value: Int?) {
+        transportDeadlineOverrideMilliseconds = value.map { max(1, $0) }
+    }
+
+    /// Test/App seam: how long `collectTurn` tolerates an idle
+    /// `session/follow` stream between frames. Defaults to
+    /// `BotTransportDeadline.defaultIdleMilliseconds` (300 s). This is the only
+    /// bound that sees a live model turn, so it must stay well above a normal
+    /// step's silence.
+    public func setCollectIdleDeadlineMilliseconds(_ value: Int?) {
+        collectIdleOverrideMilliseconds = value.map { max(1, $0) }
+    }
+
+    /// Installs the App's rebind trigger. It is invoked once per failing
+    /// transport generation, after a bounded operation expired and
+    /// `hasLiveTransport()` already reports false. The handler must not assume
+    /// the coordinator for the stalled session survived: the runtime drops it
+    /// before calling back. The App composition should attach a replacement
+    /// transport from here (the same `bind` path a Worker restart uses).
+    public func setTransportFailureHandler(_ handler: (@Sendable () async -> Void)?) {
+        transportFailureHandler = handler
+    }
+
+    /// Diagnostics/test seam: the transport generation. Bumped by every
+    /// `attachTransport`; turn entries are fenced by it.
+    func transportGenerationIdentifier() -> UInt64 { transportGeneration }
+
+    /// Diagnostics/test seam: sessions with a turn queued behind another.
+    func queuedSessionIDs() -> Set<String> { Set(queuedTurns.keys) }
+
     /// Sessions with a turn this runtime is still collecting (a running turn
     /// and/or one queued behind it). The App's background keep-alive reads it
     /// through `BotRuntimeComposition`: a graceful park must not abort these.
@@ -334,11 +395,15 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         }
         // Adopt: keep every coordinator/queued entry. The collector settles as
         // `interrupted` on the replaced stream's own end; a bounded wait below
-        // covers a transport that never signals.
+        // covers a transport that never signals. A queued turn of this old
+        // generation can never start (its predecessor may never settle), so
+        // the bounded wait is followed by releasing those callers retryably.
         if !coordinators.isEmpty {
             await markTurnsInterrupted(reason: "transport_replaced")
-            await awaitInterruptedAttemptsToSettle(budgetMilliseconds: 2_000)
+            await awaitInterruptedAttemptsToSettle(
+                budgetMilliseconds: BotTransportDeadline.adoptSettleMilliseconds)
         }
+        await releaseSupersededQueuedTurns()
         mainSessionId = nil
     }
 
@@ -402,6 +467,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         }
         for (sessionId, coordinator) in coordinators where coordinator.interruption != nil {
             coordinator.work.cancel()
+            await coordinator.settlement.finish()
             await recordInterruptedTurnNoticeIfNeeded(
                 sessionId: sessionId, coordinator: coordinator)
             if coordinators[sessionId]?.attemptId == coordinator.attemptId {
@@ -414,14 +480,167 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private func cancelTurnsForDetach() async {
         for (sessionId, coordinator) in coordinators {
             coordinator.work.cancel()
+            await coordinator.settlement.finish()
             if coordinators[sessionId]?.attemptId == coordinator.attemptId {
                 coordinators.removeValue(forKey: sessionId)
             }
             await runtime.endTurn(sessionId: sessionId)
         }
-        for queued in queuedTurns.values { queued.work.cancel() }
+        for queued in queuedTurns.values {
+            queued.work.cancel()
+            await queued.settlement.finish()
+        }
         queuedTurns.removeAll()
         mainSessionId = nil
+    }
+
+    /// Releases every turn queued on a transport generation this runtime no
+    /// longer has. Their predecessor may be an attempt that will never settle,
+    /// so awaiting it is the production hang; the waiting caller is woken with
+    /// an explicit retryable `interrupted` result instead. Current-generation
+    /// queued turns are never touched.
+    private func releaseSupersededQueuedTurns() async {
+        let generation = transportGeneration
+        for (sessionId, queued) in queuedTurns where queued.generation != generation {
+            if queuedTurns[sessionId]?.attemptId == queued.attemptId {
+                queuedTurns.removeValue(forKey: sessionId)
+            }
+            queued.work.cancel()
+            await queued.settlement.finish()
+        }
+    }
+
+    /// The queue fence for one new turn. A predecessor from a replaced
+    /// transport can never settle: its socket is gone, and awaiting it is what
+    /// made every later send hang behind a rebind. Such state is dropped (its
+    /// interrupted marker is still recorded) so the new turn starts on the
+    /// current transport. Same-generation entries keep today's queueing.
+    private func fenceSupersededTurnState(sessionId: String) async {
+        let generation = transportGeneration
+        if let queued = queuedTurns[sessionId], queued.generation != generation {
+            if queuedTurns[sessionId]?.attemptId == queued.attemptId {
+                queuedTurns.removeValue(forKey: sessionId)
+            }
+            queued.work.cancel()
+            await queued.settlement.finish()
+        }
+        if let coordinator = coordinators[sessionId], coordinator.generation != generation {
+            coordinator.work.cancel()
+            if coordinators[sessionId]?.attemptId == coordinator.attemptId {
+                coordinators.removeValue(forKey: sessionId)
+            }
+            await coordinator.settlement.finish()
+            await recordInterruptedTurnNoticeIfNeeded(
+                sessionId: sessionId, coordinator: coordinator)
+            await runtime.endTurn(sessionId: sessionId)
+        }
+    }
+
+    /// Waits for a queued turn's predecessor without ever awaiting its work
+    /// task: an attempt on a replaced transport may stay suspended forever, and
+    /// `Task.value` does not observe the waiter's cancellation. Polling the
+    /// predecessor's settlement flag keeps the wait bounded by the two escapes
+    /// that matter: a transport replacement (release retryably) and the
+    /// caller's own cancellation (detach / explicit cancel).
+    private func waitForPredecessor(
+        _ settlement: BotTurnSettlement, generation: UInt64
+    ) async -> PredecessorWaitOutcome {
+        while true {
+            if await settlement.isFinished { return .settled }
+            if transportGeneration != generation { return .superseded }
+            if Task.isCancelled { return .cancelled }
+            do {
+                try await Task.sleep(for: .milliseconds(20))
+            } catch {
+                return .cancelled
+            }
+        }
+    }
+
+    /// Turns a bounded transport expiry into runtime state: the transport can
+    /// no longer carry work, the stalled session's attempt is dropped, and the
+    /// App is told once per generation so it can rebind. A late expiry from a
+    /// replaced generation must not clobber the transport a newer bind adopted.
+    private func transportDidStall(generation: UInt64, sessionId: String?) async {
+        guard generation == transportGeneration else { return }
+        transportIsAttached = false
+        if let sessionId, let coordinator = coordinators[sessionId] {
+            coordinator.work.cancel()
+            if coordinators[sessionId]?.attemptId == coordinator.attemptId {
+                coordinators.removeValue(forKey: sessionId)
+            }
+            await coordinator.settlement.finish()
+            await runtime.endTurn(sessionId: sessionId)
+        }
+        guard reportedTransportFailureGeneration != generation else { return }
+        reportedTransportFailureGeneration = generation
+        await transportFailureHandler?()
+    }
+
+    /// Runs one await on the live transport with a bounded budget. On expiry
+    /// the transport is reported dead, the stalled session's attempt is
+    /// dropped and a retryable human error is thrown. The operation runs in an
+    /// unstructured task that is cancelled on expiry; a transport that ignores
+    /// cancellation cannot extend the wait (see `BotTransportDeadline`).
+    private func boundedTransport<T: Sendable>(
+        defaultMilliseconds: Int,
+        sessionId: String?,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        let generation = transportGeneration
+        let budget = transportDeadlineOverrideMilliseconds ?? defaultMilliseconds
+        do {
+            return try await BotTransportDeadline.run(
+                milliseconds: budget, operation: operation)
+        } catch is BotTransportDeadline.Expired {
+            await transportDidStall(generation: generation, sessionId: sessionId)
+            throw BotMCPError.unavailable(BotTransportDeadline.unresponsiveMessage)
+        }
+    }
+
+    /// The one path every unary Worker request goes through, so no endpoint can
+    /// reintroduce an unbounded await. `sessionId` scopes the recovery: only
+    /// that session's in-flight attempt is dropped when the request expires.
+    private func boundedTransportCall(
+        _ endpoint: String, args: BotJSONValue, sessionId: String? = nil,
+        defaultMilliseconds: Int = BotTransportDeadline.controlMilliseconds
+    ) async throws -> BotJSONValue {
+        let current = transport
+        return try await boundedTransport(
+            defaultMilliseconds: defaultMilliseconds, sessionId: sessionId
+        ) {
+            try await current.call(endpoint, args: args)
+        }
+    }
+
+    private func boundedOpenMux(sessionId: String) async throws -> any DSHMuxConnection {
+        let current = transport
+        return try await boundedTransport(
+            defaultMilliseconds: BotTransportDeadline.openMuxMilliseconds,
+            sessionId: sessionId
+        ) {
+            try await current.openMux()
+        }
+    }
+
+    private func boundedMuxSend(_ frame: BotJSONValue, mux: any DSHMuxConnection,
+                                sessionId: String) async throws {
+        try await boundedTransport(
+            defaultMilliseconds: BotTransportDeadline.controlMilliseconds,
+            sessionId: sessionId
+        ) {
+            try await mux.send(frame)
+        }
+    }
+
+    private func boundedMuxReceive(_ mux: any DSHMuxConnection, sessionId: String)
+        async throws -> BotJSONValue? {
+        try await boundedTransport(
+            defaultMilliseconds: BotTransportDeadline.defaultIdleMilliseconds,
+            sessionId: sessionId
+        ) {
+            try await mux.receive()
+        }
     }
 
     /// `requestId` is the DSH prompt idempotency key. Callers replaying a
@@ -495,6 +714,21 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         let sessionId = try await ensureMainSession()
         return try await runTurn(sessionId: sessionId, kind: .chat, prompt: text,
                                  requestId: requestId, allowSteer: false)
+    }
+
+    /// Submits a prompt for an already-committed user action (for example a
+    /// card answer whose `card.answered` was written before the App was
+    /// killed) without collecting its turn. DSH deduplicates by `requestId`, so
+    /// replaying the same action reuses the same turn instead of opening a
+    /// second one. Only the prompt request is awaited, under the same bounded
+    /// deadline and failure handling as a collected turn: the method returns
+    /// once the Worker accepted the prompt, opens no `session/follow`
+    /// collector, and never sends `session/cancel` for a turn it does not own.
+    public func resumePendingPrompt(_ prompt: String, requestId: String) async throws {
+        let sessionId = try await ensureMainSession()
+        _ = try await ensureSession(sessionId: sessionId, kind: .chat)
+        try await sendPrompt(sessionId: sessionId, prompt: prompt, mode: "queue",
+                             requestId: requestId)
     }
 
     /// The single runtime seam the app-layer attachment importer uses. It
@@ -619,7 +853,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         do {
             let sessionId: String
             if let resumeSessionID = request.resumeSessionID,
-               await validateRemoteSession(resumeSessionID) {
+               try await validateRemoteSession(resumeSessionID) {
                 sessionId = resumeSessionID
                 routineSessions[request.routine.id] = resumeSessionID
             } else {
@@ -1961,7 +2195,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
 
     public func isAvailable() async -> Bool {
         guard let mainSessionId else { return false }
-        return await validateRemoteSession(mainSessionId)
+        return (try? await validateRemoteSession(mainSessionId)) ?? false
     }
 
     public func isMainTurnBusy() -> Bool {
@@ -2010,7 +2244,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             } else {
                 recoveredCwd = await remoteSessionCwd(recovered.sessionId)
             }
-            if recoveredCwd == root, await validateRemoteSession(recovered.sessionId, attempts: 100) {
+            if recoveredCwd == root, try await validateRemoteSession(recovered.sessionId, attempts: 100) {
                 // The transport may have been replaced while the validation
                 // request was outstanding; never claim against the new Worker
                 // from a recovery that belonged to the old one.
@@ -2103,9 +2337,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
 
     private func archiveRemoteSession(_ sessionId: String) async -> Bool {
         do {
-            _ = try await transport.call("workspace/archiveSession", args: .object(["request": .object([
+            _ = try await boundedTransportCall("workspace/archiveSession", args: .object(["request": .object([
                 "sessionId": .string(sessionId), "stopActivity": .bool(false),
-            ])]))
+            ])]), sessionId: sessionId)
             return true
         } catch {
             return false
@@ -2114,9 +2348,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
 
     private func unarchiveRemoteSession(_ sessionId: String) async -> Bool {
         do {
-            _ = try await transport.call("workspace/unarchiveSession", args: .object(["request": .object([
+            _ = try await boundedTransportCall("workspace/unarchiveSession", args: .object(["request": .object([
                 "sessionId": .string(sessionId),
-            ])]))
+            ])]), sessionId: sessionId)
             return true
         } catch {
             return false
@@ -2128,7 +2362,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             // DSH 0.2.2-rc.1's gateway requires the reserved `_request` member
             // for `session/list` (assertExactArguments); a bare `{}` is
             // arguments-invalid and used to be swallowed here.
-            let list = try await transport.call("session/list", args: .object(["_request": .object([:])]))
+            let list = try await boundedTransportCall(
+                "session/list", args: .object(["_request": .object([:])]), sessionId: sessionId)
             for item in list["items"]?.arrayValue ?? [] where item["sessionId"]?.stringValue == sessionId {
                 return item["cwd"]?.stringValue
             }
@@ -2165,17 +2400,24 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         "gb-\(BotWorkspaceLayout.safePathComponent(botId))-\(UUID().uuidString.lowercased())"
     }
 
-    private func validateRemoteSession(_ sessionId: String, attempts: Int = 1) async -> Bool {
+    /// Whether the Worker still knows this session. A bounded transport stall
+    /// is rethrown: the runtime already marked the transport dead, and
+    /// swallowing it into `false` would hide the retryable cause behind a
+    /// "could not resume" rebuild.
+    private func validateRemoteSession(_ sessionId: String, attempts: Int = 1) async throws -> Bool {
         for attempt in 0..<max(1, attempts) {
             do {
-                let page = try await transport.call("session/page", args: .object(["request": .object([
+                let page = try await boundedTransportCall("session/page", args: .object(["request": .object([
                     "address": .object(["kind": .string("session"), "sessionId": .string(sessionId)]),
                     "throughSeq": .number(-1), "maxMessages": .number(1),
-                ])]))
+                ])]), sessionId: sessionId,
+                    defaultMilliseconds: BotTransportDeadline.recoveryMilliseconds)
                 if let returned = page["sessionId"]?.stringValue ?? page["session"]?["sessionId"]?.stringValue {
                     return returned == sessionId
                 }
                 return true
+            } catch let error as BotMCPError {
+                throw error
             } catch let error as DSHRemoteError where error.code == "session/not-found" && attempt + 1 < attempts {
                 do {
                     try await Task.sleep(nanoseconds: 50_000_000)
@@ -2191,7 +2433,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
 
     private func ensureRoutineSession(_ routineId: String) async throws -> String {
         if let existing = routineSessions[routineId] {
-            if await validateRemoteSession(existing) { return existing }
+            if try await validateRemoteSession(existing) { return existing }
             routineSessions.removeValue(forKey: routineId)
         }
         let sessionId = try await createSession(kind: .routine)
@@ -2234,7 +2476,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         let expectedPreset = Self.requestedPreset(for: kind)
         fields["agentPreset"] = .string(expectedPreset)
         let request: BotJSONValue = .object(fields)
-        let created = try await transport.call("session/create", args: .object(["request": request]))
+        let created = try await boundedTransportCall(
+            "session/create", args: .object(["request": request]),
+            defaultMilliseconds: BotTransportDeadline.recoveryMilliseconds)
         guard let sessionId = created["sessionId"]?.stringValue, !sessionId.isEmpty else {
             throw BotMCPError.unavailable("session/create returned no sessionId")
         }
@@ -2268,7 +2512,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// restart drops the credential and `ensureSession` reclaims it.
     public func ensureMaintenanceSession() async throws -> String {
         if let existing = maintainerSessionId {
-            if await validateRemoteSession(existing) {
+            if try await validateRemoteSession(existing) {
                 _ = try await ensureSession(sessionId: existing, kind: .maintainer)
                 return existing
             }
@@ -2391,9 +2635,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         if !sessionToken.isEmpty { fields["sessionToken"] = .string(sessionToken) }
         let response: BotJSONValue
         do {
-            response = try await transport.call("phone/botClaimSession", args: .object([
+            response = try await boundedTransportCall("phone/botClaimSession", args: .object([
                 "request": .object(fields),
-            ]))
+            ]), sessionId: sessionId)
         } catch {
             if sessionId.hasPrefix("gb-") { return false }
             throw error
@@ -2427,7 +2671,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 return current
             }
         } else {
-            guard await validateRemoteSession(sessionId) else {
+            guard try await validateRemoteSession(sessionId) else {
                 throw BotMCPError.unavailable("session/page could not resume \(sessionId)")
             }
         }
@@ -2454,6 +2698,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
 
     private func canSteer(sessionId: String) -> Bool {
         guard queuedTurns[sessionId] == nil, let active = coordinators[sessionId],
+              active.generation == transportGeneration,
               active.promptAccepted, !active.cancelRequested, active.kind == .chat, !active.hidden else { return false }
         return true
     }
@@ -2473,10 +2718,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         }
         active.cancelRequested = true
         coordinators[sessionId] = active
-        _ = try await transport.call("session/cancel", args: .object(["request": .object([
+        _ = try await boundedTransportCall("session/cancel", args: .object(["request": .object([
             "sessionId": .string(sessionId),
             "cause": .object(["kind": .string("user")]),
-        ])]))
+        ])]), sessionId: sessionId)
         await waitForCancellation(active)
         if includeQueued, let queued = queuedTurns[sessionId] {
             queued.work.cancel()
@@ -2526,27 +2771,56 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         let origin = BotTurnOrigin(rpcId: requestId)
         let hidden = origin.hidden
         let held = origin.held
+        // Never steer into, or queue behind, an attempt opened on a transport
+        // this runtime already replaced: that stream may never settle. The
+        // fence drops it (recording its interrupted marker) so this turn can
+        // start on the current transport.
+        await fenceSupersededTurnState(sessionId: sessionId)
         if allowSteer, canSteer(sessionId: sessionId), kind == .chat, !hidden,
            let active = coordinators[sessionId] {
             try await sendPrompt(sessionId: sessionId, prompt: prompt, mode: "steer", requestId: requestId)
+            guard coordinators[sessionId]?.attemptId == active.attemptId,
+                  active.generation == transportGeneration else {
+                return BotRemoteTurnResult(
+                    sessionId: sessionId, turnId: nil, status: "interrupted",
+                    text: "", error: "transport_replaced")
+            }
             return try await active.work.value
         }
-        if let predecessor = queuedTurns[sessionId]?.work ?? coordinators[sessionId]?.work {
-            let attemptId = UUID().uuidString.lowercased()
-            let work = Task { () throws -> BotRemoteTurnResult in
-                _ = try? await predecessor.value
-                if let queued = queuedTurns[sessionId], queued.attemptId == attemptId {
-                    queuedTurns.removeValue(forKey: sessionId)
-                    if queued.cancelled {
-                        return BotRemoteTurnResult(
-                            sessionId: sessionId, turnId: nil, status: "cancelled", text: "", error: "cancelled")
-                    }
-                }
-                return try await startCoordinatedTurn(
-                    sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
-                    attemptId: attemptId, requestId: requestId, origin: origin)
+        // The fence above normally leaves only current-generation entries. If
+        // a rebind landed while it was suspended, never await the leftover:
+        // its stream belongs to the replaced transport and may never settle.
+        let predecessorSettlement = queuedTurns[sessionId]?.settlement
+            ?? coordinators[sessionId]?.settlement
+        let predecessorGeneration = queuedTurns[sessionId]?.generation
+            ?? coordinators[sessionId]?.generation
+        if let predecessorSettlement, let predecessorGeneration {
+            guard predecessorGeneration == transportGeneration else {
+                return BotRemoteTurnResult(
+                    sessionId: sessionId, turnId: nil, status: "interrupted",
+                    text: "", error: "transport_replaced")
             }
-            queuedTurns[sessionId] = QueuedTurn(attemptId: attemptId, work: work, cancelled: false)
+            let attemptId = UUID().uuidString.lowercased()
+            let settlement = BotTurnSettlement()
+            let queuedGeneration = predecessorGeneration
+            let work = Task { () throws -> BotRemoteTurnResult in
+                let result: BotRemoteTurnResult
+                do {
+                    result = try await self.performQueuedTurn(
+                        sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden,
+                        held: held, attemptId: attemptId, requestId: requestId, origin: origin,
+                        predecessorSettlement: predecessorSettlement,
+                        queuedGeneration: queuedGeneration)
+                } catch {
+                    await settlement.finish()
+                    throw error
+                }
+                await settlement.finish()
+                return result
+            }
+            queuedTurns[sessionId] = QueuedTurn(
+                attemptId: attemptId, generation: queuedGeneration,
+                settlement: settlement, work: work, cancelled: false)
             return try await work.value
         }
         return try await startCoordinatedTurn(
@@ -2554,17 +2828,67 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             attemptId: UUID().uuidString.lowercased(), requestId: requestId, origin: origin)
     }
 
+    private func performQueuedTurn(
+        sessionId: String, kind: BotSessionKind, prompt: String, hidden: Bool, held: Bool,
+        attemptId: String, requestId: String, origin: BotTurnOrigin,
+        predecessorSettlement: BotTurnSettlement, queuedGeneration: UInt64
+    ) async throws -> BotRemoteTurnResult {
+        let outcome = await waitForPredecessor(
+            predecessorSettlement, generation: queuedGeneration)
+        let entry = queuedTurns[sessionId]
+        let ownsEntry = entry?.attemptId == attemptId
+        let callerCancelled = ownsEntry && entry?.cancelled == true
+        if ownsEntry { queuedTurns.removeValue(forKey: sessionId) }
+        // A rebind while this turn waited belongs to the replaced transport
+        // even if the predecessor happened to settle; the caller retries and
+        // re-claims the session first.
+        if transportGeneration != queuedGeneration {
+            return BotRemoteTurnResult(
+                sessionId: sessionId, turnId: nil, status: "interrupted",
+                text: "", error: "transport_replaced")
+        }
+        if callerCancelled { return Self.cancelledTurnResult(sessionId: sessionId) }
+        switch outcome {
+        case .settled:
+            return try await startCoordinatedTurn(
+                sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
+                attemptId: attemptId, requestId: requestId, origin: origin)
+        case .superseded:
+            return BotRemoteTurnResult(
+                sessionId: sessionId, turnId: nil, status: "interrupted",
+                text: "", error: "transport_replaced")
+        case .cancelled:
+            return Self.cancelledTurnResult(sessionId: sessionId)
+        }
+    }
+
+    private static func cancelledTurnResult(sessionId: String) -> BotRemoteTurnResult {
+        BotRemoteTurnResult(
+            sessionId: sessionId, turnId: nil, status: "cancelled", text: "", error: "cancelled")
+    }
+
     private func startCoordinatedTurn(sessionId: String, kind: BotSessionKind,
                                       prompt: String, hidden: Bool, held: Bool,
                                       attemptId: String, requestId: String,
                                       origin: BotTurnOrigin) async throws -> BotRemoteTurnResult {
-        let work = Task { try await self.performCoordinatedTurn(
-            sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
-            attemptId: attemptId, requestId: requestId, origin: origin) }
+        let generation = transportGeneration
+        let settlement = BotTurnSettlement()
+        let work = Task { () throws -> BotRemoteTurnResult in
+            do {
+                let result = try await self.performCoordinatedTurn(
+                    sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
+                    attemptId: attemptId, requestId: requestId, origin: origin)
+                await settlement.finish()
+                return result
+            } catch {
+                await settlement.finish()
+                throw error
+            }
+        }
         coordinators[sessionId] = TurnCoordinator(
             sessionId: sessionId, attemptId: attemptId, kind: kind, hidden: hidden,
-            requestId: requestId, work: work, cancelRequested: false,
-            promptAccepted: false, interruption: nil)
+            generation: generation, requestId: requestId, settlement: settlement, work: work,
+            cancelRequested: false, promptAccepted: false, interruption: nil)
         return try await work.value
     }
 
@@ -2575,17 +2899,17 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         await runtime.beginTurn(sessionId: sessionId, hidden: hidden, held: held, origin: origin)
         var mux: (any DSHMuxConnection)?
         do {
-            let opened = try await transport.openMux()
+            let opened = try await boundedOpenMux(sessionId: sessionId)
             mux = opened
-            try await opened.send(.object([
+            try await boundedMuxSend(.object([
                 "type": .string("open"), "streamId": .string("follow"),
                 "endpoint": .string("session/follow"),
                 "payload": .object(["args": .object(["request": .object([
                     "address": .object(["kind": .string("session"), "sessionId": .string(sessionId)]),
                     "maxMessages": .number(64), "assistantStream": .bool(true),
                 ])])]),
-            ]))
-            try await waitForSnapshot(mux: opened)
+            ]), mux: opened, sessionId: sessionId)
+            try await waitForSnapshot(mux: opened, sessionId: sessionId)
             if coordinators[sessionId]?.attemptId != attemptId {
                 await opened.close()
                 await finishCoordinatedTurn(sessionId: sessionId, attemptId: attemptId)
@@ -2628,6 +2952,15 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     sessionId: sessionId, turnId: nil, status: "interrupted",
                     text: "", error: reason)
             }
+            // A teardown detaches the unit first, then cancels the attempt. The
+            // caller already aborted the visible turn, so cancellation is
+            // reported as the same explicit `cancelled` result as before the
+            // transport awaits became cancellation-aware.
+            if error is CancellationError, !transportIsAttached {
+                return BotRemoteTurnResult(
+                    sessionId: sessionId, turnId: nil, status: "cancelled",
+                    text: "", error: "cancelled")
+            }
             throw error
         }
     }
@@ -2640,26 +2973,36 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
 
     private func sendPrompt(sessionId: String, prompt: String, mode: String,
                             requestId: String) async throws {
-        _ = try await transport.call("session/prompt", args: .object(["request": .object([
+        _ = try await boundedTransportCall("session/prompt", args: .object(["request": .object([
             "requestId": .string(requestId), "sessionId": .string(sessionId), "mode": .string(mode),
             "content": .array([.object(["type": .string("text"), "text": .string(prompt)])]),
-        ])]))
+        ])]), sessionId: sessionId,
+            defaultMilliseconds: BotTransportDeadline.promptMilliseconds)
     }
 
-    private func waitForSnapshot(mux: any DSHMuxConnection) async throws {
-        while true {
-            guard let frame = try await mux.receive() else {
-                throw BotMCPError.unavailable("session/follow ended before its snapshot")
-            }
-            if frame["type"]?.stringValue == "error" {
-                throw BotMCPError.unavailable(frame["error"]?["message"]?.stringValue ?? "session/follow failed")
-            }
-            guard frame["type"]?.stringValue == "item",
-                  frame["streamId"]?.stringValue == "follow" else { continue }
-            let value = frame["value"] ?? .null
-            if value["type"]?.stringValue == "snapshot" { return }
-            if value["type"]?.stringValue == "end" {
-                throw BotMCPError.unavailable("session/follow ended before its snapshot")
+    /// Waiting for the follow stream's snapshot is a handshake: a transport
+    /// that accepted `openMux` but never answers must fail here, not leave the
+    /// attempt suspended on its next receive.
+    private func waitForSnapshot(mux: any DSHMuxConnection,
+                                 sessionId: String) async throws {
+        try await boundedTransport(
+            defaultMilliseconds: BotTransportDeadline.snapshotMilliseconds,
+            sessionId: sessionId
+        ) {
+            while true {
+                guard let frame = try await mux.receive() else {
+                    throw BotMCPError.unavailable("session/follow ended before its snapshot")
+                }
+                if frame["type"]?.stringValue == "error" {
+                    throw BotMCPError.unavailable(frame["error"]?["message"]?.stringValue ?? "session/follow failed")
+                }
+                guard frame["type"]?.stringValue == "item",
+                      frame["streamId"]?.stringValue == "follow" else { continue }
+                let value = frame["value"] ?? .null
+                if value["type"]?.stringValue == "snapshot" { return }
+                if value["type"]?.stringValue == "end" {
+                    throw BotMCPError.unavailable("session/follow ended before its snapshot")
+                }
             }
         }
     }
@@ -2700,7 +3043,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 }
                 throw CancellationError()
             }
-            guard let frame = try await mux.receive() else {
+            // Idle bound only: a model step may think for minutes before its
+            // next frame, but a stream that produced nothing at all for the
+            // configured idle budget is a dead connection, not a slow turn.
+            guard let frame = try await boundedMuxReceive(
+                mux, sessionId: sessionId) else {
                 if let interruption = coordinators[sessionId]?.interruption {
                     return BotRemoteTurnResult(
                         sessionId: sessionId, turnId: currentTurn,
@@ -2975,5 +3322,19 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         (content?.arrayValue ?? []).compactMap { block in
             block["type"]?.stringValue == "text" ? block["text"]?.stringValue : nil
         }.joined()
+    }
+}
+
+/// The completion signal of one turn attempt. It is deliberately separate from
+/// the attempt's `Task`: a turn queued behind another must never suspend on
+/// `predecessor.value`, because an attempt whose Worker transport was replaced
+/// may never settle and would then hold every later send on that session.
+/// Polling this flag lets the waiter react to a transport generation change and
+/// to its own cancellation as well.
+private actor BotTurnSettlement {
+    private(set) var isFinished = false
+
+    func finish() {
+        isFinished = true
     }
 }
