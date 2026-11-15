@@ -812,7 +812,7 @@ through unchanged and MUST NOT be rewritten here.
    `too_many_attachments`, `unexpected_card_answer_field`,
    `only_question_cards_can_be_dismissed`, `untrusted_action`, `cancelled`, and
    `invalid_*`). Keep it for **retryable** non-throwing rejections
-   (`transport_replaced`, `turn_not_completed`, `collect_idle_timeout`,
+   (`transport_replaced`, `turn_not_completed`, `turn_not_started`, `collect_idle_timeout`,
    `snapshot_timeout`, `transport_timeout`, `unavailable`, `unit_detached`) and for
    every unknown reason; a thrown error keeps it and rethrows.
 
@@ -898,7 +898,7 @@ persists the action before planning, in a transaction independent of the action 
   `too_many_attachments`, `unexpected_card_answer_field`,
   `only_question_cards_can_be_dismissed`, `untrusted_action`, `cancelled`, `invalid_*`).
   **Retryable rejections keep the row**: the chat planner reports
-  `transport_replaced`, `turn_not_completed`, `collect_idle_timeout`, `snapshot_timeout`,
+  `transport_replaced`, `turn_not_completed`, `turn_not_started`, `collect_idle_timeout`, `snapshot_timeout`,
   `transport_timeout`, `unavailable` and `unit_detached` as non-throwing `.rejected`
   outcomes; an unknown reason is retryable too. Clearing on those is the original lost
   message bug, not a completion.

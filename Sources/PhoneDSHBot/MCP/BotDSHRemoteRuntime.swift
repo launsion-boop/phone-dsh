@@ -648,6 +648,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// must pass the same value so the Worker does not open a second turn.
     public func sendUserMessage(_ text: String, requestId: String? = nil,
                                 attachments: [BotAttachment] = []) async throws -> BotRemoteTurnResult {
+        BotSendDiagnostics.log("sendUserMessage entry req=\(requestId ?? "-")")
         guard attachments.count <= BotAttachmentPolicy.maxCount else {
             throw BotMCPError.invalidRequest("too_many_attachments")
         }
@@ -656,8 +657,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         // same bounded readiness seam the tool gate uses, then open the turn
         // against the replacement Worker.
         try await awaitRuntimeReadiness()
+        BotSendDiagnostics.log("sendUserMessage ready")
         await onUserTurnStarted?()
+        BotSendDiagnostics.log("sendUserMessage turn-started-hook-done")
         let sessionId = try await ensureMainSession()
+        BotSendDiagnostics.log("sendUserMessage session=\(sessionId.prefix(20))")
         let steer = canSteer(sessionId: sessionId)
         var body = text
         let attachmentBlock = BotAttachmentPrompt.block(attachments)
@@ -689,9 +693,24 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 }
             }
         }
+        BotSendDiagnostics.log("sendUserMessage runTurn-start")
         do {
-            let result = try await runTurn(sessionId: sessionId, kind: .chat, prompt: prompt,
+            var result = try await runTurn(sessionId: sessionId, kind: .chat, prompt: prompt,
                                            requestId: promptRequestId)
+            if result.status != "completed", result.error == "turn_not_started" {
+                // The host accepted the prompt but never opened a turn. A
+                // sealed/forked or otherwise dead main session cannot run
+                // another turn; start a fresh epoch and retry the same prompt
+                // once. The durable outbox keeps the intent if this fails too.
+                BotSendDiagnostics.log("sendUserMessage rebuild-after-no-turn")
+                let rebuilt = try await rebuildMainSession(
+                    from: sessionId, cwd: botRoot())
+                BotSendDiagnostics.log("sendUserMessage rebuilt=\(rebuilt.prefix(20))")
+                result = try await runTurn(
+                    sessionId: rebuilt, kind: .chat, prompt: prompt,
+                    requestId: promptRequestId)
+            }
+            BotSendDiagnostics.log("sendUserMessage runTurn-done status=\(result.status)")
             if let stagedKey { _ = try await wakeInbox?.commit(stagedKey) }
             await onUserTurnFinished?()
             return result
@@ -2767,7 +2786,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private func runTurn(sessionId: String, kind: BotSessionKind,
                          prompt: String, requestId: String,
                          allowSteer: Bool = true) async throws -> BotRemoteTurnResult {
+        BotSendDiagnostics.log("runTurn entry queue=\(queuedTurns[sessionId] != nil) coord=\(coordinators[sessionId] != nil) gen=\(transportGeneration)")
         _ = try await ensureSession(sessionId: sessionId, kind: kind)
+        BotSendDiagnostics.log("runTurn session-ensured")
         let origin = BotTurnOrigin(rpcId: requestId)
         let hidden = origin.hidden
         let held = origin.held
@@ -2790,6 +2811,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         // The fence above normally leaves only current-generation entries. If
         // a rebind landed while it was suspended, never await the leftover:
         // its stream belongs to the replaced transport and may never settle.
+        BotSendDiagnostics.log("runTurn fence queued=\(queuedTurns[sessionId] != nil) coord=\(coordinators[sessionId] != nil)")
         let predecessorSettlement = queuedTurns[sessionId]?.settlement
             ?? coordinators[sessionId]?.settlement
         let predecessorGeneration = queuedTurns[sessionId]?.generation
@@ -2872,6 +2894,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                                       attemptId: String, requestId: String,
                                       origin: BotTurnOrigin) async throws -> BotRemoteTurnResult {
         let generation = transportGeneration
+        BotSendDiagnostics.log("turn startCoordinated gen=\(generation)")
         let settlement = BotTurnSettlement()
         let work = Task { () throws -> BotRemoteTurnResult in
             do {
@@ -2897,10 +2920,13 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                                         attemptId: String, requestId: String,
                                         origin: BotTurnOrigin) async throws -> BotRemoteTurnResult {
         await runtime.beginTurn(sessionId: sessionId, hidden: hidden, held: held, origin: origin)
+        BotSendDiagnostics.log("turn beginTurn-done")
         var mux: (any DSHMuxConnection)?
         do {
+            BotSendDiagnostics.log("turn openMux-start")
             let opened = try await boundedOpenMux(sessionId: sessionId)
             mux = opened
+            BotSendDiagnostics.log("turn openMux-ok")
             try await boundedMuxSend(.object([
                 "type": .string("open"), "streamId": .string("follow"),
                 "endpoint": .string("session/follow"),
@@ -2909,7 +2935,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     "maxMessages": .number(64), "assistantStream": .bool(true),
                 ])])]),
             ]), mux: opened, sessionId: sessionId)
+            BotSendDiagnostics.log("turn follow-sent")
             try await waitForSnapshot(mux: opened, sessionId: sessionId)
+            BotSendDiagnostics.log("turn snapshot-ok")
             if coordinators[sessionId]?.attemptId != attemptId {
                 await opened.close()
                 await finishCoordinatedTurn(sessionId: sessionId, attemptId: attemptId)
@@ -2922,10 +2950,14 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 return BotRemoteTurnResult(
                     sessionId: sessionId, turnId: nil, status: "cancelled", text: "", error: "cancelled")
             }
+            BotSendDiagnostics.log("turn prompt-start")
             try await sendPrompt(sessionId: sessionId, prompt: prompt, mode: "queue", requestId: requestId)
+            BotSendDiagnostics.log("turn prompt-ok")
             coordinators[sessionId]?.promptAccepted = true
+            BotSendDiagnostics.log("turn collect-start")
             let result = try await collectTurn(
                 mux: opened, sessionId: sessionId, kind: kind, hidden: hidden, attemptId: attemptId)
+            BotSendDiagnostics.log("turn collect-done status=\(result.status)")
             await opened.close()
             if result.status == "interrupted" {
                 await recordInterruptedTurnNoticeIfNeeded(
@@ -3011,6 +3043,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                              kind: BotSessionKind, hidden: Bool,
                              attemptId: String) async throws -> BotRemoteTurnResult {
         var currentTurn: String?
+        var sawTurnStart = false
         var stepStartedAt: Int64?
         var firstDeltaAt: Int64?
         var texts: [String] = []
@@ -3046,8 +3079,22 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             // Idle bound only: a model step may think for minutes before its
             // next frame, but a stream that produced nothing at all for the
             // configured idle budget is a dead connection, not a slow turn.
-            guard let frame = try await boundedMuxReceive(
-                mux, sessionId: sessionId) else {
+            let frame: JSONValue?
+            do {
+                frame = try await BotTransportDeadline.run(
+                    milliseconds: sawTurnStart
+                        ? BotTransportDeadline.defaultIdleMilliseconds
+                        : BotTransportDeadline.turnStartMilliseconds
+                ) {
+                    try await mux.receive()
+                }
+            } catch is BotTransportDeadline.Expired {
+                BotSendDiagnostics.log("turn first-frame-timeout sawTurnStart=\(sawTurnStart)")
+                return BotRemoteTurnResult(
+                    sessionId: sessionId, turnId: currentTurn,
+                    status: "failed", text: texts.joined(), error: "turn_not_started")
+            }
+            guard let frame else {
                 if let interruption = coordinators[sessionId]?.interruption {
                     return BotRemoteTurnResult(
                         sessionId: sessionId, turnId: currentTurn,
@@ -3108,6 +3155,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             if let currentTurn, let eventTurn, currentTurn != eventTurn { continue }
             if coordinators[sessionId]?.cancelRequested == true, type != "turn/end" { continue }
             let eventTime = Int64((event["time"]?.numberValue ?? Double(now())).rounded())
+            if type == "turn/start" || type == "user/message" {
+                if !sawTurnStart { BotSendDiagnostics.log("turn first-frame type=\(type)") }
+                sawTurnStart = true
+            }
             if type == "turn/start" { currentTurn = eventTurn ?? currentTurn }
             if ["turn/start", "step/start", "tool/call", "tool/result", "turn/end"].contains(type)
                 || (type == "assistant/message" && !suppressWrapUp) {

@@ -210,7 +210,7 @@ enum BotPendingActionOutcome {
     /// Reasons that are known to be transient. `BotRemoteActionPlanner` returns
     /// several of these as non-throwing `.rejected` outcomes rather than throws.
     static let retryableReasons: Set<String> = [
-        "transport_replaced", "turn_not_completed", "collect_idle_timeout",
+        "transport_replaced", "turn_not_completed", "turn_not_started", "collect_idle_timeout",
         "snapshot_timeout", "transport_timeout", "unavailable", "unit_detached",
     ]
 
@@ -275,6 +275,7 @@ public actor BotUserActionDispatcher {
         }
 
         let task = Task {
+            BotSendDiagnostics.log("dispatch start nonce=\(action.nonce.prefix(8)) kind=\(action.kind)")
             // Durable-before-remote: the pending row must exist before
             // `planner.plan` can start a turn. A kill mid-turn, or a transport
             // that never answers, then leaves the message in the store for the
@@ -282,8 +283,11 @@ public actor BotUserActionDispatcher {
             // installed synchronously before this task can be observed, so a
             // queued duplicate of the nonce never reaches this row.
             try await store.recordPendingAction(action)
+            BotSendDiagnostics.log("dispatch pending-recorded nonce=\(action.nonce.prefix(8))")
             do {
+                BotSendDiagnostics.log("dispatch planner-start nonce=\(action.nonce.prefix(8))")
                 let outcome = try await planner.plan(action, trust: .ownerDirect)
+                BotSendDiagnostics.log("dispatch planner-returned nonce=\(action.nonce.prefix(8))")
                 let result: BotActionResult
                 switch outcome {
                 case .commit(let plan):
@@ -305,6 +309,7 @@ public actor BotUserActionDispatcher {
                 }
                 return result
             } catch {
+                BotSendDiagnostics.log("dispatch threw nonce=\(action.nonce.prefix(8)) error=\(type(of: error))")
                 // A thrown error (transport failure, crash hook, store failure)
                 // keeps the row for a later replay.
                 try? await store.bumpPendingActionAttempt(

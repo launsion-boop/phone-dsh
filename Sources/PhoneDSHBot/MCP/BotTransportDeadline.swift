@@ -32,6 +32,12 @@ enum BotTransportDeadline {
     static let controlMilliseconds = 10_000
     /// Main-session recovery calls: `session/create` and `session/page`.
     static let recoveryMilliseconds = 30_000
+    /// How long a freshly submitted prompt may take to produce its first
+    /// `turn/start`/`user/message` event. The host acknowledges `session/prompt`
+    /// synchronously, so a session that never emits a turn is not a slow model;
+    /// it is a session that cannot run (sealed/forked/dead agent).
+    static let turnStartMilliseconds = 20_000
+
     /// How long `collectTurn` may sit on an idle `session/follow` stream
     /// between frames. A running model step can legitimately think for a long
     /// time, so this covers only a stream that produced no frame at all.

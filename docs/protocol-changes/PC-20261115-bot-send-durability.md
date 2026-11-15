@@ -78,7 +78,7 @@ Protocol impact: P25; P09: none — 本變更不改 `examples/probe-app/PhoneDSH
 | durable-before-dispatch | `chat`/`cardAnswer` 在 planner 與任何 transport await 之前，先 commit outbox row；terminal 結果（accepted/duplicate/validation/planner stale 或 rejected/cancelled）清除，retryable rejected（rebind interrupt/timeout/unavailable/未知）與 throw/kill 保留。`cardDismiss`/`approval`/`stopTask` 不寫 outbox，維持原路徑（它們的 RPC/durable event 本身就是權威，自動重播可能重複副作用）。 |
 | replay | launch 後、該 Bot 的 transport ready 之後，一次 launch 對每個 row 最多重播一次；同一 nonce、同一 requestId；nonce dedupe + DSH `requestId` dedupe；本輪不做 TTL / attempt cap：row 保留到 terminal outcome；`attempts` 僅供診斷；TTL/耗盡刪除＋`send-expired` notice 列為 follow-up（本輪不寫 notice）。 |
 | P25 事件 | **沒有新增 event type**；`conversation.turn_started`/`card.answered` 的型別、eventId、data、寫入時機都不改。outbox 不消耗 `commitSeq`，不是第二種 event log。 |
-| transport deadline | `openMux` 10 s、snapshot 15 s、`session/prompt` unary 20 s、control unary 10 s、main-session recovery 30 s、collect idle 300 s、adopt settle 2 s、queue fence 0 ms（§2.2，同步）。逾時回既有 `BotMCPError.unavailable`/`ProviderError.unavailable` 的可重試路徑，不新增 wire error code。 |
+| transport deadline | `openMux` 10 s、snapshot 15 s、`session/prompt` unary 20 s、turn-start 20 s、control unary 10 s、main-session recovery 30 s、collect idle 300 s、turn-start 20 s、adopt settle 2 s、queue fence 0 ms（§2.2，同步）。逾時回既有 `BotMCPError.unavailable`/`ProviderError.unavailable` 的可重試路徑，不新增 wire error code。 |
 | queue fence | queued turn 攜帶 `transportGeneration`；只 join 同世代 predecessor；generation 變更時舊世代 queued turn 同步 settle `interrupted`/`transport_generation_changed`（queued 任務 20 ms 輪詢），不送 prompt，由 outbox 重播。 |
 | liveness | `hasLiveTransport()` = attached && !quarantined。mux 級失敗立即 quarantine；unary transport 失敗連續 2 次 quarantine；成功 unary 呼叫或新 `attachTransport` 清除。quarantine 的 unit 在下一個 bind 被重啟。 |
 | P09 | **none**。本輪沒有 UI/presentation/strings/vector 變更；outbox 由背景 replay 消費，UI 沿用今天的 local echo/notice。顯式 pending/retry presentation 是 follow-up（§2.3），不進 frozen 契約。 |
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS bot_pending_actions (
 | 情況 | 行為 |
 | --- | --- |
 | insert | 在 planner 前、於 `SQLiteDomainStore` 的單一 transaction 內 `INSERT ... ON CONFLICT(bot_id, nonce) DO NOTHING`；commit 後才 dispatch。重複 nonce 保留第一筆 payload（第一筆是權威）。 |
-| 非 throwing 結果 | **只清除 terminal 結果**：`accepted`/`duplicate`，以及 validation/planner 的 terminal `stale`/`rejected`（例如 `card_expired`、`already_answered`、`missing_text`、`untrusted_action`）和 `cancelled`（使用者主動停止）。**retryable rejected 必須保留**：`transport_replaced`、`turn_not_completed`、`collect_idle_timeout`、`snapshot_timeout`、`transport_timeout`、`unavailable`、`runtime recovering`、`unit_detached`，以及任何未知 reason（fail safe）。這些是「回合沒完成」而不是「action 無效」；清掉 row 就等於把 rebind 後中斷的訊息丟掉。 |
+| 非 throwing 結果 | **只清除 terminal 結果**：`accepted`/`duplicate`，以及 validation/planner 的 terminal `stale`/`rejected`（例如 `card_expired`、`already_answered`、`missing_text`、`untrusted_action`）和 `cancelled`（使用者主動停止）。**retryable rejected 必須保留**：`transport_replaced`、`turn_not_completed`、`turn_not_started`、`collect_idle_timeout`、`snapshot_timeout`、`transport_timeout`、`unavailable`、`runtime recovering`、`unit_detached`，以及任何未知 reason（fail safe）。這些是「回合沒完成」而不是「action 無效」；清掉 row 就等於把 rebind 後中斷的訊息丟掉。 |
 | throw / kill | 保留 row；不寫任何「失敗」狀態，row 的存在就是 pending。 |
 | TTL | **本輪未啟用（follow-up）**。row 保留到 terminal outcome；未來 TTL 到期才可刪 row 並寫 idempotent `send-expired:<botID>:<nonce>` notice。 |
 | attempts 耗盡 | **本輪未啟用（follow-up）**。`attempts` 只做診斷，不因次數丟棄；未來才加 cap 與 `attempts_exhausted` notice。 |
@@ -185,6 +185,14 @@ CREATE TABLE IF NOT EXISTS bot_pending_actions (
 - `attachTransport`（adopt）清除 quarantine 與計數；detach 也清除（下一次 attach 重新開始）。
 - `hasLiveTransport()` 被 composition 的 rebind 讀取（`BotRebindScope`）；quarantine 後的下一個 bind 必須 restart 該 unit，而不是 keep。本變更不新增自動 rebind timer；既有 watch/可見「重試」/host HELLO 路徑觸發 bind。
 - `transportGeneration` 仍是唯一的 transport 身分；liveness 是它的觀察值，不是第二個 generation。
+
+### 2.2.1 Prompt 被接受但 turn 永不启动（2026-11-15 真机追加）
+
+真机复现：`session/prompt` 返回 ok，但 `session/follow` 在 20 s 内没有任何 `turn/start`/`user/message`；旧的主 session（`gb-main-29ecd...`）在重启后被 host 接受 prompt 却不再开 turn，模型网关也无请求。此时只加 transport deadline 不够：transport 是活的，死的是 session/agent。
+
+修复：`collectTurn` 在**首个 turn frame** 前使用 20 s turn-start deadline（不是 300 s idle）；超时返回 retryable `turn_not_started`，`sendUserMessage` 对同一 prompt **重建 main session（新 epoch，`runtime.started`）并重试一次**，requestId 不变；仍失败则 outbox 保留并显示可重试错误。历史仍由 `runtime.started` epoch 链投影，不删除旧 row。
+
+验收：真机旧 session 复现 → 20 s 内返回 `turn_not_started` → `rebuildMainSession` 新 id → 重试的 prompt 收到 `turn/start` → assistant 回复落库 → pending row 清空。
 
 ### 2.3 P09：none（follow-up，不 frozen）
 
