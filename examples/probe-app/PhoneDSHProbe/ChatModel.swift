@@ -1572,7 +1572,7 @@ final class ChatModel {
         // Every start except the scheduled backoff retry is a new intent: it
         // supersedes any pending retry, including a manual tap.
         if !backoffRetry { cancelBackoffRetry() }
-        guard host == nil, !busy else { return }
+        guard isAppForeground, !Task.isCancelled, host == nil, !busy else { return }
         // A parked adoption belongs to a page that is now visible again; land
         // it before the new boot repaints anything.
         adoptDeferredTranscriptIfForeground()
@@ -1588,6 +1588,7 @@ final class ChatModel {
         // Every Host build reads the Bot MCP URL into the Worker environment;
         // heal a reaped listener before that snapshot is taken.
         _ = await botListenerSupervisor?.willStartEngine()
+        guard isAppForeground, !Task.isCancelled else { return }
         guard let launch = makeHostLaunch() else { return }
         hostResumeWatchdogTimeout = launch.resumeWatchdogTimeout
         // Show the last conversation from disk immediately; the engine boots
@@ -1599,6 +1600,14 @@ final class ChatModel {
         do {
             try await ADBMCPServer.shared.setWorkspaceDirectory(materializedWorkspace)
             await botLaunch?.composition.attachNativeMCP(PhoneNativeMCP.server)
+            // Native preparation yields. A queued foreground intent is not
+            // permission to create WebContent after the App has left foreground.
+            guard isAppForeground, !Task.isCancelled else {
+                hostEventTask?.cancel(); hostEventTask = nil
+                anchor.shutdown()
+                statusLine = "消息已保存，等待回到 App 后继续"
+                return
+            }
             try await launch.host.start()
         } catch {
             Self.appendDiagnostic("host start failed: \(NativeLogRedaction.error(error))")
@@ -3085,7 +3094,7 @@ final class ChatModel {
     }
 
     private func resumeHost(_ host: PhoneDSHHost) async {
-        guard parked, !hostLifecycleTransition else { return }
+        guard isAppForeground, !Task.isCancelled, parked, !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
         // The Worker booted with the URL captured at Host construction. If the
         // listener had to move to a new port, resuming would just replay the
@@ -3093,6 +3102,10 @@ final class ChatModel {
         // environment. A same-port rebind keeps the URL valid and resumes.
         if let supervisor = botListenerSupervisor {
             _ = await supervisor.willResumeHost()
+            guard isAppForeground, !Task.isCancelled else {
+                hostLifecycleTransition = false
+                return
+            }
             if !supervisor.hostEndpointIsCurrent {
                 hostLifecycleTransition = false
                 appendStatus("Bot MCP listener recovered on a new port; rebuilding instead of resuming the old Worker URL")
