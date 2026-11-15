@@ -17,6 +17,46 @@ import PhoneDSHBot
 import SwiftUI
 import UIKit
 
+/// The card accent follows the same per-Bot appearance that colors its fish.
+/// The source hex is `BotFishColor.hex`, which also seeds `BotFishPalette`;
+/// this small transform keeps it readable without rebuilding the fish LUT.
+struct BotCardTheme {
+    var appearance: BotFishAppearance = .classic
+
+    var accent: Color {
+        let raw = appearance.color.hex.dropFirst()
+        let hex = UInt32(raw, radix: 16) ?? 0x1680F3
+        let source = [CGFloat((hex >> 16) & 0xFF),
+                      CGFloat((hex >> 8) & 0xFF),
+                      CGFloat(hex & 0xFF)].map { $0 / 255 }
+        return Color(uiColor: UIColor { traits in
+            let channels = source.map { value in
+                traits.userInterfaceStyle == .dark
+                    ? value + (1 - value) * 0.48
+                    : value * 0.42
+            }
+            return UIColor(red: channels[0], green: channels[1], blue: channels[2], alpha: 1)
+        })
+    }
+
+    var buttonInk: Color {
+        Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark ? .black : .white
+        })
+    }
+}
+
+private struct BotCardThemeKey: EnvironmentKey {
+    static let defaultValue = BotCardTheme()
+}
+
+extension EnvironmentValues {
+    var botCardTheme: BotCardTheme {
+        get { self[BotCardThemeKey.self] }
+        set { self[BotCardThemeKey.self] = newValue }
+    }
+}
+
 enum BotCardMetrics {
     // MARK: - Shared width
 
@@ -47,23 +87,19 @@ enum BotCardMetrics {
     static let metaLine: CGFloat = 18
 }
 
-/// Semantic card palette from the approved v07 preview. Dynamic colors keep
-/// the same category separation in both appearances without borrowing any
-/// external design-system tokens.
+/// Card categories share the current Bot's brand accent; notice remains
+/// intentionally neutral. Status colors are owned by `BotCardTone`.
 enum BotCardCategory {
     case choice, work, document, approval, notice
 
-    var ink: Color {
+    func ink(theme: BotCardTheme) -> Color {
         switch self {
-        case .choice: Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.58, green: 0.72, blue: 1, alpha: 1) : UIColor(red: 0.15, green: 0.37, blue: 0.81, alpha: 1) })
-        case .work: Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.55, green: 0.84, blue: 0.73, alpha: 1) : UIColor(red: 0.14, green: 0.48, blue: 0.39, alpha: 1) })
-        case .document: Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.79, green: 0.67, blue: 0.98, alpha: 1) : UIColor(red: 0.47, green: 0.31, blue: 0.74, alpha: 1) })
-        case .approval: Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.94, green: 0.76, blue: 0.48, alpha: 1) : UIColor(red: 0.58, green: 0.38, blue: 0.09, alpha: 1) })
+        case .choice, .work, .document, .approval: theme.accent
         case .notice: HomeSpec.textSecondary
         }
     }
 
-    var wash: Color { ink.opacity(0.09) }
+    func wash(theme: BotCardTheme) -> Color { ink(theme: theme).opacity(0.09) }
 }
 
 extension View {
@@ -197,18 +233,19 @@ struct BotAdaptiveBubbleLayout: Layout {
 struct BotCardSurface<Content: View>: View {
     var padding: CGFloat = BotCardMetrics.padding
     var category: BotCardCategory = .work
+    @Environment(\.botCardTheme) private var theme
     @ViewBuilder var content: Content
 
     var body: some View {
         content
             .padding(padding)
-            .background(LinearGradient(colors: [category.wash.opacity(0.48), HomeSpec.surface],
+            .background(LinearGradient(colors: [category.wash(theme: theme).opacity(0.48), HomeSpec.surface],
                                        startPoint: .topLeading, endPoint: .bottomTrailing),
                         in: RoundedRectangle(cornerRadius: BotCardMetrics.radius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: BotCardMetrics.radius, style: .continuous)
-                .strokeBorder(category.ink.opacity(0.18), lineWidth: 1))
+                .strokeBorder(category.ink(theme: theme).opacity(0.18), lineWidth: 1))
             .overlay(alignment: .top) {
-                category.ink.frame(height: 3)
+                category.ink(theme: theme).frame(height: 3)
                     .accessibilityHidden(true)
             }
             .clipShape(RoundedRectangle(cornerRadius: BotCardMetrics.radius, style: .continuous))
@@ -219,13 +256,13 @@ struct BotCardSurface<Content: View>: View {
 enum BotCardTone {
     case neutral, success, danger, warning, choice
 
-    var ink: Color {
+    func ink(theme: BotCardTheme) -> Color {
         switch self {
         case .neutral: HomeSpec.textPrimary
-        case .success: HomeSpec.success
+        case .success: theme.accent
         case .danger: NativeParityTokens.error
         case .warning: NativeParityTokens.warning
-        case .choice: BotCardCategory.choice.ink
+        case .choice: theme.accent
         }
     }
 }
@@ -234,14 +271,19 @@ enum BotCardTone {
 struct BotCardTag: View {
     let text: String
     var tone: BotCardTone = .neutral
+    @Environment(\.botCardTheme) private var theme
+
+    private var ink: Color {
+        tone.ink(theme: theme)
+    }
 
     var body: some View {
         Text(text)
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(tone.ink)
+            .foregroundStyle(ink)
             .padding(.horizontal, 8)
             .frame(height: 20)
-            .background(tone == .neutral ? HomeSpec.userBubble : tone.ink.opacity(0.1), in: Capsule())
+            .background(tone == .neutral ? HomeSpec.userBubble : ink.opacity(0.1), in: Capsule())
             .fixedSize()
     }
 }
@@ -258,6 +300,7 @@ struct BotCardHeading<Trailing: View>: View {
     var titleLineLimit: Int? = 2
     var detailLineLimit: Int? = 2
     var category: BotCardCategory = .work
+    @Environment(\.botCardTheme) private var theme
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
@@ -265,11 +308,11 @@ struct BotCardHeading<Trailing: View>: View {
             HStack(spacing: 6) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(category.ink)
+                    .foregroundStyle(category.ink(theme: theme))
                     .frame(width: 28, height: 28)
-                    .background(category.wash, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(category.wash(theme: theme), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 Text(eyebrow)
-                    .foregroundStyle(category.ink)
+                    .foregroundStyle(category.ink(theme: theme))
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 trailing
@@ -364,6 +407,7 @@ private struct BotCardExpandableText: View {
     /// The visible result of the last committed measurement.
     @State private var showsExpansionControl = false
     @State private var measurement = BotCardTextMeasurementBox()
+    @Environment(\.botCardTheme) private var theme
 
     private var canExpand: Bool { showsExpansionControl }
 
@@ -386,7 +430,7 @@ private struct BotCardExpandableText: View {
                     withAnimation(.easeOut(duration: 0.16)) { expanded.toggle() }
                 }
                 .font(.system(size: BotCardMetrics.metaSize, weight: .medium))
-                .foregroundStyle(HomeSpec.textSecondary)
+                .foregroundStyle(theme.accent)
                 .buttonStyle(.plain)
                 .frame(minHeight: 28)
                 .accessibilityValue(expanded ? "已展开" : "已折叠")
@@ -486,12 +530,13 @@ struct BotCardGlyph: View {
 /// all text and precedence; this view only draws it.
 struct BotCardSettledLine: View {
     let settlement: BotCardSettlement
+    @Environment(\.botCardTheme) private var theme
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: settlement.glyph)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(settlement.tone.ink.opacity(0.8))
+                .foregroundStyle(settlement.tone.ink(theme: theme).opacity(0.8))
                 .accessibilityHidden(true)
             (Text(settlement.title)
                 .font(.system(size: 13, weight: .medium))
@@ -520,10 +565,10 @@ struct BotCardSettledLine: View {
 }
 
 extension BotCardSettlementTone {
-    var ink: Color {
+    func ink(theme: BotCardTheme) -> Color {
         switch self {
         case .neutral: HomeSpec.textSecondary
-        case .success: HomeSpec.success
+        case .success: theme.accent
         }
     }
 }
@@ -532,13 +577,14 @@ extension BotCardSettlementTone {
 struct BotCardTile: View {
     let systemImage: String
     var category: BotCardCategory = .work
+    @Environment(\.botCardTheme) private var theme
 
     var body: some View {
         Image(systemName: systemImage)
             .font(.system(size: 17, weight: .medium))
-            .foregroundStyle(category.ink)
+            .foregroundStyle(category.ink(theme: theme))
             .frame(width: BotCardMetrics.tile, height: BotCardMetrics.tile)
-            .background(category.wash,
+            .background(category.wash(theme: theme),
                         in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .accessibilityHidden(true)
     }
@@ -551,6 +597,7 @@ struct BotCardFileTile: View {
     var mime: String?
     var category: BotCardCategory = .document
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.botCardTheme) private var theme
 
     private var format: String {
         let ext = ((fileName as NSString).pathExtension).uppercased()
@@ -573,26 +620,13 @@ struct BotCardFileTile: View {
     }
 
     private var formatInk: Color {
-        let light: UIColor
-        let dark: UIColor
-        switch format {
-        case "PDF": (light, dark) = (UIColor(red: 0.77, green: 0.29, blue: 0.27, alpha: 1), UIColor(red: 1, green: 0.55, blue: 0.51, alpha: 1))
-        case "MD": (light, dark) = (UIColor(red: 0.47, green: 0.31, blue: 0.74, alpha: 1), UIColor(red: 0.79, green: 0.67, blue: 0.98, alpha: 1))
-        case "HTML": (light, dark) = (UIColor(red: 0.72, green: 0.40, blue: 0.13, alpha: 1), UIColor(red: 1, green: 0.68, blue: 0.39, alpha: 1))
-        case "TXT": (light, dark) = (UIColor(red: 0.29, green: 0.48, blue: 0.64, alpha: 1), UIColor(red: 0.57, green: 0.75, blue: 0.91, alpha: 1))
-        case "DOCX": (light, dark) = (UIColor(red: 0.20, green: 0.40, blue: 0.74, alpha: 1), UIColor(red: 0.56, green: 0.72, blue: 1, alpha: 1))
-        case "RTF": (light, dark) = (UIColor(red: 0.57, green: 0.38, blue: 0.66, alpha: 1), UIColor(red: 0.80, green: 0.65, blue: 0.89, alpha: 1))
-        case "JSON": (light, dark) = (UIColor(red: 0.58, green: 0.45, blue: 0.15, alpha: 1), UIColor(red: 0.91, green: 0.76, blue: 0.40, alpha: 1))
-        case "CSV": (light, dark) = (UIColor(red: 0.22, green: 0.49, blue: 0.36, alpha: 1), UIColor(red: 0.52, green: 0.78, blue: 0.63, alpha: 1))
-        default: (light, dark) = (UIColor(red: 0.47, green: 0.31, blue: 0.74, alpha: 1), UIColor(red: 0.79, green: 0.67, blue: 0.98, alpha: 1))
-        }
-        return Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? dark : light })
+        theme.accent
     }
 
     var body: some View {
         ZStack(alignment: .bottom) {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(category.wash)
+                .fill(category.wash(theme: theme))
             Image(systemName: "doc")
                 .font(.system(size: 22, weight: .regular))
                 .foregroundStyle(formatInk)
@@ -611,28 +645,29 @@ struct BotCardFileTile: View {
     }
 }
 
-/// Card buttons: 44pt capsules, 15pt semibold. Primary is black, secondary
-/// gray, plain is a text button that keeps a 44pt target.
+/// Card buttons: 44pt capsules, 15pt semibold. Primary and secondary actions
+/// use the Bot accent; disabled controls return to a neutral gray treatment.
 struct BotCardButtonStyle: ButtonStyle {
     enum Kind { case primary, secondary, plain }
     var kind: Kind = .primary
     var tint: Color?
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.botCardTheme) private var theme
 
     func makeBody(configuration: Configuration) -> some View {
         switch kind {
         case .primary:
             configuration.label
                 .font(.system(size: HomeSpec.processSize, weight: .semibold))
-                .foregroundStyle(tint == nil ? HomeSpec.primaryButtonInk : Color.white)
+                .foregroundStyle(isEnabled ? theme.buttonInk : HomeSpec.textPlaceholder)
                 .frame(maxWidth: .infinity)
                 .frame(height: BotCardMetrics.buttonHeight)
-                .background((tint ?? HomeSpec.primaryButton).opacity(isEnabled ? 1 : 0.25), in: Capsule())
+                .background(isEnabled ? (tint ?? theme.accent) : HomeSpec.userBubble, in: Capsule())
                 .opacity(configuration.isPressed ? 0.8 : 1)
         case .secondary:
             configuration.label
                 .font(.system(size: HomeSpec.processSize, weight: .semibold))
-                .foregroundStyle(HomeSpec.textPrimary.opacity(isEnabled ? 1 : 0.4))
+                .foregroundStyle(isEnabled ? theme.accent : HomeSpec.textPlaceholder)
                 .frame(maxWidth: .infinity)
                 .frame(height: BotCardMetrics.buttonHeight)
                 .background(HomeSpec.userBubble, in: Capsule())
@@ -640,7 +675,7 @@ struct BotCardButtonStyle: ButtonStyle {
         case .plain:
             configuration.label
                 .font(.system(size: HomeSpec.processSize, weight: .medium))
-                .foregroundStyle(HomeSpec.textPrimary.opacity(isEnabled ? 1 : 0.4))
+                .foregroundStyle(isEnabled ? theme.accent : HomeSpec.textPlaceholder)
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
                 .opacity(configuration.isPressed ? 0.55 : 1)
@@ -658,14 +693,15 @@ struct BotCardRowButtonStyle: ButtonStyle {
 /// 4pt progress track: #E8E8E8 behind the ink fill, percent on the right.
 struct BotCardProgressBar: View {
     let percent: Int
-    var ink: Color = HomeSpec.textPrimary
+    var ink: Color?
+    @Environment(\.botCardTheme) private var theme
 
     var body: some View {
         HStack(spacing: 10) {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule().fill(HomeSpec.userBubble)
-                    Capsule().fill(ink)
+                    Capsule().fill(ink ?? theme.accent)
                         .frame(width: geometry.size.width * CGFloat(percent) / 100)
                 }
             }
@@ -703,9 +739,9 @@ enum BotCardStepState {
         }
     }
 
-    var ink: Color {
+    func ink(theme: BotCardTheme) -> Color {
         switch self {
-        case .done, .active: HomeSpec.textPrimary
+        case .done, .active: theme.accent
         case .failed: NativeParityTokens.error
         case .pending, .skipped: HomeSpec.iconMuted
         }
