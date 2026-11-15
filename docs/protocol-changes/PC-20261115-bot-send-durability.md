@@ -214,6 +214,15 @@ CREATE TABLE IF NOT EXISTS bot_pending_actions (
 
 **為什麼不用「每個 bind 都重建 transport」的簡單修法：** 那會把 rebind 變成 cancellation，與 #173 的 user-visible 契約（rebind 不是 cancel）衝突，且会让 in-flight turn 的 requestId/結果無法延續。正確方向是 bounded await + fence + durable replay，讓 rebind 可以安全地換 transport，而使用者訊息不靠 in-memory queue 存活。
 
+
+## 2.6 真機驗證（2026-11-15 追加，iOS）
+
+- 安裝本分支 build（schema v4）後，device 的 `domain.sqlite`：`user_version=4`，2402 條既有 event 保留，`bot_pending_actions` 已建立。
+- 重啟後 outbox replay 找到一筆 pending chat（nonce `0A807901…`）：`pending-recorded` → `planner-start` → `sendUserMessage` → `ensureMainSession` → `openMux`/`snapshot`/`prompt-ok` → `collectTurn`。
+- 舊 main session（`gb-main-29ecd…`，最後事件 `session/end-seed`）接受了 prompt 但 20 s 內沒有任何 `turn/start`/`user/message`；`turn-start` watchdog 返回 `turn_not_started`。
+- `sendUserMessage` 重建 main session（新 id `gb-main-a2f483…`）並以同一 requestId 重試；新 session 立即收到 `turn/start`，模型 gateway 200，assistant message 落庫，pending row 清空（0）。
+- 這證明：訊息不再遺失、舊死 session 不再無限等待、outbox replay 可交付。**另見**：該輪 assistant 回覆的是同回合注入的隊友 held message（「联调」），不是用戶文字；held-message 優先級是獨立 bug，本單不修。
+
 ## 3. 相容性與發佈
 
 | Producer → Consumer | 支援／拒絕方式及理由；對應測試 |
