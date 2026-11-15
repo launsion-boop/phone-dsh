@@ -137,6 +137,50 @@ final class BotAgentCommTracker {
     }
 }
 
+/// Runs the v4 pending-action outbox replay away from the bind path.
+///
+/// One pass per Bot at a time. A unit start schedules a pass; if the unit is
+/// started again while a pass is still running, one follow-up pass is queued
+/// instead of overlapping. An empty outbox costs one indexed read, and a pass
+/// that cannot reach the transport simply leaves the rows for the next launch.
+@MainActor
+final class BotPendingActionReplayCoordinator {
+    private var passes: [String: Task<Void, Never>] = [:]
+    private var rerun: Set<String> = []
+
+    func schedule(botID: String, rows: BotProductionRowService, reason: String) {
+        if passes[botID] != nil {
+            rerun.insert(botID)
+            return
+        }
+        passes[botID] = Task { [weak self] in
+            let report = await rows.replayPendingActions()
+            guard let self else { return }
+            self.finish(botID: botID, rows: rows, report: report, reason: reason)
+        }
+    }
+
+    private func finish(botID: String, rows: BotProductionRowService,
+                        report: BotPendingActionReplayReport, reason: String) {
+        passes[botID] = nil
+        // Silent when the outbox was empty and healthy: this line is for a
+        // launch that actually had something to recover.
+        if report.loaded > 0 || report.loadFailed || report.remaining > 0 {
+            var line = "bot-pending-action step=replay reason=\(reason) bot=\(botID)"
+            line += " loaded=\(report.loaded) accepted=\(report.accepted)"
+            line += " duplicate=\(report.duplicates) stale=\(report.stale)"
+            line += " rejected=\(report.rejected) deferred=\(report.deferred)"
+            line += " remaining=\(report.remaining)"
+            line += report.loadFailed ? " ok=0 load=error" : " ok=1"
+            if let errorType = report.lastErrorType { line += " error=\(errorType)" }
+            BotRebindDiagnostics.emit(line)
+        }
+        if rerun.remove(botID) != nil {
+            schedule(botID: botID, rows: rows, reason: reason)
+        }
+    }
+}
+
 /// The single production composition root for the whole Bot roster.
 ///
 /// Hard constraint: one `BotMCPRuntime`, one `BotMCPHTTPServer` and one effect
@@ -165,6 +209,9 @@ final class BotRuntimeComposition {
     let rosterModel: BotRosterModel
     let selectionStore: BotSelectionStore
     let agentCommTracker = BotAgentCommTracker()
+    /// Durable pending-action replay (v4). Off the bind path: a unit start
+    /// schedules a pass, the bind never awaits it.
+    private let pendingActionReplay = BotPendingActionReplayCoordinator()
     /// Synchronous main-Bot pointer for the maintainer write rule.
     let mainBotPointer: BotMainBotPointer
 
@@ -539,6 +586,7 @@ final class BotRuntimeComposition {
                 let transport = try await host.makeTransport()
                 try await unit.start(transport: transport, attempt: 0,
                                      channelDetail: channelDetail)
+                schedulePendingActionReplay(for: unit, reason: "unit-start")
             } catch {
                 units.removeValue(forKey: botID)
                 await runtime.detachTaskExecutor(botID: botID)
@@ -848,7 +896,17 @@ final class BotRuntimeComposition {
         try Task.checkCancellation()
         try await unit.start(transport: transport, attempt: attempt,
                              channelDetail: channelDetail)
+        // The main session is live, so any action a previous process persisted
+        // before its remote turn can be replayed now. Detached: the bind must
+        // not wait for a turn that may take minutes.
+        schedulePendingActionReplay(for: unit, reason: "bind")
         try Task.checkCancellation()
+    }
+
+    /// Schedules the v4 outbox replay for one started unit. Missing rows are a
+    /// single indexed read; a row that cannot be delivered stays pending.
+    private func schedulePendingActionReplay(for unit: BotRuntimeUnit, reason: String) {
+        pendingActionReplay.schedule(botID: unit.botID, rows: unit.rows, reason: reason)
     }
 
     private func routineOwnerBotIDs() async -> [String] {

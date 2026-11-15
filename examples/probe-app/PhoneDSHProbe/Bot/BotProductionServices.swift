@@ -474,6 +474,33 @@ enum BotProductionSessionEpochs {
     }
 }
 
+/// Bounds for the pending-action replay pass (v4 outbox). Generous enough that
+/// a briefly unavailable transport gets one more try, small enough that a
+/// launch never retries a dead network for long; the row itself stays pending
+/// across launches regardless.
+enum BotPendingActionReplayPolicy {
+    static let attemptsPerAction = 2
+    static let backoffMilliseconds: Int64 = 250
+}
+
+/// Outcome of one pending-action replay pass for diagnostics. Counts and a
+/// type name only: action text, attachments and paths never leave the store.
+struct BotPendingActionReplayReport: Equatable, Sendable {
+    var loaded = 0
+    var accepted = 0
+    var duplicates = 0
+    var stale = 0
+    var rejected = 0
+    /// Actions that threw on every permitted attempt and stayed pending.
+    var deferred = 0
+    /// Rows still in the store after the pass; `-1` when the reload failed.
+    var remaining = 0
+    var loadFailed = false
+    var lastErrorType: String?
+
+    var isClean: Bool { !loadFailed && deferred == 0 && remaining == 0 }
+}
+
 /// Reads the same durable rows the production Bot page renders. One instance
 /// belongs to the composition root; the UI passes its driver around instead of
 /// constructing another projection authority.
@@ -726,6 +753,81 @@ actor BotProductionRowService {
         await updateDispatcher()
         guard let dispatcher else { return .rejected(reason: BotProductionError.brainUnavailable.localizedDescription) }
         return try await dispatcher.dispatch(action)
+    }
+
+    /// Replays the durable pending-action outbox (v4) for this Bot.
+    ///
+    /// Called after the unit's main session starts, never from inside the bind:
+    /// one replay may await a whole remote turn. Rows are re-dispatched one at
+    /// a time through the same dispatcher the UI uses, so a replayed action is
+    /// validated, nonce-checked and committed exactly like a live tap. A thrown
+    /// dispatch keeps the row for the next launch, which makes an offline
+    /// launch safe: nothing is dropped and nothing crashes. After two
+    /// consecutive deferred actions the pass stops early, because the likely
+    /// cause is an unavailable transport rather than one bad action.
+    @discardableResult
+    func replayPendingActions(
+        attemptsPerAction: Int = BotPendingActionReplayPolicy.attemptsPerAction,
+        backoffMilliseconds: Int64 = BotPendingActionReplayPolicy.backoffMilliseconds
+    ) async -> BotPendingActionReplayReport {
+        var report = BotPendingActionReplayReport()
+        let botID = environment.botID
+        let pending: [BotUserAction]
+        do {
+            pending = try await environment.domain.pendingActions(botID: botID)
+        } catch {
+            report.loadFailed = true
+            report.lastErrorType = Self.errorTypeToken(error)
+            return report
+        }
+        report.loaded = pending.count
+        guard !pending.isEmpty else { return report }
+        do {
+            try await start()
+        } catch {
+            report.deferred = pending.count
+            report.lastErrorType = Self.errorTypeToken(error)
+            return report
+        }
+        let allowedAttempts = max(1, attemptsPerAction)
+        var consecutiveDeferred = 0
+        for action in pending {
+            var result: BotActionResult?
+            var lastError: Error?
+            for attempt in 1...allowedAttempts {
+                do {
+                    result = try await perform(action)
+                    break
+                } catch {
+                    lastError = error
+                    guard attempt < allowedAttempts else { break }
+                    try? await Task.sleep(
+                        nanoseconds: UInt64(max(0, backoffMilliseconds)) * 1_000_000)
+                }
+            }
+            if let result {
+                consecutiveDeferred = 0
+                switch result {
+                case .accepted: report.accepted += 1
+                case .duplicate: report.duplicates += 1
+                case .stale: report.stale += 1
+                case .rejected: report.rejected += 1
+                }
+            } else {
+                report.deferred += 1
+                if let lastError { report.lastErrorType = Self.errorTypeToken(lastError) }
+                consecutiveDeferred += 1
+                if consecutiveDeferred >= 2 { break }
+            }
+        }
+        report.remaining = (try? await environment.domain.pendingActions(botID: botID).count) ?? -1
+        return report
+    }
+
+    /// Type names only: a remote error's message can carry request content, and
+    /// a store error can name a path. The diagnostic line gets neither.
+    private static func errorTypeToken(_ error: Error) -> String {
+        String(describing: type(of: error))
     }
 
     func stopCurrentTurn(turnID: String?) async throws {

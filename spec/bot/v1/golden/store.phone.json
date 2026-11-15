@@ -6,10 +6,11 @@
   },
   "upstream": [],
   "delta": [
-    "P25 SQLite store profile v3: logical path PhoneDSHBot/domain.sqlite, WAL/synchronous=FULL/foreign_keys/secure_delete pragmas, exact bot_event_headers/bot_event_payloads/bot_events/bot_effects/bot_effect_inbox/bot_user_action_nonces DDL.",
+    "P25 SQLite store profile v4: logical path PhoneDSHBot/domain.sqlite, WAL/synchronous=FULL/foreign_keys/secure_delete pragmas, exact bot_event_headers/bot_event_payloads/bot_events/bot_effects/bot_effect_inbox/bot_user_action_nonces/bot_pending_actions DDL.",
     "commitSeq is assigned only by the store in a BEGIN IMMEDIATE transaction, starts at 1, is contiguous per durable batch, and a post-open gap is commitGap. A v1/v2 migration gap is checked inside the migration transaction: it rolls back, leaves user_version at its old value, and refuses the open with corrupted naming the first gap. A single duplicate eventId returns the committed sequence; a batch with a committed or repeated eventId is invalidTransition.",
     "The payload column stores only canonical data bytes (sorted keys, / unescaped, compact); payload_digest is SHA-256 over those exact bytes and payload_size is their byte length. header_meta is the canonical full envelope with data {}.",
-    "v1/v2 databases migrate in place to v3: the old full-envelope payload is decoded, checked against the row, and split into header_meta plus the data payload; nonces are copied; user_version becomes 3; reopen is idempotent. A pre-existing commit_seq gap is refused before COMMIT.",
+    "v1/v2 databases migrate in place to v4 through the v3 split: the old full-envelope payload is decoded, checked against the row, and split into header_meta plus the data payload; nonces are copied; user_version becomes 4; reopen is idempotent. A pre-existing commit_seq gap is refused before COMMIT. A v3 database gets the additive v4 bot_pending_actions table and user_version 4 without any v3 row being read or rewritten.",
+    "v4 adds bot_pending_actions(bot_id, nonce, payload, created_at_ms, attempts), the durable pre-dispatch outbox for BotUserAction. A row is written before planner.plan can start a remote turn, kept on any thrown error and on retryable non-throwing rejections (transport_replaced, turn_not_completed, collect_idle_timeout, snapshot_timeout, transport_timeout, unavailable, unit_detached, unknown reasons), and deleted only on terminal outcomes (accepted; duplicate when no resume is pending; terminal stale/rejected such as card_expired/already_answered/card_dismissed/missing_text/untrusted_action/invalid_*; user cancelled). A committed cardAnswer whose prompt never sent keeps the row for a prompt-only card-answer:<nonce> resume. Replay is ordered by created_at_ms then nonce, idempotent through the (bot_id, nonce) key, bounded by the App policy (TTL 24h, 3 attempts) with a send-expired:<botID>:<nonce> ui.notice on expiry.",
     "Effects are at-least-once: enqueue is generation-idempotent, leases select by (not_before, enqueued_commit_seq, effect_key), an expired leased effect with attempts < maxAttempts takes a new attempt and generation+1, permanent or exhausted failures dead-letter, unknown outcomes need reconciliation, and only network-idempotent retries wait 1000*2^(attempt-1) ms (capped at 300000). The store lease is the only selection order: a known kind without a registered executor is released to pending with that retry delay and writes no event, while a kind outside the host catalogue is fail(permanent) with unknown_effect_kind.",
     "The inbox dedupes by (receiver, effect_key, generation); a replay returns the stored result without executing again, including after reopen.",
     "These are phone-only vectors; upstream [] because dsh-bot does not export the SQLite profile."
@@ -346,7 +347,7 @@
       ]
     },
     {
-      "name": "v2-to-v3-splits-payload-and-copies-nonce",
+      "name": "v2-to-v4-splits-payload-and-copies-nonce",
       "source": "Tests/PhoneDSHBotTests/Store/BotEventStorageTests.swift:87-134",
       "kind": "migration",
       "steps": [
@@ -381,7 +382,7 @@
           "expect": {
             "rows": [
               [
-                "3"
+                "4"
               ]
             ]
           }
@@ -521,7 +522,7 @@
       }
     },
     {
-      "name": "v1-to-v3-creates-nonce-table",
+      "name": "v1-to-v4-creates-nonce-table",
       "source": "Tests/PhoneDSHBotTests/Store/UserActionTransactionTests.swift:19-75",
       "kind": "migration",
       "steps": [
@@ -550,7 +551,7 @@
           "expect": {
             "rows": [
               [
-                "3"
+                "4"
               ]
             ]
           }
@@ -2263,7 +2264,7 @@
         },
         {
           "op": "sql",
-          "statement": "PRAGMA user_version=4",
+          "statement": "PRAGMA user_version=5",
           "expect": {
             "ok": true
           }
@@ -2271,7 +2272,7 @@
         {
           "op": "reopen",
           "expect": {
-            "error": "schemaTooNew:4"
+            "error": "schemaTooNew:5"
           }
         },
         {
@@ -2280,7 +2281,7 @@
           "expect": {
             "rows": [
               [
-                "4"
+                "5"
               ]
             ]
           }
