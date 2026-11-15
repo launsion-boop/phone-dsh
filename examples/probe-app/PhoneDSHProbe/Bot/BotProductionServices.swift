@@ -479,6 +479,12 @@ enum BotProductionSessionEpochs {
 /// launch never retries a dead network for long; the row itself stays pending
 /// across launches regardless.
 enum BotPendingActionReplayPolicy {
+    /// Automatic replay at launch/bind was removed: it started unsolicited
+    /// turns (and the activity bubble + transcript scroll that follow them)
+    /// for a message the user had already stopped waiting on. Rows stay
+    /// durable; an explicit retry surface is the follow-up. Set this to true
+    /// only with that surface in place.
+    static let automaticReplay = false
     static let attemptsPerAction = 2
     static let backoffMilliseconds: Int64 = 250
 }

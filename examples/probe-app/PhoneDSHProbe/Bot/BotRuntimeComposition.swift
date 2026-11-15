@@ -925,6 +925,10 @@ final class BotRuntimeComposition {
     /// Schedules the v4 outbox replay for one started unit. Missing rows are a
     /// single indexed read; a row that cannot be delivered stays pending.
     private func schedulePendingActionReplay(for unit: BotRuntimeUnit, reason: String) {
+        // Deliberately off: an automatic replay turns a stale pending send into
+        // an unsolicited turn, activity bubble and transcript scroll at launch.
+        // The rows stay durable for a future user-initiated retry.
+        guard BotPendingActionReplayPolicy.automaticReplay else { return }
         pendingActionReplay.schedule(botID: unit.botID, rows: unit.rows, reason: reason)
     }
 
