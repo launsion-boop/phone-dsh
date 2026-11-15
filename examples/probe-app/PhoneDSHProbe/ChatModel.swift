@@ -3155,6 +3155,14 @@ final class ChatModel {
             appendStatus("Host resumed; the session continues from the WAL")
             refreshFiles()
             await reconcileTurnStateAfterResume()
+            // A pump that failed while parked can be blocked in a resync issued
+            // against the parked page and never return. Restart it from the last
+            // delivered seq on the resumed host so this session's events arrive
+            // (a background resume has no foreground reload to repair it).
+            if eventStreamRecovering, pcRuntime == nil, let harness, let sessionID {
+                appendStatus("Event stream restarted after resume")
+                startPump(harness: harness, sessionID: sessionID, after: lastSeq)
+            }
         } catch {
             if Self.isResumeCancelled(error) {
                 // The App went to the background. The host released its gate
@@ -3368,6 +3376,7 @@ final class ChatModel {
     /// lifecycle settles, so there is exactly one pending switch structure.
     private func flushPendingRecoveryUIActions() async {
         guard !isHostRecovering, !busy, !engineNeedsReset, host != nil, executionEligible else {
+            appendStatus("Queued delivery held before drain (recovering=\(isHostRecovering) busy=\(busy) reset=\(engineNeedsReset) host=\(host != nil) eligible=\(executionEligible))")
             if recoveryFlushTask == nil { scheduleRecoveryQueueFlush() }
             return
         }
@@ -3395,6 +3404,10 @@ final class ChatModel {
                     self.scheduleRecoveryQueueFlush()
                 }
             }
+            // One preparation per task: after start/resume the loop waits for the
+            // engine to become ready instead of draining once mid-recovery (a
+            // background resume has no later page event to retry the drain).
+            var prepared = false
             for _ in 0..<300 {
                 guard !Task.isCancelled, self.outboxNeedsDrain else { return }
                 let decision = ChatDeliveryPreparation.decide(
@@ -3411,22 +3424,22 @@ final class ChatModel {
                 }
                 switch decision {
                 case .ready:
+                    if prepared { self.appendStatus("Queued delivery: engine ready, delivering") }
                     await self.flushPendingRecoveryUIActions()
                     return
                 case .start:
+                    // start/adoption owns retries. Never boot twice from one task.
+                    guard !prepared else { return }
+                    prepared = true
                     self.appendStatus("Queued delivery: preparing the engine")
                     await self.start(autoRecover: true)
                     guard !Task.isCancelled, !self.queuedPreparationPaused else { return }
-                    // start/adoption owns retries. Never spin on a failed boot.
-                    await self.flushPendingRecoveryUIActions()
-                    return
                 case .resume:
-                    guard let host = self.host else { return }
+                    guard !prepared, let host = self.host else { return }
+                    prepared = true
                     self.appendStatus("Queued delivery: resuming the parked engine")
                     await self.resumeHost(host)
                     guard !Task.isCancelled, !self.queuedPreparationPaused else { return }
-                    await self.flushPendingRecoveryUIActions()
-                    return
                 case .deferred:
                     self.appendStatus("Queued delivery saved; waiting for foreground or a resident keep-alive")
                     return
@@ -4020,11 +4033,20 @@ final class ChatModel {
                 continue
             }
             if entry.sessionId != sessionID {
-                guard !turnRunning, !keepingAlive else { break }
-                guard await activateSessionForOutbox(entry.sessionId) else { break }
+                guard !turnRunning, !keepingAlive else {
+                    appendStatus("Queued delivery held: target session is not active (turnRunning=\(turnRunning) keepingAlive=\(keepingAlive) active=\(sessionID == nil ? "none" : "other"))")
+                    break
+                }
+                guard await activateSessionForOutbox(entry.sessionId) else {
+                    appendStatus("Queued delivery held: target session could not be activated")
+                    break
+                }
             }
             guard let activeHarness = harness, let deliveryHost = host,
-                  queuedEntryCanDispatch(entry) else { break }
+                  queuedEntryCanDispatch(entry) else {
+                appendStatus("Queued delivery held: engine not dispatchable (harness=\(harness != nil) host=\(host != nil) eligible=\(executionEligible))")
+                break
+            }
             // Both the first attempt and every retry re-verify every byte
             // reference before submit. A missing or modified file blocks the
             // entry; it is never downgraded to a text-only send.

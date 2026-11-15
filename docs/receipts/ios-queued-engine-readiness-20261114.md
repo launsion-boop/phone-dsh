@@ -106,3 +106,23 @@ bash scripts/ci/smoke.sh
 `ios-ingress-remaining-gates.log`、`ios-ingress-final-spec-content.log`、
 `ios-ingress-host-smoke-verified/smoke-report.json`。PR 保持 Draft，不将本次局部通过
 升格为完整架构、真机或发布验收。
+
+
+### 真机驻留验证（2026-11-15，revision 6/7）
+
+设备：iPhone `00008160-00023D1C2240000A`（iPhone19,4，iOS 27.2），板子 `PhoneAgent-7356`，App
+`com.tono.phonedsh.probe`（team Q322S2LD93，本地临时 bundle id，未提交）。Worker 从钉版 DSH
+`66491b05` 重新打包，使用 `--without-jq`（本机无 Rust）；其余与标准流程相同。
+
+| 场景 | 结果（来自设备 `chat-status.log` / `tonolink-voice.log` / session WAL） |
+| --- | --- |
+| XCTest（PhoneDSHDeviceTests 中的 4 个套件，36 项） | 35 PASS；`SendOutboxTests.testGeneratedEntryPassesTheOwningSchema` FAIL：要按 Mac 路径读取 `spec/host/v1/schema/outbox-entry.schema.json`，手机上读不到（环境限制，schema 未改） |
+| 冷启动（前台） | PASS：引擎启动，`Session resumed` |
+| 板子断开时进后台 → 引擎 park → 板子在后台重连 | PASS：03:42:30 `Host parked`；进程被挂起约 397 s，03:49:41 BLE 重连唤醒（`app=2`） |
+| 已 park 引擎上的后台语音（rev 6） | 执行 PASS：03:59:23 `Queued delivery: resuming the parked engine`，03:59:29 turn 141 start，request `1b2c0a4a…` 在 WAL 中只出现一次，03:59:34 completed。回传 FAIL：事件流 resync 卡死，语音 deferred；重启后对账为 durable，未重复执行 |
+| 修复（rev 7） | 准备循环在 start/resume 后等到 `.ready` 再 drain；resume 后如果事件流仍在恢复，从 lastSeq 重启 pump。已装到真机 |
+| 板子保持连接时的后台语音（rev 7 构建） | PASS：05:04:29 wake → heard「现在几点了？」→ admitted `124fc89c…` → running → 05:04:39 reply「现在是 9:04 PM…」（9.8 s）→ 播报 → 05:04:47 task_done |
+| 后台播报「我在」/回复 | 输出路由为 AirPlay 时 FAIL（`'!int'` cannot interrupt others，03:56–03:59）；路由为 Speaker 时 PASS（05:04）。与本 PR 无关，另行跟踪 |
+
+NOT_RUN：rev 7 中 park 之后的 pump 重启（需要再断电一次板子）；强退 / 系统回收后由 BLE
+冷启动；30/60 分钟耗电。

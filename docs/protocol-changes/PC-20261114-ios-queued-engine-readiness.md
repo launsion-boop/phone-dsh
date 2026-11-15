@@ -126,3 +126,12 @@ its `user/message` follows the next `turn/start`; live attribution by open turn 
 Compatibility: same records and requests old↔new; rollback restores foreground-only preparation
 without losing queued entries. Android/firmware unchanged. Device background boot/resume under a
 board keep-alive, BLE cold relaunch and power are NOT_RUN until executed on hardware.
+
+
+### Device findings (revision 7, implementation only)
+
+Device run (receipt §真机驻留验证) proved background execution on a parked host under the board
+keep-alive, and found two native gaps with no contract change: (1) after start/resume the
+preparation task drained once mid-recovery and nothing retried in background — it now loops
+until `.ready` with one preparation per task; (2) a pump that failed while parked could hang in
+a resync against the parked page — a resume now restarts it from `lastSeq` while recovering.
