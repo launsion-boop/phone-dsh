@@ -219,6 +219,50 @@ Consumer rules: the phone sends `fx` best effort. The ctrl link carries one comm
 the phone queues light changes and the next `listen` waits for them; a refused or lost `fx` never
 fails the turn and is never retried. The phone does not send `wake` (the board lights it itself).
 
+### 4.4 Unlock while the phone is locked (phone → board keyboard over BLE)
+
+Producer: the board's existing `cmd` grammar for its keyboard (`main/shared/pa_cmd_parse.c`, executed by
+`main/ctrl_svc.c`; unchanged). The board logs only the verb and result of these lines, never their
+text. Consumers: `TonoLinkUnlock` (`Sources/PhoneDSHBLE/TonoLinkUnlock.swift`), the app's
+`TonoLinkVoiceHost` (at the wake, over its own ctrl link: a locked phone cannot run the chat engine) and
+`IPhoneAgentHost.prepare()` (at an agent task start). The passcode is saved in the TonoLink mini
+program's 手机控制 section ([device-panel.md](device-panel.md) §4.3). Shared cases: `unlock_commands` / `unlock_rejected` in
+[golden/tonolink-voice.json](golden/tonolink-voice.json) (fake passcodes).
+
+When the board's wake word arrives (or an agent task starts) while the phone is locked, the phone
+types its owner's numeric passcode through the board's keyboard. USB HTTP (§2) is not used for
+this: iOS may have cut the USB accessory while locked, while the BLE link stays up.
+
+| Step | `cmd` write | Then |
+| --- | --- | --- |
+| 1 | `<s> hid_mode 1` | attaches the keyboard if it was hidden; wait 2 s for iOS to subscribe |
+| 2 | `<s+1> key backspace` | wakes the screen and opens 输入密码 (an empty passcode field ignores it); wait 2 s, then ask iOS again: if the phone is no longer locked (no passcode was required yet), stop here and type nothing |
+| 3 | `<s+2> key backspace` | the keypad drops the first key after the wake (measured: 3 of 4 digits arrived, whether sent as one `type` line or one `key` per digit); this key is the one dropped, or a no-op on the empty field; wait 600 ms |
+| 4… | `<s+3> key <d>`, one line per digit | 300 ms after each |
+| last | `key enter` | only when the passcode is not 4 or 6 digits (iOS submits those by itself) |
+
+Each line must be acked `ok`; any other answer, or no answer within 4 s, stops the sequence with
+nothing retried. The lines use consecutive `seq` values without wrapping past 65535 (a builder
+given a start that would wrap refuses it; the caller starts again at 1).
+
+Phone rules:
+- Only a numeric passcode of 4–10 ASCII digits is accepted; anything else is refused before any write.
+- The passcode lives only in the phone's Keychain (this device only, readable after the first unlock
+  since boot), entered by the owner in the TonoLink mini program; saving it is the consent, clearing it
+  turns automatic unlock off; it never goes to the board's storage, a log, a
+  receipt, a journal or the model.
+- Locked means SpringBoard's `com.apple.springboard.lockstate` notification state is 1 (set within
+  3 s of locking, whatever 需要密码 is) or iOS reports protected data unavailable (about 10 s after
+  locking). The passcode is typed only while locked, only after the owner saved it in the TonoLink mini
+  program, at a wake or an agent task start. Unlocked within 5 s means success.
+- Precondition the owner sets on the phone: 设置 → 触控 ID/面容 ID 与密码 → 锁定时允许访问 → 配件 on.
+  Without it iOS cuts the board's USB accessory after the phone has been locked for a while and asks
+  to allow it again after unlocking, so the agent has neither picture nor taps even when the
+  passcode was right (measured on the phone: USB HTTP unreachable after a long lock until allowed).
+- One attempt per locked period. After 3 failed attempts in a day, automatic unlock stops until the
+  next day, or until the owner saves the passcode again (saving resets the day's count). The phone never unlocks after a reboot before the owner's first
+  unlock (the Keychain item is unreadable then).
+
 ## 5. DEBUG relay (developer builds only)
 
 DEBUG builds can serve `TonoLinkRelay` on the phone's Wi-Fi at `:8780` and forward

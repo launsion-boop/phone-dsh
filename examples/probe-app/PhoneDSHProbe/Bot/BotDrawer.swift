@@ -84,6 +84,7 @@ struct BotDrawerPanel: View {
     var initiallyShowingAdd = false
     var initialAddName = ""
     private let width: CGFloat = 320
+    @Environment(\.botFishPaused) private var parentFishPaused
 
     var body: some View {
         Group {
@@ -110,6 +111,9 @@ struct BotDrawerPanel: View {
         .accessibilityAction(named: Text("关闭 Bot 列表")) { close() }
         .accessibilityHint(isPersistent ? "" : "两指画 Z 或从转子里选「关闭 Bot 列表」都能收回。")
         .accessibilityIdentifier("bot.drawer.panel")
+        // The panel remains mounted while slid off screen. Stop its avatar
+        // timelines there, while preserving the app-wide pause conditions.
+        .environment(\.botFishPaused, parentFishPaused || !isOpen)
     }
 
     /// Drawer-owned closing stays inside the panel; the host may do extra work
@@ -328,7 +332,7 @@ struct BotDrawer: View {
     }
 
     private var botRows: some View {
-        VStack(spacing: 2) {
+        LazyVStack(spacing: 2) {
             ForEach(visibleEntries) { entry in
                 BotDrawerRow(entry: entry,
                              selected: roster.selectedBotID == entry.id,
@@ -396,6 +400,88 @@ struct BotDrawer: View {
     }
 }
 
+/// Desktop sidebar-style status badges, projected from this Bot's existing
+/// roster snapshot. No polling or second execution state is owned by the UI.
+private enum BotListBadge: Equatable {
+    case thinking, working, streaming, waiting, sleeping, done, unread
+
+    init?(_ entry: BotRosterEntry) {
+        if entry.pendingApprovalCount > 0 || entry.fishState == .alerting {
+            self = .waiting
+        } else if entry.isRunning {
+            switch entry.activity?.status {
+            case .toolRunning: self = .working
+            case .streaming: self = .streaming
+            case .thinking: self = .thinking
+            case nil:
+                switch entry.fishState {
+                case .working: self = .working
+                case .speaking, .streaming: self = .streaming
+                default: self = .thinking
+                }
+            }
+        } else if entry.fishState == .done {
+            self = .done
+        } else if entry.unreadCount > 0 {
+            self = .unread
+        } else if entry.fishState == .sleeping {
+            self = .sleeping
+        } else {
+            return nil
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .thinking: "ellipsis"
+        case .working: "wrench.fill"
+        case .streaming: "waveform"
+        case .waiting: "exclamationmark"
+        case .sleeping: "moon.zzz.fill"
+        case .done: "checkmark"
+        case .unread: "circle.fill"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .thinking: "思考中"
+        case .working: "执行工具中"
+        case .streaming: "回复中"
+        case .waiting: "等待确认"
+        case .sleeping: "休息中"
+        case .done: "已完成"
+        case .unread: "有未读消息"
+        }
+    }
+}
+
+/// Shared by the drawer and management list. Keep the existing standard
+/// small-avatar animation budget and lifecycle/reaction, including reduce
+/// motion, low-power and off-screen pausing inside BotFishView.
+private struct BotListAvatar: View {
+    let entry: BotRosterEntry
+    var size: CGFloat = 38
+
+    var body: some View {
+        let theme = BotCardTheme(appearance: entry.appearance)
+        BotFishView(state: entry.fishState, size: size, appearance: entry.appearance,
+                    crowned: entry.isMainBot, reaction: entry.reaction)
+            .overlay(alignment: .bottomTrailing) {
+                if let badge = BotListBadge(entry) {
+                    Image(systemName: badge.symbol)
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(theme.buttonInk)
+                        .frame(width: 15, height: 15)
+                        .background(badge == .waiting ? NativeParityTokens.warning : theme.accent, in: Circle())
+                        .overlay(Circle().strokeBorder(HomeSpec.page, lineWidth: 1.5))
+                        .offset(x: 2, y: 2)
+                }
+            }
+            .accessibilityHidden(true)
+    }
+}
+
 private struct BotDrawerRow: View {
     let entry: BotRosterEntry
     let selected: Bool
@@ -422,6 +508,7 @@ private struct BotDrawerRow: View {
             default: return "运行中"
             }
         }
+        if let badge = BotListBadge(entry), badge != .unread { return badge.label }
         if let last = entry.lastMessageAt {
             return BotUIFormat.relativeTime(milliseconds: last)
         }
@@ -435,9 +522,7 @@ private struct BotDrawerRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 10) {
-                BotFishView(state: entry.fishState, size: 38, appearance: entry.appearance,
-                            crowned: entry.isMainBot, reaction: entry.reaction)
-                    .accessibilityHidden(true)
+                BotListAvatar(entry: entry)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.name)
                         .font(.system(size: 15, weight: .semibold))
@@ -581,9 +666,7 @@ struct BotManageList: View {
 
     private func manageRow(_ entry: BotRosterEntry) -> some View {
         HStack(spacing: 12) {
-            BotFishView(state: entry.fishState, size: 36, appearance: entry.appearance,
-                        crowned: entry.isMainBot, still: true, reaction: entry.reaction)
-                .accessibilityHidden(true)
+            BotListAvatar(entry: entry, size: 36)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(entry.name)
@@ -604,6 +687,11 @@ struct BotManageList: View {
                             .frame(height: 18)
                             .background(HomeSpec.userBubble, in: Capsule())
                     }
+                }
+                if let badge = BotListBadge(entry) {
+                    Text(badge.label)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(badge == .waiting ? NativeParityTokens.warning : HomeSpec.textSecondary)
                 }
                 Text(entry.description.isEmpty ? "还没有描述" : entry.description)
                     .font(.system(size: 12.5))
