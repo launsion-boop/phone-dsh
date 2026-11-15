@@ -67,3 +67,42 @@ Bot action，也没有启用仍为 target 的 BLE secure task session。Android 
 兼容与回滚：无 outbox schema/字段变更，无新 BLE 字节，无数据库迁移。旧版本仍能读取
 已排队记录；回滚代码不删除任务。服务端实现时仍需单独冻结身份、授权、目标、去重保留期、
 到期/容量、账户退出与 erasure，并完成两端验收，不能复用本地语音 ID 冒充服务器去重协议。
+
+### 最终本地结果（2026-11-14）
+
+实现提交：`ec6d189563fd0e302733070e4e65c0c2c415b5f7`。
+后续提交只补本记录。最后一次 App/Simulator 构建使用本任务重新打包的 Worker 资源。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| iOS App + ProbeKit 编译、选定 Simulator XCTest | PASS；35 tests / 0 failures：ChatDeliveryPreparationTests 5、NativeVoiceRequestTests 6、SendOutboxTests 17、ChatInputRecoveryTests 7 |
+| protocol impact + `git diff --check` | PASS；P05/P06/P07/P09，P12/P16/P27 有逐项不变理由 |
+| `phone-spec` | PASS；265 Python tests；最新 cloud-voice 段落补齐后另跑 `spec_golden.py --full`，105 files / 0 errors |
+| `phone-cross-tree` | PASS；8 invariants、129 schemas 无 breaking finding，98 工具回归通过 |
+| `phone-plugins` | Gate PASS；typecheck 通过，2648 tests passed / 21 skipped / 0 failed；不把内部 skip 写成已执行 |
+| `phone-image` | PASS；从钉版 DSH 重新打包，不修改 DSH 源码 |
+| `phone-no-dsh-patch` / `phone-license` / `phone-github-oauth` | PASS |
+| `phone-p0-conformance` | FAIL；UI token provenance 和 6 页契约行号过期，已在独立 worktree 的原始 base `29a733c` 原样复现 |
+| `phone-hygiene` | FAIL；原始 base 与本分支各 435 条发现，按 path/rule/value 归一化后新增 0、减少 0；没有添加 allowlist |
+| `phone-gate-contracts` | FAIL；production-scan selftest 依赖 clean hygiene，报告上述同一批发现；其他已运行子检查不升格成整个 gate PASS |
+| `phone-sdk` | FAIL / INCOMPLETE；BLE secure/task 跨运行时测试缺少 pinned cJSON/mbedTLS。已记录失败后，停止其重复的 spec 子阶段（独立 phone-spec 已 PASS）；SDK 进程 rc=143，不能称作完整 SDK 通过 |
+| `scripts/ci/smoke.sh` | 最终 PASS；4 tests / 0 failures，真实 macOS WKWebView、scripted model、重启/WAL 恢复。初次 4 项虽通过，包装脚本误匹配编译警告中的 skippedRecordCount 导致 FAIL；保留初次结果，未改 gate，原命令暖构建复跑 PASS |
+
+核心复现命令（从仓库根目录执行，Xcode 工程先用 XcodeGen 生成）：
+
+```sh
+xcodebuild -project examples/probe-app/PhoneDSHProbe.xcodeproj -scheme PhoneDSHSimTests \
+  -destination 'platform=iOS Simulator,name=<available simulator>' CODE_SIGNING_ALLOWED=NO \
+  -only-testing:PhoneDSHSimTests/ChatDeliveryPreparationTests \
+  -only-testing:PhoneDSHSimTests/NativeVoiceRequestTests \
+  -only-testing:PhoneDSHSimTests/SendOutboxTests \
+  -only-testing:PhoneDSHSimTests/ChatInputRecoveryTests test
+bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree,phone-gate-contracts,phone-github-oauth,phone-hygiene,phone-license,phone-no-dsh-patch
+bash scripts/ci/check.sh --only phone-plugins,phone-image,phone-sdk
+bash scripts/ci/smoke.sh
+```
+
+本地证据文件名：`ios-ingress-sim-tests-lifecycle-final.log`、`ios-ingress-gates.log`、
+`ios-ingress-remaining-gates.log`、`ios-ingress-final-spec-content.log`、
+`ios-ingress-host-smoke-verified/smoke-report.json`。PR 保持 Draft，不将本次局部通过
+升格为完整架构、真机或发布验收。
