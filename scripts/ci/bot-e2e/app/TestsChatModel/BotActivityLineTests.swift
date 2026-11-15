@@ -665,6 +665,49 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(presence.fishState, .sleeping)
     }
 
+    /// The typing bubble reads the same `BotHeaderPresence` as the activity
+    /// line: it is on for every running-turn activity fixture and off the
+    /// moment the turn settles (final assistant row), fails or stops, even
+    /// while a notice/approval line is still visible above it.
+    func testTypingBubbleOnlyEchoesARunningTurn() {
+        // Thinking / awaiting reply / tool running / streaming all resolve
+        // to `.working` and must carry both the line and the bubble.
+        let running: [(BotActivity, Int)] = [
+            (BotActivity(status: .thinking, detail: "等待响应", category: .thinking), 0),
+            (BotActivity(status: .thinking, detail: "", category: .waiting), 0),
+            (BotActivity(status: .toolRunning, detail: "在翻文件 · a.md", category: .reading), 0),
+            (BotActivity(status: .streaming, detail: "正在回复", category: .replying), 0),
+        ]
+        for (activity, approvals) in running {
+            let presence = BotHeaderPresence.resolve(turnActive: true, lineActivity: activity,
+                                                     pendingApprovals: approvals,
+                                                     fishState: .thinking)
+            XCTAssertEqual(presence.phase, .working, "\(activity.category)")
+            XCTAssertNotNil(presence.line, "\(activity.category)")
+            XCTAssertTrue(presence.showsTypingBubble, "\(activity.category)")
+        }
+
+        // The final assistant row: the turn is over and the activity card is
+        // gone, so the bubble is gone too.
+        let settled = BotHeaderPresence.resolve(turnActive: false, lineActivity: nil,
+                                                pendingApprovals: 0, fishState: .idle)
+        XCTAssertNil(settled.line)
+        XCTAssertFalse(settled.showsTypingBubble)
+
+        // An error keeps the line for its six seconds but is not a turn.
+        let failed = BotHeaderPresence.resolve(turnActive: false, lineActivity: nil,
+                                               pendingApprovals: 0, fishState: .sad,
+                                               problem: "连接中断")
+        XCTAssertNotNil(failed.line)
+        XCTAssertFalse(failed.showsTypingBubble)
+
+        // Waiting for the user's approval after the turn: a line, no bubble.
+        let waiting = BotHeaderPresence.resolve(turnActive: false, lineActivity: nil,
+                                                pendingApprovals: 1, fishState: .alerting)
+        XCTAssertNotNil(waiting.line)
+        XCTAssertFalse(waiting.showsTypingBubble)
+    }
+
     func testHeaderProblemWinsAndJoinsLinesQuietly() {
         let thinking = BotActivity(status: .thinking, category: .thinking)
         let presence = BotHeaderPresence.resolve(turnActive: true, lineActivity: thinking,

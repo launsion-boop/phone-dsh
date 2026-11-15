@@ -44,6 +44,12 @@ struct BotHeaderPresence: Equatable {
     var lineIsQuiet: Bool { phase == .problem || line?.category == .waiting }
     /// The line is drawn in the danger tint.
     var lineIsProblem: Bool { phase == .problem }
+    /// The three-dot bubble above the composer is the same lifecycle as the
+    /// line above it: the page reads both from this one value. Only a running
+    /// turn types, so it is the `.working` phase — a failure report or an
+    /// approval that outlives its turn keeps the line but must not pretend
+    /// the Bot is still replying.
+    var showsTypingBubble: Bool { phase == .working }
 
     static func resolve(turnActive: Bool,
                         lineActivity: BotActivity?,

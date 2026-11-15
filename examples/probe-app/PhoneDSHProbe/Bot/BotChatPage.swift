@@ -123,6 +123,7 @@ struct BotChatPage: View {
             header
             transcript
                 .overlay(alignment: .top) { headerStatus }
+            typingBubbleBand
             composerDock
         }
         .background(HomeSpec.page.ignoresSafeArea())
@@ -265,6 +266,29 @@ struct BotChatPage: View {
         }
         .frame(maxWidth: .infinity)
         .animation(.easeInOut(duration: 0.25), value: presence.line != nil)
+        .allowsHitTesting(false)
+    }
+
+    /// The bottom-leading echo of `headerStatus`: three dots in a Bot bubble
+    /// immediately above the composer. It reads `presence`, the same value as
+    /// the activity line, so it can never be on while the line is off for a
+    /// settled turn. The band keeps `BotTypingBubble.height` + 4pt reserved
+    /// whether the bubble is drawn or not, so a turn starting or ending never
+    /// moves the transcript or the composer; `allowsHitTesting(false)` keeps
+    /// the reserved band from stealing a tap from either.
+    private var typingBubbleBand: some View {
+        ZStack(alignment: .leading) {
+            if presence.showsTypingBubble {
+                BotTypingBubble()
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: BotTypingBubble.height,
+               maxHeight: BotTypingBubble.height, alignment: .leading)
+        .padding(.horizontal, HomeSpec.contentInset)
+        .padding(.top, 4)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2),
+                   value: presence.showsTypingBubble)
         .allowsHitTesting(false)
     }
 
