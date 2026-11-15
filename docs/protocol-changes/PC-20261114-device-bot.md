@@ -43,6 +43,12 @@ Protocol impact: P07; P09; P27: none — Bots are created through the existing c
 - Two earlier builds created a second 手机助手, because the app was killed before UserDefaults was written. Now the registry binds an existing Bot with the same name and description, and synchronizes at once.
 - Voice test 你好小智，今天星期几: wake at 15:22:11, the text went to 手机助手, the reply 「今天是星期天，2026 年 11 月 15 日…」 came at 5.9 s and was spoken.
 - After an app restart, reaching the Bot runtime took 26 s.
+- In the background, four fixes were needed before the board's Bot answered:
+  1. Start the Bot's runtime unit before sending, because after a relaunch only the selected Bot runs.
+  2. Start the engine before sending, because a process relaunched in the background has the Bot runtime but no engine. The board's keep-alive makes starting it allowed.
+  3. Pull the Bot's durable rows while waiting, because its chat model's feed pauses in the background and for Bots that are not on screen.
+  4. Take only the answer that follows this turn's own message.
+- Final background test (another app in front): heard at 16:18:52, engine up and Bot reached at 16:19:04, answer 「今天是 2026 年 11 月 15 日，星期日」 spoken at 41 s.
 
 Not verified:
 - Link devices other than the TonoLink board, where a Bot is created from `tools/list`.

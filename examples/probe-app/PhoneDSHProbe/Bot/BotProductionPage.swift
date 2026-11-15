@@ -111,12 +111,31 @@ final class BotProductionHub {
     /// The chat model of a Bot without switching the page to it, connecting the hub to the app's
     /// Bot runtime first when needed (a device's voice turn arrives while another page is open).
     func chatModel(ensuring botID: String) async throws -> BotChatModel {
-        if composition == nil { await connect(chat: ChatModel.shared) }
+        // A process relaunched in the background has the Bot runtime but no engine: a send would
+        // reach no session. Start it (allowed while the board's keep-alive holds the app).
+        let chat = ChatModel.shared
+        if !chat.isStarted {
+            await chat.start()
+            for _ in 0..<120 where !chat.isStarted { try? await Task.sleep(for: .milliseconds(250)) }
+        }
+        if composition == nil { await connect(chat: chat) }
         guard let composition, let roster else { throw BotRuntimeError.unavailable }
         guard roster.bots.contains(where: { $0.id == botID }) else { throw BotTeamHostError.botNotFound(botID) }
+        // A Bot that is not on screen may have no running unit (after a relaunch only the selected
+        // one starts): without it a send reaches no engine session. An existing unit is untouched.
+        _ = try await composition.ensureUnit(for: botID, reason: "device-voice")
         if chatModels[botID] == nil { try await installModels(botID: botID, composition: composition) }
         guard let model = chatModels[botID] else { throw BotRuntimeError.unavailable }
         return model
+    }
+
+    /// Reads a Bot's durable rows into its chat model now. The model's own feed is paused while
+    /// the app is in the background, so a voice turn pulls the answer itself.
+    func pullRows(for botID: String) async {
+        guard let composition, let model = chatModels[botID],
+              let unit = try? await composition.ensureUnit(for: botID, reason: "device-voice") else { return }
+        let driver = await unit.rows.chatDriver()
+        if let batch = try? await driver.watch(0) { model.apply(batch) }
     }
 
     /// A link names a Bot explicitly. A legacy `main` link resolves through
