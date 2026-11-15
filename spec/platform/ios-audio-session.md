@@ -1,6 +1,6 @@
 # iOS app audio-session ownership
 
-Status: frozen app-local API revision 2, under P08. This specifies the existing
+Status: frozen app-local API revision 3, under P08. This specifies the existing
 ProbeKit to probe-app boundary. It adds no SDK, Worker, wire or persisted surface.
 Android continues to use the foreground-service policy in `whitelist.json`.
 
@@ -49,10 +49,17 @@ session; otherwise it restarts rendering without touching category or activation
 
 The TonoLink voice turn plays cloud TTS (16 kHz PCM) through its own
 AVAudioEngine and never records (the board's microphone does). For each turn it
-holds a **speaker-output** claim: `acquireSpeakerOutput()` applies the same
-mixable playAndRecord profile (sticky exactly like a microphone's) and, only
-while the current output is an AirPlay receiver, overrides the output to the
-built-in speaker. Mirroring the screen to the TonoLink board makes the output
+holds a **speaker-output** claim. Only while the current output is an AirPlay
+receiver does `acquireSpeakerOutput()` apply the same mixable playAndRecord profile
+(sticky exactly like a microphone's) and override the output to the built-in
+speaker; any other output plays under the current profile (the keep-alive's, or a
+playback profile the claim owns when nothing else holds the session). iOS refuses a
+background switch to playAndRecord (`'!int'`, cannot interrupt others), so a claim
+must not change category when its output does not require it, and the voice host
+arms the AirPlay profile in the foreground and keeps that armed claim through a
+board drop while the App is in the background (released on the next foreground
+with no board). A background drop also keeps the keep-alive for a bounded 600 s
+grace so the session stays active for a reconnect. Mirroring the screen to the TonoLink board makes the output
 AirPlay, and the board discards AirPlay audio, so without the override the
 phone's speech is silent (xiaozhi-link `USB_AIRPLAY_LESSONS.md`,
 `VoiceAssistant.activateSpeechSession`). Any other output (speaker, headphones,
@@ -76,7 +83,8 @@ compatible.
 Valid and invalid ownership fixtures run through the real lease state in
 `examples/probe-app/PhoneDSHSimTests/ProbeSceneLifecycleTests.swift`. They cover
 the speaker-output claim (AirPlay override and restore, shared profile, stale release, failed
-configuration), both handoff orders, zero-owner deactivation, stale and double release, failed
+configuration, no category switch for a non-AirPlay output, an armed profile reused by a later
+AirPlay claim, a lone playback claim), both handoff orders, zero-owner deactivation, stale and double release, failed
 activation and concurrent microphone rejection. Source-boundary checks are in
 `Tests/PhoneDSHTests/ProbeScenePhaseWiringTests.swift`. Device acceptance must
 check actual recording files, event progression, locked completion and cleanup;

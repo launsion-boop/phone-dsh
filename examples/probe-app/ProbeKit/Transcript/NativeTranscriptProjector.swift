@@ -8,13 +8,16 @@ public enum NativeTranscriptProjector {
     public static func items(from records: [JSONValue], sessionID: String) -> [ChatItem] {
         var result: [ChatItem] = []
         var calls: [String: Int] = [:]
+        var openTurn: Int?
         for event in records {
             guard let seq = event["seq"]?.intValue,
                   let type = event["type"]?.stringValue else { continue }
             let data = event["data"] ?? .null
             let id = "\(sessionID):\(seq)"
             let time = event["time"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1_000) }
-            let turn = data["turn"]?.intValue
+            if type == "turn/start" { openTurn = data["turn"]?.intValue }
+            let turn = data["turn"]?.intValue ?? openTurn
+            if type == "turn/end" { openTurn = nil }
             let step = data["step"]?.intValue
             switch type {
             case "user/message", "agent/steering/message":
@@ -232,7 +235,7 @@ public enum NativeTranscriptProjector {
         items[first] = accepted
     }
 
-    public static func acknowledgeInput(_ event: HarnessEvent, sessionID: String, in items: inout [ChatItem]) {
+    public static func acknowledgeInput(_ event: HarnessEvent, sessionID: String, in items: inout [ChatItem], openTurn: Int? = nil) {
         guard case .userMessage(_, let source) = event.kind, source == "user",
               let data = event.userMessageData,
               let requestID = data["source"]?["rpcId"]?.stringValue,
@@ -240,13 +243,16 @@ public enum NativeTranscriptProjector {
         let journalSeq = DSHEventMapper.position(of: seq).dshSeq
         if let index = items.firstIndex(where: { $0.promptRequestID == requestID }) {
             items[index].promptJournalSeq = journalSeq
+            items[index].turn = data["turn"]?.intValue ?? openTurn
             items[index].timestamp = event.time
         } else {
             let record: JSONValue = .object([
                 "type": .string("user/message"), "seq": .number(Double(journalSeq)),
                 "time": .number(event.time.timeIntervalSince1970 * 1_000), "data": data,
             ])
-            items.append(contentsOf: Self.items(from: [record], sessionID: sessionID))
+            var projected = Self.items(from: [record], sessionID: sessionID)
+            for index in projected.indices { projected[index].turn = projected[index].turn ?? openTurn }
+            items.append(contentsOf: projected)
         }
     }
 

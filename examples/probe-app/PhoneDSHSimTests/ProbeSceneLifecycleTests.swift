@@ -357,6 +357,7 @@ final class SpeakerOutputLeaseTests: XCTestCase {
 
     func testFailedSpeakerConfigurationRestoresTheKeepAlive() throws {
         let backend = LeaseBackend()
+        backend.airPlay = true
         backend.microphoneError = PhoneToolError.unavailable(.microphone, "x")
         let state = backend.state()
         let reclaims = Counter()
@@ -366,6 +367,58 @@ final class SpeakerOutputLeaseTests: XCTestCase {
         XCTAssertEqual(backend.playback.value, 2, "playback is restored for the keep-alive")
         XCTAssertEqual(reclaims.value, 1)
         XCTAssertFalse(state.hasSpeakerOwner)
+    }
+}
+
+@MainActor
+final class BackgroundSpeakerOutputLeaseTests: XCTestCase {
+    /// iOS refuses a background switch to playAndRecord ('!int'): a non-AirPlay output must
+    /// play under the keep-alive's current profile without any category change.
+    func testNonAirPlayOutputPlaysUnderTheKeepAliveProfileWithoutACategorySwitch() throws {
+        let backend = LeaseBackend()
+        backend.microphoneError = PhoneToolError.unavailable(.microphone, "'!int'")
+        let state = backend.state()
+        state.beginKeepAlive {}
+        try state.activateKeepAliveSession()
+        let token = try state.acquireSpeakerOutput()
+        XCTAssertEqual(backend.microphone.value, 0, "no playAndRecord switch for the built-in speaker")
+        XCTAssertEqual(backend.activation.value, 1)
+        XCTAssertEqual(backend.overrides, [])
+        XCTAssertFalse(state.isMicrophoneProfileSticky)
+        state.releaseSpeakerOutput(token)
+        XCTAssertEqual(backend.deactivation.value, 0, "the keep-alive still owns the session")
+    }
+
+    /// A speaker profile armed in the foreground stays sticky, so a later background turn on
+    /// AirPlay only activates it and still forces the speaker.
+    func testArmedProfileLetsALaterAirPlayTurnOnlyActivate() throws {
+        let backend = LeaseBackend()
+        backend.airPlay = true
+        let state = backend.state()
+        let armed = try state.acquireSpeakerOutput()
+        XCTAssertEqual(backend.microphone.value, 1)
+        backend.microphoneError = PhoneToolError.unavailable(.microphone, "'!int'")
+        let turn = try state.acquireSpeakerOutput()
+        XCTAssertEqual(backend.microphone.value, 1, "the background turn does not reconfigure")
+        XCTAssertEqual(backend.activation.value, 1)
+        XCTAssertTrue(state.isSpeakerOverridden)
+        state.releaseSpeakerOutput(turn)
+        XCTAssertTrue(state.isSpeakerOverridden, "the armed owner keeps the override")
+        state.releaseSpeakerOutput(armed)
+        XCTAssertFalse(state.isSpeakerOverridden)
+        XCTAssertEqual(backend.deactivation.value, 1)
+    }
+
+    /// Without keep-alive or other owners, a non-AirPlay speaker claim owns a playback profile
+    /// and its last release deactivates it.
+    func testLoneNonAirPlayClaimOwnsAPlaybackProfile() throws {
+        let backend = LeaseBackend()
+        let state = backend.state()
+        let token = try state.acquireSpeakerOutput()
+        XCTAssertEqual(backend.playback.value, 1)
+        XCTAssertEqual(backend.microphone.value, 0)
+        state.releaseSpeakerOutput(token)
+        XCTAssertEqual(backend.deactivation.value, 1)
     }
 }
 

@@ -170,6 +170,28 @@ restorable CoreBluetooth central with a parked reconnect, so `ev wake` wakes a s
 (`spec/platform/whitelist.json` `platform.tonolink-voice-background-wake`). The firmware is unchanged by
 this registration.
 
+### 4.1.1 iOS voice admission and playback
+
+The native voice consumer snapshots its existing local DSH session at wake, before ASR and
+unlock waits, and allocates one lowercase UUIDv4 request ID. Recognized non-volume text enters
+that session's existing durable SendOutbox (§10 of the host contract) using the same ID. A
+missing target or unavailable protected storage produces no acceptance. The board wake counter
+is not a globally stable task ID. No new BLE frame, permission or authentication is introduced.
+The saved-work acknowledgement follows durable enqueue and is spoken only when execution
+cannot start now (deferred, or no engine within the admission bound); work that executes speaks
+only its answer, with the LED showing it running.
+Canceling recognition before admission sends nothing; canceling voice after admission does not
+cancel or resend the accepted task. While the board is connected its keep-alive holds the process
+resident, so admitted voice starts, resumes or delivers on the engine without the user opening
+the App (host contract §10.1). Execution waits for foreground recovery only without residency.
+
+Playback is scoped to the receipt's session/request ID and an authoritative user message with
+its actual turn. Only settled assistant text in that turn after a normal terminal event may be
+spoken. A global running flag, a matching prompt string or another session's reply is never
+sufficient. If the user switches sessions or attribution is unavailable, keep the task but stop
+voice waiting; no replay is attempted. Cold/no-session setup requires foreground initialization.
+This native change is iOS-only; existing Android and firmware bytes remain unchanged.
+
 ### 4.3 LED effects (voice task phases)
 
 Producer: `tonolink-m21-r4-firmware` branch `feat/led-effects` (`main/fx/fx_render.c` pure renderer

@@ -744,7 +744,21 @@ final class ChatModel {
     var isAppForeground: Bool {
         appIsActive && UIApplication.shared.applicationState == .active
     }
+    /// Whether the engine may boot, resume or deliver now (host contract §10.1): the App is not in
+    /// the background (a cold launch is still `.inactive`), or the process is held resident by an
+    /// audio keep-alive — this model's own or another owner's, such as a connected TonoLink board.
+    /// Every preparation, drain and voice gate reads this one answer.
+    var executionEligible: Bool {
+        ChatDeliveryPreparation.executionEligible(
+            foreground: UIApplication.shared.applicationState != .background,
+            keepingAlive: keepingAlive, residentAudio: SilentAudioKeepAlive.shared.isActive)
+    }
+    /// A start refused while ineligible; the next foreground return performs it.
+    private var startDeferredUntilEligible = false
     private var recoveryFlushTask: Task<Void, Never>?
+    private var queuedPreparationPaused = false
+    private var explicitStopRevision = 0
+    private var recoveryFlushRequested = false
     /// Durable send queue (P06/W1-C). The file is the source of truth; this
     /// count only drives the lightweight queued hint.
     private(set) var queuedSendCount = 0
@@ -1557,6 +1571,7 @@ final class ChatModel {
     /// Boots the host and adopts the persisted session. Launching and sending
     /// may acknowledge one persisted `Failed` controller per process.
     func start(autoRecover: Bool = false) async {
+        if !autoRecover { queuedPreparationPaused = false }
         if pcRuntime != nil {
             await startPCModel()
             return
@@ -1568,7 +1583,12 @@ final class ChatModel {
         // Every start except the scheduled backoff retry is a new intent: it
         // supersedes any pending retry, including a manual tap.
         if !backoffRetry { cancelBackoffRetry() }
-        guard host == nil, !busy else { return }
+        guard !Task.isCancelled, host == nil, !busy else { return }
+        guard executionEligible else {
+            startDeferredUntilEligible = true
+            return
+        }
+        startDeferredUntilEligible = false
         // A parked adoption belongs to a page that is now visible again; land
         // it before the new boot repaints anything.
         adoptDeferredTranscriptIfForeground()
@@ -1584,6 +1604,10 @@ final class ChatModel {
         // Every Host build reads the Bot MCP URL into the Worker environment;
         // heal a reaped listener before that snapshot is taken.
         _ = await botListenerSupervisor?.willStartEngine()
+        guard executionEligible, !Task.isCancelled else {
+            startDeferredUntilEligible = !Task.isCancelled
+            return
+        }
         guard let launch = makeHostLaunch() else { return }
         hostResumeWatchdogTimeout = launch.resumeWatchdogTimeout
         // Show the last conversation from disk immediately; the engine boots
@@ -1595,6 +1619,15 @@ final class ChatModel {
         do {
             try await ADBMCPServer.shared.setWorkspaceDirectory(materializedWorkspace)
             await botLaunch?.composition.attachNativeMCP(PhoneNativeMCP.server)
+            // Native preparation yields. Leaving foreground without a resident
+            // keep-alive is not permission to create WebContent.
+            guard executionEligible, !Task.isCancelled else {
+                hostEventTask?.cancel(); hostEventTask = nil
+                anchor.shutdown()
+                startDeferredUntilEligible = !Task.isCancelled
+                statusLine = "消息已保存，等待回到 App 后继续"
+                return
+            }
             try await launch.host.start()
         } catch {
             Self.appendDiagnostic("host start failed: \(NativeLogRedaction.error(error))")
@@ -1859,7 +1892,7 @@ final class ChatModel {
     }
 
     private func ensureEngineRunning() async {
-        guard host == nil, !busy else { return }
+        guard pcRuntime != nil || executionEligible, host == nil, !busy else { return }
         await start(autoRecover: true)
     }
 
@@ -2785,16 +2818,22 @@ final class ChatModel {
             statusLine = "电脑会话已关闭"
             return
         }
+        // An explicit stop always pauses queued preparation first, including a
+        // boot that queued work started: that boot must not drain afterwards.
+        explicitStopRevision &+= 1
+        queuedPreparationPaused = true
+        recoveryFlushTask?.cancel()
+        startDeferredUntilEligible = false
+        guard !busy && !hostLifecycleTransition else {
+            reportError("引擎操作尚未完成，排队消息已暂停；请稍候再停止")
+            return
+        }
         guard let host else {
             stopBotTurnPolling()
             await botLaunch?.composition.stop()
             if let composition = botLaunch?.composition {
                 botRuntimeState = composition.state
             }
-            return
-        }
-        guard !busy && !hostLifecycleTransition else {
-            reportError("引擎操作尚未完成，请稍候再停止")
             return
         }
         busy = true
@@ -2914,6 +2953,13 @@ final class ChatModel {
             // rebuild an engine that is already back in a clean state.
             resumeWatchdogTask?.cancel()
             resumeWatchdogTask = nil
+        }
+        if phase == .active, outboxNeedsDrain { scheduleRecoveryQueueFlush() }
+        // A start refused while the App was ineligible (background without a
+        // resident keep-alive) runs now; queued work joins it through the flush.
+        if phase == .active, host == nil, startDeferredUntilEligible, !busy, pcRuntime == nil {
+            startDeferredUntilEligible = false
+            Task { @MainActor [weak self] in await self?.start(autoRecover: true) }
         }
         guard let host else { return }
         switch phase {
@@ -3074,7 +3120,7 @@ final class ChatModel {
     }
 
     private func resumeHost(_ host: PhoneDSHHost) async {
-        guard parked, !hostLifecycleTransition else { return }
+        guard executionEligible, !Task.isCancelled, parked, !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
         // The Worker booted with the URL captured at Host construction. If the
         // listener had to move to a new port, resuming would just replay the
@@ -3082,6 +3128,10 @@ final class ChatModel {
         // environment. A same-port rebind keeps the URL valid and resumes.
         if let supervisor = botListenerSupervisor {
             _ = await supervisor.willResumeHost()
+            guard executionEligible, !Task.isCancelled else {
+                hostLifecycleTransition = false
+                return
+            }
             if !supervisor.hostEndpointIsCurrent {
                 hostLifecycleTransition = false
                 appendStatus("Bot MCP listener recovered on a new port; rebuilding instead of resuming the old Worker URL")
@@ -3105,6 +3155,14 @@ final class ChatModel {
             appendStatus("Host resumed; the session continues from the WAL")
             refreshFiles()
             await reconcileTurnStateAfterResume()
+            // A pump that failed while parked can be blocked in a resync issued
+            // against the parked page and never return. Restart it from the last
+            // delivered seq on the resumed host so this session's events arrive
+            // (a background resume has no foreground reload to repair it).
+            if eventStreamRecovering, pcRuntime == nil, let harness, let sessionID {
+                appendStatus("Event stream restarted after resume")
+                startPump(harness: harness, sessionID: sessionID, after: lastSeq)
+            }
         } catch {
             if Self.isResumeCancelled(error) {
                 // The App went to the background. The host released its gate
@@ -3317,35 +3375,97 @@ final class ChatModel {
     /// ``sessionSwitchGate`` and performs the latest optimistic target after the
     /// lifecycle settles, so there is exactly one pending switch structure.
     private func flushPendingRecoveryUIActions() async {
-        guard !isHostRecovering, !busy, host != nil else {
-            if host != nil { scheduleRecoveryQueueFlush() }
+        guard !isHostRecovering, !busy, !engineNeedsReset, host != nil, executionEligible else {
+            appendStatus("Queued delivery held before drain (recovering=\(isHostRecovering) busy=\(busy) reset=\(engineNeedsReset) host=\(host != nil) eligible=\(executionEligible))")
+            if recoveryFlushTask == nil { scheduleRecoveryQueueFlush() }
             return
         }
+        recoveryFlushRequested = false
         await drainSendOutbox()
     }
 
     private func scheduleRecoveryQueueFlush() {
-        guard outboxNeedsDrain else {
-            recoveryFlushTask?.cancel()
-            recoveryFlushTask = nil
+        guard outboxNeedsDrain else { return }
+        guard pcRuntime == nil else { return }
+        if recoveryFlushTask != nil {
+            recoveryFlushRequested = true
             return
         }
-        guard recoveryFlushTask == nil else { return }
-        // Nothing can consume the queue until a host exists or a rebuild/backoff
-        // is in flight; adoption calls this again.
-        guard host != nil || engineRebuildInProgress || backoffRetryTask != nil else { return }
+        recoveryFlushRequested = false
+        // This single task joins all queued requests. Existing Host methods still
+        // own boot/resume/exclusive transitions, and failed entries remain durable.
         recoveryFlushTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            for _ in 0..<300 {
-                if !self.busy && !self.engineRebuildInProgress
-                    && !self.hostLifecycleTransition && !self.parked
-                    && self.host != nil {
-                    break
+            defer {
+                self.recoveryFlushTask = nil
+                // A fresh send may arrive while a canceled preparation unwinds.
+                if (Task.isCancelled || self.recoveryFlushRequested), !self.queuedPreparationPaused,
+                   self.outboxNeedsDrain, self.executionEligible, !self.engineNeedsReset {
+                    self.scheduleRecoveryQueueFlush()
                 }
-                try? await Task.sleep(for: .milliseconds(100))
             }
-            self.recoveryFlushTask = nil
-            await self.flushPendingRecoveryUIActions()
+            // One preparation per task: after start/resume the loop waits for the
+            // engine to become ready instead of draining once mid-recovery (a
+            // background resume has no later page event to retry the drain).
+            var prepared = false
+            for _ in 0..<300 {
+                guard !Task.isCancelled, self.outboxNeedsDrain else { return }
+                let decision = ChatDeliveryPreparation.decide(
+                    foreground: UIApplication.shared.applicationState != .background,
+                    keepingAlive: self.keepingAlive,
+                    hostPresent: self.host != nil, parked: self.parked,
+                    transitioning: self.hostLifecycleTransition || self.engineRebuildInProgress,
+                    busy: self.busy || self.backoffRetryTask != nil,
+                    transportReady: self.harness != nil && self.sessionID != nil,
+                    requiresRecovery: self.engineNeedsReset, userPaused: self.queuedPreparationPaused,
+                    residentAudio: SilentAudioKeepAlive.shared.isActive)
+                if decision == .ready || decision == .start || decision == .resume {
+                    self.holdResidencyForBackgroundDelivery()
+                }
+                switch decision {
+                case .ready:
+                    if prepared { self.appendStatus("Queued delivery: engine ready, delivering") }
+                    await self.flushPendingRecoveryUIActions()
+                    return
+                case .start:
+                    // start/adoption owns retries. Never boot twice from one task.
+                    guard !prepared else { return }
+                    prepared = true
+                    self.appendStatus("Queued delivery: preparing the engine")
+                    await self.start(autoRecover: true)
+                    guard !Task.isCancelled, !self.queuedPreparationPaused else { return }
+                case .resume:
+                    guard !prepared, let host = self.host else { return }
+                    prepared = true
+                    self.appendStatus("Queued delivery: resuming the parked engine")
+                    await self.resumeHost(host)
+                    guard !Task.isCancelled, !self.queuedPreparationPaused else { return }
+                case .deferred:
+                    self.appendStatus("Queued delivery saved; waiting for foreground or a resident keep-alive")
+                    return
+                case .needsAttention:
+                    self.appendStatus("Queued delivery saved; engine recovery requires user attention")
+                    return
+                case .wait:
+                    do { try await Task.sleep(for: .milliseconds(100)) }
+                    catch { return }
+                }
+            }
+            self.appendStatus("Queued delivery saved; engine preparation is still waiting on lifecycle readiness")
+        }
+    }
+
+    /// Background delivery borrowed another owner's resident audio (a connected
+    /// board). Take this model's own keep-alive for the turn, so the existing
+    /// turn-end path decides whether to park and the foreground return releases it.
+    private func holdResidencyForBackgroundDelivery() {
+        guard UIApplication.shared.applicationState == .background,
+              backgroundKeepAlive, !keepingAlive else { return }
+        do {
+            try beginKeepAlive()
+            appendStatus("Background delivery: keep-alive audio held for the queued turn")
+        } catch {
+            appendStatus("Background delivery: keep-alive failed (\(NativeLogRedaction.error(error)))")
         }
     }
 
@@ -3646,9 +3766,56 @@ final class ChatModel {
         return await enqueueSend(prompt, attachments: attachments, reusing: itemID)
     }
 
-    /// The pre-W1 direct send. Used by the PC backend and the first-ever launch
-    /// where no session identifier exists yet to key a durable entry. Local
-    /// text and attachment sends share the durable outbox.
+    /// Captured at wake, before recognition/unlock can change the selected session.
+    func voiceDestination() -> String? {
+        guard pcRuntime == nil else { return nil }
+        let target = currentSessionID ?? WorkspaceStorage.currentSessionID(for: .phone)
+        guard let target, !DeviceSessionCoordinator.shared.isDeviceSession(target) else { return nil }
+        return target
+    }
+
+    /// A receipt is returned only after the existing outbox has persisted this exact request.
+    func admitVoice(_ text: String, request: NativeVoiceRequest) async -> NativeVoiceRequest? {
+        guard !Task.isCancelled, UIApplication.shared.isProtectedDataAvailable,
+              pcRuntime == nil, !DeviceSessionCoordinator.shared.isDeviceSession(request.sessionID) else {
+            return nil
+        }
+        let saved = await enqueueSend(text.trimmingCharacters(in: .whitespacesAndNewlines),
+                                      attachments: [], reusing: nil,
+                                      pinnedSession: request.sessionID, requestID: request.rpcID)
+        return saved ? request : nil
+    }
+
+    func voiceProgress(_ request: NativeVoiceRequest) -> NativeVoiceProgress {
+        guard currentSessionID == nil || currentSessionID == request.sessionID else {
+            return .unavailable
+        }
+        guard sessionID == request.sessionID else { return .queued }
+        return NativeVoiceProgress.resolve(request: request, items: items,
+            endedTurns: Set(turnEndTimes.keys),
+            failedTurns: Set(turnEndReasons.compactMap {
+                $0.value == "completed" ? nil : $0.key
+            }))
+    }
+
+    var voiceExecutionDeferred: Bool {
+        queuedPreparationPaused || engineNeedsReset || !executionEligible
+    }
+
+    /// The engine is booting, resuming or rebuilding for queued work; a voice
+    /// wait must not time out on that bounded preparation.
+    var voicePreparing: Bool {
+        recoveryFlushTask != nil || isStartingEngine || hostLifecycleTransition || engineRebuildInProgress
+    }
+
+    /// Changes whenever ``voiceProgress(_:)`` could change, so a waiting voice
+    /// turn re-derives progress only after an event, a session switch or a turn boundary.
+    var voiceObservationKey: String {
+        "\(eventsHandled)|\(items.count)|\(turnBoundaryRevision)|\(sessionID ?? "")|\(currentSessionID ?? "")"
+    }
+
+    /// The pre-W1 direct send is retained only for the PC backend.
+    /// All accepted local sends use the durable outbox.
     private func sendDirect(_ prompt: String, attachments: [HarnessAttachment],
                             reusing itemID: String?) async -> Bool {
         // Sending is the clearest signal that the engine is wanted. Boot it
@@ -3710,31 +3877,32 @@ final class ChatModel {
     /// crash at any point before the authoritative message leaves the files
     /// for the next launch.
     private func enqueueSend(_ prompt: String, attachments: [HarnessAttachment],
-                             reusing itemID: String?) async -> Bool {
-        // A brand-new engine with no persisted session still has to boot once
-        // before a sessionId exists. Everything after that is durable.
-        if currentSessionID == nil, sessionID == nil,
+                             reusing itemID: String?, pinnedSession: String? = nil,
+                             requestID: String? = nil) async -> Bool {
+        let stopRevision = explicitStopRevision
+        guard !prompt.isEmpty || !attachments.isEmpty,
+              UIApplication.shared.isProtectedDataAvailable else { return false }
+        // The first-ever foreground send establishes a target, but never submits
+        // directly. No target/storage means no durable acceptance.
+        if pinnedSession == nil, currentSessionID == nil, sessionID == nil,
            WorkspaceStorage.currentSessionID(for: .phone) == nil {
-            return await sendDirect(prompt, attachments: attachments, reusing: itemID)
+            await ensureEngineRunning()
         }
-        guard let target = currentSessionID ?? sessionID
-                ?? WorkspaceStorage.currentSessionID(for: .phone) else {
-            return await sendDirect(prompt, attachments: attachments, reusing: itemID)
-        }
+        guard !Task.isCancelled, UIApplication.shared.isProtectedDataAvailable,
+              let target = pinnedSession ?? currentSessionID ?? sessionID
+                ?? WorkspaceStorage.currentSessionID(for: .phone) else { return false }
         // A retry of the same failed row keeps the original rpcId so the
         // authority de-duplicates instead of appending a second message.
-        let reuseRequestID = itemID.flatMap { id in
+        let reuseRequestID = requestID ?? itemID.flatMap { id in
             items.first(where: { $0.id == id })?.promptRequestID
         }
         let entry: SendOutboxEntry
         do {
             if let reuseRequestID, let existing = await sendOutbox.entry(rpcId: reuseRequestID) {
-                switch existing.state {
-                case .outcomeUnknown:
-                    entry = try await sendOutbox.requeue(rpcId: reuseRequestID)
-                default:
-                    entry = existing
-                }
+                guard existing.sessionId == target, existing.text == prompt else { return false }
+                // An ambiguous submit is never made retryable by a UI/voice retry.
+                // Only authoritative reconciliation may settle it.
+                entry = existing
             } else {
                 entry = try await sendOutbox.enqueue(
                     sessionID: target, text: prompt,
@@ -3750,19 +3918,21 @@ final class ChatModel {
         var input = ChatItem(id: rowID, kind: .user, title: "You",
                              text: Self.visiblePrompt(prompt, attachments: attachments))
         input.promptRequestID = entry.rpcId
-        NativeTranscriptProjector.acceptInput(input, in: &items)
-        markQueued(itemID: rowID, requestID: entry.rpcId)
-        lastPrompt = (prompt, attachments)
-        lastPromptRequestID = entry.rpcId
+        // A send pinned to another session (voice captured at wake) must not
+        // become the retry target of the session on screen.
+        if currentSessionID == target {
+            NativeTranscriptProjector.acceptInput(input, in: &items)
+            markQueued(itemID: rowID, requestID: entry.rpcId)
+            lastPrompt = (prompt, attachments)
+            lastPromptRequestID = entry.rpcId
+        }
         clearError()
         syncIdleTimer()
         SessionTitleHints.remember(prompt, for: target, backend: backendID)
         await refreshQueuedSendCount()
-        // Sending is the clearest signal that the engine is wanted; boot it
-        // without holding the composer.
-        if !isStarted, !busy {
-            Task { @MainActor [weak self] in await self?.start(autoRecover: true) }
-        }
+        if explicitStopRevision == stopRevision { queuedPreparationPaused = false }
+        // Durable admission precedes preparation; a parked Host is not ready
+        // merely because its object exists. Background work waits without booting.
         scheduleRecoveryQueueFlush()
         return true
     }
@@ -3837,7 +4007,8 @@ final class ChatModel {
             outboxNeedsDrain = false
             return
         }
-        guard host != nil, !busy, !hostLifecycleTransition, !parked else {
+        guard host != nil, !busy, !hostLifecycleTransition, !parked, !engineNeedsReset,
+              executionEligible else {
             await refreshQueuedSendCount()
             return
         }
@@ -3862,21 +4033,42 @@ final class ChatModel {
                 continue
             }
             if entry.sessionId != sessionID {
-                guard !turnRunning, !keepingAlive else { break }
-                guard await activateSessionForOutbox(entry.sessionId) else { break }
+                guard !turnRunning, !keepingAlive else {
+                    appendStatus("Queued delivery held: target session is not active (turnRunning=\(turnRunning) keepingAlive=\(keepingAlive) active=\(sessionID == nil ? "none" : "other"))")
+                    break
+                }
+                guard await activateSessionForOutbox(entry.sessionId) else {
+                    appendStatus("Queued delivery held: target session could not be activated")
+                    break
+                }
             }
-            guard let activeHarness = harness else { break }
+            guard let activeHarness = harness, let deliveryHost = host,
+                  queuedEntryCanDispatch(entry) else {
+                appendStatus("Queued delivery held: engine not dispatchable (harness=\(harness != nil) host=\(host != nil) eligible=\(executionEligible))")
+                break
+            }
             // Both the first attempt and every retry re-verify every byte
             // reference before submit. A missing or modified file blocks the
             // entry; it is never downgraded to a text-only send.
             guard let submittedAttachments = await dispatchAttachments(for: entry) else {
                 continue
             }
+            guard host === deliveryHost, queuedEntryCanDispatch(entry), !Task.isCancelled else { break }
             let submitted: SendOutboxEntry
             do {
                 submitted = try await sendOutbox.markSubmitting(rpcId: entry.rpcId)
             } catch {
                 continue
+            }
+            guard host === deliveryHost, queuedEntryCanDispatch(entry), !Task.isCancelled else {
+                // This live branch has not called transport. A crash between these
+                // writes stays unknown; restart never infers proof from lastError.
+                do {
+                    _ = try await sendOutbox.markOutcomeUnknown(rpcId: entry.rpcId,
+                        lastError: "lifecycle changed before transport submission")
+                    _ = try await sendOutbox.requeue(rpcId: entry.rpcId)
+                } catch { }
+                break
             }
             do {
                 try await activeHarness.send(
@@ -3897,10 +4089,15 @@ final class ChatModel {
         // actually progress now; a turn on another session waits for its own
         // turn-end callback.
         let remaining = await sendOutbox.pending()
-        let deliverable = remaining.contains {
-            $0.state == .queued && (!turnRunning || $0.sessionId == sessionID)
-        }
-        if deliverable { scheduleRecoveryQueueFlush() }
+        let attempted = Set(entries.map(\.rpcId))
+        let newArrival = remaining.contains { $0.state == .queued && !attempted.contains($0.rpcId) }
+        if newArrival { recoveryFlushRequested = true }
+    }
+
+    private func queuedEntryCanDispatch(_ entry: SendOutboxEntry) -> Bool {
+        !queuedPreparationPaused && !engineNeedsReset && !busy && !parked
+            && !hostLifecycleTransition && sessionID == entry.sessionId
+            && executionEligible
     }
 
     /// Reads the same authoritative history that makes an entry durable. The
@@ -4818,7 +5015,8 @@ final class ChatModel {
             scheduleNativeMetricsRefresh()
         case .userMessage(let text, let source):
             if let sessionID {
-                NativeTranscriptProjector.acknowledgeInput(event, sessionID: sessionID, in: &items)
+                NativeTranscriptProjector.acknowledgeInput(event, sessionID: sessionID, in: &items,
+                                                           openTurn: turnRunning ? activeTurn : nil)
             }
             // The authoritative `source.rpcId` is the only durable marker for a
             // queued send (P06/W1-C); a local accepted acknowledgement is not

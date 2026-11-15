@@ -346,3 +346,27 @@ references plus minimal metadata, never inline bytes.
 - **No UI restriction.** The queue never refuses a send for a closed admission, an engine that is
   starting, or a running turn; it accepts and shows `queued`. The only new visible state is the
   existing "排队中" (queued) projection.
+
+
+### 10.1 iOS queued engine preparation
+
+The iOS local queue may accept an already-bound session while the engine is absent, parked or
+busy. Acceptance means the existing outbox entry is durable, not that execution has started.
+Foreground delivery joins one preparation task and uses existing start/resume transitions.
+Execution eligibility is one answer: the App is not in the background (a cold launch is still
+inactive), or the process is held resident by an audio keep-alive — the chat's own or another
+owner's, such as a connected TonoLink board. While eligible, queued work may start, resume or
+deliver through the existing transitions, in foreground or background, and a background
+delivery takes the chat's own keep-alive for that turn so the existing turn-end path decides
+whether to park. Without eligibility a background callback alone never authorizes WebContent
+boot/resume; a start refused for that reason runs at the next foreground return. Manual
+recovery and explicit stop gates remain authoritative; an explicit stop pauses queued
+preparation even while a boot is in flight. Foreground return retries retained queued work.
+A first-ever UI send must establish a foreground session and then enqueue before submitting;
+there is no durable receipt while no session or protected storage is available.
+
+If execution eligibility is lost while writing the submitting marker, the same live sender
+may defer an entry before calling transport, using submitting → outcomeUnknown → queued
+with its original ID. This branch has direct proof that no transport attempt occurred. That
+proof does not survive a crash and cannot be inferred from a saved error string; recovered
+submitting/unknown entries still require authoritative reconciliation before retry.
