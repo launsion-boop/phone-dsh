@@ -61,6 +61,8 @@ final class BotRecordSourceStateTests: XCTestCase {
         XCTAssertEqual(version.value, "sha256:" + sha256Hex(observationText))
         XCTAssertEqual(version.observedAtMS, observationTime)
         XCTAssertEqual(version.basisRef, observationRef)
+        XCTAssertEqual(version.subject, .recordText,
+                       "a readable-text digest must be marked record-text")
 
         let again = try await service.sourceStates(
             for: [observationRef], callerBotID: "bot-a", callerSessionID: "gb-main")
@@ -220,6 +222,7 @@ final class BotRecordSourceStateTests: XCTestCase {
         XCTAssertEqual(version.kind, .etag)
         XCTAssertEqual(version.value, "etag:calendar-1")
         XCTAssertEqual(version.basisRef, reference)
+        XCTAssertNil(version.subject, "native bases do not carry a content subject")
     }
 
     func testToolResultEnvelopeWithoutADurableCallIsAnObservation() async throws {

@@ -75,6 +75,7 @@ final class MemorySourceBaselineTests: XCTestCase {
             let ref = try XCTUnwrap(source["record"]?.stringValue)
             let version = try XCTUnwrap(source["sourceVersion"]?.objectValue)
             XCTAssertEqual(version["basis"]?.stringValue, "content-sha256")
+            XCTAssertEqual(version["subject"]?.stringValue, "record-text")
             XCTAssertEqual(version["value"]?.stringValue, byRef[ref]?.version?.known?.value)
             XCTAssertEqual(version["observed_at_ms"]?.intValue,
                            byRef[ref]?.observedAtMS.map(Int.init))

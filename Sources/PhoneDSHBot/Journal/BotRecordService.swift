@@ -791,7 +791,8 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
             kind: .contentSHA256,
             value: "sha256:" + digest,
             observedAtMS: observedAtMS,
-            basisRef: ref))
+            basisRef: ref,
+            subject: .recordText))
     }
 
     /// One text block per `data.message.content` entry, joined with newlines.
@@ -863,10 +864,13 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         }
         let versionObserved = object["observed_at_ms"]?.intValue.map { Int64($0) }
         let basisRef = object["basis_ref"]?.stringValue
+        let subject = object["subject"]?.stringValue.flatMap(BotSourceVersionSubject.init)
+            ?? (basis == .contentSHA256 ? .recordText : nil)
         return .known(BotKnownSourceVersion(
             kind: basis, value: value,
             observedAtMS: versionObserved ?? observedAtMS,
-            basisRef: basisRef ?? ref))
+            basisRef: basisRef ?? ref,
+            subject: subject))
     }
 
     private static func normalizedObservationText(_ text: String) -> String? {

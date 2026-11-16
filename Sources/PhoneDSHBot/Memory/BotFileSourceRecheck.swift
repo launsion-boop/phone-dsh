@@ -133,7 +133,7 @@ public struct BotFileSourceRechecker: BotFileSourceRechecking, Sendable {
             }
             let known = BotKnownSourceVersion(
                 kind: .contentSHA256, value: "sha256:" + digest,
-                observedAtMS: now(), basisRef: nil)
+                observedAtMS: now(), basisRef: nil, subject: .fileBytes)
             if token == known.value {
                 return .unchanged(version: known, recheckedAtMS: now())
             }
@@ -149,7 +149,7 @@ public struct BotFileSourceRechecker: BotFileSourceRechecking, Sendable {
             }
             let known = BotKnownSourceVersion(
                 kind: .contentSHA256, value: "sha256:" + digest,
-                observedAtMS: now(), basisRef: nil)
+                observedAtMS: now(), basisRef: nil, subject: .fileBytes)
             if token == known.value {
                 return .unchanged(version: known, recheckedAtMS: now())
             }

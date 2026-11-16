@@ -39,6 +39,14 @@ public enum BotSourceVersionUnknownReason: String, Codable, Sendable, CaseIterab
     case invalidReference = "invalid-reference"
 }
 
+/// G-1 r13: what a `content-sha256` was computed over. A file-byte digest and a
+/// record-readable-text digest are not interchangeable; missing means
+/// `record-text` (conservative).
+public enum BotSourceVersionSubject: String, Codable, Sendable, CaseIterable {
+    case fileBytes = "file-bytes"
+    case recordText = "record-text"
+}
+
 /// One version observed from the authoritative record store.
 ///
 /// `basisRef` is the record the version was read from. For content digests it
@@ -54,13 +62,18 @@ public struct BotKnownSourceVersion: Sendable, Equatable {
     /// time (0/negative timestamps are "no time", never a fake epoch).
     public let observedAtMS: Int64?
     public let basisRef: String?
+    /// Only meaningful for `content-sha256`; nil means the conservative
+    /// `record-text` interpretation.
+    public let subject: BotSourceVersionSubject?
 
     public init(kind: BotSourceVersionKind, value: String,
-                observedAtMS: Int64?, basisRef: String?) {
+                observedAtMS: Int64?, basisRef: String?,
+                subject: BotSourceVersionSubject? = nil) {
         self.kind = kind
         self.value = value
         self.observedAtMS = observedAtMS
         self.basisRef = basisRef
+        self.subject = subject
     }
 }
 
@@ -70,6 +83,7 @@ extension BotKnownSourceVersion: Codable {
         case value
         case observedAtMS = "observed_at_ms"
         case basisRef = "basis_ref"
+        case subject
     }
 }
 
