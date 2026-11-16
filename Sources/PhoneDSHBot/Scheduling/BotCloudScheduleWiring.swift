@@ -56,13 +56,15 @@ public actor BotCloudScheduleWiring {
                 "enabled": .bool(enabled),
             ]))
         let commitSeq = try await store.append(event)
+        let record = "record://event/\(commitSeq)"
         if enabled {
             _ = try await machine.setCloudSchedule(
                 botId: botID, routineId: routineID, enabled: true,
-                authorizationRef: "record://event/\(commitSeq)", now: timestamp)
+                authorizationRef: record, derivationRef: record, now: timestamp)
         } else {
             _ = try await machine.setCloudSchedule(
-                botId: botID, routineId: routineID, enabled: false, now: timestamp)
+                botId: botID, routineId: routineID, enabled: false,
+                derivationRef: record, now: timestamp)
         }
         await client.noteSchedulesChanged()
     }

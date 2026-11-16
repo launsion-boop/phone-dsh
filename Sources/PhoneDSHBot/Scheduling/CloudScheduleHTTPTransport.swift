@@ -144,7 +144,8 @@ public final class CloudScheduleHTTPTransport: CloudScheduleTransport, @unchecke
             URLQueryItem(name: "since_ms", value: String(request.sinceMS)),
             URLQueryItem(name: "limit", value: String(request.limit)),
             URLQueryItem(name: "cursor_ms", value: String(request.sinceMS)),
-            URLQueryItem(name: "include_terminal", value: "false"),
+            URLQueryItem(name: "include_terminal",
+                         value: request.includeTerminal ? "true" : "false"),
         ]
         let data = try await send(
             path: "/v1/bot/wake/reconcile", method: "GET", query: query, body: nil,

@@ -177,6 +177,7 @@ public actor RoutineMachine {
     @discardableResult
     public func setCloudSchedule(botId: String, routineId: String, enabled: Bool,
                                  authorizationRef: String? = nil,
+                                 derivationRef: String? = nil,
                                  now: Int64) async throws -> Routine {
         try await store.mutate(botId: botId) { document in
             guard let index = document.routines.firstIndex(where: { $0.id == routineId }) else {
@@ -196,7 +197,22 @@ public actor RoutineMachine {
             ).validated()
             routine.cloudSchedule = next
             document.routines[index] = routine
-            return RoutineMutation(value: routine, botId: botId)
+            var derivation: BotJSONValue?
+            if let derivationRef {
+                derivation = .object([
+                    "artifact": .object([
+                        "kind": .string("routine"),
+                        "id": .string(routine.id),
+                    ]),
+                    "sources": .array([
+                        .object([
+                            "record": .string(derivationRef),
+                            "role": .string("basis"),
+                        ]),
+                    ]),
+                ])
+            }
+            return RoutineMutation(value: routine, botId: botId, derivation: derivation)
         }
     }
 

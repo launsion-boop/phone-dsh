@@ -75,6 +75,16 @@ final class BotCloudScheduleWiringTests: XCTestCase {
         // The reference names exactly the committed decision.
         XCTAssertEqual(reference, "record://event/\(try XCTUnwrap(event.commitSeq))")
 
+        let routineEvents = try await f.store.events(after: 0, limit: 200).filter {
+            $0.data["derivation"] != nil
+        }
+        let derivation = try XCTUnwrap(routineEvents.last?.data["derivation"])
+        XCTAssertEqual(derivation["artifact"]?["kind"]?.stringValue, "routine")
+        XCTAssertEqual(derivation["artifact"]?["id"]?.stringValue, "digest")
+        let source = try XCTUnwrap(derivation["sources"]?.arrayValue?.first)
+        XCTAssertEqual(source["record"]?.stringValue, reference)
+        XCTAssertEqual(source["role"]?.stringValue, "basis")
+
         _ = await f.client.synchronizeNow()
         let sync = await f.transport.syncRequests
         XCTAssertEqual(sync.last?.registrations.first?.authorizationRef, reference)

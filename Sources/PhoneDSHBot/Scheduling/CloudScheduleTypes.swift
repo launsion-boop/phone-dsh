@@ -189,10 +189,14 @@ public struct CloudScheduleEvent: Codable, Sendable, Equatable {
     public var scheduledForMS: Int64
     public var scheduleRevision: Int64
     public var lease: CloudScheduleLease
+    /// Present only when the server was asked for terminal rows (verification
+    /// and tests); production polling/reconcile leaves it nil.
+    public var state: String?
 
     public init(eventID: String, deviceID: String, botID: String, routineID: String,
                 occurrenceKey: String, occurrenceAtMS: Int64, scheduledForMS: Int64,
-                scheduleRevision: Int64, lease: CloudScheduleLease) {
+                scheduleRevision: Int64, lease: CloudScheduleLease,
+                state: String? = nil) {
         self.eventID = eventID
         self.deviceID = deviceID
         self.botID = botID
@@ -202,6 +206,7 @@ public struct CloudScheduleEvent: Codable, Sendable, Equatable {
         self.scheduledForMS = scheduledForMS
         self.scheduleRevision = scheduleRevision
         self.lease = lease
+        self.state = state
     }
 
     public var localRunID: String { RoutineScheduler.cloudRunId(occurrenceKey: occurrenceKey) }
@@ -271,11 +276,16 @@ public struct CloudScheduleReconcileRequest: Codable, Sendable, Equatable {
     public var deviceID: String
     public var sinceMS: Int64
     public var limit: Int
+    /// Explicit terminal rows are only needed by verification/tests; the
+    /// production client leaves them out so a terminal event is not re-run.
+    public var includeTerminal: Bool
 
-    public init(deviceID: String, sinceMS: Int64, limit: Int) {
+    public init(deviceID: String, sinceMS: Int64, limit: Int,
+                includeTerminal: Bool = false) {
         self.deviceID = deviceID
         self.sinceMS = sinceMS
         self.limit = limit
+        self.includeTerminal = includeTerminal
     }
 }
 

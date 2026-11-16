@@ -270,7 +270,8 @@ enum CloudScheduleWire {
             scheduleRevision: wire.scheduleRevision,
             lease: CloudScheduleLease(leaseID: wire.lease.leaseID,
                                       attempt: wire.lease.attempt,
-                                      expiresAtMS: wire.lease.expiresAtMS))
+                                      expiresAtMS: wire.lease.expiresAtMS),
+            state: wire.state)
     }
 
     static func outcome(from raw: String) -> CloudScheduleOutcome? {
