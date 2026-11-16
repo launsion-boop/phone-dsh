@@ -395,6 +395,78 @@ final class BotWebSourceRecheckTests: XCTestCase {
         }
     }
 
+
+    func testContentDigestNormalizesLineEndingsAndOuterWhitespace() async throws {
+        let server = try LocalRecheckServer { _ in
+            RecheckServerResponse(status: 200, headers: [:],
+                                  body: Data("  alpha\r\nbeta\r\n".utf8))
+        }
+        let base = try await server.start()
+        defer { server.stop() }
+        let url = base.appendingPathComponent("/normalized")
+        let normalized = "alpha\nbeta"
+        let baseline = BotWebRevision(
+            basis: .contentSHA256,
+            value: "sha256:" + BotWebSourceRechecker.sha256(Data(normalized.utf8)),
+            observedAtMS: 1_760_000_000_000)
+        let same = await rechecker().recheck(BotWebRecheckRequest(
+            resource: identity(url), baseline: baseline))
+        guard case .unchanged = same else {
+            return XCTFail("CRLF/outer whitespace must normalize to the same version: \(same)")
+        }
+
+        server.setHandler { _ in
+            RecheckServerResponse(status: 200, headers: [:],
+                                  body: Data("alpha\nbeta".utf8))
+        }
+        let changed = await rechecker().recheck(BotWebRecheckRequest(
+            resource: identity(url), baseline: baseline))
+        guard case .unchanged = changed else {
+            return XCTFail("bare LF is the same normalized text, got \(changed)")
+        }
+
+        server.setHandler { _ in
+            RecheckServerResponse(status: 200, headers: [:],
+                                  body: Data("alpha beta".utf8))
+        }
+        let realChange = await rechecker().recheck(BotWebRecheckRequest(
+            resource: identity(url), baseline: baseline))
+        guard case .changed = realChange else {
+            return XCTFail("a real content change must be changed, got \(realChange)")
+        }
+    }
+
+    func testWebProvenanceAdapterMapsSameAndChanged() async throws {
+        let server = try LocalRecheckServer { _ in
+            RecheckServerResponse(status: 200, headers: [:], body: Data("alpha".utf8))
+        }
+        let base = try await server.start()
+        defer { server.stop() }
+        let url = base.appendingPathComponent("/adapter")
+        let lane = BotResourceIdentity(kind: .webURL, key: url.absoluteString, owner: "bot-a")
+        let normalized = "alpha"
+        let known = BotProvenanceSourceVersion.known(
+            basis: .contentSHA256,
+            value: "sha256:" + BotWebSourceRechecker.sha256(Data(normalized.utf8)),
+            observedAtMS: 1_760_000_000_000,
+            basisRef: nil, subject: .recordText)
+        let adapter = BotWebProvenanceRecheckAdapter(
+            transport: URLSessionRecheckTransport())
+        let same = await adapter.recheck(resource: lane, baseline: known, botID: "bot-a")
+        guard case .same = same else {
+            return XCTFail("expected same, got \(same)")
+        }
+        server.setHandler { _ in
+            RecheckServerResponse(status: 200, headers: [:], body: Data("beta".utf8))
+        }
+        let changed = await adapter.recheck(resource: lane, baseline: known, botID: "bot-a")
+        guard case let .changed(version, _) = changed else {
+            return XCTFail("expected changed, got \(changed)")
+        }
+        XCTAssertEqual(version.knownValue?.prefix(7), "sha256:")
+        XCTAssertEqual(version.subject, .recordText)
+    }
+
     func testDifferentBasisIsReportedAsMismatchNotChanged() async throws {
         let server = try LocalRecheckServer { _ in
             RecheckServerResponse(status: 200, headers: [:], body: Data("alpha".utf8))

@@ -244,7 +244,7 @@ struct BotWebSourceRechecker: Sendable {
         }
         let headers = Dictionary(response.headers.map { ($0.key.lowercased(), $0.value) },
                                  uniquingKeysWith: { first, _ in first })
-        let observedAtMS = observedAt(headers: headers, now: now)
+        let observedAtMS = dateHeaderMilliseconds(headers["date"]) ?? now()
         switch response.status {
         case 304:
             guard let baseline = request.baseline else {
@@ -267,9 +267,12 @@ struct BotWebSourceRechecker: Sendable {
                 return comparison(current, baseline: request.baseline,
                                   httpStatus: response.status)
             }
+            guard let normalized = normalizedWebText(response.body), !normalized.isEmpty else {
+                return .unavailable(.refreshUnavailable)
+            }
             let current = BotWebRevision(
                 basis: .contentSHA256,
-                value: "sha256:" + sha256(normalizedContent(response.body)),
+                value: "sha256:" + sha256(Data(normalized.utf8)),
                 observedAtMS: observedAtMS)
             return comparison(current, baseline: request.baseline,
                               httpStatus: response.status)
@@ -331,6 +334,26 @@ struct BotWebSourceRechecker: Sendable {
               !trimmed.unicodeScalars.contains(where: { $0.properties.generalCategory == .control })
         else { return nil }
         return trimmed
+    }
+
+    /// G-1 §4.5.1: CRLF/CR become LF, then trim leading/trailing whitespace.
+    /// Only the normalized UTF-8 bytes are hashed; the body is never stored.
+    static func normalizedWebText(_ data: Data) -> String? {
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        return text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func dateHeaderMilliseconds(_ value: String?) -> Int64? {
+        guard let value else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        guard let date = formatter.date(from: value) else { return nil }
+        return Int64((date.timeIntervalSince1970 * 1_000).rounded(.towardZero))
     }
 
     static func normalizedURL(_ raw: String) -> URL? {
@@ -398,4 +421,84 @@ struct BotWebSourceRechecker: Sendable {
 
 private enum BotWebRecheckTimeout: Error {
     case expired
+}
+
+
+/// Bridges the phone-side web/connector rechecker to L's artifact-scoped
+/// source-status reader. The host injects the existing egress transport; this
+/// adapter compares only in memory and never persists a body, URL or credential.
+public struct BotWebProvenanceRecheckAdapter: BotProvenanceRechecking {
+    private let rechecker: BotWebSourceRechecker
+
+    public init(transport: any BotWebRecheckTransport,
+                now: @escaping @Sendable () -> Int64 = {
+                    Int64(Date().timeIntervalSince1970 * 1_000)
+                }) {
+        rechecker = BotWebSourceRechecker(transport: transport, now: now)
+    }
+
+    public func recheck(resource: BotResourceIdentity,
+                        baseline: BotProvenanceSourceVersion,
+                        botID: String?) async -> BotProvenanceRecheckOutcome {
+        let kind: BotWebResourceKind
+        switch resource.kind {
+        case .webURL: kind = .webURL
+        case .connectorResource: kind = .connector
+        default: return .notPerformed
+        }
+        guard let revision = Self.revision(from: baseline) else { return .notPerformed }
+        let request = BotWebRecheckRequest(
+            resource: BotWebResourceIdentity(
+                kind: kind, url: resource.key,
+                owner: resource.owner, scope: resource.scope),
+            baseline: revision)
+        let outcome = await rechecker.recheck(request)
+        switch outcome {
+        case let .unchanged(current):
+            return .same(atMS: current.observedAtMS)
+        case let .changed(_, current):
+            return .changed(
+                version: Self.provenanceVersion(current), atMS: current.observedAtMS)
+        case .basisMismatch:
+            return .revisionBasisMismatch(atMS: nowMilliseconds())
+        case let .denied(reason, _):
+            return .denied(detail: reason.rawValue)
+        case let .unavailable(reason):
+            return .unavailable(detail: reason.rawValue)
+        case .notPerformed:
+            return .notPerformed
+        case .cancelled:
+            return .notPerformed
+        case .observed:
+            return .notPerformed
+        }
+    }
+
+    private func nowMilliseconds() -> Int64 {
+        Int64(Date().timeIntervalSince1970 * 1_000)
+    }
+
+    private static func revision(from version: BotProvenanceSourceVersion) -> BotWebRevision? {
+        guard case let .known(known) = version,
+              let basis = BotWebRevision.Basis(rawValue: known.basis.rawValue) else {
+            return nil
+        }
+        if known.basis == .contentSHA256, known.subject == .fileBytes {
+            return nil
+        }
+        return BotWebRevision(
+            basis: basis, value: known.value,
+            observedAtMS: known.observedAtMS ?? 0)
+    }
+
+    private static func provenanceVersion(_ revision: BotWebRevision)
+        -> BotProvenanceSourceVersion {
+        BotProvenanceSourceVersion.known(
+            basis: BotProvenanceSourceVersion.BotSourceBasis(
+                rawValue: revision.basis.rawValue) ?? .contentSHA256,
+            value: revision.value,
+            observedAtMS: revision.observedAtMS,
+            basisRef: nil,
+            subject: revision.basis == .contentSHA256 ? .recordText : nil)
+    }
 }
