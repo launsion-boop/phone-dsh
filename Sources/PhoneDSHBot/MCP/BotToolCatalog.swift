@@ -219,7 +219,7 @@ public enum BotToolCatalog {
     public static func allDefinitions(roster: BotRoster,
                                       callerBotID: String?) -> [BotMCPToolDefinition] {
         definitions + [fishActionDefinition, volatileContextDefinition,
-                       attachToModelDefinition]
+                       attachToModelDefinition, decisionContextDefinition]
             + teamDefinitions(roster: roster, callerBotID: callerBotID)
     }
 
@@ -271,6 +271,67 @@ public enum BotToolCatalog {
             "additionalProperties": .bool(false),
         ]))
 
+    /// G-2 r3 internal additive tool: exposed through `tools/list` so the
+    /// Worker pre-step provider can call it, but deliberately absent from the
+    /// frozen P26 `definitions`/golden. It is read-only, host-validated and
+    /// returns only the current session's bounded block; it grants nothing.
+    public static let decisionContextName = BotDecisionTool.name
+
+    public static let decisionContextDefinition = BotMCPToolDefinition(
+        name: decisionContextName,
+        description: "Return this session's bounded decision materials for the current turn and step. The host validates the claimed session/turn/step and returns only this session's materials; the call is read-only and grants nothing.",
+        inputSchema: .object([
+            "type": .string("object"),
+            "required": .array([
+                .string("schema"), .string("session_id"), .string("turn_id"), .string("step"),
+                .string("stage"), .string("query"), .string("scopes"), .string("limits"),
+            ]),
+            "properties": .object([
+                "schema": .object(["const": .string("bot-decision-context-request/v1")]),
+                "session_id": .object([
+                    "type": .string("string"), "minLength": .number(1), "maxLength": .number(64),
+                ]),
+                "turn_id": .object([
+                    "type": .string("string"), "minLength": .number(1), "maxLength": .number(200),
+                ]),
+                "step": .object(["type": .string("integer"), "minimum": .number(1)]),
+                "stage": .object(["enum": .array([.string("pre_step"), .string("pre_delivery")])]),
+                "query": .object(["type": .string("string"), "maxLength": .number(600)]),
+                "origin": .object(["enum": .array([
+                    .string("user"), .string("bot"), .string("routine"),
+                    .string("task"), .string("proactive"),
+                ])]),
+                "scopes": .object([
+                    "type": .string("array"), "minItems": .number(1), "maxItems": .number(2),
+                    "uniqueItems": .bool(true),
+                    "items": .object(["enum": .array([.string("user"), .string("agent")])]),
+                ]),
+                "limits": .object([
+                    "type": .string("object"),
+                    "required": .array([
+                        .string("max_materials"), .string("max_characters"),
+                        .string("max_snippet_characters"), .string("deadline_ms"),
+                    ]),
+                    "properties": .object([
+                        "max_materials": .object([
+                            "type": .string("integer"), "minimum": .number(1), "maximum": .number(6),
+                        ]),
+                        "max_characters": .object([
+                            "type": .string("integer"), "minimum": .number(240), "maximum": .number(2400),
+                        ]),
+                        "max_snippet_characters": .object([
+                            "type": .string("integer"), "minimum": .number(60), "maximum": .number(300),
+                        ]),
+                        "deadline_ms": .object([
+                            "type": .string("integer"), "minimum": .number(100), "maximum": .number(3000),
+                        ]),
+                    ]),
+                    "additionalProperties": .bool(false),
+                ]),
+            ]),
+            "additionalProperties": .bool(false),
+        ]))
+
     public static let attachToModelDefinition = BotMCPToolDefinition(
         name: attachToModelName,
         description: "Attach one image from the Bot workspace or an Office artifact to the model's context so you can actually see it. Pass exactly one of path, fileId or photoId; for a PDF pass page (1-8, default 1) to pick the page image; purpose is shown to the user in the approval card. The user must approve sending the image to the model service. Use this after camera.capture or when a user attached an image and you need its pixels; do not guess from metadata alone.",
@@ -282,11 +343,12 @@ public enum BotToolCatalog {
 
     public static var allDefinitions: [BotMCPToolDefinition] {
         definitions + [fishActionDefinition, volatileContextDefinition,
-                       attachToModelDefinition] + baseTeamDefinitions
+                       attachToModelDefinition, decisionContextDefinition] + baseTeamDefinitions
     }
 
     public static func isRegistered(_ name: String) -> Bool {
-        name == volatileContextName || name == attachToModelName || p0Names.contains(name)
+        name == volatileContextName || name == attachToModelName
+            || name == decisionContextName || p0Names.contains(name)
     }
 
     public static func isTeamTool(_ name: String) -> Bool {

@@ -315,6 +315,31 @@ public actor BotMCPRuntime {
     /// the Worker's MCP client until its own 130 s timeout. `nil` keeps the
     /// library/test behaviour: no extra wait.
     private var runtimeReadinessProbe: (@Sendable (Int) async -> Bool)?
+    /// G-2 decision material: the host selects bounded materials before a
+    /// step/delivery and revalidates a delivery right before its side effect.
+    /// Installed once by the App composition; nil keeps library/test behaviour
+    /// exactly as before.
+    private var decisionContext: BotDecisionContextService?
+    private var materialTrace: (any BotMaterialTraceRecording)?
+    private var permissionRevisionEvaluator: BotPermissionRevisionEvaluator?
+    /// Last material block the host handed to each session. Used to bind a
+    /// delivery's adopted materials back to the injected block; in-memory only.
+    private var activeMaterialBlocks: [String: BotDecisionMaterialBlock] = [:]
+    /// Delivery-class tools whose side effect must revalidate the decision
+    /// context first (G-2 frozen list).
+    private static let preDeliveryToolNames: Set<String> = [
+        "SendToUser", "SendToAgent", "show_attachment", "show_document", "show_link",
+    ]
+
+    /// Installs the G-2 services. Called by the App composition after the
+    /// runtime exists (the service needs `memory(for:)`).
+    public func installDecisionContext(_ service: BotDecisionContextService,
+                                       trace: (any BotMaterialTraceRecording)? = nil,
+                                       permissionRevision: BotPermissionRevisionEvaluator? = nil) {
+        decisionContext = service
+        materialTrace = trace
+        permissionRevisionEvaluator = permissionRevision
+    }
     /// Default bounded wait for a `tools/call` while the App reattaches the
     /// Worker. Long enough to cover the ready-gate fallback and the first
     /// session/page, short enough to stay far below the 130 s Worker client
@@ -364,7 +389,8 @@ public actor BotMCPRuntime {
         self.dataRoot = dataRoot
         let mainMemory = BotMemory(
             store: SQLiteBotMemoryDocumentStore(eventLog: store, botID: "main", now: now),
-            botID: "main", now: now)
+            botID: "main", now: now,
+            sourceStates: recordEvidence as? any BotSourceStateResolving)
         memory = mainMemory
         memories = ["main": mainMemory]
         routineMachine = RoutineMachine(store: routineStore ?? SQLiteRoutineStore(domainStore: store))
@@ -430,7 +456,8 @@ public actor BotMCPRuntime {
         if let existing = memories[botID] { return existing }
         let memory = BotMemory(
             store: SQLiteBotMemoryDocumentStore(eventLog: store, botID: botID, now: now),
-            botID: botID, now: now)
+            botID: botID, now: now,
+            sourceStates: recordEvidence as? any BotSourceStateResolving)
         memories[botID] = memory
         return memory
     }
@@ -1308,14 +1335,18 @@ public actor BotMCPRuntime {
                         context: BotMCPRequestContext) async -> BotMCPCallResult {
         let bareName = bareToolName(name)
         let catalogTool = BotToolCatalog.isRegistered(bareName)
+        let decisionTool = bareName == BotDecisionTool.name
         let teamHandler = catalogTool ? nil : teamToolHandler(for: bareName)
-        guard catalogTool || teamHandler != nil else {
+        guard catalogTool || teamHandler != nil || decisionTool else {
             return .failure("unknown_tool", "未知工具：\(name)")
         }
         let scope = scopedRuntimeID(context.runtimeId)
         guard let call = await gateway.resolveToolCall(
             runtimeId: scope, name: bareName, arguments: arguments) else {
             return .failure("unattributed", "这次工具调用无法归属到任何进行中的会话")
+        }
+        if decisionTool {
+            return await handleDecisionContext(arguments: arguments, call: call)
         }
         // The per-caller catalog is not a display filter: `tools/call` must use
         // the same catalog `tools/list` returns for this principal before any
@@ -1356,6 +1387,9 @@ public actor BotMCPRuntime {
             let effect = BotToolEffectClassifier.effect(for: bareName, arguments: arguments)
             if let reason = await authorize(call: call, effect: effect) {
                 return .failure("permission_denied", reason)
+            }
+            if let reviewed = await reviewDelivery(name: bareName, arguments: arguments, call: call) {
+                return reviewed
             }
             if let teamHandler {
                 if bareName == BotTeamTools.createTeammateName {
@@ -1402,6 +1436,244 @@ public actor BotMCPRuntime {
         } catch {
             return .failure("execution_failed", String(describing: error))
         }
+    }
+
+    // MARK: - G-2 decision material (host side)
+
+    /// The internal additive tool the Worker pre-step provider calls. It is in
+    /// the catalog (so `tools/list` exposes it) but outside the frozen P26
+    /// model catalog/golden; the host validates the claimed session/turn/step
+    /// and only ever returns this session's bounded block.
+    private func handleDecisionContext(arguments: BotJSONValue,
+                                       call: BotResolvedToolCall) async -> BotMCPCallResult {
+        guard let service = decisionContext else {
+            return Self.decisionToolFailure("material-unavailable", "决策上下文服务尚未接线")
+        }
+        guard case .object(let args) = arguments else {
+            return Self.decisionToolFailure("invalid-request", "需要对象参数")
+        }
+        let sessionID = string(args["session_id"]) ?? ""
+        guard !sessionID.isEmpty, sessionID == call.sessionId else {
+            return Self.decisionToolFailure("permission-denied", "只能读取本会话的决策上下文")
+        }
+        let turnID = string(args["turn_id"]) ?? ""
+        guard !turnID.isEmpty, turnID.unicodeScalars.count <= 200 else {
+            return Self.decisionToolFailure("invalid-request", "turn_id 不合法")
+        }
+        guard let step = try? optionalInt(args["step"]), step >= 1 else {
+            return Self.decisionToolFailure("invalid-request", "step 不合法")
+        }
+        let stage: BotDecisionStage
+        switch string(args["stage"]) {
+        case "pre_delivery": stage = .preDelivery
+        case "pre_step": stage = .preStep
+        default: return Self.decisionToolFailure("invalid-request", "stage 不合法")
+        }
+        let query = string(args["query"]) ?? ""
+        guard query.unicodeScalars.count <= 600 else {
+            return Self.decisionToolFailure("invalid-request", "query 过长")
+        }
+        let origin = string(args["origin"])
+        guard case .array(let scopeValues)? = args["scopes"] else {
+            return Self.decisionToolFailure("invalid-request", "scopes 缺失")
+        }
+        let scopes = scopeValues.compactMap { value -> BotMemoryScope? in
+            switch string(value) {
+            case "user": return .user
+            case "agent": return .agent
+            default: return nil
+            }
+        }
+        guard !scopes.isEmpty, scopes.count == scopeValues.count else {
+            return Self.decisionToolFailure("invalid-request", "scopes 不合法")
+        }
+        guard case .object(let limitObject)? = args["limits"],
+              let maxMaterials = try? optionalInt(limitObject["max_materials"]),
+              let maxCharacters = try? optionalInt(limitObject["max_characters"]),
+              let maxSnippet = try? optionalInt(limitObject["max_snippet_characters"]),
+              let deadline = try? optionalInt(limitObject["deadline_ms"]) else {
+            return Self.decisionToolFailure("invalid-request", "limits 不合法")
+        }
+        let limits = BotDecisionLimits(
+            maxMaterials: maxMaterials, maxCharacters: maxCharacters,
+            maxSnippetCharacters: maxSnippet, deadlineMilliseconds: deadline)
+        let revision = await permissionRevisionEvaluator?(call.principal.botId, sessionID, nil) ?? ""
+        let request = BotDecisionRequest(
+            stage: stage, botID: call.principal.botId, sessionID: sessionID,
+            turnID: turnID, step: step, query: query, origin: origin,
+            scopes: scopes, permissionRevision: revision, limits: limits)
+        do {
+            let block = try await service.materials(for: request)
+            activeMaterialBlocks[sessionID] = block
+            await materialTrace?.note(BotMaterialTraceEvent(
+                stage: .retrieved, blockID: block.blockID, turnID: block.turnID,
+                sessionID: sessionID, botID: call.principal.botId,
+                materialRefs: block.materials.map(\.ref), atMS: now()))
+            let blockValue = (try? JSONValue.parse(JSONEncoder().encode(block))) ?? .object([:])
+            return .success(.object([
+                "schema": .string("bot-decision-context-result/v1"),
+                "ok": .bool(true),
+                "block": blockValue,
+            ]))
+        } catch let error as BotDecisionContextError {
+            return Self.decisionToolFailure(Self.decisionToolCode(error),
+                                            Self.decisionToolMessage(error))
+        } catch {
+            return Self.decisionToolFailure("material-unavailable", "决策上下文暂不可用")
+        }
+    }
+
+    /// Revalidate a delivery-class action right before its side effect. The
+    /// frozen G-2 list is `SendToUser`/`SendToAgent`/attachment/document/link
+    /// cards; `.regenerate` must not execute and must not consume a grant.
+    private func reviewDelivery(name: String, arguments: BotJSONValue,
+                                call: BotResolvedToolCall) async -> BotMCPCallResult? {
+        guard let service = decisionContext, Self.preDeliveryToolNames.contains(name) else { return nil }
+        let sessionID = call.sessionId
+        let turnID = currentTurnID(sessionId: sessionID) ?? "\(sessionID)#0"
+        let recipient = Self.deliveryRecipient(name: name, arguments: arguments)
+        let revision = await permissionRevisionEvaluator?(call.principal.botId, sessionID, recipient) ?? ""
+        let active = activeMaterialBlocks[sessionID]
+        let refs = Self.materialRefs(in: arguments)
+        let request = BotDecisionRequest(
+            stage: .preDelivery, botID: call.principal.botId, sessionID: sessionID,
+            turnID: turnID, step: 1, tool: name, recipient: recipient,
+            query: Self.boundedQuery(arguments), origin: "delivery",
+            permissionRevision: revision,
+            activeMaterialRefs: active?.materials.map(\.ref) ?? [])
+        let digest = (try? BotArgumentsDigest.string(for: arguments)) ?? ""
+        let proposal = BotDeliveryProposal(request: request, tool: name, recipient: recipient,
+                                           materialRefs: refs, argumentDigest: digest)
+        do {
+            switch try await service.review(proposal) {
+            case .proceed:
+                let text = (try? arguments.encoded()).map { String(decoding: $0, as: UTF8.self) } ?? ""
+                await noteAdopted(active: active, refs: refs, argumentsText: text,
+                                  call: call, turnID: turnID)
+                return nil
+            case .regenerate(let block, let reason):
+                activeMaterialBlocks[sessionID] = block
+                await materialTrace?.note(BotMaterialTraceEvent(
+                    stage: .retrieved, blockID: block.blockID, turnID: block.turnID,
+                    sessionID: sessionID, botID: call.principal.botId,
+                    materialRefs: block.materials.map(\.ref), atMS: now()))
+                return Self.decisionChangedResult(block: block, reason: reason)
+            case .failClosed(let code):
+                return .failure(code, "决策上下文复核未通过，动作没有执行")
+            }
+        } catch {
+            return .failure("decision_context_unavailable", "决策上下文复核不可用，动作没有执行")
+        }
+    }
+
+    private func noteAdopted(active: BotDecisionMaterialBlock?, refs: [String],
+                             argumentsText: String, call: BotResolvedToolCall,
+                             turnID: String) async {
+        guard let active else { return }
+        let used = active.materials.filter { material in
+            refs.contains(material.ref) || refs.contains(material.materialID)
+                || refs.contains(material.path) || argumentsText.contains(material.materialID)
+        }
+        guard !used.isEmpty else { return }
+        await materialTrace?.note(BotMaterialTraceEvent(
+            stage: .adopted, blockID: active.blockID, turnID: turnID,
+            sessionID: call.sessionId, botID: call.principal.botId,
+            materialRefs: used.map(\.ref), atMS: now()))
+    }
+
+    private static func decisionToolFailure(_ code: String, _ message: String) -> BotMCPCallResult {
+        let value = BotJSONValue.object([
+            "schema": .string("bot-decision-context-result/v1"),
+            "ok": .bool(false),
+            "code": .string(code),
+            "message": .string(String(message.prefix(200))),
+        ])
+        return resultEnvelope(value)
+    }
+
+    private static func decisionChangedResult(block: BotDecisionMaterialBlock,
+                                              reason: BotRegenerationReason) -> BotMCPCallResult {
+        let reasonValue: String
+        switch reason {
+        case .permissionRevisionChanged: reasonValue = "authorization-revision-changed"
+        case .materialStatusChanged, .newMaterials: reasonValue = "material-changed"
+        case .recipientChanged: reasonValue = "recipient-changed"
+        }
+        let materials = (try? JSONValue.parse(JSONEncoder().encode(block))) ?? .object([:])
+        let value = BotJSONValue.object([
+            "ok": .bool(false),
+            "code": .string("decision_context_changed"),
+            "reason": .string(reasonValue),
+            "materials": materials,
+            "message": .string("决策材料已变化，这次交付没有执行。请基于新材料重新生成，再按既有授权重试。"),
+        ])
+        return resultEnvelope(value)
+    }
+
+    private static func resultEnvelope(_ value: BotJSONValue) -> BotMCPCallResult {
+        let text = (try? value.encoded()).map { String(decoding: $0, as: UTF8.self) } ?? ""
+        return BotMCPCallResult(
+            content: [.object(["type": .string("text"), "text": .string(text)])],
+            structuredContent: value, isError: true)
+    }
+
+    private static func decisionToolCode(_ error: BotDecisionContextError) -> String {
+        switch error {
+        case .invalidRequest: return "invalid-request"
+        case .crossSessionDenied, .permissionRevisionMismatch: return "permission-denied"
+        case .unavailable, .timeout, .cancelled: return "material-unavailable"
+        }
+    }
+
+    private static func decisionToolMessage(_ error: BotDecisionContextError) -> String {
+        switch error {
+        case .invalidRequest(let message): return message
+        case .crossSessionDenied: return "只能读取本会话的决策上下文"
+        case .permissionRevisionMismatch: return "授权版本已变化"
+        case .unavailable(let message): return message
+        case .timeout: return "决策上下文超时"
+        case .cancelled: return "决策上下文已取消"
+        }
+    }
+
+    private static func deliveryRecipient(name: String,
+                                          arguments: BotJSONValue) -> BotDecisionRecipient? {
+        guard name == "SendToAgent" else {
+            return BotDecisionRecipient(kind: .user, id: "user")
+        }
+        var id = "bot"
+        if case .object(let object) = arguments {
+            for key in ["agent_id", "target_id", "bot_name", "agentId"] {
+                if case .string(let value)? = object[key], !value.isEmpty { id = value; break }
+            }
+        }
+        return BotDecisionRecipient(kind: .bot, id: String(id.prefix(120)))
+    }
+
+    private static func boundedQuery(_ arguments: BotJSONValue) -> String {
+        guard case .object(let object) = arguments else { return "" }
+        var parts: [String] = []
+        for key in ["message", "text", "caption", "title", "summary", "query", "path", "name"] {
+            if case .string(let value)? = object[key], !value.isEmpty { parts.append(value) }
+        }
+        return String(parts.joined(separator: " ").prefix(600))
+    }
+
+    private static func materialRefs(in arguments: BotJSONValue) -> [String] {
+        guard let data = try? arguments.encoded(),
+              let text = String(data: data, encoding: .utf8),
+              let regex = try? NSRegularExpression(
+                pattern: #"(record://[A-Za-z0-9._:/#@=\-]{1,300}|memory:[A-Za-z0-9._/:@=\-]{1,300})"#) else {
+            return []
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        var refs: [String] = []
+        for match in regex.matches(in: text, range: range) {
+            guard let matchRange = Range(match.range(at: 0), in: text) else { continue }
+            let candidate = String(text[matchRange])
+            if !refs.contains(candidate) { refs.append(candidate) }
+        }
+        return refs
     }
 
     private func authorize(call: BotResolvedToolCall, effect: BotToolEffect) async -> String? {
