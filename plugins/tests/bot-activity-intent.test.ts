@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import type { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import activityIntent from '../bot-runtime/src/activity-intent.ts'
-import { createAgent, mountRuntime } from './bot-runtime-test-kit.ts'
+import { mountRuntime } from './bot-runtime-test-kit.ts'
 
 const NAMES = ['read', 'glob', 'grep', 'web_search', 'web_fetch'] as const
 
@@ -38,36 +40,83 @@ function schemaFor(schemas: readonly { name: string; parameters: unknown }[], na
   }
 }
 
-test('real ToolRuntime exposes activity only on the five Bot-scoped tools', async () => {
+async function registerInScope(scope: ReturnType<typeof createScope>, tool: ReturnType<typeof probe>): Promise<() => void> {
+  let dispose: (() => void) | undefined
+  await scope.ctx.plugin({
+    inject: ['tools'],
+    apply(scoped: Context) {
+      dispose = scoped.tools.register(tool)
+    },
+  })
+  assert.ok(dispose)
+  return dispose
+}
+
+/** Production shape: preset scope owns the Bot tool, Agent is its child. */
+interface EventSink {
+  readonly events: { type: string; data: Record<string, unknown> }[]
+}
+
+async function productionAgent(
+  root: Context,
+  id: string,
+  presetRead: ReturnType<typeof probe>,
+  sink?: EventSink,
+) {
+  const presetKey = {}
+  const preset = createScope(root, presetKey)
+  await registerInScope(preset, presetRead)
+  await preset.ctx.plugin(activityIntent)
+  const session = sink === undefined
+    ? { id }
+    : {
+        id,
+        append(type: string, data: Record<string, unknown>) {
+          sink.events.push({ type, data })
+          return { seq: sink.events.length - 1 }
+        },
+        snapshotEvents() { return sink.events },
+      }
+  const agent = { id, session } as { id: string; session: { id: string }; ctx?: Context }
+  const agentScope = createScope(root, agent, { parent: presetKey })
+  agent.ctx = agentScope.ctx
+  await root.serial('agent/created', { agent: agent as never, source: 'startup' })
+  return { presetKey, preset, agent, agentScope, scope: agent }
+}
+
+test('the shadow wraps the Bot-scope handler, not the global handler', async () => {
   const ctx = await mountRuntime()
+  const globalSeen: unknown[] = []
+  const botSeen: unknown[] = []
   try {
-    for (const name of NAMES) ctx.tools.register(probe(name))
-    const agent = await createAgent(ctx, 'gb-activity-schema')
-    await agent.ctx.plugin(activityIntent)
-    const schemas = ctx.tools.schemas(agent)
-    for (const name of NAMES) {
-      const parameters = schemaFor(schemas, name)
-      assert.equal(parameters.properties?.activity?.type, 'string')
-      assert.equal(parameters.properties?.activity?.maxLength, 160)
-      assert.equal(parameters.required?.includes('activity') ?? false, false)
-    }
-    const workbench = await createAgent(ctx, 'workbench-activity-schema')
-    const workbenchSchemas = ctx.tools.schemas(workbench)
-    for (const name of NAMES) {
-      assert.equal(schemaFor(workbenchSchemas, name).properties?.activity, undefined)
-    }
+    ctx.tools.register(probe('read', globalSeen))
+    const { preset, agent } = await productionAgent(ctx, 'gb-activity-schema', probe('read', botSeen))
+    const scope = scopeOf((agent as { ctx: Context }).ctx)
+    assert.ok(scope)
+
+    const parameters = schemaFor(ctx.tools.schemas(scope), 'read')
+    assert.equal(parameters.properties?.activity?.type, 'string')
+    assert.equal(parameters.properties?.activity?.maxLength, 160)
+    assert.equal(parameters.required?.includes('activity') ?? false, false)
+
+    const wrapped = ctx.tools.get('read', scope)
+    assert.ok(wrapped)
+    await wrapped!.execute({ file_path: '/dsh/workspace/notes.md', activity: '定位 #174 的合并资料' }, {} as never)
+    assert.deepEqual(botSeen, [{ file_path: '/dsh/workspace/notes.md' }])
+    assert.deepEqual(globalSeen, [])
+    assert.equal(schemaFor(ctx.tools.schemas(scopeOf(preset.ctx)), 'read').properties?.activity, undefined)
+    assert.equal(schemaFor(ctx.tools.schemas(), 'read').properties?.activity, undefined)
   } finally {
     await ctx.fiber.dispose()
   }
 })
 
-test('activity stays in tool/call arguments but never reaches the original handler', async () => {
+test('tool/call arguments retain activity while the real handler receives none', async () => {
   const ctx = await mountRuntime()
+  const seen: unknown[] = []
+  const sink: EventSink = { events: [] }
   try {
-    const seen: unknown[] = []
-    ctx.tools.register(probe('read', seen))
-    const agent = await createAgent(ctx, 'gb-activity-execute')
-    await agent.ctx.plugin(activityIntent)
+    const { agent } = await productionAgent(ctx, 'gb-activity-execute', probe('read', seen), sink)
     const result = await ctx.tools.execute({
       calls: [{
         type: 'tool-call',
@@ -76,14 +125,14 @@ test('activity stays in tool/call arguments but never reaches the original handl
         arguments: JSON.stringify({ file_path: '/dsh/workspace/notes.md', activity: '定位 #174 的合并资料' }),
       }],
       signal: new AbortController().signal,
-      agent,
+      agent: agent as never,
       log: { turn: 1, step: 1 },
     })
     assert.equal(result.results[0]?.result.isError, false)
     assert.deepEqual(seen, [{ file_path: '/dsh/workspace/notes.md' }])
-    const call = agent.session.snapshotEvents().find(event => event.type === 'tool/call')
+    const call = sink.events.find(event => event.type === 'tool/call')
     assert.ok(call)
-    const parsed = JSON.parse(call.data.arguments) as Record<string, unknown>
+    const parsed = JSON.parse(String(call.data.arguments)) as Record<string, unknown>
     assert.equal(parsed.activity, '定位 #174 的合并资料')
     assert.equal(parsed.file_path, '/dsh/workspace/notes.md')
   } finally {
@@ -91,23 +140,89 @@ test('activity stays in tool/call arguments but never reaches the original handl
   }
 })
 
-test('a late or re-registered global tool is re-wrapped without restarting the agent', async () => {
+test('web_search and web_fetch keep their provider readiness condition', async () => {
   const ctx = await mountRuntime()
   try {
-    const agent = await createAgent(ctx, 'gb-activity-reconnect')
-    await agent.ctx.plugin(activityIntent)
-    assert.equal(ctx.tools.schemas(agent).some(entry => entry.name === 'read'), false)
+    const flags = { search: false, fetch: false }
+    ctx.provide('web', {
+      searchReady: () => flags.search,
+      fetchReady: () => flags.fetch,
+    })
+    const presetKey = {}
+    const preset = createScope(ctx, presetKey)
+    await registerInScope(preset, probe('web_search'))
+    await registerInScope(preset, probe('web_fetch'))
+    await preset.ctx.plugin(activityIntent)
+    const agent = { id: 'gb-activity-web', session: { id: 'gb-activity-web' } } as { id: string; session: { id: string }; ctx?: Context }
+    const agentScope = createScope(ctx, agent, { parent: presetKey })
+    agent.ctx = agentScope.ctx
+    await ctx.serial('agent/created', { agent: agent as never, source: 'startup' })
+    const scope = scopeOf(agentScope.ctx)
+    assert.ok(scope)
 
-    const first = probe('read')
-    const disposeFirst = ctx.tools.register(first)
+    const admitted = async (): Promise<Set<string>> => {
+      const set = await ctx.tools.resolve({
+        agent: agent as never,
+        modelSelection: { provider: 'mock', model: 'mock' },
+        signal: new AbortController().signal,
+      })
+      try {
+        return new Set(set.view(scope).keys())
+      } finally {
+        set.dispose()
+      }
+    }
+
+    assert.equal((await admitted()).has('web_search'), false)
+    assert.equal((await admitted()).has('web_fetch'), false)
+    flags.search = true
+    const searchOnly = await admitted()
+    assert.equal(searchOnly.has('web_search'), true)
+    assert.equal(searchOnly.has('web_fetch'), false)
+    flags.fetch = true
+    const both = await admitted()
+    assert.equal(both.has('web_search'), true)
+    assert.equal(both.has('web_fetch'), true)
+    assert.equal(schemaFor(ctx.tools.schemas(scope), 'web_search').properties?.activity?.type, 'string')
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('late Bot-scope registration and re-registration update the same shadow', async () => {
+  const ctx = await mountRuntime()
+  const firstSeen: unknown[] = []
+  const secondSeen: unknown[] = []
+  try {
+    const presetKey = {}
+    const preset = createScope(ctx, presetKey)
+    await preset.ctx.plugin(activityIntent)
+    const agent = { id: 'gb-activity-reconnect', session: { id: 'gb-activity-reconnect' } } as { id: string; session: { id: string }; ctx?: Context }
+    const agentScope = createScope(ctx, agent, { parent: presetKey })
+    agent.ctx = agentScope.ctx
+    await ctx.serial('agent/created', { agent: agent as never, source: 'startup' })
+    const scope = scopeOf(agentScope.ctx)
+    assert.ok(scope)
+    assert.equal(ctx.tools.schemas(scope).some(entry => entry.name === 'read'), false)
+
+    const disposeFirst = await registerInScope(preset, probe('read', firstSeen))
     await new Promise(resolve => setImmediate(resolve))
-    assert.equal(schemaFor(ctx.tools.schemas(agent), 'read').properties?.activity?.type, 'string')
+    const first = ctx.tools.get('read', scope)
+    assert.ok(first)
+    await first!.execute({ file_path: '/a', activity: '定位 #174 的合并资料' }, {} as never)
+    assert.deepEqual(firstSeen, [{ file_path: '/a' }])
 
     disposeFirst()
-    const second = probe('read')
-    ctx.tools.register(second)
     await new Promise(resolve => setImmediate(resolve))
-    assert.equal(schemaFor(ctx.tools.schemas(agent), 'read').properties?.activity?.type, 'string')
+    assert.equal(ctx.tools.schemas(scope).some(entry => entry.name === 'read'), false)
+    await registerInScope(preset, probe('read', secondSeen))
+    await new Promise(resolve => setImmediate(resolve))
+    const second = ctx.tools.get('read', scope)
+    assert.ok(second)
+    assert.equal(schemaFor(ctx.tools.schemas(scope), 'read').properties?.activity?.type, 'string')
+    await second!.execute({ file_path: '/b', activity: '对比 #174 与 main 的冲突' }, {} as never)
+    assert.deepEqual(secondSeen, [{ file_path: '/b' }])
+    assert.deepEqual(firstSeen, [{ file_path: '/a' }])
   } finally {
     await ctx.fiber.dispose()
   }
