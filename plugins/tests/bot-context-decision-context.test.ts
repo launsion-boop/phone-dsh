@@ -20,6 +20,7 @@ import dshbotDecisionContext, {
   createPhoneDecisionContextSource,
   internalToolOrigin,
   currentTurnMessage,
+  isBotAgentSession,
   queryFromMessages,
   renderDecisionContext,
   validateDecisionContextResponse,
@@ -583,4 +584,12 @@ test('query extraction ignores runtime-context snapshots', () => {
   assert.equal(query.includes('ONBOARDING_MARKER'), false, 'held onboarding must not enter the query')
   assert.ok(query.length <= 600)
   assert.equal(currentTurnMessage(messages)?.source?.rpcId, 'user-action:current')
+})
+
+test('an agent- session composed phone-bot is Bot material', () => {
+  const ctx = new Context()
+  const bot = { id: 'agent-abc', session: { id: 'agent-abc', header: { agentPreset: 'phone-bot' } } }
+  const workbench = { id: 'agent-def', session: { id: 'agent-def', header: { agentPreset: 'standard' } } }
+  assert.equal(isBotAgentSession(ctx, bot as never), true)
+  assert.equal(isBotAgentSession(ctx, workbench as never), false)
 })

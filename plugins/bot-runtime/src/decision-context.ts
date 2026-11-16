@@ -304,9 +304,21 @@ function actorSession(agent: Agent | undefined): string {
   return agent === undefined ? '' : agentSessionIdOf(agent)
 }
 
+export function isBotAgentSession(ctx: Context, agent: Agent | undefined): boolean {
+  return isBotAgent(ctx, agent)
+}
+
 function isBotAgent(ctx: Context, agent: Agent | undefined): boolean {
   const sessionId = actorSession(agent)
   if (sessionId === '' || isRestrictedAgent(agent)) return false
+  // Host-created Bot roster sessions may use the `agent-<hex>` id rather than
+  // `gb-*`; the immutable creation header is the composition authority. A
+  // teammate/agent session composed as phone-bot is therefore Bot material
+  // even when the Worker has not been re-claimed after a restart.
+  const preset = (agent as {
+    session?: { header?: { agentPreset?: unknown } }
+  } | undefined)?.session?.header?.agentPreset
+  if (preset === 'phone-bot') return true
   const claimed = ctx.get('dshbotOwnedSessions') as
     | { has: (sessionId: string) => boolean }
     | undefined
