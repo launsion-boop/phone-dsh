@@ -66,6 +66,126 @@ export function skillUseDecision(status: string | null): 'allow' | 'deny' {
   return status === 'current' ? 'allow' : 'deny'
 }
 
+const KNOWN_INVALID = new Set(['changed', 'unavailable', 'revoked', 'erased'])
+
+function isKnownInvalid(status: string | null | undefined): status is string {
+  return status !== null && status !== undefined && KNOWN_INVALID.has(status)
+}
+
+function catalogLinePrefix(name: string): string {
+  return `- \`${name}\`: `
+}
+
+/** Remove only the catalog lines for `names`; descriptions are never parsed. */
+export function removeCatalogLines(text: string, names: ReadonlySet<string>): string {
+  if (names.size === 0) return text
+  return text.split('\n').filter(line =>
+    ![...names].some(name => line.startsWith(catalogLinePrefix(name)))).join('\n')
+}
+
+function filterCatalogMessage(message: unknown, invalid: ReadonlySet<string>): unknown {
+  if (!isRecord(message) || !isRecord(message.source)) return message
+  const source = message.source
+  if (source.kind !== 'skill-catalog' || !Array.isArray(source.entries)) return message
+  const entries = source.entries.filter(entry => isRecord(entry)
+    && typeof entry.name === 'string' && !invalid.has(entry.name))
+  if (entries.length === source.entries.length) return message
+  const content = Array.isArray(message.content)
+    ? message.content.map(block => {
+      if (!isRecord(block) || block.type !== 'text' || typeof block.text !== 'string') return block
+      return { ...block, text: removeCatalogLines(block.text, invalid) }
+    })
+    : message.content
+  return { ...message, content, source: { ...source, entries } }
+}
+
+function parseSkillCallName(value: unknown): string | undefined {
+  const args = parseArguments(value)
+  const name = typeof args.name === 'string' ? args.name.trim() : ''
+  return name === '' ? undefined : name
+}
+
+function loadedSkillCalls(messages: readonly unknown[]): Map<string, string> {
+  const calls = new Map<string, string>()
+  for (const message of messages) {
+    if (!isRecord(message) || message.role !== 'assistant' || !Array.isArray(message.content)) continue
+    for (const block of message.content) {
+      if (!isRecord(block) || block.type !== 'tool-call' || block.name !== 'skill') continue
+      if (typeof block.id !== 'string') continue
+      const name = parseSkillCallName(block.arguments)
+      if (name !== undefined) calls.set(block.id, name)
+    }
+  }
+  return calls
+}
+
+async function queryStatus(
+  ctx: Context, statusTool: string, name: string, agent: unknown,
+  signal: AbortSignal | undefined, callId: number,
+): Promise<string | null | undefined> {
+  try {
+    const batch = await ctx.tools.execute({
+      calls: [{
+        type: 'tool-call',
+        id: `dshbot-skill-status-${callId}` as ToolCallId,
+        name: statusTool,
+        arguments: JSON.stringify({ schema: BOT_SKILL_USE_STATUS_SCHEMA, name }),
+      }],
+      ...signal === undefined ? {} : { signal },
+      ...agent === undefined ? {} : { agent: agent as never },
+    })
+    const result = batch.results[0]?.result
+    if (result === undefined || result.isError || !isRecord(result.value)) return undefined
+    const value = result.value.structuredContent
+    if (!isRecord(value) || value.schema !== BOT_SKILL_USE_STATUS_SCHEMA || value.ok !== true) {
+      return undefined
+    }
+    const raw = value.status
+    if (raw === null || raw === undefined) return null
+    if (typeof raw === 'string'
+      && ['current', 'changed', 'unavailable', 'revoked', 'erased', 'unknown'].includes(raw)) {
+      return raw
+    }
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
+function replaceLoadedSkillResult(message: unknown, status: string): unknown {
+  if (!isRecord(message)) return message
+  return {
+    ...message,
+    isError: true,
+    content: [{
+      type: 'text',
+      text: `Error: skill provenance is ${status}; its instructions were NOT loaded. Re-read the corrected skill before acting.`,
+    }],
+  }
+}
+
+
+/** Apply known-invalid statuses to catalog and loaded skill messages. */
+export function filterSkillProvenanceMessages(
+  messages: readonly unknown[],
+  statuses: ReadonlyMap<string, string | null | undefined>,
+): readonly unknown[] {
+  const invalid = new Set([...statuses]
+    .filter(([, status]) => isKnownInvalid(status))
+    .map(([name]) => name))
+  if (invalid.size === 0) return messages
+  const calls = loadedSkillCalls(messages)
+  return messages.map(message => {
+    const catalog = filterCatalogMessage(message, invalid)
+    if (catalog !== message) return catalog
+    if (!isRecord(message) || message.role !== 'tool') return message
+    if (!isRecord(message.source) || typeof message.source.callId !== 'string') return message
+    const name = calls.get(message.source.callId)
+    if (name === undefined || !invalid.has(name)) return message
+    return replaceLoadedSkillResult(message, statuses.get(name) ?? 'unknown')
+  })
+}
+
 export default function dshbotSkillUseGate(
   ctx: Context,
   config: SkillUseGateConfig = {},
@@ -73,6 +193,41 @@ export default function dshbotSkillUseGate(
   const enabled = config.enabled !== false
   const statusTool = config.statusTool ?? BOT_SKILL_USE_STATUS_TOOL
   let nextCallId = 0
+
+  ctx.on('agent/pre-step', async (payload: {
+    agent?: unknown
+    signal?: AbortSignal
+  }, next: () => Promise<unknown>) => {
+    if (!enabled) return next()
+    if (!botSessionOwned(ctx, payload as never)) return next()
+    const decision = await next()
+    if (!isRecord(decision) || !Array.isArray(decision.messages)) return decision
+    const messages = decision.messages
+    const names = new Set<string>()
+    for (const message of messages) {
+      if (!isRecord(message) || !isRecord(message.source)) continue
+      if (message.source.kind !== 'skill-catalog'
+        || !Array.isArray(message.source.entries)) continue
+      for (const entry of message.source.entries) {
+        if (isRecord(entry) && typeof entry.name === 'string') names.add(entry.name)
+      }
+    }
+    const calls = loadedSkillCalls(messages)
+    for (const name of calls.values()) names.add(name)
+    if (names.size === 0) return decision
+
+    const statuses = new Map<string, string | null | undefined>()
+    let callId = nextCallId
+    for (const name of names) {
+      callId += 1
+      statuses.set(name, await queryStatus(
+        ctx, statusTool, name, payload.agent, payload.signal, callId))
+    }
+    nextCallId = callId
+    const filtered = filterSkillProvenanceMessages(messages, statuses)
+    if (filtered === messages) return decision
+    return { ...decision, messages: filtered }
+  })
 
   ctx.on('tools/pre-execute', async (exec: {
     name: string

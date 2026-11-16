@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { skillUseDecision, skillUseDenialCode } from '../bot-runtime/src/skill-use-gate.ts'
+import { filterSkillProvenanceMessages, removeCatalogLines, skillUseDecision, skillUseDenialCode } from '../bot-runtime/src/skill-use-gate.ts'
 
 test('only a current skill may load', () => {
   assert.equal(skillUseDecision('current'), 'allow')
@@ -14,4 +14,84 @@ test('unknown, nil/untracked and every non-current status deny', () => {
   }
   assert.equal(skillUseDecision(null), 'deny')
   assert.equal(skillUseDenialCode(null), 'skill-provenance-untracked')
+})
+
+test('catalog filtering removes only the exact invalid entry lines', () => {
+  const text = [
+    '<available_skills>',
+    '- `weekly-report`: marker-erased-description',
+    '- `meeting-notes`: marker-unrelated-description',
+    '- `weekly-report-extra`: marker-unrelated-extra',
+    '</available_skills>',
+  ].join('\n')
+  const filtered = removeCatalogLines(text, new Set(['weekly-report']))
+  assert.equal(filtered.includes('marker-erased-description'), false)
+  assert.equal(filtered.includes('`weekly-report`'), false)
+  assert.equal(filtered.includes('marker-unrelated-description'), true)
+  assert.equal(filtered.includes('marker-unrelated-extra'), true)
+})
+
+test('catalog and loaded body markers are removed only for known-invalid skills', () => {
+  const catalog = {
+    role: 'user',
+    content: [{
+      type: 'text',
+      text: [
+        '<available_skills>',
+        '- `erased-skill`: CATALOG_ERASED_MARKER',
+        '- `current-skill`: CATALOG_CURRENT_MARKER',
+        '</available_skills>',
+      ].join('\n'),
+    }],
+    source: {
+      kind: 'skill-catalog', form: 'catalog',
+      entries: [
+        { name: 'erased-skill', description: 'CATALOG_ERASED_MARKER' },
+        { name: 'current-skill', description: 'CATALOG_CURRENT_MARKER' },
+      ],
+    },
+  }
+  const call = (id: string, name: string) => ({
+    role: 'assistant',
+    content: [{ type: 'tool-call', id, name: 'skill', arguments: JSON.stringify({ name }) }],
+    source: { kind: 'model' },
+  })
+  const result = (id: string, text: string) => ({
+    role: 'tool', content: [{ type: 'text', text }],
+    source: { kind: 'tool', callId: id }, toolCallId: id,
+  })
+  const messages = [
+    catalog,
+    call('call-erased', 'erased-skill'),
+    result('call-erased', 'BODY_ERASED_MARKER'),
+    call('call-current', 'current-skill'),
+    result('call-current', 'BODY_CURRENT_MARKER'),
+  ]
+  const filtered = filterSkillProvenanceMessages(messages, new Map([
+    ['erased-skill', 'erased'], ['current-skill', 'current'],
+  ]))
+  const text = JSON.stringify(filtered)
+  assert.equal(text.includes('CATALOG_ERASED_MARKER'), false)
+  assert.equal(text.includes('BODY_ERASED_MARKER'), false)
+  assert.equal(text.includes('CATALOG_CURRENT_MARKER'), true)
+  assert.equal(text.includes('BODY_CURRENT_MARKER'), true)
+  const entries = (filtered[0] as { source: { entries: { name: string }[] } }).source.entries
+  assert.deepEqual(entries.map(entry => entry.name), ['current-skill'])
+  assert.equal((filtered[2] as { isError?: boolean }).isError, true)
+  assert.equal((filtered[4] as { isError?: boolean }).isError, undefined)
+})
+
+test('unknown and nil statuses keep the catalog and body untouched', () => {
+  const messages = [{
+    role: 'user',
+    content: [{ type: 'text', text: '- `maybe-skill`: CATALOG_MAYBE_MARKER' }],
+    source: {
+      kind: 'skill-catalog', form: 'catalog',
+      entries: [{ name: 'maybe-skill', description: 'CATALOG_MAYBE_MARKER' }],
+    },
+  }]
+  for (const status of ['unknown', null] as const) {
+    const filtered = filterSkillProvenanceMessages(messages, new Map([['maybe-skill', status]]))
+    assert.equal(filtered, messages)
+  }
 })
