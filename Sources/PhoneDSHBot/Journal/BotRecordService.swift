@@ -1218,32 +1218,54 @@ extension BotRecordService: BotProvenanceEvidenceResolving {
         }
         var result: [String: BotProvenanceSourceFact] = [:]
         for state in states {
-            let version: BotProvenanceSourceVersion?
-            switch state.version {
-            case let .known(known):
-                version = .known(
-                    basis: BotProvenanceSourceVersion.BotSourceBasis(
-                        rawValue: known.kind.rawValue) ?? .contentSHA256,
-                    value: known.value,
-                    observedAtMS: known.observedAtMS,
-                    basisRef: known.basisRef)
-            case let .unknown(reason):
-                version = .unknown(
-                    reason: BotProvenanceSourceVersion.BotSourceUnknownReason(
-                        rawValue: reason.rawValue) ?? .sourceUnversioned,
-                    observedAtMS: nil,
-                    basisRef: state.ref)
-            case .none:
-                version = nil
-            }
             result[state.ref] = BotProvenanceSourceFact(
                 resolved: state.resolved,
                 erased: state.erased,
                 observedAtMS: state.observedAtMS,
                 recordType: state.recordType,
                 trust: state.trust?.rawValue,
-                version: version)
+                version: state.version?.provenanceSourceVersion(basisRef: state.ref))
         }
         return result
+    }
+}
+
+// MARK: - P → L derivation mapping (Plan A)
+
+extension BotSourceVersion {
+    /// Maps P's version (including the r13 subject) to L's derivation input.
+    /// L still owns the resource identity and fills it in prepareDerivation.
+    public func provenanceSourceVersion(basisRef: String? = nil) -> BotProvenanceSourceVersion {
+        switch self {
+        case let .known(known):
+            let subject = known.subject.flatMap {
+                BotProvenanceSourceVersionSubject(rawValue: $0.rawValue)
+            }
+            let basis = BotProvenanceSourceVersion.BotSourceBasis(
+                rawValue: known.kind.rawValue) ?? .contentSHA256
+            return .known(
+                basis: basis,
+                value: known.value,
+                observedAtMS: known.observedAtMS,
+                basisRef: known.basisRef,
+                subject: subject)
+        case let .unknown(reason):
+            let mapped = BotProvenanceSourceVersion.BotSourceUnknownReason(
+                rawValue: reason.rawValue) ?? .sourceUnversioned
+            return .unknown(reason: mapped, observedAtMS: nil, basisRef: basisRef)
+        }
+    }
+}
+
+extension BotSourceBaseline {
+    /// One P baseline as the derivation source L's prepareDerivation accepts.
+    /// Role and version are passed through; resource stays nil so L derives it
+    /// from the real carrier and fails closed when it cannot.
+    public func provenanceSource() -> BotDerivationSource {
+        BotDerivationSource(
+            record: record,
+            role: role.flatMap { BotDerivationRole(rawValue: $0.rawValue) },
+            resource: nil,
+            sourceVersion: sourceVersion?.provenanceSourceVersion(basisRef: record))
     }
 }

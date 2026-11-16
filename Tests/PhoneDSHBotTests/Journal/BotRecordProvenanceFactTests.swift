@@ -61,13 +61,14 @@ final class BotRecordProvenanceFactTests: XCTestCase {
         XCTAssertEqual(observation.observedAtMS, observationTime)
         XCTAssertEqual(observation.recordType, "tool/result")
         XCTAssertEqual(observation.trust, "observation")
-        guard case let .known(basis, value, at, basisRef) = try XCTUnwrap(observation.version) else {
+        guard case let .known(known) = try XCTUnwrap(observation.version) else {
             return XCTFail("observation must carry a known version")
         }
-        XCTAssertEqual(basis, .contentSHA256)
-        XCTAssertEqual(value, "sha256:" + sha256Hex(observationText))
-        XCTAssertEqual(at, observationTime)
-        XCTAssertEqual(basisRef, observationRef)
+        XCTAssertEqual(known.basis, .contentSHA256)
+        XCTAssertEqual(known.value, "sha256:" + sha256Hex(observationText))
+        XCTAssertEqual(known.observedAtMS, observationTime)
+        XCTAssertEqual(known.basisRef, observationRef)
+        XCTAssertEqual(known.subject, .recordText)
 
         let user = try XCTUnwrap(facts[userRef])
         XCTAssertTrue(user.resolved)
@@ -142,11 +143,11 @@ final class BotRecordProvenanceFactTests: XCTestCase {
         XCTAssertTrue(fact.resolved)
         XCTAssertEqual(fact.recordType, "context.observed")
         XCTAssertEqual(fact.trust, "observation")
-        guard case let .known(basis, value, _, _) = try XCTUnwrap(fact.version) else {
+        guard case let .known(known) = try XCTUnwrap(fact.version) else {
             return XCTFail("context.observed must carry its structured version")
         }
-        XCTAssertEqual(basis, .etag)
-        XCTAssertEqual(value, "etag:calendar-1")
+        XCTAssertEqual(known.basis, .etag)
+        XCTAssertEqual(known.value, "etag:calendar-1")
     }
 
     func testMissingCallerIdentityReturnsNoFactsInsteadOfGuessing() async throws {
