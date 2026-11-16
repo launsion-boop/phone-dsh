@@ -240,6 +240,8 @@ final class BotRuntimeComposition {
     private var contextSources: BotContextSourcesAssembly?
     /// G-1 provenance read model (process-wide, one event log).
     private(set) var provenance: BotProvenanceService?
+    /// G-2 feedback center, shared by every unit and the RecordFeedback tool.
+    private(set) var feedbackCenter: BotFeedbackCenter?
     /// Bounded wake-signal log. A context observation may request a wake; the
     /// related/开口 policy is F/S work, so the host records the signal instead
     /// of opening an empty visible turn.
@@ -407,7 +409,7 @@ final class BotRuntimeComposition {
         let instanceID = UUID().uuidString
         let grantStore = await runtime.grants
         let permissionRevision: BotPermissionRevisionEvaluator = { botID, sessionID, recipient in
-            let grantState = grantStore.list(botId: botID)
+            let grantState = await grantStore.list(botId: botID)
                 .map { "\($0.id)|\($0.resource)|\($0.expiresAt ?? 0)" }
                 .sorted().joined(separator: ",")
             let roster = (try? await profileStore.roster())?.bots.map(\.id).sorted()
@@ -421,9 +423,6 @@ final class BotRuntimeComposition {
             permissionRevision: permissionRevision)
         await runtime.installDecisionContext(
             decisionContext, trace: materialTrace, permissionRevision: permissionRevision)
-        await runtime.setRoutineChangeObserver { [weak composition] botID in
-            await composition?.noteRoutineChanged(botID: botID)
-        }
         // G-2 feedback: one center for the process. An unreadable Application
         // Support directory leaves the feature unavailable (the Bot still
         // starts); the store never overwrites a damaged file.
@@ -440,7 +439,6 @@ final class BotRuntimeComposition {
         }
         let contextSources = BotContextSourcesAssembly(
             dependencies: .init(eventLog: store))
-        composition.contextSources = contextSources
         // G-1 provenance: one read model for records/derivations/current status.
         // The file rechecker is the only producer wired this round; web/context
         // producers remain explicit NOT_RUN.
@@ -451,7 +449,6 @@ final class BotRuntimeComposition {
             eventLog: store,
             resolver: recordService,
             rechecker: BotProvenanceFileRecheckAdapter(rechecker: fileRechecker))
-        composition.provenance = provenance
         await runtime.installProvenance(provenance)
 
         let handler = BotMCPHandler(runtime: runtime)
@@ -468,6 +465,12 @@ final class BotRuntimeComposition {
             workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot(),
             schedulerNow: now, schedulerSleep: sleep,
             cloudConfiguration: BotCloudConfiguration.production())
+        composition.contextSources = contextSources
+        composition.provenance = provenance
+        composition.feedbackCenter = feedbackCenter
+        await runtime.setRoutineChangeObserver { [weak composition] botID in
+            await composition?.noteRoutineChanged(botID: botID)
+        }
         // A Worker rebuilt by a foreground resume loses its in-memory
         // credential map. On the first rejected registration the App
         // re-claims that exact session's current token and the Worker retries
