@@ -48,7 +48,7 @@ contract_revision: spec/bot/v2 @ aha/integration-20261116 freeze commit (SHA pub
 | `review.state` | 无 → `verified`／`unverified`／`disputed`（关闭 enum，未知值拒绝） |
 | `review.basis` | 无 → `user-statement`／`observation`／`record-recheck`／`model-inference`（关闭 enum） |
 | `verified` 的宿主校验 | 无 → basis 不得是 `model-inference`；**`refs` 至少 1 条**，每条按 §1.5 解析存在、属本 Bot、未抹除；否则 `memory-review-invalid`，整条写入失败。`method`（≤200 scalar）与 `at_ms` 是写入者自述，宿主不据此认证，不是硬性条件 |
-| `disputed` 的宿主校验 | 无 → `refs` ≥ 1（至少指认冲突的一方；能指认双方时都列出）；否则 `memory-review-invalid` |
+| `disputed` 的宿主校验 | 无 → `refs` ≥ 1 条可定位争议的记录（同一原文可同时包含矛盾双方，不强制两条）；否则 `memory-review-invalid` |
 | `unverified` | 无 → `basis` 必填；可带 `refs` 说明查过哪些记录，但不得被当作已核对 |
 | 语义定位 | 无 → `review` 是**模型写入时的核验断言 + 可解析依据**，不是宿主对结论真实性的认证；引用可解析不证明结论成立，独立评测另行检验（§4.4） |
 | write request | 无 `review` → 可选；`refs` 额外接受保留值 `current-user-turn`（只限真实用户回合；隐藏/held/agent/routine/Task/maintainer 拒绝） |
@@ -151,5 +151,6 @@ contract_revision: spec/bot/v2 @ aha/integration-20261116 freeze commit (SHA pub
 | --- | --- | --- | --- |
 | r1 | C | 初始冻结（PLAN §2–3；`resolveEvidence` 丢弃逐条时间、文档无核验字段） | M、R、E |
 | r2 | C | 按 M 审计与主审查：字段改名 `review`（避免与 v1 `verification.reported` 同名）；`verified` 必须 `refs≥1` 且宿主逐条解析，method/at_ms 降为自述；`evidence_status` 明确为一次批量解析的派生视图、不新增事件流；补 `restore` 继承元数据；兼容矩阵明确旧严格 reader 会拒绝、发布仅 iOS | M、R、E、Q |
+| r5 | C | 主协调裁决 Q-06：`disputed` 不强制两条引用（同一原文可同时包含矛盾双方），统一为“≥1 条可定位争议的记录”；Q-07：`review` 明确为写入时历史断言，抹除后不得当当前有效证据，不新建失效机制 | M、R、E、Q |
 | r4 | C | Q-01：`UpdateMemory` 模型可见 inputSchema 补 `review`（与 write-request schema 一致）；golden `tool-catalog.phone.json` 同步 properties/review/descriptionContains；Q-06：`disputed` 文案统一为“≥1，至少一方”；Q-07：明确 `restore` 不重解析 `review.refs` | M、R、E、Q |
 | r3 | C | 真实基线 AHA-COMPACT-REUSE：复用正确但 `evidence: []` 硬失败 → 冻结最小出处提示（工具 description 末句），不新增自动检索 hook；由 E 做真实模型 A/B，无增益则撤回 | M、R、E、Q |
