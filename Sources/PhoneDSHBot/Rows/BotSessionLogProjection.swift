@@ -690,10 +690,10 @@ public struct BotSessionLogProjector: Sendable {
                     // document; the live event has the routine at the root.
                     var entries: [[String: BotJSONValue]] = []
                     if let document = event.data["document"]?.objectValue,
-                       let routines = document["routines"]?.array {
+                       let routines = document["routines"]?.arrayValue {
                         entries.append(contentsOf: routines.compactMap(objectValue))
                     }
-                    if event.data["id"]?.string != nil || event.data["routineID"]?.string != nil,
+                    if event.data["id"]?.stringValue != nil || event.data["routineID"]?.stringValue != nil,
                        let root = event.data.objectValue {
                         entries.append(root)
                     }
@@ -774,10 +774,10 @@ public struct BotSessionLogProjector: Sendable {
                 // before the first delivery.
                 var entries: [[String: BotJSONValue]] = []
                 if let document = objectValue(data["document"]),
-                   let routines = document["routines"]?.array {
+                   let routines = document["routines"]?.arrayValue {
                     entries.append(contentsOf: routines.compactMap(objectValue))
                 }
-                if data["id"]?.string != nil || data["routineID"]?.string != nil {
+                if data["id"]?.stringValue != nil || data["routineID"]?.stringValue != nil {
                     entries.append(data)
                 }
                 for routine in entries {
