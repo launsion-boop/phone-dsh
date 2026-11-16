@@ -7,7 +7,7 @@
 ```yaml
 change: PC-20261116-bot-discover-endpoint
 contracts: [P26]
-status: frozen
+status: withdrawn
 breaking: false
 version_decision: no wire/schema change. One endpoint-style instruction added to the Bot-only zh/en system prompts (plugins/bot-runtime/prompts/*); the Worker image must be repacked for the prompt to take effect. DSH official workbench/kernel untouched.
 base: 908d582b9ee91886ba197bebd54b863c8093cced
@@ -65,8 +65,17 @@ English：
   否则回退该提示并记录。
 - **Q**：只审该 prompt delta + A/B 证据与用词。
 
+## 4.1 有效 A/B 与撤回（2026-11-16）
+
+提示链修复后（source-of-truth → profile → pack fail-closed），treatment 真实 Bot system/message
+命中 r8 中文 1 次，control 0 次；同 r9 catalog `AHA-DISCOVER --upstream real --repeat 2`：
+control FAIL 2/2、treatment FAIL 2/2（treatment 未更好），treatment `AHA-INJECTION` PASS 2/2。
+**无可测增益 → 撤回 r8**（markdown 段落 + 生成 profile 一并移除，`sync --check` 仍 PASS）。
+英文 increment 从未生成（profile 只 zh）；该缺口随撤回消失。
+
 ## 5. 修訂紀錄
 
 | revision | 由誰 | 原因 | 通知了哪些端 |
 | --- | --- | --- | --- |
 | r1 | C | 真实 DISCOVER 失败证据（未读取规范→默认格式定例程）；按 R1/R2 只补一条终点 | R、E、Q |
+| r2 | C | 旧 r9 A/B 无效（r8 未进入 Worker）；修提示链后有效 A/B control 2/2 FAIL、treatment 2/2 FAIL、INJECTION PASS，无增益 → **withdrawn** | R、E、Q |
