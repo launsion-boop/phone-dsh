@@ -86,6 +86,7 @@ final class BotRuntimeUnit {
         self.proactive = proactive
         self.deviceResults = deviceResults
         self.cloudClient = cloudClient
+        self.cloudWiring = cloudWiring
         self.routineActivity = routineActivity
         self.nowProvider = nowProvider
         self.liveFish = BotLiveFishProjection(botID: botID)
