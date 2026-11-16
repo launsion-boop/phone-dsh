@@ -126,6 +126,14 @@ public actor BotDeliverySelectionHost {
                 source: source))
         }
         guard !resources.isEmpty else { return nil }
+        let binding: BotDeliverySelectionBinding?
+        if let turnID {
+            guard BotDeliverySelectionBinding.validTurnID(turnID) else { return nil }
+            binding = BotDeliverySelectionBinding(
+                approvalID: approvalID, turnID: turnID, goalDigest: goalDigest)
+        } else {
+            binding = nil
+        }
         let parameters = Self.parameters(action: action, detail: detail)
         let draftID = Self.draftID(approvalID: approvalID)
         let draft = BotDeliverySelectionDraft(
@@ -133,8 +141,7 @@ public actor BotDeliverySelectionHost {
             rowID: "e-\(botID)-approval-\(approvalID)",
             draftID: draftID, revision: 1, status: "pending",
             parameters: parameters, resources: resources,
-            binding: BotDeliverySelectionBinding(
-                approvalID: approvalID, turnID: turnID, goalDigest: goalDigest),
+            binding: binding,
             digest: BotDeliverySelectionDigest.approvalDigest(
                 draftID: draftID, revision: 1, selectedResourceIDs: [],
                 parameters: parameters),
@@ -403,7 +410,7 @@ public actor BotDeliverySelectionHost {
                              message: "这条交付的选择记录损坏，无法核对，动作没有执行。")
         }
         let applicable = sessionDrafts.filter {
-            $0.draft.binding.matches(turnID: turnID, goalDigest: goalDigest)
+            $0.draft.binding?.matches(turnID: turnID, goalDigest: goalDigest) ?? true
         }
 
         let rawPath = arguments["path"]?.stringValue
@@ -520,7 +527,7 @@ public actor BotDeliverySelectionHost {
             && latest.draft.revision == draft.revision
             && latest.draft.status == "allowed"
             && latest.draft.digest == draft.digest
-            && latest.draft.binding.matches(turnID: turnID, goalDigest: goalDigest)
+            && (latest.draft.binding?.matches(turnID: turnID, goalDigest: goalDigest) ?? true)
     }
 
     /// What the model receives after the user allows the approval: the selected

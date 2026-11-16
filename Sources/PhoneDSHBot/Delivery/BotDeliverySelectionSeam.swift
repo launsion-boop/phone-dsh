@@ -270,41 +270,60 @@ public struct BotDeliverySelectionParameter: Sendable, Equatable, Identifiable {
 /// selection cannot gate a later, unrelated delivery.
 public struct BotDeliverySelectionBinding: Sendable, Equatable {
     public var approvalID: String
-    public var turnID: String?
+    public var turnID: String
     public var goalDigest: String?
 
-    public init(approvalID: String, turnID: String? = nil, goalDigest: String? = nil) {
+    public init(approvalID: String, turnID: String, goalDigest: String? = nil) {
         self.approvalID = approvalID
         self.turnID = turnID
         self.goalDigest = goalDigest
     }
 
     public var json: BotJSONValue {
-        var object: [String: BotJSONValue] = ["approval_id": .string(approvalID)]
-        if let turnID, !turnID.isEmpty { object["turn_id"] = .string(turnID) }
-        if let goalDigest, !goalDigest.isEmpty { object["goal_digest"] = .string(goalDigest) }
+        var object: [String: BotJSONValue] = [
+            "approval_id": .string(approvalID),
+            "turn_id": .string(turnID),
+        ]
+        if let goalDigest, !goalDigest.isEmpty {
+            object["goal_digest"] = .string(goalDigest)
+        }
         return .object(object)
     }
 
-    public static func parse(_ value: BotJSONValue?,
-                             approvalID: String) -> BotDeliverySelectionBinding {
-        guard case .object(let object)? = value else {
-            return BotDeliverySelectionBinding(approvalID: approvalID)
+    /// G-2 §66: when the block is present, `approval_id` and `turn_id` are
+    /// required and no other member is allowed. A malformed block returns nil;
+    /// the draft parser then treats the durable record as corrupt and fails
+    /// closed. An absent block is the documented legacy "no constraint" case.
+    public static func parse(_ value: BotJSONValue?) -> BotDeliverySelectionBinding? {
+        guard case .object(let object)? = value else { return nil }
+        let allowed: Set<String> = ["approval_id", "turn_id", "goal_digest"]
+        guard object.keys.allSatisfy({ allowed.contains($0) }),
+              let approvalID = object["approval_id"]?.stringValue,
+              !approvalID.isEmpty,
+              let turnID = object["turn_id"]?.stringValue,
+              Self.validTurnID(turnID) else { return nil }
+        var goal: String?
+        if let raw = object["goal_digest"] {
+            guard case .string(let value) = raw, !value.isEmpty else { return nil }
+            goal = value
         }
         return BotDeliverySelectionBinding(
-            approvalID: object["approval_id"]?.stringValue ?? approvalID,
-            turnID: object["turn_id"]?.stringValue,
-            goalDigest: object["goal_digest"]?.stringValue)
+            approvalID: approvalID, turnID: turnID, goalDigest: goal)
+    }
+
+    /// `<session>#<turn>`: a non-empty session and a non-negative integer turn.
+    public static func validTurnID(_ value: String) -> Bool {
+        guard let hash = value.lastIndex(of: "#") else { return false }
+        let session = value[..<hash]
+        let turn = value[value.index(after: hash)...]
+        return !session.isEmpty && !turn.isEmpty
+            && turn.allSatisfy({ $0.isNumber })
     }
 
     public func matches(turnID: String?, goalDigest: String?) -> Bool {
-        if let boundTurn = self.turnID, !boundTurn.isEmpty {
-            guard let turnID, !turnID.isEmpty, turnID == boundTurn else { return false }
-        }
-        if let boundGoal = self.goalDigest, !boundGoal.isEmpty {
-            guard let goalDigest, !goalDigest.isEmpty, goalDigest == boundGoal else {
-                return false
-            }
+        guard let turnID, !turnID.isEmpty, turnID == self.turnID else { return false }
+        if let goalDigest, !goalDigest.isEmpty, let bound = self.goalDigest {
+            guard goalDigest == bound else { return false }
         }
         return true
     }
@@ -320,7 +339,7 @@ public struct BotDeliverySelectionDraft: Sendable, Equatable {
     public var status: String
     public var parameters: [BotDeliverySelectionParameter]
     public var resources: [BotDeliverySelectionResource]
-    public var binding: BotDeliverySelectionBinding
+    public var binding: BotDeliverySelectionBinding?
     public var digest: String
     public var requestedAtMS: Int64
     public var expiresAtMS: Int64?
@@ -333,7 +352,7 @@ public struct BotDeliverySelectionDraft: Sendable, Equatable {
                 draftID: String, revision: Int, status: String,
                 parameters: [BotDeliverySelectionParameter],
                 resources: [BotDeliverySelectionResource],
-                binding: BotDeliverySelectionBinding, digest: String,
+                binding: BotDeliverySelectionBinding?, digest: String,
                 requestedAtMS: Int64, expiresAtMS: Int64?, persistent: Bool,
                 requestSeq: Int, approvedAtMS: Int64? = nil) {
         self.botID = botID
@@ -366,13 +385,14 @@ public struct BotDeliverySelectionDraft: Sendable, Equatable {
     public var isApproved: Bool { status == "allowed" }
 
     public var deliveryJSON: BotJSONValue {
-        .object([
+        var object: [String: BotJSONValue] = [
             "draft_id": .string(draftID),
             "revision": .number(Double(revision)),
             "parameters": .array(parameters.map(\.json)),
             "resources": .array(resources.map { $0.json() }),
-            "binding": binding.json,
-        ])
+        ]
+        if let binding { object["binding"] = binding.json }
+        return .object(object)
     }
 
     public static func parse(botID: String, sessionID: String, approvalID: String,
@@ -408,8 +428,11 @@ public struct BotDeliverySelectionDraft: Sendable, Equatable {
                     label: label, value: parameterValue))
             }
         }
-        if let rawBinding = delivery["binding"] {
-            guard case .object = rawBinding else { return nil }
+        var binding: BotDeliverySelectionBinding?
+        if delivery["binding"] != nil {
+            guard let parsed = BotDeliverySelectionBinding.parse(
+                delivery["binding"]) else { return nil }
+            binding = parsed
         }
         let rowID = data["id"]?.stringValue ?? "e-\(botID)-approval-\(approvalID)"
         return BotDeliverySelectionDraft(
@@ -422,8 +445,7 @@ public struct BotDeliverySelectionDraft: Sendable, Equatable {
             status: data["status"]?.stringValue ?? "pending",
             parameters: parameters,
             resources: resources,
-            binding: BotDeliverySelectionBinding.parse(
-                delivery["binding"], approvalID: approvalID),
+            binding: binding,
             digest: data["digest"]?.stringValue ?? "",
             requestedAtMS: data["requestedAt"]?.intValue.map(Int64.init) ?? 0,
             expiresAtMS: data["expiresAt"]?.intValue.map(Int64.init),

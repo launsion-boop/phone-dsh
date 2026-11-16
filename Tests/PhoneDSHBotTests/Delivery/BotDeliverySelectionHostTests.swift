@@ -518,6 +518,26 @@ final class BotDeliverySelectionHostTests: XCTestCase {
             ]))
         try await fixture.store.append(corrupt)
 
+        // A delivery block that claims a binding but omits the required
+        // turn_id is corrupt, not "no constraint".
+        var badBindingDelivery = offer.deliveryJSON.objectValue ?? [:]
+        badBindingDelivery["binding"] = .object([
+            "approval_id": .string("approval-corrupt-binding"),
+        ])
+        let badBinding = BotEvent(
+            type: "approval.requested", eventId: "corrupt-binding",
+            time: now, origin: .local(source: "card-bridge"),
+            traceId: "corrupt-binding",
+            principal: BotPrincipal(botId: "main", sessionId: "gb-main", kind: "chat"),
+            causationId: nil, correlationId: nil,
+            data: .object([
+                "approvalID": .string("approval-corrupt-binding"),
+                "status": .string("pending"),
+                "deliverySelection": .bool(true),
+                "delivery": .object(badBindingDelivery),
+            ]))
+        try await fixture.store.append(badBinding)
+
         do {
             _ = try await fixture.host.apply(BotDeliverySelectionSubmission(
                 nonce: "corrupt-1", botID: "main",
