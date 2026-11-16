@@ -474,6 +474,35 @@ final class WorkspaceDecisionContextTests: XCTestCase {
         XCTAssertEqual(current, sha256(Data(text.utf8)))
     }
 
+    func testShortTopicTokensMatchWholeComponentsButExtensionsDoNot() async {
+        let catalog = StubCatalog([
+            "notes/ai.md": .init(text: "# AI 助手\n- AI 生成摘要"),
+            "notes/go-concurrency.md": .init(text: "# Go 并发\n- goroutine 与 channel"),
+            "notes/hr.md": .init(text: "# HR 流程\n- 入职"),
+            "notes/ui.md": .init(text: "# UI 规范\n- 按钮"),
+            "src/await.ts": .init(text: "export function add() {}"),
+            "docs/meeting.md": .init(text: "# 会议记录\n- 咖啡"),
+        ])
+        let service = service(catalog)
+        for (query, expected) in [("AI 助手", "notes/ai.md"),
+                                  ("Go 并发", "notes/go-concurrency.md"),
+                                  ("HR 流程", "notes/hr.md"),
+                                  ("UI 规范", "notes/ui.md")] {
+            let selection = await service.selection(
+                query: query, botID: "main", materialPrefix: "reqshort", limits: limits())
+            XCTAssertEqual(selection.materials.first?.path, expected, query)
+        }
+        // A suffix-only token is not a content signal: neither `md`/`ts` in
+        // the query selects a file, and a short topic token must not match a
+        // longer component (`AI` vs `await`).
+        let extensionOnly = await service.selection(
+            query: "md ts", botID: "main", materialPrefix: "reqext", limits: limits())
+        XCTAssertTrue(extensionOnly.materials.isEmpty)
+        let ai = await service.selection(
+            query: "AI", botID: "main", materialPrefix: "reqai", limits: limits())
+        XCTAssertFalse(ai.materials.contains { $0.path == "src/await.ts" })
+    }
+
     func testEncodedTraversalMalformedAndNonCanonicalRefsAreRejected() {
         let digest = String(repeating: "0", count: 64)
         let rejected = [

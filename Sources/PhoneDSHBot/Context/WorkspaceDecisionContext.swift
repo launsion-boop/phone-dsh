@@ -337,7 +337,7 @@ public struct WorkspaceDecisionContextService: Sendable {
                 && Self.validWorkspacePath($0.path)
                 && $0.path.unicodeScalars.count <= Self.maximumPathScalars
         }.map { entry -> (BotWorkspaceFileEntry, Int) in
-            (entry, Self.matchCount(tokens: tokenList, in: entry.path.lowercased()))
+            (entry, Self.pathMatchCount(tokens: tokenList, path: entry.path))
         }
 
         // Path matches first; then recent files (a current guideline can be
@@ -399,8 +399,9 @@ public struct WorkspaceDecisionContextService: Sendable {
             guard ref.unicodeScalars.count <= Self.maximumRefScalars else { continue }
             let reason: BotDecisionSelectionReason
             if !goalTokens.isEmpty,
-               Self.matchCount(tokens: goalTokens,
-                              in: content.text.lowercased() + " " + entry.path.lowercased()) > 0 {
+               Self.pathMatchCount(tokens: goalTokens, path: entry.path) > 0
+                   || Self.matchCount(tokens: goalTokens,
+                                      in: content.text.lowercased()) > 0 {
                 reason = .goal
             } else {
                 reason = .match
@@ -526,6 +527,37 @@ public struct WorkspaceDecisionContextService: Sendable {
         return canonicalWorkspacePath(fromRefComponent: component)
     }
 
+    /// The path without its final extension. A token that only appears as a
+    /// file suffix (`docs/meeting.md` → `md`, `src/app.tsx` → `tsx`) is not a
+    /// content signal; the stem keeps short topic words like `ai`, `go`, `ui`
+    /// and `hr` searchable.
+    static func pathStem(_ path: String) -> String {
+        guard let dot = path.lastIndex(of: ".") else { return path }
+        let slash = path.lastIndex(of: "/")
+        if let slash, dot < slash { return path }
+        let nameStart = slash.map { path.index(after: $0) } ?? path.startIndex
+        guard dot != nameStart else { return path } // `.env`
+        let ext = path[path.index(after: dot)...]
+        guard !ext.isEmpty, ext.unicodeScalars.count <= 8,
+              ext.allSatisfy({ $0.isLetter || $0.isNumber }) else { return path }
+        return String(path[..<dot])
+    }
+
+    /// Path tokens match whole name/directory components, not substrings:
+    /// `src/await.ts` must not match `AI`, while `notes/ai.md` and
+    /// `handbook/api/...` do. The suffix is removed first, so `md`/`tsx` never
+    /// become content signals.
+    static func pathMatchCount(tokens: [String], path: String) -> Int {
+        let stem = pathStem(path).lowercased()
+        let components = stem.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+        return tokens.reduce(0) { count, token in
+            if token.unicodeScalars.allSatisfy({ $0.isASCII }) {
+                return components.contains(where: { $0 == token }) ? count + 1 : count
+            }
+            return components.contains(where: { $0.contains(token) }) ? count + 1 : count
+        }
+    }
+
     static func tokens(_ value: String) -> [String] {
         var tokens: [String] = []
         var current: [Unicode.Scalar] = []
@@ -536,10 +568,7 @@ public struct WorkspaceDecisionContextService: Sendable {
             let ascii = run.allSatisfy { $0.isASCII }
             if ascii {
                 let text = String(run.map { Character($0) }).lowercased()
-                // Two-letter ASCII runs are dominated by file extensions
-                // ("md", "ts", "py"), which would make every Markdown path a
-                // false candidate; three letters keeps real words like "api".
-                if text.count >= 3 { tokens.append(text) }
+                if text.count >= 2 { tokens.append(text) }
             } else {
                 let characters = run.map(Character.init)
                 if characters.count == 1 {
