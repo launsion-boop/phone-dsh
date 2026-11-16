@@ -583,6 +583,9 @@ actor BotProductionRowService {
     let feedbackCenter: BotFeedbackCenter?
     /// G-1 provenance read model for the source inspector.
     let provenance: BotProvenanceService?
+    /// G-2 delivery selection host shared with the MCP runtime. nil keeps the
+    /// UI's explicit "not connected" answer instead of a fake success.
+    let deliverySelection: BotDeliverySelectionHost?
     let clock: @Sendable () -> Int64
 
     init(environment: BotProductionEnvironment, history: BotRowHistory = BotRowHistory(),
@@ -590,6 +593,7 @@ actor BotProductionRowService {
          cardAnswerPromptResumer: (any BotCardAnswerPromptResuming)? = nil,
          feedbackCenter: BotFeedbackCenter? = nil,
          provenance: BotProvenanceService? = nil,
+         deliverySelection: BotDeliverySelectionHost? = nil,
          clock: @escaping @Sendable () -> Int64 = {
              Int64(Date().timeIntervalSince1970 * 1000)
          }) {
@@ -599,6 +603,7 @@ actor BotProductionRowService {
         self.cardAnswerPromptResumer = cardAnswerPromptResumer
         self.feedbackCenter = feedbackCenter
         self.provenance = provenance
+        self.deliverySelection = deliverySelection
         self.clock = clock
     }
 

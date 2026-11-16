@@ -210,7 +210,7 @@ public actor BotApprovalCoordinator {
         /// uses it to cancel exactly that call's interactive approvals.
         let callId: String
         let effects: [BotToolEffect]
-        let digest: String
+        var digest: String
         let action: String
         let detail: String
         let command: String
@@ -220,6 +220,9 @@ public actor BotApprovalCoordinator {
         let origin: String
         let requestedAt: Int64
         let expiresAt: Int64
+        /// G-2 delivery block carried by the same approval row. The decision
+        /// event repeats it so the projected row keeps its resources/status.
+        var delivery: BotJSONValue?
         var continuation: CheckedContinuation<BotApprovalOutcome, Never>?
         var timeout: Task<Void, Never>?
         /// Bounded interactive wait for a durable egress approval. It is
@@ -291,6 +294,9 @@ public actor BotApprovalCoordinator {
                         alwaysScope: String,
                         persistence: BotApprovalPersistence = .interactive,
                         origin: String = "structural",
+                        approvalID: String? = nil,
+                        digestOverride: String? = nil,
+                        extraData: [String: BotJSONValue] = [:],
                         onPending: (@Sendable (String) -> Void)? = nil,
                         interactiveWaitMilliseconds: Int64 = 0) async -> BotApprovalOutcome {
         await ensureRestored()
@@ -309,15 +315,20 @@ public actor BotApprovalCoordinator {
             return Self.pendingOutcome(
                 approvalId: existing.id, expiresAt: existing.expiresAt)
         }
-        let approvalId = "approval-\(UUID().uuidString.lowercased())"
+        let approvalId = approvalID ?? "approval-\(UUID().uuidString.lowercased())"
         let principal = call.principal
-        let digest = call.attribution.argsDigest
+        let digest = digestOverride.flatMap(Self.digestValue)
+            ?? call.attribution.argsDigest
+        let delivery = extraData["delivery"]
         let requestedAt = now()
         let expiresAt = persistence.isPersistent ? requestedAt + durableExpiryMs : 0
+        // The projected row keeps the G-2 prefixed spelling; the coordinator
+        // compares the bare 64-hex form internally.
+        let rowDigest = delivery != nil ? "sha256:" + digest : digest
         var data: [String: BotJSONValue] = [
             "approvalID": .string(approvalId), "status": .string("pending"),
             "action": .string(action), "detail": .string(detail),
-            "digest": .string(digest), "command": .string(command),
+            "digest": .string(rowDigest), "command": .string(command),
             "alwaysScope": .string(offeredScope),
             "deferConsumption": .bool(deferConsumption),
             "effects": .array(effects.map(Self.effectJSON)),
@@ -329,6 +340,7 @@ public actor BotApprovalCoordinator {
         if persistence.isPersistent {
             data["expiresAt"] = .number(Double(expiresAt))
         }
+        for (key, value) in extraData { data[key] = value }
         do {
             try await eventWriter.append(
                 type: "approval.requested", principal: principal, data: .object(data))
@@ -345,8 +357,8 @@ public actor BotApprovalCoordinator {
                 action: action, detail: detail, command: command,
                 alwaysScope: offeredScope, deferConsumption: deferConsumption,
                 persistent: true, origin: origin, requestedAt: requestedAt,
-                expiresAt: expiresAt, continuation: nil, timeout: nil,
-                waitTimeout: nil)
+                expiresAt: expiresAt, delivery: delivery,
+                continuation: nil, timeout: nil, waitTimeout: nil)
             scheduleExpiry(approvalId: approvalId, expiresAt: expiresAt)
             onPending?(approvalId)
             let pendingOutcome = Self.pendingOutcome(
@@ -374,8 +386,8 @@ public actor BotApprovalCoordinator {
                 action: action, detail: detail, command: command,
                 alwaysScope: offeredScope, deferConsumption: deferConsumption,
                 persistent: false, origin: origin, requestedAt: requestedAt,
-                expiresAt: 0, continuation: continuation, timeout: nil,
-                waitTimeout: nil)
+                expiresAt: 0, delivery: delivery, continuation: continuation,
+                timeout: nil, waitTimeout: nil)
             onPending?(approvalId)
             let timeoutMs = approvalTimeoutMs
             let timeout = Task { [weak self] in
@@ -425,7 +437,7 @@ public actor BotApprovalCoordinator {
             }
             return .stale(reason: "unknown_approval")
         }
-        guard let suppliedDigest = try? BotArgumentsDigest.validated(digest),
+        guard let suppliedDigest = Self.digestValue(digest),
               suppliedDigest == request.digest else { return .stale(reason: "digest_mismatch") }
         if request.persistent, request.expiresAt > 0, now() >= request.expiresAt {
             await expireDurable(approvalId: approvalId)
@@ -491,6 +503,13 @@ public actor BotApprovalCoordinator {
                 "status": .string(allowed ? "allowed" : "denied"),
                 "alwaysScope": .string(decision == .always ? request.alwaysScope : effectiveScope.rawValue),
             ]
+            if let delivery = request.delivery {
+                decisionData["delivery"] = delivery
+                // The projected row must keep the G-2 prefixed delivery
+                // digest after the decision; the coordinator stores the bare
+                // 64-hex form for its own comparison.
+                decisionData["digest"] = .string("sha256:" + request.digest)
+            }
             if request.persistent {
                 decisionData["persistent"] = .bool(true)
                 decisionData["kind"] = .string(request.principal.kind.rawValue)
@@ -671,8 +690,35 @@ public actor BotApprovalCoordinator {
         return requests.count
     }
 
+    /// The coordinator stores the bare 64-hex form; a G-2 delivery digest
+    /// carries the frozen `sha256:` prefix on the row. Normalize at this one
+    /// boundary so the UI can keep the contract spelling and the plain tool
+    /// argsDigest keeps its old form.
+    private static func digestValue(_ value: String) -> String? {
+        var digest = value.lowercased()
+        if digest.hasPrefix("sha256:") { digest.removeFirst("sha256:".count) }
+        guard digest.count == 64, digest.allSatisfy({ $0.isHexDigit }) else { return nil }
+        return digest
+    }
+
     public func pendingDigest(approvalId: String) -> String? {
         pending[approvalId]?.digest
+    }
+
+    /// G-2 delivery selection: the approval row's digest must cover the draft
+    /// revision and selected resources. The coordinator stays the only owner
+    /// of the pending entry; the host only asks it to re-key that entry.
+    public func rebindPendingDigest(approvalId: String, expectedDigest: String,
+                                    digest: String,
+                                    delivery: BotJSONValue? = nil) -> Bool {
+        guard var request = pending[approvalId],
+              let expected = Self.digestValue(expectedDigest),
+              request.digest == expected,
+              let validated = Self.digestValue(digest) else { return false }
+        request.digest = validated
+        if let delivery { request.delivery = delivery }
+        pending[approvalId] = request
+        return true
     }
 
     /// Consumes the grants a durable egress decision handed to the waiting
@@ -868,7 +914,7 @@ public actor BotApprovalCoordinator {
             // event log does not need to persist a call id for them.
             callId: "",
             effects: effects,
-            digest: data["digest"]?.stringValue ?? "",
+            digest: Self.digestValue(data["digest"]?.stringValue ?? "") ?? "",
             action: data["action"]?.stringValue ?? "",
             detail: data["detail"]?.stringValue ?? "",
             command: data["command"]?.stringValue ?? "",
@@ -877,6 +923,7 @@ public actor BotApprovalCoordinator {
             persistent: true,
             origin: data["origin"]?.stringValue ?? "structural",
             requestedAt: requestedAt, expiresAt: expiresAt,
+            delivery: data["delivery"],
             continuation: nil, timeout: nil, waitTimeout: nil)
     }
 

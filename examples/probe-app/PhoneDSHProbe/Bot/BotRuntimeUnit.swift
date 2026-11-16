@@ -123,14 +123,26 @@ final class BotRuntimeUnit {
             remote: remote, runtime: runtime, handler: handler,
             store: store, botID: botID, wakeInbox: inbox)
         let routineOutbox = BotRoutineOutbox(store: store, machine: machine, botID: botID)
+        let resolvedNow = now ?? { Int64(Date().timeIntervalSince1970 * 1000) }
+        // G-2 delivery selection: one host per runtime unit, shared by the MCP
+        // runtime (producer/execution) and the row service (UI action).
+        let deliveryWorkspace = WorkspaceDecisionContextService(
+            catalog: BotWorkspaceDirectoryCatalog(workspaceRoot: workspaceRoot),
+            now: resolvedNow)
+        let deliverySelection = BotDeliverySelectionHost(
+            eventLog: store,
+            workspaceState: BotDeliverySelectionHost.workspaceStateResolver(
+                workspace: deliveryWorkspace),
+            now: resolvedNow)
+        await runtime.installDeliverySelection(deliverySelection)
         let rows = BotProductionRowService(
             environment: environment, remote: remote,
             cardAnswerPromptResumer: remote,
             feedbackCenter: feedback,
             provenance: provenance,
-            clock: now ?? { Int64(Date().timeIntervalSince1970 * 1000) })
+            deliverySelection: deliverySelection,
+            clock: resolvedNow)
         let routineActivity = BotRoutineActivityFlag()
-        let resolvedNow = now ?? { Int64(Date().timeIntervalSince1970 * 1000) }
         let settingsStore = ProactiveSettingsStore.shared
         let proactive = ProactiveEngine(
             settings: { settingsStore.settings() },

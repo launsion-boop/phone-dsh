@@ -324,6 +324,11 @@ public actor BotMCPRuntime {
     private var decisionContext: BotDecisionContextService?
     private var materialTrace: (any BotMaterialTraceRecording)?
     private var permissionRevisionEvaluator: BotPermissionRevisionEvaluator?
+    /// G-2 delivery selection. The host owns the durable draft/revision and
+    /// the pre-send source recheck; the runtime only offers candidates on
+    /// `RequestApproval`, exposes the approved selection to the model and asks
+    /// the same host to confirm before a delivery tool runs.
+    private var deliverySelection: BotDeliverySelectionHost?
     /// Last material block the host handed to each session. Used to bind a
     /// delivery's adopted materials back to the injected block; in-memory only.
     private var activeMaterialBlocks: [String: BotDecisionMaterialBlock] = [:]
@@ -353,6 +358,23 @@ public actor BotMCPRuntime {
         decisionContext = service
         materialTrace = trace
         permissionRevisionEvaluator = permissionRevision
+    }
+
+    /// Installs the G-2 delivery selection host and binds its approval-digest
+    /// seam to this runtime's coordinator. Called by the App composition after
+    /// the row service exists.
+    public func installDeliverySelection(_ host: BotDeliverySelectionHost) async {
+        deliverySelection = host
+        let approvals = self.approvals
+        await host.installApprovalBridge(BotDeliveryApprovalBridge(
+            pendingDigest: { approvalID in
+                await approvals.pendingDigest(approvalId: approvalID)
+            },
+            rebindDigest: { approvalID, expectedDigest, digest, delivery in
+                await approvals.rebindPendingDigest(
+                    approvalId: approvalID, expectedDigest: expectedDigest,
+                    digest: digest, delivery: delivery)
+            }))
     }
 
     /// Installs the G-3 routine-change observer (cloud schedule re-sync).
@@ -1576,8 +1598,36 @@ public actor BotMCPRuntime {
     /// cards; `.regenerate` must not execute and must not consume a grant.
     private func reviewDelivery(name: String, arguments: BotJSONValue,
                                 call: BotResolvedToolCall) async -> BotMCPCallResult? {
-        guard let service = decisionContext, Self.preDeliveryToolNames.contains(name) else { return nil }
+        guard Self.preDeliveryToolNames.contains(name) else { return nil }
         let sessionID = call.sessionId
+        if let deliverySelection {
+            do {
+                // The DSH turn id is a bare number on the wire; the material
+                // block carries the frozen "<session>#<turn>" spelling. Fall
+                // back to the block only when the live turn id is absent (the
+                // library/test seam), so a real new turn still invalidates the
+                // old selection instead of matching its predecessor.
+                let block = activeMaterialBlocks[sessionID]
+                let liveTurn = currentTurnID(sessionId: sessionID)
+                    .map { "\(sessionID)#\($0)" }
+                let confirmation = try await deliverySelection.confirm(
+                    name: name, arguments: arguments, botID: call.principal.botId,
+                    sessionID: sessionID, turnID: liveTurn ?? block?.turnID,
+                    goalDigest: block?.goalDigest,
+                    nowMS: now())
+                if case .rejected(let code, let message) = confirmation {
+                    return .failure(code, message)
+                }
+            } catch {
+                // Storage/parse/recheck failure is a refusal, not "no draft":
+                // once delivery selection is installed, a delivery tool must
+                // not run when the selection cannot be verified.
+                return .failure(
+                    "delivery_selection_unavailable",
+                    "交付选择无法核对，动作没有执行。")
+            }
+        }
+        guard let service = decisionContext else { return nil }
         let active = activeMaterialBlocks[sessionID]
         // The DSH turn id is a bare number; the frozen block/turn_id is
         // "<session>#<turn>". Normalize before comparing so the same turn does
@@ -2659,10 +2709,27 @@ public actor BotMCPRuntime {
             target: command.isEmpty ? resource : command, mutability: .destructive, policy: .ask,
             label: action, detail: detail, known: false, isMcp: true))
         let alwaysScope = effects.contains(where: \.known) ? "until" : "session"
+        let approvalID = "approval-\(UUID().uuidString.lowercased())"
+        var extraData: [String: BotJSONValue] = [:]
+        var digestOverride: String?
+        if let deliverySelection, let block = activeMaterialBlocks[call.sessionId] {
+            let offer = await deliverySelection.offer(
+                approvalID: approvalID, botID: call.principal.botId,
+                sessionID: call.sessionId, action: action, detail: detail,
+                command: command, materials: block.materials,
+                turnID: block.turnID, goalDigest: block.goalDigest,
+                nowMS: now())
+            if let offer {
+                extraData["delivery"] = offer.deliveryJSON
+                digestOverride = offer.draft.digest
+            }
+        }
         let outcome = await approvals.request(
             call: call, effects: effects, action: action, detail: detail,
             command: command, alwaysScope: alwaysScope,
-            persistence: approvalPersistence(for: call), origin: "structural")
+            persistence: approvalPersistence(for: call), origin: "structural",
+            approvalID: approvalID, digestOverride: digestOverride,
+            extraData: extraData)
         var result: [String: BotJSONValue] = [
             "allowed": .bool(outcome.allowed), "decision": .string(outcome.allowed ? "allowed" : "denied"),
             "approvalId": outcome.approvalId.map(BotJSONValue.string) ?? .null,
@@ -2680,6 +2747,11 @@ public actor BotMCPRuntime {
         }
         if let scope = outcome.scope {
             result["scope"] = .string(scope)
+        }
+        if outcome.allowed, let deliverySelection,
+           let approved = try? await deliverySelection.approvedSelectionJSON(
+               approvalID: approvalID, botID: call.principal.botId) {
+            result["delivery"] = approved
         }
         // The model sees this text as the tool result and tends to repeat it
         // verbatim. Lead with the human outcome and keep the structured fields
