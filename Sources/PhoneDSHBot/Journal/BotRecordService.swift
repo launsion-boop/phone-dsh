@@ -150,10 +150,15 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
     private let gateway: BotGateway
     private let sessionLogLocator: @Sendable (String) -> URL?
     private let now: @Sendable () -> Int64
+    /// Optional real file producer (G-1 r5 §4.5). nil means the App has not
+    /// wired a VFS→host resolver, so file freshness must stay
+    /// `refresh-not-performed`; the resolver never guesses.
+    private let fileRechecks: (any BotFileSourceRechecking)?
 
     public init(store: SQLiteDomainStore, gateway: BotGateway, workspaceRoot: URL,
                 sessionLogLocator: (@Sendable (String) -> URL?)? = nil,
-                now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }) {
+                now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) },
+                fileRechecks: (any BotFileSourceRechecking)? = nil) {
         self.store = store
         self.gateway = gateway
         self.now = now
@@ -190,6 +195,7 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
             return nil
         }
         self.sessionLogLocator = sessionLogLocator ?? defaultSessionLogLocator
+        self.fileRechecks = fileRechecks
     }
 
     // MARK: - Command bridge
@@ -579,6 +585,15 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                 trust: record.trust,
                 version: record.version)
         }
+    }
+
+    /// Real file recheck for a provenance resource. Returns nil when the App
+    /// did not configure the producer; the read model then reports
+    /// `refresh-not-performed` rather than claiming the source is fresh.
+    public func recheckFile(_ resource: BotFileResourceIdentity, botID: String,
+                            baseline: BotFileBaseline?) async -> BotFileRecheckResult? {
+        guard let fileRechecks else { return nil }
+        return await fileRechecks.recheck(resource, botID: botID, baseline: baseline)
     }
 
     /// One batched resolve shared by `evidenceSnapshot` and `sourceStates`:
