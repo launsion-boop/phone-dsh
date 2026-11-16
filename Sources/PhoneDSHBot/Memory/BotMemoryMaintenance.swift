@@ -1104,7 +1104,9 @@ public actor BotMemoryMaintenanceController {
                 callerSessionID: sessionID, checkedAtMS: now(),
                 baselines: baselines, strictPaths: strictPaths,
                 disputedReferences: disputed,
-                invalidatedReferences: invalidated))
+                invalidatedReferences: invalidated,
+                feedbackComplete: feedbackReading != nil,
+                invalidationComplete: invalidationReading != nil))
         } catch {
             // A failed recheck is not a pass: the caller maps nil to
             // maintenance-verification-unrechecked when a verifier exists.

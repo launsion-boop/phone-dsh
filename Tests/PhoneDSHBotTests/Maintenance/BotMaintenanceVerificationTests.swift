@@ -57,7 +57,9 @@ final class BotMaintenanceVerificationTests: XCTestCase {
         strict: Set<String> = [],
         baselines: [String: BotMaintenanceSourceBaseline] = [:],
         disputed: [String: [String]] = [:],
-        invalidated: [String: BotMaintenanceDependencyStatus] = [:]
+        invalidated: [String: BotMaintenanceDependencyStatus] = [:],
+        feedbackComplete: Bool = true,
+        invalidationComplete: Bool = true
     ) async throws -> BotMaintenanceVerificationSummary {
         var byReference: [String: BotMaintenanceSourceProbe] = [:]
         for probe in probes { byReference[probe.reference] = probe }
@@ -67,7 +69,9 @@ final class BotMaintenanceVerificationTests: XCTestCase {
             documents: documents, callerBotID: "main",
             callerSessionID: "gb-maintainer-0123456789abcdef",
             checkedAtMS: now, baselines: baselines, strictPaths: strict,
-            disputedReferences: disputed, invalidatedReferences: invalidated))
+            disputedReferences: disputed, invalidatedReferences: invalidated,
+            feedbackComplete: feedbackComplete,
+            invalidationComplete: invalidationComplete))
     }
 
     // MARK: Review is a writer assertion, the host rechecks it
@@ -313,6 +317,19 @@ final class BotMaintenanceVerificationTests: XCTestCase {
                 reference: reference, state: .revoked, reason: "grant-revoked")])
         XCTAssertEqual(summary.findings[0].state, .unverifiable)
         XCTAssertTrue(summary.findings[0].reasons.contains(.sourceRevoked))
+    }
+
+    func testMissingDependencyReadersFailClosed() async throws {
+        let reference = "record://event/12"
+        let doc = document(
+            "agent/a.md", content: "x", evidence: [reference],
+            trust: "observation")
+        let summary = try await verify(
+            [doc], probes: [probe(reference, trust: .observation)],
+            strict: [doc.path], feedbackComplete: false)
+        XCTAssertEqual(summary.findings[0].state, .unverifiable)
+        XCTAssertTrue(summary.findings[0].reasons.contains(.sourceStatusUnknown))
+        XCTAssertTrue(summary.findings[0].blocking)
     }
 
     func testFactExtractionIsDomainFree() {

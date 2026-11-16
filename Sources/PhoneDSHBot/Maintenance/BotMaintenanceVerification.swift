@@ -520,13 +520,21 @@ public struct BotMaintenanceVerificationRequest: Sendable {
     public var disputedReferences: [String: [String]]
     /// L: current state of refs already known invalid from other paths.
     public var invalidatedReferences: [String: BotMaintenanceDependencyStatus]
+    /// False when the production assembly has no F feedback reader: absence
+    /// of a dispute signal is not evidence that the source is not disputed.
+    public var feedbackComplete: Bool
+    /// False when no L invalidation reader is wired: absence of an
+    /// invalidation state is not evidence that the source is live.
+    public var invalidationComplete: Bool
 
     public init(documents: [BotMemoryDocument], callerBotID: String,
                 callerSessionID: String, checkedAtMS: Int64,
                 baselines: [String: BotMaintenanceSourceBaseline] = [:],
                 strictPaths: Set<String> = [],
                 disputedReferences: [String: [String]] = [:],
-                invalidatedReferences: [String: BotMaintenanceDependencyStatus] = [:]) {
+                invalidatedReferences: [String: BotMaintenanceDependencyStatus] = [:],
+                feedbackComplete: Bool = true,
+                invalidationComplete: Bool = true) {
         self.documents = documents
         self.callerBotID = callerBotID
         self.callerSessionID = callerSessionID
@@ -535,6 +543,8 @@ public struct BotMaintenanceVerificationRequest: Sendable {
         self.strictPaths = strictPaths
         self.disputedReferences = disputedReferences
         self.invalidatedReferences = invalidatedReferences
+        self.feedbackComplete = feedbackComplete
+        self.invalidationComplete = invalidationComplete
     }
 }
 
@@ -593,6 +603,16 @@ public struct BotMaintenanceEvidenceVerifier: Sendable {
             request.disputedReferences[document.path] ?? [])
         let cited = canonicalUnique(evidence + reviewRefs)
         let considered = canonicalUnique(cited + disputedRefs)
+
+        // Q1 P1-4: a missing F/L dependency is not "no dispute/no
+        // invalidation". Any evidence-bearing document is unverifiable until
+        // both readers are wired; a strict changed document then fails the
+        // batch instead of being treated as host-verified.
+        if (!request.feedbackComplete || !request.invalidationComplete)
+            && (!considered.isEmpty || !evidence.isEmpty) {
+            reasons.append(.sourceStatusUnknown)
+            hardFailure = true
+        }
 
         func probe(_ reference: String) -> BotMaintenanceSourceProbe? {
             probeByReference[BotMaintenanceReferenceKey.canonical(reference)]

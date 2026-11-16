@@ -26,6 +26,19 @@ from datetime import datetime, timezone
 
 CONTRADICTION_PATH = "agent/notes/wake.md"
 STALE_PATH = "agent/notes/launch.md"
+# Mechanical checks (spec/bot/v2 §4.4). Budget/usage failures are reported as
+# budget facts, not as mechanical-check violations.
+MECHANICAL_FAILURES = {
+    "maintenance-evidence-unresolved",
+    "maintenance-index-too-long",
+    "maintenance-document-longer-than-evidence",
+    "maintenance-change-budget-exceeded",
+    "maintenance-verification-unrechecked",
+    "maintenance-conflict-not-preserved",
+    "maintenance-user-scope-evidence",
+    "maintenance-rollback-conflict",
+}
+RETIRED_MARKERS = ("作废", "旧值", "改成", "改为", "不要再引用", "初次写入", "原先记的", "之前")
 
 
 def sha256_file(path):
@@ -130,8 +143,7 @@ def batch_facts(events):
             violation = 0
             if status in ("committed", "cancelled") and not mechanical_ok:
                 violation = 1
-            if status in ("rolled_back", "rollback_failed", "failed") and isinstance(
-                    failure, str) and failure.startswith("maintenance-"):
+            if status in ("rolled_back", "rollback_failed", "failed") and failure in MECHANICAL_FAILURES:
                 violation = 1
             batches.append({
                 "batch_id": data.get("batch_id"),
@@ -169,11 +181,13 @@ def contradiction_sample(repeat, events, started):
             "detail": "no final document at %s" % path,
         }
     content = document["content"]
-    has_old = "七点" in content
-    has_new = "八点" in content
+    old_claim = "七点起床"
+    new_claim = "八点起床"
+    has_old = old_claim in content
+    has_new = new_claim in content
     before = documents_before_maintenance(events, started.get("batch_id"))
     before_document = before.get(path)
-    if before_document and "八点" in before_document.get("content", "") and "七点" not in before_document.get("content", ""):
+    if before_document and new_claim in before_document.get("content", "") and old_claim not in before_document.get("content", ""):
         details.append("main turn already corrected before maintenance")
         return {
             "id": "contradiction-%s" % repeat,
@@ -184,7 +198,8 @@ def contradiction_sample(repeat, events, started):
             "stale_detected": False,
             "detail": "; ".join(details),
         }
-    corrected = has_new and not has_old
+    retired_old = has_old and any(marker in content for marker in RETIRED_MARKERS)
+    corrected = has_new and (not has_old or retired_old)
     preserved = has_old and has_new and disputed(document) and len(refs_of(document)) >= 2
     if corrected:
         details.append("old claim replaced by the correcting record")
@@ -219,11 +234,13 @@ def stale_sample(repeat, events, started):
             "detail": "no final document at %s" % path,
         }
     content = document["content"]
-    has_old = "18" in content
-    has_new = "20" in content
+    old_claim = "11 月 18 日"
+    new_claim = "11 月 20 日"
+    has_old = old_claim in content
+    has_new = new_claim in content
     before = documents_before_maintenance(events, started.get("batch_id"))
     before_document = before.get(path)
-    if before_document and "20" in before_document.get("content", "") and "18" not in before_document.get("content", ""):
+    if before_document and new_claim in before_document.get("content", "") and old_claim not in before_document.get("content", ""):
         return {
             "id": "stale-%s" % repeat,
             "kind": "stale-external",
@@ -233,7 +250,8 @@ def stale_sample(repeat, events, started):
             "stale_detected": False,
             "detail": "main turn already updated the memory before maintenance",
         }
-    updated = has_new and not has_old
+    retired_old = has_old and any(marker in content for marker in RETIRED_MARKERS)
+    updated = has_new and (not has_old or retired_old)
     preserved = has_old and has_new and disputed(document) and len(refs_of(document)) >= 2
     return {
         "id": "stale-%s" % repeat,

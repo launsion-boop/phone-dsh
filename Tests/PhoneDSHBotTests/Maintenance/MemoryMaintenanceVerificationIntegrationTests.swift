@@ -63,6 +63,17 @@ private struct VerificationRecordReader: BotMemoryMaintenanceRecordReading {
     }
 }
 
+private struct AlwaysCurrentSource: BotMaintenanceSourceChecking {
+    func probe(references: [String], callerBotID: String,
+               callerSessionID: String) async throws -> [BotMaintenanceSourceProbe] {
+        references.map {
+            BotMaintenanceSourceProbe(
+                reference: $0, current: .current, trust: .user,
+                recordType: "message", text: "用户：我每天八点起床，不要七点叫醒我。")
+        }
+    }
+}
+
 private final class StubBatchVerifier: BotMemoryMaintenanceVerifying, @unchecked Sendable {
     var state: BotMaintenanceFindingState = .verified
     var reasons: [BotMaintenanceFindingReason] = []
@@ -109,7 +120,7 @@ final class MemoryMaintenanceVerificationIntegrationTests: XCTestCase {
             evidence: evidence)
     }
 
-    private func makeCase(verification: StubBatchVerifier?)
+    private func makeCase(verification: (any BotMemoryMaintenanceVerifying)?)
         async throws -> (BotMCPTestFixture, BotMemory, BotMemoryMaintenanceController,
                          VerificationBatchRunner, BotMemoryMaintenanceSettingsStore,
                          String) {
@@ -141,6 +152,20 @@ final class MemoryMaintenanceVerificationIntegrationTests: XCTestCase {
             now: { 1_760_000_000_000 })
         await controller.setEnabled(true)
         return (fixture, memory, controller, runner, settingsStore, suite)
+    }
+
+    func testMissingFeedbackAndInvalidationReadersFailClosed() async throws {
+        let realVerifier = BotMaintenanceEvidenceVerifier(source: AlwaysCurrentSource())
+        let (fixture, _, controller, _, _, suite) = try await makeCase(
+            verification: realVerifier)
+        defer { fixture.cleanup() }
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let result = await controller.runNow(trigger: .manual)
+        let view = try XCTUnwrap(result)
+        XCTAssertEqual(view.batch.status, .rolledBack)
+        XCTAssertEqual(view.batch.failureCode,
+                       "maintenance-verification-unrechecked")
+        XCTAssertEqual(view.batch.checks.verificationRechecked, false)
     }
 
     func testHostRecheckIsRecordedOnACommittedBatch() async throws {
