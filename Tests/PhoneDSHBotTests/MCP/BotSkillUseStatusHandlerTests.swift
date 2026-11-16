@@ -25,7 +25,9 @@ final class BotSkillUseStatusHandlerTests: XCTestCase {
         let source = try await log.append(ProvenanceTest.event(
             type: "conversation.user_message", eventId: "skill-gate-source",
             data: .object(["text": .string("write the weekly skill")])))
-        let service = BotProvenanceService(eventLog: log)
+        let service = BotProvenanceService(
+            eventLog: log,
+            skillRechecker: BotProvenanceTestSkillRechecker(outcome: .same(atMS: 2_100)))
         await fixture.runtime.installProvenance(service)
         _ = try await service.recordSkillWrite(BotSkillWriteRequest(
             name: "weekly-report", file: "weekly-report.md", revision: 1,
