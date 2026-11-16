@@ -461,7 +461,8 @@ final class BotRuntimeComposition {
         do {
             feedbackCenter = try BotFeedbackCenter.live(
                 eventLog: store,
-                memory: { botID in await runtime.memory(for: botID) })
+                memory: { botID in await runtime.memory(for: botID) },
+                routineReader: BotFeedbackRoutineReader(domainStore: store))
         } catch {
             feedbackCenter = nil
         }
