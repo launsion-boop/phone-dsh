@@ -114,6 +114,20 @@ final class FeedbackA05LoopTests: XCTestCase {
         XCTAssertEqual(duplicated.status, .duplicated)
         XCTAssertEqual(duplicated.feedbackID, outcome.feedbackID)
 
+        // UI undo retracts the adoption; a later tap is a new adoption.
+        let undo = try await restarted.undo(
+            try XCTUnwrap(outcome.feedbackID), botID: "bot-a",
+            origin: ui("ui-adopt-undo"))
+        XCTAssertEqual(undo.status, .accepted)
+        XCTAssertTrue(undo.reversed)
+        let undoneIndex = try XCTUnwrap(try storedIndex())
+        XCTAssertEqual(undoneIndex.records.first { $0.action == .adopt }?.status, .undone)
+        var readopt = request
+        readopt.origin = ui("ui-adopt-3")
+        let readopted = try await restarted.record(readopt)
+        XCTAssertEqual(readopted.status, .accepted)
+        XCTAssertNotEqual(readopted.feedbackID, outcome.feedbackID)
+
         // A model turn cannot bind a fabricated row artifact.
         var model = request
         model.origin = FeedbackFixtures.chatOrigin("chat-adopt")
