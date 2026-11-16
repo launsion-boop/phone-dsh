@@ -658,21 +658,25 @@ TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema
 同一路径多个原因合并，最多保留 4 个原因。索引和 inbox 永远在候选里；候选不保证每次
 都被修改。
 
-**预算（2026-11-16 修订，G-1 r9）。** 单次运行 **160,000 token**、每个 UTC 自然日
-**512,000 token**（输入 + 输出 + cache read + cache write，以 LLM 账本为准）。维护回合的账本
+**预算（2026-11-16 修订，G-1 r10）。** 单次运行 **400,000 token**、每个 UTC 自然日
+**1,000,000 token**（输入 + 输出 + cache read + cache write，以 LLM 账本为准）。维护回合的账本
 `purpose` 是独立值 `memory-maintenance`；日报只统计这个 purpose。预算耗尽时触发条件再满足也不启动，
 在记忆页显示“今日整理预算已用完”，不伪造一次运行。
 
-- **证据**：真实 production assembly（M `b48ba1a53` + K L4 `4028b6d4` + P `4d34a646`）的
-  contradiction 2 样本、2 个真实批次实测 **106,941 / 183,185 token**（12 个模型请求，含 cache
-  read）；旧 32k/96k 把两批都判 `maintenance-budget-exceeded` 整批回滚。新值保留单批约 50% 余量、
-  UTC 日可容纳 ≥2 个真实批次。
+- **证据**：真实 production assembly（M `b48ba1a53`/`571a3a793` + K L4 + P delta，real upstream，
+  2 场景×repeat2，4 个真实批次实测）单批 **126,451–373,938 token**（含 cache read/write），
+  同日 4 批合计 **902,962**；r9 的 160k/512k 仍把 3/4 批 `maintenance-budget-exceeded`
+  整批回滚（4/4 checks 通过、verification blocking=0，只有预算失败）。r10 取单批最大值约 +7%
+  （400k）与同日 4 批约 +11% 余量（1M）。
+- r9 依据的 106k/183k 是**加入候选核验材料之前**的旧观测；真实维护循环会读取更多记录，预算以新
+  实测为准，不静默截断批次。
 - **tokens_used 必须是本批真实用量**：写 `memory.maintenance_finished` 前，宿主按本批窗口/维护
   session 汇总 LLM 账本（含 cache read/write）；`tokens_used=0` 只有在整批没有模型调用（例如首个
   请求前取消）时才合法。拿不到账本 → 整批失败码 **`maintenance-usage-unavailable`**，不写成功、
   不把 0 当成本。
 - 触发条件、默认关闭、开启门槛不变；预算不是质量门槛的替代，超过新预算仍按失败记录，不截断批次。
-- 若连续 3 个真实批次用量超过新 run 预算的 80%，下一 revision 必须重新评估（不静默调回）。
+- 若连续 2 个真实批次超过 run 预算 80%，或某 UTC 日超过 daily 预算 80%，下一 revision 必须按新
+  实测重评（不静默调回、不截断）。
 
 ### 4.7 多 Bot 分工
 
