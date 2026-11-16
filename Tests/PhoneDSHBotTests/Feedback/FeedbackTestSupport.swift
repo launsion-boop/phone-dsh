@@ -119,3 +119,23 @@ enum FeedbackFixtures {
             scope: .artifact, origin: uiOrigin(nonce), disputedRefs: refs)
     }
 }
+
+/// Forwards durable events to a real log but drops the review request, so a
+/// feedback event can exist without its review companion (crash window).
+actor DropReviewEventLog: BotEventLog {
+    private let inner: any BotEventLog
+
+    init(inner: any BotEventLog) {
+        self.inner = inner
+    }
+
+    @discardableResult
+    func append(_ event: BotEvent) async throws -> Int {
+        if event.type == "memory.review_requested" { return 0 }
+        return try await inner.append(event)
+    }
+
+    func events(after commitSeq: Int, limit: Int) async throws -> [BotEvent] {
+        try await inner.events(after: commitSeq, limit: limit)
+    }
+}

@@ -107,26 +107,39 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
     private func ensureLoaded() async {
         guard !loaded else { return }
         loaded = true
+        var index: BotFeedbackIndexFile?
         do {
-            if let index = try await store.load() {
-                state = Self.state(from: index)
-                rebuiltCursor = max(0, index.rebuiltFromCommitSeq)
-            } else {
-                state = .empty
-                needsFullReplay = true
-            }
+            index = try await store.load()
         } catch let error as BotFeedbackStoreError {
-            state = .empty
-            needsFullReplay = true
             health = Self.healthLabel(error)
         } catch {
-            state = .empty
-            needsFullReplay = true
             health = "index-unreadable"
         }
         if let eventLog {
-            await replayEvents(eventLog: eventLog, full: needsFullReplay)
-        } else if needsFullReplay {
+            // The durable events are the only facts. Rebuild from them on every
+            // launch instead of trusting the persisted index: a stale/foreign
+            // index (for example an app container reused by another run) must
+            // not create phantom corrections or duplicate outcomes without a
+            // matching feedback.recorded event (G-2 §3.4: file ahead -> truth).
+            state = .empty
+            rebuiltCursor = 0
+            await replayEvents(eventLog: eventLog, full: true)
+            if let current = state {
+                for correction in current.corrections where correction.isActive() {
+                    await appendMemoryReviewRequest(
+                        path: correction.path, version: correction.correctedVersion,
+                        refs: correction.refs, botID: correction.botID,
+                        sessionID: nil, at: correction.atMS)
+                }
+                // Write the rebuilt (phantom-free) index back.
+                await persistIndex(current, bestEffort: true)
+            }
+        } else if let index {
+            state = Self.state(from: index)
+            rebuiltCursor = max(0, index.rebuiltFromCommitSeq)
+        } else {
+            state = .empty
+            needsFullReplay = true
             health = "index-ignored-without-event-log"
         }
     }
@@ -545,6 +558,12 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
         if let existing = snapshot.corrections.last(where: {
             $0.isActive() && $0.path == path && $0.correctedVersion == version
         }) {
+            // A crash between feedback.recorded and memory.review_requested is
+            // recoverable: a retry with the same nonce repairs the review event
+            // instead of returning a duplicate with no audit completion.
+            await appendMemoryReviewRequest(
+                path: path, version: version, refs: existing.refs,
+                botID: feedback.botID, sessionID: feedback.origin.sessionID, at: at)
             return BotFeedbackOutcome(status: .duplicated, feedbackID: existing.feedbackID,
                                       action: .correct,
                                       target: BotFeedbackArtifactRef(kind: .memory, id: path,

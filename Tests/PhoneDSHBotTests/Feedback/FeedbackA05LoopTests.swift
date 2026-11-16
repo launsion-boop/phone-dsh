@@ -331,6 +331,83 @@ final class FeedbackA05LoopTests: XCTestCase {
         XCTAssertEqual(advertised, BotFeedbackTools.definition)
     }
 
+    // Q1/E: a stale persisted index must never turn into a duplicate outcome
+    // without a matching feedback.recorded event. The event log is the fact
+    // source; the index is rebuilt before any duplicate check.
+    func testStaleIndexCannotProduceDuplicateWithoutEvent() async throws {
+        let path = "user/prefs/stale.md"
+        let writeContext = BotMemoryWriteContext(
+            botID: "bot-a", sessionID: "s-chat", authorKind: .chat,
+            source: BotMemorySource(kind: .userTurn, sessionID: "s-chat"),
+            trust: .user)
+        _ = try await memory.write(
+            BotMemoryWriteRequest(action: .write, path: path, content: "v1",
+                                  expectedVersion: 0,
+                                  evidence: ["record://session/s-chat#1"]),
+            context: writeContext)
+        let stale = BotFeedbackIndexRecord(
+            feedbackID: "feedback:bot-a:stale",
+            action: .correct,
+            target: .init(kind: .memory, id: path, version: 1),
+            scope: .init(kind: .artifact, key: "memory:\(path)@v1"),
+            status: .active, createdAtMS: FeedbackFixtures.baseNow)
+        let store = InMemoryBotFeedbackStore(
+            index: BotFeedbackIndexFile(records: [stale], rebuiltFromCommitSeq: 50))
+        let reader: any BotFeedbackMemoryReading = memory
+        // Use the real domain event log but the stale index cache.
+        let liveCenter = BotFeedbackCenter(
+            store: store, eventLog: self.store,
+            memory: { _ in reader }, now: { [clock] in clock!.now })
+
+        let outcome = try await liveCenter.record(BotFeedback(
+            botID: "bot-a", action: .correct,
+            target: BotFeedbackArtifactRef(kind: .memory, id: path, version: 1),
+            scope: .artifact, origin: ui("ui-stale-correct")))
+        XCTAssertEqual(outcome.status, .accepted,
+                       "a stale index may not produce duplicated without an event")
+        let events = try await feedbackEvents()
+        XCTAssertEqual(events.filter { $0.type == BotFeedbackCenter.feedbackEventType }.count, 1)
+        let currentIndex = await store.currentIndex()
+        let indexAfter = try XCTUnwrap(currentIndex)
+        XCTAssertFalse(indexAfter.records.contains { $0.feedbackID == "feedback:bot-a:stale" })
+    }
+
+    // A crash between feedback.recorded and memory.review_requested is
+    // repaired from the durable feedback event on the next center.
+    func testCorrectionReviewRequestIsRepairedOnReload() async throws {
+        let path = "user/prefs/repair.md"
+        let writeContext = BotMemoryWriteContext(
+            botID: "bot-a", sessionID: "s-chat", authorKind: .chat,
+            source: BotMemorySource(kind: .userTurn, sessionID: "s-chat"),
+            trust: .user)
+        _ = try await memory.write(
+            BotMemoryWriteRequest(action: .write, path: path, content: "v1",
+                                  expectedVersion: 0,
+                                  evidence: ["record://session/s-chat#2"]),
+            context: writeContext)
+        let reader: any BotFeedbackMemoryReading = memory
+        let dropping = DropReviewEventLog(inner: store)
+        let first = BotFeedbackCenter(
+            store: InMemoryBotFeedbackStore(), eventLog: dropping,
+            memory: { _ in reader }, now: { [clock] in clock!.now })
+        let outcome = try await first.record(BotFeedback(
+            botID: "bot-a", action: .correct,
+            target: BotFeedbackArtifactRef(kind: .memory, id: path, version: 1),
+            scope: .artifact, origin: ui("ui-review-repair")))
+        XCTAssertEqual(outcome.status, .accepted)
+        let before = try await store.events(after: 0, limit: 200)
+        XCTAssertFalse(before.contains { $0.type == "memory.review_requested" },
+                       "the wrapper dropped the review request")
+
+        let repaired = BotFeedbackCenter(
+            store: InMemoryBotFeedbackStore(), eventLog: store,
+            memory: { _ in reader }, now: { [clock] in clock!.now })
+        _ = try await repaired.disputedRefs(paths: [path])
+        let after = try await store.events(after: 0, limit: 200)
+        XCTAssertTrue(after.contains { $0.type == "memory.review_requested" },
+                      "reload must repair the missing review request from the feedback event")
+    }
+
     // 8. A real routine can be suppressed before its first run, when there is
     //    no proactive delivery yet. The host must verify routine existence via
     //    the routine machine port, bind the narrow routine class, and never
