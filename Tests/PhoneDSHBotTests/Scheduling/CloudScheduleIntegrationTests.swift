@@ -52,7 +52,12 @@ final class CloudScheduleIntegrationTests: XCTestCase {
         let scheduler = RoutineScheduler(
             botId: "bot-integration", machine: machine, inbox: inbox, sink: sink,
             runner: { request in runs.append(request); return .success("integration result") },
-            available: { _ in true }, now: { Int64(Date().timeIntervalSince1970 * 1000) },
+            available: { _ in true },
+            // Disable quiet hours for the test: the wall-clock default
+            // (23:00–08:00) would legitimately skip a due cloud occurrence.
+            settings: { ProactiveSettings(quietStart: "00:00", quietEnd: "00:00",
+                                          timeZone: "UTC") },
+            now: { Int64(Date().timeIntervalSince1970 * 1000) },
             runTimeoutMs: 5_000, cancelGraceMs: 0)
         return Fixture(root: root, store: store, machine: machine, inbox: inbox,
                        scheduler: scheduler, runs: runs)
