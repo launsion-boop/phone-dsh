@@ -93,6 +93,12 @@ class FactVerdictTests(unittest.TestCase):
             judge.STALE_OLD, judge.STALE_NEW)
         self.assertEqual(verdict, "reversed")
 
+    def test_correction_word_marks_old_side_historical(self):
+        verdict, _ = judge.fact_verdict(
+            document("发布会 11 月 20 日在 3 号厅（用户随后更正：日期由 11 月 18 日改为 11 月 20 日）"),
+            judge.STALE_OLD, judge.STALE_NEW)
+        self.assertEqual(verdict, "corrected")
+
     def test_stale_forward_with_retired_history(self):
         verdict, _ = judge.fact_verdict(
             document("发布会 11 月 20 日。原记 11 月 18 日，已作废。"),
