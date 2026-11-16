@@ -249,6 +249,29 @@
 - 兼容：旧 reader 忽略未知 type；旧数据无事件 → unknown；回滚旧 App 不写/不读新事件，skill 文件
   仍可用；新 App 读到旧数据不伪造 revision。
 
+### 3.5 artifact scope / 内部 key（G-1 r15，root 裁决）
+
+跨 Bot 的 artifact 隔离**只用现有信息**，不新增持久 wire 字段、不做迁移：
+
+- 内部 artifact key = `(owner_scope, kind, id, version?)`。`owner_scope` 在读取时由
+  `event.principal.botId` + artifact 的 path/kind 推导：
+  - `memory`/`review`：id 以 `user/` 开头 → `shared`（所有 Bot 同一 key）；以 `agent/` 开头 →
+    `bot(<principal.botId>)`（每个 Bot 独立）；其他 path → `bot(...)`。
+  - `skill`：`host`（host-global，跨 Bot 同一 key；session/event 仍按 Bot 隔离）。
+  - `routine`/`proactive`/`notification`/`delivery`/`suggestion`/`draft`：`bot(<principal.botId>)`。
+  - principal 缺失或无法解析 owner → key 为 `unknown`，读视图 `unknown`，**不得**落到 shared。
+- API 规则：`trace`/`reverseTrace`/`currentState(s)`/`sourceStatuses`/`invalidation`/`audit` 必须接受
+  同一 key（或显式 owner）；缺省 owner 只能由宿主从已认领 session 的 botId 填，**不能**默认 shared/
+  全局。所有 assertion 查找、latest 索引、baseline 查找、erasure/grant/invalidation、upstream 边、
+  source_statuses 合并都用同一 key；不能只修一个查询。
+- 基线按 `(artifact key, ref, role)` 存/查，不按全局 `ref` 覆盖：同一 ref 被两个 artifact/两个 Bot
+  引用时各自保留 baseline；缺失 baseline → `unknown` + `no-baseline`，不借用其他 key 的 baseline。
+- `user/` 共享：所有 Bot 看到同一 key；写入者证据仍按记录 owner 解析，跨 Bot 解析不到 →
+  `cross-bot-unresolved`（§4.6）。`agent/` 按 Bot 隔离：Bot A 的 `agent/x.md` 与 Bot B 的同 path
+  是两个 key，不得合并/invalidation 串扰。
+- 兼容：事件/envelope/schema 不变；旧数据读时按上述规则推导 owner，不需要新字段；旧 reader 只忽略
+  新增内部 API 参数，不影响 wire。
+
 ## 4. `source_statuses`：当前状态读视图
 
 ### 4.1 形状（`source-status.schema.json`）
