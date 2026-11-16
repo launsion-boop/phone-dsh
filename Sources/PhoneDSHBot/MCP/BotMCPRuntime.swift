@@ -2728,6 +2728,33 @@ public actor BotMCPRuntime {
         let approvalID = "approval-\(UUID().uuidString.lowercased())"
         var extraData: [String: BotJSONValue] = [:]
         var digestOverride: String?
+        // A model may call RequestApproval before any pre-step/delivery tool
+        // materialized a block. Build the same bounded pre-delivery block now
+        // so the delivery draft is really offered; never offer from empty
+        // materials and never guess a digest.
+        if activeMaterialBlocks[call.sessionId] == nil, let service = decisionContext {
+            let turnNumber = currentTurnID(sessionId: call.sessionId)
+            let turnID = turnNumber.map { "\(call.sessionId)#\($0)" } ?? "\(call.sessionId)#0"
+            let revision = await permissionRevisionEvaluator?(
+                call.principal.botId, call.sessionId, nil) ?? ""
+            let request = BotDecisionRequest(
+                stage: .preDelivery, botID: call.principal.botId,
+                sessionID: call.sessionId, turnID: turnID, step: 1,
+                tool: "RequestApproval",
+                goal: action,
+                query: [action, detail].filter { !$0.isEmpty }.joined(separator: " "),
+                origin: "approval",
+                scopes: [.agent, .user],
+                permissionRevision: revision,
+                limits: BotDecisionLimits())
+            if let block = try? await service.materials(for: request) {
+                activeMaterialBlocks[call.sessionId] = block
+                await materialTrace?.note(BotMaterialTraceEvent(
+                    stage: .retrieved, blockID: block.blockID, turnID: block.turnID,
+                    sessionID: call.sessionId, botID: call.principal.botId,
+                    materialRefs: block.materials.map(\.ref), atMS: now()))
+            }
+        }
         if let deliverySelection, let block = activeMaterialBlocks[call.sessionId] {
             let offer = await deliverySelection.offer(
                 approvalID: approvalID, botID: call.principal.botId,
