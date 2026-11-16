@@ -231,9 +231,9 @@ final class BotChatModelTests: XCTestCase {
 
     // MARK: - Interactive card settlement
 
-    /// A send is the user's implicit deny for every approval still pending:
-    /// the existing approval action must reach the driver before the chat.
-    func testSendAutoDeclinesApprovalsBeforeChat() async throws {
+    /// Sending normal text is not an approval decision: the pending card and
+    /// its tool work stay alive until the user explicitly decides.
+    func testSendKeepsPendingApprovalUntilExplicitDecision() async throws {
         var performed: [String] = []
         let model = BotChatModel(
             rows: [approvalRow(id: "approval-auto")],
@@ -256,28 +256,34 @@ final class BotChatModelTests: XCTestCase {
 
         XCTAssertEqual(model.pendingApprovalCount, 1)
         model.send(text: "先继续，这个审批不用了。")
-        XCTAssertEqual(model.pendingApprovalCount, 0,
-                       "a send must clear pendingApprovalCount before the async deny finishes")
+        XCTAssertEqual(model.pendingApprovalCount, 1,
+                       "a normal send must not decide a pending approval")
+        XCTAssertTrue(model.autoDeclinedApprovalIDs.isEmpty,
+                      "r4 removes implicit deny on send")
 
-        try await waitFor { performed.count == 2 }
-        XCTAssertEqual(performed, ["approval:deny", "chat"])
-        XCTAssertEqual(model.actionLog, ["approval:deny", "chat"])
-        XCTAssertTrue(model.autoDeclinedApprovalIDs.contains("approval-auto"))
+        try await waitFor { performed == ["chat"] }
+        XCTAssertEqual(performed, ["chat"])
+        XCTAssertFalse(model.actionLog.contains("approval:deny"),
+                       "a normal send must not emit approval.decided")
 
         let row = try XCTUnwrap(model.rows.first(where: { $0.id == "approval-auto" }))
-        let settlement = try XCTUnwrap(model.settlement(for: row))
-        XCTAssertEqual(settlement.title, "已略过，视为拒绝")
-        XCTAssertEqual(settlement.detail, "rm -f /tmp/phone-dsh-old-report.pdf")
-        XCTAssertEqual(model.needsAttentionCount, 0)
+        model.decide(row: row, decision: .deny)
+        try await waitFor { model.pendingApprovalCount == 0 }
+        XCTAssertEqual(performed, ["chat", "approval:deny"],
+                       "only the explicit decision emits the approval action")
+        XCTAssertFalse(model.autoDeclinedApprovalIDs.contains("approval-auto"))
     }
 
-    func testSendClearsPendingApprovalCountImmediately() {
+    func testSendDoesNotClearPendingApprovalCount() async throws {
         let model = BotChatModel(rows: [approvalRow(id: "approval-immediate")],
                                  context: context,
                                  driver: driver())
         XCTAssertEqual(model.pendingApprovalCount, 1)
         model.send(text: "下一条消息")
-        XCTAssertEqual(model.pendingApprovalCount, 0)
+        XCTAssertEqual(model.pendingApprovalCount, 1)
+        let row = try XCTUnwrap(model.rows.first(where: { $0.id == "approval-immediate" }))
+        model.decide(row: row, decision: .deny)
+        try await waitFor { model.pendingApprovalCount == 0 }
     }
 
     func testAnswerSettlesIntoSelectedOptionLine() async throws {
