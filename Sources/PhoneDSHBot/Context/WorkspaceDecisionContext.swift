@@ -210,11 +210,15 @@ public struct BotWorkspaceDirectoryCatalog: BotWorkspaceCataloging {
     }
 
     static func validRelativePath(_ path: String) -> Bool {
+        // Legitimate iOS file names may contain spaces, `@`, `%`, `#`, `+` and
+        // non-ASCII text. Only path/control characters that can escape or
+        // break the VFS contract are refused here; the ref component carries
+        // the same name percent-encoded.
         guard !path.isEmpty, path.unicodeScalars.count <= 512,
               !path.hasPrefix("/"), !path.hasSuffix("/"),
-              !path.contains("\\"), !path.contains("@"),
+              !path.contains("\\"),
               !path.unicodeScalars.contains(where: {
-                  $0.properties.isWhitespace || CharacterSet.controlCharacters.contains($0)
+                  CharacterSet.controlCharacters.contains($0)
               })
         else { return false }
         let segments = path.split(separator: "/", omittingEmptySubsequences: false)
@@ -272,10 +276,12 @@ public struct WorkspaceDecisionContextService: Sendable {
         public static let `default` = Caps()
     }
 
-    /// Workspace refs must stay inside the G-2 256-scalar ref bound:
-    /// `workspace:` (10) + path + `@sha256:` (8) + 64 hex. G-2 r6 allows a
-    /// 200-scalar path in principle, but the ref cap makes 174 the real bound.
-    public static let maximumRefPathScalars = 174
+    /// G-2 r7 allows a 2048-scalar ref and a 200-scalar decoded path:
+    /// `workspace:` (10) + encoded path + `@sha256:` (8) + 64 hex. The
+    /// encoded component therefore has at most 1966 scalars; a 200-scalar
+    /// path can never exceed that even when every scalar is 3 encoded bytes.
+    public static let maximumRefPathScalars = 1_966
+    public static let maximumRefScalars = 2_048
     public static let maximumPathScalars = 200
     /// G-2 r6 caps workspace materials, independently of the memory slots.
     public static let maximumMaterials = 2
@@ -329,7 +335,7 @@ public struct WorkspaceDecisionContextService: Sendable {
         let usable = entries.filter {
             $0.byteCount > 0 && $0.byteCount <= caps.maximumBytesPerFile
                 && Self.validWorkspacePath($0.path)
-                && $0.path.unicodeScalars.count <= Self.maximumRefPathScalars
+                && $0.path.unicodeScalars.count <= Self.maximumPathScalars
         }.map { entry -> (BotWorkspaceFileEntry, Int) in
             (entry, Self.matchCount(tokens: tokenList, in: entry.path.lowercased()))
         }
@@ -386,8 +392,11 @@ public struct WorkspaceDecisionContextService: Sendable {
                 tokens: tokenList, in: content.text.lowercased())
             let score = pathScore * 3 + contentMatches * 2
             guard score > 0 else { continue }
-            let ref = "workspace:\(entry.path)@\(content.contentSHA256)"
-            guard ref.unicodeScalars.count <= 256 else { continue }
+            guard let encodedPath = Self.encodedWorkspacePath(entry.path),
+                  encodedPath.unicodeScalars.count <= Self.maximumRefPathScalars
+            else { continue }
+            let ref = "workspace:\(encodedPath)@\(content.contentSHA256)"
+            guard ref.unicodeScalars.count <= Self.maximumRefScalars else { continue }
             let reason: BotDecisionSelectionReason
             if !goalTokens.isEmpty,
                Self.matchCount(tokens: goalTokens,
@@ -459,9 +468,9 @@ public struct WorkspaceDecisionContextService: Sendable {
     static func validWorkspacePath(_ path: String) -> Bool {
         guard !path.isEmpty, path.unicodeScalars.count <= maximumPathScalars,
               !path.hasPrefix("/"), !path.hasSuffix("/"),
-              !path.contains("\\"), !path.contains("@"),
+              !path.contains("\\"),
               !path.unicodeScalars.contains(where: {
-                  $0.properties.isWhitespace || CharacterSet.controlCharacters.contains($0)
+                  CharacterSet.controlCharacters.contains($0)
               })
         else { return false }
         let segments = path.split(separator: "/", omittingEmptySubsequences: false)
@@ -469,12 +478,35 @@ public struct WorkspaceDecisionContextService: Sendable {
             && segments.allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
     }
 
+    /// RFC 3986 path-component encoding used by a `workspace:` ref. Only
+    /// unreserved ASCII and the segment separator stay literal; a literal `%`
+    /// becomes `%25`, so a name can never be confused with an escape.
+    static func encodedWorkspacePath(_ path: String) -> String? {
+        guard !path.isEmpty else { return nil }
+        return path.addingPercentEncoding(withAllowedCharacters: refPathAllowed)
+    }
+
+    /// Decode exactly once and require the canonical encoding of the result to
+    /// equal the component: `%2f` vs `/`, lower-case hex and over-encoding are
+    /// rejected instead of silently aliasing two spellings of one path.
+    static func canonicalWorkspacePath(fromRefComponent component: String) -> String? {
+        guard !component.isEmpty,
+              component.unicodeScalars.count <= maximumRefPathScalars,
+              let decoded = component.removingPercentEncoding,
+              validWorkspacePath(decoded),
+              encodedWorkspacePath(decoded) == component else { return nil }
+        return decoded
+    }
+
+    static let refPathAllowed = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/")
+
     /// The digest stored in a `workspace:` ref (`sha256:<64hex>`), or `nil`
     /// for any other ref. The pre-delivery review compares it with a fresh
     /// read instead of treating the workspace file as a memory document.
     public static func workspaceDigest(fromRef ref: String) -> String? {
-        guard ref.hasPrefix("workspace:") else { return nil }
-        guard let marker = ref.range(of: "@sha256:", options: .backwards) else { return nil }
+        guard workspacePath(fromRef: ref) != nil,
+              let marker = ref.range(of: "@sha256:", options: .backwards) else { return nil }
         let digest = String(ref[marker.upperBound...])
         guard digest.count == 64,
               digest.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) else { return nil }
@@ -483,16 +515,15 @@ public struct WorkspaceDecisionContextService: Sendable {
 
     static func workspacePath(fromRef ref: String) -> String? {
         let prefix = "workspace:"
-        guard ref.hasPrefix(prefix), ref.unicodeScalars.count <= 256 else { return nil }
+        guard ref.hasPrefix(prefix),
+              ref.unicodeScalars.count <= maximumRefScalars else { return nil }
         let rest = String(ref.dropFirst(prefix.count))
         guard let marker = rest.range(of: "@sha256:", options: .backwards) else { return nil }
-        let path = String(rest[..<marker.lowerBound])
+        let component = String(rest[..<marker.lowerBound])
         let digest = String(rest[marker.upperBound...])
-        guard validWorkspacePath(path),
-              path.unicodeScalars.count <= maximumRefPathScalars,
-              digest.count == 64,
+        guard digest.count == 64,
               digest.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) else { return nil }
-        return path
+        return canonicalWorkspacePath(fromRefComponent: component)
     }
 
     static func tokens(_ value: String) -> [String] {

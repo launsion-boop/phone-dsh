@@ -256,7 +256,7 @@ final class WorkspaceDecisionContextTests: XCTestCase {
         XCTAssertEqual(material.ref.unicodeScalars.count,
                        "workspace:".unicodeScalars.count + "docs/report-guide-v2.md".unicodeScalars.count
                        + "@sha256:".unicodeScalars.count + 64)
-        XCTAssertTrue(material.ref.unicodeScalars.count <= 256)
+        XCTAssertTrue(material.ref.unicodeScalars.count <= 2_048)
         XCTAssertEqual(WorkspaceDecisionContextService.workspacePath(fromRef: material.ref),
                        "docs/report-guide-v2.md")
         XCTAssertEqual(material.version, 1_760_000_123)
@@ -294,12 +294,24 @@ final class WorkspaceDecisionContextTests: XCTestCase {
 
     func testInvalidWorkspacePathsAreRejectedByTheService() {
         for path in ["/etc/passwd", "../secret.md", "docs/../secret.md", "docs//a.md",
-                     "docs\\a.md", "docs/a.md\n", "docs/a b.md", "docs/a@b.md",
-                     "docs/a.md " , ""] {
+                     "docs\\a.md", "docs/a.md\n", "docs/a\u{0}.md", ""] {
             XCTAssertFalse(WorkspaceDecisionContextService.validWorkspacePath(path), path)
         }
-        XCTAssertTrue(WorkspaceDecisionContextService.validWorkspacePath("docs/report-guide-v2.md"))
-        XCTAssertTrue(WorkspaceDecisionContextService.validWorkspacePath("handbook/api/error-codes.md"))
+        // Legitimate iOS names must stay visible; only the ref component is
+        // escaped, never the actual workspace path.
+        for path in ["docs/report-guide-v2.md", "handbook/api/error-codes.md",
+                     "Meeting Notes.md", "照片 1.txt", "a@b.md", "100% done.md",
+                     "a#b.md", "a+b.md"] {
+            XCTAssertTrue(WorkspaceDecisionContextService.validWorkspacePath(path), path)
+            let encoded = WorkspaceDecisionContextService.encodedWorkspacePath(path)
+            XCTAssertNotNil(encoded, path)
+            let component = try? XCTUnwrap(encoded)
+            if let component {
+                XCTAssertEqual(
+                    WorkspaceDecisionContextService.canonicalWorkspacePath(
+                        fromRefComponent: component), path)
+            }
+        }
     }
 
     // MARK: production directory catalog
@@ -420,6 +432,90 @@ final class WorkspaceDecisionContextTests: XCTestCase {
             XCTAssertEqual(error, .invalidBotRoot)
         } catch {
             XCTFail("unexpected error: \(error)")
+        }
+    }
+
+    func testPercentEncodedRefsRoundTripLegitimateFileNames() async throws {
+        let names = ["Meeting Notes.md", "照片 1.txt", "a@b.md", "100% done.md", "a#b.md"]
+        for (index, name) in names.enumerated() {
+            let text = "# 周报规范\n- 当前"
+            let catalog = StubCatalog([name: .init(text: text)])
+            let service = service(catalog)
+            let selection = await service.selection(
+                query: "周报规范", botID: "main",
+                materialPrefix: "reqenc\(index)", limits: limits())
+            let material = try XCTUnwrap(selection.materials.first, name)
+            XCTAssertEqual(material.path, name)
+            XCTAssertTrue(material.ref.hasPrefix("workspace:"))
+            XCTAssertFalse(material.ref.contains(name), "ref must carry the encoded, not literal, name")
+            let decoded = WorkspaceDecisionContextService.workspacePath(fromRef: material.ref)
+            XCTAssertEqual(decoded, name)
+            let current = await service.currentContentSHA256(
+                forWorkspaceRef: material.ref, botID: "main")
+            XCTAssertEqual(current, sha256(Data(text.utf8)), name)
+        }
+    }
+
+    func testLongChinesePathUsesTheFullR7RefBound() async throws {
+        let name = "资料/" + String(repeating: "周报规范", count: 20) + ".md"
+        XCTAssertGreaterThan(name.unicodeScalars.count, 80)
+        let text = "# 周报规范\n- 当前"
+        let catalog = StubCatalog([name: .init(text: text)])
+        let service = service(catalog)
+        let selection = await service.selection(
+            query: "周报规范", botID: "main", materialPrefix: "reqlong", limits: limits())
+        let material = try XCTUnwrap(selection.materials.first)
+        XCTAssertEqual(material.path, name)
+        XCTAssertGreaterThan(material.ref.unicodeScalars.count, 256)
+        XCTAssertLessThanOrEqual(material.ref.unicodeScalars.count, 2_048)
+        XCTAssertEqual(WorkspaceDecisionContextService.workspacePath(fromRef: material.ref), name)
+        let current = await service.currentContentSHA256(
+            forWorkspaceRef: material.ref, botID: "main")
+        XCTAssertEqual(current, sha256(Data(text.utf8)))
+    }
+
+    func testEncodedTraversalMalformedAndNonCanonicalRefsAreRejected() {
+        let digest = String(repeating: "0", count: 64)
+        let rejected = [
+            "workspace:%2E%2E/secret.md@sha256:\(digest)",
+            "workspace:%2Fetc/passwd@sha256:\(digest)",
+            "workspace:docs/%2E%2E/secret.md@sha256:\(digest)",
+            "workspace:docs/%2e%2e/secret.md@sha256:\(digest)",
+            "workspace:%00@sha256:\(digest)",
+            "workspace:%ZZ@sha256:\(digest)",
+            "workspace:%@sha256:\(digest)",
+            "workspace:docs%2Fa.md@sha256:\(digest)",
+            "workspace:docs/a.md@sha256:\(String(repeating: "A", count: 64))",
+        ]
+        for ref in rejected {
+            XCTAssertNil(WorkspaceDecisionContextService.workspacePath(fromRef: ref), ref)
+            XCTAssertNil(WorkspaceDecisionContextService.workspaceDigest(fromRef: ref), ref)
+        }
+        // Decode exactly once: a literal %2E%2E is a legal file name, never a
+        // traversal after one decode. Its canonical ref double-encodes the %.
+        let literal = "workspace:%252E%252E/name.md@sha256:\(digest)"
+        XCTAssertEqual(WorkspaceDecisionContextService.workspacePath(fromRef: literal),
+                       "%2E%2E/name.md")
+        XCTAssertEqual(WorkspaceDecisionContextService.workspaceDigest(fromRef: literal),
+                       "sha256:" + digest)
+    }
+
+    func testDirectoryCatalogKeepsFilesWithSpacesAtSignsAndUnicode() async throws {
+        let root = try makeWorkspace()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let names = ["Meeting Notes.md", "照片 1.txt", "a@b.md", "100% done.md", "a#b.md"]
+        for name in names {
+            _ = try write(name, data: Data("# \(name)".utf8), root: root)
+        }
+        let catalog = BotWorkspaceDirectoryCatalog(workspaceRoot: root)
+        let entries = try await catalog.listFiles(botID: "main", maximumCount: 100)
+        XCTAssertEqual(Set(entries.map(\.path)), Set(names))
+        for name in names {
+            let content = try await catalog.readText(
+                botID: "main", path: name, maximumBytes: 64 * 1024)
+            let read = try XCTUnwrap(content, name)
+            XCTAssertEqual(read.text, "# \(name)")
+            XCTAssertEqual(read.contentSHA256, sha256(Data("# \(name)".utf8)))
         }
     }
 
