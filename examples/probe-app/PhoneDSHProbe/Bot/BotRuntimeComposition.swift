@@ -427,16 +427,28 @@ final class BotRuntimeComposition {
         let fileRechecker = BotFileSourceRechecker(
             locator: BotWorkspaceFileURLResolver(
                 workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot()))
+        // G-1/E7: file + web recheck share one provenance read model; the web
+        // arm reuses the existing cloud /v1/web/fetch endpoint.
+        let webRechecker = BotProvenanceWebRecheckAdapter(
+            transport: CloudWebRecheckTransport(
+                configuration: .init(baseURL: cloudConfiguration.baseURL),
+                tokenProvider: { try await TonoAccountSession.shared.accessToken() }))
         let provenance = BotProvenanceService(
             eventLog: store,
             resolver: recordService,
-            rechecker: BotProvenanceFileRecheckAdapter(rechecker: fileRechecker))
+            rechecker: BotProvenanceRecheckerComposite(
+                file: BotProvenanceFileRecheckAdapter(rechecker: fileRechecker),
+                web: webRechecker))
         await runtime.installProvenance(provenance)
         let materialState = BotDecisionMaterialStateAdapter(provenance: provenance)
+        let workspaceCatalog = BotWorkspaceDirectoryCatalog(
+            workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot())
+        let workspaceMaterials = WorkspaceDecisionContextService(catalog: workspaceCatalog)
         let decisionContext = BotDecisionContextService(
             memoryForBot: { botID in await runtime.memory(for: botID) },
             permissionRevision: permissionRevision,
-            materialState: { lookup in await materialState.state(for: lookup) })
+            materialState: { lookup in await materialState.state(for: lookup) },
+            workspaceMaterials: workspaceMaterials)
         await runtime.installDecisionContext(
             decisionContext, trace: materialTrace, permissionRevision: permissionRevision)
         // G-2 feedback: one center for the process. An unreadable Application
