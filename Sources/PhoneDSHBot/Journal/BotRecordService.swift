@@ -914,8 +914,6 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         var observedAtMS: Int64?
         var recordType: String?
         var trust: BotRecordTrust?
-        /// G-1 r20: the real authorizer grant carried by the observation.
-        var grantId: String?
         /// Version for observations only; non-observation records legally have
         /// no source version (G-1 §2.2) and unresolved/erased records are
         /// explained by the provenance state, not by an invented digest.
