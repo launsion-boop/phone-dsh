@@ -135,6 +135,38 @@ final class MemorySourceBaselineTests: XCTestCase {
                        Int(observationTime))
     }
 
+    func testRestoreAfterErasedObservationWritesExplicitUnknownBaseline() async throws {
+        let path = "agent/notes/restore-erased.md"
+        let review = BotMemoryReview(
+            state: .verified, basis: .observation, refs: [observationRef])
+        let first = try await memory.write(
+            BotMemoryWriteRequest(
+                action: .write, path: path, content: "one",
+                expectedVersion: 0, evidence: [observationRef], review: review),
+            context: context())
+        XCTAssertTrue(first.ok, "\(String(describing: first.code))")
+
+        try writeErasedSessionLog()
+        let restored = try await memory.write(
+            BotMemoryWriteRequest(
+                action: .restore, path: path, expectedVersion: 1, restoreVersion: 1),
+            context: context())
+        XCTAssertTrue(restored.ok, "\(String(describing: restored.code))")
+
+        let event = try await documentWrittenEvent(path: path, version: 2)
+        let sources = try XCTUnwrap(event.data["derivation"]?["sources"]?.arrayValue)
+        XCTAssertEqual(sources.map { $0["record"]?.stringValue },
+                       [observationRef, observationRef])
+        for source in sources {
+            let version = try XCTUnwrap(source["sourceVersion"]?.objectValue)
+            XCTAssertEqual(version["reason"]?.stringValue, "record-erased",
+                           "an erased observation must not look like a non-observation source")
+        }
+        let states = try await records.sourceStates(
+            for: [observationRef], callerBotID: "bot-a", callerSessionID: "gb-main")
+        XCTAssertTrue(try XCTUnwrap(states.first).erased)
+    }
+
     func testUncapturableBaselineFailsTheWriteWithoutAnEvent() async throws {
         let failing = BotMemory(
             store: SQLiteBotMemoryDocumentStore(eventLog: store, botID: "bot-a", now: { self.now }),
@@ -287,6 +319,37 @@ final class MemorySourceBaselineTests: XCTestCase {
             ]))
         let sequence = try await store.append(event)
         return "record://event/\(sequence)"
+    }
+
+    private func writeErasedSessionLog() throws {
+        let header: [String: Any] = [
+            "type": "session", "version": 4, "id": "gb-main",
+            "createdAt": 1_760_000_000_000, "isSeeded": false, "delegationDepth": 0,
+        ]
+        let user: [String: Any] = [
+            "type": "user/message", "seq": 3, "time": 1_760_000_003_000,
+            "data": [
+                "message": ["role": "user", "content": [
+                    ["type": "text", "text": "remember the baseline"]]],
+                "source": ["kind": "user", "rpcId": "bot-1"],
+            ],
+        ]
+        let call: [String: Any] = [
+            "type": "tool/call", "seq": 4, "time": 1_760_000_004_000,
+            "data": ["callId": "call-1", "name": "web_fetch",
+                     "arguments": "{\"url\":\"https://example.com/a\"}"],
+        ]
+        let tombstone = try! BotSessionErasureTombstone.line(
+            sessionID: "gb-main", seq: 5, time: observationTime,
+            erasureID: "baseline-test-erasure")
+        let lines = [header, user, call].map {
+            String(decoding: try! JSONSerialization.data(
+                withJSONObject: $0, options: [.sortedKeys]), as: UTF8.self)
+        } + [String(decoding: tombstone, as: UTF8.self)]
+        try (lines.joined(separator: "\n") + "\n").write(
+            to: root.appendingPathComponent(
+                "materialized/home/sessions/gb-main/session.v4.jsonl"),
+            atomically: true, encoding: .utf8)
     }
 
     private func writeSessionLog() throws {

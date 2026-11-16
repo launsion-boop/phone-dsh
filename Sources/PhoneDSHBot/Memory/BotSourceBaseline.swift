@@ -117,8 +117,25 @@ public enum BotSourceBaselineBuilder {
             guard let state = byRef[ref] else {
                 throw BotSourceBaselineError.missingState(ref)
             }
+            // An unresolved/erased reference cannot be a source version, but
+            // omitting the member would be indistinguishable from a
+            // non-observation source. G-1 §2.2 requires an explicit reason for
+            // a source that was an observation; for an erased restore this is
+            // the only honest baseline.
+            let version: BotSourceVersion?
+            if let known = state.version {
+                version = known
+            } else if BotRecordReference.parse(ref) == nil {
+                version = .unknown(.invalidReference)
+            } else if state.erased {
+                version = .unknown(.recordErased)
+            } else if !state.resolved {
+                version = .unknown(.recordUnresolved)
+            } else {
+                version = nil
+            }
             result.append(BotSourceBaseline(
-                record: ref, role: role, sourceVersion: state.version))
+                record: ref, role: role, sourceVersion: version))
         }
         for ref in evidence { try append(ref, role: .evidence) }
         for ref in reviewRefs { try append(ref, role: .review) }
