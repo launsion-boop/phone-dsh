@@ -131,6 +131,9 @@ final class BotRuntimeUnit {
             onSessionRegistered: { sessionID in
                 Task { @MainActor in BotSessionRegistry.shared.register(sessionID) }
             })
+        await runtime.installUserContentRecordProvider { sessionID in
+            await remote.userContentRecordRef(sessionId: sessionID)
+        }
         let planner = BotRemoteActionPlanner(
             remote: remote, runtime: runtime, handler: handler,
             store: store, botID: botID, wakeInbox: inbox)

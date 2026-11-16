@@ -2548,6 +2548,12 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         BotWorkspaceLayout.botRoot(botId: botId, dataDirectory: botDataDirectory)
     }
 
+    /// Durable user-message record ref for this session, captured from the
+    /// real commit sequence. Never synthesized.
+    public func userContentRecordRef(sessionId: String) -> String? {
+        userSourceRefs[sessionId]
+    }
+
     private func rebuiltMainSessionID() -> String {
         "gb-\(BotWorkspaceLayout.safePathComponent(botId))-\(UUID().uuidString.lowercased())"
     }
@@ -3590,6 +3596,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     if userCommitSeq > 0,
                        data["source"]?["kind"]?.stringValue == "user" {
                         currentUserSourceRef = "record://event/\(userCommitSeq)"
+                        userSourceRefs[sessionId] = currentUserSourceRef
                     }
                 }
             case "assistant/message":

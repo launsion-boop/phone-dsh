@@ -5,7 +5,8 @@ import Foundation
 public enum BotRoutineTool {
     public static func handle(machine: RoutineMachine, principal: BotGatewayPrincipal,
                               arguments: BotJSONValue, now: Int64,
-                              authority: BotTurnAuthority? = nil) async throws -> BotJSONValue {
+                              authority: BotTurnAuthority? = nil,
+                              derivation: RoutineDerivation? = nil) async throws -> BotJSONValue {
         guard case .object(let args) = arguments,
               case .string(let action)? = args["action"] else {
             throw BotMCPError.invalidRequest("UpdateRoutine requires action")
@@ -31,12 +32,14 @@ public enum BotRoutineTool {
                 creator: creator,
                 completionCriteria: optionalString(args["completion_criteria"]) ?? "",
                 constraints: optionalString(args["constraints"]) ?? "",
-                now: now)
+                derivation: derivation, now: now)
             return try encode(routine)
         case "update":
             let id = try requiredString(args, "routine_id")
             let patch = try makePatch(from: args)
-            return try await encode(machine.update(botId: botId, routineId: id, patch: patch, now: now))
+            return try await encode(machine.update(
+                botId: botId, routineId: id, patch: patch,
+                derivation: derivation, now: now))
         case "delete":
             let id = try requiredString(args, "routine_id")
             guard let removed = try await machine.delete(botId: botId, routineId: id) else {

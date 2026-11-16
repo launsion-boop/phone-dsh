@@ -322,6 +322,8 @@ public actor BotMCPRuntime {
     /// Installed once by the App composition; nil keeps library/test behaviour
     /// exactly as before.
     private var decisionContext: BotDecisionContextService?
+    /// Real durable user-message ref for routine content evidence.
+    private var userContentRecordProvider: (@Sendable (String) async -> String?)?
     private var materialTrace: (any BotMaterialTraceRecording)?
     private var permissionRevisionEvaluator: BotPermissionRevisionEvaluator?
     /// G-2 delivery selection. The host owns the durable draft/revision and
@@ -352,6 +354,11 @@ public actor BotMCPRuntime {
 
     /// Installs the G-2 services. Called by the App composition after the
     /// runtime exists (the service needs `memory(for:)`).
+    public func installUserContentRecordProvider(
+        _ provider: (@Sendable (String) async -> String?)?) {
+        userContentRecordProvider = provider
+    }
+
     public func installDecisionContext(_ service: BotDecisionContextService,
                                        trace: (any BotMaterialTraceRecording)? = nil,
                                        permissionRevision: BotPermissionRevisionEvaluator? = nil) {
@@ -2723,9 +2730,11 @@ public actor BotMCPRuntime {
             }
             authority.approvalID = outcome.approvalId
         }
+        let userRecord = await userContentRecordProvider?(call.sessionId)
+        let derivation = userRecord.map { RoutineDerivationBuilder.fromUserTurn(record: $0) }
         let result = try await BotRoutineTool.handle(
             machine: routineMachine, principal: call.principal, arguments: arguments,
-            now: now(), authority: authority)
+            now: now(), authority: authority, derivation: derivation)
         guard case .object(let args) = arguments, case .string(let action)? = args["action"] else {
             throw BotMCPError.invalidRequest("更新例行任务需要指定动作")
         }
