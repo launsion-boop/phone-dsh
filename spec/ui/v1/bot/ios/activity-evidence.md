@@ -198,13 +198,20 @@ count as public reply text.
 
 ## UI consumption and compatibility
 
-`BotActivity` keeps exactly `{status, detail, category, startedAt}`. The existing timing
-machine keeps the 800 ms latest-wins window, the `· N 分钟` suffix and the approval
-precedence. The bubble stays non-interactive: the reserved band remains hit-transparent
-and no tap target, sheet, expanded view, button or extra control is added. It renders one
-line with tail truncation at the existing 86% width cap; the `detail` value and the
-accessibility label carry the short real sentence. The UI does not re-sanitise, rewrite or
-lengthen `detail`.
+`BotActivity` keeps exactly `{status, detail, category, startedAt}`. Normal progress keeps
+the 800 ms latest-wins window and `· N 分钟` suffix. Approval and failure text bypass
+pending display dwell. The bubble is non-interactive: its reserved band remains
+hit-transparent and no tap target, sheet, expanded view or control is added.
+
+The `activity-ui-v1` refinement uses 16 pt medium text in a 22 pt line box, scaling both
+with Dynamic Type (callout). The band is `max(38, scaledLineBox + 16)` pt in both visible
+and hidden states. Width hugs the current sentence up to 94% of the content column;
+long text truncates at the tail while the accessibility label retains the short sentence.
+Changes crossfade with at most 3 pt vertical movement over about 220 ms; outgoing text
+does not contribute to layout width. Reduce Motion removes motion; Prefer Cross-Fade
+removes translation. The subdued highlight cannot wash out the readable base text.
+See [the frozen visual contract](../../../../../docs/protocol-changes/PC-20261116-bot-activity-legibility-motion.md).
+The UI does not re-sanitise, rewrite or lengthen `detail`.
 
 No transport, persistence, schema or Android change is required. Old persisted rows and
 old clients keep the existing value shape. The shared `activity.schema.json`,
