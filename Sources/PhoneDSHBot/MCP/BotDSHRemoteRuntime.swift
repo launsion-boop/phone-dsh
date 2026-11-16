@@ -3653,26 +3653,54 @@ private actor BotAdmissionGate {
     }
 
     private var state: State = .pending
+    private var waiters: [(id: UUID, continuation: CheckedContinuation<Bool, Never>)] = []
+    /// Cancellation can land before the wait registers; remember the id so the
+    /// registration closure resumes it immediately.
+    private var cancelledWaiters: Set<UUID> = []
 
     func wait() async -> Bool {
-        while true {
-            switch state {
-            case .open: return true
-            case .failed: return false
-            case .pending:
-                if Task.isCancelled { return false }
-                try? await Task.sleep(nanoseconds: 10_000_000)
-            }
+        switch state {
+        case .open: return true
+        case .failed: return false
+        case .pending:
+            break
         }
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                if Task.isCancelled || cancelledWaiters.remove(id) != nil {
+                    continuation.resume(returning: false)
+                } else {
+                    waiters.append((id, continuation))
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: id) }
+        }
+    }
+
+    private func cancelWaiter(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else {
+            cancelledWaiters.insert(id)
+            return
+        }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume(returning: false)
     }
 
     func open() {
         guard case .pending = state else { return }
         state = .open
+        let pending = waiters
+        waiters.removeAll()
+        for waiter in pending { waiter.continuation.resume(returning: true) }
     }
 
     func fail() {
         guard case .pending = state else { return }
         state = .failed
+        let pending = waiters
+        waiters.removeAll()
+        for waiter in pending { waiter.continuation.resume(returning: false) }
     }
 }
