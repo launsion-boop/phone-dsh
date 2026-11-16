@@ -98,9 +98,12 @@ extension BotProductionRowService {
                     case .adopt, .correct, .suppress:
                         let action: BotFeedbackAction = intent.verdict == .adopt
                             ? .adopt : intent.verdict == .correct ? .correct : .suppress
+                        let isRoutine = intent.targetKind == "routine"
                         let feedback = BotFeedback(
                             botID: intent.botID, action: action,
-                            target: BotFeedbackArtifactRef(kind: .delivery, id: intent.rowID),
+                            target: BotFeedbackArtifactRef(
+                                kind: isRoutine ? .routine : .delivery,
+                                id: isRoutine ? intent.targetID : intent.rowID),
                             scope: intent.scope == .user ? .user
                                 : intent.scope == .routineClass ? .class : .artifact,
                             origin: BotFeedbackOrigin(kind: .uiAction, nonce: intent.nonce))
