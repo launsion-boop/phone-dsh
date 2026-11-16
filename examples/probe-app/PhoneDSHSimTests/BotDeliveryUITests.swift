@@ -368,6 +368,52 @@ final class BotDeliveryUITests: XCTestCase {
         XCTAssertFalse(artifact.offers(.suppress), "suppress needs a proactive/routine artifact")
     }
 
+    func testProjectionShapedAttachmentCardIsFeedbackTargetEvenWithSendMessageKind() {
+        // BotSessionLogProjection leaves `kind = sendMessage` for
+        // `card.presented`; eligibility must key off role/provenance, not
+        // that default kind.
+        let body = BotUIBody(type: "attachment", values: [
+            "cardType": .string("attachment"),
+            "fileName": .string("report.md"),
+            "path": .string("/dsh/workspace/.dshbot/agents/main/report.md"),
+            "cardID": .string("card-5b80b2c2-8274-4894-91a8-ea635aca0feb"),
+        ])
+        let row = BotUIRow.fixture(id: "e-main-card-5b80b2c2", seq: 33,
+                                   kind: "sendMessage", role: "assistant",
+                                   body: body,
+                                   eventID: "evt-card.presented-ad690436-ca6d-4eb0-b27c-72781751d589")
+        guard case .eligible(let artifact) = BotFeedbackArtifactRule.availability(for: row) else {
+            return XCTFail("a projected assistant attachment card is a real feedback artifact")
+        }
+        XCTAssertTrue(artifact.offers(.adopt))
+        XCTAssertTrue(artifact.offers(.undo))
+        XCTAssertEqual(artifact.kindLabel, "附件")
+        XCTAssertEqual(artifact.targetKind, "delivery")
+        XCTAssertEqual(artifact.targetID, row.id)
+        XCTAssertFalse(artifact.isRoutineDefinition)
+    }
+
+    func testProjectionShapedRoutineDefinitionTargetsRoutineWithoutArtifactScope() {
+        let body = BotUIBody(type: "automation", values: [
+            "routineID": .string("routine-2BD62BF753C5"),
+            "title": .string("A05 周报提醒"),
+            "status": .string("active"),
+            "automation": .object(["name": .string("A05 周报提醒")]),
+        ])
+        let row = BotUIRow.fixture(id: "e-main-routine-routine-2BD62BF753C5", seq: 34,
+                                   kind: "sendMessage", role: "assistant", body: body,
+                                   eventID: "evt-routine.defined-86378fb9-a77b-4f04-b738-08f3f5be8a11")
+        guard case .eligible(let artifact) = BotFeedbackArtifactRule.availability(for: row) else {
+            return XCTFail("a projected routine definition is a suppress target")
+        }
+        XCTAssertEqual(artifact.targetKind, "routine")
+        XCTAssertEqual(artifact.targetID, "routine-2BD62BF753C5")
+        XCTAssertTrue(artifact.isRoutineDefinition)
+        XCTAssertEqual(artifact.suppressScopes, [.routineClass, .user])
+        XCTAssertFalse(artifact.offers(.adopt))
+        XCTAssertTrue(artifact.offers(.undo))
+    }
+
     func testChoiceCardIsNotAFeedbackTarget() {
         let body: BotUIBody = BotUIBody(type: "widget", values: [
             "cardType": .string("question"),

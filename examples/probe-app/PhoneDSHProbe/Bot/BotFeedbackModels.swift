@@ -45,6 +45,12 @@ struct BotFeedbackArtifact: Equatable {
     /// The scopes this row may offer for `suppress`. The dialog lists exactly
     /// these; it never silently widens a routine class to a cross-Bot `user`.
     var suppressScopes: [BotFeedbackScope] = []
+    /// Internal target mapping for the host adapter. A delivered card/text is
+    /// `delivery:<rowID>`; a routine definition is `routine:<routineID>` and
+    /// has no single delivery yet, so it must not offer the artifact scope.
+    var targetKind: String = "delivery"
+    var targetID: String = ""
+    var isRoutineDefinition: Bool = false
 
     func offers(_ verdict: BotFeedbackVerdict) -> Bool {
         verdicts.contains(verdict)
@@ -66,9 +72,12 @@ enum BotFeedbackArtifactRule {
                 && row.provenance.eventIDs.allSatisfy({ $0.hasPrefix("local:") })) {
             return .unavailable("这条内容还没有写入记录")
         }
-        // `BotSessionLogProjection` uses `sendMessage` as the default for
-        // card.presented and assistant text; the owner/local checks above are
-        // the real exclusion. Keep assistant artifacts eligible.
+        // `BotSessionLogProjection` keeps `sendMessage` as the default row
+        // kind for `card.presented` (attachment/document) and for assistant
+        // text. Rejecting the kind also rejected every real assistant
+        // artifact, so E's restored attachment card rendered without a
+        // feedback bar. Owner/local rows are already excluded by `role ==
+        // "user"` and the local-id provenance checks.
         if row.role == "user" {
             return .unavailable("这是你自己发送的消息")
         }
@@ -78,6 +87,9 @@ enum BotFeedbackArtifactRule {
         let kindLabel: String
         let verdicts: [BotFeedbackVerdict]
         let suppressScopes: [BotFeedbackScope]
+        var targetKind = "delivery"
+        var targetID = row.id
+        var isRoutineDefinition = false
         if row.body.type == "text" {
             let text = (row.body["text"]?.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard row.role == "assistant", !text.isEmpty else {
@@ -103,12 +115,22 @@ enum BotFeedbackArtifactRule {
                 verdicts = [.adopt, .undo]
                 suppressScopes = []
             case .automation:
-                // A routine result row is the one proactive artifact this
-                // transcript can resolve. Suppress is scoped explicitly by
-                // the confirmation dialog; correct still needs a memory doc.
-                kindLabel = "例行结果"
-                verdicts = [.suppress, .undo]
-                suppressScopes = [.artifact, .routineClass, .user]
+                // A routine definition has no single delivery yet: its target
+                // is the routine itself, so only class/user scopes apply. A
+                // routine result row has a real delivery and keeps artifact.
+                if let routineID = row.body["routineID"]?.string,
+                   !routineID.isEmpty {
+                    kindLabel = "例行任务"
+                    verdicts = [.suppress, .undo]
+                    suppressScopes = [.routineClass, .user]
+                    targetKind = "routine"
+                    targetID = routineID
+                    isRoutineDefinition = true
+                } else {
+                    kindLabel = "例行结果"
+                    verdicts = [.suppress, .undo]
+                    suppressScopes = [.artifact, .routineClass, .user]
+                }
             case .notice, .question, .steps, .approval,
                  .task, .progress, .checklist, .link:
                 return .unavailable("这类内容不通过消息反馈")
@@ -121,7 +143,10 @@ enum BotFeedbackArtifactRule {
             label: displayLabel(for: row),
             kindLabel: kindLabel,
             verdicts: verdicts,
-            suppressScopes: suppressScopes))
+            suppressScopes: suppressScopes,
+            targetKind: targetKind,
+            targetID: targetID,
+            isRoutineDefinition: isRoutineDefinition))
     }
 
     static func displayLabel(for row: BotUIRow) -> String {
@@ -169,6 +194,13 @@ struct BotFeedbackIntent: Equatable {
     var nonce: String
     var rowID: String
     var botID: String
+    /// Internal host-adapter target. `delivery` uses rowID; `routine` uses the
+    /// routineID and has no single delivery before its first run.
+    var targetKind: String = "delivery"
+    var targetID: String = ""
+    /// This is a routine definition, not a routine result; artifact scope is
+    /// not meaningful for it.
+    var isRoutineDefinition: Bool = false
     var verdict: BotFeedbackVerdict
     /// `suppress` is the only verdict that asks for a scope; the UI explicitly
     /// chooses "this one" vs "this kind in every Bot".

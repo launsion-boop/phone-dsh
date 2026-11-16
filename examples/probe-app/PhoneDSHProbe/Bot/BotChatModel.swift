@@ -861,7 +861,12 @@ final class BotChatModel: ObservableObject {
             return
         }
         let intent = BotFeedbackIntent(nonce: UUID().uuidString, rowID: artifact.rowID,
-                                       botID: artifact.botID, verdict: verdict,
+                                       botID: artifact.botID,
+                                       targetKind: artifact.targetKind,
+                                       targetID: artifact.targetID.isEmpty
+                                           ? artifact.rowID : artifact.targetID,
+                                       isRoutineDefinition: artifact.isRoutineDefinition,
+                                       verdict: verdict,
                                        scope: verdict == .suppress ? scope : .artifact,
                                        feedbackID: undoID)
         Task { await performFeedback(intent) }

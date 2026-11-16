@@ -33,8 +33,10 @@ struct BotFeedbackBar: View {
         .accessibilityIdentifier("bot.feedback.bar")
         .confirmationDialog("不再提醒这一类？", isPresented: $confirmingSuppress,
                             titleVisibility: .visible) {
-            Button("只这一条") { onFeedback(.suppress, .artifact) }
-                .accessibilityIdentifier("bot.feedback.suppress.artifact")
+            if artifact.suppressScopes.contains(.artifact) {
+                Button("只这一条") { onFeedback(.suppress, .artifact) }
+                    .accessibilityIdentifier("bot.feedback.suppress.artifact")
+            }
             if artifact.suppressScopes.contains(.routineClass) {
                 Button("这个例行任务的结果") { onFeedback(.suppress, .routineClass) }
                     .accessibilityIdentifier("bot.feedback.suppress.routineClass")
