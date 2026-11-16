@@ -647,108 +647,90 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
     static func erasureNeedles(in content: String) -> Set<String> {
         var result = Set<String>()
         // Content match is the contract's baseline ("与版本文本相同", v1 §4.6 /
-        // v2 §1.8) and is language-agnostic: no character-class filter, no
-        // marker shape. The eight-scalar floor keeps a trivial document from
-        // matching half the session.
+        // v2 §1.8): the whole trimmed text and each line at >= 8 scalars. It is
+        // language-agnostic and is not a marker rule.
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.unicodeScalars.count >= 8 { result.insert(trimmed) }
         for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
             let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if value.unicodeScalars.count >= 8 { result.insert(value) }
         }
-        // One generic mechanism for the "unique marker" half: split at Unicode
-        // separators/punctuation/symbols/control and at script changes, keep
-        // long script-homogeneous letter/number/mark runs. There is no
-        // ASCII-only, underscore or digit rule anywhere.
-        result.formUnion(Self.scriptBoundaryCandidates(in: content))
+        // Distinctive identifiers: the original rule (token >= 8 scalars that
+        // contains '_' or a digit), generalised only in how tokens are found.
+        result.formUnion(Self.identifierCandidates(in: content))
         return result
     }
 
-    private static let minimumErasureCandidateScalars = 12
-
-    /// Splits `content` on Unicode separators/punctuation/symbols/control and
-    /// at script changes, then returns the long-enough runs that contain at
-    /// least one letter. Connector punctuation (`_`) joins a run, matching
-    /// UAX #29's ExtendNumLet treatment of identifier characters; every other
-    /// P*/S*/Z*/C* scalar is a boundary. Pure-digit runs and runs shorter than
-    /// twelve scalars are dropped, so ordinary words such as "remember" or
-    /// "important" cannot become erasure targets.
-    static func scriptBoundaryCandidates(in content: String) -> Set<String> {
+    /// Splits on Unicode whitespace/separator/punctuation/control scalars while
+    /// keeping the identifier characters `_`, `.` and `-` inside the token, and
+    /// adds a generic ASCII-identifier <-> non-ASCII-letter boundary so a Latin
+    /// identifier embedded in CJK/Kana/Hangul prose is isolated without any
+    /// script table. A token is a candidate only when it has >= 8 scalars and
+    /// contains '_' or a digit, so unadorned natural-language words never
+    /// become erasure targets.
+    static func identifierCandidates(in content: String) -> Set<String> {
+        enum TokenKind { case ascii, nonASCII }
+        func isNumber(_ scalar: Unicode.Scalar) -> Bool {
+            switch scalar.properties.generalCategory {
+            case .decimalNumber, .letterNumber, .otherNumber: return true
+            default: return false
+            }
+        }
+        var token: [Unicode.Scalar] = []
+        var kind: TokenKind?
+        var previousAllowsScriptSwitch = false
         var result = Set<String>()
-        var run: [Unicode.Scalar] = []
-        var runScript: UInt16?
 
         func flush() {
             defer {
-                run.removeAll(keepingCapacity: true)
-                runScript = nil
+                token.removeAll(keepingCapacity: true)
+                kind = nil
+                previousAllowsScriptSwitch = false
             }
-            guard run.count >= minimumErasureCandidateScalars,
-                  run.contains(where: { $0.properties.isAlphabetic }) else { return }
-            result.insert(String(String.UnicodeScalarView(run)))
+            guard token.count >= 8 else { return }
+            guard token.contains(where: { $0.properties.isAlphabetic }) else { return }
+            let text = String(String.UnicodeScalarView(token))
+            guard text.contains("_") || token.contains(where: isNumber) else {
+                return
+            }
+            result.insert(text)
         }
 
         for scalar in content.unicodeScalars {
-            switch scalar.properties.generalCategory {
-            case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter,
-                 .modifierLetter, .otherLetter:
-                let script = scriptIdentifier(scalar)
-                if let runScript, runScript != script {
-                    flush()
-                }
-                runScript = script
-                run.append(scalar)
-            case .decimalNumber, .letterNumber, .otherNumber,
-                 .nonspacingMark, .spacingMark, .enclosingMark,
-                 .connectorPunctuation:
-                // Digits, combining marks and `_` stay inside the current run;
-                // a leading neutral run adopts the script of its first letter.
-                run.append(scalar)
-            default:
+            let value = scalar.value
+            let isASCIILetter = (0x41...0x5A).contains(value) || (0x61...0x7A).contains(value)
+            let isNonASCIILetter = scalar.properties.isAlphabetic && !isASCIILetter
+            let isIdentifierNeutral = scalar == "_" || scalar == "." || scalar == "-"
+                || isNumber(scalar)
+                || scalar.properties.generalCategory == .nonspacingMark
+                || scalar.properties.generalCategory == .spacingMark
+                || scalar.properties.generalCategory == .enclosingMark
+            if isASCIILetter {
+                if kind == .nonASCII, !previousAllowsScriptSwitch { flush() }
+                kind = .ascii
+                token.append(scalar)
+                previousAllowsScriptSwitch = false
+            } else if isNonASCIILetter {
+                if kind == .ascii, !previousAllowsScriptSwitch { flush() }
+                kind = .nonASCII
+                token.append(scalar)
+                previousAllowsScriptSwitch = false
+            } else if isIdentifierNeutral {
+                token.append(scalar)
+                // Only a connector (`_`, `.`, `-`) or a combining mark lets the
+                // identifier continue across a script change; a digit alone
+                // does not, so "QUOKKA_AHA_9D2" stays separate from CJK text.
+                previousAllowsScriptSwitch = scalar == "_" || scalar == "."
+                    || scalar == "-"
+                    || scalar.properties.generalCategory == .nonspacingMark
+                    || scalar.properties.generalCategory == .spacingMark
+                    || scalar.properties.generalCategory == .enclosingMark
+            } else {
                 flush()
             }
         }
         flush()
         return result
-    }
-
-    /// Coarse script identity for the common scripts. Unlisted letters share
-    /// one bucket, which still separates them from the listed scripts. Combining
-    /// marks and digits never call this.
-    private static func scriptIdentifier(_ scalar: Unicode.Scalar) -> UInt16 {
-        switch scalar.value {
-        case 0x0041...0x005A, 0x0061...0x007A, 0x00AA, 0x00BA,
-             0x00C0...0x02AF, 0x1D00...0x1D7F, 0x1E00...0x1EFF,
-             0x2C60...0x2C7F, 0xA720...0xA7FF, 0xAB30...0xAB6F,
-             0xFB00...0xFB06, 0xFF21...0xFF3A, 0xFF41...0xFF5A:
-            return 1 // Latin
-        case 0x0370...0x03FF, 0x1F00...0x1FFF:
-            return 2 // Greek
-        case 0x0400...0x052F, 0x2DE0...0x2DFF, 0xA640...0xA69F:
-            return 3 // Cyrillic
-        case 0x0530...0x058F:
-            return 4 // Armenian
-        case 0x0590...0x05FF, 0xFB1D...0xFB4F:
-            return 5 // Hebrew
-        case 0x0600...0x06FF, 0x0750...0x077F, 0x08A0...0x08FF,
-             0xFB50...0xFDFF, 0xFE70...0xFEFF:
-            return 6 // Arabic
-        case 0x0900...0x097F, 0xA8E0...0xA8FF:
-            return 7 // Devanagari
-        case 0x0E00...0x0E7F:
-            return 8 // Thai
-        case 0x3040...0x309F:
-            return 9 // Hiragana
-        case 0x30A0...0x30FF, 0x31F0...0x31FF:
-            return 10 // Katakana
-        case 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF,
-             0x20000...0x2FA1F, 0x30000...0x3134F:
-            return 11 // Han
-        case 0x1100...0x11FF, 0x3130...0x318F, 0xA960...0xA97F, 0xAC00...0xD7AF:
-            return 12 // Hangul
-        default:
-            return 255 // other letter scripts, one shared bucket
-        }
     }
 
     private static func payloadContains(_ value: BotJSONValue, any needles: [String]) -> Bool {
