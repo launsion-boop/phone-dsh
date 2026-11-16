@@ -117,14 +117,15 @@ public struct BotProvenanceFileRecheckAdapter: BotProvenanceRechecking {
         let identity = BotFileResourceIdentity(
             key: resource.key, owner: resource.owner, scope: resource.scope)
         let fileBaseline: BotFileBaseline?
-        if case let .known(basis, value, _, _) = baseline, basis == .contentSHA256 {
-            // Until N's import-time raw-byte digest is in the durable
-            // observation, a content-sha256 baseline may be over record text
-            // (PDF/image extraction, BOM, truncation). Comparing it as file
-            // bytes would produce false changed/same, so stay conservative:
-            // P only reports unchanged when sha256(raw bytes) == token and
-            // otherwise refresh-not-performed.
-            fileBaseline = .recordText(value)
+        if case let .known(known) = baseline, known.basis == .contentSHA256 {
+            // G-1 r13: only a baseline that says `subject: file-bytes` may be
+            // compared with raw file bytes. Everything else is conservatively
+            // record text, so a textual digest can never masquerade as a file
+            // version (P reports unchanged only when sha256(raw) == token).
+            switch known.subject {
+            case .fileBytes: fileBaseline = .fileBytes(known.value)
+            default: fileBaseline = .recordText(known.value)
+            }
         } else {
             fileBaseline = nil
         }
@@ -135,8 +136,9 @@ public struct BotProvenanceFileRecheckAdapter: BotProvenanceRechecking {
             return .same(atMS: at)
         case let .changed(_, current, at):
             return .changed(
-                version: .known(basis: .contentSHA256, value: current.value,
-                                observedAtMS: at, basisRef: nil),
+                version: .known(BotKnownProvenanceSourceVersion(
+                    basis: .contentSHA256, value: current.value,
+                    observedAtMS: at, basisRef: nil, subject: .fileBytes)),
                 atMS: at)
         case let .denied(reason):
             return .denied(detail: reason.rawValue)
