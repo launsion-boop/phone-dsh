@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # iOS real Bot activity projection
 
-Status: normative iOS-only refinement, revision `activity-evidence-v3.1` (2026-11-16).
+Status: normative iOS-only refinement, revision `activity-evidence-v3.2` (2026-11-16).
 This revision replaces the long-object policy of v2.3. It is grounded in the
 `tool/call` and `assistant/message` events the pinned DSH already writes; it adds no wire
 field, no extra model request, no second history, and no new `BotActivity` member. Android
@@ -24,6 +24,11 @@ The projection resolves one sentence for the newest unresolved *visible* call.
    - a card/document/routine `title`, and `RequestApproval.detail`, used as the short
      object of that tool's action label.
    No other `description`, `summary`, `label` or business field may become activity text.
+   A per-call intent or Task title is written in the user's language and names this task's
+   current object/progress. A tool-local command summary such as "List workspace" or
+   "Inspect directory" is not a valid activity sentence; when the model runs `ls`/`cat`, it
+   still says why this step serves the task (for example "定位 #174 的合并资料"). It never
+   invents a result.
 2. **Same-turn, same-step public progress** — the main model's latest meaningful public
    `assistant/stream` (channel `text`) or `assistant/message` text. It must be in the same
    turn and same step and must have arrived after the previous tool call/result boundary in
