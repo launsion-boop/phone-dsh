@@ -1051,6 +1051,34 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         XCTAssertTrue(remaining.isEmpty)
     }
 
+    /// Regression for the empty-body held wake: the prompt is exactly the
+    /// escaped held block plus the historical trailing blank line. The block
+    /// must not absorb the user turn separator or drop it.
+    func testWakeWithHeldMessagesKeepsTheEmptyBodyPromptSeparated() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [
+                [.turn(), .assistant("established"), .end()],
+                [.turn(2), .assistant("woken"), .end(turn: 2)],
+            ],
+        ])
+        let inbox = WakeInbox(store: SQLiteWakeInboxStore(
+            domainStore: fixture.store, botId: "main"))
+        let remote = try await BotDSHRemoteRuntime(
+            transport: transport, runtime: fixture.runtime,
+            wakeInbox: inbox, now: { 1_000 })
+        _ = try await remote.sendUserMessage("establish")
+        let item = try WakeInboxItem(
+            id: "held-empty-body", kind: "agent-held", fromAgentId: "bot-b",
+            fromAgentName: "Bee", text: "held text", createdAt: 1_000)
+        _ = try await inbox.enqueue(item)
+        try await remote.wakeWithHeldMessages()
+        let prompt = try XCTUnwrap(transport.prompts["gb-main"]?.text)
+        XCTAssertEqual(prompt, HeldMessages.block(items: [item]) + "\n\n")
+        XCTAssertTrue(prompt.hasSuffix("</held_agent_messages>\n\n"))
+    }
+
     func testWorkerRestartInterruptsTaskAndWakesParentOnce() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
