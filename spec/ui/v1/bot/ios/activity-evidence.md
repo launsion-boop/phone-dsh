@@ -1,15 +1,15 @@
 <!-- SPDX-License-Identifier: MIT -->
 # iOS real Bot activity projection
 
-Status: normative iOS-only refinement, revision `activity-evidence-v3.5` (2026-11-16).
+Status: normative iOS-only refinement, revision `activity-evidence-v3.6` (2026-11-16).
 This revision replaces the long-object policy of v2.3. It is grounded in the
 `tool/call` and `assistant/message` events the pinned DSH already writes; it adds no wire
 field, no extra model request, no second history, and no new `BotActivity` member. Android
 adaptation remains deferred by the user.
 
 The bubble shows a **short, real, task-related progress sentence** for the running turn:
-usually 10–20 Chinese characters, at most about 28 when the sentence carries an interim
-result. It is not a fixed status cycle, not a full path table, not a long public answer,
+targeting about 10 characters, with a hard generation maximum of 19 characters
+including spaces, digits and punctuation, even when carrying an interim result. It is not a fixed status cycle, not a full path table, not a long public answer,
 and not a transcript. The main model writes the sentence in the same turn; no summary
 model, dedicated activity tool, history, expansion surface or tap target is added.
 
@@ -36,8 +36,8 @@ The five host-native work tools `read`, `glob`, `grep`, `web_search` and `web_fe
 declare one model-facing required string parameter, `activity`, in the **real Bot-scope
 tool schema**. It is not a prompt-only field and it is not a new wire/event/state field.
 The value is a short, user-language, task-level progress sentence for this call, following
-the same short-display bound as the public sentence (10–20 Chinese characters preferred,
-at most 28 with an interim result). It names this task's object/goal and the current step,
+the same generation bound as the public sentence (about 10 characters, at most 19
+including any interim result). It names this task's object/goal and the current step,
 not a command or a directory operation: `核对 #174 的合并资料` or `在给李光浩拟回复草稿`
 are valid; `List workspace`, `列出目录`, `定位 notes 资料目录` are not. It never
 fabricates a result.
@@ -105,9 +105,13 @@ earlier one; the model's next sentence is what carries the previous real result 
 ## Display shortening
 
 - One line: first line, collapse whitespace, trim, strip sentence-final `。！？!?；;，,、.…`.
-- Bound: 28 characters when the text contains CJK, otherwise 56 characters. Preferred
-  action length is 10–20 Chinese characters; a sentence with an interim result may use up
-  to about 28.
+- Generation: about 10 characters, at most 19 including result, spaces, digits and
+  punctuation. The five-tool model-facing activity schema uses maxLength 19; bash
+  description, Task task_title and public progress follow the same prompt guidance.
+- Legacy/rejected-model-output defense remains 28 CJK / 56 non-CJK in the projection
+  and 19 characters plus an ellipsis in the existing UI cleaner. These are compatibility
+  safeguards, never an allowance to generate a 28-character activity. The main model
+  must shorten the complete thought before emitting it, not rely on UI truncation.
 - If the text is longer than the bound, shorten at the last sentence/clause punctuation
   within the bound, else take `bound - 1` characters plus `…`. Never show the full long
   public answer.
