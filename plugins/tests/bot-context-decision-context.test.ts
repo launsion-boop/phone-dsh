@@ -420,6 +420,66 @@ test('the consumer drops malformed, cross-session, canceled or oversized blocks'
     decisionResponse('gb-main', 3, 'abc12345', { limits: { max_materials: 7 } }), expected), undefined)
 })
 
+test('workspace refs use canonical percent-encoded paths and keep raw path', () => {
+  const expected = { sessionId: 'gb-main', turn: 3 }
+  const digest = 'a'.repeat(64)
+  const workspace = (path: string, encoded: string, overrides: Record<string, unknown> = {}) =>
+    material({
+      material_id: 'mat:abc12345:w1',
+      ref: `workspace:${encoded}@sha256:${digest}`,
+      path,
+      scope: 'agent',
+      evidence: [],
+      selection_reason: 'match',
+      state: 'current',
+      reason: undefined,
+      ...overrides,
+    })
+  const valid = [
+    ['docs/Meeting Notes.md', 'docs/Meeting%20Notes.md'],
+    ['docs/照片 1.txt', 'docs/%E7%85%A7%E7%89%87%201.txt'],
+    ['docs/a@b.md', 'docs/a%40b.md'],
+    ['docs/100% done.md', 'docs/100%25%20done.md'],
+    ['docs/a#b.md', 'docs/a%23b.md'],
+    ['docs/%2E%2E.md', 'docs/%252E%252E.md'],
+    ['docs/a!b.md', 'docs/a%21b.md'],
+    ['docs/a(b).md', 'docs/a%28b%29.md'],
+    ["docs/a'b.md", 'docs/a%27b.md'],
+    ['docs/a*b.md', 'docs/a%2Ab.md'],
+    ['docs/' + '长'.repeat(100) + '.md', 'docs/' + '%E9%95%BF'.repeat(100) + '.md'],
+  ]
+  for (const [path, encoded] of valid) {
+    assert.ok(validateDecisionContextResponse(
+      decisionResponse('gb-main', 3, 'abc12345', { materials: [workspace(path, encoded)] }),
+      expected), `valid workspace ref must pass: ${path}`)
+  }
+
+  const invalid: Array<[string, string]> = [
+    ['..', '..'],
+    ['../secret.md', '..%2Fsecret.md'],
+    ['/etc/passwd', '%2Fetc%2Fpasswd'],
+    ['docs/\u0000.md', 'docs/%00.md'],
+    ['docs/a.md', 'docs/%ZZ.md'],
+    ['docs/a.md', 'docs/a%2f.md'],
+    ['docs/a.md', 'docs/%61.md'], // over-encoded, not canonical
+    ['docs/a.md', 'docs/b.md'],
+  ]
+  for (const [path, encoded] of invalid) {
+    assert.equal(validateDecisionContextResponse(
+      decisionResponse('gb-main', 3, 'abc12345', { materials: [workspace(path, encoded)] }),
+      expected), undefined, `invalid workspace ref must be dropped: ${path} / ${encoded}`)
+  }
+
+  assert.equal(validateDecisionContextResponse(
+    decisionResponse('gb-main', 3, 'abc12345', {
+      materials: [workspace('docs/a.md', 'docs/a.md', { evidence: ['record://session/x#1'] })],
+    }), expected), undefined)
+  assert.equal(validateDecisionContextResponse(
+    decisionResponse('gb-main', 3, 'abc12345', {
+      materials: [workspace('docs/a.md', 'docs/a.md', { state: 'unknown', reason: 'source-version-unknown' })],
+    }), expected), undefined)
+})
+
 test('rendering is bounded, escaped, state-labelled and non-instructional', () => {
   const block: DecisionMaterialBlock = {
     block_id: 'dm:abc12345',

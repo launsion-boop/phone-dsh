@@ -114,8 +114,8 @@ public struct BotWebRecheckHTTPRequest: Sendable, Equatable {
     public var url: URL
     /// Only conditional/identity-safe headers. Never credentials or cookies.
     public var headers: [String: String]
-    var timeoutMilliseconds: Int
-    var maximumBodyBytes: Int
+    public var timeoutMilliseconds: Int
+    public var maximumBodyBytes: Int
     public var followsRedirects: Bool
 
     public init(method: String, url: URL, headers: [String: String],
@@ -244,7 +244,7 @@ struct BotWebSourceRechecker: Sendable {
         }
         let headers = Dictionary(response.headers.map { ($0.key.lowercased(), $0.value) },
                                  uniquingKeysWith: { first, _ in first })
-        let observedAtMS = now()
+        let observedAtMS = observedAt(headers: headers, now: now)
         switch response.status {
         case 304:
             guard let baseline = request.baseline else {
@@ -269,7 +269,7 @@ struct BotWebSourceRechecker: Sendable {
             }
             let current = BotWebRevision(
                 basis: .contentSHA256,
-                value: "sha256:" + sha256(response.body),
+                value: "sha256:" + sha256(normalizedContent(response.body)),
                 observedAtMS: observedAtMS)
             return comparison(current, baseline: request.baseline,
                               httpStatus: response.status)
@@ -349,6 +349,32 @@ struct BotWebSourceRechecker: Sendable {
 
     static func sha256(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Stable web content digest: line endings normalized and outer whitespace
+    /// removed. This is the R/P-frozen normalization used for `sha256:` source
+    /// versions; it never changes internal characters.
+    static func normalizedContent(_ data: Data) -> Data {
+        guard let text = String(data: data, encoding: .utf8) else { return data }
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return Data(normalized.utf8)
+    }
+
+    /// Cloud responses carry a standard HTTP `Date` (second precision). Use it
+    /// as the observation time when present; the local clock is only a
+    /// fallback for a stub without Date.
+    static func observedAt(headers: [String: String],
+                           now: @Sendable () -> Int64) -> Int64 {
+        guard let raw = headers["date"] else { return now() }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        guard let date = formatter.date(from: raw) else { return now() }
+        return Int64((date.timeIntervalSince1970 * 1_000).rounded())
     }
 
     private static func withDeadline<T: Sendable>(

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+import CryptoKit
 import Foundation
 import Network
 import XCTest
@@ -7,13 +8,13 @@ import XCTest
 
 // MARK: - Test-only HTTP/1.1 server
 
-private struct RecheckServerRequest: Sendable {
+struct RecheckServerRequest: Sendable {
     var method: String
     var path: String
     var headers: [String: String]
 }
 
-private struct RecheckServerResponse: Sendable {
+struct RecheckServerResponse: Sendable {
     var status: Int
     var headers: [String: String]
     var body: Data
@@ -60,7 +61,7 @@ private final class RecheckOnceFlag: @unchecked Sendable {
     }
 }
 
-private final class LocalRecheckServer: @unchecked Sendable {
+final class LocalRecheckServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "pdsh.recheck.test-server")
     private let listener: NWListener
     private let state: RecheckServerState
@@ -187,7 +188,7 @@ private final class LocalRecheckServer: @unchecked Sendable {
 
 // MARK: - Test transport over URLSession
 
-private struct URLSessionRecheckTransport: BotWebRecheckTransport {
+struct URLSessionRecheckTransport: BotWebRecheckTransport {
     let session: URLSession
 
     init() {
@@ -410,6 +411,42 @@ final class BotWebSourceRecheckTests: XCTestCase {
         }
         XCTAssertEqual(previous.basis, .etag)
         XCTAssertEqual(current.basis, .contentSHA256)
+    }
+
+    func testWebDigestNormalizesLineEndingsAndUsesCloudDate() async throws {
+        var body = " \n alpha\r\nbeta \n"
+        let server = try LocalRecheckServer { _ in
+            RecheckServerResponse(
+                status: 200,
+                headers: ["Date": "Wed, 12 Nov 2025 08:00:00 GMT"],
+                body: Data(body.utf8))
+        }
+        let base = try await server.start()
+        defer { server.stop() }
+        let url = base.appendingPathComponent("/normalized")
+        let first = await rechecker().recheck(BotWebRecheckRequest(resource: identity(url)))
+        guard case let .observed(current, _, _) = first else {
+            return XCTFail("expected observed, got \(first)")
+        }
+        XCTAssertEqual(current.basis, .contentSHA256)
+        let expected = "alpha\nbeta"
+        let digest = SHA256.hash(data: Data(expected.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(current.value, "sha256:\(digest)")
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        let date = try XCTUnwrap(formatter.date(from: "Wed, 12 Nov 2025 08:00:00 GMT"))
+        XCTAssertEqual(current.observedAtMS,
+                       Int64((date.timeIntervalSince1970 * 1_000).rounded()))
+
+        body = "alpha\nbeta"
+        let second = await rechecker().recheck(
+            BotWebRecheckRequest(resource: identity(url), baseline: current))
+        guard case .unchanged = second else {
+            return XCTFail("normalized equal content must be unchanged, got \(second)")
+        }
     }
 
     func testDeniedAndUnavailableStatuses() async throws {

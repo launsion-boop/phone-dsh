@@ -1094,6 +1094,8 @@
       name: '@phone-dsh/dsh-bot-runtime/decision-context'
       config:
         enabled: true
+        # Same Worker image A/B switch for R2's workspace candidates (G-2 r6).
+        workspaceMaterials: true
         limits:
           maxMaterials: 4
           maxCharacters: 1600

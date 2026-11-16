@@ -125,6 +125,8 @@ export type DecisionContextObserver = (event: DecisionContextObservation) => voi
 export interface DecisionContextConfig {
   /** Internal A/B switch (E's same-image comparison), not a user setting. */
   readonly enabled?: boolean
+  /// G-2 r6 A/B switch: false removes workspace candidates from the block.
+  readonly workspaceMaterials?: boolean
   readonly source?: DecisionContextSource
   readonly observer?: DecisionContextObserver
   readonly lang?: () => 'en' | 'zh'
@@ -152,6 +154,7 @@ const REASONS = new Set<DecisionMaterialReason>([
 const SELECTION_REASONS = new Set<DecisionSelectionReason>(['match', 'recipient', 'goal', 'recency'])
 const RECORD_REF = /^record:\/\/(session\/[A-Za-z0-9._-]{1,64}#(?:0|[1-9][0-9]*)|event\/[1-9][0-9]*)$/u
 const MEMORY_REF = /^memory:(?:user|agent)\/[^\s]{1,190}@v[1-9][0-9]*$/u
+const WORKSPACE_REF = /^workspace:((?:[A-Za-z0-9\-._~!$&'()*+,;=:]|%[0-9A-Fa-f]{2}|\/)+)@sha256:[0-9a-f]{64}$/u
 const SHA256 = /^sha256:[0-9a-f]{64}$/u
 
 function scalarLength(value: string): number {
@@ -179,6 +182,55 @@ function validMemoryPath(path: string): boolean {
   if (segments[0] !== 'user' && segments[0] !== 'agent') return false
   return segments.every(segment => segment !== '' && segment !== '.' && segment !== '..'
     && !segment.includes('\\'))
+}
+
+/** G-2 r6 workspace path: bot-root-relative, no leading slash, no escape. */
+/**
+ * Raw workspace path (G-2 r6): UTF-8, relative, no NUL/control, no escape.
+ * Spaces, Chinese, `@` and `%` are legitimate file names; the ref carries the
+ * canonical percent-encoded form while `path` stays raw.
+ */
+function validWorkspacePath(path: string): boolean {
+  if (path === '' || scalarLength(path) > 200) return false
+  if (path.startsWith('/') || path.endsWith('/') || path.includes('\\')) return false
+  if (/[\u0000-\u001f\u007f]/u.test(path)) return false
+  const segments = path.split('/')
+  return segments.length > 0 && segments.every(segment => segment !== ''
+    && segment !== '.' && segment !== '..')
+}
+
+/** RFC 3986 canonical workspace path: only unreserved + `/` stay literal. */
+function encodeWorkspacePath(path: string): string {
+  const encoder = new TextEncoder()
+  const bytes = encoder.encode(path)
+  const unreserved = /[A-Za-z0-9._~-]/
+  let output = ''
+  for (const byte of bytes) {
+    const character = String.fromCharCode(byte)
+    if (character === '/') {
+      output += '/'
+    } else if (unreserved.test(character)) {
+      output += character
+    } else {
+      output += '%' + byte.toString(16).toUpperCase().padStart(2, '0')
+    }
+  }
+  return output
+}
+
+/** Decode exactly one canonical workspace-ref path. */
+function decodeWorkspaceRefPath(encoded: string): string | undefined {
+  if (encoded === '') return undefined
+  if (!/^(?:[A-Za-z0-9\-._~!$&'()*+,;=:]|%[0-9A-Fa-f]{2}|\/)+$/u.test(encoded)) return undefined
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(encoded)
+  } catch {
+    return undefined
+  }
+  if (!validWorkspacePath(decoded)) return undefined
+  // Canonical form: reject lowercase/over-encoded `%xx` and `%2F` for `/`.
+  return encodeWorkspacePath(decoded) === encoded ? decoded : undefined
 }
 
 function messageText(message: { content?: readonly { type?: string; text?: string }[] }): string {
@@ -288,9 +340,21 @@ function validMaterial(value: unknown): DecisionMaterial | undefined {
   const ref = material.ref
   const path = material.path
   if (typeof materialID !== 'string' || !/^mat:[A-Za-z0-9._:-]{1,128}$/u.test(materialID)) return undefined
-  if (typeof ref !== 'string' || scalarLength(ref) > 256) return undefined
-  if (!MEMORY_REF.test(ref) && !RECORD_REF.test(ref)) return undefined
-  if (typeof path !== 'string' || !validMemoryPath(path)) return undefined
+  if (typeof ref !== 'string' || scalarLength(ref) > 2048) return undefined
+  const workspaceRef = WORKSPACE_REF.test(ref)
+  if (!MEMORY_REF.test(ref) && !RECORD_REF.test(ref) && !workspaceRef) return undefined
+  if (typeof path !== 'string') return undefined
+  if (workspaceRef ? !validWorkspacePath(path) : !validMemoryPath(path)) return undefined
+  if (workspaceRef) {
+    const marker = ref.lastIndexOf('@sha256:')
+    if (marker <= 0) return undefined
+    const encodedPath = ref.slice('workspace:'.length, marker)
+    if (decodeWorkspaceRefPath(encodedPath) !== path) return undefined
+    if (!Array.isArray(material.evidence) || material.evidence.length !== 0) return undefined
+    if (material.scope !== 'agent') return undefined
+    if (material.state !== 'current') return undefined
+    if (material.reason !== undefined) return undefined
+  }
   if (material.scope !== 'user' && material.scope !== 'agent') return undefined
   if (!Number.isInteger(material.version) || (material.version as number) < 1) return undefined
   if (!Number.isFinite(material.updated_at_ms) || (material.updated_at_ms as number) < 0) return undefined
@@ -495,6 +559,7 @@ export default function dshbotDecisionContext(
   config: DecisionContextConfig = {},
 ): void {
   const enabled = config.enabled !== false
+  const workspaceMaterials = config.workspaceMaterials !== false
   const limits = limitsOf(config)
   const source = config.source ?? createPhoneDecisionContextSource(ctx, limits)
   const lang = config.lang ?? (() => 'zh' as const)
@@ -547,10 +612,14 @@ export default function dshbotDecisionContext(
         signal: combined,
       })
       if (block === undefined || block.materials.length === 0 || payload.signal.aborted) return next()
+      const visible = workspaceMaterials
+        ? block
+        : { ...block, materials: block.materials.filter(material => !material.ref.startsWith('workspace:')) }
+      if (visible.materials.length === 0) return next()
       const state: TurnState = {
         turn: payload.turn,
         step: payload.step,
-        block,
+        block: visible,
         injectedNoted: false,
         adoptedNoted: false,
       }

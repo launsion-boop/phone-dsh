@@ -418,6 +418,7 @@ public actor BotDecisionContextService {
     private let memoryForBot: MemoryResolver
     private let permissionRevision: PermissionRevisionProvider
     private let materialState: MaterialStateProvider
+    private let workspaceMaterials: WorkspaceDecisionContextService?
     private let now: @Sendable () -> Int64
     private var revisionsByTurn: [String: Int] = [:]
 
@@ -425,11 +426,13 @@ public actor BotDecisionContextService {
         memoryForBot: @escaping MemoryResolver,
         permissionRevision: @escaping PermissionRevisionProvider,
         materialState: @escaping MaterialStateProvider,
+        workspaceMaterials: WorkspaceDecisionContextService? = nil,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }
     ) {
         self.memoryForBot = memoryForBot
         self.permissionRevision = permissionRevision
         self.materialState = materialState
+        self.workspaceMaterials = workspaceMaterials
         self.now = now
     }
 
@@ -478,6 +481,24 @@ public actor BotDecisionContextService {
 
         var materials: [BotDecisionMaterial] = []
         var usedCharacters = 0
+        var workspaceTruncated = false
+        if let workspaceMaterials, !search.isEmpty {
+            let selection = await workspaceMaterials.selection(
+                query: query,
+                goal: goal.isEmpty ? nil : goal,
+                botID: request.botID,
+                materialPrefix: requestID,
+                limits: BotDecisionLimits(
+                    maxMaterials: min(WorkspaceDecisionContextService.maximumMaterials,
+                                      limits.maxMaterials),
+                    maxCharacters: min(limits.maxCharacters, 960),
+                    maxSnippetCharacters: limits.maxSnippetCharacters,
+                    deadlineMilliseconds: limits.deadlineMilliseconds))
+            materials.append(contentsOf: selection.materials)
+            usedCharacters += selection.consumedCharacters
+            workspaceTruncated = selection.truncated
+        }
+        let workspaceCount = materials.count
         for hit in candidates where materials.count < limits.maxMaterials {
             guard Task.isCancelled == false else { throw BotDecisionContextError.cancelled }
             let snippet = Self.sanitizedSnippet(hit.snippet,
@@ -508,12 +529,15 @@ public actor BotDecisionContextService {
                 state: state.0,
                 reason: state.1))
         }
+        var omitted = max(0, candidates.count - (materials.count - workspaceCount))
+        if workspaceTruncated { omitted += 1 }
+        let truncated = omitted > 0 || workspaceTruncated
         let authorization = await permissionRevision(
             request.botID, request.sessionID, request.recipient)
         guard Task.isCancelled == false else { throw BotDecisionContextError.cancelled }
         return block(request: request, requestID: requestID,
                      authorizationRevision: authorization, limits: limits,
-                     materials: materials, omitted: max(0, candidates.count - materials.count))
+                     materials: materials, omitted: omitted, truncated: truncated)
     }
 
     // MARK: pre-delivery review
@@ -573,6 +597,14 @@ public actor BotDecisionContextService {
         }
 
         for ref in proposal.request.activeMaterialRefs {
+            if Self.isWorkspaceRef(ref) {
+                guard await workspaceRefIsCurrent(ref, botID: proposal.request.botID) else {
+                    return .regenerate(
+                        block: try await materials(for: deliveryRequest(proposal.request)),
+                        reason: .materialChanged)
+                }
+                continue
+            }
             guard let parsed = Self.parseRef(ref),
                   let document = byPath[parsed.path],
                   document.version == parsed.version else {
@@ -583,6 +615,14 @@ public actor BotDecisionContextService {
         }
 
         for ref in proposal.materialRefs {
+            if Self.isWorkspaceRef(ref) {
+                guard await workspaceRefIsCurrent(ref, botID: proposal.request.botID) else {
+                    return .regenerate(
+                        block: try await materials(for: deliveryRequest(proposal.request)),
+                        reason: .materialChanged)
+                }
+                continue
+            }
             guard let parsed = Self.parseRef(ref),
                   let document = byPath[parsed.path],
                   document.version == parsed.version else {
@@ -606,7 +646,8 @@ public actor BotDecisionContextService {
                        authorizationRevision: String,
                        limits: BotDecisionLimits,
                        materials: [BotDecisionMaterial],
-                       omitted: Int) -> BotDecisionMaterialBlock {
+                       omitted: Int,
+                       truncated: Bool? = nil) -> BotDecisionMaterialBlock {
         let queryDigest = Self.digest(request.query)
         let goalDigest = request.goal.flatMap { goal in
             goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : Self.digest(goal)
@@ -624,7 +665,7 @@ public actor BotDecisionContextService {
             retrievedAtMS: now(),
             materials: materials,
             limits: limits,
-            truncated: omitted > 0,
+            truncated: truncated ?? (omitted > 0),
             canceled: false)
     }
 
@@ -655,9 +696,25 @@ public actor BotDecisionContextService {
             throw BotDecisionContextError.invalidRequest("scopes")
         }
         guard request.activeMaterialRefs.count <= BotDecisionLimits.maximumMaterials,
-              request.activeMaterialRefs.allSatisfy({ Self.parseRef($0) != nil }) else {
+              request.activeMaterialRefs.allSatisfy({
+                  Self.parseRef($0) != nil
+                      || (Self.isWorkspaceRef($0)
+                          && WorkspaceDecisionContextService.workspaceDigest(fromRef: $0) != nil)
+              }) else {
             throw BotDecisionContextError.invalidRequest("activeMaterialRefs")
         }
+    }
+
+    static func isWorkspaceRef(_ ref: String) -> Bool {
+        ref.hasPrefix("workspace:")
+    }
+
+    private func workspaceRefIsCurrent(_ ref: String, botID: String) async -> Bool {
+        guard let workspaceMaterials,
+              let expected = WorkspaceDecisionContextService.workspaceDigest(fromRef: ref),
+              let current = await workspaceMaterials.currentContentSHA256(
+                forWorkspaceRef: ref, botID: botID) else { return false }
+        return current == expected
     }
 
     static func ref(path: String, version: Int) -> String {

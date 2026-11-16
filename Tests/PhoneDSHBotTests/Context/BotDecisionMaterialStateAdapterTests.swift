@@ -6,9 +6,10 @@ import XCTest
 
 final class BotDecisionMaterialStateAdapterTests: XCTestCase {
     private func status(_ state: BotProvenanceStatus,
-                        reason: BotProvenanceReason? = nil) -> BotSourceStatus {
+                        reason: BotProvenanceReason? = nil,
+                        ref: String? = nil) -> BotSourceStatus {
         BotSourceStatus(
-            ref: "record://event/\(state.rawValue)",
+            ref: ref ?? "record://event/\(state.rawValue)",
             roles: ["evidence"],
             resolved: state != .unavailable,
             erased: state == .erased,
@@ -25,10 +26,12 @@ final class BotDecisionMaterialStateAdapterTests: XCTestCase {
     private func adapter(
         _ statuses: [String: BotSourceStatus]
     ) -> BotDecisionMaterialStateAdapter {
-        BotDecisionMaterialStateAdapter { refs in
-            Dictionary(uniqueKeysWithValues: refs.compactMap { ref in
-                statuses[ref].map { (ref, $0) }
-            })
+        BotDecisionMaterialStateAdapter { _, _ in
+            statuses.map { ref, status in
+                var copy = status
+                copy.ref = ref
+                return copy
+            }
         }
     }
 
@@ -99,7 +102,7 @@ final class BotDecisionMaterialStateAdapterTests: XCTestCase {
     }
 
     func testResolverFailureAndMissingReferenceAreNotCurrent() async {
-        let failed = BotDecisionMaterialStateAdapter { _ in
+        let failed = BotDecisionMaterialStateAdapter { _, _ in
             throw BotRecordServiceError.unavailable("probe")
         }
         let failedState = await failed.state(for: request(["record://event/1"]))
@@ -113,14 +116,15 @@ final class BotDecisionMaterialStateAdapterTests: XCTestCase {
 
     func testDuplicateEvidenceIsResolvedOnce() async {
         let e1 = "record://event/1"
-        var calls: [[String]] = []
-        let adapter = BotDecisionMaterialStateAdapter { refs in
-            calls.append(refs)
-            return [e1: self.status(.current)]
+        var artifacts: [BotDerivedRef] = []
+        let adapter = BotDecisionMaterialStateAdapter { artifact, _ in
+            artifacts.append(artifact)
+            return [self.status(.current, ref: e1)]
         }
         let state = await adapter.state(for: request([e1, e1]))
         XCTAssertEqual(state.0, .current)
-        XCTAssertEqual(calls.count, 1)
-        XCTAssertEqual(calls.first, [e1])
+        XCTAssertEqual(artifacts.count, 1)
+        XCTAssertEqual(artifacts.first?.id, "user/profile.md")
+        XCTAssertEqual(artifacts.first?.version, 2)
     }
 }

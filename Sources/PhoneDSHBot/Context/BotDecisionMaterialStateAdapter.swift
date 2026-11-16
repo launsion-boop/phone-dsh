@@ -4,12 +4,12 @@ import Foundation
 
 /// Aggregates L's G-1 `sourceStatuses` for one decision-material lookup into
 /// the G-2 material `state`/`reason` pair. The caller supplies the resolver
-/// (normally `BotProvenanceService.sourceStatuses(for:)`), so this adapter
+/// (normally `BotProvenanceService.sourceStatuses(for:botID:)`), so this adapter
 /// never invents a state and never owns resource identity or the status
 /// vocabulary: L remains the single authority.
 public struct BotDecisionMaterialStateAdapter: Sendable {
     public typealias StatusResolver =
-        @Sendable ([String]) async throws -> [String: BotSourceStatus]
+        @Sendable (BotDerivedRef, String?) async throws -> [BotSourceStatus]
 
     private let resolve: StatusResolver
 
@@ -17,8 +17,13 @@ public struct BotDecisionMaterialStateAdapter: Sendable {
         self.resolve = resolve
     }
 
+    /// L's artifact-scoped query carries the Bot owner so `agent/` artifacts
+    /// cannot collide across Bots; `user/` stays shared inside L's key. The
+    /// refs overload has no artifact baseline and must not be used here.
     public init(provenance: any BotProvenanceQuerying) {
-        resolve = { refs in try await provenance.sourceStatuses(for: refs) }
+        resolve = { artifact, botID in
+            try await provenance.sourceStatuses(for: artifact, botID: botID)
+        }
     }
 
     public func state(
@@ -28,23 +33,33 @@ public struct BotDecisionMaterialStateAdapter: Sendable {
         guard !request.evidence.isEmpty else {
             return (.unknown, .noBaseline)
         }
-        var seen = Set<String>()
-        let refs = request.evidence.filter { seen.insert($0).inserted }
-        let statuses: [String: BotSourceStatus]
+        let artifact = BotDerivedRef(
+            kind: .memory, id: request.path, version: request.version)
+        let statuses: [BotSourceStatus]
         do {
-            statuses = try await resolve(refs)
+            statuses = try await resolve(artifact, request.botID)
         } catch {
             // The resolver itself is unavailable; do not turn this into
             // current. The material can still be shown as unknown.
             return (.unknown, .sourceVersionUnknown)
         }
+        guard !statuses.isEmpty else {
+            return (.unknown, request.evidence.isEmpty ? .noBaseline : .recordUnresolved)
+        }
+        let byRef = Dictionary(statuses.map { ($0.ref, $0) },
+                               uniquingKeysWith: { first, _ in first })
+        var seen = Set<String>()
+        let refs = request.evidence.filter { seen.insert($0).inserted }
         var resolved: [BotSourceStatus] = []
-        resolved.reserveCapacity(refs.count)
-        for ref in refs {
-            guard let status = statuses[ref] else {
-                return (.unknown, .recordUnresolved)
+        if refs.isEmpty {
+            resolved = statuses
+        } else {
+            for ref in refs {
+                guard let status = byRef[ref] else {
+                    return (.unknown, .recordUnresolved)
+                }
+                resolved.append(status)
             }
-            resolved.append(status)
         }
         guard let worst = resolved.max(by: { $0.state.severity < $1.state.severity }) else {
             return (.unknown, .noBaseline)
