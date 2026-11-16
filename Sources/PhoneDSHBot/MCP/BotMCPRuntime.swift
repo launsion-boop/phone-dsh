@@ -2730,8 +2730,11 @@ public actor BotMCPRuntime {
             }
             authority.approvalID = outcome.approvalId
         }
-        let userRecord = await userContentRecordProvider?(call.sessionId)
-        let derivation = userRecord.map { RoutineDerivationBuilder.fromUserTurn($0) }
+        var derivation: RoutineDerivation?
+        if let provider = userContentRecordProvider,
+           let userRecord = await provider(call.sessionId) {
+            derivation = RoutineDerivationBuilder.fromUserTurn(userRecord)
+        }
         let result = try await BotRoutineTool.handle(
             machine: routineMachine, principal: call.principal, arguments: arguments,
             now: now(), authority: authority, derivation: derivation)
