@@ -504,4 +504,5 @@ private extension BotProductionRowService {
         case .noSkillWriteEvent: return "该对象没有写入事件"
         case .reviewModelBasis: return "核对依据来自模型判断"
         }
+    }
 }
