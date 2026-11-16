@@ -26,6 +26,7 @@ final class BotSkillUseStatusHandlerTests: XCTestCase {
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSession(
             botId: "bot-a", sessionId: "gb-bot-a", kind: .chat)
+        await beginUserTurn(fixture.runtime)
         let token = try await fixture.runtime.issueSessionToken(
             botId: "bot-a", sessionId: "gb-bot-a", kind: .chat)
         let service = BotProvenanceService(eventLog: fixture.store)
@@ -68,6 +69,7 @@ final class BotSkillUseStatusHandlerTests: XCTestCase {
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSession(
             botId: "bot-a", sessionId: "gb-bot-a", kind: .chat)
+        await beginUserTurn(fixture.runtime)
         let handler = BotMCPHandler(runtime: fixture.runtime)
         let result = await call(handler, session: "gb-bot-a",
                                 callID: "skill-no-service", name: "weekly-report")
