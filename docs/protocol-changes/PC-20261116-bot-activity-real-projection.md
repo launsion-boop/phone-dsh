@@ -9,7 +9,7 @@ status: frozen
 breaking: false
 version_decision: No wire, event, durable-value or schema change. Existing BotActivity fields and existing DSH tool arguments only. Prompt text is packaged into the Worker image, so a prompt change still requires the supported packer and real-runtime evidence for that image.
 base: 908d582b9ee91886ba197bebd54b863c8093cced
-contract_revision: activity-evidence-v2.1
+contract_revision: activity-evidence-v2.2
 ```
 
 ## 1. Roles and trigger
@@ -30,7 +30,7 @@ contract_revision: activity-evidence-v2.1
 - Expected: the existing event stream and existing arguments produce a real sentence for
   the current visible call; model intent only fills `detail`; lifecycle stays event-driven;
   a result keeps the call's own sentence instead of a receipt; paths, URLs, PR numbers and
-  names remain recognisable; long text is truncated visually with a full view, not erased.
+  names remain recognisable; long text is truncated visually, not erased, and the bubble stays non-interactive.
 - Contract owner / coordinator: lead (`session-02a9d7bf-ed67-4db8-b773-33efb3733f24`).
 - Implementers: runtime lane (`plugins/bot-runtime/**` prompts + source-coverage doc),
   projection lane (`BotRuntimePresentation.swift`, shared vectors consumer tests), UI lane
@@ -119,10 +119,13 @@ contract commit before implementing.
   BotActivityEvidenceTests -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test`.
 - ui: `examples/probe-app/PhoneDSHProbe/Bot/BotActivityBubble.swift`,
   `examples/probe-app/PhoneDSHProbe/Bot/BotChatPage.swift`, and the capture/UI tests that
-  own the bubble. Scope: keep one 32pt band, one-line tail truncation, tap-to-read full
-  sentence, accessibility label keeps the full text, tap does not break scroll/composer.
+  own the bubble. Scope: keep one 32pt band, one-line tail truncation, the band hit-transparent and the
+  bubble non-interactive; accessibility label keeps the full sentence. No tap target,
+  sheet or extra control.
   Commands: the evidence target above plus `bash scripts/ci/bot-ui/capture.sh
   --appearance light` (XCUITest runner may be NOT_RUN in the sandbox; do not report PASS).
+  The only UI acceptance is a non-interactive one-line bubble with the real object in
+  its text/accessibility label; no expansion surface is exercised.
 - review: own evidence/reproducers only; no source edits. Validates the combined head:
   a real model task's session log (`request/header` provider/model/reasoningEffort,
   `tool/call` arguments with real objects, matched `tool/result`) is replayed through the
@@ -146,6 +149,7 @@ will be refreshed by the lead at integration if UI edits shift them; values do n
 | --- | --- | --- | --- |
 | activity-evidence-v2 (this commit) | lead | Initial freeze after four lane audits; real-object projection with no new metadata field | runtime / projection / ui / review sessions |
 | activity-evidence-v2.1 | lead | Clarify that public text is accumulated from text-channel deltas and replaced by the step assistant/message; no interface or vector-shape change | runtime / projection / ui sessions |
+| activity-evidence-v2.2 | lead | User ruling: the bubble stays non-interactive; remove the tap/full-view requirement. No reducer, vector or transport change | runtime / projection / ui / review sessions |
 
 ## 6. Protocol impact
 

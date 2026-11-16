@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # iOS real Bot activity projection
 
-Status: normative iOS-only refinement, revision `activity-evidence-v2.1` (2026-11-16).
+Status: normative iOS-only refinement, revision `activity-evidence-v2.2` (2026-11-16).
 This revision replaces the 2026-11-14 label policy in this file. It is grounded in the
 `tool/call` and `assistant/message` events the pinned DSH already writes; it adds no wire
 field, no extra model request, no second history, and no new `BotActivity` member. Android
@@ -47,7 +47,7 @@ in order:
    `sendtoagent`: `bot_name`; `createteammate`: `name`.
    Paths and URLs stay recognisable: no basename-only or host-only rewrite.
 4. **Concrete fallback** — the tool's short action label (see the table in
-   `activity-evidence-v2.1` below); unknown visible tools use "等待操作结果".
+   `activity-evidence-v2.2` below); unknown visible tools use "等待操作结果".
 
 When a meaningful public sentence is chosen and the call also has a real primary object
 that the sentence does not already mention, the object is appended after ` · ` so the
@@ -146,10 +146,11 @@ count as public reply text.
 
 `BotActivity` keeps exactly `{status, detail, category, startedAt}`. The existing timing
 machine keeps the 800 ms latest-wins window, the `· N 分钟` suffix and the approval
-precedence. The bubble renders one line with tail truncation at the existing 86% width
-cap; tapping the bubble opens a readable full-sentence view. Truncation is visual only:
-the `detail` value and the accessibility label keep the real object. The UI does not
-re-sanitise, shorten or replace `detail`.
+precedence. The bubble stays non-interactive: the reserved band remains hit-transparent
+and no tap target, sheet, expanded view, button or extra control is added. It renders one
+line with tail truncation at the existing 86% width cap. Truncation is visual only: the
+`detail` value and the accessibility label keep the real object and the full sentence.
+The UI does not re-sanitise, shorten or replace `detail`.
 
 No transport, persistence, schema or Android change is required. Old persisted rows and
 old clients keep the existing value shape. The shared `activity.schema.json`,
