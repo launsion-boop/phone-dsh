@@ -540,6 +540,11 @@ def check_revision(revision: dict, where: str) -> None:
         return
     basis = revision.get("basis")
     value = revision.get("value", "")
+    if "subject" in revision:
+        if basis != "content-sha256":
+            raise AssertionError(f"{where}: subject is only valid with content-sha256")
+        if revision["subject"] not in ("file-bytes", "record-text"):
+            raise AssertionError(f"{where}: invalid subject")
     if basis == "content-sha256":
         if not (value.startswith("sha256:") and len(value) == 71
                 and all(char in "0123456789abcdef" for char in value[7:])):

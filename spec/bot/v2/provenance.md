@@ -40,7 +40,12 @@
   不出现都是非法。
 - `basis` 封闭：`content-sha256`、`etag`、`last-modified`、`provider-version`（**P/L/N 的实现必须
   改用这四个值**；`content-digest`/`native-revision`/`state:known` 是 freeze 前的草案名，不得再
-  出现）；`value` 必须带与 basis 对应的前缀：`sha256:`（64 位小写十六进制）、`etag:`、`last-modified:`、`rev:`。
+  出现）；`value` 必须带与 basis 对应的前缀
+- `content-sha256` 可选 `subject`，二选一：`file-bytes`（对原始文件/附件字节计算）或
+  `record-text`（对记录可读文本/抽取文本计算）；缺省按 `record-text` 处理（旧数据保守语义）。
+  **主体不可混用**：文件 recheck 只有 `subject=file-bytes` 才能与 re-stat 的字节摘要比较；缺省或
+  `record-text` 只能按文本比较（`sha256(raw)==token` 才算 unchanged），否则 `notPerformed`，绝不
+  把文本摘要当文件字节版本。：`sha256:`（64 位小写十六进制）、`etag:`、`last-modified:`、`rev:`。
   - 来源提供原生版本（ETag、Last-Modified、连接器版本号）时**必须**用原生 basis；没有时才用
     `content-sha256`。`content-sha256` 对记录中该来源的可读文本按 UTF-8 字节计算（附件等二进制
     按原始字节）。
@@ -287,7 +292,8 @@
 - E3 验收必须**真实修改文件/HTTP 服务内容**（不改测试 seed、不手插 newer observation），再让下一次
   真实决策走同一 producer 观察；只塞一条 newer event 不算。
 - **文件来源的版本必须是原始字节摘要**：观察/导入时的 `sourceVersion` 必须由 App/Worker import
-  metadata 对**原始文件字节**计算（`sha256:`），并用 `resource{kind:"file",key:<规范化路径或
+  metadata 对**原始文件字节**计算（`sha256:` + `subject:"file-bytes"`），并用
+  `resource{kind:"file",key:<规范化路径或
   文件 id>,owner:<bot/workspace>}` 固定身份。记录里若是抽取文本的摘要（PDF/图片文本等），**不得**
   当作文件字节版本与 re-stat 比较；缺原始字节摘要/resource → `source-version-unknown` /
   `no-resource-identity`，不得 current。
