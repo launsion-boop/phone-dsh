@@ -40,6 +40,7 @@ public enum BotDerivedKind: String, Codable, Sendable, CaseIterable {
     case suggestion
     case draft
     case skill
+    case workspaceFile
 }
 
 /// G-1 r5 resource identity: channel is not a resource. The latest index is
@@ -49,6 +50,7 @@ public struct BotResourceIdentity: Codable, Sendable, Equatable, Hashable {
         case webURL = "web-url"
         case connectorResource = "connector-resource"
         case file
+        case workspaceFile = "workspace-file"
         case contextSource = "context-source"
         case provider
     }

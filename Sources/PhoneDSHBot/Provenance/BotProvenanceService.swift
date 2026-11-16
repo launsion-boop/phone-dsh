@@ -91,6 +91,11 @@ public protocol BotProvenanceQuerying: Sendable {
         -> [BotSourceStatus]
     func currentState(for artifact: BotDerivedRef, botID: String?) async throws
         -> BotDerivationView
+    /// Reverse lookup for R2 workspace material: the worst current state of
+    /// artifacts whose derivation names this file resource. Untracked path is
+    /// nil (callers keep their legacy behavior); only `current` is injectable.
+    func status(forWorkspacePath path: String, botID: String) async throws
+        -> BotProvenanceStatus?
     func sourceStatuses(for refs: [String]) async throws -> [String: BotSourceStatus]
     func sourceStatuses(for refs: [String], botID: String?) async throws
         -> [String: BotSourceStatus]
@@ -471,6 +476,38 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         let scopedRefs = refs.filter { allowed.contains(
             BotRecordReference.canonicalize($0) ?? $0) }
         return scoped.sourceStatuses(for: scopedRefs, facts: facts)
+    }
+
+    public func status(forWorkspacePath path: String,
+                       botID: String) async throws -> BotProvenanceStatus? {
+        guard !path.isEmpty, !botID.isEmpty else { return nil }
+        let (scoped, facts) = try await settledScopedSnapshotAndFacts(botID: botID)
+        let normalized = Self.normalizedWorkspacePath(path)
+        var found: [BotProvenanceStatus] = []
+        for artifact in scoped.assertions.keys where artifact.kind == .workspaceFile {
+            guard let latest = scoped.assertions[artifact]?.last else { continue }
+            let referencesFile = latest.sources.contains { source in
+                let ref = BotRecordReference.canonicalize(source.record) ?? source.record
+                guard let resource = source.resource
+                        ?? facts[ref]?.resource
+                        ?? scoped.observationResourceByRef[ref],
+                      resource.kind == .workspaceFile else { return false }
+                return Self.normalizedWorkspacePath(resource.key) == normalized
+            }
+            guard referencesFile else { continue }
+            found.append(scoped.view(for: artifact, facts: facts).state)
+        }
+        guard let worst = found.max(by: { $0.severity < $1.severity }) else {
+            return nil
+        }
+        return worst
+    }
+
+    private static func normalizedWorkspacePath(_ path: String) -> String {
+        var value = path
+        while value.hasPrefix("./") { value.removeFirst(2) }
+        while value.hasSuffix("/") && value.count > 1 { value.removeLast() }
+        return value
     }
 
     public func generation() async throws -> BotProvenanceGeneration {

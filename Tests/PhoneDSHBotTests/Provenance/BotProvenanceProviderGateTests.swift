@@ -293,3 +293,47 @@ extension BotProvenanceProviderGateTests {
         XCTAssertEqual(calls, 1)
     }
 }
+
+extension BotProvenanceProviderGateTests {
+    /// R2 seam: reverse a workspace file path through the workspaceFile
+    /// artifact's derivation. Only current is injectable; untracked is nil.
+    func testWorkspaceFileStatusUsesDerivationSourceAndDoesNotReviveAfterErase() async throws {
+        let log = BotProvenanceTestLog()
+        let source = try await log.append(ProvenanceTest.event(
+            type: "conversation.user_message", eventId: "workspace-source",
+            data: .object(["text": .string("source")]), botID: "bot-a"))
+        _ = try await log.append(ProvenanceTest.event(
+            type: "conversation.tool_result", eventId: "workspace-artifact",
+            data: .object([
+                "derivation": .object([
+                    "artifact": .object([
+                        "kind": .string("workspaceFile"),
+                        "id": .string("docs/current.md"),
+                    ]),
+                    "sources": .array([
+                        .object([
+                            "record": .string("record://event/\(source)"),
+                            "role": .string("evidence"),
+                            "resource": .object([
+                                "kind": .string("workspace-file"),
+                                "key": .string("docs/current.md"),
+                                "owner": .string("bot-a"),
+                            ]),
+                        ]),
+                    ]),
+                ]),
+            ]), botID: "bot-a", sessionID: "gb-bot-a"))
+        let service = BotProvenanceService(eventLog: log)
+        let current = try await service.status(
+            forWorkspacePath: "docs/current.md", botID: "bot-a")
+        XCTAssertEqual(current, .current)
+        let unrelated = try await service.status(
+            forWorkspacePath: "docs/unrelated.md", botID: "bot-a")
+        XCTAssertNil(unrelated)
+        _ = try await log.append(ProvenanceTest.erasureEvent(
+            erasureId: "workspace-erase", eventRecords: ["record://event/\(source)"]))
+        let erased = try await service.status(
+            forWorkspacePath: "docs/current.md", botID: "bot-a")
+        XCTAssertEqual(erased, .erased)
+    }
+}

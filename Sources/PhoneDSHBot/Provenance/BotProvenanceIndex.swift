@@ -70,7 +70,8 @@ public struct BotProvenanceSnapshot: Sendable {
             return owner == nil ? "unknown" : "user"
         case .memory:
             return owner.map { "bot:\($0)" } ?? "unknown"
-        case .routine, .proactive, .notification, .delivery, .suggestion, .draft:
+        case .routine, .proactive, .notification, .delivery, .suggestion, .draft,
+             .workspaceFile:
             return owner.map { "bot:\($0)" } ?? "unknown"
         case .review:
             return owner.map { "bot:\($0)" } ?? "unknown"
