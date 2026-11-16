@@ -34,13 +34,12 @@ contract_revision: freeze commit on aha/integration-20261116 (SHA in CONTRACT-FR
   > 先写这周的。本周完成了登录改造和两个 bug 修复，下周计划做导出。周四前要交给林。
   > 把这周成品保存为 `reports/weekly.md`。
 - **断言（全部只针对 `reports/weekly.md` 同一个文件）**：
-  1. `workspace_command`：`test -f reports/weekly.md`
-  2. `workspace_command`：`grep -q '^OWNER: 林$' reports/weekly.md`
-  3. `workspace_command`：`grep -Eq '^#{1,6}[[:space:]]*.*风险' reports/weekly.md`
-     （任何标题级别含“风险”都算；不强制 `##`）
+  1. `file_exists`：`reports/weekly.md`
+  2. `file_regex`：`^OWNER: 林$`（多行）
+  3. `file_regex`：`^#{1,6}[[:space:]]*.*风险`（任何标题级别含“风险”都算；不强制 `##`）
   4. `reply_not_contains`：`OLD_GUIDE_9C1`
   5. `reply_not_contains`：`周报-{`
-- 断言不再扫描 `*.md`，因此 input guide/archive/工具读回不会被当成交付物；两个 grep 只针对同一文件。
+- 断言不再扫描 `*.md`，因此 input guide/archive/工具读回不会被当成交付物；三条断言只针对同一文件（实现用 file_exists/file_regex，语义等价）。
 - 不加新断言类型、不改 harness、不改产品代码。
 
 ## 3. 重跑与判定
