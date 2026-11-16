@@ -242,12 +242,26 @@ function messageText(message: { content?: readonly { type?: string; text?: strin
     .join('')
 }
 
-/** The claimed turn text, excluding runtime-context snapshots. */
+/** The claimed turn text, excluding runtime-context snapshots.
+ *
+ * A teammate/onboarding turn can carry a long held block before the real
+ * inquiry. The query must describe the current message, not the prefix of the
+ * transcript, so pick the last user messages and never let onboarding consume
+ * the 600-scalar budget.
+ */
 export function queryFromMessages(
   messages: readonly { content?: readonly { type?: string; text?: string }[]; source?: unknown }[],
 ): string {
-  return bounded(messages
-    .filter(message => (message.source as { kind?: unknown } | undefined)?.kind !== 'runtime-context')
+  const visible = messages.filter(message =>
+    (message.source as { kind?: unknown } | undefined)?.kind !== 'runtime-context')
+  const userMessages = visible.filter(message => {
+    const source = message.source as { kind?: unknown; rpcId?: unknown } | undefined
+    return source?.kind === 'user' && !String(source.rpcId ?? '').startsWith('held:')
+  })
+  const picked = userMessages.length > 0
+    ? userMessages.slice(-2)
+    : visible.slice(-2)
+  return bounded(picked
     .map(messageText)
     .join('\n')
     .replace(/\s+/gu, ' ')
@@ -613,8 +627,11 @@ export default function dshbotDecisionContext(
     if (current !== undefined && current.turn === payload.turn) return next()
     states.delete(sessionId)
     const query = queryFromMessages(payload.messages)
-    const origin = payload.messages.length > 0
-      ? turnOriginOfMessage(payload.messages[0]!)
+    const queryMessage = payload.messages
+      .filter(message => (message.source as { kind?: unknown } | undefined)?.kind !== 'runtime-context')
+      .at(-1)
+    const origin = queryMessage
+      ? turnOriginOfMessage(queryMessage)
       : resolveTurnOrigin(undefined)
     if (!allowOrigins.has(origin.kind) || scalarLength(query) < minQuery) return next()
 
