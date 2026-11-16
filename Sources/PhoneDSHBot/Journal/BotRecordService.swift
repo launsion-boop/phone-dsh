@@ -455,6 +455,7 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         var ref: String
         var key: String
         var time: Int64
+        var rank: Int
     }
 
     /// Default search indexes the readable projection, not a nested tool
@@ -470,28 +471,44 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
             return "phone record search output (nested body omitted from default search)"
         }
         var parts: [String] = []
-        func append(_ value: BotJSONValue?) {
-            guard parts.reduce(0, { $0 + $1.count }) < 8_000 else { return }
-            if let text = value?.stringValue, !text.isEmpty, !text.hasPrefix("{") {
-                parts.append(text)
+        var total = 0
+        func append(_ text: String?) {
+            guard let text, !text.isEmpty, total < 8_000 else { return }
+            let bounded = String(text.unicodeScalars.prefix(4_000))
+            parts.append(bounded)
+            total += bounded.unicodeScalars.count
+        }
+        func appendTextBlocks(_ value: BotJSONValue?) {
+            guard let value else { return }
+            switch value {
+            case let .string(text):
+                append(text)
+            case let .array(blocks):
+                // Canonical text blocks only. Reasoning/thinking blocks are
+                // internal and must not become ordinary searchable text.
+                for block in blocks {
+                    guard let object = block.objectValue,
+                          object["type"]?.stringValue == "text" else { continue }
+                    append(object["text"]?.stringValue)
+                }
+            default:
+                break
             }
         }
+        // DSH v4 top-level user/message and conversation.user_message data:
+        // `data.content` is a canonical block array. Legacy fixtures may use
+        // `data.message.content`; accept both, but never walk arbitrary nested
+        // JSON into the index.
         if let message = data["message"]?.objectValue {
-            append(message["text"])
-            for block in message["content"]?.arrayValue ?? [] {
-                append(block["text"])
-            }
+            appendTextBlocks(message["content"])
+            append(message["text"]?.stringValue)
         }
-        append(data["text"])
-        append(data["content"])
-        append(data["title"])
+        appendTextBlocks(data["content"])
+        append(data["text"]?.stringValue)
+        append(data["title"]?.stringValue)
         if type.hasPrefix("memory.document") {
-            append(data["path"])
-            for ref in data["evidence"]?.arrayValue ?? [] { append(ref) }
-        }
-        if parts.isEmpty {
-            append(data["data"]?.objectValue?["content"])
-            append(data["data"]?.objectValue?["text"])
+            append(data["path"]?.stringValue)
+            for ref in data["evidence"]?.arrayValue ?? [] { append(ref.stringValue) }
         }
         return parts.joined(separator: " ")
     }
@@ -536,6 +553,17 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         walk(data, depth: 0)
         let text = parts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? type : text
+    }
+
+    /// Original user/message first, then observation/memory, then assistant
+    /// final text, then title/tool/index-like secondary carriers.
+    static func searchRank(_ type: String) -> Int {
+        switch type {
+        case "user/message", "conversation.user_message": return 0
+        case "memory.document_written", "memory.document_deleted", "context.observed": return 1
+        case "assistant/message", "conversation.assistant_message": return 2
+        default: return 3
+        }
     }
 
     private static func dedupeType(_ type: String) -> String {
@@ -620,7 +648,8 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                             .map(BotJSONValue.string) ?? .null,
                         "hitTruncated": .bool(projected.unicodeScalars.count > 240),
                     ]),
-                    ref: ref, key: key, time: line.time))
+                    ref: ref, key: key, time: line.time,
+                    rank: Self.searchRank(line.type)))
             }
         }
         for record in events where record.event.principal.botId == caller.botId {
@@ -650,9 +679,11 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                 value: .object(fields), ref: ref,
                 key: Self.dedupeKey(type: record.event.type, time: record.event.time,
                                     data: record.event.data),
-                time: record.event.time))
+                time: record.event.time,
+                rank: Self.searchRank(record.event.type)))
         }
         rawHits.sort { lhs, rhs in
+            if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
             if lhs.time != rhs.time { return lhs.time > rhs.time }
             return lhs.ref < rhs.ref
         }
