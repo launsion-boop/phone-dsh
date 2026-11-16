@@ -319,14 +319,14 @@ final class BotActivityLineTests: XCTestCase {
         let reviewing = presentation([turn, call, result], now: 1_300)
         XCTAssertEqual(reviewing.activity?.status, .thinking)
         XCTAssertEqual(reviewing.activity?.category, .reviewing)
-        XCTAssertEqual(reviewing.activity?.detail, "在翻文件 · /tmp/report.md")
+        XCTAssertEqual(reviewing.activity?.detail, "在翻文件 · report.md")
         XCTAssertEqual(reviewing.activity?.startedAt, 1_200)
 
         let step = sessionEvent("step/start", seq: 4, time: 1_400)
         let thinking = presentation([turn, call, result, step], now: 1_500)
         XCTAssertEqual(thinking.activity?.status, .thinking)
         XCTAssertEqual(thinking.activity?.category, .reviewing)
-        XCTAssertEqual(thinking.activity?.detail, "在翻文件 · /tmp/report.md")
+        XCTAssertEqual(thinking.activity?.detail, "在翻文件 · report.md")
         XCTAssertEqual(thinking.activity?.startedAt, 1_400)
     }
 
@@ -339,7 +339,7 @@ final class BotActivityLineTests: XCTestCase {
         let running = presentation([turn, call], now: 1_200)
         XCTAssertEqual(running.activity?.status, .toolRunning)
         XCTAssertEqual(running.activity?.category, .reading)
-        XCTAssertEqual(running.activity?.detail, "在翻文件 · /tmp/report.md")
+        XCTAssertEqual(running.activity?.detail, "在翻文件 · report.md")
         XCTAssertEqual(running.activity?.startedAt, 1_100)
 
         // A committed public sentence for a later step never replaces the
@@ -351,7 +351,7 @@ final class BotActivityLineTests: XCTestCase {
             ])])]),
         ])
         XCTAssertEqual(presentation([turn, call, step, sentence], now: 1_400).activity?.detail,
-                       "在翻文件 · /tmp/report.md")
+                       "在翻文件 · report.md")
 
         let preview = presentation([turn], now: 1_500)
         XCTAssertEqual(preview.activity?.status, .thinking)
@@ -380,7 +380,7 @@ final class BotActivityLineTests: XCTestCase {
         for _ in 0..<6 { root.deleteLastPathComponent() }
         let path = root.appendingPathComponent("spec/ui/v1/bot/ios/activity-evidence-vectors.json")
         let vectors = try JSONDecoder().decode(Vectors.self, from: Data(contentsOf: path))
-        XCTAssertEqual(vectors.cases.count, 78)
+        XCTAssertEqual(vectors.cases.count, 81)
         for vector in vectors.cases {
             let live = BotRuntimePresentationFactory.live(botID: "main", events: vector.events,
                                                           now: vectors.now).activity
@@ -404,8 +404,7 @@ final class BotActivityLineTests: XCTestCase {
     func testDisplayTextKeepsRealTaskObjects() {
         for raw in ["对比 #174 与 main 的三个冲突文件",
                     "读取 BotChatModel.swift 中的发送逻辑",
-                    "查看 /workspace/project/BotChatModel.swift",
-                    "打开 https://github.com/launsion-boop/phone-dsh/pull/174 的页面",
+                    "查看 BotChatModel.swift",
                     "回复李光浩的邮件",
                     "检查《周三例会》纪要"] {
             XCTAssertEqual(BotActivityEvidence.displayText(raw), raw, raw)
@@ -430,29 +429,36 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(BotActivityEvidence.displayText("检查 3.5 小时"), "检查 3.5 小时")
     }
 
-    func testLongSentenceIsCappedAt512CharactersWithoutLosingTheStart() {
-        let long = String(repeating: "对比 #174 与 main 的冲突文件，", count: 40)
-        let capped = BotActivityEvidence.displayText(long)
-        XCTAssertEqual(capped?.count, 512)
-        XCTAssertEqual(capped?.hasSuffix("…"), true)
-        XCTAssertEqual(capped?.hasPrefix("对比 #174 与 main 的冲突文件"), true)
+    func testLongPublicAnswerShortensAtClauseBoundary() {
+        // A repeated short clause is cut at the last clause punctuation in the
+        // 28-character CJK bound, so one real progress sentence is shown.
+        let clauses = String(repeating: "对比 #174 与 main 的冲突文件，", count: 40)
+        XCTAssertEqual(BotActivityEvidence.displayText(clauses),
+                       "对比 #174 与 main 的冲突文件")
+        XCTAssertEqual(BotActivityEvidence.displayText(
+            "我先检查这个问题的完整原因。后面还有很长的解释内容不应上屏。"),
+            "我先检查这个问题的完整原因")
+        // Non-CJK text uses the 56-character bound and an ellipsis tail.
+        let latin = String(repeating: "abcdef ghij ", count: 10)
+        let shortened = BotActivityEvidence.displayText(latin)
+        XCTAssertEqual(shortened?.count, 56)
+        XCTAssertEqual(shortened?.hasSuffix("…"), true)
     }
 
-    func testLongPathObjectKeepsThePathInsteadOfTheBasename() {
+    func testLongPathObjectUsesTheBasename() {
         let path = "/workspace/examples/probe-app/PhoneDSHProbe/Bot/BotChatModel.swift"
         let call = BotActivityEvidence.action(forToolNamed: "read",
                                               arguments: arguments("{\"file_path\":\"\(path)\"}"))
         XCTAssertEqual(call.category, .reading)
-        XCTAssertEqual(call.text, "在翻文件 · \(path)")
+        XCTAssertEqual(call.text, "在翻文件 · BotChatModel.swift")
     }
 
-    func testDisplayedURLDropsSchemeUserinfoAndSensitiveQueryOnly() {
+    func testDisplayedURLObjectIsTheHostOnly() {
         let call = BotActivityEvidence.action(forToolNamed: "web_fetch", arguments: arguments(
             "{\"url\":\"https://user:password@example.com/report?token=secret&view=1\"}"))
-        XCTAssertEqual(call.text, "在开网页 · example.com/report?view=1")
-        XCTAssertEqual(BotActivityReducer.displayURL(
-            "https://github.com/launsion-boop/phone-dsh/pull/174"),
-            "github.com/launsion-boop/phone-dsh/pull/174")
+        XCTAssertEqual(call.text, "在开网页 · example.com")
+        XCTAssertEqual(BotActivityEvidence.displayHost(
+            "https://github.com/launsion-boop/phone-dsh/pull/174"), "github.com")
     }
 
     func testEvidenceActionUsesIntentThenObjectThenLabel() {
@@ -492,7 +498,7 @@ final class BotActivityLineTests: XCTestCase {
             "step": .number(1), "callId": .string("a"), "name": .string("read"),
             "arguments": .object(["file_path": .string("/dsh/workspace/README.md")]),
         ])
-        let expected = "对比 #174 与 main 的 README · /dsh/workspace/README.md"
+        let expected = "对比 #174 与 main 的 README"
         XCTAssertEqual(presentation([turn, step, first, second, call], now: 300).activity?.detail,
                        expected)
         XCTAssertEqual(presentation([turn, step, first, message, call], now: 300).activity?.detail,
@@ -507,7 +513,7 @@ final class BotActivityLineTests: XCTestCase {
             "arguments": .object(["file_path": .string("/dsh/workspace/README.md")]),
         ])
         XCTAssertEqual(presentation([turn, step, message, later, laterCall], now: 400).activity?.detail,
-                       "再看 B 的失败 · /dsh/workspace/README.md")
+                       "再看 B 的失败")
 
         // A new step clears the accumulated candidate.
         let nextStep = sessionEvent("step/start", seq: 8, time: 210, data: ["step": .number(2)])
@@ -517,7 +523,7 @@ final class BotActivityLineTests: XCTestCase {
         ])
         XCTAssertEqual(presentation([turn, step, first, message, nextStep, nextCall],
                                     now: 300).activity?.detail,
-                       "在翻文件 · /dsh/workspace/b.md")
+                       "在翻文件 · b.md")
     }
 
     /// Real live traffic: `streamStart`, several `textDelta` frames, then the
@@ -561,8 +567,7 @@ final class BotActivityLineTests: XCTestCase {
             "message": .object(["toolCallId": .string("a"), "isError": .bool(false)]),
         ]), now: 220)
         let live = projection.presentation(now: 300).activity
-        XCTAssertEqual(live?.detail,
-                       "对比 #174 与 main 的 README · /workspace/README.md")
+        XCTAssertEqual(live?.detail, "对比 #174 与 main 的 README")
         XCTAssertEqual(live?.status, .thinking)
         XCTAssertEqual(live?.category, .reviewing)
 

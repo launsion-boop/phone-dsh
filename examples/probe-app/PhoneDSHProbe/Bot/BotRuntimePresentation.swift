@@ -400,14 +400,15 @@ struct BotLiveFishProjection {
     }
 }
 
-/// iOS evidence policy for `activity-evidence-v2.1`. One bubble sentence is
-/// the real work of this call: the model's per-call intent, the same-step
-/// public progress sentence, or the call's own argument object. Only
-/// credential shapes, generic fillers and completion claims are rejected;
-/// file names, paths, URLs, PR numbers and names stay recognisable.
+/// iOS evidence policy for `activity-evidence-v3`. The bubble carries one
+/// short, real progress sentence for the current call: the model's per-call
+/// intent or same-step public progress, or a short object when the model gave
+/// no sentence. A model sentence is never extended with a full path or URL.
+/// Only credential shapes, generic fillers and completion claims are rejected.
 enum BotActivityEvidence {
-    /// A longer sentence is truncated with `…` for display only.
-    static let maxCharacters = 512
+    /// `activity-evidence-v3` short-progress bound.
+    static let cjkBound = 28
+    static let nonCJKBound = 56
 
     /// Compatibility entry point for callers that only need the tool label.
     /// The production bubble resolves the sentence alongside the same-step
@@ -420,8 +421,8 @@ enum BotActivityEvidence {
     }
 
     /// One display sentence: first line, collapsed whitespace, sentence-final
-    /// punctuation stripped, capped at 512 characters (511 + `…`). The
-    /// sentence keeps its real objects; only the shapes below are rejected.
+    /// punctuation stripped, then shortened to the short-progress bound. The
+    /// sentence keeps its real task object; only the shapes below are rejected.
     static func displayText(_ raw: String) -> String? {
         let firstLine = raw.components(separatedBy: .newlines).first ?? ""
         var text = firstLine
@@ -447,8 +448,51 @@ enum BotActivityEvidence {
         guard !credentialPatterns.contains(where: {
             text.range(of: $0, options: .regularExpression) != nil
         }) else { return nil }
-        guard text.count > maxCharacters else { return text }
-        return String(text.prefix(maxCharacters - 1)) + "…"
+        return shortened(text)
+    }
+
+    /// Short progress bound: 28 characters with CJK, else 56. Longer text is
+    /// shortened at the last sentence/clause punctuation within the bound,
+    /// else `bound - 1` characters plus `…` — a long public answer never
+    /// reaches the bubble whole.
+    static func shortened(_ raw: String) -> String {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return text }
+        let hasCJK = text.unicodeScalars.contains { (0x3400...0x9FFF).contains($0.value) }
+        let bound = hasCJK ? cjkBound : nonCJKBound
+        guard text.count > bound else { return text }
+        let prefix = String(text.prefix(bound))
+        let clause = CharacterSet(charactersIn: "。！？!?；;，,、")
+        if let index = prefix.unicodeScalars.lastIndex(where: { clause.contains($0) }) {
+            let cut = String(prefix.unicodeScalars[..<index])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cut.isEmpty { return cut }
+        }
+        return String(text.prefix(bound - 1)) + "…"
+    }
+
+    /// A URL object is a quiet host: no scheme, `www.`, userinfo, path or query.
+    static func displayHost(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        let absolute = trimmed.contains("://") ? trimmed : "https://" + trimmed
+        if let host = URLComponents(string: absolute)?.host, !host.isEmpty {
+            return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        }
+        var text = trimmed
+        for scheme in ["https://", "http://"] where text.hasPrefix(scheme) {
+            text.removeFirst(scheme.count)
+        }
+        if text.hasPrefix("www.") { text.removeFirst(4) }
+        return text.components(separatedBy: CharacterSet(charactersIn: "/?#")).first ?? text
+    }
+
+    /// The short object fallback uses the file name, never the whole path.
+    static func basename(_ value: String) -> String {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = text.components(separatedBy: CharacterSet(charactersIn: "/\\"))
+            .filter { !$0.isEmpty }.last ?? text
+        return base.isEmpty ? text : base
     }
 
     private static let fillerPhrases: Set<String> = [
@@ -501,7 +545,7 @@ enum BotActivityEvidence {
     }
 }
 
-/// `activity-evidence-v2.1` reducer: one deterministic fold over the open
+/// `activity-evidence-v3` reducer: one deterministic fold over the open
 /// turn's events. The durable factory and the live frames both call it, so a
 /// replay of the same events yields the same activity. Model text only fills
 /// `detail`; status and category come from the call lifecycle.
@@ -517,6 +561,8 @@ enum BotActivityReducer {
         var intentKeys: [String] = []
         var objectKeys: [String] = []
         var objectKind: ObjectKind = .plain
+        /// Keys whose value is a path and therefore displays as its basename.
+        var pathKeys: Set<String> = []
         var secondaryKeys: [String] = []
         /// Public task progress is the default source for every visible
         /// work tool; only card/messaging tools opt out (`v2.3`).
@@ -531,13 +577,17 @@ enum BotActivityReducer {
         "bash": Rule(category: .running, label: "正在运行命令",
                      intentKeys: ["description"]),
         "read": Rule(category: .reading, label: "在翻文件",
-                     objectKeys: ["file_path", "path", "filePath"]),
+                     objectKeys: ["file_path", "path", "filePath"],
+                     pathKeys: ["file_path", "path", "filePath"]),
         "write": Rule(category: .writing, label: "在写文件",
-                      objectKeys: ["file_path", "path", "filePath"]),
+                      objectKeys: ["file_path", "path", "filePath"],
+                      pathKeys: ["file_path", "path", "filePath"]),
         "edit": Rule(category: .writing, label: "在改文件",
-                     objectKeys: ["file_path", "path", "filePath"]),
+                     objectKeys: ["file_path", "path", "filePath"],
+                     pathKeys: ["file_path", "path", "filePath"]),
         "str_replace_editor": Rule(category: .writing, label: "在改文件",
-                                   objectKeys: ["file_path", "path", "filePath"]),
+                                   objectKeys: ["file_path", "path", "filePath"],
+                                   pathKeys: ["file_path", "path", "filePath"]),
         "glob": Rule(category: .searching, label: "在找文件", objectKeys: ["pattern"]),
         "grep": Rule(category: .searching, label: "在搜内容", objectKeys: ["pattern"],
                      secondaryKeys: ["path"]),
@@ -556,8 +606,10 @@ enum BotActivityReducer {
                      intentKeys: ["task_title", "description"]),
         "awaittask": Rule(category: .running, label: "等子任务结果"),
         "stopsubagent": Rule(category: .running, label: "停止子任务"),
-        "updatememory": Rule(category: .memory, label: "在记笔记", objectKeys: ["path"]),
-        "readmemory": Rule(category: .memory, label: "在翻记忆", objectKeys: ["path"]),
+        "updatememory": Rule(category: .memory, label: "在记笔记", objectKeys: ["path"],
+                             pathKeys: ["path"]),
+        "readmemory": Rule(category: .memory, label: "在翻记忆", objectKeys: ["path"],
+                            pathKeys: ["path"]),
         "recallmemory": Rule(category: .memory, label: "回想一下", objectKeys: ["query"]),
         "updateroutine": Rule(category: .writing, label: "修改例行任务", objectKeys: ["title"]),
         "listroutines": Rule(category: .reading, label: "看看例行任务"),
@@ -572,9 +624,11 @@ enum BotActivityReducer {
         "show_next_steps": Rule(category: .messaging, label: "给你选项",
                                 allowsPublicText: false),
         "show_attachment": Rule(category: .messaging, label: "送上附件",
-                                objectKeys: ["path"], allowsPublicText: false),
+                                objectKeys: ["path"], pathKeys: ["path"],
+                                allowsPublicText: false),
         "show_document": Rule(category: .reading, label: "打开文档",
-                              objectKeys: ["title", "path"], allowsPublicText: false),
+                              objectKeys: ["title", "path"], pathKeys: ["path"],
+                              allowsPublicText: false),
         "show_progress": Rule(category: .writing, label: "更新进度",
                               objectKeys: ["title"], allowsPublicText: false),
         "show_checklist": Rule(category: .writing, label: "列个清单",
@@ -707,9 +761,10 @@ enum BotActivityReducer {
                            startedAt: phase?.time ?? startTime)
     }
 
-    /// Priority: the call's own model intent, then the same-step public
-    /// progress sentence (with its real primary object appended), then the
-    /// call's own argument object, then the concrete action label.
+    /// Priority (`activity-evidence-v3`): the call's own short model intent,
+    /// then the same-step public progress sentence, then the short object
+    /// fallback, then the concrete label. A model sentence is never extended
+    /// with a full path or URL.
     static func sentence(toolName: String, arguments: [String: PhoneDSHBot.BotJSONValue],
                          publicText: String?) -> Resolution {
         let rule = Self.rule(for: toolName)
@@ -720,26 +775,22 @@ enum BotActivityReducer {
         }
         if rule.allowsPublicText, let publicText,
            let text = BotActivityEvidence.displayText(publicText) {
-            var sentence = text
-            if let object = objectText(rule, arguments: arguments), !mentions(sentence, object) {
-                sentence += " · " + object.display
-            }
-            return Resolution(text: capped(sentence), category: rule.category)
+            return Resolution(text: text, category: rule.category)
         }
         var label = rule.label
         if let object = objectText(rule, arguments: arguments) {
-            label += " · " + object.display
+            label += " · " + object
         }
         if let secondary = secondaryText(rule, arguments: arguments) {
-            label += " · " + secondary
+            let candidate = label + " · " + secondary
+            if candidate.count <= secondaryFitCharacters { label = candidate }
         }
-        return Resolution(text: capped(label), category: rule.category)
+        return Resolution(text: label, category: rule.category)
     }
 
-    private static func capped(_ text: String) -> String {
-        guard text.count > BotActivityEvidence.maxCharacters else { return text }
-        return String(text.prefix(BotActivityEvidence.maxCharacters - 1)) + "…"
-    }
+    /// `grep` adds the searched file's basename only when the assembled label
+    /// still fits the legacy 42-character target bound.
+    private static let secondaryFitCharacters = 42
 
     /// The durable `assistant/message` text: only real text blocks count, so a
     /// reasoning-only message yields no candidate.
@@ -759,9 +810,11 @@ enum BotActivityReducer {
         return texts.isEmpty ? nil : texts.joined(separator: " ")
     }
 
+    /// Short object fallback: basename for files, host for URLs, pattern for
+    /// glob/grep, name/title/query as written. A long value is shortened like
+    /// a sentence instead of becoming a second path table.
     private static func objectText(_ rule: Rule,
-                                   arguments: [String: PhoneDSHBot.BotJSONValue])
-        -> (raw: String, display: String)? {
+                                   arguments: [String: PhoneDSHBot.BotJSONValue]) -> String? {
         for key in rule.objectKeys {
             guard let value = arguments[key] else { continue }
             switch rule.objectKind {
@@ -769,28 +822,31 @@ enum BotActivityReducer {
                 if case .array(let items) = value {
                     if let url = items.compactMap({ $0.runtimeObject }).first?["url"]?.runtimeString {
                         let raw = url.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !raw.isEmpty { return (raw, displayURL(raw)) }
+                        if !raw.isEmpty {
+                            return BotActivityEvidence.shortened(
+                                BotActivityEvidence.displayHost(raw))
+                        }
                     }
                     continue
                 }
                 if let raw = value.runtimeString?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !raw.isEmpty {
-                    return (raw, displayURL(raw))
+                    return BotActivityEvidence.shortened(BotActivityEvidence.displayHost(raw))
                 }
                 continue
             case .query:
                 if case .array(let items) = value {
                     if let first = items.compactMap({ $0.runtimeString })
                         .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
-                        let text = first.trimmingCharacters(in: .whitespacesAndNewlines)
-                        return (text, text)
+                        return BotActivityEvidence.shortened(
+                            first.trimmingCharacters(in: .whitespacesAndNewlines))
                     }
                     continue
                 }
             case .url:
                 if let raw = value.runtimeString?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !raw.isEmpty {
-                    return (raw, displayURL(raw))
+                    return BotActivityEvidence.shortened(BotActivityEvidence.displayHost(raw))
                 }
                 continue
             case .plain:
@@ -798,7 +854,8 @@ enum BotActivityReducer {
             }
             guard let raw = value.runtimeString?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !raw.isEmpty else { continue }
-            return (raw, raw)
+            let display = rule.pathKeys.contains(key) ? BotActivityEvidence.basename(raw) : raw
+            return BotActivityEvidence.shortened(display)
         }
         return nil
     }
@@ -808,45 +865,8 @@ enum BotActivityReducer {
         for key in rule.secondaryKeys {
             guard let text = arguments[key]?.runtimeString?
                 .trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { continue }
-            return text
+            return BotActivityEvidence.basename(text)
         }
         return nil
     }
-
-    private static func mentions(_ sentence: String, _ object: (raw: String, display: String)) -> Bool {
-        if !object.display.isEmpty, sentence.contains(object.display) { return true }
-        return object.raw != object.display && sentence.contains(object.raw)
-    }
-
-    /// A displayed URL keeps its host, path and non-sensitive query parameters
-    /// and drops the scheme, `www.`, userinfo and sensitive parameters.
-    static func displayURL(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let absolute = trimmed.contains("://") ? trimmed : "https://" + trimmed
-        guard var components = URLComponents(string: absolute) else {
-            var text = trimmed
-            for scheme in ["https://", "http://"] where text.hasPrefix(scheme) {
-                text.removeFirst(scheme.count)
-            }
-            if text.hasPrefix("www.") { text.removeFirst(4) }
-            return text
-        }
-        components.user = nil
-        components.password = nil
-        if let items = components.queryItems {
-            let kept = items.filter { !sensitiveQueryNames.contains($0.name.lowercased()) }
-            components.queryItems = kept.isEmpty ? nil : kept
-        }
-        var text = components.host ?? ""
-        if text.hasPrefix("www.") { text.removeFirst(4) }
-        if text.isEmpty { return trimmed }
-        let path = components.path
-        if !path.isEmpty, path != "/" { text += path }
-        if let query = components.percentEncodedQuery, !query.isEmpty { text += "?" + query }
-        return text
-    }
-
-    private static let sensitiveQueryNames: Set<String> = [
-        "token", "access_token", "api_key", "key", "password", "secret", "signature", "sig",
-    ]
 }
