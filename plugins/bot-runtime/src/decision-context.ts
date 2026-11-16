@@ -617,6 +617,7 @@ export default function dshbotDecisionContext(
   config: DecisionContextConfig = {},
 ): void {
   const enabled = config.enabled !== false
+  console.log(`DSHBOT_DECISION_CONTEXT_APPLY enabled=${enabled}`)
   const workspaceMaterials = config.workspaceMaterials !== false
   const limits = limitsOf(config)
   const source = config.source ?? createPhoneDecisionContextSource(ctx, limits)
@@ -645,6 +646,7 @@ export default function dshbotDecisionContext(
   ctx.on('agent/pre-step', async (payload, next) => {
     if (!enabled) return next()
     const sessionId = actorSession(payload.agent)
+    console.log(`DSHBOT_DECISION_PRESTEP session=${sessionId} preset=${String((payload.agent as { header?: { agentPreset?: unknown } } | undefined)?.header?.agentPreset ?? "")} bot=${isBotAgent(ctx, payload.agent)}`)
     if (sessionId === '' || !isBotAgent(ctx, payload.agent)) return next()
     const current = states.get(sessionId)
     // One retrieval per turn; a later step of the same turn reuses the block.
