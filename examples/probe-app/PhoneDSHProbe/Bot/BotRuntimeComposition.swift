@@ -337,18 +337,18 @@ final class BotRuntimeComposition {
             throw BotTeamHostError.botNotFound("empty roster")
         }
         let deferred = BotDeferredVolatileContextProvider()
-        let gateway = BotGateway()
+        // The eval seam must govern every clock in the composition: the
+        // gateway (identity/attribution expiry), `BotMCPRuntime`, the record
+        // service and the scheduler must read the same injected clock. A
+        // gateway on the wall clock while the runtime runs on a deterministic
+        // baseline makes a registration look expired immediately and rejects
+        // real tool calls as unattributed. Production passes nil and keeps the
+        // wall clock for both.
+        let runtimeClock = now ?? { Int64(Date().timeIntervalSince1970 * 1_000) }
+        let gateway = BotGateway(now: runtimeClock)
         let recordService = BotRecordService(
             store: store, gateway: gateway,
             workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot())
-        // The eval seam must govern routine timestamps too: `UpdateRoutine`
-        // computes `nextRunAt` from `BotMCPRuntime.now`, while the scheduler
-        // compares it against the injected clock. Using the wall clock here
-        // while the scheduler ran at the deterministic noon baseline made a
-        // routine created at 13:00 look due only after 13:01 even though
-        // `advance_clock` had moved the scenario clock only two minutes past
-        // noon. Production passes nil and keeps the wall clock.
-        let runtimeClock = now ?? { Int64(Date().timeIntervalSince1970 * 1_000) }
         // The image bridge is App-side iOS code. The macOS eval host compiles the
         // same production composition without the App target, so vision is
         // absent there and the existing optional reader stays nil; text/path
