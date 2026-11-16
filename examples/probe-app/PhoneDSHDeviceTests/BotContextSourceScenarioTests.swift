@@ -162,6 +162,48 @@ final class BotContextSourceScenarioTests: XCTestCase {
 #endif
     }
 
+    // A07-02b: same pre-granted consent path for Contacts. With the OS already
+    // authorized/limited, requestConsent must write App consent without a
+    // second TCC request (fixes the UI switch staying off after pre-grant).
+    func testPreGrantedContactsConsentPathWritesLedger() async throws {
+#if canImport(Contacts)
+        let source = ContactsSource(now: now)
+        let status = await source.authorization()
+        guard status.allowsReading else {
+            throw XCTSkip("SKIP pre-granted contacts: real OS status=\(status.rawValue); pre-grant first")
+        }
+        let requested = await withTaskGroup(of: BotSourceAuthorization?.self) { group in
+            group.addTask { await source.requestAuthorization() }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        let resolved = try XCTUnwrap(requested, "contacts requestAuthorization timed out")
+        XCTAssertTrue(resolved.allowsReading)
+
+        let ledger = BotContextConsentLedger(
+            store: InMemoryBotContextSourceConsentStore(), now: now)
+        let registry = BotContextSourceRegistry(
+            ledger: ledger, audit: BotContextAuditLog(), now: now)
+        _ = await ledger.load()
+        try await registry.register(source)
+        let state = try await registry.requestConsent(
+            source: .contacts, botID: "a07-pregrant-bot")
+        XCTAssertTrue(state.authorization.allowsReading)
+        XCTAssertEqual(state.permissionRevision, 1)
+        let subscribed = await ledger.isSubscribed(
+            botID: "a07-pregrant-bot", source: .contacts)
+        XCTAssertTrue(subscribed, "requestConsent must also subscribe")
+        await registry.revoke(source: .contacts, reason: "a07-cleanup")
+#else
+        throw XCTSkip("Contacts not available")
+#endif
+    }
+
     // A07-02 contacts: a dedicated fixture contact is created, queried by a
     // unique name through the real Contacts adapter, and deleted by ID.
     func testContactsFixtureQueriedAndCleanedUp() async throws {

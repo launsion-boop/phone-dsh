@@ -42,6 +42,16 @@ public final class ContactsSource: BotContextSource, BotContextSourceStreaming,
     }
 
     public func requestAuthorization() async -> BotSourceAuthorization {
+        let current = await authorization()
+        // An existing OS decision needs no second TCC prompt. Re-requesting a
+        // granted service is invalid on some simulator builds and left App
+        // consent unset; only notDetermined may request.
+        switch current {
+        case .authorized, .limited, .denied, .restricted, .revoked:
+            return current
+        case .notDetermined:
+            break
+        }
         let store = CNContactStore()
         _ = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             store.requestAccess(for: .contacts) { granted, _ in
