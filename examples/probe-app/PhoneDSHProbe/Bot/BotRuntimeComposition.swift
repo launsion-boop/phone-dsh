@@ -418,9 +418,20 @@ final class BotRuntimeComposition {
             return BotArgumentsDigest.digest(
                 ofUTF8: "\(instanceID)|\(botID)|\(sessionID)|\(recipientState)|\(grantState)|\(roster)")
         }
+        // G-1 provenance first: the decision material state adapter reads it.
+        let fileRechecker = BotFileSourceRechecker(
+            locator: BotWorkspaceFileURLResolver(
+                workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot()))
+        let provenance = BotProvenanceService(
+            eventLog: store,
+            resolver: recordService,
+            rechecker: BotProvenanceFileRecheckAdapter(rechecker: fileRechecker))
+        await runtime.installProvenance(provenance)
+        let materialState = BotDecisionMaterialStateAdapter(provenance: provenance)
         let decisionContext = BotDecisionContextService(
             memoryForBot: { botID in await runtime.memory(for: botID) },
-            permissionRevision: permissionRevision)
+            permissionRevision: permissionRevision,
+            materialState: { lookup in await materialState.state(for: lookup) })
         await runtime.installDecisionContext(
             decisionContext, trace: materialTrace, permissionRevision: permissionRevision)
         // G-2 feedback: one center for the process. An unreadable Application
@@ -439,18 +450,6 @@ final class BotRuntimeComposition {
         }
         let contextSources = BotContextSourcesAssembly(
             dependencies: .init(eventLog: store))
-        // G-1 provenance: one read model for records/derivations/current status.
-        // The file rechecker is the only producer wired this round; web/context
-        // producers remain explicit NOT_RUN.
-        let fileRechecker = BotFileSourceRechecker(
-            locator: BotWorkspaceFileURLResolver(
-                workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot()))
-        let provenance = BotProvenanceService(
-            eventLog: store,
-            resolver: recordService,
-            rechecker: BotProvenanceFileRecheckAdapter(rechecker: fileRechecker))
-        await runtime.installProvenance(provenance)
-
         let handler = BotMCPHandler(runtime: runtime)
         let server = BotMCPHTTPServer(handler: handler)
         let url = try await server.start()

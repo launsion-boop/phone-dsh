@@ -45,6 +45,7 @@ public struct BotEventEnvelopeCodec: Sendable {
         "effect.reconciliation_required", "effect.cancel_requested", "effect.canceled", "runtime.started",
         "runtime.exited", "proactive.considered", "feedback.recorded", "ledger.usage_recorded", "watchdog.flagged",
         "verification.reported", "redaction.applied", "erasure",
+        "skill.changed",
     ]
 
     public static let ephemeralEventTypes: Set<String> = [
