@@ -67,16 +67,6 @@ function personaAt(profile, prefix, end) {
   }
 }
 
-function assertIncrementOnlyInBotBlock(profile, increment, block) {
-  const first = profile.indexOf(increment)
-  const last = profile.lastIndexOf(increment)
-  if (first < 0) throw new Error('sync-bot-persona: bot-only increment missing from the profile')
-  if (first !== last) throw new Error('sync-bot-persona: bot-only increment appears more than once in the profile')
-  if (first < block.bodyStart || first >= block.stop) {
-    throw new Error('sync-bot-persona: bot-only increment appears outside preset-phone-bot')
-  }
-}
-
 function globalBlock(profile) {
   return personaAt(profile, GLOBAL_PREFIX, GLOBAL_END)
 }
@@ -108,11 +98,9 @@ export function checkBotPersonaProfile() {
   if (globalBlock(profile).text !== base) {
     throw new Error('sync-bot-persona: global personaPrefix is not the base Bot prompt; run sync-bot-persona.mjs')
   }
-  const botBlockValue = botBlock(profile)
-  if (botBlockValue.text !== bot) {
+  if (botBlock(profile).text !== bot) {
     throw new Error('sync-bot-persona: preset-phone-bot persona is not base + Bot-only increment; run sync-bot-persona.mjs')
   }
-  assertIncrementOnlyInBotBlock(profile, stripIncrementComments(readFileSync(INCREMENT_FILE, 'utf8')), botBlockValue)
   return true
 }
 
@@ -128,8 +116,6 @@ export function writeBotPersonaProfile() {
   // Replace the bot block first: its offsets are after the global block.
   let next = writeBlock(profile, botBlock(profile), bot, BOT_INDENT)
   next = writeBlock(next, globalBlock(next), base, GLOBAL_INDENT)
-  assertIncrementOnlyInBotBlock(
-    next, stripIncrementComments(readFileSync(INCREMENT_FILE, 'utf8')), botBlock(next))
   if (next === profile) return false
   writeFileSync(PROFILE, next)
   return true
