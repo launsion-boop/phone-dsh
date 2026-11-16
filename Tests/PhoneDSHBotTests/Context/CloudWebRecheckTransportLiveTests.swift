@@ -32,6 +32,8 @@ final class CloudWebRecheckTransportLiveTests: XCTestCase {
             ? "http://127.0.0.1/secret"
             : "https://public.example/freshness-report"
         let identity = BotWebResourceIdentity(kind: .webURL, url: target, owner: "bot-a")
+        let token = self.token!
+        let baseURL = self.baseURL!
         let transport = CloudWebRecheckTransport(
             configuration: .init(baseURL: baseURL),
             tokenProvider: { token })
