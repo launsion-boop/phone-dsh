@@ -1099,6 +1099,10 @@ public actor BotMemoryMaintenanceController {
             // instead of silently skipping the review checks.
             var review: BotMemoryReview?
             if let rawReview = event.data["review"] {
+                // Fail closed on a known-shape failure (unknown enum value,
+                // wrong type, refs not an array). Unknown extra members stay
+                // ignored: that is the long-standing Codable compatibility
+                // rule for old data, not a security boundary.
                 guard let decoded = decode(BotMemoryReview.self, from: rawReview) else {
                     return false
                 }

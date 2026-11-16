@@ -644,7 +644,7 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
     /// token rule catches a unique marker copied into a conversation while a
     /// plain English line still needs the line/full-text match; short common
     /// words are never needles.
-    private static func erasureNeedles(in content: String) -> Set<String> {
+    static func erasureNeedles(in content: String) -> Set<String> {
         var result = Set<String>()
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.unicodeScalars.count >= 8 { result.insert(trimmed) }
@@ -657,6 +657,26 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             let value = String(token)
             guard value.unicodeScalars.count >= 8 else { continue }
             if value.contains("_") || value.contains(where: { $0.isNumber }) {
+                result.insert(value)
+            }
+        }
+        // A marker is often written inside a CJK sentence without ASCII
+        // whitespace or punctuation around it ("随机词：QUOKKA_AHA_9D2，…").
+        // Splitting only on whitespace/ASCII punctuation then yields just the
+        // composite token, so session lines that mention the bare marker
+        // (titles, the assistant reply) never match and survive erasure. Also
+        // extract marker-shaped runs from inside any token. Requiring a letter
+        // keeps timestamps/digit runs out of the needle set.
+        if let regex = try? NSRegularExpression(
+            pattern: "[A-Za-z0-9][A-Za-z0-9._-]{7,}") {
+            let text = content as NSString
+            for match in regex.matches(
+                in: content, range: NSRange(location: 0, length: text.length)) {
+                let value = text.substring(with: match.range)
+                guard value.contains(where: { $0.isLetter }),
+                      value.contains("_") || value.contains(where: { $0.isNumber }) else {
+                    continue
+                }
                 result.insert(value)
             }
         }

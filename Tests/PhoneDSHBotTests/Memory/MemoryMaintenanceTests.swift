@@ -170,6 +170,33 @@ final class MemoryMaintenanceTests: XCTestCase {
             extra: ["review": .object([
                 "state": .string("future-state"), "basis": .string("observation"),
             ])])
+        let unknownBasis = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/unknown-basis.md",
+            expected: 0, version: 1, scope: "agent",
+            extra: ["review": .object([
+                "state": .string("unverified"), "basis": .string("vibes"),
+            ])])
+        let refsNotAnArray = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/refs-string.md",
+            expected: 0, version: 1, scope: "agent",
+            extra: ["review": .object([
+                "state": .string("unverified"), "basis": .string("model-inference"),
+                "refs": .string("not-an-array"),
+            ])])
+        let tooManyRefs = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/too-many-refs.md",
+            expected: 0, version: 1, scope: "agent",
+            extra: ["review": .object([
+                "state": .string("verified"), "basis": .string("record-recheck"),
+                "refs": .array(Array(repeating: .string(evidence), count: 9)),
+            ])])
+        let longMethod = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/long-method.md",
+            expected: 0, version: 1, scope: "agent",
+            extra: ["review": .object([
+                "state": .string("unverified"), "basis": .string("model-inference"),
+                "method": .string(String(repeating: "a", count: 201)),
+            ])])
         let valid = makeMemoryEvent(
             type: "memory.document_written", path: "agent/notes/valid.md",
             expected: 0, version: 1, scope: "agent",
@@ -193,6 +220,34 @@ final class MemoryMaintenanceTests: XCTestCase {
         let validOK = await BotMemoryMaintenanceController.referencesResolve(
             [valid], botID: "main", sessionID: maintainerSession, reading: reader)
         XCTAssertTrue(validOK)
+
+        for (name, event) in [("unknown state", malformed),
+                              ("unknown basis", unknownBasis),
+                              ("refs not an array", refsNotAnArray),
+                              ("refs > 8", tooManyRefs),
+                              ("method > 200", longMethod)] {
+            let ok = await BotMemoryMaintenanceController.referencesResolve(
+                [event], botID: "main", sessionID: maintainerSession, reading: reader)
+            XCTAssertFalse(ok, "a persisted review with \(name) must fail the batch")
+        }
+    }
+
+    /// Unknown extra members keep the long-standing Codable compatibility rule
+    /// (ignored), which is NOT a security boundary. Only known-shape/enum
+    /// failures roll the batch back.
+    func testPersistedReviewExtraMemberIsIgnored() async throws {
+        let reader = FakeMaintenanceReader(
+            trust: .user, texts: [evidence: "用户：我每天早上八点起床。"])
+        let extraMember = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/extra-member.md",
+            expected: 0, version: 1, scope: "agent",
+            extra: ["review": .object([
+                "state": .string("unverified"), "basis": .string("model-inference"),
+                "confidence": .number(0.9),
+            ])])
+        let ok = await BotMemoryMaintenanceController.referencesResolve(
+            [extraMember], botID: "main", sessionID: maintainerSession, reading: reader)
+        XCTAssertTrue(ok, "an unknown extra member decodes by old Codable compatibility")
     }
 
     /// Q-10: `least-verified` now keys off the persisted review state.
