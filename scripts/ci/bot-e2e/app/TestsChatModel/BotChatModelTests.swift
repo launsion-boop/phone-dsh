@@ -62,9 +62,11 @@ final class BotChatModelTests: XCTestCase {
     // MARK: - Activity line visibility across a turn
 
     /// The page's scroll target: the newest pending approval / question card
-    /// wins over trailing live text. #126 mounts the turn's streamed text after
-    /// the durable rows, so a tail scroll covered the card that was waiting for
-    /// the person (final-2: DB had approval.requested, UI showed no card).
+    /// wins even when the turn's narration streams after it. An approval that
+    /// prompted the explanation is created before the text, so the transcript
+    /// keeps it above the live text; a tail scroll would cover the card that
+    /// was waiting for the person (final-2: DB had approval.requested, UI
+    /// showed no card).
     func testNewestActionableCardWinsOverTrailingLiveText() {
         let questionBody = BotUIBody(type: "widget", values: [
             "cardType": .string("question"),
@@ -92,7 +94,7 @@ final class BotChatModelTests: XCTestCase {
 
         var decided = approval
         decided.body.values["status"] = .string("allowed")
-        decided.updatedSeq = 2
+        decided.updatedSeq = 4
         model.apply(BotUIRowBatch(rows: [decided], deletes: [], cursor: 2, reset: false))
         XCTAssertNil(model.newestActionableCard,
                      "a decided approval is no longer an actionable scroll target")
@@ -367,6 +369,57 @@ final class BotChatModelTests: XCTestCase {
         XCTAssertEqual(model.needsAttentionCount, 0)
     }
 
+    // MARK: - Live text position
+
+    /// `show_next_steps`/`ask_user` are closing actions: their card arrives
+    /// after the answer text. It must stay below that text. Mounting every
+    /// durable row before the live turn put the card above the answer, and the
+    /// durable answer row then moved it below — the report's card-first jump
+    /// followed by the text reappearing above it.
+    func testClosingCardAfterLiveTextStaysBelowIt() {
+        let model = BotChatModel(context: context)
+        model.receive(liveEvent("turn/start", turn: 1, seq: 1))
+        model.receive(liveEvent("assistant/message", turn: 1, seq: 2, data: [
+            "message": .object([
+                "role": .string("assistant"),
+                "content": .array([
+                    .object(["type": .string("text"), "text": .string("结论已经写好。")]),
+                ]),
+            ]),
+        ]))
+        var card = pendingStepsRow(id: "closing-steps", seq: 3)
+        card.createdAt = Int(BotLiveFishProjection.now) + 5_000
+        model.apply(BotUIRowBatch(rows: [card], deletes: [], cursor: 1, reset: false))
+
+        let sections = model.transcriptSections(from: model.displayRows)
+        XCTAssertEqual(sections.leading.map(\.id), [])
+        XCTAssertEqual(sections.trailing.map(\.id), ["closing-steps"],
+                       "a card presented after the live answer must render below it")
+        XCTAssertEqual(model.newestActionableCard?.id, "closing-steps",
+                       "the scroll target is still the card, now the transcript's last row")
+    }
+
+    /// A card presented before the explanation (the approval that prompted it)
+    /// stays above the live text; the split must not move it below.
+    func testApprovalBeforeLiveTextStaysAboveIt() {
+        var approval = approvalRow(id: "approval-before-text")
+        approval.createdAt = Int(BotLiveFishProjection.now) - 5_000
+        let model = BotChatModel(rows: [approval], context: context)
+        model.receive(liveEvent("turn/start", turn: 1, seq: 1))
+        model.receive(liveEvent("assistant/message", turn: 1, seq: 2, data: [
+            "message": .object([
+                "role": .string("assistant"),
+                "content": .array([
+                    .object(["type": .string("text"), "text": .string("先说明会删什么。")]),
+                ]),
+            ]),
+        ]))
+
+        let sections = model.transcriptSections(from: model.displayRows)
+        XCTAssertEqual(sections.leading.map(\.id), ["approval-before-text"])
+        XCTAssertEqual(sections.trailing.map(\.id), [])
+    }
+
     // MARK: - Helpers
 
     private var context: BotRuntimeContext {
@@ -444,6 +497,18 @@ final class BotChatModelTests: XCTestCase {
             "cardType": "steps",
             "status": "answered",
             "answeredOptionID": "review",
+            "steps": [
+                ["id": "review", "label": "查看验收结果"],
+                ["id": "pr", "label": "创建 Pull Request"],
+            ],
+        ]))
+    }
+
+    /// An unanswered suggestion card: the closing action this test places
+    /// after the live answer.
+    private func pendingStepsRow(id: String, seq: Int) -> BotUIRow {
+        BotUIRow.fixture(id: id, seq: seq, body: BotUIBody(type: "widget", values: [
+            "cardType": "steps",
             "steps": [
                 ["id": "review", "label": "查看验收结果"],
                 ["id": "pr", "label": "创建 Pull Request"],

@@ -89,6 +89,21 @@ final class BotCaptureUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["不应出现在下一步卡片中的说明标题"].exists)
     }
 
+    /// The reported bug: the Bot writes the answer, then presents a suggestion
+    /// card. The card used to mount above the still-live answer and the page
+    /// jumped to it; when the durable answer row landed, the text reappeared
+    /// above the card. The card must stay below the answer from the start.
+    func testClosingStepsCardStaysBelowTheLiveAnswer() throws {
+        launch("runningTextThenSteps")
+        let answer = app.descendants(matching: .any)
+            .matching(identifier: "bot.live.answer.text").firstMatch
+        let option = app.buttons["bot.choice.option.review"]
+        XCTAssertTrue(answer.waitForExistence(timeout: 3))
+        XCTAssertTrue(option.waitForExistence(timeout: 3))
+        XCTAssertLessThan(answer.frame.maxY, option.frame.minY,
+                          "the closing card must render below the answer, not above it")
+    }
+
     func testChecklistToggleAndSendBack() throws {
         launch("checklist")
         app.buttons["bot.checklist.item.c2"].tap()

@@ -353,6 +353,16 @@ Input: `rows`, `live: {turn: int|null, ended: bool}|null`, `lineSuppressed`, `di
   automation → `automation-row`; notice → `notice`; unrenderable → `hidden`.
 - `displayRows` = `visibleRows`, except that while a live turn `t` is non-nil it removes assistant
   **text** rows whose `body.turn == t` (the live frames already show that answer; `:257-261`).
+- **Live text position**: while the live turn is non-nil, the view draws its answer text between
+  the durable rows created before the turn's first answer text and the rows created after it
+  (`createdAt` vs `BotLiveTurn.textStartedAt`). A closing `show_next_steps`/`ask_user` card is
+  created after the answer, so it stays below the live text; an approval that prompted the
+  explanation was created before it, so it stays above. The cutoff is stamped once per turn, so a
+  later delta cannot move an already placed card. The page draws the leading rows, the live
+  text, then the trailing rows (`transcriptSections` is the single split rule); when the durable
+  answer row arrives it is inserted before the card in the leading block, so the card's relative
+  order does not change. A card presented after the answer must not mount above it and jump below
+  it on settle.
 - `copyText` = first non-empty `body.text`, else `title|question|prompt|name|fileName|path|summary`,
   else the row id (`:752-755`).
 

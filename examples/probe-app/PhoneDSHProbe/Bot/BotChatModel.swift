@@ -1621,6 +1621,23 @@ final class BotChatModel: ObservableObject {
     private var livePump: BotLivePump?
     private let watchWake = BotLoopWakeup()
     private let liveWake = BotLoopWakeup()
+
+    /// Splits durable rows around the live turn's answer text.
+    ///
+    /// The transcript used to mount the whole live turn after every durable
+    /// row. A `show_next_steps`/`ask_user` card is a closing action, so its row
+    /// arrives *after* the answer: that put the card above the still-live text,
+    /// and the durable answer row later moved it below. The page jumped to the
+    /// card, then back up to the answer. Leading rows existed before the first
+    /// text (an approval that prompted the explanation); trailing rows were
+    /// created after it, so the live text stays between them and the order does
+    /// not change when the live turn hands over to the durable answer.
+    func transcriptSections(from rows: [BotUIRow]) -> (leading: [BotUIRow], trailing: [BotUIRow]) {
+        guard let cutoff = live?.textStartedAt, cutoff > 0,
+              let split = rows.firstIndex(where: { $0.createdAt >= cutoff })
+        else { return (rows, []) }
+        return (Array(rows[..<split]), Array(rows[split...]))
+    }
 }
 
 // MARK: - Realtime supervision plumbing

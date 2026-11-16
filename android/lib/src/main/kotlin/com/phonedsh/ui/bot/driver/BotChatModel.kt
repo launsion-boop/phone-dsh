@@ -92,6 +92,14 @@ public data class BotLiveChatTurn(
     public val toolNames: List<String> = emptyList(),
     public val ended: Boolean = false,
     public val pollsSinceEnd: Int = 0,
+    /**
+     * When this turn's first answer text appeared in the durable event clock
+     * (`BotRow.createdAt`). Durable rows the turn created after the answer — a
+     * closing `show_next_steps`/`ask_user` card — render below the live text;
+     * rows created before it (the approval that prompted the explanation)
+     * stay above. Filled from the first committed `assistant/message` event.
+     */
+    public val textStartedAt: Long? = null,
 ) {
     /** Applies one DSH event to the display-order projection. */
     public fun apply(event: JsonObject): BotLiveChatTurn {
@@ -116,7 +124,16 @@ public data class BotLiveChatTurn(
                     }
                 }.joinToString("")
                 if (text.trim().isNotEmpty()) {
-                    next = next.copy(segments = segments + BotLiveSegment.Text(text))
+                    // The durable event clock is authoritative and is the same
+                    // clock as `BotRow.createdAt`; a later message must not
+                    // move a card that is already placed.
+                    val firstText = next.segments.none { it is BotLiveSegment.Text }
+                    if (firstText) {
+                        JsonSupport.long(event["time"])?.let { time ->
+                            next = next.copy(textStartedAt = time)
+                        }
+                    }
+                    next = next.copy(segments = next.segments + BotLiveSegment.Text(text))
                 }
                 next = next.copy(buffer = "")
             }
@@ -165,6 +182,13 @@ public data class BotChatSnapshot(
     public val appearance: BotFishAppearance,
     /** The transcript rows after `visibleRows`/`displayRows`, in order. */
     public val rows: List<BotRow>,
+    /**
+     * How many [rows] precede the live turn's text. `rows.size` keeps the live
+     * text after every row (no answer yet). A closing question/steps card has
+     * a later `createdAt`, so it renders below the answer instead of jumping
+     * above it while the turn is live.
+     */
+    public val liveInsertIndex: Int = rows.size,
     public val settlements: Map<String, BotCardSettlement>,
     public val mutedCardIDs: Set<String>,
     public val checklistProgress: Map<String, BotChecklistProgress>,
@@ -744,6 +768,7 @@ public class BotChatModel(
             isMainBot = isMainBot,
             appearance = appearance,
             rows = displayRows,
+            liveInsertIndex = BotUiStateDerivation.liveInsertIndex(displayRows, live?.textStartedAt),
             settlements = derived.settlements.associate { it.rowID to it.settlement },
             mutedCardIDs = derived.mutedCardIDs.toSet(),
             checklistProgress = checklist,

@@ -123,6 +123,14 @@ struct BotLiveTurn: Equatable {
     var segments: [Segment] = []
     /// Text of the model attempt that is streaming now.
     var buffer = ""
+    /// When this turn's first answer text appeared, in the durable event clock
+    /// (milliseconds). The transcript uses it to keep durable rows the turn
+    /// created *after* the answer — a closing `show_next_steps`/`ask_user`
+    /// card — below the live text instead of above it. Rows created before the
+    /// text (an approval that prompted the explanation) stay above it. The
+    /// first committed text event supplies the stamp; later text cannot move
+    /// an already placed card.
+    var textStartedAt: Int?
     var records: [JSONValue] = []
     var tools: [ChatItem] = []
     var ended = false
@@ -163,6 +171,18 @@ struct BotLiveTurn: Equatable {
                 block["type"]?.stringValue == "text" ? block["text"]?.stringValue : nil
             }.joined()
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // The durable event clock is authoritative: a card presented
+                // after this message has a later `createdAt`, even if the
+                // phone stamped the first delta a moment earlier. Only the
+                // first text segment sets the cutoff; a later message must not
+                // move a card that is already placed.
+                let firstText = !segments.contains { segment in
+                    if case .text = segment { return true }
+                    return false
+                }
+                if firstText, let time = event["time"]?.numberValue {
+                    textStartedAt = Int(time.rounded())
+                }
                 segments.append(.text(text))
             }
             buffer = ""

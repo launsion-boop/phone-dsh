@@ -95,6 +95,7 @@ targets:
       - path: TestsChatModel/BotChatModelTestShims.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotChatModel.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotUIModels.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotApprovalOffer.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotLiveTurn.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimePresentation.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotActivityPhrases.swift
@@ -111,10 +112,10 @@ targets:
         GENERATE_INFOPLIST_FILE: true
         PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.bot-e2e.chat-model-tests
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
-  # The original BotChatModelTests target never compiled (BotChatModel pulls
-  # the page layer, which is not part of this bundle). The activity-line tests
-  # only need the presentation projection and the phrase/timing table, so they
-  # get their own target instead of widening that bundle.
+  # BotChatModelTests compiles the real model plus its approval-offer helper;
+  # the page view layer is not part of this bundle. BotActivityLineTests only
+  # needs the presentation projection and the phrase/timing table, so it stays
+  # a separate target.
   BotActivityLineTests:
     type: bundle.unit-test
     platform: iOS
