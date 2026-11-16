@@ -18,9 +18,10 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
         let evidence: [String]
         let trust: String?
         let source: BotMemorySource?
+        let review: BotMemoryReview?
 
         enum CodingKeys: String, CodingKey {
-            case path, scope, version, at, reason, author, evidence, trust, source
+            case path, scope, version, at, reason, author, evidence, trust, source, review
             case expectedVersion = "expected_version"
         }
     }
@@ -36,9 +37,10 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
         let evidence: [String]
         let trust: String?
         let source: BotMemorySource?
+        let review: BotMemoryReview?
 
         enum CodingKeys: String, CodingKey {
-            case path, scope, content, version, author, evidence, trust, source
+            case path, scope, content, version, author, evidence, trust, source, review
             case expectedVersion = "expected_version"
             case updatedAtMS = "updated_at_ms"
         }
@@ -47,7 +49,7 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             BotMemoryDocument(
                 path: path, scope: scope, content: content, version: version,
                 updatedAtMS: updatedAtMS, author: author, evidence: evidence,
-                trust: trust, source: source)
+                trust: trust, source: source, review: review)
         }
     }
 
@@ -165,6 +167,13 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             var writtenContent: String?
             var replacedCount: Int?
             var targetPath = request.path
+            // `restore` (and the maintainer rollback that uses it) inherits the
+            // restored version's metadata; the request cannot inject or clear
+            // it (spec/bot/v2 §1.5.1).
+            var evidence = request.evidence
+            var trust = request.trust
+            var source = request.source
+            var review = request.review
             switch request.action {
             case .write:
                 writtenContent = request.content ?? ""
@@ -186,6 +195,10 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                     return .versionNotFound(version: version)
                 }
                 writtenContent = restored.content
+                evidence = restored.evidence
+                trust = restored.trust.flatMap(BotRecordTrust.init(rawValue:))
+                source = restored.source
+                review = restored.review
             case .move:
                 guard let current else { return .notFound(path: request.path) }
                 guard let destination = request.to else { return .notFound(path: request.path) }
@@ -205,7 +218,8 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                     updatedAtMS: request.atMS,
                     author: request.author,
                     evidence: request.evidence,
-                    trust: request.trust?.rawValue)
+                    trust: request.trust?.rawValue,
+                    review: request.review)
                 let event = try deletionEvent(
                     deletion, expectedVersion: request.expectedVersion,
                     data: deletionData(deletion, expectedVersion: request.expectedVersion),
@@ -231,9 +245,15 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 version: version,
                 updatedAtMS: request.atMS,
                 author: request.author,
-                evidence: request.evidence,
-                trust: request.trust?.rawValue ?? (scope == .user ? "user" : "assistant"),
-                source: request.source)
+                evidence: evidence,
+                // `restore` inherits, so a restored version that never carried
+                // a trust must stay missing instead of being assigned a
+                // default. Ordinary writes keep the existing fallback.
+                trust: trust?.rawValue
+                    ?? (request.action == .restore ? nil
+                        : (scope == .user ? "user" : "assistant")),
+                source: source,
+                review: review)
             let targetExpected = snapshot.live[targetPath]?.version ?? 0
             let writeEvent = try writtenEvent(
                 document, expectedVersion: targetExpected,
@@ -254,7 +274,8 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                     updatedAtMS: request.atMS,
                     author: request.author,
                     evidence: request.evidence,
-                    trust: request.trust?.rawValue)
+                    trust: request.trust?.rawValue,
+                    review: nil)
                 let deleteEvent = try deletionEvent(
                     deletion,
                     expectedVersion: sourceVersion,
@@ -779,7 +800,9 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             updatedAtMS: document.updatedAtMS,
             author: document.author,
             evidence: document.evidence,
-            trust: document.trust)
+            trust: document.trust,
+            source: document.source,
+            review: document.review)
         state.latestVersion[document.path] = document.version
         _ = eventID
     }
@@ -807,7 +830,9 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             updatedAtMS: data.at,
             author: data.author,
             evidence: data.evidence,
-            trust: data.trust)
+            trust: data.trust,
+            source: data.source,
+            review: data.review)
         state.versions[data.path, default: [:]][data.version] = version
         state.live.removeValue(forKey: data.path)
         state.latestVersion[data.path] = data.version
@@ -836,7 +861,8 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             author: document.author,
             evidence: document.evidence,
             trust: document.trust,
-            source: document.source)
+            source: document.source,
+            review: document.review)
         return try makeEvent(
             type: "memory.document_written",
             eventID: Self.stableEventID(Self.writtenEventPrefix, [
@@ -883,7 +909,8 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             author: version.author,
             evidence: version.evidence,
             trust: version.trust,
-            source: nil)
+            source: nil,
+            review: version.review)
     }
 
     private func makeEvent(

@@ -59,6 +59,9 @@ public struct BotMemoryWriteRequest: Sendable {
     public var expectedVersion: Int
     public var restoreVersion: Int?
     public var evidence: [String]
+    /// Optional writer-recorded check state (spec/bot/v2 §1.5.1). `restore`
+    /// ignores it and inherits the restored version's review instead.
+    public var review: BotMemoryReview?
 
     public init(
         action: BotMemoryAction = .write,
@@ -69,7 +72,8 @@ public struct BotMemoryWriteRequest: Sendable {
         to: String? = nil,
         expectedVersion: Int,
         restoreVersion: Int? = nil,
-        evidence: [String] = []
+        evidence: [String] = [],
+        review: BotMemoryReview? = nil
     ) {
         self.action = action
         self.path = path
@@ -80,6 +84,7 @@ public struct BotMemoryWriteRequest: Sendable {
         self.expectedVersion = expectedVersion
         self.restoreVersion = restoreVersion
         self.evidence = evidence
+        self.review = review
     }
 }
 
@@ -266,6 +271,12 @@ public actor BotMemory {
             authorKind: context.authorKind, hostRollback: context.isHostRollback) {
             return boundaryFailure(request, code: boundary)
         }
+        if request.action != .restore,
+           let review = request.review,
+           let error = BotMemoryAuthorizer.reviewError(review) {
+            return failure(request, code: error,
+                           error: "这条件记忆的 review 不成立：verified 需要非 model-inference 的依据和至少一条可解析引用，disputed 需要给出冲突双方，引用必须规范且不超过 8 条。")
+        }
         let evidence = request.evidence.isEmpty ? nil : Array(request.evidence.prefix(8))
         let storeRequest = BotMemoryStoreWriteRequest(
             action: request.action,
@@ -280,6 +291,8 @@ public actor BotMemory {
             evidence: evidence ?? [],
             trust: context.trust,
             source: context.source,
+            // `restore` inherits from the restored version inside the store.
+            review: request.action == .restore ? nil : request.review,
             atMS: now(),
             correlationID: context.batchID.map { "memory-maintenance:\($0)" })
         let outcome = try await store.write(storeRequest)
@@ -467,7 +480,8 @@ public actor BotMemory {
             return .document(BotMemoryDocumentVersion(
                 path: document.path, scope: document.scope, version: document.version,
                 content: document.content, updatedAtMS: document.updatedAtMS,
-                author: document.author, evidence: document.evidence, trust: document.trust))
+                author: document.author, evidence: document.evidence, trust: document.trust,
+                source: document.source, review: document.review))
         }
         let documents = try await store.documents(scope: scope)
         let entries = Self.directoryEntries(documents: documents, path: path)

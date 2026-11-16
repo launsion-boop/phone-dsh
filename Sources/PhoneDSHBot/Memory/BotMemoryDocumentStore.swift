@@ -15,6 +15,7 @@ public struct BotMemoryStoreWriteRequest: Sendable, Equatable {
     public var evidence: [String]
     public var trust: BotRecordTrust?
     public var source: BotMemorySource?
+    public var review: BotMemoryReview?
     public var atMS: Int64
     /// Non-nil only for a maintenance batch: all writes of one run share
     /// `memory-maintenance:<batch_id>` so the host can collect and roll back
@@ -34,6 +35,7 @@ public struct BotMemoryStoreWriteRequest: Sendable, Equatable {
         evidence: [String] = [],
         trust: BotRecordTrust? = nil,
         source: BotMemorySource? = nil,
+        review: BotMemoryReview? = nil,
         atMS: Int64,
         correlationID: String? = nil
     ) {
@@ -49,6 +51,7 @@ public struct BotMemoryStoreWriteRequest: Sendable, Equatable {
         self.evidence = evidence
         self.trust = trust
         self.source = source
+        self.review = review
         self.atMS = atMS
         self.correlationID = correlationID
     }

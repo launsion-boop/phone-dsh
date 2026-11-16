@@ -1527,6 +1527,21 @@ public actor BotMCPRuntime {
             return .failure("memory-evidence-invalid",
                             "每条依据都必须指向这个 Bot 已有的一条 record:// 记录，或者是真实用户回合里的 current-user-turn。")
         }
+        let review: BotMemoryReview?
+        if action == .restore {
+            // `restore` inherits the restored version's metadata; a review
+            // supplied by the model is ignored rather than injected or cleared.
+            review = nil
+        } else {
+            do {
+                review = try await validatedReview(args["review"], call: call)
+            } catch let rejected as BotMemoryReviewRejected {
+                return .failure("memory-review-invalid", rejected.message)
+            } catch {
+                return .failure("memory-review-invalid",
+                                "review 必须给出可解析的真实记录：verified 需要至少一条引用，disputed 需要冲突双方。")
+            }
+        }
         let sourceKind = memorySourceKind(for: call)
         guard let authorKind = call.principal.kind.memoryAuthorKind else {
             return .failure("permission_denied", "验证会话不能写记忆")
@@ -1572,7 +1587,8 @@ public actor BotMCPRuntime {
             to: action == .move ? string(args["to"]) : nil,
             expectedVersion: expectedVersion,
             restoreVersion: restoreVersion,
-            evidence: evidence.refs)
+            evidence: evidence.refs,
+            review: review)
         let context = BotMemoryWriteContext(
             botID: call.principal.botId,
             sessionID: call.principal.sessionId,
@@ -1683,6 +1699,134 @@ public actor BotMCPRuntime {
         return reference
     }
 
+    private struct BotMemoryReviewRejected: Error {
+        var message: String
+    }
+
+    /// Parses and host-validates the optional `review` member (spec/bot/v2
+    /// §1.5.1). Shape, state/basis coherence and reference resolution all fail
+    /// closed with `memory-review-invalid`; the host never derives `verified`.
+    private func validatedReview(_ raw: BotJSONValue?,
+                                 call: BotResolvedToolCall) async throws -> BotMemoryReview? {
+        guard let raw else { return nil }
+        if case .null = raw { return nil }
+        guard case let .object(object) = raw else {
+            throw BotMemoryReviewRejected(message: "review 必须是一个对象")
+        }
+        let allowed: Set<String> = ["state", "basis", "method", "at_ms", "refs"]
+        guard object.keys.allSatisfy({ allowed.contains($0) }) else {
+            throw BotMemoryReviewRejected(message: "review 含有未定义的成员")
+        }
+        guard let stateText = object["state"]?.stringValue,
+              let state = BotMemoryReviewState(rawValue: stateText) else {
+            throw BotMemoryReviewRejected(
+                message: "review.state 必须是 verified、unverified 或 disputed")
+        }
+        guard let basisText = object["basis"]?.stringValue,
+              let basis = BotMemoryReviewBasis(rawValue: basisText) else {
+            throw BotMemoryReviewRejected(
+                message: "review.basis 必须是 user-statement、observation、record-recheck 或 model-inference")
+        }
+        var method: String?
+        if let value = object["method"] {
+            guard let text = value.stringValue, !text.isEmpty,
+                  text.unicodeScalars.count <= BotMemoryAuthorizer.maximumReviewMethodScalars else {
+                throw BotMemoryReviewRejected(message: "review.method 必须是不超过 200 字的非空文本")
+            }
+            method = text
+        }
+        var atMS: Int64?
+        if let value = object["at_ms"] {
+            guard let number = value.numberValue, number >= 0,
+                  number <= Double(BotRecordReference.maximumDecimal) else {
+                throw BotMemoryReviewRejected(message: "review.at_ms 必须是不小于 0 的毫秒时间")
+            }
+            atMS = Int64(number)
+        }
+        var refs: [String] = []
+        if let value = object["refs"] {
+            guard case let .array(items) = value,
+                  items.count <= BotMemoryAuthorizer.maximumReviewRefs else {
+                throw BotMemoryReviewRejected(message: "review.refs 最多 8 条")
+            }
+            for item in items {
+                guard let text = item.stringValue else {
+                    throw BotMemoryReviewRejected(message: "review.refs 里每一项都必须是字符串")
+                }
+                if text == BotMemoryAuthorizer.currentUserTurnEvidence {
+                    refs.append(try await resolveCurrentUserTurnEvidence(call: call))
+                    continue
+                }
+                guard let parsed = BotRecordReference.parse(text) else {
+                    throw BotMemoryReviewRejected(message: "review.refs 里有非法的 record:// 引用")
+                }
+                refs.append(parsed.canonical)
+            }
+        }
+        let review = BotMemoryReview(state: state, basis: basis, method: method,
+                                     atMS: atMS, refs: refs)
+        if BotMemoryAuthorizer.reviewError(review) != nil {
+            throw BotMemoryReviewRejected(
+                message: "verified 需要非 model-inference 的依据和至少一条引用；disputed 需要给出冲突双方")
+        }
+        if !refs.isEmpty {
+            guard let resolver = recordEvidence else {
+                throw BotMemoryReviewRejected(message: "当前部署无法核对 review.refs")
+            }
+            let snapshot = try await resolver.evidenceSnapshot(
+                for: refs, callerBotID: call.principal.botId,
+                callerSessionID: call.principal.sessionId)
+            for ref in refs {
+                guard let point = snapshot.point(for: ref),
+                      point.resolved, !point.erased else {
+                    throw BotMemoryReviewRejected(
+                        message: "review.refs 里有不存在的、不属于本 Bot 或已被抹除的记录")
+                }
+            }
+        }
+        return review
+    }
+
+    /// Host-derived per-evidence observation time for one read/recall call.
+    /// One batched resolve for the whole call; never persisted. A reference
+    /// that cannot resolve (missing, foreign, erased) reports null.
+    private func evidenceStatuses(
+        for references: [String], call: BotResolvedToolCall
+    ) async -> [String: BotMemoryEvidenceStatus] {
+        guard !references.isEmpty else { return [:] }
+        let canonical = references.map { BotRecordReference.canonicalize($0) ?? $0 }
+        var snapshot: BotRecordEvidenceSnapshot?
+        if let resolver = recordEvidence {
+            snapshot = try? await resolver.evidenceSnapshot(
+                for: canonical, callerBotID: call.principal.botId,
+                callerSessionID: call.principal.sessionId)
+        }
+        var statuses: [String: BotMemoryEvidenceStatus] = [:]
+        for ref in canonical where statuses[ref] == nil {
+            let point = snapshot?.point(for: ref)
+            let observed: Int64?
+            if let point, point.resolved, !point.erased {
+                observed = point.observedAtMS
+            } else {
+                observed = nil
+            }
+            statuses[ref] = BotMemoryEvidenceStatus(
+                ref: ref, observedAtMS: observed, sourceVersion: nil)
+        }
+        return statuses
+    }
+
+    private func evidenceStatusValue(
+        _ statuses: [String: BotMemoryEvidenceStatus], for refs: [String]
+    ) throws -> BotJSONValue {
+        .array(try refs.map { raw in
+            let canonical = BotRecordReference.canonicalize(raw) ?? raw
+            let status = statuses[canonical] ?? BotMemoryEvidenceStatus(
+                ref: canonical, observedAtMS: nil, sourceVersion: nil)
+            return try encode(status)
+        })
+    }
+
     private func readMemory(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
         guard case .object(let args) = arguments else { throw BotMCPError.invalidRequest("arguments must be an object") }
         guard let path = string(args["path"]), !path.isEmpty else {
@@ -1704,6 +1848,10 @@ public actor BotMCPRuntime {
                 "evidence": .array(document.evidence.map(BotJSONValue.string)),
             ]
             if let trust = document.trust { output["trust"] = .string(trust) }
+            if let review = document.review { output["review"] = try encode(review) }
+            let statuses = await evidenceStatuses(for: document.evidence, call: call)
+            output["evidence_status"] = try evidenceStatusValue(
+                statuses, for: document.evidence)
             if document.deleted {
                 output["deleted"] = .bool(true)
                 output["deletion_reason"] = .string(document.deletionReason ?? "forget")
@@ -1763,9 +1911,16 @@ public actor BotMCPRuntime {
                 "memory_unavailable",
                 "记忆暂时读不出来，请稍后重试。")
         }
+        let statuses = await evidenceStatuses(
+            for: page.hits.flatMap(\.evidence), call: call)
+        let encodedHits = try page.hits.map { hit -> BotJSONValue in
+            var object = (try encode(hit)).objectValue ?? [:]
+            object["evidence_status"] = try evidenceStatusValue(statuses, for: hit.evidence)
+            return .object(object)
+        }
         return .success(.object([
             "ok": .bool(true),
-            "hits": .array(try page.hits.map { try encode($0) }),
+            "hits": .array(encodedHits),
             "count": .number(Double(page.hits.count)),
             "total": .number(Double(page.total)),
             "truncated": .bool(page.total > page.hits.count),

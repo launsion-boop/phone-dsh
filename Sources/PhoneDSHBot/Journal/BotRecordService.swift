@@ -20,6 +20,43 @@ public struct BotRecordEvidence: Sendable, Equatable {
     }
 }
 
+/// One reference's host-observed state, used by the read/recall
+/// `evidence_status` view (spec/bot/v2 §1.5.1). Never persisted.
+public struct BotRecordEvidencePoint: Sendable, Equatable {
+    public let ref: String
+    /// The record's own timestamp. `nil` when it does not resolve, was erased,
+    /// or carries no usable time.
+    public let observedAtMS: Int64?
+    public let recordType: String?
+    public let trust: BotRecordTrust?
+    public let resolved: Bool
+    public let erased: Bool
+
+    public init(ref: String, observedAtMS: Int64?, recordType: String?,
+                trust: BotRecordTrust?, resolved: Bool, erased: Bool = false) {
+        self.ref = ref
+        self.observedAtMS = observedAtMS
+        self.recordType = recordType
+        self.trust = trust
+        self.resolved = resolved
+        self.erased = erased
+    }
+}
+
+/// One batched resolve result for a read/recall call: all references are
+/// resolved from a single event-log scan and one session-log read per session.
+public struct BotRecordEvidenceSnapshot: Sendable, Equatable {
+    public let points: [String: BotRecordEvidencePoint]
+
+    public init(points: [String: BotRecordEvidencePoint]) {
+        self.points = points
+    }
+
+    public func point(for reference: String) -> BotRecordEvidencePoint? {
+        points[reference] ?? BotRecordReference.canonicalize(reference).flatMap { points[$0] }
+    }
+}
+
 public enum BotRecordServiceError: Error, Sendable, Equatable {
     case unclaimedSession
     case sessionOutOfScope
@@ -36,6 +73,38 @@ public enum BotRecordServiceError: Error, Sendable, Equatable {
 public protocol BotRecordEvidenceResolving: Sendable {
     func resolveEvidence(_ references: [String], callerBotID: String,
                          callerSessionID: String) async throws -> BotRecordEvidence
+    /// One batched resolve per read/recall call (spec/bot/v2 §1.5.1).
+    func evidenceSnapshot(for references: [String], callerBotID: String,
+                          callerSessionID: String) async throws -> BotRecordEvidenceSnapshot
+}
+
+public extension BotRecordEvidenceResolving {
+    /// Deterministic fallback for simple test doubles: resolve each reference
+    /// on its own. `BotRecordService` overrides it with one event-log scan.
+    func evidenceSnapshot(for references: [String], callerBotID: String,
+                          callerSessionID: String) async throws -> BotRecordEvidenceSnapshot {
+        var points: [String: BotRecordEvidencePoint] = [:]
+        for raw in references {
+            guard let canonical = BotRecordReference.canonicalize(raw),
+                  points[canonical] == nil else { continue }
+            do {
+                let evidence = try await resolveEvidence(
+                    [canonical], callerBotID: callerBotID, callerSessionID: callerSessionID)
+                points[canonical] = BotRecordEvidencePoint(
+                    ref: canonical, observedAtMS: nil, recordType: nil,
+                    trust: evidence.trust, resolved: true)
+            } catch BotRecordServiceError.erasedRecord {
+                points[canonical] = BotRecordEvidencePoint(
+                    ref: canonical, observedAtMS: nil, recordType: nil,
+                    trust: nil, resolved: false, erased: true)
+            } catch {
+                points[canonical] = BotRecordEvidencePoint(
+                    ref: canonical, observedAtMS: nil, recordType: nil,
+                    trust: nil, resolved: false)
+            }
+        }
+        return BotRecordEvidenceSnapshot(points: points)
+    }
 }
 
 public struct BotRecordCommandOutput: Sendable, Equatable {
@@ -58,6 +127,9 @@ public actor BotRecordService: BotRecordEvidenceResolving {
     public static let maximumAround = 20
     public static let maximumQueryScalars = 200
     public static let maximumEvidence = 8
+    /// 50 recall hits × 8 evidence refs is the frozen upper bound; the batch is
+    /// counted over distinct canonical references.
+    public static let maximumBatchEvidence = 512
     public static let maximumRawBytes = 16 * 1024
     public static let maximumOutputBytes = 256 * 1024
 
@@ -429,42 +501,120 @@ public actor BotRecordService: BotRecordEvidenceResolving {
         guard references.count <= Self.maximumEvidence else {
             throw BotRecordServiceError.invalidArguments
         }
-        let caller = try await principal(for: callerSessionID, botID: callerBotID)
-        let events = try await allEvents()
-        let owned = ownedSessions(botID: caller.botId, callerSessionID: callerSessionID, events: events)
-        let calls = toolCalls(events)
-        var trust = BotRecordTrust.assistant
         var canonical: [String] = []
         for raw in references {
             guard let reference = BotRecordReference.parse(raw) else {
                 throw BotRecordServiceError.invalidReference
             }
             canonical.append(reference.canonical)
-            switch reference {
-            case let .session(sessionID, seq):
-                guard owned.contains(sessionID),
-                      let lines = try? sessionLines(sessionID: sessionID),
-                      let line = lines.first(where: { $0.seq == seq }) else {
-                    throw BotRecordServiceError.unknownRecord
-                }
-                guard !line.erased else { throw BotRecordServiceError.erasedRecord }
-                if let inferred = inferredTrust(for: line, sessionID: sessionID, calls: calls) {
-                    trust = merge(trust, inferred)
-                }
-            case let .event(commitSeq):
-                guard let record = events.first(where: { $0.event.commitSeq == commitSeq }),
-                      record.event.principal.botId == caller.botId else {
-                    throw BotRecordServiceError.unknownRecord
-                }
-                guard !record.event.isErasedPayload else {
-                    throw BotRecordServiceError.erasedRecord
-                }
-                if let inferred = inferredTrust(for: record.event, calls: calls) {
-                    trust = merge(trust, inferred)
-                }
+        }
+        let snapshot = try await evidenceSnapshot(
+            for: canonical, callerBotID: callerBotID, callerSessionID: callerSessionID)
+        var trust = BotRecordTrust.assistant
+        for ref in canonical {
+            guard let point = snapshot.points[ref] else {
+                throw BotRecordServiceError.unknownRecord
+            }
+            if point.erased { throw BotRecordServiceError.erasedRecord }
+            // Existence is the only hard requirement. A record whose trust
+            // cannot be inferred keeps the pre-existing `assistant` aggregate;
+            // it must not turn a formerly legal reference into an error.
+            guard point.resolved else {
+                throw BotRecordServiceError.unknownRecord
+            }
+            if let pointTrust = point.trust {
+                trust = merge(trust, pointTrust)
             }
         }
         return BotRecordEvidence(trust: trust, refs: canonical)
+    }
+
+    /// One batched resolve for a read/recall call (spec/bot/v2 §1.5.1): a
+    /// single event-log scan and at most one session-log read per session.
+    /// Invalid, foreign or erased references come back as unresolved/erased
+    /// points instead of throwing, because `evidence_status` is a display view.
+    public func evidenceSnapshot(for references: [String], callerBotID: String,
+                                 callerSessionID: String) async throws -> BotRecordEvidenceSnapshot {
+        // The read/recall batch can legitimately carry 50 hits × 8 evidence
+        // refs (the frozen RecallMemory upper bound), so the cap is on distinct
+        // canonical references and comfortably covers that ceiling.
+        var unique: [String] = []
+        var seen = Set<String>()
+        for raw in references {
+            guard let canonical = BotRecordReference.canonicalize(raw) else { continue }
+            guard seen.insert(canonical).inserted else { continue }
+            unique.append(canonical)
+        }
+        guard unique.count <= Self.maximumBatchEvidence else {
+            throw BotRecordServiceError.invalidArguments
+        }
+        let caller = try await principal(for: callerSessionID, botID: callerBotID)
+        let events = try await allEvents()
+        let owned = ownedSessions(botID: caller.botId, callerSessionID: callerSessionID, events: events)
+        let calls = toolCalls(events)
+        var eventsByCommit: [Int: EventRecord] = [:]
+        for record in events {
+            guard let commitSeq = record.event.commitSeq else { continue }
+            if eventsByCommit[commitSeq] == nil { eventsByCommit[commitSeq] = record }
+        }
+        var linesBySession: [String: [BotSessionLogLine]] = [:]
+        var points: [String: BotRecordEvidencePoint] = [:]
+        func unresolved(_ ref: String, erased: Bool = false) -> BotRecordEvidencePoint {
+            BotRecordEvidencePoint(ref: ref, observedAtMS: nil, recordType: nil,
+                                   trust: nil, resolved: false, erased: erased)
+        }
+        for raw in unique {
+            guard let reference = BotRecordReference.parse(raw) else { continue }
+            let canonical = reference.canonical
+            guard points[canonical] == nil else { continue }
+            switch reference {
+            case let .session(sessionID, seq):
+                guard owned.contains(sessionID) else {
+                    points[canonical] = unresolved(canonical)
+                    continue
+                }
+                if linesBySession[sessionID] == nil {
+                    linesBySession[sessionID] = (try? sessionLines(sessionID: sessionID)) ?? []
+                }
+                guard let line = linesBySession[sessionID]?.first(where: { $0.seq == seq }) else {
+                    points[canonical] = unresolved(canonical)
+                    continue
+                }
+                if line.erased {
+                    points[canonical] = unresolved(canonical, erased: true)
+                    continue
+                }
+                points[canonical] = BotRecordEvidencePoint(
+                    ref: canonical,
+                    observedAtMS: Self.usableTime(line.time),
+                    recordType: line.type,
+                    trust: inferredTrust(for: line, sessionID: sessionID, calls: calls),
+                    resolved: true)
+            case let .event(commitSeq):
+                guard let record = eventsByCommit[commitSeq],
+                      record.event.principal.botId == caller.botId else {
+                    points[canonical] = unresolved(canonical)
+                    continue
+                }
+                if record.event.isErasedPayload {
+                    points[canonical] = unresolved(canonical, erased: true)
+                    continue
+                }
+                points[canonical] = BotRecordEvidencePoint(
+                    ref: canonical,
+                    observedAtMS: Self.usableTime(record.event.time),
+                    recordType: record.event.type,
+                    trust: inferredTrust(for: record.event, calls: calls),
+                    resolved: true)
+            }
+        }
+        return BotRecordEvidenceSnapshot(points: points)
+    }
+
+    /// A record timestamp is only an observation time when it is positive; 0
+    /// and negative values are "no time" (unknown), never a fake epoch.
+    private static func usableTime(_ time: Int64) -> Int64? {
+        time > 0 ? time : nil
     }
 
     private func principal(for sessionID: String, botID: String?) async throws -> BotGatewayPrincipal {

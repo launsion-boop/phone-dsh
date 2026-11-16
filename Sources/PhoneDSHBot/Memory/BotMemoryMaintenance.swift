@@ -1056,13 +1056,12 @@ public actor BotMemoryMaintenanceController {
             add(path, .mostChanged)
         }
 
-        // Least verified: evidence-bearing documents the most recent
-        // successfully committed batch did not verify, oldest first.
-        let verified = Set(Self.batches(in: events)
-            .last { $0.status == .committed }?
-            .changes.map(\.path) ?? [])
+        // Least verified: evidence-bearing documents whose persisted `review`
+        // is not `verified` (absent counts as no recorded judgment), oldest
+        // first. §1.5.1 lets this candidate use the review state without
+        // changing any write boundary.
         let leastVerified = documents
-            .filter { !$0.evidence.isEmpty && !verified.contains($0.path) }
+            .filter { !$0.evidence.isEmpty && $0.review?.state != .verified }
             .sorted { $0.updatedAtMS < $1.updatedAtMS }
         for document in leastVerified { add(document.path, .leastVerified) }
 
@@ -1090,6 +1089,23 @@ public actor BotMemoryMaintenanceController {
         for event in writes {
             let evidence = event.data["evidence"]?.arrayValue?
                 .compactMap(\.stringValue) ?? []
+            // A persisted `review` must still be coherent and its refs must
+            // still resolve; a verified claim whose basis vanished fails the
+            // batch. Review refs are checked separately from `evidence` so they
+            // never change the trust re-derivation below.
+            let review = event.data["review"].flatMap {
+                decode(BotMemoryReview.self, from: $0)
+            }
+            if let review {
+                if BotMemoryAuthorizer.reviewError(review) != nil { return false }
+                if !review.refs.isEmpty {
+                    guard (try? await reading.resolveEvidence(
+                        review.refs, callerBotID: botID,
+                        callerSessionID: sessionID)) != nil else {
+                        return false
+                    }
+                }
+            }
             guard !evidence.isEmpty else { continue }
             guard let derived = try? await reading.resolveEvidence(
                 evidence, callerBotID: botID, callerSessionID: sessionID) else {
