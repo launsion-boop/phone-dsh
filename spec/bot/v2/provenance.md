@@ -161,6 +161,11 @@
   - COMPACT scorer 只统计 content role；不把 trigger/recipient 当 provenance，也不按业务关键词
     猜来源。
 - `grantId` 可选：该来源当时依赖的授权标识；没有就不猜。
+- **生产 grant 绑定（G-1 r19）**：当来源的读取/使用由真实授权决策（grant/generation）允许时，生产
+  producer 必须把该决策的 `grantId`/generation **原样**带入 derivation 的 source；不得推断、合成或
+  用测试 seed 代替。内部 baseline/state 结构（如 `BotSourceBaseline`/`BotSourceState`）必须保留该
+  标识，`provenanceSource()` 不得丢弃。没有真实 grant 绑定，就不能声称 revoked/撤权覆盖已接；读视图
+  只能按“无 grant 信息”处理。该字段已在 `BotDerivationSource` 中存在，不新增 wire/schema 字段。
 - `basis` 只作展示（≤200 scalar），宿主不因它认证任何事实。
 - 写入顺序：先在同一次批量 resolve 中得到 trust 与来源版本，再把 `derivation` 放进**承载该
   派生物的那条事件**的 `data`；不能先写一条孤立 derivation 事件（本契约不提供该类型）。
