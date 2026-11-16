@@ -40,7 +40,10 @@ final class BotSkillUseStatusHandlerTests: XCTestCase {
             atMS: 2_000, sources: [], source: .projectDsh,
             ownerBotID: "bot-a"))
         let handler = BotMCPHandler(runtime: fixture.runtime)
-        let arguments = BotJSONValue.object([:])
+        let arguments = BotJSONValue.object([
+            "schema": .string("bot-skill-use-status/v1"),
+            "name": .string("weekly-report"),
+        ])
         let registration = await handler.registerIdentity(.object([
             "runtimeId": .string(BotMCPRuntime.defaultRuntimeID),
             "sessionId": .string("gb-bot-a"), "callId": .string("skill-current"),
@@ -69,6 +72,7 @@ final class BotSkillUseStatusHandlerTests: XCTestCase {
         let result = await call(handler, session: "gb-bot-a",
                                 callID: "skill-no-service", name: "weekly-report")
         let text = result["error"]?["message"]?.stringValue ?? ""
-        XCTAssertTrue(text.contains("skill-provenance-unavailable"), "\(result)")
+        XCTAssertTrue(result["result"]?["structuredContent"]?["error"]?["code"]
+            == .string("skill-provenance-unavailable"), "\(result)")
     }
 }
