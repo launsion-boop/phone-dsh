@@ -117,6 +117,34 @@ final class BotProvenanceGoldenTests: XCTestCase {
                 at: record.atMs ?? 1_000, data: .object(data),
                 botID: record.botId ?? "bot-a", sessionID: "gb-main"), at: seq)
         }
+        // Newer golden cases may declare the artifact carrier only in
+        // `artifacts[]`; materialize that durable carrier so the view can show
+        // its derivation sources (G-1 r22 requires listing them even when the
+        // content state is unknown/no-derivation).
+        let recordedRefs = Set(testCase.records.keys)
+        for artifact in testCase.artifacts {
+            guard let carrier = artifact.carrier,
+                  !recordedRefs.contains(carrier),
+                  let seq = eventSeq(carrier) else { continue }
+            var data: [String: BotJSONValue] = [
+                "derivation": try ProvenanceTest.encoded(artifact.derivation),
+            ]
+            if let review = artifact.review {
+                var reviewData: [String: BotJSONValue] = ["state": .string(review.state)]
+                if let basis = review.basis { reviewData["basis"] = .string(basis) }
+                if let refs = review.refs {
+                    reviewData["refs"] = .array(refs.map(BotJSONValue.string))
+                }
+                data["review"] = .object(reviewData)
+            }
+            let type: String = artifact.derivation.artifact.kind == .memory
+                ? "memory.document_written" : "routine.defined"
+            await log.append(ProvenanceTest.event(
+                seq: seq, type: type, eventId: "carrier-\(seq)",
+                at: 1_600, data: .object(data), botID: "bot-a",
+                sessionID: "gb-main"), at: seq)
+        }
+
         var used = Set((try await log.all()).compactMap(\.commitSeq))
         for erasure in testCase.erasures {
             let seq = used.contains(erasure.seq) ? (used.max() ?? 0) + 1 : erasure.seq
@@ -127,7 +155,10 @@ final class BotProvenanceGoldenTests: XCTestCase {
             await log.append(event, at: seq)
         }
         for grant in testCase.grants {
-            let seq = grant.revokedAtSeq ?? ((used.max() ?? 0) + 1)
+            // A grant with only granted_at_seq is a fresh generation, not a
+            // revocation. L does not need a created event for status, and
+            // synthesizing grant.revoked here would contradict the fixture.
+            guard let seq = grant.revokedAtSeq else { continue }
             let final = used.contains(seq) ? (used.max() ?? 0) + 1 : seq
             used.insert(final)
             await log.append(ProvenanceTest.event(
