@@ -642,6 +642,7 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         transport.resume(taskSession)
         let settled = try await waiting.value
         XCTAssertEqual(settled.status, "completed")
+        try await waitForParentWake(transport, taskId: taskId)
         let parentPrompt = try XCTUnwrap(transport.prompts["gb-main"])
         XCTAssertTrue(parentPrompt.text.hasPrefix("[SAND_HIDDEN_PROMPT][subagent]"))
         XCTAssertFalse(parentPrompt.text.contains("hidden result must not render"))
@@ -1378,6 +1379,7 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         let settled = try await remote.await(
             taskId: started.taskId, timeoutMs: 5_000, parent: parent)
         XCTAssertEqual(settled.status, "completed", settled.error ?? "")
+        try await waitForParentWake(transport, taskId: started.taskId)
         let prompt = try XCTUnwrap(transport.prompts["gb-main"])
         let escapedTitle = HeldMessages.escapedHeldField(hostileTitle)
         let escapedResult = HeldMessages.escapedHeldField(String(hostileResult.prefix(1_200)))
@@ -1418,6 +1420,25 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
             throw BotMCPError.unauthorized
         }
         return call
+    }
+
+    /// `await(taskId:)` returns when the task record settles; the parent wake
+    /// prompt (`task-settled:<id>`) is delivered just after and is not covered
+    /// by that await. Wait for the exact request id with a bound instead of
+    /// asserting on whatever prompt happens to be last.
+    private func waitForParentWake(_ transport: BotScriptedRemoteTransport,
+                                   taskId: String,
+                                   timeout: TimeInterval = 2) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        let requestId = "task-settled:\(taskId)"
+        while Date() < deadline {
+            if transport.promptRequestIds.contains(where: { $0.requestId == requestId }) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTFail("parent wake \(requestId) was not delivered within \(timeout)s; prompts="
+            + "\(transport.promptRequestIds.map(\.requestId))")
     }
 
     private struct AdmissionTestTimeout: Error {}
