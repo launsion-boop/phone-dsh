@@ -451,8 +451,6 @@ final class BotRuntimeComposition {
                 web: webRechecker),
             skillRechecker: BotSkillFileRechecker(roots: skillRoots))
         await runtime.installProvenance(provenance)
-        let skillRoots = BotSkillRoots(
-            workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot())
         let skillProducer = BotSkillProvenanceProducer(
             botRoot: BotWorkspaceLayout.botRoot(
                 botId: selectedCandidate,
