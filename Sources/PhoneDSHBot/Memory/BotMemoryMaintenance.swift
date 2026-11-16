@@ -555,6 +555,7 @@ public actor BotMemoryMaintenanceController {
     private let verification: (any BotMemoryMaintenanceVerifying)?
     private let feedbackReading: (any BotMaintenanceFeedbackReading)?
     private let invalidationReading: (any BotMaintenanceInvalidationReading)?
+    private let recentContextReading: (any BotMaintenanceRecentContextReading)?
     private let verificationPolicy: BotMemoryMaintenanceVerificationPolicy?
     private let isMainBot: @Sendable () -> Bool
     private let isAppActive: @Sendable () -> Bool
@@ -575,6 +576,7 @@ public actor BotMemoryMaintenanceController {
         verification: (any BotMemoryMaintenanceVerifying)? = nil,
         feedbackReading: (any BotMaintenanceFeedbackReading)? = nil,
         invalidationReading: (any BotMaintenanceInvalidationReading)? = nil,
+        recentContextReading: (any BotMaintenanceRecentContextReading)? = nil,
         verificationPolicy: BotMemoryMaintenanceVerificationPolicy? = nil,
         isMainBot: @escaping @Sendable () -> Bool = { true },
         isAppActive: @escaping @Sendable () -> Bool = { true },
@@ -593,6 +595,9 @@ public actor BotMemoryMaintenanceController {
                 recordReading: recordReading)
         self.feedbackReading = feedbackReading
         self.invalidationReading = invalidationReading
+        self.recentContextReading = recentContextReading
+            ?? BotMemoryMaintenanceVerificationSupport.makeRecentContextReader(
+                recordReading: recordReading)
         self.verificationPolicy = verificationPolicy
         self.isMainBot = isMainBot
         self.isAppActive = isAppActive
@@ -758,9 +763,20 @@ public actor BotMemoryMaintenanceController {
         let preVerification = await verifyDocuments(
             candidateDocuments, strictPaths: [], baselines: [:],
             sessionID: maintainerSession)
-        let material = preVerification.flatMap {
-            BotMemoryMaintenanceVerificationSupport.materialLine(for: $0)
+        let recentContext = await recentContext(
+            for: candidateDocuments, sessionID: maintainerSession)
+        var materialParts: [String] = []
+        if let preVerification,
+           let line = BotMemoryMaintenanceVerificationSupport.materialLine(
+                for: preVerification) {
+            materialParts.append(line)
         }
+        if let line = BotMemoryMaintenanceVerificationSupport.recentMaterialLine(
+            recentContext) {
+            materialParts.append(line)
+        }
+        let material = materialParts.isEmpty ? nil : materialParts.joined(
+            separator: "\n\n")
 
         let start = BotMemoryMaintenanceStart(
             batchID: batchID, botID: botID, trigger: trigger,
@@ -1074,6 +1090,22 @@ public actor BotMemoryMaintenanceController {
     }
 
     // MARK: Host verification
+
+    private func recentContext(
+        for documents: [BotMemoryDocument], sessionID: String
+    ) async -> [BotMaintenanceRecentContext] {
+        guard let recentContextReading else { return [] }
+        var refs: [String] = []
+        for document in documents {
+            refs.append(contentsOf: document.evidence)
+            refs.append(contentsOf: document.review?.refs ?? [])
+        }
+        let unique = Array(Set(refs)).filter { $0.hasPrefix("record://session/") }
+        guard !unique.isEmpty else { return [] }
+        return (try? await recentContextReading.recentContext(
+            after: unique, callerSessionID: sessionID,
+            lineLimit: 6, characterLimit: 2_000)) ?? []
+    }
 
     private func verifyDocuments(
         _ documents: [BotMemoryDocument],

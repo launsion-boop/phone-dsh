@@ -48,6 +48,25 @@ final class BotMaintenanceAdaptersTests: XCTestCase {
             baseline: nil, resource: nil, recheckedAtMS: nil)
     }
 
+    func testRecentContextUsesOnlyLaterSessionLinesAndBoundsMaterial() async throws {
+        let raw = #"{"data":{"lines":[{"ref":"record://session/gb-main#8","seq":8,"type":"user/message","raw":"{\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"old seven\"}]}}"},{"ref":"record://session/gb-main#28","seq":28,"type":"user/message","raw":"{\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"correction eight\"}]}}"}]}}"#
+        let reader = BotMaintenanceRecordRecentContextReader(rawRead: { reference, session, around in
+            XCTAssertEqual(reference, "record://session/gb-main#8")
+            XCTAssertEqual(session, "gb-maintainer-test")
+            XCTAssertEqual(around, 20)
+            return raw
+        })
+        let contexts = try await reader.recentContext(
+            after: ["record://session/gb-main#8"],
+            callerSessionID: "gb-maintainer-test",
+            lineLimit: 6, characterLimit: 2_000)
+        let context = try XCTUnwrap(contexts.first)
+        XCTAssertTrue(context.available)
+        XCTAssertEqual(context.lines.count, 1)
+        XCTAssertEqual(context.lines.first?.reference, "record://session/gb-main#28")
+        XCTAssertEqual(context.lines.first?.text, "correction eight")
+    }
+
     func testProvenanceAdapterMapsEveryStateAndNeverTreatsUnknownAsLive() async throws {
         let adapter = BotProvenanceInvalidationAdapter(rawQuery: { request in
             XCTAssertEqual(request.references.count, 6)

@@ -304,6 +304,49 @@ public struct BotMaintenanceSourceStateChecking: BotMaintenanceSourceChecking {
     }
 }
 
+/// One line found after a cited session ref, supplied to the maintainer as
+/// bounded material (not an instruction and not a new record store).
+public struct BotMaintenanceRecentContextLine: Codable, Sendable, Equatable {
+    public var reference: String
+    public var type: String
+    public var text: String
+
+    public init(reference: String, type: String, text: String) {
+        self.reference = reference
+        self.type = type
+        self.text = text
+    }
+}
+
+public struct BotMaintenanceRecentContext: Codable, Sendable, Equatable {
+    public var citedReference: String
+    public var lines: [BotMaintenanceRecentContextLine]
+    public var truncated: Bool
+    /// False means the underlying record read was unavailable; the material
+    /// must say so instead of implying there was no later correction.
+    public var available: Bool
+
+    public init(citedReference: String,
+                lines: [BotMaintenanceRecentContextLine],
+                truncated: Bool, available: Bool) {
+        self.citedReference = citedReference
+        self.lines = lines
+        self.truncated = truncated
+        self.available = available
+    }
+}
+
+/// Read-only bounded "later lines after a cited session ref" seam. The real
+/// adapter uses the existing record read command and caller-scoped service;
+/// it never uses a client wall clock or another Bot's session.
+public protocol BotMaintenanceRecentContextReading: Sendable {
+    func recentContext(after references: [String],
+                       callerSessionID: String,
+                       lineLimit: Int,
+                       characterLimit: Int)
+        async throws -> [BotMaintenanceRecentContext]
+}
+
 // MARK: - Findings
 
 public enum BotMaintenanceFindingState: String, Codable, Sendable, Equatable {

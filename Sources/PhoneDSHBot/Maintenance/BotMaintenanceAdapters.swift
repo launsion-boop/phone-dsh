@@ -104,3 +104,76 @@ public struct BotProvenanceInvalidationAdapter: BotMaintenanceInvalidationReadin
         return result
     }
 }
+
+/// Uses the existing `phone record read <ref> --around N` command, filters to
+/// lines after the cited seq, and bounds the material. No new record API or
+/// durable shape is introduced.
+public struct BotMaintenanceRecordRecentContextReader:
+    BotMaintenanceRecentContextReading {
+    public typealias RawRead =
+        @Sendable (String, String, Int) async -> String?
+
+    private let rawRead: RawRead
+
+    public init(service: BotRecordService) {
+        self.rawRead = { reference, sessionID, around in
+            let output = await service.execute(
+                arguments: ["read", reference, "--around", String(around)],
+                callerSessionID: sessionID)
+            guard output.exitCode == 0 else { return nil }
+            return output.stdout
+        }
+    }
+
+    init(rawRead: @escaping RawRead) {
+        self.rawRead = rawRead
+    }
+
+    public func recentContext(after references: [String],
+                              callerSessionID: String,
+                              lineLimit: Int,
+                              characterLimit: Int)
+        async throws -> [BotMaintenanceRecentContext] {
+        var result: [BotMaintenanceRecentContext] = []
+        for reference in references {
+            guard reference.hasPrefix("record://session/"),
+                  let parsed = BotRecordReference.parse(reference),
+                  let seq = parsed.seq else { continue }
+            let raw = await rawRead(reference, callerSessionID, 20)
+            guard let raw, let data = raw.data(using: .utf8),
+                  let root = (try? JSONSerialization.jsonObject(with: data))
+                    as? [String: Any],
+                  let payload = root["data"] as? [String: Any],
+                  let lines = payload["lines"] as? [[String: Any]] else {
+                result.append(BotMaintenanceRecentContext(
+                    citedReference: reference, lines: [], truncated: false,
+                    available: false))
+                continue
+            }
+            var selected: [BotMaintenanceRecentContextLine] = []
+            var chars = 0
+            var truncated = false
+            for line in lines {
+                guard let lineSeq = (line["seq"] as? NSNumber)?.intValue,
+                      lineSeq > seq,
+                      let lineRef = line["ref"] as? String,
+                      let type = line["type"] as? String,
+                      let rawLine = line["raw"] as? String else { continue }
+                let text = BotMemoryMaintenanceText.readableText(raw: rawLine)
+                guard !text.isEmpty else { continue }
+                if selected.count >= max(0, lineLimit) || chars >= characterLimit {
+                    truncated = true
+                    break
+                }
+                let bounded = String(text.prefix(max(0, characterLimit - chars)))
+                selected.append(BotMaintenanceRecentContextLine(
+                    reference: lineRef, type: type, text: bounded))
+                chars += bounded.count
+            }
+            result.append(BotMaintenanceRecentContext(
+                citedReference: reference, lines: selected,
+                truncated: truncated, available: true))
+        }
+        return result
+    }
+}
