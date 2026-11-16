@@ -354,9 +354,9 @@ final class BotRuntimeComposition {
         // absent there and the existing optional reader stays nil; text/path
         // attachments are unaffected. iOS behavior is unchanged.
         #if canImport(UIKit)
-        let modelImageReader: BotModelImageReader? = BotWorkspaceModelImage.image(for:)
+        let modelImageReader: BotMCPRuntime.BotModelImageReader? = BotWorkspaceModelImage.image(for:)
         #else
-        let modelImageReader: BotModelImageReader? = nil
+        let modelImageReader: BotMCPRuntime.BotModelImageReader? = nil
         #endif
         let runtime = BotMCPRuntime(store: store, gateway: gateway,
                                     volatileProvider: deferred,
