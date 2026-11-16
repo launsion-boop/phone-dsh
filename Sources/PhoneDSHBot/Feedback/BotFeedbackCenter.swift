@@ -343,26 +343,51 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
             return Self.rejected(feedback, code: "target-unresolved",
                                  message: "采纳只作用于被采纳的那一个产物。")
         }
-        guard let delivery = await resolveDelivery(feedback.target, botID: feedback.botID,
-                                                   snapshot: snapshot) else {
+        if let delivery = await resolveDelivery(feedback.target, botID: feedback.botID,
+                                                snapshot: snapshot) {
+            if let existing = snapshot.adoptions.last(where: {
+                $0.artifactKey == delivery.id && $0.isActive()
+            }) {
+                return BotFeedbackOutcome(status: .duplicated, feedbackID: existing.feedbackID,
+                                          action: .adopt,
+                                          target: BotFeedbackArtifactRef(
+                                            kind: .proactive,
+                                            id: delivery.decisionID ?? delivery.dedupeKey,
+                                            deliveryKey: delivery.dedupeKey),
+                                          scope: .artifact, classKey: delivery.classKey)
+            }
+            var record = Self.recordBase(feedback, at: at, scopeKey: delivery.id,
+                                         classKey: delivery.classKey, accepted: true)
+            record.eventID = Self.eventID(for: record)
+            snapshot.adoptions.append(BotFeedbackAdoption(
+                artifactKey: delivery.id, botID: feedback.botID,
+                feedbackID: record.id, atMS: at))
+            return try await commit(&record, state: snapshot)
+        }
+        // A host UI action may adopt a specific visible assistant message or
+        // attachment row that is not a proactive delivery. The row id comes
+        // from the host projection, so it is real evidence; the model path
+        // still has to resolve a delivered proactive artifact instead.
+        guard feedback.origin.kind == .uiAction,
+              feedback.target.kind == .delivery,
+              !Self.trim(feedback.target.id).isEmpty else {
             return Self.rejected(feedback, code: "target-unresolved",
                                  message: "没有找到这条已投递的产物。")
         }
+        let rowKey = Self.rowArtifactKey(botID: feedback.botID, rowID: feedback.target.id)
         if let existing = snapshot.adoptions.last(where: {
-            $0.artifactKey == delivery.id && $0.isActive()
+            $0.artifactKey == rowKey && $0.isActive()
         }) {
             return BotFeedbackOutcome(status: .duplicated, feedbackID: existing.feedbackID,
-                                      action: .adopt,
-                                      target: BotFeedbackArtifactRef(
-                                        kind: .proactive, id: delivery.decisionID ?? delivery.dedupeKey,
-                                        deliveryKey: delivery.dedupeKey),
-                                      scope: .artifact, classKey: delivery.classKey)
+                                      action: .adopt, target: feedback.target,
+                                      scope: .artifact)
         }
-        var record = Self.recordBase(feedback, at: at, scopeKey: delivery.id,
-                                     classKey: delivery.classKey, accepted: true)
+        var record = Self.recordBase(feedback, at: at, scopeKey: rowKey,
+                                     classKey: "", accepted: true)
+        record.classKey = nil
         record.eventID = Self.eventID(for: record)
         snapshot.adoptions.append(BotFeedbackAdoption(
-            artifactKey: delivery.id, botID: feedback.botID, feedbackID: record.id, atMS: at))
+            artifactKey: rowKey, botID: feedback.botID, feedbackID: record.id, atMS: at))
         return try await commit(&record, state: snapshot)
     }
 
@@ -370,6 +395,10 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
                                    snapshot: inout BotFeedbackState) async throws -> BotFeedbackOutcome {
         guard let delivery = await resolveDelivery(feedback.target, botID: feedback.botID,
                                                    snapshot: snapshot) else {
+            if feedback.origin.kind == .uiAction, feedback.target.kind == .delivery {
+                return Self.rejected(feedback, code: "ambiguous-scope",
+                                     message: "这条消息不是主动提醒，无法推导“这类”的范围；请只对主动提醒/例程结果使用不再提醒。")
+            }
             return Self.rejected(feedback, code: "target-unresolved",
                                  message: "没有找到要停止提醒的那条真实产物。")
         }
@@ -438,7 +467,7 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
                                   snapshot: inout BotFeedbackState) async throws -> BotFeedbackOutcome {
         guard feedback.target.kind == .memory else {
             return Self.rejected(feedback, code: "target-unresolved",
-                                 message: "纠正必须指向一条记忆文档版本。")
+                                 message: "说错了需要绑定一条记忆文档的已应用版本；普通消息请走纠错回合，不要用消息行反馈。")
         }
         let path = Self.trim(feedback.target.id)
         guard let version = feedback.target.version, version >= 1, !path.isEmpty else {
@@ -1141,6 +1170,10 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
 
     static func artifactKey(botID: String, dedupeKey: String) -> String {
         capped("proactive:\(botID):\(dedupeKey)")
+    }
+
+    static func rowArtifactKey(botID: String, rowID: String) -> String {
+        capped("delivery:\(botID):\(trim(rowID))")
     }
 
     static func memoryScopeKey(path: String, version: Int) -> String {

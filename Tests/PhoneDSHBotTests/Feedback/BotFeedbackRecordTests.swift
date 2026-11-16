@@ -251,6 +251,98 @@ final class BotFeedbackRecordTests: XCTestCase {
         XCTAssertEqual(active.count, 0)
     }
 
+    // Q1 P1-3: the production UI maps a message/attachment row to
+    // target .delivery with the row id. Adoption of that visible row is a real
+    // user action; suppression/correction cannot invent a class or a memory
+    // version, so they fail with actionable codes instead of target-unresolved.
+
+    func testUIAdoptsAVisibleMessageRow() async throws {
+        let clock = WP6Clock(FeedbackFixtures.baseNow)
+        let store = InMemoryBotFeedbackStore()
+        let center = makeCenter(clock, store: store)
+        let request = BotFeedback(
+            botID: "bot-1", action: .adopt,
+            target: BotFeedbackArtifactRef(kind: .delivery, id: "row-msg-1"),
+            scope: .artifact, origin: FeedbackFixtures.uiOrigin("ui-row-1"))
+        let outcome = try await center.record(request)
+        XCTAssertEqual(outcome.status, .accepted)
+        let currentIndex = await store.currentIndex()
+        let index = try XCTUnwrap(currentIndex)
+        let adoption = try XCTUnwrap(index.records.first { $0.action == .adopt })
+        XCTAssertEqual(adoption.scope.key, "delivery:bot-1:row-msg-1")
+
+        let replay = try await center.record(request)
+        XCTAssertEqual(replay.status, .duplicated)
+        XCTAssertEqual(replay.feedbackID, outcome.feedbackID)
+
+        var modelRequest = request
+        modelRequest.origin = FeedbackFixtures.chatOrigin("chat-row-1")
+        modelRequest.origin.nonce = "chat-row-1"
+        let modelOutcome = try await center.record(modelRequest)
+        XCTAssertEqual(modelOutcome.code, "target-unresolved",
+                       "a model turn cannot adopt a fabricated row artifact")
+    }
+
+    func testUISuppressOnAMessageRowIsAmbiguous() async throws {
+        let clock = WP6Clock(FeedbackFixtures.baseNow)
+        let store = InMemoryBotFeedbackStore()
+        let center = makeCenter(clock, store: store)
+        let request = BotFeedback(
+            botID: "bot-1", action: .suppress,
+            target: BotFeedbackArtifactRef(kind: .delivery, id: "row-msg-2"),
+            scope: .artifact, origin: FeedbackFixtures.uiOrigin("ui-row-2"))
+        let outcome = try await center.record(request)
+        XCTAssertEqual(outcome.status, .rejected)
+        XCTAssertEqual(outcome.code, "ambiguous-scope")
+        let active = try await center.preferences(botID: "bot-1", scope: nil).active
+        XCTAssertEqual(active.count, 0)
+
+        var modelRequest = request
+        modelRequest.origin = FeedbackFixtures.chatOrigin("chat-row-2")
+        modelRequest.origin.nonce = "chat-row-2"
+        let modelOutcome = try await center.record(modelRequest)
+        XCTAssertEqual(modelOutcome.code, "target-unresolved")
+    }
+
+    func testUISuppressOnAProactiveRowStillResolves() async throws {
+        let clock = WP6Clock(FeedbackFixtures.baseNow)
+        let deliverer = WP6NotificationDeliverer()
+        let store = InMemoryBotFeedbackStore()
+        let center = makeCenter(clock, store: store)
+        let engine = ProactiveEngine(
+            settings: { wp6Settings() }, now: { clock.now },
+            policy: ProactivePolicyConfiguration(fuseMaxWakeups: 50),
+            deliverer: deliverer, feedback: center)
+        var candidate = FeedbackFixtures.candidate("weekly-1")
+        candidate.rowId = "row-proactive-1"
+        let delivered = await engine.consider(candidate)
+        XCTAssertEqual(delivered.decision, .did)
+        let request = BotFeedback(
+            botID: "bot-1", action: .suppress,
+            target: BotFeedbackArtifactRef(kind: .delivery, id: "row-proactive-1"),
+            scope: .artifact, origin: FeedbackFixtures.uiOrigin("ui-row-3"))
+        let outcome = try await center.record(request)
+        XCTAssertEqual(outcome.status, .accepted)
+        clock.advance(60_000)
+        let held = await engine.consider(FeedbackFixtures.candidate("weekly-1"))
+        XCTAssertEqual(held.reason, "feedback-held")
+    }
+
+    func testUICorrectOnAMessageRowAsksForAMemoryVersion() async throws {
+        let clock = WP6Clock(FeedbackFixtures.baseNow)
+        let store = InMemoryBotFeedbackStore()
+        let center = makeCenter(clock, store: store)
+        let request = BotFeedback(
+            botID: "bot-1", action: .correct,
+            target: BotFeedbackArtifactRef(kind: .delivery, id: "row-msg-3"),
+            scope: .artifact, origin: FeedbackFixtures.uiOrigin("ui-row-4"))
+        let outcome = try await center.record(request)
+        XCTAssertEqual(outcome.status, .rejected)
+        XCTAssertEqual(outcome.code, "target-unresolved")
+        let disputed = try await center.disputedRefs(paths: [])
+        XCTAssertTrue(disputed.isEmpty)
+    }
+
     // R5: a kind-only class is too wide to apply from a model request. It must
     // stay ambiguous (no state change) unless the user picks the scope in UI.
     func testClassScopeOnKindOnlyTargetIsAmbiguous() async throws {
