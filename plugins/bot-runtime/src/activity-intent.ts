@@ -2,15 +2,17 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
 import { scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
-import { botOwnedSessions } from './bot-sessions.ts'
+import { botOwnedSessions, isBotSessionId } from './bot-sessions.ts'
 
 /**
  * Bot-only activity metadata for the read/search tools. The phone-bot preset
  * registers its own tool-fs/tool-fs-search/tool-web definitions in the preset
- * scope; an Agent is a child scope. Install the shadow in each Bot Agent's
- * scope, wrapping the inherited preset definition, exactly like
- * caller-catalog's scoped shadow. A later source re-registration updates the
- * held source instead of re-registering the shadow.
+ * scope; an Agent is a child scope. This is a global row: on agent/created it
+ * installs the shadow in the Agent's own scope, wrapping the current Bot-scope
+ * definition. The plugin row is not inside the preset because preset plugin
+ * contexts are not the Agent scope the first prompt is collected from. A later
+ * source re-registration updates the held source instead of re-registering the
+ * shadow.
  */
 const TOOL_NAMES = ['read', 'glob', 'grep', 'web_search', 'web_fetch'] as const
 type ToolName = typeof TOOL_NAMES[number]
@@ -116,22 +118,28 @@ function activityWrapper(name: string, state: SourceState): RegisteredTool {
 }
 
 /**
- * Install the agent-scoped shadows. The plugin row lives in `preset-phone-bot`;
- * its `agent/created` listener is awaited before the first prompt assembly, so
- * the wrapper is present in the tool schema collection. An unscoped mount has
- * no agent and does nothing.
+ * Install the Agent-scoped shadows from a global row. Only a Bot-owned session
+ * (the `gb-*` namespace / `phone/botClaimSession`) is admitted; the
+ * `agent/created` listener is awaited before the first prompt assembly, so the
+ * wrapper is present in the tool schema collection. Workbench/global agents
+ * are untouched.
  */
 export default function activityIntent(ctx: Context): void {
   const states = new Map<ScopeKey, AgentState>()
+  const owned = botOwnedSessions(ctx)
 
   const contextOfAgent = (agent: Agent | undefined): Context | undefined =>
     (agent as { ctx?: Context } | undefined)?.ctx
 
-  /** Nearest inherited non-wrapper definition: preset Bot tool before global. */
+  const sessionIdOf = (agent: Agent | undefined): string =>
+    String(agent?.id || agent?.session?.id || '')
+
+  /** Nearest inherited non-wrapper definition. */
   const sourceFor = (scope: ScopeKey, name: ToolName): RegisteredTool | undefined => {
+    const global = ctx.tools.get(name)
     for (const key of scopeChainOf(scope)) {
       const candidate = ctx.tools.get(name, key)
-      if (candidate !== undefined && !isWrapped(candidate)) return candidate
+      if (candidate !== undefined && candidate !== global && !isWrapped(candidate)) return candidate
     }
     // No inherited Bot definition: skip rather than silently wrapping a
     // global tool with different configuration. The next tools/change retries.
@@ -169,23 +177,20 @@ export default function activityIntent(ctx: Context): void {
       : name === 'web_fetch'
         ? ({ modelSelection }: { modelSelection: { provider: string } }) => webReady(name, modelSelection.provider)
         : undefined
+    let dispose: (() => void) | undefined
     try {
-      let disposeRegistration: (() => void) | undefined
-      const fiber = state.context.inject(['tools'], (scoped: Context) => {
-        disposeRegistration = scoped.tools.register(activityWrapper(name, sourceState),
-          when === undefined ? undefined : { when })
-      })
-      if (disposeRegistration === undefined) return
-      state.installed.set(name, {
-        state: sourceState,
-        dispose: () => {
-          disposeRegistration?.()
-          void fiber.dispose()
+      const fiber = await state.context.plugin({
+        inject: ['tools'],
+        apply(scoped: Context) {
+          dispose = scoped.tools.register(activityWrapper(name, sourceState),
+            when === undefined ? undefined : { when })
         },
       })
+      if (dispose === undefined) return
+      state.installed.set(name, { state: sourceState, dispose: () => { void fiber.dispose() } })
     } catch {
       // The Agent scope is unwinding or another definition owns this layer;
-      // the next tools/change or assembly retries.
+      // the next tools/change or agent/status retries.
     }
   }
 
@@ -198,14 +203,11 @@ export default function activityIntent(ctx: Context): void {
     return state.queue
   }
 
-  const owned = botOwnedSessions(ctx)
-  const ownedAgent = (agent: Agent | undefined): boolean => {
-    const sessionId = String(agent?.id || agent?.session?.id || '')
-    return sessionId !== '' && owned.has(sessionId)
-  }
-
   const stateFor = (agent: Agent | undefined): AgentState | undefined => {
-    if (!ownedAgent(agent)) return undefined
+    const sessionId = sessionIdOf(agent)
+    // Only the App-minted `gb-` Bot namespace, even if a non-Bot session was
+    // claimed into the shared registry. Workbench/standard never match.
+    if (agent === undefined || !isBotSessionId(sessionId) || !owned.has(sessionId)) return undefined
     const context = contextOfAgent(agent)
     const scope = context === undefined ? undefined : scopeOf(context)
     if (context === undefined || scope === undefined) return undefined
@@ -220,6 +222,10 @@ export default function activityIntent(ctx: Context): void {
     const state = stateFor(agent)
     if (state !== undefined) await enqueue(state)
   })
+  ctx.on('agent/status', ({ agent }) => {
+    const state = stateFor(agent)
+    if (state !== undefined) void enqueue(state)
+  })
   ctx.on('agent/disposed', ({ agent }) => {
     const context = contextOfAgent(agent)
     const scope = context === undefined ? undefined : scopeOf(context)
@@ -231,12 +237,6 @@ export default function activityIntent(ctx: Context): void {
   })
   ctx.on('tools/change', () => {
     for (const state of states.values()) void enqueue(state)
-  })
-  ctx.on('system-prompt/assemble', (_assembly, context, next) => {
-    const agent = (context as { agent?: Agent }).agent
-    const state = stateFor(agent)
-    if (state !== undefined) void enqueue(state)
-    return next()
   })
   ctx.effect(() => () => {
     for (const state of states.values()) {
