@@ -80,22 +80,21 @@ enum BotFeedbackArtifactRule {
             verdicts.insert(.adopt, at: 0)
         } else if let card = BotUICardContent.parse(row: row) {
             switch card.kind {
-            case .notice:
-                return .unavailable("这条内容没有可反馈的产物")
-            case .question, .steps, .approval:
-                kindLabel = card.kind == .approval ? "审批" : "建议"
+            // This inline bar records feedback on a delivered message or
+            // attachment. Choice/approval cards have their own explicit
+            // actions; routine/task/progress cards are bound through the host
+            // routine/task target, not a chat-row delivery target. Showing a
+            // feedback bar that the adapter would map to the wrong target is
+            // worse than not showing it.
             case .attachment:
                 kindLabel = "附件"
                 verdicts.insert(.adopt, at: 0)
             case .document:
                 kindLabel = "文档"
                 verdicts.insert(.adopt, at: 0)
-            case .automation:
-                kindLabel = "例行任务"
-                verdicts.insert(.adopt, at: 0)
-            case .task, .progress, .checklist, .link:
-                kindLabel = "产物"
-                verdicts.insert(.adopt, at: 0)
+            case .notice, .question, .steps, .approval, .automation,
+                 .task, .progress, .checklist, .link:
+                return .unavailable("这类内容不通过消息反馈")
             }
         } else {
             return .unavailable("这条内容没有可反馈的产物")

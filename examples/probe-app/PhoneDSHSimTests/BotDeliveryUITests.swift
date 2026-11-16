@@ -367,19 +367,16 @@ final class BotDeliveryUITests: XCTestCase {
         XCTAssertTrue(artifact.offers(.undo))
     }
 
-    func testQuestionCardOffersNoAdopt() {
+    func testChoiceCardIsNotAFeedbackTarget() {
         let body: BotUIBody = BotUIBody(type: "widget", values: [
             "cardType": .string("question"),
             "question": .string("选哪个？"),
             "options": .array([.object(["id": .string("o0"), "label": .string("A")])]),
         ])
         let row = BotUIRow.fixture(id: "question-1", seq: 1, body: body)
-        guard case .eligible(let artifact) = BotFeedbackArtifactRule.availability(for: row) else {
-            return XCTFail("a suggestion card is an artifact")
+        if case .eligible = BotFeedbackArtifactRule.availability(for: row) {
+            XCTFail("a choice card has its own answer action, not a delivery feedback bar")
         }
-        XCTAssertFalse(artifact.offers(.adopt))
-        XCTAssertTrue(artifact.offers(.correct))
-        XCTAssertTrue(artifact.offers(.suppress))
     }
 
     func testFeedbackRecordAndUndoBindToAcceptedEvent() throws {
