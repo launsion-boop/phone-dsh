@@ -108,6 +108,47 @@ final class BotRecordProvenanceFactTests: XCTestCase {
         XCTAssertNil(fact.version)
     }
 
+    func testContextObservedResolvesFromOwnerOnlyFacts() async throws {
+        let sequence = try await store.append(BotEvent(
+            type: "context.observed",
+            eventId: "context-observed:owner-only:\(UUID().uuidString)", time: 1_760_000_009_000,
+            origin: .local(source: "runtime"), traceId: "trace-context",
+            principal: BotPrincipal(botId: "bot-a", sessionId: nil, kind: "proactive"),
+            causationId: nil, correlationId: "calendar:standup", ignorable: true,
+            data: .object([
+                "schema": .string("bot-context-observed/v1"),
+                "source": .string("calendar"),
+                "kind": .string("event"),
+                "observed_at_ms": .number(1_760_000_009_000),
+                "owner_bot_id": .string("bot-a"),
+                "source_version": .object([
+                    "basis": .string("etag"),
+                    "value": .string("etag:calendar-1"),
+                    "observed_at_ms": .number(1_760_000_009_000),
+                ]),
+                "resource": .object([
+                    "kind": .string("context-source"),
+                    "key": .string("calendar-event-1"),
+                    "owner": .string("bot-a"),
+                ]),
+                "payload": .object(["title": .string("Standup")]),
+                "dedupe_key": .string("calendar:standup"),
+                "delivery": .string("would"),
+                "wake_requested": .bool(false),
+            ])))
+        let cases = await service.sourceFacts(
+            for: ["record://event/\(sequence)"], botID: "bot-a", sessionID: nil)
+        let fact = try XCTUnwrap(cases["record://event/\(sequence)"])
+        XCTAssertTrue(fact.resolved)
+        XCTAssertEqual(fact.recordType, "context.observed")
+        XCTAssertEqual(fact.trust, "observation")
+        guard case let .known(basis, value, _, _) = try XCTUnwrap(fact.version) else {
+            return XCTFail("context.observed must carry its structured version")
+        }
+        XCTAssertEqual(basis, .etag)
+        XCTAssertEqual(value, "etag:calendar-1")
+    }
+
     func testMissingCallerIdentityReturnsNoFactsInsteadOfGuessing() async throws {
         let unknownBot = await service.sourceFacts(
             for: [observationRef], botID: nil, sessionID: "gb-main")

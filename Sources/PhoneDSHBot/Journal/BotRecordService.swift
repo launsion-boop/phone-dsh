@@ -137,6 +137,9 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
     /// 50 recall hits × 8 evidence refs is the frozen upper bound; the batch is
     /// counted over distinct canonical references.
     public static let maximumBatchEvidence = 512
+    /// G-3 durable context observation carrier. Kept as the frozen string here
+    /// so the journal does not depend on the context-source module.
+    static let contextObservedType = "context.observed"
     public static let maximumRawBytes = 16 * 1024
     public static let maximumOutputBytes = 256 * 1024
 
@@ -575,16 +578,18 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                              callerSessionID: String) async throws -> [BotSourceState] {
         let records = try await resolveRecords(
             references, callerBotID: callerBotID, callerSessionID: callerSessionID)
-        return records.map { record in
-            BotSourceState(
-                ref: record.ref,
-                resolved: record.resolved,
-                erased: record.erased,
-                observedAtMS: record.observedAtMS,
-                recordType: record.recordType,
-                trust: record.trust,
-                version: record.version)
-        }
+        return records.map(Self.sourceState(from:))
+    }
+
+    private static func sourceState(from record: ResolvedRecord) -> BotSourceState {
+        BotSourceState(
+            ref: record.ref,
+            resolved: record.resolved,
+            erased: record.erased,
+            observedAtMS: record.observedAtMS,
+            recordType: record.recordType,
+            trust: record.trust,
+            version: record.version)
     }
 
     /// Real file recheck for a provenance resource. Returns nil when the App
@@ -691,24 +696,81 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                         observedAtMS: nil, recordType: nil, trust: nil))
                     continue
                 }
-                if record.event.isErasedPayload {
-                    result.append(ResolvedRecord(
-                        ref: canonical, resolved: true, erased: true,
-                        observedAtMS: Self.usableTime(record.event.time),
-                        recordType: record.event.type, trust: nil))
-                    continue
-                }
-                let observed = Self.usableTime(record.event.time)
-                let trust = inferredTrust(for: record.event, calls: calls)
-                result.append(ResolvedRecord(
-                    ref: canonical, resolved: true, erased: false,
-                    observedAtMS: observed,
-                    recordType: record.event.type,
-                    trust: trust,
-                    version: Self.observationVersion(
-                        ref: canonical, trust: trust,
-                        text: Self.observationText(in: record.event),
-                        observedAtMS: observed)))
+                result.append(Self.eventRecord(
+                    ref: canonical, record: record, calls: calls))
+            }
+        }
+        return result
+    }
+
+    /// Event facts shared by the session-authorized batch and L's owner-only
+    /// event retry (context observations have no DSH session).
+    private static func eventRecord(ref: String, record: EventRecord,
+                                    calls: [String: [String: String]]) -> ResolvedRecord {
+        let event = record.event
+        if event.isErasedPayload {
+            return ResolvedRecord(
+                ref: ref, resolved: true, erased: true,
+                observedAtMS: Self.usableTime(event.time),
+                recordType: event.type, trust: nil)
+        }
+        let isContext = event.type == Self.contextObservedType
+        let contextObserved = event.data["observed_at_ms"]?.intValue.map { Int64($0) }
+        let observed = isContext
+            ? (contextObserved ?? Self.usableTime(event.time))
+            : Self.usableTime(event.time)
+        let trust = Self.inferredTrust(
+            for: event, calls: calls, sessionID: event.principal.sessionId)
+        let version: BotSourceVersion?
+        if isContext {
+            version = Self.contextObservationVersion(
+                from: event, ref: ref, observedAtMS: observed)
+        } else {
+            version = Self.observationVersion(
+                ref: ref, trust: trust,
+                text: Self.observationText(in: event),
+                observedAtMS: observed)
+        }
+        return ResolvedRecord(
+            ref: ref, resolved: true, erased: false,
+            observedAtMS: observed, recordType: event.type,
+            trust: trust, version: version)
+    }
+
+    /// Event-only facts for a Bot, used by L when the carrier has no DSH
+    /// session (for example `context.observed`). Session refs are ignored here;
+    /// they still require the claimed caller session.
+    private func eventStates(for references: [String], botID: String) async -> [BotSourceState] {
+        guard !references.isEmpty else { return [] }
+        var unique: [String] = []
+        var seen = Set<String>()
+        for raw in references {
+            guard let parsed = BotRecordReference.parse(raw),
+                  case .event = parsed else { continue }
+            let canonical = parsed.canonical
+            guard seen.insert(canonical).inserted else { continue }
+            unique.append(canonical)
+        }
+        guard !unique.isEmpty, unique.count <= Self.maximumBatchEvidence else { return [] }
+        guard let events = try? await allEvents() else { return [] }
+        let calls = toolCalls(events)
+        var byCommit: [Int: EventRecord] = [:]
+        for record in events {
+            guard let sequence = record.event.commitSeq, byCommit[sequence] == nil else { continue }
+            byCommit[sequence] = record
+        }
+        var result: [BotSourceState] = []
+        for canonical in unique {
+            guard let parsed = BotRecordReference.parse(canonical),
+                  let sequence = parsed.commitSeq else { continue }
+            if let record = byCommit[sequence],
+               record.event.principal.botId == botID {
+                result.append(Self.sourceState(
+                    from: Self.eventRecord(ref: canonical, record: record, calls: calls)))
+            } else {
+                result.append(BotSourceState(
+                    ref: canonical, resolved: false, erased: false,
+                    observedAtMS: nil, recordType: nil, trust: nil, version: nil))
             }
         }
         return result
@@ -765,6 +827,46 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
             return normalizedObservationText(result)
         }
         return nil
+    }
+
+    /// True when a tool result carries a complete Worker observation envelope
+    /// in one of its text blocks. The envelope is structural (v1 §4.3), so it
+    /// can stand in for a missing durable `conversation.tool_call` record.
+    static func hasObservationEnvelope(in event: BotEvent) -> Bool {
+        guard event.type == "conversation.tool_result" else { return false }
+        let content = event.data["message"]?["content"]?.arrayValue ?? []
+        for block in content where block["type"]?.stringValue == "text" {
+            if let text = block["text"]?.stringValue,
+               BotObservationEnvelope.decode(text) != nil {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// G-3 `context.observed` carries a flat `source_version` (known or
+    /// unknown). P reads that structured member instead of inventing a digest;
+    /// an absent member is an explicit `source-unversioned`.
+    static func contextObservationVersion(from event: BotEvent, ref: String,
+                                          observedAtMS: Int64?) -> BotSourceVersion {
+        guard let object = event.data["source_version"]?.objectValue else {
+            return .unknown(.sourceUnversioned)
+        }
+        if let raw = object["reason"]?.stringValue,
+           let reason = BotSourceVersionUnknownReason(rawValue: raw) {
+            return .unknown(reason)
+        }
+        guard let basisRaw = object["basis"]?.stringValue,
+              let basis = BotSourceVersionKind(rawValue: basisRaw),
+              let value = object["value"]?.stringValue, !value.isEmpty else {
+            return .unknown(.sourceUnversioned)
+        }
+        let versionObserved = object["observed_at_ms"]?.intValue.map { Int64($0) }
+        let basisRef = object["basis_ref"]?.stringValue
+        return .known(BotKnownSourceVersion(
+            kind: basis, value: value,
+            observedAtMS: versionObserved ?? observedAtMS,
+            basisRef: basisRef ?? ref))
     }
 
     private static func normalizedObservationText(_ text: String) -> String? {
@@ -832,7 +934,7 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         case "user/message":
             let source = data["source"] as? [String: Any]
             guard source?["kind"] as? String == "user",
-                  isUserRPC(source?["rpcId"] as? String) else { return .assistant }
+                  Self.isUserRPC(source?["rpcId"] as? String) else { return .assistant }
             return .user
         case "tool/call":
             let name = data["name"] as? String ?? ""
@@ -848,30 +950,29 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         }
     }
 
-    private func inferredTrust(for event: BotEvent,
-                       calls: [String: [String: String]]) -> BotRecordTrust? {
+    private static func inferredTrust(
+        for event: BotEvent, calls: [String: [String: String]], sessionID: String?
+    ) -> BotRecordTrust? {
         switch event.type {
         case "conversation.user_message":
             let source = event.data["source"]
             guard source?["kind"]?.stringValue == "user",
-                  isUserRPC(source?["rpcId"]?.stringValue) else { return .assistant }
+                  Self.isUserRPC(source?["rpcId"]?.stringValue) else { return .assistant }
             return .user
         case "conversation.tool_call":
             let name = event.data["name"]?.stringValue ?? ""
             let arguments = event.data["arguments"]?.stringValue
-            return Self.externalTool(name, arguments: arguments) ? .observation : .assistant
+            return BotRecordService.externalTool(name, arguments: arguments) ? .observation : .assistant
         case "conversation.tool_result":
             let callID = event.data["message"]?["toolCallId"]?.stringValue
                 ?? event.data["callId"]?.stringValue
-            guard let callID, let sessionID = event.principal.sessionId,
-                  let name = calls[sessionID]?[callID] else { return .assistant }
-            return Self.externalTool(name, arguments: nil) ? .observation : .assistant
+            if let callID, let sessionID, let name = calls[sessionID]?[callID] {
+                return BotRecordService.externalTool(name, arguments: nil) ? .observation : .assistant
+            }
+            return BotRecordService.hasObservationEnvelope(in: event) ? .observation : .assistant
+        case BotRecordService.contextObservedType:
+            return .observation
         default:
-            // The host writes this durable record from a device task settlement
-            // before enqueueing the read-only held item. Its shape is the
-            // verifiable observation record the trust table names; the
-            // acknowledgement (`comm.reply`) is only transport confirmation
-            // and stays `assistant`.
             if event.type == DeviceTaskResultOutbox.recordEventType,
                case let .object(data) = event.data,
                data["deviceTaskResult"] != nil {
@@ -886,7 +987,7 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         return (order[lhs] ?? 0) >= (order[rhs] ?? 0) ? lhs : rhs
     }
 
-    private func isUserRPC(_ rpcID: String?) -> Bool {
+    private static func isUserRPC(_ rpcID: String?) -> Bool {
         guard let rpcID else { return true }
         guard !rpcID.isEmpty else { return false }
         let nonUser = ["held:", "agent:", "routine:", "task-turn:", "task-settled:", "task-interrupted:"]
@@ -1099,10 +1200,17 @@ extension BotRecordService: BotProvenanceEvidenceResolving {
     /// facts it owns; identity/latest/current stay L's responsibility.
     public func sourceFacts(for refs: [String], botID: String?, sessionID: String?)
         async -> [String: BotProvenanceSourceFact] {
-        guard let botID, let sessionID, !refs.isEmpty,
-              let states = try? await sourceStates(
-                for: refs, callerBotID: botID, callerSessionID: sessionID) else {
-            return [:]
+        guard let botID, !refs.isEmpty else { return [:] }
+        let states: [BotSourceState]
+        if let sessionID, !sessionID.isEmpty {
+            states = (try? await sourceStates(
+                for: refs, callerBotID: botID,
+                callerSessionID: sessionID)) ?? []
+        } else {
+            // L retries owner-only groups for carriers without a DSH session
+            // (notably context.observed). Only event refs are resolvable here;
+            // session refs still require the claimed caller session.
+            states = await eventStates(for: refs, botID: botID)
         }
         var result: [String: BotProvenanceSourceFact] = [:]
         for state in states {

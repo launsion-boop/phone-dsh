@@ -189,6 +189,66 @@ final class BotRecordSourceStateTests: XCTestCase {
         XCTAssertNil(state.version)
     }
 
+    func testContextObservedCarriesItsStructuredSourceVersion() async throws {
+        let sequence = try await appendEvent(
+            type: "context.observed", botID: "bot-a", sessionID: nil,
+            originSeq: 9, ignorable: true, data: .object([
+                "schema": .string("bot-context-observed/v1"),
+                "source": .string("calendar"),
+                "kind": .string("event"),
+                "observed_at_ms": .number(1_760_000_009_000),
+                "owner_bot_id": .string("bot-a"),
+                "consent_generation": .number(1),
+                "source_version": .object([
+                    "basis": .string("etag"),
+                    "value": .string("etag:calendar-1"),
+                    "observed_at_ms": .number(1_760_000_009_000),
+                ]),
+                "payload": .object(["title": .string("Standup")]),
+                "dedupe_key": .string("calendar:standup"),
+                "delivery": .string("would"),
+                "wake_requested": .bool(false),
+            ]))
+        let reference = "record://event/\(sequence)"
+        let states = try await service.sourceStates(
+            for: [reference], callerBotID: "bot-a", callerSessionID: "gb-main")
+        let state = try XCTUnwrap(states.first)
+        XCTAssertEqual(state.recordType, "context.observed")
+        XCTAssertEqual(state.trust, .observation)
+        XCTAssertEqual(state.observedAtMS, 1_760_000_009_000)
+        let version = try XCTUnwrap(state.version?.known)
+        XCTAssertEqual(version.kind, .etag)
+        XCTAssertEqual(version.value, "etag:calendar-1")
+        XCTAssertEqual(version.basisRef, reference)
+    }
+
+    func testToolResultEnvelopeWithoutADurableCallIsAnObservation() async throws {
+        let envelope = try XCTUnwrap(BotObservationEnvelope(
+            source: "web", origin: "https://example.com/a",
+            at: "2026-11-11T07:00:00.000Z", owner: "unknown",
+            reference: BotRecordReference.event(commitSeq: 999),
+            text: observationText))
+        let sequence = try await appendEvent(
+            type: "conversation.tool_result", botID: "bot-a", sessionID: "gb-main",
+            originSeq: 10, data: .object([
+                "message": .object([
+                    "toolCallId": .string("call-missing"),
+                    "content": .array([.object([
+                        "type": .string("text"),
+                        "text": .string(envelope.encoded()),
+                    ])]),
+                ]),
+            ]))
+        let reference = "record://event/\(sequence)"
+        let states = try await service.sourceStates(
+            for: [reference], callerBotID: "bot-a", callerSessionID: "gb-main")
+        let state = try XCTUnwrap(states.first)
+        XCTAssertEqual(state.trust, .observation,
+                       "the envelope itself is the structural observation marker")
+        XCTAssertEqual(state.version?.known?.value,
+                       "sha256:" + sha256Hex(observationText))
+    }
+
     func testUnresolvedReferencesHaveNoVersion() async throws {
         try writeSessionLog()
         try writeLog(sessionID: "gb-other", lines: [headerLine(sessionID: "gb-other")])
@@ -406,15 +466,16 @@ final class BotRecordSourceStateTests: XCTestCase {
             ]))
     }
 
-    private func appendEvent(type: String, botID: String, sessionID: String,
-                             originSeq: Int, data: BotJSONValue) async throws -> Int {
+    private func appendEvent(type: String, botID: String, sessionID: String?,
+                             originSeq: Int, ignorable: Bool = false,
+                             data: BotJSONValue) async throws -> Int {
         let event = BotEvent(
-            type: type, eventId: "\(type):\(sessionID):\(originSeq):\(UUID().uuidString)",
+            type: type, eventId: "\(type):\(sessionID ?? "none"):\(originSeq):\(UUID().uuidString)",
             time: 1_760_000_000_000 + Int64(originSeq),
-            origin: .dsh(sessionId: sessionID, seq: originSeq),
-            traceId: "trace:\(sessionID):\(originSeq)",
+            origin: sessionID.map { .dsh(sessionId: $0, seq: originSeq) } ?? .local(source: "runtime"),
+            traceId: "trace:\(sessionID ?? "none"):\(originSeq)",
             principal: BotPrincipal(botId: botID, sessionId: sessionID, kind: "chat"),
-            causationId: nil, correlationId: sessionID, data: data)
+            causationId: nil, correlationId: sessionID, ignorable: ignorable ? true : nil, data: data)
         return try await store.append(event)
     }
 }
