@@ -130,7 +130,9 @@ struct BotChatPage: View {
             composerDockHeight = height
         }
         .sheet(item: $sourceRow) { row in
-            BotSourceSheet(row: row)
+            BotSourceInspectorSheet(row: row) { request in
+                await model.inspectSources(for: request)
+            }
         }
         .sheet(item: $documentRow) { row in
             BotDocumentPreview(row: row)
@@ -1062,7 +1064,6 @@ private struct BotComposerDock: View {
 
     /// Exactly one round button with three states: send (idle, disabled when
     /// empty), stop (running with an empty draft), send (running with text). The send id is stable so the capture tests can drive it.
-    @ViewBuilder
     /// PR #187 review item 9: sending text is no longer an implicit answer to
     /// a pending approval, so the page must say out loud that the card still
     /// needs an explicit decision. It never guesses from the text (for example
@@ -1087,6 +1088,7 @@ private struct BotComposerDock: View {
         }
     }
 
+    @ViewBuilder
     private var composerActionButton: some View {
         if model.runningTurnID != nil && !canSend {
             Button { model.stop() } label: {
@@ -1226,7 +1228,16 @@ private struct BotTranscriptRow: View {
                     .padding(.horizontal, HomeSpec.contentInset)
                     .padding(.vertical, HomeSpec.blockGap / 2)
             } else if row.body.type == "text" {
-                BotTextRow(row: row)
+                VStack(alignment: .leading, spacing: 0) {
+                    BotTextRow(row: row)
+                    if let artifact = model.feedbackArtifact(for: row) {
+                        BotFeedbackBar(artifact: artifact, state: model.feedbackState) { verdict in
+                            model.sendFeedback(row: row, verdict: verdict)
+                        }
+                        .padding(.horizontal, HomeSpec.contentInset)
+                        .padding(.bottom, 4)
+                    }
+                }
             } else if let card = BotUICardContent.parse(row: row) {
                 BotCardView(row: row, card: card, model: model, actions: actions)
                     .padding(.horizontal, HomeSpec.contentInset)
@@ -1460,33 +1471,6 @@ private struct BotComposerGlyph: View {
     }
 }
 
-private struct BotSourceSheet: View {
-    let row: BotUIRow
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("行") {
-                    LabeledContent("rowID", value: row.id)
-                    LabeledContent("botID", value: row.botID)
-                    LabeledContent("表面", value: BotUIRendering.surface(row))
-                    LabeledContent("序号", value: "\(row.seq) / \(row.updatedSeq)")
-                }
-                Section("来源") {
-                    LabeledContent("信任", value: row.provenance.trust)
-                    LabeledContent("外部内容", value: row.provenance.tainted ? "是" : "否")
-                    ForEach(row.provenance.eventIDs, id: \.self) { eventID in
-                        Text(eventID).textSelection(.enabled)
-                    }
-                }
-            }
-            .homeGroupedList()
-            .navigationTitle("消息来源")
-            .toolbar { Button("完成") { dismiss() } }
-        }
-    }
-}
 
 /// Scroll metrics for the transcript tail. This is a plain reference box, not
 /// `@State`: the tail probe and viewport reader fire during layout, and writing

@@ -28,19 +28,28 @@ struct BotCardView: View {
 
     var body: some View {
         BotContentWidth {
-            Group {
-                if let settlement {
-                    // No surface: a handled card is just one grey line.
-                    BotCardSettledLine(settlement: settlement)
-                        .transition(.opacity)
-                } else {
-                    cardContent
-                        .environment(\.botCardTheme, BotCardTheme(appearance: model.appearance))
-                        .tint(BotCardTheme(appearance: model.appearance).accent)
-                        .transition(.opacity)
+            VStack(alignment: .leading, spacing: 0) {
+                Group {
+                    if let settlement {
+                        // No surface: a handled card is just one grey line.
+                        BotCardSettledLine(settlement: settlement)
+                            .transition(.opacity)
+                    } else {
+                        cardContent
+                            .environment(\.botCardTheme, BotCardTheme(appearance: model.appearance))
+                            .tint(BotCardTheme(appearance: model.appearance).accent)
+                            .transition(.opacity)
+                    }
+                }
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: settlement)
+                if settlement == nil, let artifact = model.feedbackArtifact(for: row) {
+                    BotFeedbackBar(artifact: artifact, state: model.feedbackState) { verdict in
+                        model.sendFeedback(row: row, verdict: verdict)
+                    }
+                    .padding(.top, 2)
+                    .padding(.horizontal, 4)
                 }
             }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: settlement)
         }
     }
 

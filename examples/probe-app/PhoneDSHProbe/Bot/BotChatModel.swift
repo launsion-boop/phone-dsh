@@ -129,6 +129,12 @@ final class BotChatModel: ObservableObject {
     /// They still went through the existing approval `deny` action; the set
     /// only changes the settled summary.
     @Published private(set) var checklistProgress: [String: BotChecklistProgress] = [:]
+    /// Durable draft revision + local working selection, one entry per row.
+    /// The durable row remains the authority; `syncDeliverySessions` refreshes
+    /// it after every batch.
+    @Published private(set) var deliverySessions: [String: BotDeliverySelectionSession] = [:]
+    /// Feedback receipts and pending keys for the visible artifacts.
+    @Published private(set) var feedbackState = BotFeedbackState()
     @Published private(set) var actionLog: [String] = []
     /// The option picked on a choice card, kept locally so an accepted answer
     /// can still show its label before the durable row round-trips.
@@ -209,6 +215,7 @@ final class BotChatModel: ObservableObject {
         self.botName = context.botName
         self.liveFish = BotLiveFishProjection(botID: context.botID)
         attach(profileCenter: profileCenter)
+        syncDeliverySessions()
     }
 
     func setMainBot(_ isMain: Bool) {
@@ -794,6 +801,150 @@ final class BotChatModel: ObservableObject {
                                         approvalID: approvalID, decision: resolved, digest: digest)
     }
 
+    // MARK: - Delivery selection and feedback
+
+    func deliverySession(for row: BotUIRow) -> BotDeliverySelectionSession? {
+        deliverySessions[row.id]
+    }
+
+    /// The approval card asks this before rendering any decision button. A
+    /// malformed draft or a local selection that differs from the durable
+    /// revision blocks the old approval digest.
+    func deliveryApprovalAvailability(for row: BotUIRow) -> BotDeliveryApprovalAvailability {
+        switch BotDeliveryDraft.parse(row: row) {
+        case .absent:
+            return .usable
+        case .invalid(let reason):
+            return .blocked(reason)
+        case .ready:
+            guard let session = deliverySessions[row.id] else {
+                return .blocked("草稿信息尚未同步")
+            }
+            return session.approvalAvailability(binding: BotDeliveryApprovalBinding.parse(row: row))
+        }
+    }
+
+    func toggleDeliveryResource(row: BotUIRow, resourceID: String) {
+        guard var session = deliverySessions[row.id], session.toggle(resourceID) else { return }
+        deliverySessions[row.id] = session
+    }
+
+    func resetDeliverySelection(row: BotUIRow) {
+        guard var session = deliverySessions[row.id] else { return }
+        session.resetWorking()
+        deliverySessions[row.id] = session
+    }
+
+    func submitDeliverySelection(row: BotUIRow) {
+        guard var session = deliverySessions[row.id],
+              let intent = session.beginSubmit() else { return }
+        deliverySessions[row.id] = session
+        Task { await performDeliverySelection(intent) }
+    }
+
+    func feedbackArtifact(for row: BotUIRow) -> BotFeedbackArtifact? {
+        if case .eligible(let artifact) = BotFeedbackArtifactRule.availability(for: row) {
+            return artifact
+        }
+        return nil
+    }
+
+    func sendFeedback(row: BotUIRow, verdict: BotFeedbackVerdict) {
+        guard let artifact = feedbackArtifact(for: row),
+              feedbackState.begin(rowID: artifact.rowID, verdict: verdict) else { return }
+        let undoID = verdict == .undo
+            ? feedbackState.undoFeedbackID(for: artifact.rowID) : nil
+        if verdict == .undo, undoID == nil {
+            feedbackState.fail(rowID: artifact.rowID, verdict: verdict,
+                               reason: "feedback_not_found")
+            return
+        }
+        let intent = BotFeedbackIntent(nonce: UUID().uuidString, rowID: artifact.rowID,
+                                       botID: artifact.botID, verdict: verdict,
+                                       feedbackID: undoID)
+        Task { await performFeedback(intent) }
+    }
+
+    func inspectSources(for row: BotUIRow) async -> BotSourceInspectionResult {
+        await inspectSources(for: BotSourceInspectionRequest(
+            botID: row.botID, rowID: row.id, eventIDs: row.provenance.eventIDs))
+    }
+
+    func inspectSources(for request: BotSourceInspectionRequest) async -> BotSourceInspectionResult {
+        guard let driver else { return .unavailable(reason: "来源服务未连接") }
+        return await driver.inspectSources(request)
+    }
+
+    private func performDeliverySelection(_ intent: BotDeliverySelectionIntent) async {
+        let key = "delivery:\(intent.rowID)"
+        actionLog.append("deliverySelection")
+        let result: BotUIActionResult
+        if let driver {
+            result = await driver.selectDeliveryResources(intent)
+        } else if fixtureActions {
+            result = .accepted(eventID: "evt-delivery-\(intent.nonce.prefix(8))")
+        } else {
+            result = .rejected(reason: BotChatModelError.runtimeUnavailable.localizedDescription)
+        }
+        switch result {
+        case .accepted, .duplicate:
+            actionStates[key] = .accepted
+            if var session = deliverySessions[intent.rowID] {
+                session.markAccepted()
+                deliverySessions[intent.rowID] = session
+            }
+        case .stale(let reason), .rejected(let reason):
+            actionStates[key] = .failed(reason)
+            if var session = deliverySessions[intent.rowID] {
+                session.markFailed(reason)
+                deliverySessions[intent.rowID] = session
+            }
+        }
+    }
+
+    private func performFeedback(_ intent: BotFeedbackIntent) async {
+        let key = "feedback:\(intent.rowID):\(intent.verdict.rawValue)"
+        actionLog.append("feedback:\(intent.verdict.rawValue)")
+        let result: BotUIActionResult
+        if let driver {
+            result = await driver.recordFeedback(intent)
+        } else if fixtureActions {
+            result = .accepted(eventID: "evt-feedback-\(intent.nonce.prefix(8))")
+        } else {
+            result = .rejected(reason: BotChatModelError.runtimeUnavailable.localizedDescription)
+        }
+        let now = Int64((Date().timeIntervalSince1970 * 1_000).rounded())
+        switch result {
+        case .accepted(let eventID), .duplicate(let eventID):
+            actionStates[key] = .accepted
+            feedbackState.accept(rowID: intent.rowID, verdict: intent.verdict,
+                                 feedbackID: eventID, atMS: now,
+                                 undoTarget: intent.feedbackID)
+        case .stale(let reason), .rejected(let reason):
+            actionStates[key] = .failed(reason)
+            feedbackState.fail(rowID: intent.rowID, verdict: intent.verdict, reason: reason)
+        }
+    }
+
+    /// Refresh every delivery session from the durable rows. A row with a
+    /// larger revision replaces the working set; a removed/malformed delivery
+    /// drops the session. The local view never invents a revision.
+    private func syncDeliverySessions() {
+        var next: [String: BotDeliverySelectionSession] = [:]
+        for row in rows {
+            guard case .ready(let draft) = BotDeliveryDraft.parse(row: row) else { continue }
+            if var existing = deliverySessions[row.id] {
+                _ = existing.applyDurable(draft)
+                next[row.id] = existing
+            } else {
+                next[row.id] = BotDeliverySelectionSession(row: row, draft: draft)
+            }
+        }
+        if next != deliverySessions {
+            deliverySessions = next
+        }
+    }
+
     func stop() {
         clearAwaitingTurn()
         lineSuppressed = true
@@ -988,6 +1139,7 @@ final class BotChatModel: ObservableObject {
         }
         incoming.forEach(upsert)
         watchCursor = batch.cursor
+        syncDeliverySessions()
     }
 
     func upsert(_ row: BotUIRow) {
@@ -1458,6 +1610,7 @@ final class BotChatModel: ObservableObject {
                 throw BotChatModelError.runtimeUnavailable
             }
             page.rows.forEach(upsert)
+            syncDeliverySessions()
             historyCursor = page.nextCursor
             hasMoreHistory = page.hasMore
         } catch {

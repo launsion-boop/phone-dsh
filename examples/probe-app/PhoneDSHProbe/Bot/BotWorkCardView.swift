@@ -299,6 +299,15 @@ private struct BotApprovalCardView: View {
                                       effectiveScope: effectiveScope, decision: decision)
     }
 
+    private var deliveryGate: BotDeliveryApprovalAvailability {
+        model.deliveryApprovalAvailability(for: row)
+    }
+
+    private var deliveryBlocked: Bool {
+        if case .blocked = deliveryGate { return true }
+        return false
+    }
+
     var body: some View {
         BotCardSurface(category: .approval) {
             if pending { pendingContent } else { decidedContent }
@@ -336,6 +345,22 @@ private struct BotApprovalCardView: View {
                     .botCardBody()
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let session = model.deliverySession(for: row) {
+                BotSuggestedResourcesSection(
+                    session: session,
+                    onToggle: { resourceID in
+                        model.toggleDeliveryResource(row: row, resourceID: resourceID)
+                    },
+                    onSubmit: { model.submitDeliverySelection(row: row) },
+                    onReset: { model.resetDeliverySelection(row: row) })
+            }
+            if case .blocked(let reason) = deliveryGate {
+                Label(reason, systemImage: "exclamationmark.circle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(NativeParityTokens.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("bot.delivery.approval.blocked")
+            }
             if row.body["persistent"]?.bool == true {
                 Text("用户不在场，已转为待办。")
                     .botCardMeta()
@@ -358,7 +383,7 @@ private struct BotApprovalCardView: View {
                     denyButton
                 }
             }
-            .disabled(busy)
+            .disabled(busy || deliveryBlocked)
             if offeredScope == "session" {
                 Text("仅对本次对话有效")
                     .botCardMeta()
