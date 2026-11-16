@@ -238,6 +238,7 @@ final class BotRuntimeComposition {
     /// G-3 iOS context sources. Created in `prepare`; started after the first
     /// successful bind and stopped with the composition.
     private var contextSources: BotContextSourcesAssembly?
+    private var skillAdminObserver: BotSkillAdminObserver?
 
     /// Read-only seam for the Bot info/settings entry and the info driver. The
     /// assembly remains the sole consent/observation authority.
@@ -450,6 +451,21 @@ final class BotRuntimeComposition {
                 web: webRechecker),
             skillRechecker: BotSkillFileRechecker(roots: skillRoots))
         await runtime.installProvenance(provenance)
+        let skillRoots = BotSkillRoots(
+            workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot())
+        let skillProducer = BotSkillProvenanceProducer(
+            botRoot: BotWorkspaceLayout.botRoot(
+                botId: selectedCandidate,
+                dataDirectory: BotSessionRegistry.botDataDirectory),
+            roots: skillRoots,
+            recorder: { request in try await runtime.recordSkillWrite(request) },
+            latest: { identity in try await runtime.latestSkillChange(identity: identity) })
+        let skillAdminObserver = BotSkillAdminObserver(
+            root: skillRoots.skillsRoot(source: "user-dsh", ownerBotID: nil)
+                ?? (workspaceRoot ?? BotProductionPaths.workspaceRoot())
+                    .appendingPathComponent("materialized/home/skills", isDirectory: true),
+            producer: skillProducer)
+        skillAdminObserver.start()
         let materialState = BotDecisionMaterialStateAdapter(provenance: provenance)
         let workspaceCatalog = BotWorkspaceDirectoryCatalog(
             workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot())
