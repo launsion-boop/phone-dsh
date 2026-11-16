@@ -7980,6 +7980,12 @@
           "type": "memory.document_written",
           "botId": "bot-a",
           "at_ms": 1700
+        },
+        "record://event/62": {
+          "kind": "event",
+          "type": "memory.document_written",
+          "botId": "bot-a",
+          "at_ms": 1200
         }
       },
       "artifacts": [
@@ -8194,6 +8200,12 @@
           "type": "memory.document_written",
           "botId": "bot-a",
           "at_ms": 1700
+        },
+        "record://event/62": {
+          "kind": "event",
+          "type": "memory.document_written",
+          "botId": "bot-a",
+          "at_ms": 1200
         }
       },
       "artifacts": [
