@@ -89,8 +89,13 @@ DSH 没有官方“非 tools/list 的 host→Worker 通道”。因此“完全 
 - 任意交付行可带 `sources[]`：每条 `{label,kind,reason?,observed_at?,verification,freshness,
   state,state_detail?}`；`label` 是人话（不得是 `record://`/session/event/tool id），`kind` 封闭
   `user_message|file|calendar|contact|web|memory|inference|bot`；`verification` 封闭
-  `verified|unverified|disputed|unknown`；`freshness/state` 用 G-1 的 canonical 六值；
-  `state != current` 必须给 `state_detail` 且该条不可被选用（仍显示，不静默隐藏）。
+  `verified|unverified|disputed|unknown`；`freshness/state` 用 G-1 的 canonical 六值。
+- **适用性 vs 当前有效性（R5）**：`state` 只表达来源当前有效性，不能单独决定“能不能用”。
+  - `revoked|erased|unavailable`：宿主权限/可用性不允许选用，UI 显示不可用与原因；
+  - `changed|unknown`：**可选用**但必须标“历史版本/时效未知”；是否适合本次任务由模型和用户判断，
+    不得用通用 non-current 硬规则一律禁止（例如任务本来就是比较历史版本）；
+  - `current`：可选用，但仍不表示 `review.verified`。
+  系统守权限与可用性；用途判断不塞进来源状态。
 - 交付/审批行可带 `delivery{draft_id,revision,parameters[],resources[]}`；`resources` 每项
   `{id,name,detail?,reason?,selected,state,source}`。这些是行投影，不是第二份权威：`source` 是
   G-1 `source_statuses` 的 UI 投影，`revision` 由宿主单调分配。
@@ -102,6 +107,8 @@ DSH 没有官方“非 tools/list 的 host→Worker 通道”。因此“完全 
   updated_at_ms,approval_digest}`；`artifact_kind` 封闭 `delivery|draft|notification`。
 - 生命周期：`candidate → selected/removed → submitted`；一次提交完整 `selected_resource_ids`
   集合（幂等），不是增量 toggle；`state != current` 的资源不可选。
+- 选用规则：`resource.state` 为 `revoked|erased|unavailable` 的候选不可选（权限/可用性）；
+  `changed|unknown` 可选，但 UI 必须标“历史/时效未知”，不能显示成 current；用途由模型/用户判断。
 - **重绑定**：`approval_digest = "sha256:"+sha256(canonical JSON of
   [draft_id, revision, sorted(selected_resource_ids), parameters sorted by label])`（UTF-8、
   无空白、键序固定）。`revision` 单调 +1；选中集合或参数变化必须产生新 revision/digest。
@@ -121,9 +128,17 @@ DSH 没有官方“非 tools/list 的 host→Worker 通道”。因此“完全 
   session_id, nonce, verified_by:"host"}, target{kind,id,version?,delivery_key?}, scope{kind,key},
   class_key?, subjects[], applied?, reverses?, accepted, reason?}`。不写用户原话/记忆正文/凭据。
 - `action` 封闭 `adopt|undo|correct|suppress`（**`correct` 是唯一“说错了”词**，不得用 `wrong`）。
-- `scope.kind` 封闭 `artifact|routine|class|user`；`class` 只能由宿主从被引用 artifact 推导；
-  `user` 只接受 kind 级 class（如 `proactive:task-done`），routine/reminder 级 class 请求
-  `user` → `scope-not-shareable`，不外扩成「全部目标」。
+- `scope.kind` 封闭 `artifact|routine|class|user`，解析规则（R4，防止把“这类别推”扩成全部主动行为）：
+  - `artifact`：只命中该 artifact id；不带 class_key 也合法。
+  - `routine`：class_key 必须恰为 `routine:<该 routine id>`；不同 routine 不互相影响。
+  - `class`：class_key 必须是**具体目标的窄类**（`proactive:<kind>:<taskId|runId|reminderId>` 或
+    `routine:<id>`）；仅 kind 级 class（如 `proactive:task-done`）→ `ambiguous-scope`，不得由
+    单条 artifact 自动扩大。
+  - `user`：只接受 kind 级 class（`proactive:task-done|routine-result|reminder`），且 origin 必须是
+    `ui-action`（用户在 UI 明确选择）；`user-chat-turn` 的来源只证明“用户说过”，不证明宿主理解正确 →
+    `scope-requires-confirmation`。routine/reminder 级 class 请求 `user` → `scope-not-shareable`。
+  - 同一 Bot 的不同目标（task-1 vs task-2、routine r1 vs r2）互不影响；只有 `user` + UI 明确选择
+    才跨 Bot 共用。禁止业务关键词黑名单/把正文当 scope。
 - `correct` 必须绑定 memory 已应用版本（`target.version == applied.memory.version`），否则
   `correction-not-applied`；它同时追加既有 `memory.review_requested`（disputed），交 M；
   不改写历史版本、不伪造 verified。

@@ -175,7 +175,9 @@
         "correction-not-applied",
         "duplicate",
         "permission-denied",
-        "insufficient-evidence"
+        "insufficient-evidence",
+        "ambiguous-scope",
+        "scope-requires-confirmation"
       ]
     },
     "expires_at_ms": {

@@ -28,6 +28,7 @@ GOLDEN = BOT / "golden" / "decision-context.json"
 STATE = ("current", "changed", "unavailable", "revoked", "erased", "unknown")
 CLASS = re.compile(r"^(proactive:(task-done|routine-result|reminder(:[A-Za-z0-9._:-]{1,64})?)|routine:[A-Za-z0-9._:-]{1,64})$")
 SHAREABLE = re.compile(r"^proactive:(task-done|routine-result|reminder)$")
+TARGET_SPECIFIC = re.compile(r"^(proactive:(task-done|routine-result|reminder):[A-Za-z0-9._:-]{1,64}|routine:[A-Za-z0-9._:-]{1,64})$")
 RECORD = re.compile(r"^record://(session/(?!\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$")
 
 
@@ -83,8 +84,8 @@ def check_suggestion(item: dict, where: str) -> None:
     expected = digest(item["draft_id"], item["revision"], selected, item.get("parameters", []))
     if item["approval_digest"] != expected:
         raise AssertionError(f"{where}: approval_digest does not bind draft/revision/selection/parameters")
-    if item["selected"] and item["resource"]["state"] != "current":
-        raise AssertionError(f"{where}: non-current resource cannot be selected")
+    if item["selected"] and item["resource"]["state"] in ("revoked", "erased", "unavailable"):
+        raise AssertionError(f"{where}: permission/availability-blocked resource cannot be selected")
 
 
 def check_user_action(item: dict, where: str) -> None:
@@ -117,12 +118,26 @@ def check_feedback(data: dict, seen: dict, where: str) -> dict:
                 or applied.get("version") != target.get("version"):
             result = {"accepted": False, "reason": "correction-not-applied"}
     elif action == "suppress":
+        class_key = data.get("class_key")
         if target["kind"] == "feedback":
             result = {"accepted": False, "reason": "target-unresolved"}
-        elif "class_key" not in data or not CLASS.match(data["class_key"]):
-            result = {"accepted": False, "reason": "target-unresolved"}
-        elif scope["kind"] == "user" and not SHAREABLE.match(data["class_key"]):
-            result = {"accepted": False, "reason": "scope-not-shareable"}
+        elif scope["kind"] == "artifact":
+            pass
+        elif scope["kind"] == "routine":
+            if class_key != "routine:" + target["id"]:
+                result = {"accepted": False, "reason": "ambiguous-scope"}
+        elif scope["kind"] == "class":
+            if not class_key:
+                result = {"accepted": False, "reason": "ambiguous-scope"}
+            elif not TARGET_SPECIFIC.match(class_key):
+                result = {"accepted": False, "reason": "ambiguous-scope"}
+        elif scope["kind"] == "user":
+            if not class_key or class_key.startswith("routine:") or class_key.startswith("proactive:reminder:"):
+                result = {"accepted": False, "reason": "scope-not-shareable"}
+            elif not SHAREABLE.match(class_key):
+                result = {"accepted": False, "reason": "ambiguous-scope"}
+            elif data["origin"]["kind"] != "ui-action":
+                result = {"accepted": False, "reason": "scope-requires-confirmation"}
     elif action == "adopt":
         if target["kind"] == "feedback":
             result = {"accepted": False, "reason": "target-unresolved"}
@@ -245,6 +260,28 @@ def main() -> int:
         if case["claim"]["reason"] == "feedback-held" and case["settings"]["mode"] == "off":
             continue
         raise AssertionError(f"proactive.{case['name']}: invalid case not aligned")
+    active = {}
+    for case in golden["feedback"]["cases"]:
+        data = case["data"]
+        if data["action"] != "suppress":
+            continue
+        result = feedback_results.get(case["name"], {})
+        if not result.get("accepted"):
+            continue
+        scope = data["scope"]
+        if scope["kind"] == "artifact":
+            active[("artifact", data["target"]["id"])] = True
+        elif scope["kind"] == "routine":
+            active[("routine", data["class_key"])] = True
+        elif scope["kind"] == "class":
+            active[("class", data["class_key"])] = True
+        elif scope["kind"] == "user":
+            active[("user", data["class_key"])] = True
+    for isolation in golden.get("feedback", {}).get("isolation", []):
+        for check_case in isolation["checks"]:
+            key = (check_case["lookup_scope"], check_case["lookup_key"])
+            if bool(active.get(key)) != check_case["expect_active"]:
+                raise AssertionError(f"feedback isolation {isolation['name']}: {key}")
     for index, message in enumerate(golden.get("internal_tool", {}).get("valid", [])):
         check(message, "decision-internal-tool.schema.json", f"internal_tool.valid[{index}]")
         if message.get("ok") is True:

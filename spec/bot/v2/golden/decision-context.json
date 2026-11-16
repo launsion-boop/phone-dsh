@@ -439,6 +439,27 @@
         "created_at_ms": 1760000000000,
         "updated_at_ms": 1760000001000,
         "approval_digest": "sha256:15d7fa5e62fbfa70f98507dcbffc924fbcfbefb750627738f0f552f7485aab22"
+      },
+      {
+        "suggestion_id": "sug:3",
+        "draft_id": "draft-1",
+        "revision": 4,
+        "artifact_kind": "delivery",
+        "resource": {
+          "id": "r3",
+          "name": "历史纪要.md",
+          "state": "changed",
+          "source": {
+            "ref": "record://event/7",
+            "trust": "observation",
+            "state": "changed",
+            "reason": "source-changed"
+          }
+        },
+        "selected": true,
+        "created_at_ms": 1760000000000,
+        "updated_at_ms": 1760000001000,
+        "approval_digest": "sha256:95444fa1e2c08752158d7485b6ba8956fbe36dc1e0cdb0b1f3c110e1f47bd954"
       }
     ],
     "invalid": [
@@ -477,27 +498,38 @@
         }
       },
       {
-        "name": "selected-non-current",
+        "name": "selected-erased",
         "instance": {
-          "suggestion_id": "sug:2",
+          "suggestion_id": "sug:1",
           "draft_id": "draft-1",
           "revision": 3,
-          "artifact_kind": "draft",
+          "artifact_kind": "delivery",
           "resource": {
-            "id": "r2",
-            "name": "报价.pdf",
-            "state": "changed",
+            "id": "r4",
+            "name": "纪要.md",
+            "state": "erased",
             "source": {
-              "ref": "record://session/gb-main#7",
+              "ref": "record://event/7",
               "trust": "observation",
-              "state": "changed",
-              "reason": "source-changed"
-            }
+              "state": "erased",
+              "reason": "record-erased"
+            },
+            "reason": "上周同一项目的最新纪要"
           },
+          "parameters": [
+            {
+              "label": "收件人",
+              "value": "张三"
+            },
+            {
+              "label": "主题",
+              "value": "周报"
+            }
+          ],
           "selected": true,
           "created_at_ms": 1760000000000,
           "updated_at_ms": 1760000001000,
-          "approval_digest": "sha256:15d7fa5e62fbfa70f98507dcbffc924fbcfbefb750627738f0f552f7485aab22"
+          "approval_digest": "sha256:34bb49134465e38e88ba891e590e0fa01692431bbb559fae031274fa97c1f856"
         }
       }
     ]
@@ -621,7 +653,8 @@
           "class_key": "proactive:task-done"
         },
         "expected": {
-          "accepted": true
+          "accepted": false,
+          "reason": "scope-requires-confirmation"
         }
       },
       {
@@ -817,7 +850,7 @@
         },
         "expected": {
           "accepted": false,
-          "reason": "target-unresolved"
+          "reason": "ambiguous-scope"
         }
       },
       {
@@ -880,6 +913,210 @@
           "accepted": true,
           "duplicated": true
         }
+      },
+      {
+        "name": "suppress-user-kind-ui",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "suppress",
+          "origin": {
+            "kind": "ui-action",
+            "session_id": "gb-main",
+            "nonce": "n-ui-1",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "delivery",
+            "id": "delivery-1"
+          },
+          "scope": {
+            "kind": "user",
+            "key": "proactive:task-done"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true,
+          "class_key": "proactive:task-done"
+        },
+        "expected": {
+          "accepted": true
+        }
+      },
+      {
+        "name": "suppress-kind-only-as-class",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "suppress",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-k-1",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "delivery",
+            "id": "delivery-1"
+          },
+          "scope": {
+            "kind": "class",
+            "key": "proactive:task-done"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true,
+          "class_key": "proactive:task-done"
+        },
+        "expected": {
+          "accepted": false,
+          "reason": "ambiguous-scope"
+        }
+      },
+      {
+        "name": "suppress-one-routine",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "suppress",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-r-1",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "routine",
+            "id": "r1"
+          },
+          "scope": {
+            "kind": "routine",
+            "key": "routine:r1"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true,
+          "class_key": "routine:r1"
+        },
+        "expected": {
+          "accepted": true
+        }
+      },
+      {
+        "name": "suppress-artifact-delivery-1",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "suppress",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-art-1",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "delivery",
+            "id": "delivery-1"
+          },
+          "scope": {
+            "kind": "artifact",
+            "key": "artifact:delivery-1"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true
+        },
+        "expected": {
+          "accepted": true
+        }
+      }
+    ],
+    "isolation": [
+      {
+        "name": "routine-r1-does-not-hold-r2",
+        "active": [
+          {
+            "schema": "bot-feedback/v1",
+            "feedback_id": "feedback:bot-a:1",
+            "action": "suppress",
+            "origin": {
+              "kind": "user-chat-turn",
+              "session_id": "gb-main",
+              "nonce": "n-r-1",
+              "verified_by": "host"
+            },
+            "target": {
+              "kind": "routine",
+              "id": "r1"
+            },
+            "scope": {
+              "kind": "routine",
+              "key": "routine:r1"
+            },
+            "subjects": [
+              "record://event/7"
+            ],
+            "accepted": true,
+            "class_key": "routine:r1"
+          }
+        ],
+        "checks": [
+          {
+            "lookup_scope": "routine",
+            "lookup_key": "routine:r2",
+            "expect_active": false
+          },
+          {
+            "lookup_scope": "routine",
+            "lookup_key": "routine:r1",
+            "expect_active": true
+          }
+        ]
+      },
+      {
+        "name": "artifact-task1-does-not-hold-task2",
+        "active": [
+          {
+            "schema": "bot-feedback/v1",
+            "feedback_id": "feedback:bot-a:1",
+            "action": "adopt",
+            "origin": {
+              "kind": "user-chat-turn",
+              "session_id": "gb-main",
+              "nonce": "n-1",
+              "verified_by": "host"
+            },
+            "target": {
+              "kind": "proactive",
+              "id": "delivery-1",
+              "version": 2
+            },
+            "scope": {
+              "kind": "artifact",
+              "key": "artifact:delivery-1"
+            },
+            "subjects": [
+              "record://event/7"
+            ],
+            "accepted": true
+          }
+        ],
+        "checks": [
+          {
+            "lookup_scope": "artifact",
+            "lookup_key": "delivery-1",
+            "expect_active": true
+          },
+          {
+            "lookup_scope": "artifact",
+            "lookup_key": "delivery-2",
+            "expect_active": false
+          }
+        ]
       }
     ]
   },
