@@ -118,7 +118,13 @@ public struct BotProvenanceFileRecheckAdapter: BotProvenanceRechecking {
             key: resource.key, owner: resource.owner, scope: resource.scope)
         let fileBaseline: BotFileBaseline?
         if case let .known(basis, value, _, _) = baseline, basis == .contentSHA256 {
-            fileBaseline = .fileBytes(value)
+            // Until N's import-time raw-byte digest is in the durable
+            // observation, a content-sha256 baseline may be over record text
+            // (PDF/image extraction, BOM, truncation). Comparing it as file
+            // bytes would produce false changed/same, so stay conservative:
+            // P only reports unchanged when sha256(raw bytes) == token and
+            // otherwise refresh-not-performed.
+            fileBaseline = .recordText(value)
         } else {
             fileBaseline = nil
         }
