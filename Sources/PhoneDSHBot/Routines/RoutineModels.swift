@@ -280,6 +280,54 @@ public struct RoutineSkip: Codable, Sendable, Equatable {
     }
 }
 
+/// Local authorization for the reliable cloud scheduler. This is a *permission*
+/// carried by the routine record, separate from the routine's goal/prompt:
+/// the cloud may only wake/schedule this routine inside this grant. It never
+/// carries prompt text, results or source content.
+///
+/// `seq` increases monotonically on every authorization or schedule-relevant
+/// change and is the wire revision used by the cloud API (the client keeps the
+/// last confirmed revision in memory, not in this record). Absent
+/// `cloud_schedule` means cloud scheduling is not authorized (old data and
+/// rollback fail closed), and old writers that drop the field only disable
+/// cloud wakes; they never cause a run.
+public struct RoutineCloudSchedule: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var seq: Int64
+    public var authorizationRef: String?
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, seq
+        case authorizationRef = "authorization_ref"
+    }
+
+    public init(enabled: Bool, seq: Int64, authorizationRef: String? = nil) {
+        self.enabled = enabled
+        self.seq = seq
+        self.authorizationRef = authorizationRef
+    }
+
+    public func validated() throws -> RoutineCloudSchedule {
+        var copy = self
+        guard copy.seq >= 0 else {
+            throw RoutineError.invalidRoutine("cloud_schedule.seq must not be negative")
+        }
+        if let reference = copy.authorizationRef {
+            let clean = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Frozen `authorization_ref` pattern (spec/cloud/v1): a record
+            // reference; the cloud only stores/echoes it and cannot verify it.
+            let pattern = #"^record://(event/[1-9][0-9]*|session/[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*))$"#
+            guard clean.count <= 128,
+                  clean.range(of: pattern, options: .regularExpression) != nil else {
+                throw RoutineError.invalidRoutine(
+                    "cloud_schedule.authorization_ref must be a record:// event or session reference (max 128 characters)")
+            }
+            copy.authorizationRef = clean
+        }
+        return copy
+    }
+}
+
 public struct Routine: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var agentId: String
@@ -302,6 +350,7 @@ public struct Routine: Codable, Sendable, Equatable, Identifiable {
     public var lastSkip: RoutineSkip?
     public var skipCount: Int
     public var crashRetry: Bool
+    public var cloudSchedule: RoutineCloudSchedule?
     public var lastRunAt: Int64?
     public var nextRunAt: Int64?
     public var lastResult: RoutineResult?
@@ -319,6 +368,7 @@ public struct Routine: Codable, Sendable, Equatable, Identifiable {
         case lastSkip = "last_skip"
         case skipCount = "skip_count"
         case crashRetry = "crash_retry"
+        case cloudSchedule = "cloud_schedule"
         case lastRunAt = "last_run_at"
         case nextRunAt = "next_run_at"
         case lastResult = "last_result"
@@ -332,6 +382,7 @@ public struct Routine: Codable, Sendable, Equatable, Identifiable {
                 constraints: String = "", attempt: Int = 0,
                 runState: RoutineRunState? = nil, quietDefer: RoutineQuietDefer? = nil,
                 lastSkip: RoutineSkip? = nil, skipCount: Int = 0, crashRetry: Bool = false,
+                cloudSchedule: RoutineCloudSchedule? = nil,
                 lastRunAt: Int64? = nil, nextRunAt: Int64? = nil, lastResult: RoutineResult? = nil) {
         self.id = id
         self.agentId = agentId
@@ -354,6 +405,7 @@ public struct Routine: Codable, Sendable, Equatable, Identifiable {
         self.lastSkip = lastSkip
         self.skipCount = skipCount
         self.crashRetry = crashRetry
+        self.cloudSchedule = cloudSchedule
         self.lastRunAt = lastRunAt
         self.nextRunAt = nextRunAt
         self.lastResult = lastResult
@@ -382,6 +434,7 @@ public struct Routine: Codable, Sendable, Equatable, Identifiable {
         lastSkip = try container.decodeIfPresent(RoutineSkip.self, forKey: .lastSkip)
         skipCount = try container.decodeIfPresent(Int.self, forKey: .skipCount) ?? 0
         crashRetry = try container.decodeIfPresent(Bool.self, forKey: .crashRetry) ?? false
+        cloudSchedule = try container.decodeIfPresent(RoutineCloudSchedule.self, forKey: .cloudSchedule)
         lastRunAt = try container.decodeIfPresent(Int64.self, forKey: .lastRunAt)
         nextRunAt = try container.decodeIfPresent(Int64.self, forKey: .nextRunAt)
         lastResult = try container.decodeIfPresent(RoutineResult.self, forKey: .lastResult)
@@ -428,6 +481,7 @@ public struct Routine: Codable, Sendable, Equatable, Identifiable {
         copy.urgentReason = flags.urgentReason
         copy.delivery = flags.delivery
         copy.interruptReason = flags.interruptReason
+        copy.cloudSchedule = try cloudSchedule?.validated()
         return copy
     }
 }

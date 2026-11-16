@@ -10,6 +10,10 @@ public actor RoutineScheduler {
     public typealias ApprovalCanceller = @Sendable (String) async -> Bool
 
     public let botId: String
+    /// Upper bound one run may occupy before its lease/result is considered
+    /// unknown. The cloud client uses it to decide whether a lease is long
+    /// enough to start a run (set from `runTimeoutMs + cancelGraceMs`).
+    public let cloudRunBudgetMs: Int64
     public let machine: RoutineMachine
     public let inbox: WakeInbox
     public let sink: any RoutineResultSink
@@ -58,6 +62,7 @@ public actor RoutineScheduler {
                 tickIntervalMs: Int64 = 5_000, runTimeoutMs: Int64 = 600_000,
                 cancelGraceMs: Int64 = 5_000, leaseOwner: String = "local") {
         self.botId = botId
+        self.cloudRunBudgetMs = max(1, runTimeoutMs) + max(0, cancelGraceMs)
         self.machine = machine
         self.inbox = inbox
         self.sink = sink
@@ -181,6 +186,128 @@ public actor RoutineScheduler {
             active.remove(routine.id)
         }
         await syncNotifications()
+    }
+
+    // MARK: - Cloud-scheduled occurrences
+
+    /// Stable run id for one cloud occurrence. `occurrence_key` is the cloud
+    /// contract's opaque idempotency key (sha256 hex); the prefix separates it
+    /// from local random `run-…` ids so recovery can tell which run a crashed
+    /// attempt belonged to.
+    public static func cloudRunId(occurrenceKey: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let mapped = String(occurrenceKey.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" })
+        let suffix = String(mapped.prefix(120))
+        return "cloud-\(suffix.isEmpty ? "occurrence" : suffix)"
+    }
+
+    /// Runs one occurrence the cloud scheduler reported due, through the same
+    /// claim / execute / settle / hold / interrupt / notification path as a
+    /// locally scheduled run. The caller (cloud schedule client) owns the
+    /// cloud lease and maps the outcome to a receipt.
+    ///
+    /// Idempotency: the deterministic `cloudRunId(occurrenceKey:)` plus the
+    /// persisted `runState`/`lastResult` are the only source of truth. A
+    /// duplicate delivery of the same occurrence, a local best-effort run of
+    /// the same `scheduledFor`, and a restart after a crash all resolve here
+    /// without a second execution.
+    public func runCloudOccurrence(routineId: String, occurrenceKey: String,
+                                   scheduledFor: Int64) async -> RoutineCloudRunOutcome {
+        let runId = Self.cloudRunId(occurrenceKey: occurrenceKey)
+        guard let routine = try? await machine.get(botId: botId, routineId: routineId) else {
+            return .skipped(reason: "routine_not_found")
+        }
+        guard routine.enabled else { return .skipped(reason: "disabled") }
+        if let state = routine.runState {
+            if state.runId == runId {
+                switch state.status {
+                case .started:
+                    // A previous attempt for this occurrence is still marked
+                    // running. Never claim a second attempt; the caller
+                    // reconciles the cloud event and waits for recovery.
+                    return .skipped(reason: "in_progress")
+                case .waitingApproval:
+                    return .waitingApproval(approvalID: state.waitingApprovalID,
+                                            runId: runId, attempt: state.attempt)
+                default:
+                    return .alreadySettled(status: state.status, runId: runId, attempt: state.attempt)
+                }
+            }
+            switch state.status {
+            case .started:
+                return .skipped(reason: "overlap")
+            case .waitingApproval:
+                return .skipped(reason: "waiting_approval")
+            case .needsReconciliation:
+                return .skipped(reason: "needs_reconciliation")
+            default:
+                break
+            }
+        }
+        if let result = routine.lastResult, result.status.isTerminal,
+           let lastScheduledFor = result.scheduledFor {
+            if lastScheduledFor == scheduledFor {
+                // A local best-effort run already covered this exact slot.
+                return .alreadySettled(status: result.status, runId: result.runId, attempt: result.attempt)
+            }
+            if lastScheduledFor > scheduledFor {
+                // A later slot already ran; this occurrence is superseded.
+                return .skipped(reason: "superseded")
+            }
+        }
+        if active.contains(routineId) { return .skipped(reason: "overlap") }
+        guard !ticking else { return .notReady }
+        ticking = true
+        defer { ticking = false }
+        let now = nowProvider()
+        let settings = settingsProvider().normalized()
+        let mayBypassQuiet = routine.urgent
+            && !RoutineDeliveryFlags.clean(routine.urgentReason).isEmpty
+        if !mayBypassQuiet && RoutineQuietHours.contains(now, settings: settings),
+           let until = RoutineQuietHours.nextEnd(now, settings: settings), until > now {
+            // Same policy as `tick`: defer instead of dropping. The local
+            // scheduler then runs the routine once at quiet-hours end; the
+            // cloud occurrence itself is reported skipped.
+            if let nextRunAt = routine.nextRunAt, nextRunAt <= until {
+                _ = try? await machine.deferForQuiet(botId: botId, routineId: routine.id,
+                                                     until: until, now: now)
+            }
+            await syncNotifications()
+            return .skipped(reason: "quiet")
+        }
+        guard await available(botId), !(await busy(botId)) else { return .notReady }
+        let startedAt = nowProvider()
+        // Use the scheduler's own lease owner: the periodic `recover()` pass
+        // treats its own unexpired lease as a live run and must not turn an
+        // in-flight cloud occurrence into `needs-reconciliation`.
+        guard let claim = try? await machine.begin(
+            botId: botId, routineId: routine.id, startedAt: startedAt,
+            scheduledFor: scheduledFor, leaseOwner: leaseOwner,
+            leaseTTLMs: runTimeoutMs + cancelGraceMs + 60_000, runId: runId) else {
+            return .skipped(reason: "not_claimed")
+        }
+        guard claim.claimed else {
+            return .skipped(reason: claim.skipReason ?? "not_claimed")
+        }
+        active.insert(routineId)
+        // The due reminder must not fire while the run is starting.
+        await cancelScheduledNotifications(routineId: routineId)
+        await execute(claim, startedAt: startedAt)
+        active.remove(routineId)
+        await syncNotifications()
+        guard let updated = try? await machine.get(botId: botId, routineId: routineId),
+              let state = updated.runState, state.runId == runId else {
+            return .skipped(reason: "state_missing")
+        }
+        switch state.status {
+        case .waitingApproval:
+            return .waitingApproval(approvalID: state.waitingApprovalID,
+                                    runId: runId, attempt: state.attempt)
+        case .started:
+            return .skipped(reason: "in_progress")
+        default:
+            return .settled(status: state.status, runId: runId, attempt: state.attempt)
+        }
     }
 
     /// Cancel the currently running attempt of one routine. This is the user
