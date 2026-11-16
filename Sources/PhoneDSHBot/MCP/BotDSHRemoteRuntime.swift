@@ -3645,7 +3645,7 @@ private actor BotTurnSettlement {
 /// turn's first prompt is accepted wait here; `open` releases them to steer
 /// into the same turn, `fail` releases them to the normal/queued path. The
 /// gate is fail-safe: once failed, later waiters return false and never hang.
-private actor BotAdmissionGate {
+actor BotAdmissionGate {
     private enum State {
         case pending
         case open
@@ -3653,10 +3653,11 @@ private actor BotAdmissionGate {
     }
 
     private var state: State = .pending
-    private var waiters: [(id: UUID, continuation: CheckedContinuation<Bool, Never>)] = []
-    /// Cancellation can land before the wait registers; remember the id so the
-    /// registration closure resumes it immediately.
-    private var cancelledWaiters: Set<UUID> = []
+    private var waiters: [BotGateWaiter] = []
+
+    /// Test/observation seam: waiters are released by open/fail; a late
+    /// cancellation must never leave an entry behind.
+    var waiterCount: Int { waiters.count }
 
     func wait() async -> Bool {
         switch state {
@@ -3665,27 +3666,20 @@ private actor BotAdmissionGate {
         case .pending:
             break
         }
-        let id = UUID()
-        return await withTaskCancellationHandler {
+        let waiter = BotGateWaiter()
+        waiters.append(waiter)
+        let result = await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                if Task.isCancelled || cancelledWaiters.remove(id) != nil {
-                    continuation.resume(returning: false)
-                } else {
-                    waiters.append((id, continuation))
-                }
+                waiter.install(continuation)
             }
         } onCancel: {
-            Task { await self.cancelWaiter(id: id) }
+            waiter.cancel()
         }
-    }
-
-    private func cancelWaiter(id: UUID) {
-        guard let index = waiters.firstIndex(where: { $0.id == id }) else {
-            cancelledWaiters.insert(id)
-            return
-        }
-        let waiter = waiters.remove(at: index)
-        waiter.continuation.resume(returning: false)
+        // Whatever resolved the waiter (open/fail/cancel), the gate must not
+        // retain it. A late cancel after this removal is a no-op on the box,
+        // so neither the array nor any UUID set can grow.
+        waiters.removeAll { $0 === waiter }
+        return result
     }
 
     func open() {
@@ -3693,7 +3687,7 @@ private actor BotAdmissionGate {
         state = .open
         let pending = waiters
         waiters.removeAll()
-        for waiter in pending { waiter.continuation.resume(returning: true) }
+        for waiter in pending { waiter.resolve(true) }
     }
 
     func fail() {
@@ -3701,6 +3695,55 @@ private actor BotAdmissionGate {
         state = .failed
         let pending = waiters
         waiters.removeAll()
-        for waiter in pending { waiter.continuation.resume(returning: false) }
+        for waiter in pending { waiter.resolve(false) }
+    }
+}
+
+/// One admission-gate continuation. `install` may run after a cancellation or
+/// after `open`/`fail` resolved the waiter; the lock keeps exactly one value
+/// and resumes the continuation at most once. A late cancellation after the
+/// resolution is a no-op, so no UUID/state set can grow.
+private final class BotGateWaiter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var resolved: Bool?
+    private var cancelled = false
+
+    func install(_ continuation: CheckedContinuation<Bool, Never>) {
+        lock.lock()
+        if let resolved {
+            lock.unlock()
+            continuation.resume(returning: resolved)
+            return
+        }
+        if cancelled {
+            cancelled = false
+            lock.unlock()
+            continuation.resume(returning: false)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func resolve(_ value: Bool) {
+        lock.lock()
+        guard resolved == nil else { lock.unlock(); return }
+        resolved = value
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(returning: value)
+    }
+
+    func cancel() {
+        lock.lock()
+        guard resolved == nil else { lock.unlock(); return }
+        resolved = false
+        let continuation = self.continuation
+        self.continuation = nil
+        if continuation == nil { cancelled = true }
+        lock.unlock()
+        continuation?.resume(returning: false)
     }
 }
