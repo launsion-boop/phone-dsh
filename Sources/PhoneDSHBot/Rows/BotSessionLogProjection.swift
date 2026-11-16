@@ -711,7 +711,7 @@ public struct BotSessionLogProjector: Sendable {
                             "status": fields["status"] ?? .string("active"),
                         ]) { _, new in new })
                         let draft = draft(
-                            id: "e-\(event.principal.botId)-routine-\(automationID)",
+                            id: "e-\(event.principal.botId ?? "main")-routine-\(automationID)",
                             event: event, kind: .message, role: nil,
                             body: BotRowBody(type: .automation, additionalProperties: fields),
                             trust: BotRowProvenance.model)
@@ -766,6 +766,44 @@ public struct BotSessionLogProjector: Sendable {
                                                                            trust: BotRowProvenance.projector, tainted: false),
                                               createdAt: event.time)
                 result.append(.delete(id, placeholder, order))
+                continue
+            }
+            if event.type == "routine.defined" || event.type == "routine.updated" {
+                // Durable BotEvent routine definitions (snapshot document or
+                // live root) become stable automation rows the UI can suppress
+                // before the first delivery.
+                var entries: [[String: BotJSONValue]] = []
+                if let document = objectValue(data["document"]),
+                   let routines = document["routines"]?.array {
+                    entries.append(contentsOf: routines.compactMap(objectValue))
+                }
+                if data["id"]?.string != nil || data["routineID"]?.string != nil {
+                    entries.append(data)
+                }
+                for routine in entries {
+                    guard let routineID = nonEmpty(routine, "id") ?? nonEmpty(routine, "routineID"),
+                          let title = nonEmpty(routine, "title") ?? nonEmpty(routine, "name") else { continue }
+                    var fields = fieldsFrom(routine)
+                    fields["routineID"] = .string(routineID)
+                    fields["title"] = .string(title)
+                    let status = (routine["enabled"]?.bool ?? true) ? "active" : "paused"
+                    fields["status"] = .string(status)
+                    fields["automationStatus"] = .string(status)
+                    fields["automation"] = .object(routine.merging([
+                        "automationId": .string(routineID),
+                        "name": .string(title),
+                        "status": .string(status),
+                    ]) { _, new in new })
+                    let placeholder = BotRowDraft(
+                        id: "e-\(botID)-routine-\(routineID)",
+                        seq: entrySeq(event.time, event.commitSeq ?? 0),
+                        kind: .message, role: nil,
+                        body: BotRowBody(type: .automation, additionalProperties: fields),
+                        provenance: BotRowProvenance(eventIDs: [event.eventId],
+                                                     trust: BotRowProvenance.model, tainted: false),
+                        createdAt: event.time)
+                    result.append(.upsert(placeholder, order))
+                }
                 continue
             }
             let supported = ["card.presented", "ui.send_to_user", "ui.notice", "ui.system_event",
