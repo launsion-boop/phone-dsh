@@ -350,14 +350,14 @@ def _sample_status(content_result, committed, expected_kind):
             "status": "pass",
             "corrected": True,
             "preserved_both_sides": True,
-            "stale_detected": expected_kind == "stale",
+            "stale_detected": str(expected_kind).startswith("stale"),
             "detail": detail,
         }
     return {
         "status": "pass" if passed else "fail",
         "corrected": passed,
         "preserved_both_sides": False,
-        "stale_detected": passed and expected_kind == "stale",
+        "stale_detected": passed and str(expected_kind).startswith("stale"),
         "detail": detail,
     }
 
