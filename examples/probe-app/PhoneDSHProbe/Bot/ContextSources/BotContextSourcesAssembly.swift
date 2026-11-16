@@ -319,7 +319,14 @@ public final class BotContextSourcesAssembly {
     }
 
     public func authorization(for source: BotContextSourceKind) async -> BotSourceAuthorizationState? {
-        await registry.authorization(for: source)
+        let state = await registry.authorization(for: source)
+        #if DEBUG
+        let registered = await registry.registeredSources()
+        NSLog("BOT_CONTEXT_AUTH source=%@ started=%@ registered=%@ state=%@",
+              source.rawValue, String(started), String(describing: registered),
+              String(describing: state))
+        #endif
+        return state
     }
 
     /// Updates the user-confirmed fences. The caller supplies only confirmed
