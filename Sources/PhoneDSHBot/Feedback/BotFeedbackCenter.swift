@@ -385,11 +385,24 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
             }
             scopeKey = classKey
         case .class:
+            // G-2 r5: a class suppression must be a narrow class. A kind-only
+            // class (for example task-done) would silently widen "this kind"
+            // to every target of that kind, so it is ambiguous instead.
+            guard Self.isNarrowClassKey(classKey) else {
+                return Self.rejected(feedback, code: "ambiguous-scope",
+                                     message: "这个类只有 kind 级，无法确认用户指的是哪些目标；请改为这一条、某个例行任务，或由用户在 UI 明确选择。")
+            }
             scopeKey = classKey
         case .user:
             guard Self.shareableClassKeys.contains(classKey) else {
                 return Self.rejected(feedback, code: "scope-not-shareable",
                                      message: "这个范围不能成为跨 Bot 偏好；只影响当前产物或例行任务。")
+            }
+            // G-2 r5: a chat utterance cannot prove the user meant a cross-Bot
+            // preference; only a host-verified UI action can.
+            guard feedback.origin.kind == .uiAction else {
+                return Self.rejected(feedback, code: "scope-requires-confirmation",
+                                     message: "跨 Bot 偏好需要用户在 UI 明确选择；模型不能仅凭一句话扩大范围。")
             }
             scopeKey = classKey
         }
@@ -1184,6 +1197,10 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
             }
         }
         return output.isEmpty ? "x" : output
+    }
+
+    static func isNarrowClassKey(_ key: String) -> Bool {
+        key.hasPrefix("routine:") || key.hasPrefix("proactive:reminder:")
     }
 
     static func safeClassKey(_ key: String) -> String? {

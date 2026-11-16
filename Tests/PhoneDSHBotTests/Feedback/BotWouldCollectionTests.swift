@@ -67,7 +67,7 @@ final class BotWouldCollectionTests: XCTestCase {
         let adopted = try await center.record(FeedbackFixtures.adopt(delivered, nonce: "adopt-1"))
         XCTAssertEqual(adopted.status, .accepted)
         let suppression = try await center.record(
-            FeedbackFixtures.suppress(delivered, scope: .class, nonce: "stop-1"))
+            FeedbackFixtures.suppress(delivered, scope: .user, nonce: "stop-1"))
         XCTAssertEqual(suppression.status, .accepted)
         _ = await engine.consider(FeedbackFixtures.candidate("held-2"))
 

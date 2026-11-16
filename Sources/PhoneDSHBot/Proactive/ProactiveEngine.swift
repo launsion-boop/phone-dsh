@@ -213,7 +213,10 @@ public actor ProactiveEngine: ProactiveConsidering {
         history.append(record)
         if history.count > 200 { history.removeFirst(history.count - 200) }
         if let eventLog {
-            let fuseRecorded = settings.mode == .would || decision == .did
+            // A held candidate never consumes the fuse, even in would mode:
+            // G-2 r4 requires fuseRecorded=false for feedback-held.
+            let fuseRecorded = reason != "feedback-held"
+                && (settings.mode == .would || decision == .did)
             var data: [String: BotJSONValue] = [
                 "decision": .string(decision.rawValue),
                 "reason": .string(reason),

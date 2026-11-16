@@ -37,7 +37,7 @@ final class BotFeedbackStoreTests: XCTestCase {
         let decision = FeedbackFixtures.deliveredDecision(candidate, at: clock.now)
         await center.noteConsidered(decision, candidate: candidate)
         let outcome = try await center.record(
-            FeedbackFixtures.suppress(decision, scope: .class, nonce: "persist"))
+            FeedbackFixtures.suppress(decision, scope: .user, nonce: "persist"))
         XCTAssertEqual(outcome.status, .accepted)
         XCTAssertNotNil(defaults.data(forKey: BotFeedbackIndexFile.defaultsKey))
 
@@ -55,7 +55,7 @@ final class BotFeedbackStoreTests: XCTestCase {
         let decision = FeedbackFixtures.deliveredDecision(candidate, at: clock.now)
         await center.noteConsidered(decision, candidate: candidate)
         _ = try await center.record(
-            FeedbackFixtures.suppress(decision, scope: .class, nonce: "future"))
+            FeedbackFixtures.suppress(decision, scope: .user, nonce: "future"))
 
         defaults.set(Data("{\"v\":2,\"records\":[],\"rebuilt_from_commit_seq\":0}".utf8),
                      forKey: BotFeedbackIndexFile.defaultsKey)
@@ -76,7 +76,7 @@ final class BotFeedbackStoreTests: XCTestCase {
         let decision = FeedbackFixtures.deliveredDecision(candidate, at: clock.now)
         await center.noteConsidered(decision, candidate: candidate)
         _ = try await center.record(
-            FeedbackFixtures.suppress(decision, scope: .class, nonce: "corrupt"))
+            FeedbackFixtures.suppress(decision, scope: .user, nonce: "corrupt"))
 
         defaults.set(Data("{not-json".utf8), forKey: BotFeedbackIndexFile.defaultsKey)
         let rebuilt = try makeCenter(clock)
@@ -96,7 +96,7 @@ final class BotFeedbackStoreTests: XCTestCase {
         await center.noteConsidered(decision, candidate: candidate)
         do {
             _ = try await center.record(
-                FeedbackFixtures.suppress(decision, scope: .class, nonce: "full"))
+                FeedbackFixtures.suppress(decision, scope: .user, nonce: "full"))
             XCTFail("a failed index write without a journal must throw")
         } catch let error as BotFeedbackStoreError {
             XCTAssertEqual(error, .unavailable("disk-full"))
@@ -114,7 +114,7 @@ final class BotFeedbackStoreTests: XCTestCase {
         let decision = FeedbackFixtures.deliveredDecision(candidate, at: clock.now)
         await center.noteConsidered(decision, candidate: candidate)
         let outcome = try await center.record(
-            FeedbackFixtures.suppress(decision, scope: .class, nonce: "durable"))
+            FeedbackFixtures.suppress(decision, scope: .user, nonce: "durable"))
         XCTAssertEqual(outcome.status, .accepted)
         XCTAssertTrue(outcome.auditPending, "the durable fact landed but the index did not")
 
@@ -133,7 +133,7 @@ final class BotFeedbackStoreTests: XCTestCase {
         let decision = FeedbackFixtures.deliveredDecision(candidate, at: clock.now)
         await center.noteConsidered(decision, candidate: candidate)
         _ = try await center.record(
-            FeedbackFixtures.suppress(decision, scope: .class, nonce: "cursor-1"))
+            FeedbackFixtures.suppress(decision, scope: .user, nonce: "cursor-1"))
         let data = try XCTUnwrap(defaults.data(forKey: BotFeedbackIndexFile.defaultsKey))
         let index = try JSONDecoder().decode(BotFeedbackIndexFile.self, from: data)
         XCTAssertGreaterThan(index.rebuiltFromCommitSeq, 0)
@@ -158,7 +158,7 @@ final class BotFeedbackStoreTests: XCTestCase {
         // One suppress per distinct class is enough to exercise the cap logic
         // without inventing 512 different artifacts.
         _ = try await center.record(
-            FeedbackFixtures.suppress(decision, scope: .class, nonce: "cap"))
+            FeedbackFixtures.suppress(decision, scope: .user, nonce: "cap"))
         let currentIndex = await store.currentIndex()
         let index = try XCTUnwrap(currentIndex)
         XCTAssertLessThanOrEqual(index.records.filter { $0.status == .active }.count,

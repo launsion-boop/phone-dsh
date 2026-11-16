@@ -24,7 +24,7 @@ final class BotFeedbackProactiveTests: XCTestCase {
         let first = await engine.consider(FeedbackFixtures.candidate("first"))
         XCTAssertEqual(first.decision, .did)
         let suppression = try await center.record(
-            FeedbackFixtures.suppress(first, scope: .class, nonce: "stop-task-done"))
+            FeedbackFixtures.suppress(first, scope: .user, nonce: "stop-task-done"))
         XCTAssertEqual(suppression.status, .accepted)
 
         // A held candidate is not a disturbance: it must not spend the fuse.
@@ -33,6 +33,33 @@ final class BotFeedbackProactiveTests: XCTestCase {
         let fused = await engine.consider(
             FeedbackFixtures.candidate("third", kind: .routineResult, routineId: "r-third"))
         XCTAssertEqual(fused.reason, "fuse")
+    }
+
+    func testHeldEventCarriesNoFuseAndKeepsNotification() async throws {
+        let clock = WP6Clock(FeedbackFixtures.baseNow)
+        let spy = FeedbackSpyEventLog()
+        let deliverer = WP6NotificationDeliverer()
+        let store = InMemoryBotFeedbackStore()
+        let center = makeCenter(clock, store: store)
+        let engine = ProactiveEngine(settings: { wp6Settings() }, now: { clock.now },
+                                     deliverer: deliverer, eventLog: spy, feedback: center)
+        let first = await engine.consider(FeedbackFixtures.candidate("task-1"))
+        XCTAssertEqual(first.decision, .did)
+        _ = try await center.record(
+            FeedbackFixtures.suppress(first, scope: .user, nonce: "held-event"))
+        let held = await engine.consider(FeedbackFixtures.candidate("task-2"))
+        XCTAssertEqual(held.decision, .skip)
+        XCTAssertEqual(held.reason, "feedback-held")
+        XCTAssertNotNil(held.notification, "G-2 r4 keeps the notification shape")
+        XCTAssertNil(held.delivery)
+        let events = await spy.all
+        guard let event = events.last, case .object(let data) = event.data else {
+            return XCTFail("missing proactive.considered event")
+        }
+        XCTAssertEqual(data["reason"] ?? .null, .string("feedback-held"))
+        XCTAssertEqual(data["fuseRecorded"] ?? .null, .bool(false))
+        XCTAssertEqual(data["decision"] ?? .null, .string("skip"))
+        XCTAssertNotNil(data["feedback_id"])
     }
 
     func testOffModeStaysModeOffEvenWhenPreferenceExists() async throws {
@@ -62,7 +89,7 @@ final class BotFeedbackProactiveTests: XCTestCase {
                                        deliverer: deliverer, feedback: center)
         let delivered = await onEngine.consider(FeedbackFixtures.candidate("task-1"))
         _ = try await center.record(
-            FeedbackFixtures.suppress(delivered, scope: .class, nonce: "stop-it"))
+            FeedbackFixtures.suppress(delivered, scope: .user, nonce: "stop-it"))
 
         let wouldEngine = ProactiveEngine(settings: { wp6Settings(mode: .would) },
                                           now: { clock.now }, deliverer: nil,
@@ -85,7 +112,7 @@ final class BotFeedbackProactiveTests: XCTestCase {
         let decision = FeedbackFixtures.deliveredDecision(candidate, at: clock.now)
         await firstCenter.noteConsidered(decision, candidate: candidate)
         let suppression = try await firstCenter.record(
-            FeedbackFixtures.suppress(decision, scope: .class, nonce: "persist-1"))
+            FeedbackFixtures.suppress(decision, scope: .user, nonce: "persist-1"))
         XCTAssertEqual(suppression.status, .accepted)
 
         let secondCenter = try BotFeedbackCenter.live(eventLog: nil, memory: nil,
