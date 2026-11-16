@@ -389,22 +389,23 @@ public actor BotDecisionContextService {
     public typealias MemoryResolver = @Sendable (String) async throws -> BotMemory
     public typealias PermissionRevisionProvider =
         @Sendable (String, String, BotDecisionRecipient?) async -> String
-    /// P's source-state reader (G-1). Until it is wired every selected memory
-    /// document is honestly `unknown/source-version-unknown`; this service must
-    /// not invent `current`.
+    /// P/L's G-1 source-state reader. It receives the memory path, version and
+    /// the document's stored evidence refs so the production adapter can
+    /// resolve the real `source_statuses`/freshness instead of returning a
+    /// constant. Required: a material block must never fabricate a state.
     public typealias MaterialStateProvider =
-        @Sendable (String, Int) async -> (BotDecisionMaterialState, BotDecisionMaterialReason?)
+        @Sendable (String, Int, [String]) async -> (BotDecisionMaterialState, BotDecisionMaterialReason?)
 
     private let memoryForBot: MemoryResolver
     private let permissionRevision: PermissionRevisionProvider
-    private let materialState: MaterialStateProvider?
+    private let materialState: MaterialStateProvider
     private let now: @Sendable () -> Int64
     private var revisionsByTurn: [String: Int] = [:]
 
     public init(
         memoryForBot: @escaping MemoryResolver,
         permissionRevision: @escaping PermissionRevisionProvider,
-        materialState: MaterialStateProvider? = nil,
+        materialState: @escaping MaterialStateProvider,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }
     ) {
         self.memoryForBot = memoryForBot
@@ -472,8 +473,7 @@ public actor BotDecisionContextService {
                 + evidence.reduce(0) { $0 + $1.unicodeScalars.count } + 64
             if usedCharacters + cost > limits.maxCharacters { continue }
             usedCharacters += cost
-            let state = await materialState?(hit.path, hit.version)
-                ?? (.unknown, .sourceVersionUnknown)
+            let state = await materialState(hit.path, hit.version, hit.evidence)
             materials.append(BotDecisionMaterial(
                 materialID: "mat:\(requestID):\(materials.count + 1)",
                 ref: ref,

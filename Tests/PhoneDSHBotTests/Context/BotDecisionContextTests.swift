@@ -24,7 +24,8 @@ final class BotDecisionContextTests: XCTestCase {
         store = made.store
         memory = makeMemory(store: made.store)
         try await seedDocument(
-            makeDocument("user/profile.md", "- 我叫小林\n- 我喜欢简洁的回复"),
+            makeDocument("user/profile.md", "- 我叫小林\n- 我喜欢简洁的回复",
+                         evidence: ["record://session/gb-main#3"]),
             store: made.store)
         try await seedDocument(
             makeDocument("agent/notes/routine.md", "- 工作日要早起，早起后先看邮件"),
@@ -56,6 +57,7 @@ final class BotDecisionContextTests: XCTestCase {
         return BotDecisionContextService(
             memoryForBot: { _ in memory },
             permissionRevision: { _, _, _ in revision.get() },
+            materialState: { _, _, _ in (.current, nil) },
             now: { MemoryTestFixtures.now })
     }
 
@@ -111,9 +113,8 @@ final class BotDecisionContextTests: XCTestCase {
             XCTAssertLessThanOrEqual(material.snippet.unicodeScalars.count, 240)
             XCTAssertLessThanOrEqual(material.evidence.count, 2)
             XCTAssertTrue(material.evidence.allSatisfy { $0.hasPrefix("record://") })
-            XCTAssertEqual(material.state, .unknown,
-                           "P has not landed: the host must not claim current")
-            XCTAssertEqual(material.reason, .sourceVersionUnknown)
+            XCTAssertEqual(material.state, .current)
+            XCTAssertNil(material.reason)
             XCTAssertTrue([BotDecisionSelectionReason.match, .recency, .goal, .recipient]
                 .contains(material.selectionReason))
         }
@@ -328,6 +329,29 @@ final class BotDecisionContextTests: XCTestCase {
         XCTAssertThrowsError(try JSONDecoder().decode(BotDecisionToolResult.self, from: invalidData))
     }
 
+    func testMaterialStateProviderFlowsThroughAndReceivesEvidence() async throws {
+        let memory = self.memory!
+        let captured = LockedEvidenceCapture()
+        let service = BotDecisionContextService(
+            memoryForBot: { _ in memory },
+            permissionRevision: { _, _, _ in "rev-1" },
+            materialState: { path, version, evidence in
+                captured.record(path: path, version: version, evidence: evidence)
+                return (.changed, .sourceChanged)
+            },
+            now: { MemoryTestFixtures.now })
+        let block = try await service.materials(for: request(query: "简洁"))
+        XCTAssertFalse(block.materials.isEmpty)
+        for material in block.materials {
+            XCTAssertEqual(material.state, .changed)
+            XCTAssertEqual(material.reason, .sourceChanged)
+            XCTAssertTrue(captured.paths.contains(material.path))
+            XCTAssertEqual(captured.versions[material.path], material.version)
+        }
+        XCTAssertTrue(captured.evidence.contains { !$0.isEmpty },
+                      "the provider must receive the document's evidence refs")
+    }
+
     func testReferenceParserRejectsTraversalAndNonPositiveVersions() {
         XCTAssertNil(BotDecisionContextService.parseRef("memory:../secret@v1"))
         XCTAssertNil(BotDecisionContextService.parseRef("memory:user/profile.md@v0"))
@@ -335,5 +359,21 @@ final class BotDecisionContextTests: XCTestCase {
         XCTAssertNil(BotDecisionContextService.parseRef("record://session/gb-main#1"))
         XCTAssertEqual(BotDecisionContextService.parseRef("memory:user/profile.md@v2"),
                        BotDecisionContextService.ParsedRef(path: "user/profile.md", version: 2))
+    }
+
+
+}
+
+private final class LockedEvidenceCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var paths: [String] = []
+    private(set) var versions: [String: Int] = [:]
+    private(set) var evidence: [[String]] = []
+
+    func record(path: String, version: Int, evidence: [String]) {
+        lock.lock(); defer { lock.unlock() }
+        paths.append(path)
+        versions[path] = version
+        self.evidence.append(evidence)
     }
 }
