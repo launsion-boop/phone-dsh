@@ -7,51 +7,44 @@
     {
       "id": "settlement.dismissed",
       "value": "已关闭",
-      "source": "BotChatModel.swift:483",
+      "source": "BotChatModel.swift:482",
       "expect": "已关闭",
       "note": "question/steps settled by local dismiss id or durable status dismissed"
     },
     {
       "id": "settlement.selected",
       "value": "已选择：{label}",
-      "source": "BotChatModel.swift:499",
+      "source": "BotChatModel.swift:498",
       "expect": "已选择：",
       "note": "durable answered or accepted action; label resolved from optionID"
     },
     {
       "id": "settlement.sent",
       "value": "已送出",
-      "source": "BotChatModel.swift:499",
+      "source": "BotChatModel.swift:498",
       "expect": "已送出",
       "note": "answered/accepted but the option label cannot be resolved"
     },
     {
       "id": "settlement.skipped",
       "value": "已略过",
-      "source": "BotChatModel.swift:534",
+      "source": "BotChatModel.swift:533",
       "expect": "已略过",
       "note": "muted checklist precedes the latest user text and was never handled"
     },
     {
       "id": "settlement.checklistSent",
       "value": "已发送勾选结果",
-      "source": "BotChatModel.swift:531",
+      "source": "BotChatModel.swift:530",
       "expect": "已发送勾选结果",
       "note": "checklist result accepted"
     },
     {
       "id": "settlement.checklistDetail",
       "value": "{title} · 已完成 {done}/{total}",
-      "source": "BotChatModel.swift:529",
+      "source": "BotChatModel.swift:528",
       "expect": "· 已完成",
       "note": "checklist settled detail"
-    },
-    {
-      "id": "settlement.approvalAutoDeclined",
-      "value": "已略过，视为拒绝",
-      "source": "BotChatModel.swift:556",
-      "expect": "已略过，视为拒绝",
-      "note": "approval auto-denied by the next send"
     },
     {
       "id": "settlement.approvalAllowedOnce",
@@ -102,14 +95,14 @@
     {
       "id": "settlement.approvalDefaultAction",
       "value": "操作",
-      "source": "BotChatModel.swift:545",
+      "source": "BotChatModel.swift:544",
       "expect": "操作",
       "note": "fallback when neither the card nor ask carries an action"
     },
     {
       "id": "settlement.stepsSuggestion",
       "value": "建议下一步",
-      "source": "BotChatModel.swift:509",
+      "source": "BotChatModel.swift:508",
       "expect": "建议下一步",
       "note": "steps prompt detail fallback"
     },
@@ -557,7 +550,7 @@
     {
       "id": "chat.deeplink.unavailable",
       "value": "这条消息不可用或已过期。",
-      "source": "BotChatModel.swift:1503",
+      "source": "BotChatModel.swift:1471",
       "expect": "这条消息不可用或已过期"
     },
     {
@@ -569,20 +562,20 @@
     {
       "id": "realtime.degraded",
       "value": "实时更新中断，正在重连",
-      "source": "BotChatModel.swift:1604",
+      "source": "BotChatModel.swift:1579",
       "expect": "实时更新中断，正在重连",
       "note": "watch/live supervision degraded banner; cleared when the feed recovers"
     },
     {
       "id": "error.historyFailed",
       "value": "历史加载失败：{error}",
-      "source": "BotChatModel.swift:1489",
+      "source": "BotChatModel.swift:1464",
       "expect": "历史加载失败"
     },
     {
       "id": "error.attachmentFailed",
       "value": "附件「{name}」未附加：{reason}",
-      "source": "BotChatModel.swift:664",
+      "source": "BotChatModel.swift:656",
       "expect": "未附加"
     },
     {
@@ -768,25 +761,25 @@
     {
       "id": "glyph.dismissed",
       "value": "xmark.circle",
-      "source": "BotChatModel.swift:483",
+      "source": "BotChatModel.swift:482",
       "expect": "xmark.circle"
     },
     {
       "id": "glyph.accepted",
       "value": "checkmark.circle",
-      "source": "BotChatModel.swift:498",
+      "source": "BotChatModel.swift:497",
       "expect": "checkmark.circle"
     },
     {
       "id": "glyph.approvalAllowed",
       "value": "checkmark.circle.fill",
-      "source": "BotChatModel.swift:570",
+      "source": "BotChatModel.swift:559",
       "expect": "checkmark.circle.fill"
     },
     {
       "id": "glyph.skipped",
       "value": "minus.circle",
-      "source": "BotChatModel.swift:534",
+      "source": "BotChatModel.swift:533",
       "expect": "minus.circle"
     }
   ]
