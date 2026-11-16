@@ -11,31 +11,44 @@
     {
       "id": "ACT-01-PR-174",
       "gate": "PASS",
-      "modelRequests": 5,
-      "finalReply": "main 的记录里没有给出冲突文件数，只有 #174 笔记中写了 3 个冲突文件。",
+      "modelRequests": 6,
+      "finalReply": "#174 说冲突 3 个，main 侧还没结论。 3 个。",
       "activity": [
         {
           "seq": 17,
           "event": "tool/call",
-          "tool": "read",
-          "rawModelText": "先看 #174 的改动记录。",
-          "detail": "先看 #174 的改动记录",
-          "chars": 13,
-          "cjk": 7,
-          "object": "#174",
-          "resultContinuation": false
+          "tool": "bash",
+          "rawModelText": "正在读 #174 的笔记。",
+          "detail": "List workspace and pr directory",
+          "chars": 31,
+          "cjk": 0,
+          "object": null,
+          "resultContinuation": false,
+          "source": "bash.description (per-call intent ranks first; the Chinese public sentence was not selected)"
         },
         {
-          "seq": 22,
+          "seq": 24,
           "event": "tool/call",
           "tool": "read",
-          "rawModelText": "#174 这个分支自报改了 3 个文件，接着核对 main 的记录。",
-          "detail": "#174 这个分支自报改了 3 个文件",
+          "rawModelText": null,
+          "detail": "在翻文件 · 174-notes.md",
           "chars": 19,
-          "cjk": 11,
+          "cjk": 4,
+          "object": "174-notes.md",
+          "resultContinuation": false,
+          "fallback": true
+        },
+        {
+          "seq": 29,
+          "event": "tool/call",
+          "tool": "read",
+          "rawModelText": "#174 显示冲突 3 个文件，接着看 main 侧笔记。",
+          "detail": "#174 显示冲突 3 个文件，接着看 main 侧笔记",
+          "chars": 28,
+          "cjk": 14,
           "object": "#174 / 3 个文件",
           "resultContinuation": true,
-          "previousResultSeq": 18
+          "previousResultSeq": 26
         }
       ]
     },
@@ -43,31 +56,30 @@
       "id": "ACT-02-WEDNESDAY-MEETING",
       "gate": "PASS",
       "modelRequests": 5,
-      "finalReply": "李光浩",
+      "finalReply": "行动项看完了，负责人对得上，可以收尾了。 李光浩",
       "activity": [
         {
-          "seq": 17,
+          "seq": 16,
           "event": "tool/call",
           "tool": "read",
-          "rawModelText": null,
-          "detail": "在翻文件 · wednesday-meeting.md",
-          "chars": 27,
-          "cjk": 4,
-          "object": "wednesday-meeting.md",
-          "resultContinuation": false,
-          "fallback": "short basename; the model wrote no public sentence before this call"
+          "rawModelText": "我先读周三例会的笔记。",
+          "detail": "我先读周三例会的笔记",
+          "chars": 10,
+          "cjk": 10,
+          "object": "周三例会",
+          "resultContinuation": false
         },
         {
           "seq": 22,
           "event": "tool/call",
           "tool": "read",
-          "rawModelText": "已读到负责人是李光浩，接着查看待办明细。",
-          "detail": "已读到负责人是李光浩，接着查看待办明细",
-          "chars": 19,
-          "cjk": 18,
-          "object": "李光浩",
+          "rawModelText": "例会里 3 项待办已经看到，接下来核对责任人清单。",
+          "detail": "例会里 3 项待办已经看到，接下来核对责任人清单",
+          "chars": 24,
+          "cjk": 24,
+          "object": "3 项待办 / 责任人",
           "resultContinuation": true,
-          "previousResultSeq": 18
+          "previousResultSeq": 17
         }
       ]
     },
@@ -75,16 +87,16 @@
       "id": "ACT-03-EMAIL-DRAFT",
       "gate": "PASS",
       "modelRequests": 5,
-      "finalReply": "清单已定稿，周五可发；我在写给李光浩的回复草稿。",
+      "finalReply": "清单已定稿、周五可以发，我在拟回复正文。 李光浩：...",
       "activity": [
         {
-          "seq": 17,
+          "seq": 16,
           "event": "tool/call",
           "tool": "read",
-          "rawModelText": "我先看李光浩的邮件。",
-          "detail": "我先看李光浩的邮件",
-          "chars": 9,
-          "cjk": 9,
+          "rawModelText": "我先看看李光浩那封邮件的原文。",
+          "detail": "我先看看李光浩那封邮件的原文",
+          "chars": 14,
+          "cjk": 14,
           "object": "李光浩",
           "resultContinuation": false
         },
@@ -92,13 +104,13 @@
           "seq": 22,
           "event": "tool/call",
           "tool": "read",
-          "rawModelText": "邮件在问周五清单是否定稿，接着看发布背景。",
-          "detail": "邮件在问周五清单是否定稿，接着看发布背景",
-          "chars": 20,
+          "rawModelText": "李光浩在问周五能否发布，接着看发布背景。",
+          "detail": "李光浩在问周五能否发布，接着看发布背景",
+          "chars": 19,
           "cjk": 19,
-          "object": "周五清单",
+          "object": "李光浩 / 周五",
           "resultContinuation": true,
-          "previousResultSeq": 18
+          "previousResultSeq": 17
         }
       ]
     }
@@ -133,9 +145,9 @@
       "reason": "the first probe copied an empty ACT-01-session.jsonl and produced zero events. The real session is under runs/<scenario>-1/host/materialized/<dsh-home>/sessions/...; the replay entry now fails hard on an empty log."
     }
   ],
-  "reviewedCodeHead": "cff5dd1492f1224cb23b223871049692cd538b10",
+  "reviewedCodeHead": "cefff6a288a3a2a2a40c14f86aa37ac7619d026b",
   "scenarioAssetsCommit": "eba3569511f7a43bd989c012ade8885ae018e579",
-  "reviewedCodeHeadTree": "b9231d5e1a3d61700a31de3f0101cd3347e12232",
+  "reviewedCodeHeadTree": "5ec4a847f67f519f73856b440e99464ff7aaf2ff",
   "scenarioAssetsTree": "6d8affc14fc3886171e7cfe8800c5ddab0bdb8b1",
   "naturalControl": {
     "status": "PASS",
@@ -294,5 +306,15 @@
     },
     "qualityObservation": "The default prompt produced mostly English bash descriptions and six basename fallbacks; the main model’s Chinese public progress was not always selected because the per-call bash description ranks first. Every detail is short and real, and ACT-06 shows a post-result Chinese continuation. A future prompt-language refinement could reduce the English/fallback share; it is not claimed as fixed here.",
     "previousAttempts": "The earlier natural attempts (head 91a26c50c) were blocked by the wall-clock gateway expiry bug; the false weak-regex PASS on the meeting refusal and the NOT_RUN email are retained in failedAttempts below. The clock fix at cefff6a2 made this accepted run possible."
-  }
+  },
+  "previousGuidedRun": {
+    "head": "cff5dd1492f1224cb23b223871049692cd538b10",
+    "note": "Earlier guided run; the final head cefff6a2 rerun below has different live model wording and is the accepted final evidence.",
+    "sequences": [
+      "先看 #174 的改动记录 (13) -> #174 这个分支自报改了 3 个文件 (19)",
+      "在翻文件 · wednesday-meeting.md (27) -> 已读到负责人是李光浩，接着查看待办明细 (19)",
+      "我先看李光浩的邮件 (9) -> 邮件在问周五清单是否定稿，接着看发布背景 (20)"
+    ]
+  },
+  "qualityObservation": "The final guided rerun on cefff6a2 kept a short real sequence. ACT-01’s first call selected the English bash.description 'List workspace and pr directory' over the Chinese public sentence; the later result sentence is Chinese. This is the documented per-call-intent priority, not a hidden failure. The natural control shows the same English/fallback share; the short/real/result-continuation criteria are met, while a future prompt-language refinement could reduce the English share."
 }

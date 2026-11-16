@@ -132,18 +132,20 @@ The three controlled tasks in `scripts/ci/bot-e2e/activity/catalog.json` (inline
 seeds for #174, the Wednesday meeting and a local email draft; no network, mail account or
 send tool) passed on the production Bot composition with the packed Worker:
 
-- `cff5dd1492f1224cb23b223871049692cd538b10` — reviewed code head / tree
-  `b9231d5e1a3d61700a31de3f0101cd3347e12232`.
-- Each scenario `PASS`; 5 model requests per scenario; every session's
+- `cefff6a288a3a2a2a40c14f86aa37ac7619d026b` — final code head / tree
+  `5ec4a847f67f519f73856b440e99464ff7aaf2ff`; the earlier `cff5dd149` run is retained as
+  `previousGuidedRun` in the receipt.
+- Each scenario `PASS`; 6/5/5 model requests; every session's
   `request/header.data.header.config` is `deepseek-official` / `deepseek-flash` /
   `reasoningEffort=max`.
-- ACT-01 `#174`: `先看 #174 的改动记录` (13) → `#174 这个分支自报改了 3 个文件` (19,
-  after the first result).
-- ACT-02 meeting: `在翻文件 · wednesday-meeting.md` (27, object fallback; no model
-  sentence before that call) → `已读到负责人是李光浩，接着查看待办明细` (19, after the
-  first result).
-- ACT-03 email: `我先看李光浩的邮件` (9) → `邮件在问周五清单是否定稿，接着看发布背景`
-  (20, after the first result).
+- ACT-01 `#174`: `List workspace and pr directory` (31, English `bash.description`; the
+  Chinese public sentence `正在读 #174 的笔记。` was not selected because per-call intent
+  ranks first) → `在翻文件 · 174-notes.md` (19, short object fallback) →
+  `#174 显示冲突 3 个文件，接着看 main 侧笔记` (28, after the read result).
+- ACT-02 meeting: `我先读周三例会的笔记` (10) →
+  `例会里 3 项待办已经看到，接下来核对责任人清单` (24, after the first result).
+- ACT-03 email: `我先看看李光浩那封邮件的原文` (14) →
+  `李光浩在问周五能否发布，接着看发布背景` (19, after the first result).
 - `BotActivityReplayTests` (in the existing Bot eval harness) replayed the real ACT-01
   session through the production decoder + reducer and passed, printing the max header and
   the same short details.
@@ -165,8 +167,9 @@ observed sequence has 16 unique activity details: 6 short basename fallbacks (37
 8 model/tool-description details and 2 card labels. ACT-06 shows a real post-result
 Chinese continuation (`资料很少，就只有他的来信和一条发布背景；我现在来拟草稿` after the
 two seeds). The default prompt still produced several English `bash.description` lines
-and object fallbacks because the per-call description ranks first; this is recorded as a
-quality observation, not a hidden failure.
+and object fallbacks because the per-call description ranks first; the final guided rerun
+shows the same effect on ACT-01. This is recorded as a quality observation, not a hidden
+failure; short/real/result-continuation criteria are met.
 
 Earlier natural attempts on head `91a26c50c` were blocked by the wall-clock gateway/expiry
 bug (bash identity registration). The meeting run was temporarily a weak-regex false PASS
