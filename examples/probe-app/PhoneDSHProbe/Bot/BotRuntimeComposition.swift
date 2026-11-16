@@ -238,6 +238,10 @@ final class BotRuntimeComposition {
     /// G-3 iOS context sources. Created in `prepare`; started after the first
     /// successful bind and stopped with the composition.
     private var contextSources: BotContextSourcesAssembly?
+
+    /// Read-only seam for the Bot info/settings entry and the info driver. The
+    /// assembly remains the sole consent/observation authority.
+    var contextSourcesAssembly: BotContextSourcesAssembly? { contextSources }
     /// G-1 provenance read model (process-wide, one event log).
     private(set) var provenance: BotProvenanceService?
     /// G-2 feedback center, shared by every unit and the RecordFeedback tool.

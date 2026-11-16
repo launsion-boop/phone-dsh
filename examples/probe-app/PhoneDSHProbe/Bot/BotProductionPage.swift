@@ -387,7 +387,9 @@ struct BotProductionPage: View {
                 BotInfoPage(model: info, isMainBot: hub.selectedIsMainBot,
                             initialSection: request.section,
                             highlightRoutineID: request.routineID,
-                            onDelete: { try await hub.deleteBot(botID) })
+                            onDelete: { try await hub.deleteBot(botID) },
+                            contextSources: hub.composition?.contextSourcesAssembly,
+                            contextBotID: botID)
                     .homeSheetChrome()
             }
         }
@@ -576,7 +578,9 @@ private struct BotAppearanceSheet: View {
         Group {
             if let model {
                 BotInfoPage(model: model, isMainBot: hub.mainBotID == botID,
-                             onDelete: { try await hub.deleteBot(botID) })
+                             onDelete: { try await hub.deleteBot(botID) },
+                             contextSources: hub.composition?.contextSourcesAssembly,
+                             contextBotID: botID)
             } else if let loadError {
                 VStack(spacing: 16) {
                     BotFailureRow(message: loadError)
