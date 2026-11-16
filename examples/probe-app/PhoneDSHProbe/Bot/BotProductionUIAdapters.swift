@@ -101,7 +101,8 @@ extension BotProductionRowService {
                         let feedback = BotFeedback(
                             botID: intent.botID, action: action,
                             target: BotFeedbackArtifactRef(kind: .delivery, id: intent.rowID),
-                            scope: intent.scope == .user ? .user : .artifact,
+                            scope: intent.scope == .user ? .user
+                                : intent.scope == .routineClass ? .class : .artifact,
                             origin: BotFeedbackOrigin(kind: .uiAction, nonce: intent.nonce))
                         let outcome = try await center.record(feedback)
                         return Self.feedbackActionResult(outcome)
