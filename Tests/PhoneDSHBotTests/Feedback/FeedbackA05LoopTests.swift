@@ -206,46 +206,64 @@ final class FeedbackA05LoopTests: XCTestCase {
         let delivererA = WP6NotificationDeliverer()
         let delivererB = WP6NotificationDeliverer()
         let center = try makeCenter()
-        let engineA = makeEngine(center, deliverer: delivererA)
-        let engineB = makeEngine(center, deliverer: delivererB)
-        let task = await engineA.consider(
-            FeedbackFixtures.candidate("task-1", botId: "bot-a"))
-        XCTAssertEqual(task.decision, .did)
+        // Production deliveryKinds contain routineResult, so the UI-originated
+        // user preference is created on a real routine result, not a taskDone
+        // fixture. The unrelated kind (reminder) proves kind-level isolation.
+        let engineA = makeEngine(center, deliverer: delivererA,
+                                 kinds: [.routineResult, .reminder])
+        let engineB = makeEngine(center, deliverer: delivererB,
+                                 kinds: [.routineResult, .reminder])
+        let first = await engineA.consider(FeedbackFixtures.candidate(
+            "routine-a1", kind: .routineResult, botId: "bot-a",
+            routineId: "routine-a"))
+        XCTAssertEqual(first.decision, .did)
 
         let suppression = try await center.record(BotFeedback(
             botID: "bot-a", action: .suppress,
-            target: BotFeedbackArtifactRef(kind: .proactive, id: task.id,
-                                           deliveryKey: task.dedupeKey),
+            target: BotFeedbackArtifactRef(kind: .proactive, id: first.id,
+                                           deliveryKey: first.dedupeKey),
             scope: .user, origin: ui("ui-user-scope")))
         XCTAssertEqual(suppression.status, .accepted)
-        XCTAssertEqual(suppression.classKey, "proactive:task-done")
+        XCTAssertEqual(suppression.classKey, "proactive:routine-result")
 
         clock.advance(60_000)
-        let heldB = await engineB.consider(
-            FeedbackFixtures.candidate("task-b1", botId: "bot-b"))
+        let heldB = await engineB.consider(FeedbackFixtures.candidate(
+            "routine-b1", kind: .routineResult, botId: "bot-b",
+            routineId: "routine-b"))
         XCTAssertEqual(heldB.reason, "feedback-held")
-        let routineB = await engineB.consider(FeedbackFixtures.candidate(
-            "routine-b", kind: .routineResult, botId: "bot-b", routineId: "routine-b"))
-        XCTAssertEqual(routineB.decision, .did)
+        let reminderB = await engineB.consider(FeedbackFixtures.candidate(
+            "reminder-b1", kind: .reminder, botId: "bot-b",
+            reminderId: "reminder-b"))
+        XCTAssertEqual(reminderB.decision, .did,
+                       "a routine-result user preference must not suppress reminders")
 
         // A chat utterance cannot widen the scope by itself.
         var chatWide = BotFeedback(
             botID: "bot-a", action: .suppress,
-            target: BotFeedbackArtifactRef(kind: .proactive, id: task.id,
-                                           deliveryKey: task.dedupeKey),
+            target: BotFeedbackArtifactRef(
+                kind: .proactive, id: first.id, deliveryKey: first.dedupeKey),
             scope: .user,
             origin: FeedbackFixtures.chatOrigin("chat-wide"))
         let chatDenied = try await center.record(chatWide)
         XCTAssertEqual(chatDenied.code, "scope-requires-confirmation")
         chatWide.scope = .class
-        let classDenied = try await center.record(chatWide)
-        XCTAssertEqual(classDenied.code, "ambiguous-scope")
+        // A kind-level class is not available here: the routine result has a
+        // narrow `routine:<id>` class, so a chat utterance may bind that one
+        // routine (never the cross-Bot user class). Undo it before restart.
+        let classNarrow = try await center.record(chatWide)
+        XCTAssertEqual(classNarrow.status, .accepted)
+        XCTAssertEqual(classNarrow.classKey, "routine:routine-a")
+        _ = try await center.undo(
+            try XCTUnwrap(classNarrow.feedbackID), botID: "bot-a",
+            origin: ui("ui-chat-class-undo"))
 
         let restarted = try makeCenter()
-        let restartedB = makeEngine(restarted, deliverer: delivererB)
+        let restartedB = makeEngine(restarted, deliverer: delivererB,
+                                    kinds: [.routineResult, .reminder])
         clock.advance(60_000)
-        let heldAfterRestart = await restartedB.consider(
-            FeedbackFixtures.candidate("task-b2", botId: "bot-b"))
+        let heldAfterRestart = await restartedB.consider(FeedbackFixtures.candidate(
+            "routine-b2", kind: .routineResult, botId: "bot-b",
+            routineId: "routine-b"))
         XCTAssertEqual(heldAfterRestart.reason, "feedback-held")
 
         let undo = try await restarted.undo(
@@ -253,8 +271,9 @@ final class FeedbackA05LoopTests: XCTestCase {
             origin: ui("ui-user-undo"))
         XCTAssertEqual(undo.status, .accepted, "a user-scope preference can be rolled back from any Bot")
         clock.advance(60_000)
-        let released = await restartedB.consider(
-            FeedbackFixtures.candidate("task-b3", botId: "bot-b"))
+        let released = await restartedB.consider(FeedbackFixtures.candidate(
+            "routine-b3", kind: .routineResult, botId: "bot-b",
+            routineId: "routine-b"))
         XCTAssertEqual(released.decision, .did)
     }
 
