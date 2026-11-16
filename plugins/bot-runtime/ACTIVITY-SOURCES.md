@@ -110,4 +110,7 @@ The system prompts in both languages must teach the model to use `bash.descripti
 `Task.task_title` for real action + object, allow real file names/paths/URLs/`#PR`/person
 and meeting names, forbid copying a whole command or JSON and forbid credentials/internal
 ids, keep `等待响应` as the no-evidence state, and state that the client uses real events
-and that no extra status tool or metadata field exists.
+and that no extra status tool or metadata field exists. The final answer stays brief; at
+a meaningful progress, result or direction-change node the same main model may write one
+public progress sentence with the real object, without command-by-command narration or a
+tool/model call made only to refresh the bubble.

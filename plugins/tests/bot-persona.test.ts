@@ -64,6 +64,39 @@ test('activity guidance uses real task objects with the code-aligned wait senten
   }
 })
 
+test('reply length and the work step agree on meaningful public progress', () => {
+  for (const lang of ['zh', 'en'] as const) {
+    const { persona } = assemblePrompt({ lang })
+    if (lang === 'zh') {
+      assert.ok(persona.includes('这个上限针对最终答复'))
+      assert.ok(persona.includes('最终答复不叙述工具调用'))
+      assert.ok(persona.includes('有意义的进展、结果或转向节点'))
+      assert.ok(persona.includes('带这次任务对象的公开进度'))
+      assert.ok(persona.includes('不逐条命令旁白'))
+      assert.ok(persona.includes('不专门调用工具或模型来刷新气泡'))
+      assert.ok(persona.includes('为了刷新活动气泡专门调用工具或模型'))
+      assert.ok(persona.includes('最终答复保持简短；进度句只服务于真实的中间节点'))
+      assert.equal(persona.includes('- 不叙述工具调用、文件修改、命令或工作顺序；只给结果'), false,
+        'zh must not keep the absolute no-narration bullet in reply length')
+      assert.equal(persona.includes('长任务只发一条简短进度'), false,
+        'zh must not cap progress to a single long-task line')
+    } else {
+      assert.ok(persona.includes('This cap is for the final answer'))
+      assert.ok(persona.includes('The final answer never narrates tool calls'))
+      assert.ok(persona.includes('meaningful progress, result or direction change'))
+      assert.ok(persona.includes('naming the real task object'))
+      assert.ok(persona.includes('do not narrate each command'))
+      assert.ok(persona.includes('do not call a tool or model just to refresh the bubble'))
+      assert.ok(persona.includes('refresh the activity bubble'))
+      assert.ok(persona.includes('Keep the final answer brief; a progress sentence serves a real intermediate node'))
+      assert.equal(persona.includes('- Never narrate tool calls, files changed, commands, or the order of work; state the result'), false,
+        'en must not keep the absolute no-narration bullet in reply length')
+      assert.equal(persona.includes('Long work gets one short progress line'), false,
+        'en must not cap progress to a single long-task line')
+    }
+  }
+})
+
 test('the phone persona carries the upstream parity chapters adapted to iOS', () => {
   const sections = new Map<'zh' | 'en', string[]>()
   for (const lang of ['zh', 'en'] as const) {
