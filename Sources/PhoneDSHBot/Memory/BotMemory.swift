@@ -205,6 +205,10 @@ public actor BotMemory {
     /// batch and persists it in the `memory.document_written` event data
     /// (G-1 §3.2). It never decides current status; L owns that.
     private let sourceStates: (any BotSourceStateResolving)?
+    /// Optional readable-record reader used by the pre-write
+    /// document-not-longer-than-evidence guard. nil keeps legacy callers
+    /// unchanged; production wiring passes the same real record service.
+    private let recordReading: (any BotMemoryMaintenanceRecordReading)?
     private let prepareMutex = BotMemoryAsyncMutex()
     private var prepared = false
     private var recallIndex = BotMemoryDocumentRecallIndex()
@@ -214,13 +218,15 @@ public actor BotMemory {
         botID: String,
         language: BotMemoryPromptLanguage = .zh,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) },
-        sourceStates: (any BotSourceStateResolving)? = nil
+        sourceStates: (any BotSourceStateResolving)? = nil,
+        recordReading: (any BotMemoryMaintenanceRecordReading)? = nil
     ) {
         self.store = store
         self.botID = botID
         self.language = language
         self.now = now
         self.sourceStates = sourceStates
+        self.recordReading = recordReading
     }
 
     public func documents(scope: BotMemoryScope? = nil) async throws -> [BotMemoryDocument] {
@@ -306,6 +312,11 @@ public actor BotMemory {
         } else if request.action != .delete && request.action != .move {
             evidenceRefs = evidence ?? []
             reviewRefs = request.review?.refs ?? []
+        }
+        if let tooLong = try await documentLongerThanEvidenceFailure(
+            request, context: context,
+            evidenceRefs: evidenceRefs, reviewRefs: reviewRefs) {
+            return tooLong
         }
         let sourceBaselines: [BotSourceBaseline]?
         if let supplied = request.sourceBaselines {
@@ -688,14 +699,73 @@ public actor BotMemory {
         return nil
     }
 
-    private func failure(_ request: BotMemoryWriteRequest, code: String, error: String) -> BotMemoryWriteResult {
+    /// Generic pre-write version of the maintenance batch check: an authored
+    /// document must not be longer than the readable text it cites. Applies
+    /// only when a real record reader is wired and the write carries
+    /// observation/record evidence (or is a maintainer write); normal user
+    /// writes and evidence-less trigger-only writes are untouched.
+    private func documentLongerThanEvidenceFailure(
+        _ request: BotMemoryWriteRequest,
+        context: BotMemoryWriteContext,
+        evidenceRefs: [String], reviewRefs: [String]
+    ) async throws -> BotMemoryWriteResult? {
+        guard let recordReading, let sessionID = context.sessionID,
+              !evidenceRefs.isEmpty || !reviewRefs.isEmpty,
+              context.authorKind == .maintainer || context.trust == .observation
+        else { return nil }
+        var written: String
+        switch request.action {
+        case .write:
+            written = request.content ?? ""
+        case .append:
+            let current = try await store.document(path: request.path)?.content ?? ""
+            written = current + (request.content ?? "")
+        case .replace:
+            let current = try await store.document(path: request.path)?.content ?? ""
+            guard let find = request.find, !find.isEmpty else { return nil }
+            written = current.replacingOccurrences(
+                of: find, with: request.replace ?? "")
+        case .restore, .move, .delete:
+            return nil
+        }
+        let contentScalars = written.unicodeScalars.count
+        guard contentScalars > 0 else { return nil }
+        var refs: [String] = []
+        var seen = Set<String>()
+        for raw in evidenceRefs + reviewRefs {
+            guard let canonical = BotRecordReference.canonicalize(raw),
+                  seen.insert(canonical).inserted else { continue }
+            refs.append(canonical)
+        }
+        guard !refs.isEmpty else { return nil }
+        var evidenceScalars = 0
+        for ref in refs {
+            guard let text = try? await recordReading.recordText(
+                ref, callerSessionID: sessionID) else {
+                // An unreadable reference is not a reason to invent a limit;
+                // the existing batch check still runs.
+                return nil
+            }
+            evidenceScalars += text.unicodeScalars.count
+        }
+        guard evidenceScalars > 0, contentScalars > evidenceScalars else { return nil }
+        return failure(
+            request, code: "memory-document-longer-than-evidence",
+            error: "文档正文（\(contentScalars) scalar）比它引用的记录原文（\(evidenceScalars) scalar）长；请先改短再写入。",
+            limit: evidenceScalars, actual: contentScalars)
+    }
+
+    private func failure(_ request: BotMemoryWriteRequest, code: String, error: String,
+                         limit: Int? = nil, actual: Int? = nil) -> BotMemoryWriteResult {
         BotMemoryWriteResult(
             ok: false,
             code: code,
             error: error,
             action: request.action,
             path: request.path,
-            scope: BotMemoryAuthorizer.scope(of: request.path))
+            scope: BotMemoryAuthorizer.scope(of: request.path),
+            limit: limit,
+            actual: actual)
     }
 
     private func boundaryFailure(_ request: BotMemoryWriteRequest, code: String) -> BotMemoryWriteResult {
