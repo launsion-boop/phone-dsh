@@ -66,7 +66,10 @@ enum BotFeedbackArtifactRule {
                 && row.provenance.eventIDs.allSatisfy({ $0.hasPrefix("local:") })) {
             return .unavailable("这条内容还没有写入记录")
         }
-        if row.role == "user" || row.kind == "sendMessage" {
+        // `BotSessionLogProjection` uses `sendMessage` as the default for
+        // card.presented and assistant text; the owner/local checks above are
+        // the real exclusion. Keep assistant artifacts eligible.
+        if row.role == "user" {
             return .unavailable("这是你自己发送的消息")
         }
         guard BotUIRendering.isRenderable(row) else {
