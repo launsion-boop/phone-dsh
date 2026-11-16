@@ -39,6 +39,17 @@ public final class EventKitCalendarSource: BotContextSource, BotContextSourceStr
     }
 
     public func requestAuthorization() async -> BotSourceAuthorization {
+        let current = Self.map(EKEventStore.authorizationStatus(for: .event))
+        // Already authorized (or denied/restricted) needs no second TCC prompt.
+        // Requesting again while authorized is invalid on some OS/simulator
+        // builds and used to leave App consent unset even though the OS grant
+        // existed. Only notDetermined (or a write-only upgrade) may prompt.
+        switch current {
+        case .authorized, .denied, .restricted, .revoked:
+            return current
+        case .notDetermined, .limited:
+            break
+        }
         let store = EKEventStore()
         _ = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             store.requestFullAccessToEvents { granted, _ in
