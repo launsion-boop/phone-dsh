@@ -96,11 +96,17 @@
 
 | carrier（durable event / session 行） | 观察字段位置 | resource 身份 | 备注 |
 | --- | --- | --- | --- |
-| `conversation.tool_result`（外部工具结果） | 消息 content 文本里的 v1 §4.3 观察信封（`source/origin/at/owner/ref`） | 按 §2.3 从信封 `source`+`origin` 推导：web URL / file path / connector 需结构化 resource id | 宿主自己的 bash/文件工具不加信封，不是 observation |
-| `context.observed`（G-3） | flat `data`：`source/kind/observed_at_ms/owner_bot_id/consent_generation/source_version/uncertainty/delivery/payload` | `data.resource{kind:"context-source",key:<OS 资源 id>,owner}`（G-3 r3 起必填） | trust=`observation`；P 必须识别，不得落 `.assistant` |
+| `conversation.tool_result`（外部工具结果） | 消息 content 文本里的 v1 §4.3 观察信封（`source/origin/at/owner/ref`）；可选 `data.grant_id` = 该 tool 读取的真实 `BotGrant.id` | 按 §2.3 从信封 `source`+`origin` 推导：web URL / file path / connector 需结构化 resource id | 宿主自己的 bash/文件工具不加信封，不是 observation |
+| `context.observed`（G-3） | flat `data`：`source/kind/observed_at_ms/owner_bot_id/consent_generation/source_version/uncertainty/delivery/payload`；可选 `grant_id` = 真实 `BotGrant.id` | `data.resource{kind:"context-source",key:<OS 资源 id>,owner}`（G-3 r3 起必填） | trust=`observation`；P 必须识别，不得落 `.assistant` |
 | `comm.inbound` / `device-task` 终态 | 结构化 held/设备事件；若正文含信封则解析信封 | 来源有稳定资源 id 才给 resource；否则 `no-resource-identity` | 设备任务不是“最新文件版本” |
 | 其他 durable type | 不自动当 observation | — | 不得因工具名前缀 `mcp__*`/`web_search` 就猜 observation；名字不是身份 |
 
+- **观察 carrier 的 grant_id（G-1 r20）**：`conversation.tool_result` 的 data 根与
+  `context.observed` 的 flat data 可带可选 `grant_id`，值必须是**该次观察发生时真实授权决策**的
+  `BotGrant.id`（由 C 在 authorize→producer 路径按 callId 关联写入；context 由真实 grant 授权时写）。
+  P 从 carrier 读取并原样放进 `BotSourceState/BotSourceBaseline.grantId`，memory 写入只透传；**不得**
+  在 memory 写入时从当前 grants/approval/时间/authorization_ref 反推。没有真实 grant 就省略，读侧
+  按无 grant 信息处理；旧 writer 不写、旧 reader 忽略，兼容。只有新 grant id/generation 才可重新授权。
 - P 的 `sourceStates`/`evidenceSnapshot` 必须对上述 carrier 返回 `trust=observation`、`resolved`、
   `observed_at_ms`、record type 与 version（信封/数据里的来源版本或内容摘要）；`context.observed`
   不能落到 `default: assistant`。**resource 身份由 L 从真实 carrier 推导**（tool_result 信封

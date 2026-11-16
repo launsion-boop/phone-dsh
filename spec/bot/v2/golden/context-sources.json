@@ -109,7 +109,8 @@
           "kind": "context-source",
           "key": "calendar:EKEvent:1",
           "owner": "bot-a"
-        }
+        },
+        "grant_id": "grant:calendar-read-1"
       },
       "expect": "accept"
     },

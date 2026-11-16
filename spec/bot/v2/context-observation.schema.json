@@ -206,6 +206,12 @@
             }
           },
           "additionalProperties": false
+        },
+        "grant_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Optional BotGrant.id that authorized this observation at read time. Producer-only; omitted when no real grant. Never inferred at memory-write time."
         }
       },
       "additionalProperties": false
