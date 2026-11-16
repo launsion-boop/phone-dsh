@@ -56,6 +56,46 @@ final class A07ContextSettingsUITests: XCTestCase {
         attach(name: "a07-context-calendar-after-revoke")
     }
 
+
+    func testPreGrantedCalendarConsentPathWithoutOSPrompt() throws {
+        print("A07_OS_PROMPT_PREGRANTED=1; interactive full-access toggle remains WAITING_DEVICE")
+        app.buttons["bot.info.open"].tap()
+        openContextSources()
+        let calendar = app.switches["bot.info.context-source.calendar"]
+        XCTAssertTrue(calendar.waitForExistence(timeout: 10), "calendar source row is missing")
+        // OS TCC was pre-granted externally; it must NOT create App consent.
+        XCTAssertEqual(calendar.value as? String, "0",
+                       "pre-grant must not fabricate App consent before the user taps")
+        attach(name: "a07-context-calendar-pregranted-switch-off")
+
+        calendar.tap()
+        let changed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value != %@", "0"),
+            object: calendar)
+        XCTAssertEqual(XCTWaiter().wait(for: [changed], timeout: 10), .completed,
+                       "real tap with pre-granted OS permission should write App consent")
+        attach(name: "a07-context-calendar-pregranted-switch-on")
+    }
+
+
+    func testContactsPreGrantedConsentPathWithoutPrompt() throws {
+        app.buttons["bot.info.open"].tap()
+        openContextSources()
+        let contacts = app.switches["bot.info.context-source.contacts"]
+        XCTAssertTrue(contacts.waitForExistence(timeout: 10), "contacts source row is missing")
+        XCTAssertEqual(contacts.value as? String, "0",
+                       "pre-grant must not fabricate App consent before the user taps")
+        contacts.tap()
+        let on = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value != %@", "0"), object: contacts)
+        XCTAssertEqual(XCTWaiter().wait(for: [on], timeout: 10), .completed,
+                       "real contacts tap with pre-granted OS permission should write App consent")
+        contacts.tap()
+        let off = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "0"), object: contacts)
+        XCTAssertEqual(XCTWaiter().wait(for: [off], timeout: 10), .completed,
+                       "contacts revoke should clear the switch")
+        attach(name: "a07-context-contacts-consent-revoke")
+    }
+
     func testUnsupportedCapabilityIsNotOfferedAsASwitch() throws {
         app.buttons["bot.info.open"].tap()
         openContextSources()
