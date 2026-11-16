@@ -15,7 +15,7 @@ final class MemoryReviewTests: XCTestCase {
     private var runtime: BotMCPRuntime!
 
     private let userMessage = "record://session/gb-main#3"
-    private let observation = "record://session/gb-main#4"
+    private var observation = "record://session/gb-main#4"
     private let assistantLine = "record://session/gb-main#5"
 
     override func setUp() async throws {
@@ -32,6 +32,34 @@ final class MemoryReviewTests: XCTestCase {
         service = BotRecordService(store: store, gateway: gateway, workspaceRoot: root)
         runtime = BotMCPRuntime(store: store, gateway: gateway,
                                 recordEvidence: service, now: { 1_760_000_030_000 })
+        await runtime.installProvenance(BotProvenanceService(eventLog: store))
+        try await runtime.grants.recover()
+        observation = try await appendSyntheticObservation()
+    }
+
+    /// A real web observation carrier: the envelope carries the resource
+    /// identity and its body is the versioned text. The earlier `tool/call`
+    /// line is a call, not an observation and has no resource.
+    private func appendSyntheticObservation() async throws -> String {
+        let envelope = try XCTUnwrap(BotObservationEnvelope(
+            source: "web", origin: "https://example.com/article",
+            at: "2026-11-16T08:00:00.000Z", owner: "bot-a",
+            reference: BotRecordReference.session(sessionID: "gb-main", seq: 4),
+            text: "observed web article"))
+        let sequence = try await store.append(BotEvent(
+            type: "conversation.tool_result", eventId: "review-observation:test",
+            time: 1_760_000_004_000, origin: .local(source: "runtime"),
+            traceId: "trace-review-observation",
+            principal: BotPrincipal(botId: "bot-a", sessionId: "gb-main", kind: "chat"),
+            causationId: nil, correlationId: "gb-main",
+            data: .object(["message": .object([
+                "role": .string("tool"),
+                "content": .array([.object([
+                    "type": .string("text"),
+                    "text": .string(envelope.encoded()),
+                ])]),
+            ])])))
+        return "record://event/\(sequence)"
     }
 
     override func tearDown() async throws {

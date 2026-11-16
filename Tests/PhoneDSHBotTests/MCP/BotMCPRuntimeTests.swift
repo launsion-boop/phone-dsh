@@ -421,6 +421,7 @@ final class BotMCPRuntimeTests: XCTestCase {
     func testMemoryWriteUsesResolvedPrincipalAndCurrentTurn() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
+        await installTestProvenance(fixture)
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
         await fixture.runtime.beginTurn(
             sessionId: "gb-main", hidden: false,
@@ -454,6 +455,7 @@ final class BotMCPRuntimeTests: XCTestCase {
     func testCardAnswerTurnWritesSharedMemoryAsUserTurn() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
+        await installTestProvenance(fixture)
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
         await fixture.runtime.beginTurn(
             sessionId: "gb-main", hidden: false,

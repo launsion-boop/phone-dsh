@@ -578,6 +578,7 @@ final class MemoryMaintenanceTests: XCTestCase {
     func testMaintainerWriteRulesMatchTheMainChat() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
+        await installTestProvenance(fixture)
         _ = try await fixture.runtime.issueSession(
             botId: "main", sessionId: maintainerSession, kind: .maintainer)
         await fixture.runtime.beginMaintenanceTurn(
@@ -660,6 +661,7 @@ final class MemoryMaintenanceTests: XCTestCase {
     func testMarkedContradictionLeavesAReviewRequest() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
+        await installTestProvenance(fixture)
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
         await fixture.runtime.beginTurn(
             sessionId: "gb-main", hidden: false,

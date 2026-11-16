@@ -18,7 +18,8 @@ final class MemoryEvidenceStatusFailureTests: XCTestCase {
 
     /// Delegates evidence validation to the real service but fails the batched
     /// snapshot, which is the resolver path `evidence_status` uses.
-    private final class SnapshotFailingResolver: BotRecordEvidenceResolving, @unchecked Sendable {
+    private final class SnapshotFailingResolver: BotRecordEvidenceResolving,
+        BotSourceStateResolving, @unchecked Sendable {
         let service: BotRecordService
 
         init(service: BotRecordService) { self.service = service }
@@ -27,6 +28,13 @@ final class MemoryEvidenceStatusFailureTests: XCTestCase {
                              callerSessionID: String) async throws -> BotRecordEvidence {
             try await service.resolveEvidence(
                 references, callerBotID: callerBotID, callerSessionID: callerSessionID)
+        }
+
+        func sourceStates(for references: [String], callerBotID: String,
+                          callerSessionID: String) async throws -> [BotSourceState] {
+            try await service.sourceStates(
+                for: references, callerBotID: callerBotID,
+                callerSessionID: callerSessionID)
         }
 
         func evidenceSnapshot(for references: [String], callerBotID: String,
@@ -50,6 +58,7 @@ final class MemoryEvidenceStatusFailureTests: XCTestCase {
         runtime = BotMCPRuntime(
             store: store, gateway: gateway,
             recordEvidence: SnapshotFailingResolver(service: service), now: { 1_760_000_030_000 })
+        await runtime.installProvenance(BotProvenanceService(eventLog: store))
     }
 
     override func tearDown() async throws {

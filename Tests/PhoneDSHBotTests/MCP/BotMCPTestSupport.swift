@@ -37,6 +37,26 @@ final class FixedRecordEvidenceResolver: BotRecordEvidenceResolving, @unchecked 
     }
 }
 
+extension FixedRecordEvidenceResolver: BotSourceStateResolving {
+    func sourceStates(for references: [String], callerBotID: String,
+                      callerSessionID: String) async throws -> [BotSourceState] {
+        references.map { reference in
+            let canonical = BotRecordReference.parse(reference)?.canonical ?? reference
+            return BotSourceState(
+                ref: canonical, resolved: true, erased: false,
+                observedAtMS: nil, recordType: nil, trust: trust, version: nil)
+        }
+    }
+}
+
+/// Installs a real L provenance service over the fixture store. The fake
+/// evidence resolver provides only non-observation user records, so no
+/// resource identity is invented; observation tests use a real BotRecordService.
+func installTestProvenance(_ fixture: BotMCPTestFixture) async {
+    await fixture.runtime.installProvenance(
+        BotProvenanceService(eventLog: fixture.store))
+}
+
 /// Simulates S6 physical erasure for any cited record: the verifier must map
 /// this to `uncertain` with an explicit `record_erased` reason, never `passed`.
 final class ErasedRecordEvidenceResolver: BotRecordEvidenceResolving, @unchecked Sendable {
