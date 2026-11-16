@@ -597,6 +597,84 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(durable, live)
     }
 
+    /// v3.3: the optional `activity` argument of the five host-native work
+    /// tools is the per-call model sentence for that call.
+    func testActivityParameterWinsAcrossTheFiveWorkTools() {
+        let cases: [(String, String, BotActivityCategory, String)] = [
+            ("read", "{\"file_path\":\"/dsh/workspace/pr/174-notes.md\",\"activity\":\"核对 #174 的合并资料\"}",
+             .reading, "核对 #174 的合并资料"),
+            ("glob", "{\"pattern\":\"**/*.swift\",\"activity\":\"定位 #174 的改动文件\"}",
+             .searching, "定位 #174 的改动文件"),
+            ("grep", "{\"pattern\":\"conflict\",\"activity\":\"核对 #174 的冲突记录\"}",
+             .searching, "核对 #174 的冲突记录"),
+            ("web_search", "{\"query\":\"PR 174 merge status\",\"activity\":\"查 #174 的合并状态\"}",
+             .searching, "查 #174 的合并状态"),
+            ("web_fetch", "{\"url\":\"https://example.com/pr/174\",\"activity\":\"核对 #174 的合并页\"}",
+             .browsing, "核对 #174 的合并页"),
+        ]
+        for (name, json, category, text) in cases {
+            let phrase = BotActivityEvidence.action(forToolNamed: name, arguments: arguments(json))
+            XCTAssertEqual(phrase.category, category, name)
+            XCTAssertEqual(phrase.text, text, name)
+        }
+    }
+
+    func testActivityParameterBeatsPublicTextAndShortens() {
+        let turn = sessionEvent("turn/start", seq: 1, time: 100)
+        let step = sessionEvent("step/start", seq: 2, time: 150, data: ["step": .number(1)])
+        let publicText = sessionEvent("assistant/stream", seq: 3, time: 180, data: [
+            "step": .number(1), "channel": .string("text"),
+            "text": .string("对比 #174 与 main 的 README"),
+        ])
+        let call = sessionEvent("tool/call", seq: 4, time: 200, data: [
+            "step": .number(1), "callId": .string("a"), "name": .string("read"),
+            "arguments": .object([
+                "file_path": .string("/dsh/workspace/README.md"),
+                "activity": .string("核对 #174 的合并资料"),
+            ]),
+        ])
+        XCTAssertEqual(presentation([turn, step, publicText, call], now: 300).activity?.detail,
+                       "核对 #174 的合并资料")
+
+        let longCall = sessionEvent("tool/call", seq: 5, time: 250, data: [
+            "step": .number(1), "callId": .string("b"), "name": .string("read"),
+            "arguments": .object([
+                "file_path": .string("/dsh/workspace/pr/174-notes.md"),
+                "activity": .string("核对 #174 与 main 的三个冲突文件，然后继续检查远端分支的合并状态"),
+            ]),
+        ])
+        XCTAssertEqual(presentation([turn, step, longCall], now: 300).activity?.detail,
+                       "核对 #174 与 main 的三个冲突文件")
+    }
+
+    func testActivityParameterFallsBackWhenUnusable() {
+        let turn = sessionEvent("turn/start", seq: 1, time: 100)
+        let step = sessionEvent("step/start", seq: 2, time: 150, data: ["step": .number(1)])
+        let publicText = sessionEvent("assistant/stream", seq: 3, time: 180, data: [
+            "step": .number(1), "channel": .string("text"), "text": .string("定位重连失败用例"),
+        ])
+        func call(seq: Int, id: String, activity: JSONValue?) -> BotDSHSessionEvent {
+            var fields: [String: JSONValue] = ["file_path": .string("/dsh/workspace/report.md")]
+            if let activity { fields["activity"] = activity }
+            return sessionEvent("tool/call", seq: seq, time: 200, data: [
+                "step": .number(1), "callId": .string(id), "name": .string("read"),
+                "arguments": .object(fields),
+            ])
+        }
+        // Empty and non-string values are unusable, so the same-step public
+        // progress still wins over the object fallback.
+        XCTAssertEqual(presentation([turn, step, publicText, call(seq: 4, id: "a", activity: .string(""))],
+                                    now: 300).activity?.detail,
+                       "定位重连失败用例")
+        XCTAssertEqual(presentation([turn, step, publicText, call(seq: 5, id: "b", activity: .number(7))],
+                                    now: 300).activity?.detail,
+                       "定位重连失败用例")
+        // Without any usable model sentence the short object fallback runs.
+        XCTAssertEqual(presentation([turn, step, call(seq: 6, id: "c", activity: nil)],
+                                    now: 300).activity?.detail,
+                       "在翻文件 · report.md")
+    }
+
     func testProductionEvidenceLabelsDoNotInventTimedProgress() {
         for category in [BotActivityCategory.thinking, .reviewing, .replying, .generic] {
             let current = BotActivityEvidence.normalized(activity("", category: category, startedAt: 0))
