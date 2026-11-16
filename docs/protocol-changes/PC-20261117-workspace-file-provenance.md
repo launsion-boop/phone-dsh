@@ -35,3 +35,15 @@
 - `validate_provenance.py` PASS (33 cases / 66 mutations), incl. workspaceFile current + erased.
 - Golden cases `workspace-file-from-memory-current`, `workspace-file-memory-erased`.
 - Not done: L API/C producer/R2 seam/E cross acceptance; A03/A08 still NOT READY.
+
+## Addendum — erasure scope (G-2 r9)
+
+- `forget_memory` writes `memory.document_deleted` (logical memory document delete); it does not append
+  `erasure`, does not erase the producing user turn/conversation, and history remains readable.
+- `workspaceFile` derivation must list the real content dependencies (actual user turn/memory record),
+  not every record in the turn. A file whose live user-turn source remains is still legitimate after a
+  different memory document is forgotten.
+- Only physical erase of a listed source (or revoke of its grant) makes the workspace file non-current;
+  do not use filename/content keywords or broaden a memory delete into "all history denied".
+- E should split assertions: memory material absent vs legitimate workspace file; to test A03 erased
+  source propagation use the existing real erase/revoke action, then assert workspace absent/unknown.

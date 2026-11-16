@@ -50,6 +50,13 @@
     C/P 在成功 workspace write/edit 时把真实 user turn/memory source 写入
     `conversation.tool_result.data.derivation`（artifact kind=`workspaceFile`，id=规范化相对路径，
     不手 append）；L 反查；R2 的 seam 只在 L 返回 current 时消费。
+  - **erase 范围（G-2 r9）**：`forget_memory` 是 memory document 的逻辑删除（`memory.document_deleted`），
+    不是物理 erase 产生文件的 user turn/source record；workspaceFile 的 derivation 只列**实际内容
+    依赖**（真实 user turn/memory record）。同一 user turn 仍 live 时，文件仍是合法历史/交付，不因
+    另一个 memory 文档被 forget 而失效；只有该文件实际列出的 source 被物理 erase 或 grant revoke 才
+    非 current。不得按文件名/内容/关键词判 ERASED，也不得把“memory 文档删除”扩大成“所有历史拒绝”。
+    验证 A03 必须用真正 erase source（或 revoke grant）的既有动作，并用 raw 区分 memory material
+    缺失 vs 合法 workspace 文件。
 - `stage` 封闭 `pre_step`/`pre_delivery`。`pre_step` 材料在**同一 turn 的后续 step**复用；turn、
   `authorization_revision`、recipient、goal digest 或任一材料状态变化 → 整批失效，不局部沿用。
   旧 turn 的 block 不得进入新 turn 请求。
