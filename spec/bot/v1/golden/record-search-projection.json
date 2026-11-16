@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "vector": "record-search-projection",
+  "source": {
+    "checkout": "9a373adeac0e10f2d3b61c9136a70107778bbc5b",
+    "rawlog": "/tmp/mf-quality-real/M-E5-CONTRADICTION/bot-events.jsonl"
+  },
+  "query": "contradiction",
+  "records": [
+    {
+      "ref": "record://session/gb-main#5",
+      "record": "session",
+      "sessionId": "gb-main",
+      "seq": 5,
+      "type": "conversation.user_message",
+      "time": 1794837326000,
+      "text": "the user said the contradiction: seven o'clock is wrong"
+    },
+    {
+      "ref": "record://event/40",
+      "record": "event",
+      "commitSeq": 40,
+      "type": "conversation.tool_result",
+      "time": 1794837329000,
+      "text": "{\"ok\":true,\"tool\":\"record.read\",\"data\":{\"lines\":[{\"raw\":\"{\\\"text\\\":\\\"contradiction\\\"}\"}]}}",
+      "nested": [
+        "record://session/gb-main#5"
+      ]
+    },
+    {
+      "ref": "record://event/41",
+      "record": "event",
+      "commitSeq": 41,
+      "type": "conversation.assistant_message",
+      "time": 1794837330000,
+      "text": "I found a contradiction in the note; the user's sentence is authoritative."
+    },
+    {
+      "ref": "record://event/42",
+      "record": "event",
+      "commitSeq": 42,
+      "type": "conversation.tool_result",
+      "time": 1794837331000,
+      "text": "{\"ok\":true,\"tool\":\"record.search\",\"data\":{\"hits\":[{\"ref\":\"record://session/gb-main#5\",\"snippet\":\"contradiction\"}]}}",
+      "nested": [
+        "record://session/gb-main#5"
+      ]
+    }
+  ],
+  "expected": {
+    "hits": [
+      {
+        "ref": "record://event/41",
+        "type": "conversation.assistant_message",
+        "contains": "contradiction"
+      },
+      {
+        "ref": "record://session/gb-main#5",
+        "type": "conversation.user_message",
+        "contains": "contradiction"
+      }
+    ],
+    "excluded": [
+      {
+        "ref": "record://event/40",
+        "reason": "record-bridge-echo"
+      },
+      {
+        "ref": "record://event/42",
+        "reason": "record-bridge-echo"
+      }
+    ],
+    "snippet_max": 400,
+    "max_hits": 20,
+    "nested_expanded": false
+  }
+}
