@@ -123,9 +123,18 @@ def check_material(block: dict, where: str) -> None:
                 raise AssertionError(f"{where}: workspace state must be current without reason")
             if item["version"] < 1 or item["updated_at_ms"] < 0:
                 raise AssertionError(f"{where}: workspace version/time")
+        elif item["ref"].startswith("feedback:preference:"):
+            if item["path"] != "feedback/preference/" + item["ref"][len("feedback:preference:"):]:
+                raise AssertionError(f"{where}: preference path does not match ref")
+            if item["scope"] != "user" or item.get("evidence"):
+                raise AssertionError(f"{where}: preference scope/evidence")
+            if item["state"] != "current" or item.get("reason") or item["version"] != 1:
+                raise AssertionError(f"{where}: preference state/version")
         elif item["ref"] == "current-user-turn" or not (
                 item["ref"].startswith("memory:") or RECORD.match(item["ref"])):
             raise AssertionError(f"{where}: invalid material ref {item['ref']!r}")
+        if item.get("reason") == "feedback-disputed" and item["state"] != "unknown":
+            raise AssertionError(f"{where}: feedback-disputed must be unknown")
         if item["state"] not in STATE:
             raise AssertionError(f"{where}: invalid state")
         if item["state"] == "current" and "reason" in item:

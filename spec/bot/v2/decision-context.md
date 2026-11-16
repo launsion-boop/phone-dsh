@@ -186,8 +186,16 @@ DSH 没有官方“非 tools/list 的 host→Worker 通道”。因此“完全 
   - `undo` 引用原 feedback id；disputed-only 的 undo 只清除 disputed 状态（反向事件 +
     既有 `memory.review_resolved` outcome=`dropped`），不改正文/历史版本、不伪造 verified。
   - R material 消费：存在 active disputed feedback 的 memory artifact 标 `state=unknown` +
-    `review_state:"disputed"`，不得 current；undo/expiry 后恢复，只有新 grant/review 才可改变。
-    `suppress`/`adopt` 偏好仍只在 F delivery gate，不进入 material，不建第二偏好系统。
+    `reason:"feedback-disputed"`（不得 current；L sourceStatuses 全 current 也不能覆盖），
+    `evidence` 填 correction refs 中合法 `record://`（≤2），version/ref/path 保持原 memory；undo/
+    expiry 后不覆盖，按原 provenance 走。`suppress`/`adopt` 偏好仍只在 F delivery gate，不进入
+    material，不建第二偏好系统。
+  - **active user preference material（G-2 r11）**：F `preferences(botID:)` 的 active + scope user
+    项可由 R 作为独立材料，最多 2 条：`ref="feedback:preference:<feedback_id>"`，
+    `path="feedback/preference/<feedback_id>"`，`scope="user"`，`version=1`，
+    `updated_at_ms=preference.created_at_ms`，`snippet="User preference: suppress <classKey>."`
+    （≤240，非用户原文），`evidence=[]`，`state="current"`，`selection_reason="match"`；撤销/非 user
+    scope 不注入。它只是带 classKey 的上下文，不替代 F hold/classKey，不是第二偏好库。
 - `undo` 引用原 `feedback_id`（`reverses`），写反向事件并回滚状态；撤销抑制后 gate 立即不再 hold。
 - `suppress` 只 hold 下一次主动判定（`feedback-held`），不删 routine、不停全部目标、不消耗保险丝；
   记录保留审计，`expires_at_ms` 只影响 gate。

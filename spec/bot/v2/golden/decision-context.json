@@ -229,6 +229,53 @@
         },
         "truncated": false,
         "canceled": false
+      },
+      {
+        "block_id": "dm:1",
+        "turn_id": "gb-main#3",
+        "session_id": "gb-main",
+        "bot_id": "bot-a",
+        "stage": "pre_step",
+        "authorization_revision": "auth-r1",
+        "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "retrieved_at_ms": 1760000010000,
+        "materials": [
+          {
+            "material_id": "mat:disputed1",
+            "ref": "memory:agent/notes/profile.md@v2",
+            "path": "agent/notes/profile.md",
+            "scope": "agent",
+            "version": 2,
+            "updated_at_ms": 1794837000000,
+            "snippet": "旧资料正文（未改写）",
+            "evidence": [
+              "record://event/7"
+            ],
+            "selection_reason": "match",
+            "state": "unknown",
+            "reason": "feedback-disputed"
+          },
+          {
+            "material_id": "mat:pref1",
+            "ref": "feedback:preference:feedback:bot-a:n-1",
+            "path": "feedback/preference/feedback:bot-a:n-1",
+            "scope": "user",
+            "version": 1,
+            "updated_at_ms": 1794837000000,
+            "snippet": "User preference: suppress proactive:task-done.",
+            "evidence": [],
+            "selection_reason": "match",
+            "state": "current"
+          }
+        ],
+        "limits": {
+          "max_materials": 4,
+          "max_characters": 1600,
+          "max_snippet_characters": 240,
+          "deadline_ms": 1500
+        },
+        "truncated": false,
+        "canceled": false
       }
     ],
     "invalid": [

@@ -31,3 +31,17 @@
 ## Not done
 
 - F caller/R/C/E runtime; no model/device evidence; A05/A03/A08 not signed.
+
+
+## Revision 2 — reason/preference material (G-2 r11)
+
+- `review_state` field is removed. Disputed memory uses the existing material fields:
+  `state:"unknown"`, `reason:"feedback-disputed"` (new enum value, valid only with unknown),
+  evidence = up to 2 real correction refs, snippet unchanged; L source statuses cannot override it.
+- Active user preference is a separate context material:
+  `ref:"feedback:preference:<feedback_id>"`, `path:"feedback/preference/<feedback_id>"`,
+  `scope:"user"`, `version:1`, `updated_at_ms:preference.created_at_ms`,
+  `snippet:"User preference: suppress <classKey>."`, `evidence:[]`, `state:"current"`,
+  `selection_reason:"match"`; at most 2, revoked/non-user not injected. It does not replace F
+  hold/classKey and is not a second preference store.
+- Validator material 6/21, feedback 15, mutations 26 PASS.
