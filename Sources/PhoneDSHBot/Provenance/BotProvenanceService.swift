@@ -94,7 +94,7 @@ public protocol BotProvenanceQuerying: Sendable {
     /// Reverse lookup for R2 workspace material: the worst current state of
     /// artifacts whose derivation names this file resource. Untracked path is
     /// nil (callers keep their legacy behavior); only `current` is injectable.
-    func status(forWorkspacePath path: String, botID: String) async throws
+    func status(forWorkspacePath path: String, botID: String) async
         -> BotProvenanceStatus?
     func sourceStatuses(for refs: [String]) async throws -> [String: BotSourceStatus]
     func sourceStatuses(for refs: [String], botID: String?) async throws
@@ -479,10 +479,17 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
     }
 
     public func status(forWorkspacePath path: String,
-                       botID: String) async throws -> BotProvenanceStatus? {
+                       botID: String) async -> BotProvenanceStatus? {
         guard !path.isEmpty, !botID.isEmpty else { return nil }
-        let (scoped, facts) = try await settledScopedSnapshotAndFacts(botID: botID)
-        let normalized = Self.normalizedWorkspacePath(path)
+        let scoped: BotProvenanceSnapshot
+        let facts: [String: BotProvenanceResolvedFacts]
+        do {
+            (scoped, facts) = try await settledScopedSnapshotAndFacts(botID: botID)
+        } catch {
+            // A read failure must not make an untracked file injectable.
+            return nil
+        }
+        guard let normalized = Self.normalizedWorkspacePath(path) else { return nil }
         var found: [BotProvenanceStatus] = []
         for artifact in scoped.assertions.keys where artifact.kind == .workspaceFile {
             guard let latest = scoped.assertions[artifact]?.last else { continue }
@@ -503,11 +510,14 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         return worst
     }
 
-    private static func normalizedWorkspacePath(_ path: String) -> String {
-        var value = path
-        while value.hasPrefix("./") { value.removeFirst(2) }
-        while value.hasSuffix("/") && value.count > 1 { value.removeLast() }
-        return value
+    private static func normalizedWorkspacePath(_ path: String) -> String? {
+        guard !path.isEmpty, !path.hasPrefix("/") else { return nil }
+        let components = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard !components.isEmpty,
+              components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            return nil
+        }
+        return components.joined(separator: "/")
     }
 
     public func generation() async throws -> BotProvenanceGeneration {

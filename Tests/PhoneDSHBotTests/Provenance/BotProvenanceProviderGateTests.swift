@@ -324,16 +324,85 @@ extension BotProvenanceProviderGateTests {
                 ]),
             ]), botID: "bot-a", sessionID: "gb-bot-a"))
         let service = BotProvenanceService(eventLog: log)
-        let current = try await service.status(
+        let current = await service.status(
             forWorkspacePath: "docs/current.md", botID: "bot-a")
         XCTAssertEqual(current, .current)
-        let unrelated = try await service.status(
+        let unrelated = await service.status(
             forWorkspacePath: "docs/unrelated.md", botID: "bot-a")
         XCTAssertNil(unrelated)
         _ = try await log.append(ProvenanceTest.erasureEvent(
             erasureId: "workspace-erase", eventRecords: ["record://event/\(source)"]))
-        let erased = try await service.status(
+        let erased = await service.status(
             forWorkspacePath: "docs/current.md", botID: "bot-a")
         XCTAssertEqual(erased, .erased)
+    }
+}
+
+extension BotProvenanceProviderGateTests {
+    private func workspaceArtifact(
+        path: String, source: String, grantId: String? = nil
+    ) -> BotEvent {
+        var sourceObject: [String: BotJSONValue] = [
+            "record": .string(source), "role": .string("evidence"),
+            "resource": .object([
+                "kind": .string("workspace-file"),
+                "key": .string(path),
+                "owner": .string("bot-a"),
+            ]),
+        ]
+        if let grantId { sourceObject["grantId"] = .string(grantId) }
+        return ProvenanceTest.event(
+            type: "conversation.tool_result",
+            eventId: "workspace-artifact-\(path)",
+            data: .object(["derivation": .object([
+                "artifact": .object([
+                    "kind": .string("workspaceFile"), "id": .string(path),
+                ]),
+                "sources": .array([.object(sourceObject)]),
+            ])]), botID: "bot-a", sessionID: "gb-bot-a")
+    }
+
+    func testWorkspaceFileRevokedGrantIsNotCurrent() async throws {
+        let log = BotProvenanceTestLog()
+        let source = try await log.append(ProvenanceTest.event(
+            type: "conversation.user_message", eventId: "ws-revoke-source",
+            data: .object(["text": .string("source")]), botID: "bot-a"))
+        _ = try await log.append(workspaceArtifact(
+            path: "docs/revoked.md", source: "record://event/\(source)",
+            grantId: "g1"))
+        _ = try await log.append(ProvenanceTest.event(
+            type: "grant.revoked", eventId: "ws-revoke-grant",
+            data: .object(["grantId": .string("g1")])))
+        let service = BotProvenanceService(eventLog: log)
+        let status = await service.status(
+            forWorkspacePath: "docs/revoked.md", botID: "bot-a")
+        XCTAssertEqual(status, .revoked)
+    }
+
+    func testWorkspaceFileSurvivesUnrelatedMemoryDeleteButUntrackedIsNil() async throws {
+        let log = BotProvenanceTestLog()
+        let source = try await log.append(ProvenanceTest.event(
+            type: "conversation.user_message", eventId: "ws-forget-source",
+            data: .object(["text": .string("source")]), botID: "bot-a"))
+        _ = try await log.append(workspaceArtifact(
+            path: "docs/kept.md", source: "record://event/\(source)"))
+        _ = try await log.append(ProvenanceTest.event(
+            type: "memory.document_deleted", eventId: "ws-memory-delete",
+            data: .object([
+                "path": .string("agent/other.md"), "version": .number(1),
+            ]), botID: "bot-a", sessionID: "gb-bot-a"))
+        _ = try await log.append(ProvenanceTest.event(
+            type: "conversation.tool_result", eventId: "ws-untracked",
+            data: .object([:]), botID: "bot-a", sessionID: "gb-bot-a"))
+        let service = BotProvenanceService(eventLog: log)
+        let kept = await service.status(
+            forWorkspacePath: "docs/kept.md", botID: "bot-a")
+        XCTAssertEqual(kept, .current)
+        let untracked = await service.status(
+            forWorkspacePath: "docs/untracked.md", botID: "bot-a")
+        XCTAssertNil(untracked)
+        let escaped = await service.status(
+            forWorkspacePath: "../outside.md", botID: "bot-a")
+        XCTAssertNil(escaped)
     }
 }
