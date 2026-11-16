@@ -152,11 +152,16 @@ public struct BotFeedbackTools: BotTeamToolHandling {
         ]))
 
     private static func encode(_ outcome: BotFeedbackOutcome) -> BotJSONValue {
+        let effectiveAccept = outcome.accepted || outcome.status == .duplicated
         var fields: [String: BotJSONValue] = [
-            "ok": .bool(outcome.accepted || outcome.status == .duplicated),
+            "ok": .bool(effectiveAccept),
+            "accepted": .bool(effectiveAccept),
             "status": .string(outcome.status.rawValue),
             "action": .string(outcome.action.rawValue),
         ]
+        if !effectiveAccept, let reason = outcome.reason {
+            fields["reason"] = .string(reason)
+        }
         if let value = outcome.feedbackID { fields["feedback_id"] = .string(value) }
         if let value = outcome.classKey { fields["class_key"] = .string(value) }
         if let value = outcome.code { fields["code"] = .string(value) }

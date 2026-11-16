@@ -193,6 +193,10 @@ public struct BotFeedbackOutcome: Codable, Sendable, Equatable {
 
     public var accepted: Bool { status == .accepted }
 
+    /// G-2 §4 closes the feedback reason vocabulary. Rejections carry one of
+    /// those values in `code`; this alias makes the contract name explicit.
+    public var reason: String? { code }
+
     private enum CodingKeys: String, CodingKey {
         case status, action, target, scope, code, message, reversed, reverses
         case feedbackID = "feedback_id"

@@ -332,6 +332,10 @@ public actor BotMCPRuntime {
     /// G-2 feedback handler. Registered as a catalog-visible tool, so it is
     /// dispatched from the catalog switch instead of the team-tool seam.
     private var feedbackTools: BotFeedbackTools?
+    /// G-1 provenance read model (identity/current status/derivation). The
+    /// runtime only merges its `source_statuses` projection into read/recall
+    /// results; it never re-implements the state machine.
+    private var provenance: BotProvenanceService?
     /// Delivery-class tools whose side effect must revalidate the decision
     /// context first (G-2 frozen list).
     private static let preDeliveryToolNames: Set<String> = [
@@ -358,6 +362,12 @@ public actor BotMCPRuntime {
     /// attribution, catalog and effect checks.
     public func installFeedbackTools(_ tools: BotFeedbackTools) {
         feedbackTools = tools
+    }
+
+    /// Installs the G-1 provenance read model. It provides the single
+    /// `source_statuses` view consumed by memory reads/recalls and M.
+    public func installProvenance(_ service: BotProvenanceService) {
+        provenance = service
     }
     /// Default bounded wait for a `tools/call` while the App reattaches the
     /// Worker. Long enough to cover the ready-gate fallback and the first
@@ -2171,6 +2181,30 @@ public actor BotMCPRuntime {
         return statuses
     }
 
+    /// G-1 `source_statuses`: the only current-status view. The whole member is
+    /// omitted (with the diagnostic code) when the provenance model is not
+    /// installed or fails; a partial all-unknown array must never stand in for
+    /// "computed".
+    private func sourceStatusValues(for references: [String],
+                                    call: BotResolvedToolCall) async -> [String: BotJSONValue]? {
+        guard let provenance, !references.isEmpty else { return nil }
+        let canonical = references.map { BotRecordReference.canonicalize($0) ?? $0 }
+        do {
+            let statuses = try await provenance.sourceStatuses(for: canonical)
+            var values: [String: BotJSONValue] = [:]
+            for ref in canonical {
+                guard let status = statuses[ref] else { continue }
+                let data = try JSONEncoder().encode(status)
+                if let value = try? BotJSONValue.parse(data) { values[ref] = value }
+            }
+            return values
+        } catch {
+            noteBridgeError(code: "source_status_unavailable",
+                            sessionId: call.principal.sessionId)
+            return nil
+        }
+    }
+
     private func evidenceStatusValue(
         _ statuses: [String: BotMemoryEvidenceStatus], for refs: [String]
     ) throws -> BotJSONValue {
@@ -2207,6 +2241,12 @@ public actor BotMCPRuntime {
             if let statuses = await evidenceStatuses(for: document.evidence, call: call) {
                 output["evidence_status"] = try evidenceStatusValue(
                     statuses, for: document.evidence)
+            }
+            if let sourceStatuses = await sourceStatusValues(
+                for: document.evidence, call: call) {
+                output["source_statuses"] = .array(document.evidence.compactMap {
+                    sourceStatuses[BotRecordReference.canonicalize($0) ?? $0]
+                })
             }
             if document.deleted {
                 output["deleted"] = .bool(true)
@@ -2269,11 +2309,20 @@ public actor BotMCPRuntime {
         }
         let statuses = await evidenceStatuses(
             for: page.hits.flatMap(\.evidence), call: call)
+        let reviewRefs = page.hits.flatMap { $0.review?.refs ?? [] }
+        let sourceStatuses = await sourceStatusValues(
+            for: page.hits.flatMap(\.evidence) + reviewRefs, call: call)
         let encodedHits = try page.hits.map { hit -> BotJSONValue in
             var object = (try encode(hit)).objectValue ?? [:]
             if let statuses {
                 object["evidence_status"] = try evidenceStatusValue(
                     statuses, for: hit.evidence)
+            }
+            if let sourceStatuses {
+                let refs = hit.evidence + (hit.review?.refs ?? [])
+                object["source_statuses"] = .array(refs.compactMap {
+                    sourceStatuses[BotRecordReference.canonicalize($0) ?? $0]
+                })
             }
             return .object(object)
         }

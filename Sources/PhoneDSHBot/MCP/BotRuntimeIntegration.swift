@@ -81,3 +81,63 @@ public typealias BotPermissionRevisionEvaluator =
 public enum BotDecisionTool {
     public static let name = "BotDecisionContext"
 }
+
+/// Maps the App workspace root to the host URL of a file resource. The key is
+/// workspace-relative; absolute roots and `..` escapes are refused so a
+/// recheck can never read outside the Bot workspace.
+public struct BotWorkspaceFileURLResolver: BotFileURLResolving {
+    public let workspaceRoot: URL
+
+    public init(workspaceRoot: URL) { self.workspaceRoot = workspaceRoot }
+
+    public func fileURL(for resource: BotFileResourceIdentity, botID: String) -> URL? {
+        guard resource.kind == "file", !resource.key.isEmpty else { return nil }
+        let key = resource.key.hasPrefix("/")
+            ? String(resource.key.dropFirst()) : resource.key
+        guard !key.split(separator: "/").contains("..") else { return nil }
+        let root = workspaceRoot.standardizedFileURL
+        let url = root.appendingPathComponent(key).standardizedFileURL
+        guard url.path == root.path || url.path.hasPrefix(root.path + "/") else { return nil }
+        return url
+    }
+}
+
+/// Adapts P's raw-byte file rechecker to L's provenance recheck seam. Only a
+/// `content-sha256` baseline over file bytes is comparable; anything else is
+/// honestly `notPerformed` instead of a false current/changed.
+public struct BotProvenanceFileRecheckAdapter: BotProvenanceRechecking {
+    private let rechecker: BotFileSourceRechecker
+
+    public init(rechecker: BotFileSourceRechecker) { self.rechecker = rechecker }
+
+    public func recheck(resource: BotResourceIdentity,
+                        baseline: BotProvenanceSourceVersion,
+                        botID: String?) async -> BotProvenanceRecheckOutcome {
+        guard resource.kind == .file else { return .notPerformed }
+        let identity = BotFileResourceIdentity(
+            key: resource.key, owner: resource.owner, scope: resource.scope)
+        let fileBaseline: BotFileBaseline?
+        if case let .known(basis, value, _, _) = baseline, basis == .contentSHA256 {
+            fileBaseline = .fileBytes(value)
+        } else {
+            fileBaseline = nil
+        }
+        let result = await rechecker.recheck(
+            identity, botID: botID ?? "", baseline: fileBaseline)
+        switch result {
+        case let .unchanged(_, at):
+            return .same(atMS: at)
+        case let .changed(_, current, at):
+            return .changed(
+                version: .known(basis: .contentSHA256, value: current.value,
+                                observedAtMS: at, basisRef: nil),
+                atMS: at)
+        case let .denied(reason):
+            return .denied(detail: reason.rawValue)
+        case let .unavailable(reason):
+            return .unavailable(detail: reason.rawValue)
+        case .notPerformed:
+            return .notPerformed
+        }
+    }
+}

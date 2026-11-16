@@ -195,12 +195,12 @@ final class BotFeedbackRecordTests: XCTestCase {
         noSession.origin = BotFeedbackOrigin(kind: .userChatTurn, sessionID: nil,
                                              nonce: "ui-x")
         let noSessionOutcome = try await center.record(noSession)
-        XCTAssertEqual(noSessionOutcome.code, "origin-unverified")
+        XCTAssertEqual(noSessionOutcome.code, "permission-denied")
 
         var emptyNonce = FeedbackFixtures.adopt(decision, nonce: "  ")
         emptyNonce.origin.nonce = "  "
         let emptyNonceOutcome = try await center.record(emptyNonce)
-        XCTAssertEqual(emptyNonceOutcome.code, "nonce-required")
+        XCTAssertEqual(emptyNonceOutcome.code, "insufficient-evidence")
 
         var otherBot = FeedbackFixtures.adopt(decision, nonce: "ui-y")
         otherBot.botID = "bot-2"
@@ -217,7 +217,7 @@ final class BotFeedbackRecordTests: XCTestCase {
         var request = FeedbackFixtures.adopt(decision)
         request.scope = .class
         let outcome = try await center.record(request)
-        XCTAssertEqual(outcome.code, "scope-invalid")
+        XCTAssertEqual(outcome.code, "target-unresolved")
     }
 
     // ROOT-REVIEW-POINTS R4: the model's interpretation of the user's words is

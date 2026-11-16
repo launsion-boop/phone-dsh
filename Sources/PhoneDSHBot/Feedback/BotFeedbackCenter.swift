@@ -198,16 +198,16 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
                                 max: Self.maximumIDLength - 40)
         signed.origin.nonce = nonce
         guard !botID.isEmpty else {
-            return Self.rejected(signed, code: "bot-required", message: "反馈必须绑定一个 Bot。")
+            return Self.rejected(signed, code: "permission-denied", message: "反馈必须绑定一个 Bot。")
         }
         guard !nonce.isEmpty else {
-            return Self.rejected(signed, code: "nonce-required",
+            return Self.rejected(signed, code: "insufficient-evidence",
                                  message: "反馈缺少宿主生成的幂等 nonce。")
         }
         switch signed.origin.kind {
         case .userChatTurn
             where Self.trim(signed.origin.sessionID ?? "").isEmpty:
-            return Self.rejected(signed, code: "origin-unverified",
+            return Self.rejected(signed, code: "permission-denied",
                                  message: "用户回合反馈缺少会话。")
         case .uiAction, .userChatTurn:
             break
@@ -229,7 +229,7 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
             return try await recordCorrection(signed, at: at, snapshot: &snapshot)
         case .undo:
             if signed.target.kind != .feedback {
-                return Self.rejected(signed, code: "invalid-target",
+                return Self.rejected(signed, code: "target-unresolved",
                                      message: "undo 的 target 必须是 feedback id。")
             }
             return try await performUndo(signed.target.id, botID: botID,
@@ -340,7 +340,7 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
     private func recordAdoption(_ feedback: BotFeedback, at: Int64,
                                 snapshot: inout BotFeedbackState) async throws -> BotFeedbackOutcome {
         guard feedback.scope == .artifact else {
-            return Self.rejected(feedback, code: "scope-invalid",
+            return Self.rejected(feedback, code: "target-unresolved",
                                  message: "采纳只作用于被采纳的那一个产物。")
         }
         guard let delivery = await resolveDelivery(feedback.target, botID: feedback.botID,
@@ -407,7 +407,7 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
             scopeKey = classKey
         }
         if let expiresAtMS = feedback.expiresAtMS, expiresAtMS <= at {
-            return Self.rejected(feedback, code: "expires-invalid",
+            return Self.rejected(feedback, code: "insufficient-evidence",
                                  message: "过期时间必须晚于现在。")
         }
         let sameScope = snapshot.preferences.last(where: {
