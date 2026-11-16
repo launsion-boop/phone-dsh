@@ -48,6 +48,22 @@ final class BotMaintenanceAdaptersTests: XCTestCase {
             baseline: nil, resource: nil, recheckedAtMS: nil)
     }
 
+    func testDuplicateRefStatusesMergeToWorstState() {
+        let current = BotMaintenanceDependencyStatus(
+            reference: "record://session/gb-main#8", state: .live)
+        let erased = BotMaintenanceDependencyStatus(
+            reference: "record://session/gb-main#8", state: .erased)
+        let revoked = BotMaintenanceDependencyStatus(
+            reference: "record://session/gb-main#8", state: .revoked)
+        let changed = BotMaintenanceDependencyStatus(
+            reference: "record://session/gb-main#8", state: .changed)
+        XCTAssertEqual(BotMaintenanceDependencyStatus.worse(current, erased).state, .erased)
+        XCTAssertEqual(BotMaintenanceDependencyStatus.worse(erased, current).state, .erased)
+        XCTAssertEqual(BotMaintenanceDependencyStatus.worse(changed, revoked).state, .revoked)
+        XCTAssertEqual(BotMaintenanceDependencyStatus.worse(current, changed).state, .changed)
+        XCTAssertEqual(BotMaintenanceDependencyStatus.worse(current, current).state, .live)
+    }
+
     func testRecentContextUsesOnlyLaterSessionLinesAndBoundsMaterial() async throws {
         let raw = #"{"data":{"lines":[{"ref":"record://session/gb-main#8","seq":8,"type":"user/message","raw":"{\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"old seven\"}]}}"},{"ref":"record://session/gb-main#28","seq":28,"type":"user/message","raw":"{\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"correction eight\"}]}}"}]}}"#
         let reader = BotMaintenanceRecordRecentContextReader(rawRead: { reference, session, around in
