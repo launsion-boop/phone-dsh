@@ -1086,3 +1086,47 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         }
     }
 }
+
+// MARK: - Provenance fact adapter (G-1 r8, L's `BotProvenanceEvidenceResolving`)
+
+extension BotRecordService: BotProvenanceEvidenceResolving {
+    /// Bridges P's record facts to L's provenance read model. P only maps the
+    /// facts it owns; identity/latest/current stay L's responsibility.
+    public func sourceFacts(for refs: [String], botID: String?, sessionID: String?)
+        async -> [String: BotProvenanceSourceFact] {
+        guard let botID, let sessionID, !refs.isEmpty,
+              let states = try? await sourceStates(
+                for: refs, callerBotID: botID, callerSessionID: sessionID) else {
+            return [:]
+        }
+        var result: [String: BotProvenanceSourceFact] = [:]
+        for state in states {
+            let version: BotProvenanceSourceVersion?
+            switch state.version {
+            case let .known(known):
+                version = .known(
+                    basis: BotProvenanceSourceVersion.BotSourceBasis(
+                        rawValue: known.kind.rawValue) ?? .contentSHA256,
+                    value: known.value,
+                    observedAtMS: known.observedAtMS,
+                    basisRef: known.basisRef)
+            case let .unknown(reason):
+                version = .unknown(
+                    reason: BotProvenanceSourceVersion.BotSourceUnknownReason(
+                        rawValue: reason.rawValue) ?? .sourceUnversioned,
+                    observedAtMS: nil,
+                    basisRef: state.ref)
+            case .none:
+                version = nil
+            }
+            result[state.ref] = BotProvenanceSourceFact(
+                resolved: state.resolved,
+                erased: state.erased,
+                observedAtMS: state.observedAtMS,
+                recordType: state.recordType,
+                trust: state.trust?.rawValue,
+                version: version)
+        }
+        return result
+    }
+}
