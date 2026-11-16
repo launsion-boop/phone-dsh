@@ -29,9 +29,19 @@ final class BotContextSourcesSettingsModel: ObservableObject {
     }
 
     func load() async {
+        await readStates()
+        // Syncing every OS adapter can block on a permission prompt; it must
+        // never delay the switch states or hold `loading` while the page is
+        // visible. Sync in the background, then re-read the ledger truth.
+        Task { [weak self] in
+            guard let self else { return }
+            await self.assembly.refreshOSAuthorizations()
+            await self.readStates()
+        }
+    }
+
+    private func readStates() async {
         loading = true
-        defer { loading = false }
-        await assembly.refreshOSAuthorizations()
         var next: [BotContextSourceKind: BotSourceAuthorizationState] = [:]
         var nextSubscriptions: [BotContextSourceKind: Bool] = [:]
         for source in BotContextSourceKind.allCases {
@@ -48,6 +58,7 @@ final class BotContextSourcesSettingsModel: ObservableObject {
         if !assembly.isStarted() {
             actionError = "情境来源尚未启动，请回到 Bot 页面重试。"
         }
+        loading = false
     }
 
     /// The switch is the pair (global App/OS authorization, this Bot's actual
