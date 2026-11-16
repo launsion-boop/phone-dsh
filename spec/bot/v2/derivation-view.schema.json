@@ -29,7 +29,8 @@
             "delivery",
             "suggestion",
             "draft",
-            "skill"
+            "skill",
+            "workspaceFile"
           ]
         },
         "id": {
@@ -496,7 +497,8 @@
                   "delivery",
                   "suggestion",
                   "draft",
-                  "skill"
+                  "skill",
+                  "workspaceFile"
                 ]
               },
               "id": {

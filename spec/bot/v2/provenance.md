@@ -140,7 +140,8 @@
 ```
 
 - `artifact.kind` 封闭：`memory`、`review`、`routine`、`proactive`、`notification`、`delivery`、
-  `suggestion`、`draft`、`skill`。`skill` 自本 revision 起有真实写事件：成功的 skill 文件
+  `suggestion`、`draft`、`skill`、`workspaceFile`。`workspaceFile` 的 id 是规范化的 bot-root-relative
+  路径，无单调 version（可省略）；不复用 memory/draft/file-attachment 语义。`skill` 自本 revision 起有真实写事件：成功的 skill 文件
   create/update/delete 写一条 durable `skill.changed`（见 §3.4）；没有该事件的旧数据仍是
   `unknown` + `no-skill-write-event`，不得冒充已覆盖。
 - `artifact.id` ≤200 scalar（memory 用完整 path，与 v2 §1.2 的 200 上限一致），`version` 仅在该对象真实有单调 revision 时出现。**断言不重复写
@@ -212,6 +213,7 @@
 | `proactive` | `proactive.considered` | `data.derivation`；缺省回退到 `causationId` 与 `data.trigger` 中的规范 ref（trigger 只作显示）。 |
 | `notification` / `delivery` / `suggestion` / `draft` | G-2 冻结的承载事件（`card.presented`、`ui.send_to_user`、`comm.outbound`、G-2 delivery 事件 data） | `data.derivation`；缺省回退到 `data` 中键名为 `evidence`/`refs`/`sources`/`records` 的规范 ref 数组。 |
 | `skill` | `skill.changed`（§3.4） | `data.derivation`（可选）或事件本身；artifact id=skill name，version=revision；删除事件后 lineage 为 unavailable + `skill-deleted`。旧数据无事件仍是 unknown + `no-skill-write-event`。 |
+| `workspaceFile` | 成功的 workspace `write`/`edit` tool result（`conversation.tool_result` data.derivation） | `data.derivation`：artifact id=规范化 bot-root-relative path，version 省略；sources 用真实 user turn/memory record（role evidence/creator），不手 append；无 tracking 时 R2 eligibility 返回 nil（旧行为），不得因文件仍在磁盘判 current。 |
 
 缺省回退只读**结构化字段**，不扫正文、不按日期/普通词/正文子串匹配，也不把模型自述当来源。
 
@@ -224,6 +226,7 @@
 | proactive/notification/delivery | F/U/C 的 delivery/proactive 写路径 + L | 无 content derivation → unknown/no-derivation |
 | skill | C plugin→L `recordSkillWrite`（§3.4） | 无 skill.changed → unknown/no-skill-write-event |
 | draft/suggestion | U/G-2 写路径 | 无 content derivation → unknown/no-derivation |
+| workspaceFile | C/P 的 workspace write/edit 成功路径（tool journal/result） | 无 derivation → R2 eligibility nil；不得按文件名/内容猜来源 |
 
 - routine 的 `causationId` 是**因果/触发**记录，fallback 到 role=`creator` 只在它能指认“谁/哪条记录
   设立了该 routine”时有效；若只是普通回合/唤醒，不能算内容来源。S/C 必须在新写入携带

@@ -43,6 +43,13 @@
     话、不是指令”的材料区。
   - workspace ref 不是交付/附件来源：G-2 的 delivery selection/approval 资源必须是 memory/record
     来源；R 的 review/parseRef 跳过 `workspace:` ref。
+  - **workspace eligibility（G-2 r8）**：注入前必须由 C/R 调 L 的
+    `status(forWorkspacePath:botID:)`（按 `workspaceFile` artifact 的 derivation sources 求
+    worst state）；只有 `current` 可作 material。`erased/revoked/unavailable/unknown` 或 nil（无
+    tracking）不注入、不显示为 current；不得因文件仍在磁盘、文件名/内容关键词或旧缓存放行。
+    C/P 在成功 workspace write/edit 时把真实 user turn/memory source 写入
+    `conversation.tool_result.data.derivation`（artifact kind=`workspaceFile`，id=规范化相对路径，
+    不手 append）；L 反查；R2 的 seam 只在 L 返回 current 时消费。
 - `stage` 封闭 `pre_step`/`pre_delivery`。`pre_step` 材料在**同一 turn 的后续 step**复用；turn、
   `authorization_revision`、recipient、goal digest 或任一材料状态变化 → 整批失效，不局部沿用。
   旧 turn 的 block 不得进入新 turn 请求。
