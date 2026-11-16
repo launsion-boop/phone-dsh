@@ -516,23 +516,35 @@ public actor BotMemory {
 
     public func read(path: String, version: Int? = nil) async throws -> BotMemoryReadResult {
         try await prepare()
-        guard BotMemoryAuthorizer.parse(path, allowRoot: true) != nil else {
+        // Models naturally ask for the root as `user/` or `agent/` when they
+        // want the directory listing. The stored path grammar forbids a
+        // trailing slash, but the read view can normalize it without changing
+        // any document or write rule (D07: a second Bot used `ReadMemory
+        // user/` and was told the path was invalid instead of seeing the
+        // shared documents).
+        var lookupPath = path
+        if version == nil {
+            while lookupPath.count > 1, lookupPath.hasSuffix("/") {
+                lookupPath.removeLast()
+            }
+        }
+        guard BotMemoryAuthorizer.parse(lookupPath, allowRoot: true) != nil else {
             return .failure(code: "memory-path-invalid", error: "记忆路径无效。", path: path)
         }
-        guard let scope = BotMemoryAuthorizer.scope(of: path) else {
+        guard let scope = BotMemoryAuthorizer.scope(of: lookupPath) else {
             return .failure(code: "memory-path-invalid", error: "记忆路径无效。", path: path)
         }
         if let version {
-            let versions = try await store.versions(path: path)
+            let versions = try await store.versions(path: lookupPath)
             guard let found = versions.first(where: { $0.version == version }) else {
                 return .failure(
                     code: "memory-version-not-found",
                     error: "\(path) 没有第 \(version) 版。",
-                    path: path)
+                    path: lookupPath)
             }
             return .document(found)
         }
-        if let document = try await store.document(path: path) {
+        if let document = try await store.document(path: lookupPath) {
             return .document(BotMemoryDocumentVersion(
                 path: document.path, scope: document.scope, version: document.version,
                 content: document.content, updatedAtMS: document.updatedAtMS,
@@ -540,11 +552,11 @@ public actor BotMemory {
                 source: document.source, review: document.review))
         }
         let documents = try await store.documents(scope: scope)
-        let entries = Self.directoryEntries(documents: documents, path: path)
-        if !entries.isEmpty || path == scope.rawValue {
-            return .directory(path: path, scope: scope, entries: entries)
+        let entries = Self.directoryEntries(documents: documents, path: lookupPath)
+        if !entries.isEmpty || lookupPath == scope.rawValue {
+            return .directory(path: lookupPath, scope: scope, entries: entries)
         }
-        return .failure(code: "memory-not-found", error: "\(path) 下没有文档或目录。", path: path)
+        return .failure(code: "memory-not-found", error: "\(lookupPath) 下没有文档或目录。", path: lookupPath)
     }
 
     public func recall(
