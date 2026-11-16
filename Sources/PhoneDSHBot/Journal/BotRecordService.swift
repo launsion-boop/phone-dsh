@@ -869,6 +869,20 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         return records.map(Self.sourceState(from:))
     }
 
+    /// G-1 r20: only the frozen observation carriers may carry the grant id,
+    /// at the event data root (`conversation.tool_result`) or flat data
+    /// (`context.observed`). Old writers omit it and old readers ignore it.
+    static func carrierGrantId(type: String, data: BotJSONValue) -> String? {
+        guard type == "conversation.tool_result" || type == "context.observed" else {
+            return nil
+        }
+        guard let value = data["grant_id"]?.stringValue,
+              !value.isEmpty, value.unicodeScalars.count <= 128 else {
+            return nil
+        }
+        return value
+    }
+
     private static func sourceState(from record: ResolvedRecord) -> BotSourceState {
         BotSourceState(
             ref: record.ref,
@@ -906,6 +920,8 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         /// no source version (G-1 §2.2) and unresolved/erased records are
         /// explained by the provenance state, not by an invented digest.
         var version: BotSourceVersion?
+        /// Real authorization grant captured at observation time (G-1 r20).
+        var grantId: String? = nil
     }
 
     private func resolveRecords(_ references: [String], callerBotID: String,
@@ -978,7 +994,8 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                     version: Self.observationVersion(
                         ref: canonical, trust: trust,
                         text: Self.observationText(inSessionLine: line.raw),
-                        observedAtMS: observed)))
+                        observedAtMS: observed),
+                    grantId: Self.carrierGrantId(type: line.type, data: Self.sessionData(line.raw) ?? .object([:]))))
             case let .event(commitSeq):
                 guard let record = eventsByCommit[commitSeq],
                       record.event.principal.botId == caller.botId else {
@@ -1027,7 +1044,8 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         return ResolvedRecord(
             ref: ref, resolved: true, erased: false,
             observedAtMS: observed, recordType: event.type,
-            trust: trust, version: version, grantId: carrierGrantId)
+            trust: trust, version: version,
+            grantId: Self.carrierGrantId(type: event.type, data: event.data))
     }
 
     /// Event-only facts for a Bot, used by L when the carrier has no DSH
