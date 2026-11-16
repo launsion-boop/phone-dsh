@@ -81,6 +81,19 @@ public enum BotProvenanceRecheckOutcome: Sendable, Equatable {
     case notPerformed
 }
 
+public enum BotSkillRecheckOutcome: Sendable, Equatable {
+    case same(atMS: Int64)
+    case changed(actualSHA256: String, atMS: Int64)
+    case denied(detail: String?)
+    case unavailable(detail: String?)
+    case notPerformed
+}
+
+public protocol BotSkillRechecking: Sendable {
+    func recheckSkill(name: String, file: String,
+                      expectedSHA256: String) async -> BotSkillRecheckOutcome
+}
+
 public protocol BotProvenanceRechecking: Sendable {
     func recheck(resource: BotResourceIdentity,
                  baseline: BotProvenanceSourceVersion,
@@ -160,6 +173,14 @@ public enum BotProvenanceSourceVersion: Codable, Sendable, Equatable, Hashable {
         .known(BotKnownProvenanceSourceVersion(
             basis: basis, value: value, observedAtMS: observedAtMS,
             basisRef: basisRef, subject: subject))
+    }
+
+    public var knownFields: (basis: BotSourceBasis, value: String,
+                             observedAtMS: Int64?, basisRef: String?,
+                             subject: BotProvenanceSourceVersionSubject?)? {
+        guard case let .known(known) = self else { return nil }
+        return (known.basis, known.value, known.observedAtMS,
+                known.basisRef, known.subject)
     }
 
     public var knownValue: String? {
@@ -377,6 +398,8 @@ public enum BotProvenanceReason: String, Codable, Sendable, CaseIterable {
     /// (owner + real resource key) must be explicitly unverifiable, never
     /// merged with another tool/channel observation.
     case noResourceIdentity = "no-resource-identity"
+    case skillDeleted = "skill-deleted"
+    case crossBotUnresolved = "cross-bot-unresolved"
     case resourceScopeMismatch = "resource-scope-mismatch"
     case refreshNotPerformed = "refresh-not-performed"
     case refreshUnavailable = "refresh-unavailable"
@@ -642,6 +665,7 @@ struct BotProvenanceResolvedFacts: Sendable, Equatable {
     var latestVersion: BotProvenanceSourceVersion?
     var resource: BotResourceIdentity?
     var recheckOutcome: BotProvenanceRecheckOutcome?
+    var skillRecheckOutcome: BotSkillRecheckOutcome?
     var scanLimitExceeded: Bool
 }
 

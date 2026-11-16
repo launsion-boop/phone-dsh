@@ -2,6 +2,59 @@
 
 import Foundation
 
+public enum BotSkillChangeAction: String, Codable, Sendable, CaseIterable {
+    case write
+    case delete
+}
+
+public struct BotSkillChangeAuthor: Sendable, Equatable {
+    public var kind: String
+    public var botID: String?
+    public var sessionID: String?
+
+    public init(kind: String, botID: String? = nil, sessionID: String? = nil) {
+        self.kind = kind
+        self.botID = botID
+        self.sessionID = sessionID
+    }
+}
+
+/// One successful skill file mutation from the App/plugin skill surface
+/// (G-4 `skill.changed`). The plugin remains the only authority that writes
+/// `/dsh/home/skills`; this records the durable carrier and optional derivation.
+public struct BotSkillWriteRequest: Sendable, Equatable {
+    public static let eventType = "skill.changed"
+    public static let schema = "bot-skill-change/v1"
+
+    public var name: String
+    public var file: String
+    public var revision: Int
+    public var action: BotSkillChangeAction
+    /// Raw UTF-8 file bytes hash for write; nil for delete.
+    public var contentSHA256: String?
+    public var bytes: Int?
+    public var previousSHA256: String?
+    public var author: BotSkillChangeAuthor
+    public var atMS: Int64
+    public var sources: [BotDerivationSource]
+
+    public init(name: String, file: String, revision: Int,
+                action: BotSkillChangeAction, contentSHA256: String?,
+                bytes: Int?, previousSHA256: String?, author: BotSkillChangeAuthor,
+                atMS: Int64, sources: [BotDerivationSource]) {
+        self.name = name
+        self.file = file
+        self.revision = revision
+        self.action = action
+        self.contentSHA256 = contentSHA256
+        self.bytes = bytes
+        self.previousSHA256 = previousSHA256
+        self.author = author
+        self.atMS = atMS
+        self.sources = sources
+    }
+}
+
 /// Write-side boundary. `prepareBaseline` validates and canonicalizes the
 /// optional `derivation` member; the fact writer embeds the returned JSON into
 /// its own durable event data. It stores nothing and does not require a carrier
@@ -14,6 +67,9 @@ public protocol BotProvenanceRecording: Sendable {
                     reason: BotInvalidationReason) async throws -> BotInvalidationResult
     func invalidate(sourceRefs: [String],
                     reason: BotInvalidationReason) async throws -> BotInvalidationResult
+    func prepareDerivation(artifact: BotDerivedRef,
+                           sources: [BotDerivationSource]) async throws -> BotJSONValue
+    func recordSkillWrite(_ write: BotSkillWriteRequest) async throws -> BotDerivedRef
 }
 
 /// Read boundary. `currentState` returns the G-1 derivation view; the historical
@@ -36,6 +92,7 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
     private let eventLog: any BotEventLog
     private let evidenceResolver: (any BotProvenanceEvidenceResolving)?
     private let rechecker: (any BotProvenanceRechecking)?
+    private let skillRechecker: (any BotSkillRechecking)?
     private var eventBuffer: [BotEvent] = []
     private var bufferHead = 0
     private var snapshotCache: BotProvenanceSnapshot?
@@ -43,10 +100,12 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
 
     public init(eventLog: any BotEventLog,
                 resolver: (any BotProvenanceEvidenceResolving)? = nil,
-                rechecker: (any BotProvenanceRechecking)? = nil) {
+                rechecker: (any BotProvenanceRechecking)? = nil,
+                skillRechecker: (any BotSkillRechecking)? = nil) {
         self.eventLog = eventLog
         self.evidenceResolver = resolver
         self.rechecker = rechecker
+        self.skillRechecker = skillRechecker
     }
 
     // MARK: - write side
@@ -87,6 +146,111 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         }
         return try Self.jsonValue(BotDerivation(
             artifact: canonical.artifact, sources: filled, basis: canonical.basis))
+    }
+
+    public func recordSkillWrite(_ write: BotSkillWriteRequest) async throws
+        -> BotDerivedRef {
+        let name = write.name
+        guard name.range(of: #"^[a-z0-9]+(-[a-z0-9]+)*$"#,
+                         options: .regularExpression) != nil,
+              name.unicodeScalars.count <= 64,
+              write.file == "\(name).md" else {
+            throw BotProvenanceError.invalidDerivation("invalid skill name/file")
+        }
+        guard write.revision >= 1 else {
+            throw BotProvenanceError.invalidDerivation("skill revision must be >= 1")
+        }
+        func validSHA(_ value: String?) -> Bool {
+            guard let value, value.hasPrefix("sha256:") else { return false }
+            let hex = value.dropFirst(7)
+            return hex.count == 64
+                && hex.allSatisfy({ "0123456789abcdef".contains($0) })
+        }
+        switch write.action {
+        case .write:
+            guard validSHA(write.contentSHA256), let bytes = write.bytes,
+                  (0...2_097_152).contains(bytes) else {
+                throw BotProvenanceError.invalidDerivation(
+                    "skill write requires raw content sha256 and bytes")
+            }
+            if let previous = write.previousSHA256, !validSHA(previous) {
+                throw BotProvenanceError.invalidDerivation("invalid previous sha256")
+            }
+        case .delete:
+            guard validSHA(write.previousSHA256), write.contentSHA256 == nil else {
+                throw BotProvenanceError.invalidDerivation(
+                    "skill delete requires previous_sha256 and no content")
+            }
+        }
+        let eventId = "skill-changed:\(name):\(write.revision):\(write.action.rawValue)"
+        let snapshot = try await refresh()
+        if cachedEventIDs[eventId] != nil {
+            return BotDerivedRef(kind: .skill, id: name, version: write.revision)
+        }
+        let latest = snapshot.assertions.keys
+            .filter { $0.kind == .skill && $0.id == name }
+            .compactMap(\.version).max()
+        let expected = (latest ?? 0) + 1
+        guard write.revision == expected else {
+            throw BotProvenanceError.invalidDerivation(
+                "skill revision must be \(expected), got \(write.revision)")
+        }
+        var data: [String: BotJSONValue] = [
+            "schema": .string(BotSkillWriteRequest.schema),
+            "action": .string(write.action.rawValue),
+            "author": .object({
+                var author: [String: BotJSONValue] = [
+                    "kind": .string(write.author.kind),
+                ]
+                if let botID = write.author.botID {
+                    author["bot_id"] = .string(botID)
+                }
+                if let sessionID = write.author.sessionID {
+                    author["session_id"] = .string(sessionID)
+                }
+                return author
+            }()),
+            "at_ms": .number(Double(max(0, write.atMS))),
+        ]
+        var skill: [String: BotJSONValue] = [
+            "name": .string(name),
+            "file": .string(write.file),
+            "revision": .number(Double(write.revision)),
+        ]
+        if write.action == .write {
+            skill["content_sha256"] = .string(write.contentSHA256 ?? "")
+            skill["bytes"] = .number(Double(write.bytes ?? 0))
+            if let previous = write.previousSHA256 {
+                skill["previous_sha256"] = .string(previous)
+            }
+        } else {
+            skill["previous_sha256"] = .string(write.previousSHA256 ?? "")
+        }
+        data["skill"] = .object(skill)
+        if !write.sources.isEmpty {
+            data["derivation"] = try await prepareDerivation(
+                artifact: BotDerivedRef(
+                    kind: .skill, id: name, version: write.revision),
+                sources: write.sources)
+        }
+        let event = BotEvent(
+            type: BotSkillWriteRequest.eventType,
+            eventId: eventId,
+            time: max(0, write.atMS),
+            origin: .local(source: "ipc"),
+            traceId: "trace-\(eventId)",
+            principal: BotPrincipal(
+                botId: write.author.botID, sessionId: write.author.sessionID,
+                kind: "ipc"),
+            causationId: nil, correlationId: nil, ignorable: true,
+            data: .object(data))
+        let seq = try await eventLog.append(event)
+        guard seq >= 1 else {
+            throw BotProvenanceError.invalidDerivation(
+                "skill.changed was not persisted as a durable event")
+        }
+        _ = seq
+        return BotDerivedRef(kind: .skill, id: name, version: write.revision)
     }
 
     public func invalidate(sourceRef: String,
@@ -192,6 +356,12 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
     }
 
     // MARK: - cache / facts
+
+    private func eventData(forCommitSeq seq: Int) async throws -> BotJSONValue? {
+        let batch = try await eventLog.events(after: max(0, seq - 1), limit: 1)
+        guard let event = batch.first, event.commitSeq == seq else { return nil }
+        return event.data
+    }
 
     private func refresh() async throws -> BotProvenanceSnapshot {
         var added = false
@@ -307,7 +477,7 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
                             identity: nil, latestRef: nil,
                             latestObservedAtMS: nil, latestVersion: nil,
                             resource: nil, recheckOutcome: nil,
-                            scanLimitExceeded: false)
+                            skillRecheckOutcome: nil, scanLimitExceeded: false)
                     }
                     start = end
                 }
@@ -341,6 +511,25 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
                 }
             }
             facts[ref] = fact
+        }
+        if let skillRechecker {
+            for assertion in snapshot.assertions.values.joined()
+            where assertion.artifact.kind == .skill && !assertion.isDeleted {
+                guard let seq = Int(assertion.carrierRecord
+                        .replacingOccurrences(of: "record://event/", with: "")),
+                      var fact = facts[assertion.carrierRecord] else { continue }
+                // Recheck the file bytes for the latest skill revision only.
+                let latest = snapshot.assertions[assertion.artifact]?.last
+                guard latest?.carrierSeq == assertion.carrierSeq,
+                      let data = try? await eventData(forCommitSeq: seq),
+                      let skill = data["skill"]?.objectValue,
+                      let name = skill["name"]?.stringValue,
+                      let file = skill["file"]?.stringValue,
+                      let digest = skill["content_sha256"]?.stringValue else { continue }
+                fact.skillRecheckOutcome = await skillRechecker.recheckSkill(
+                    name: name, file: file, expectedSHA256: digest)
+                facts[assertion.carrierRecord] = fact
+            }
         }
         if let rechecker {
             for assertion in snapshot.assertions.values.joined() {

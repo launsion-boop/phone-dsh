@@ -204,10 +204,10 @@ final class BotProvenanceGoldenTests: XCTestCase {
         if let version = record.version {
             switch version {
             case let .known(known):
-                return .known(basis: known.basis, value: known.value,
-                              observedAtMS: known.observedAtMS,
-                              basisRef: known.basisRef ?? ref,
-                              subject: known.subject)
+                return .known(
+                    basis: known.basis, value: known.value,
+                    observedAtMS: known.observedAtMS,
+                    basisRef: known.basisRef ?? ref, subject: known.subject)
             case let .unknown(reason, observed, basisRef):
                 return .unknown(reason: reason, observedAtMS: observed,
                                 basisRef: basisRef ?? ref)

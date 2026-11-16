@@ -17,6 +17,7 @@ struct BotProvenanceAssertion: Sendable, Equatable {
     var botID: String?
     var sessionID: String?
     var review: Review?
+    var isDeleted: Bool = false
 }
 
 struct BotProvenanceObservation: Sendable, Equatable {
@@ -294,8 +295,8 @@ public struct BotProvenanceSnapshot: Sendable {
                 status.reasons = [.noBaseline]
                 return status
             }
-            if case let .known(base) = baseline,
-               case let .known(latestKnown) = latestVersion {
+            if let base = baseline.knownFields,
+               let latestKnown = latestVersion.knownFields {
                 if base.basis != latestKnown.basis {
                     status.state = .unknown
                     status.reasons = [.revisionBasisMismatch]
@@ -318,8 +319,8 @@ public struct BotProvenanceSnapshot: Sendable {
             status.state = .current
             status.recheckedAtMS = atMS
         case let .changed(version, _):
-            if case let .known(base) = baseline,
-               case let .known(newKnown) = version {
+            if let base = baseline?.knownFields,
+               let newKnown = version.knownFields {
                 if base.basis != newKnown.basis {
                     status.state = .unknown
                     status.reasons = [.revisionBasisMismatch]
@@ -419,8 +420,31 @@ public struct BotProvenanceSnapshot: Sendable {
             reasonSet.insert(.upstreamInvalidated)
         }
         if artifact.kind == .skill {
-            state = .unknown
-            reasonSet = [.noSkillWriteEvent]
+            // G-4 §3.4: a skill.changed carrier is current only after the host
+            // rechecks the file bytes (or sees a delete). Sources remain
+            // displayable, but do not decide freshness.
+            if assertion.isDeleted {
+                state = .unavailable
+                reasonSet = [.skillDeleted]
+            } else {
+                switch facts[assertion.carrierRecord]?.skillRecheckOutcome ?? .notPerformed {
+                case .same:
+                    state = .current
+                    reasonSet = []
+                case .changed:
+                    state = .changed
+                    reasonSet = [.sourceChanged]
+                case .denied:
+                    state = .unknown
+                    reasonSet = [.refreshDenied]
+                case .unavailable:
+                    state = .unknown
+                    reasonSet = [.refreshUnavailable]
+                case .notPerformed:
+                    state = .unknown
+                    reasonSet = [.refreshNotPerformed]
+                }
+            }
         } else if sourceViews.isEmpty {
             state = .unknown
             reasonSet = [.noDerivation]
@@ -603,7 +627,9 @@ extension BotProvenanceSnapshot {
             facts.erased = erased.contains(record)
             eventFacts[record] = facts
 
-            if let derivation = decodeDerivation(event.data["derivation"]) {
+            if let derivation = decodeDerivation(event.data["derivation"]),
+               !(derivation.artifact.kind == .skill
+                    && event.type != "skill.changed") {
                 let review = decodeReview(event.data["review"])
                 var sources = derivation.sources
                 // G-1 §1.3: review_effective must consider evidence ∪
@@ -727,6 +753,26 @@ extension BotProvenanceSnapshot {
                 basis: nil, carrierSeq: event.commitSeq ?? 0, carrierRecord: record,
                 eventType: event.type, botID: event.principal.botId,
                 sessionID: event.principal.sessionId, review: review)]
+        case "skill.changed":
+            guard event.data["schema"]?.stringValue == "bot-skill-change/v1",
+                  let skill = event.data["skill"]?.objectValue,
+                  let name = skill["name"]?.stringValue, !name.isEmpty,
+                  let revision = skill["revision"]?.intValue, revision >= 1 else {
+                return []
+            }
+            var sources: [BotDerivationSource] = []
+            if let derivation = decodeDerivation(event.data["derivation"]),
+               !(derivation.artifact.kind == .skill
+                    && event.type != "skill.changed") {
+                sources = derivation.sources
+            }
+            let action = event.data["action"]?.stringValue
+            return [BotProvenanceAssertion(
+                artifact: BotDerivedRef(kind: .skill, id: name, version: revision),
+                sources: dedupe(sources), basis: nil, carrierSeq: event.commitSeq ?? 0,
+                carrierRecord: record, eventType: event.type,
+                botID: event.principal.botId, sessionID: event.principal.sessionId,
+                review: nil, isDeleted: action == "delete")]
         case "routine.defined", "routine.updated", "routine.deleted":
             guard let document = event.data["document"],
                   let routines = document["routines"]?.arrayValue else { return [] }
