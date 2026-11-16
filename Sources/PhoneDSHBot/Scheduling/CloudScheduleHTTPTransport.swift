@@ -63,11 +63,10 @@ public final class CloudScheduleHTTPTransport: CloudScheduleTransport, @unchecke
                 serverTimeMS = max(serverTimeMS, responseDateMS)
                 accepted.append(registration)
             } catch let error as CloudScheduleTransportError {
-                if case .conflict(let code, let currentRevision) = error,
-                   code == "revision_conflict" || code == "conflict" {
+                if isRevisionConflict(error) {
                     rejected.append(CloudScheduleSyncRejection(
                         routineID: registration.routineID, code: "revision_conflict",
-                        currentRevision: currentRevision))
+                        currentRevision: currentRevision(from: error)))
                     continue
                 }
                 throw error
@@ -88,11 +87,10 @@ public final class CloudScheduleHTTPTransport: CloudScheduleTransport, @unchecke
                 serverTimeMS = max(serverTimeMS, responseDateMS)
                 removedAccepted.append(removal.routineID)
             } catch let error as CloudScheduleTransportError {
-                if case .conflict(let code, let currentRevision) = error,
-                   code == "revision_conflict" || code == "conflict" {
+                if isRevisionConflict(error) {
                     rejected.append(CloudScheduleSyncRejection(
                         routineID: removal.routineID, code: "revision_conflict",
-                        currentRevision: currentRevision))
+                        currentRevision: currentRevision(from: error)))
                     continue
                 }
                 throw error
@@ -142,6 +140,7 @@ public final class CloudScheduleHTTPTransport: CloudScheduleTransport, @unchecke
             URLQueryItem(name: "device_id", value: request.deviceID),
             URLQueryItem(name: "since_ms", value: String(request.sinceMS)),
             URLQueryItem(name: "limit", value: String(request.limit)),
+            URLQueryItem(name: "cursor_ms", value: String(request.sinceMS)),
             URLQueryItem(name: "include_terminal", value: "false"),
         ]
         let data = try await send(
@@ -243,6 +242,19 @@ public final class CloudScheduleHTTPTransport: CloudScheduleTransport, @unchecke
                 retryable: error?.retryable ?? true,
                 retryAfterMS: error?.retryAfterMS ?? retryAfter(from: http))
         }
+    }
+
+    /// The frozen wire error code is `revision-conflict` (hyphen); early SC
+    /// builds used `revision_conflict`. Accept both at the transport edge and
+    /// normalize the rejection to one client-side code.
+    private func isRevisionConflict(_ error: CloudScheduleTransportError) -> Bool {
+        guard case .conflict(let code, _) = error else { return false }
+        return code == "revision-conflict" || code == "revision_conflict"
+    }
+
+    private func currentRevision(from error: CloudScheduleTransportError) -> Int64? {
+        guard case .conflict(_, let currentRevision) = error else { return nil }
+        return currentRevision
     }
 
     private func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {

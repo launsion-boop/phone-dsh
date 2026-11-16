@@ -318,6 +318,25 @@ final class CloudScheduleClientTests: XCTestCase {
         XCTAssertEqual(cancelled.map(\.routineID), ["digest"])
     }
 
+    func testOrdinaryRunFailureUsesTheFrozenRunFailedReason() async throws {
+        let now = wp6Date(2026, 5, 12, 12)
+        let f = try fixture(runner: { _ in .failure("tool unavailable") }, at: now)
+        try await makeRoutine(f, at: now)
+        _ = await f.client.synchronizeNow()
+        let fetched_routine = try await f.machine.get(botId: "bot-a", routineId: "digest")
+        let routine = try XCTUnwrap(fetched_routine)
+        let slot = try XCTUnwrap(routine.nextRunAt)
+        await f.transport.enqueuePoll(.init(
+            serverTimeMS: f.clock.now,
+            events: [cloudEvent(f, occurrenceKey: occurrenceA, occurrenceAt: slot,
+                                scheduleRevision: try XCTUnwrap(routine.cloudSchedule?.seq))]))
+        let result = await f.client.pollOnce()
+        XCTAssertEqual(result, .processed(1))
+        let receipts = await f.transport.receiptRequests
+        XCTAssertEqual(receipts.last?.outcome, .failed)
+        XCTAssertEqual(receipts.last?.reason, .runFailed)
+    }
+
     func testStaleScheduleRevisionIsSkipped() async throws {
         let now = wp6Date(2026, 5, 12, 12)
         let f = try fixture(at: now)

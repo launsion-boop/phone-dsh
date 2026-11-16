@@ -30,6 +30,7 @@ public enum CloudScheduleReason: String, Codable, Sendable, Equatable, CaseItera
     case localAttempt = "local_attempt"
     case superseded
     case userStopped = "user_stopped"
+    case runFailed = "run_failed"
 }
 
 /// Timing-only projection of `RoutineSchedule` using the frozen wire names.

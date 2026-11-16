@@ -550,7 +550,7 @@ public actor CloudScheduleClient {
         case .succeeded, .cancelled: return nil
         case .timedOut: return .timeout
         case .needsReconciliation: return .needsReconciliation
-        case .failed: return .unavailable
+        case .failed: return .runFailed
         case .scheduled, .started, .waitingApproval: return .needsReconciliation
         }
     }
