@@ -67,6 +67,8 @@ public protocol BotProvenanceRecording: Sendable {
                     reason: BotInvalidationReason) async throws -> BotInvalidationResult
     func invalidate(sourceRefs: [String],
                     reason: BotInvalidationReason) async throws -> BotInvalidationResult
+    func invalidate(sourceRefs: [String], reason: BotInvalidationReason,
+                    botID: String?) async throws -> BotInvalidationResult
     func prepareDerivation(artifact: BotDerivedRef,
                            sources: [BotDerivationSource]) async throws -> BotJSONValue
     func recordSkillWrite(_ write: BotSkillWriteRequest) async throws -> BotDerivedRef
@@ -342,6 +344,15 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         let snapshot = try await refresh()
         let facts = await facts(for: snapshot)
         return snapshot.invalidated(sourceRefs: sourceRefs, reason: reason, facts: facts)
+    }
+
+    public func invalidate(sourceRefs: [String], reason: BotInvalidationReason,
+                           botID: String?) async throws -> BotInvalidationResult {
+        let snapshot = try await refresh()
+        let scoped = snapshot.scoped(botID: botID)
+        let facts = await facts(for: scoped)
+        return scoped.invalidated(
+            sourceRefs: sourceRefs, reason: reason, facts: facts)
     }
 
     /// Convenience for the memory erasure batch: `BotMemoryPhysicalEraseOutcome.

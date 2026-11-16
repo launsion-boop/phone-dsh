@@ -105,6 +105,14 @@ final class BotProvenanceInvariantTests: XCTestCase {
         let traceB = try await service.reverseTrace(derivedRef: artifact, botID: "bot-b")
         XCTAssertEqual(traceA.first?.sources.first?.record, "record://event/\(aSource)")
         XCTAssertEqual(traceB.first?.sources.first?.record, "record://event/\(bSource)")
+        let invalidA = try await service.invalidate(
+            sourceRefs: ["record://event/\(aSource)"], reason: .sourceErased,
+            botID: "bot-a")
+        XCTAssertTrue(invalidA.affected.contains(artifact))
+        let invalidB = try await service.invalidate(
+            sourceRefs: ["record://event/\(aSource)"], reason: .sourceErased,
+            botID: "bot-b")
+        XCTAssertFalse(invalidB.affected.contains(artifact))
         // The unscoped legacy call can only collapse to the latest carrier;
         // this is the cross-Bot collision the bot-scoped query resolves.
         let legacy = try await service.sourceStatuses(for: artifact)
