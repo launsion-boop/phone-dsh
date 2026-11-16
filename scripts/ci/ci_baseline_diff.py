@@ -93,12 +93,22 @@ def _stage_inventory(entry, side: str, name: str) -> tuple[int, dict | None]:
         return rc, None
     parsed = inventory.get("parsed")
     coverage = inventory.get("coverage")
-    failures = inventory.get("failures")
-    if not isinstance(parsed, bool) or not isinstance(coverage, int) or isinstance(coverage, bool):
+    failures = inventory.get("failure_counts")
+    if failures is None:
+        legacy = inventory.get("failures")
+        if isinstance(legacy, list) and all(isinstance(item, str) for item in legacy):
+            failures = {}
+            for item in legacy:
+                failures[item] = failures.get(item, 0) + 1
+    if not isinstance(parsed, bool):
         return rc, None
-    if not isinstance(failures, list) or not all(isinstance(item, str) for item in failures):
+    if coverage is not None and (not isinstance(coverage, int) or isinstance(coverage, bool)):
         return rc, None
-    return rc, {"parsed": parsed, "coverage": coverage, "failures": failures}
+    if not isinstance(failures, dict) or not all(
+            isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool)
+            for k, v in failures.items()):
+        return rc, None
+    return rc, {"parsed": parsed, "coverage": coverage, "failure_counts": failures}
 
 
 def compare_junit(base_dir: str, head_dir: str) -> dict:
@@ -147,34 +157,49 @@ def compare_stages(base_path: Path, head_path: Path) -> dict:
         base_rc, base_inv = _stage_inventory(base[name], "base", name)
         head_rc, head_inv = _stage_inventory(head[name], "head", name)
         if base_inv is None or head_inv is None:
+            if base_rc == 0 and head_rc == 0:
+                # A pass-only stage (license) has no countable inventory.
+                continue
             incomplete.append(f"{name}: stage inventory missing/unusable")
             continue
         if not base_inv["parsed"] or not head_inv["parsed"]:
+            if base_rc == 0 and head_rc == 0:
+                continue
             incomplete.append(f"{name}: coverage not parseable")
             continue
-        if head_inv["coverage"] < base_inv["coverage"]:
-            incomplete.append(f"{name}: coverage drop {base_inv['coverage']} -> "
-                              f"{head_inv['coverage']}")
+        base_cov, head_cov = base_inv["coverage"], head_inv["coverage"]
+        if base_cov is not None and head_cov is not None and head_cov < base_cov:
+            incomplete.append(f"{name}: coverage drop {base_cov} -> {head_cov}")
             continue
-        base_fail = set(base_inv["failures"])
-        head_fail = set(head_inv["failures"])
-        newly_failing = sorted(head_fail - base_fail)
+        base_counts = base_inv["failure_counts"]
+        head_counts = head_inv["failure_counts"]
+        for identity in sorted(head_counts):
+            delta = head_counts[identity] - base_counts.get(identity, 0)
+            if delta > 0:
+                new.append(f"{name}: {identity} (x{delta})")
         if head_rc == 0:
             if base_rc != 0:
                 fixed.append(name)
-            if head_fail:
+            if head_counts:
                 incomplete.append(f"{name}: rc=0 but inventory reports failures")
             continue
         # head is failing
-        if newly_failing:
-            new.extend(f"{name}: {item}" for item in newly_failing)
-        elif base_rc == 0:
-            new.append(f"{name}: stage failed (base passed)")
-        elif not head_fail:
-            incomplete.append(f"{name}: failing without a parsed failure line "
+        if not head_counts:
+            incomplete.append(f"{name}: failing without a parsed failure "
                               f"(cannot prove no new failure)")
+        elif base_rc == 0:
+            # Every head failure is new, but keep the explicit stage signal.
+            if not any(item.startswith(f"{name}: ") for item in new):
+                new.append(f"{name}: stage failed (base passed)")
         else:
-            pre.append(name)
+            for identity in sorted(base_counts):
+                if head_counts.get(identity, 0) < base_counts[identity]:
+                    incomplete.append(
+                        f"{name}: failure disappeared without a green result: {identity}")
+            if head_counts and all(
+                    head_counts.get(identity, 0) <= base_counts.get(identity, 0)
+                    for identity in head_counts):
+                pre.append(name)
     return {
         "kind": "stages", "new": new, "fixed": fixed, "pre_existing": pre,
         "incomplete": incomplete,
