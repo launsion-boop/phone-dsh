@@ -434,7 +434,8 @@ public actor BotMCPRuntime {
         let mainMemory = BotMemory(
             store: SQLiteBotMemoryDocumentStore(eventLog: store, botID: "main", now: now),
             botID: "main", now: now,
-            sourceStates: recordEvidence as? any BotSourceStateResolving)
+            sourceStates: recordEvidence as? any BotSourceStateResolving,
+            recordReading: recordEvidence as? any BotMemoryMaintenanceRecordReading)
         memory = mainMemory
         memories = ["main": mainMemory]
         routineMachine = RoutineMachine(store: routineStore ?? SQLiteRoutineStore(domainStore: store))
@@ -501,7 +502,8 @@ public actor BotMCPRuntime {
         let memory = BotMemory(
             store: SQLiteBotMemoryDocumentStore(eventLog: store, botID: botID, now: now),
             botID: botID, now: now,
-            sourceStates: recordEvidence as? any BotSourceStateResolving)
+            sourceStates: recordEvidence as? any BotSourceStateResolving,
+            recordReading: recordEvidence as? any BotMemoryMaintenanceRecordReading)
         memories[botID] = memory
         return memory
     }
