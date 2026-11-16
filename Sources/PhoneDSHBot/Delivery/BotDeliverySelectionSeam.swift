@@ -431,7 +431,9 @@ public struct BotDeliverySelectionDraft: Sendable, Equatable {
         var binding: BotDeliverySelectionBinding?
         if delivery["binding"] != nil {
             guard let parsed = BotDeliverySelectionBinding.parse(
-                delivery["binding"]) else { return nil }
+                delivery["binding"]),
+                  parsed.approvalID == approvalID,
+                  parsed.turnID.hasPrefix(sessionID + "#") else { return nil }
             binding = parsed
         }
         let rowID = data["id"]?.stringValue ?? "e-\(botID)-approval-\(approvalID)"
