@@ -112,6 +112,8 @@ public protocol BotProvenanceQuerying: Sendable {
         -> BotDerivationView
     func sourceStatuses(forSkill identity: BotSkillIdentity, botID: String?) async throws
         -> [BotSourceStatus]
+    func status(forSkillName name: String, botID: String) async
+        -> BotProvenanceStatus?
     func routineDerivationSources(botID: String, sessionID: String) async throws
         -> [BotDerivationSource]
     func derivedRefs(forEventID eventID: String) async throws -> [BotDerivedRef]
@@ -592,6 +594,47 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
             .max(by: { ($0.version ?? 0) < ($1.version ?? 0) })
             ?? BotDerivedRef(kind: .skill, id: identity.name)
         return skillScoped.sourceStatuses(for: artifact, facts: facts)
+    }
+
+    /// Official Bot `skill` tool guard: private project identities shadow
+    /// user roots for the same name. Untracked returns nil (legacy behavior);
+    /// any tracked non-current identity is not loadable.
+    public func status(forSkillName name: String, botID: String) async
+        -> BotProvenanceStatus? {
+        guard !name.isEmpty, !botID.isEmpty else { return nil }
+        let scoped: BotProvenanceSnapshot
+        let facts: [String: BotProvenanceResolvedFacts]
+        do {
+            (scoped, facts) = try await settledScopedSnapshotAndFacts(botID: botID)
+        } catch {
+            return nil
+        }
+        let assertions = scoped.assertions.values.joined().filter {
+            $0.artifact.kind == .skill && $0.artifact.id == name
+        }
+        guard !assertions.isEmpty else { return nil }
+        let project = assertions.filter {
+            ($0.skillSource ?? BotSkillSource.userDsh.rawValue)
+                == BotSkillSource.projectDsh.rawValue
+                || ($0.skillSource ?? BotSkillSource.userDsh.rawValue)
+                    == BotSkillSource.projectAgents.rawValue
+        }
+        let effective = project.isEmpty ? assertions : project
+        var states: [BotProvenanceStatus] = []
+        for assertion in effective {
+            let source = BotSkillSource(
+                rawValue: assertion.skillSource ?? BotSkillSource.userDsh.rawValue)
+                ?? .userDsh
+            let identity = BotSkillIdentity(
+                source: source, ownerBotID: assertion.skillOwnerBotID, name: name)
+            let skillScoped = scoped.skillScoped(identity, botID: botID)
+            let artifact = skillScoped.assertions.keys
+                .filter { $0.kind == .skill && $0.id == name }
+                .max(by: { ($0.version ?? 0) < ($1.version ?? 0) })
+            guard let artifact else { continue }
+            states.append(skillScoped.view(for: artifact, facts: facts).state)
+        }
+        return states.max(by: { $0.severity < $1.severity })
     }
 
     public func generation() async throws -> BotProvenanceGeneration {

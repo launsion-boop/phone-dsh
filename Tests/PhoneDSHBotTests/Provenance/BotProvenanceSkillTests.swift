@@ -197,3 +197,62 @@ extension BotProvenanceSkillTests {
         XCTAssertEqual(style.reasons, [.noSkillWriteEvent])
     }
 }
+
+extension BotProvenanceSkillTests {
+    func testSkillToolEligibilityUsesPrivateIdentityAndErasedSource() async throws {
+        let log = BotProvenanceTestLog()
+        let source = try await log.append(ProvenanceTest.event(
+            type: "conversation.user_message", eventId: "skill-tool-source",
+            data: .object(["text": .string("source")]), botID: "bot-a"))
+        let service = BotProvenanceService(
+            eventLog: log,
+            skillRechecker: BotProvenanceTestSkillRechecker(
+                outcome: .same(atMS: 2_000)))
+        _ = try await service.recordSkillWrite(BotSkillWriteRequest(
+            name: "weekly-report", file: "weekly-report.md", revision: 1,
+            action: .write,
+            contentSHA256: "sha256:" + String(repeating: "e", count: 64),
+            bytes: 18, previousSHA256: nil,
+            author: BotSkillChangeAuthor(kind: "bot", botID: "bot-a"),
+            atMS: 1_500,
+            sources: [BotDerivationSource(
+                record: "record://event/\(source)", role: .evidence)],
+            source: .projectDsh, ownerBotID: "bot-a"))
+        let current = await service.status(
+            forSkillName: "weekly-report", botID: "bot-a")
+        XCTAssertEqual(current, .current)
+        let untracked = await service.status(
+            forSkillName: "missing-report", botID: "bot-a")
+        XCTAssertNil(untracked)
+        _ = try await log.append(ProvenanceTest.erasureEvent(
+            erasureId: "skill-tool-erase",
+            eventRecords: ["record://event/\(source)"]))
+        let erased = await service.status(
+            forSkillName: "weekly-report", botID: "bot-a")
+        XCTAssertEqual(erased, .erased)
+    }
+
+    func testPrivateCurrentShadowsGlobalErasedSkillOfTheSameName() async throws {
+        let log = BotProvenanceTestLog()
+        let service = BotProvenanceService(
+            eventLog: log,
+            skillRechecker: BotProvenanceTestSkillRechecker(
+                outcome: .same(atMS: 2_000)))
+        let digest = "sha256:" + String(repeating: "f", count: 64)
+        _ = try await service.recordSkillWrite(BotSkillWriteRequest(
+            name: "weekly-report", file: "weekly-report.md", revision: 1,
+            action: .write, contentSHA256: digest, bytes: 18,
+            previousSHA256: nil,
+            author: BotSkillChangeAuthor(kind: "user", botID: "main"),
+            atMS: 1_000, sources: [], source: .userDsh))
+        _ = try await service.recordSkillWrite(BotSkillWriteRequest(
+            name: "weekly-report", file: "weekly-report.md", revision: 1,
+            action: .write, contentSHA256: digest, bytes: 18,
+            previousSHA256: nil,
+            author: BotSkillChangeAuthor(kind: "bot", botID: "bot-a"),
+            atMS: 1_500, sources: [], source: .projectDsh, ownerBotID: "bot-a"))
+        let status = await service.status(
+            forSkillName: "weekly-report", botID: "bot-a")
+        XCTAssertEqual(status, .current)
+    }
+}
