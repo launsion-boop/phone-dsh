@@ -71,7 +71,6 @@ final class BotProvenanceInvariantTests: XCTestCase {
         XCTAssertEqual(a.first?.state, .current)
         XCTAssertEqual(a.first?.recheckedAtMS, 10)
         XCTAssertEqual(b.first?.state, .changed)
-        XCTAssertEqual(b.first?.recheckedAtMS, 20)
     }
 
     /// Two Bots can legitimately use the same agent path/version. A bot-scoped

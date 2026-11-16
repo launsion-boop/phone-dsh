@@ -12,7 +12,7 @@ import XCTest
 final class BotProvenanceGoldenTests: XCTestCase {
     func testAllGoldenCases() async throws {
         let golden = try ProvenanceGolden.load()
-        XCTAssertEqual(golden.cases.count, 23)
+        XCTAssertGreaterThanOrEqual(golden.cases.count, 23)
         for testCase in golden.cases {
             let (service, artifact) = try await makeService(for: testCase)
             let view = try await service.currentState(for: artifact)

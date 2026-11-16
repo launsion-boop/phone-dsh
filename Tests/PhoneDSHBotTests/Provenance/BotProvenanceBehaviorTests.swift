@@ -105,14 +105,14 @@ final class BotProvenanceBehaviorTests: XCTestCase {
             type: "routine.defined", eventId: "carrier-g1",
             data: .object(["derivation": derivation(revoked, [
                 BotDerivationSource(record: "record://event/\(source)",
-                                    role: .trigger, resource: grantResource,
+                                    role: .basis, resource: grantResource,
                                     sourceVersion: version, grantId: "g1"),
             ])])))
         _ = try await log.append(ProvenanceTest.event(
             type: "routine.defined", eventId: "carrier-g2",
             data: .object(["derivation": derivation(kept, [
                 BotDerivationSource(record: "record://event/\(source)",
-                                    role: .trigger, resource: grantResource,
+                                    role: .basis, resource: grantResource,
                                     sourceVersion: version, grantId: "g2"),
             ])])))
         _ = try await log.append(ProvenanceTest.event(
@@ -146,6 +146,8 @@ final class BotProvenanceBehaviorTests: XCTestCase {
             type: "memory.document_written", eventId: "carrier-review",
             data: .object([
                 "derivation": derivation(artifact, [
+                    BotDerivationSource(record: "record://event/\(source)",
+                                        role: .evidence, sourceVersion: baseline),
                     BotDerivationSource(record: "record://event/\(source)",
                                         role: .review, sourceVersion: baseline),
                 ]),

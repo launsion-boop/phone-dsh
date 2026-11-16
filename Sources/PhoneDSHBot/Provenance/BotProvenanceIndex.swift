@@ -508,6 +508,11 @@ public struct BotProvenanceSnapshot: Sendable {
         let contentViews = sourceViews.filter {
             Self.contentRoles.contains($0.role)
         }
+        let reviewViews = sourceViews.filter { $0.role == "review" }
+        let reviewStates = reviewViews.map(\.status.state)
+        let reviewState = reviewStates.isEmpty
+            ? nil : BotProvenanceStatus.worst(reviewStates)
+        let reviewReasons = Set(reviewViews.flatMap(\.status.reasons))
         let contentStates = contentViews.map(\.status.state) + contentUpstream.map(\.state)
         var state = contentStates.isEmpty
             ? BotProvenanceStatus.current
@@ -562,8 +567,10 @@ public struct BotProvenanceSnapshot: Sendable {
             artifact: artifact, carrier: assertion.carrierRecord, state: state,
             reasons: reasonSet.sorted { $0.rawValue < $1.rawValue },
             sources: sourceViews, reviewEffective: reviewEffective(
-                assertion.review, state: state,
-                reasons: reasonSet.sorted { $0.rawValue < $1.rawValue }),
+                assertion.review, state: reviewState ?? state,
+                reasons: (reviewState == nil
+                    ? reasonSet
+                    : reviewReasons).sorted { $0.rawValue < $1.rawValue }),
             upstream: upstream, generation: generation)
 
         if cyclicArtifacts.contains(artifact) {

@@ -197,7 +197,7 @@ struct BotProvenanceTestRechecker: BotProvenanceRechecking {
                  botID: String?) async -> BotProvenanceRecheckOutcome {
         switch outcome {
         case "ok":
-            return .same(atMS: atMS ?? 0)
+            return .same(atMS: atMS ?? baseline.knownFields?.observedAtMS ?? 0)
         case "denied":
             return .denied(detail: nil)
         case "unavailable":
