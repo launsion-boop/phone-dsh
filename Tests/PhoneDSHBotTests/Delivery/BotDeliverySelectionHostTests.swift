@@ -494,6 +494,56 @@ final class BotDeliverySelectionHostTests: XCTestCase {
         XCTAssertTrue(confirmation.isAllowed, "restored approval: \(confirmation)")
     }
 
+    // MARK: - A02 delivery evidence
+
+    func testDeliveryEvidenceExportsSelectedSourceAndVersion() async throws {
+        let fixture = try await makeFixture()
+        defer { fixture.cleanup() }
+        let offer = try requireValue(await fixture.offer(
+            botID: "main", approvalID: "approval-evidence", sessionID: "gb-main"))
+        try await fixture.appendApproval(offer, action: "发送资料", detail: "",
+                                         botID: "main", sessionID: "gb-main")
+        let guide = try requireValue(offer.draft.resources.first {
+            $0.workspacePath == "docs/guide.md"
+        })
+        _ = await fixture.apply(nonce: "evidence-1", botID: "main",
+                                rowID: "e-main-approval-approval-evidence",
+                                draftID: offer.draft.draftID,
+                                expectedRevision: 1, selected: [guide.id])
+        try await fixture.appendDecision(approvalID: "approval-evidence",
+                                         status: "allowed", botID: "main",
+                                         sessionID: "gb-main")
+        let evidence = try requireValue(try await fixture.host.evidence(
+            approvalID: "approval-evidence", botID: "main"))
+        XCTAssertEqual(evidence.revision, 2)
+        XCTAssertEqual(evidence.status, "allowed")
+        XCTAssertEqual(evidence.sources.count, 1)
+        let source = evidence.sources[0]
+        XCTAssertEqual(source.resourceID, guide.id)
+        XCTAssertEqual(source.workspacePath, "docs/guide.md")
+        XCTAssertEqual(source.ref, guide.source.ref)
+        XCTAssertEqual(source.role, "evidence")
+        XCTAssertNotNil(source.version)
+        XCTAssertEqual(source.version?.knownValue, guide.source.sourceVersion?.knownValue)
+    }
+
+    func testSourceJSONCarriesRecordEvidenceAndRole() throws {
+        let version = BotProvenanceSourceVersion.known(
+            basis: .etag, value: "etag:creator-1", observedAtMS: 1_000)
+        let evidence = BotDeliveryEvidenceRef(
+            record: "record://event/8", role: "creator", sourceVersion: version)
+        let source = BotDeliverySelectionSource(
+            ref: "workspace:docs/周报.md@sha256:" + String(repeating: "a", count: 64),
+            label: "周报.md", sourceVersion: version,
+            evidenceSources: [evidence], role: "creator")
+        let parsed = try requireValue(BotDeliverySelectionSource.parse(source.json))
+        XCTAssertEqual(parsed.role, "creator")
+        XCTAssertEqual(parsed.evidenceSources, [evidence])
+        XCTAssertEqual(parsed.evidenceSources[0].record, "record://event/8")
+        XCTAssertEqual(parsed.evidenceSources[0].role, "creator")
+        XCTAssertEqual(parsed.evidenceSources[0].sourceVersion?.knownValue, "etag:creator-1")
+    }
+
     // MARK: - Fail-closed corrupt records
 
     func testCorruptDeliveryRecordBlocksSelectionAndConfirmation() async throws {

@@ -21,6 +21,10 @@ import Foundation
 public actor BotDeliverySelectionHost {
     public typealias WorkspaceStateResolver =
         @Sendable (_ ref: String, _ botID: String) async -> BotDeliveryWorkspaceState
+    /// A02: real record-backed sources for a workspace file. The production
+    /// composition builds this from the process `BotProvenanceService`.
+    public typealias WorkspaceEvidenceResolver =
+        @Sendable (_ path: String, _ botID: String) async -> [BotDeliveryEvidenceRef]
 
     private struct LoadedDraft {
         var draft: BotDeliverySelectionDraft
@@ -40,16 +44,22 @@ public actor BotDeliverySelectionHost {
 
     private let eventLog: any BotEventLog
     private let workspaceState: WorkspaceStateResolver?
+    /// Real G-1 workspaceFile derivation reader. Optional so library tests can
+    /// exercise the state machine without provenance; C composition passes a
+    /// resolver over the process provenance service.
+    private let evidenceSources: WorkspaceEvidenceResolver?
     private let now: @Sendable () -> Int64
     private var bridge: BotDeliveryApprovalBridge?
 
     public init(eventLog: any BotEventLog,
                 workspaceState: WorkspaceStateResolver? = nil,
+                evidenceSources: WorkspaceEvidenceResolver? = nil,
                 now: @escaping @Sendable () -> Int64 = {
                     Int64(Date().timeIntervalSince1970 * 1_000)
                 }) {
         self.eventLog = eventLog
         self.workspaceState = workspaceState
+        self.evidenceSources = evidenceSources
         self.now = now
     }
 
@@ -104,6 +114,7 @@ public actor BotDeliverySelectionHost {
             let state = await recheck(material.ref, botID: botID)
             let name = String((path as NSString).lastPathComponent.prefix(200))
             let reason = Self.selectionReason(material.selectionReason)
+            let evidence = await workspaceEvidence(path: path, botID: botID)
             let source = BotDeliverySelectionSource(
                 ref: material.ref,
                 label: name.isEmpty ? "工作区文件" : name,
@@ -115,7 +126,9 @@ public actor BotDeliverySelectionHost {
                 observedAtMS: material.updatedAtMS > 0 ? material.updatedAtMS : nil,
                 versionLabel: Self.versionLabel(material.updatedAtMS),
                 sourceVersion: Self.selectedVersion(ref: material.ref,
-                                                    observedAtMS: material.updatedAtMS))
+                                                    observedAtMS: material.updatedAtMS),
+                evidenceSources: evidence,
+                role: evidence.first?.role ?? "workspace-file")
             resources.append(BotDeliverySelectionResource(
                 id: "r\(resources.count + 1)",
                 name: name.isEmpty ? "工作区文件" : name,
@@ -530,6 +543,61 @@ public actor BotDeliverySelectionHost {
             && (latest.draft.binding?.matches(turnID: turnID, goalDigest: goalDigest) ?? true)
     }
 
+    /// A02 export view: the durable delivery identity plus the real source
+    /// identities/versions of the selected resources. This reads the same
+    /// approval row the UI selected; it does not append an event or create a
+    /// second producer. `role` is `evidence` for the selected material; the
+    /// approval decision is a separate authorization, not content evidence.
+    public func evidence(approvalID: String, botID: String) async throws
+        -> BotDeliveryEvidence? {
+        guard let draft = try await draft(approvalID: approvalID, botID: botID) else {
+            return nil
+        }
+        let sources = draft.selectedResources.map { resource in
+            BotDeliveryEvidenceSource(
+                ref: resource.source.ref,
+                role: "evidence",
+                version: resource.source.sourceVersion,
+                observedAtMS: resource.source.observedAtMS,
+                resourceID: resource.id,
+                resourceName: resource.name,
+                workspacePath: resource.workspacePath,
+                evidenceSources: resource.source.evidenceSources)
+        }
+        return BotDeliveryEvidence(
+            approvalID: draft.approvalID, rowID: draft.rowID,
+            revision: draft.revision, digest: draft.digest,
+            status: draft.status, sources: sources)
+    }
+
+    /// The record-backed evidence for an approved attachment path. The runtime
+    /// may attach these refs to the `card.presented` event so the actual output
+    /// (not only the approval row) carries the real sources. An unknown path or
+    /// unapproved selection returns [] and the caller must not invent refs.
+    public func approvedEvidence(name: String, arguments: BotJSONValue,
+                                 botID: String, sessionID: String,
+                                 turnID: String? = nil,
+                                 goalDigest: String? = nil) async
+        -> [BotDeliveryEvidenceRef] {
+        guard name == "show_attachment" || name == "show_document",
+              let rawPath = arguments["path"]?.stringValue,
+              let path = BotDeliverySelectionPath.canonical(rawPath) else { return [] }
+        let snapshot = try? await scan(botID: botID)
+        guard let snapshot else { return [] }
+        let applicable = snapshot.drafts.filter {
+            $0.draft.sessionID == sessionID
+                && $0.draft.status == "allowed"
+                && ($0.draft.binding?.matches(turnID: turnID, goalDigest: goalDigest) ?? true)
+        }
+        let matching = applicable.filter { loaded in
+            loaded.draft.selectedResources.contains { $0.workspacePath == path }
+        }
+        guard matching.count == 1 else { return [] }
+        return matching[0].draft.selectedResources
+            .first { $0.workspacePath == path }?
+            .source.evidenceSources ?? []
+    }
+
     /// What the model receives after the user allows the approval: the selected
     /// resources with the host paths it must name in the delivery call. Only an
     /// approved revision is exposed.
@@ -608,6 +676,33 @@ public actor BotDeliverySelectionHost {
             cursor = last
         }
         return result
+    }
+
+    /// Resolve the real `workspaceFile` derivation for a written file. The
+    /// source refs are record-backed; a file seeded outside the production
+    /// write path simply has no evidence and A02 will record that honestly.
+    private func workspaceEvidence(path: String, botID: String) async
+        -> [BotDeliveryEvidenceRef] {
+        await evidenceSources?(path, botID) ?? []
+    }
+
+    /// Production resolver: query the real `workspaceFile` artifact for the
+    /// path. Only record-backed sources are exported; a file written outside
+    /// the production `write` path has no evidence and A02 records that.
+    public nonisolated static func workspaceEvidenceResolver(
+        provenance: any BotProvenanceQuerying
+    ) -> WorkspaceEvidenceResolver {
+        { path, botID in
+            let artifact = BotDerivedRef(kind: .workspaceFile, id: path)
+            guard let view = try? await provenance.currentState(
+                for: artifact, botID: botID) else { return [] }
+            return view.sources.compactMap { source in
+                guard source.record.hasPrefix("record://") else { return nil }
+                return BotDeliveryEvidenceRef(
+                    record: source.record, role: source.role,
+                    sourceVersion: source.status.sourceVersion)
+            }
+        }
     }
 
     private func recheck(_ ref: String, botID: String) async -> BotDeliveryWorkspaceState {

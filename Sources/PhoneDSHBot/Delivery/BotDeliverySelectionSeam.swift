@@ -88,6 +88,43 @@ public struct BotDeliveryWorkspaceState: Sendable, Equatable {
 
 // MARK: - Row projection values
 
+public struct BotDeliveryEvidenceRef: Sendable, Equatable {
+    public var record: String
+    public var role: String
+    public var sourceVersion: BotProvenanceSourceVersion?
+
+    public init(record: String, role: String = "evidence",
+                sourceVersion: BotProvenanceSourceVersion? = nil) {
+        self.record = record
+        self.role = role
+        self.sourceVersion = sourceVersion
+    }
+
+    public var json: BotJSONValue {
+        var object: [String: BotJSONValue] = [
+            "record": .string(record),
+            "role": .string(role),
+        ]
+        if let sourceVersion,
+           let data = try? JSONEncoder().encode(sourceVersion),
+           let value = try? BotJSONValue.parse(data) {
+            object["source_version"] = value
+        }
+        return .object(object)
+    }
+
+    public static func parse(_ value: BotJSONValue?) -> BotDeliveryEvidenceRef? {
+        guard case .object(let object)? = value,
+              let record = object["record"]?.stringValue, !record.isEmpty else { return nil }
+        let version = object["source_version"].flatMap {
+            try? JSONDecoder().decode(BotProvenanceSourceVersion.self, from: $0.encoded())
+        }
+        return BotDeliveryEvidenceRef(
+            record: record, role: object["role"]?.stringValue ?? "evidence",
+            sourceVersion: version)
+    }
+}
+
 public struct BotDeliverySelectionSource: Sendable, Equatable {
     public var ref: String
     public var label: String
@@ -100,13 +137,20 @@ public struct BotDeliverySelectionSource: Sendable, Equatable {
     public var versionLabel: String?
     public var latestRef: String?
     public var sourceVersion: BotProvenanceSourceVersion?
+    /// Record-backed sources from the real workspaceFile derivation. The row's
+    /// `ref` stays the workspace identity the UI renders; A02 reads these
+    /// record refs/roles/versions instead of inventing a target derivation.
+    public var evidenceSources: [BotDeliveryEvidenceRef]
+    public var role: String
 
     public init(ref: String, label: String, kind: String = "file",
                 trust: String = "observation", state: BotProvenanceStatus = .current,
                 reason: String? = nil, stateDetail: String? = nil,
                 observedAtMS: Int64? = nil, versionLabel: String? = nil,
                 latestRef: String? = nil,
-                sourceVersion: BotProvenanceSourceVersion? = nil) {
+                sourceVersion: BotProvenanceSourceVersion? = nil,
+                evidenceSources: [BotDeliveryEvidenceRef] = [],
+                role: String = "evidence") {
         self.ref = ref
         self.label = label
         self.kind = kind
@@ -118,6 +162,8 @@ public struct BotDeliverySelectionSource: Sendable, Equatable {
         self.versionLabel = versionLabel
         self.latestRef = latestRef
         self.sourceVersion = sourceVersion
+        self.evidenceSources = evidenceSources
+        self.role = role
     }
 
     public var json: BotJSONValue {
@@ -134,6 +180,10 @@ public struct BotDeliverySelectionSource: Sendable, Equatable {
         if let observedAtMS { object["observed_at_ms"] = .number(Double(observedAtMS)) }
         if let versionLabel { object["version_label"] = .string(versionLabel) }
         if let latestRef { object["latest_ref"] = .string(latestRef) }
+        object["role"] = .string(role)
+        if !evidenceSources.isEmpty {
+            object["evidence_sources"] = .array(evidenceSources.map(\.json))
+        }
         if let sourceVersion {
             let encoded = try? JSONEncoder().encode(sourceVersion)
             if let encoded, let value = try? BotJSONValue.parse(encoded) {
@@ -159,6 +209,13 @@ public struct BotDeliverySelectionSource: Sendable, Equatable {
         let version = object["source_version"].flatMap {
             try? JSONDecoder().decode(BotProvenanceSourceVersion.self, from: $0.encoded())
         }
+        var evidenceSources: [BotDeliveryEvidenceRef] = []
+        if case .array(let values)? = object["evidence_sources"] {
+            for value in values {
+                guard let source = BotDeliveryEvidenceRef.parse(value) else { return nil }
+                evidenceSources.append(source)
+            }
+        }
         let observedAtMS: Int64?
         if let rawObserved = object["observed_at_ms"] ?? object["observed_at"] {
             if case .null = rawObserved {
@@ -182,7 +239,9 @@ public struct BotDeliverySelectionSource: Sendable, Equatable {
             observedAtMS: observedAtMS,
             versionLabel: object["version_label"]?.stringValue,
             latestRef: object["latest_ref"]?.stringValue,
-            sourceVersion: version)
+            sourceVersion: version,
+            evidenceSources: evidenceSources,
+            role: object["role"]?.stringValue ?? "evidence")
     }
 }
 
@@ -279,6 +338,58 @@ public struct BotDeliverySelectionParameter: Sendable, Equatable, Identifiable {
                   let value = object["value"]?.stringValue else { return nil }
             return BotDeliverySelectionParameter(label: label, value: value)
         }
+    }
+}
+
+/// One real source behind a selected delivery resource, in the shape A02 can
+/// export without reading the UI row. `ref` is the real source identity the
+/// selection host received (`workspace:` or `record://`); `version` is the
+/// content version the user selected, not a synthetic counter.
+public struct BotDeliveryEvidenceSource: Sendable, Equatable {
+    public var ref: String
+    public var role: String
+    public var version: BotProvenanceSourceVersion?
+    public var observedAtMS: Int64?
+    public var resourceID: String
+    public var resourceName: String
+    public var workspacePath: String?
+    public var evidenceSources: [BotDeliveryEvidenceRef]
+
+    public init(ref: String, role: String = "evidence",
+                version: BotProvenanceSourceVersion? = nil,
+                observedAtMS: Int64? = nil, resourceID: String,
+                resourceName: String, workspacePath: String? = nil,
+                evidenceSources: [BotDeliveryEvidenceRef] = []) {
+        self.ref = ref
+        self.role = role
+        self.version = version
+        self.observedAtMS = observedAtMS
+        self.resourceID = resourceID
+        self.resourceName = resourceName
+        self.workspacePath = workspacePath
+        self.evidenceSources = evidenceSources
+    }
+}
+
+/// Durable delivery identity + selected sources. A02 can map this to
+/// `BotDerivedRef(kind: .delivery, id: approvalID, version: revision)` without
+/// hand-appending an event or inventing a second producer.
+public struct BotDeliveryEvidence: Sendable, Equatable {
+    public var approvalID: String
+    public var rowID: String
+    public var revision: Int
+    public var digest: String
+    public var status: String
+    public var sources: [BotDeliveryEvidenceSource]
+
+    public init(approvalID: String, rowID: String, revision: Int, digest: String,
+                status: String, sources: [BotDeliveryEvidenceSource]) {
+        self.approvalID = approvalID
+        self.rowID = rowID
+        self.revision = revision
+        self.digest = digest
+        self.status = status
+        self.sources = sources
     }
 }
 
