@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+import CryptoKit
 import Foundation
 
 /// The file/attachment baseline metadata N hands to the derivation writer.
@@ -36,6 +37,41 @@ public struct BotContextFileBaseline: Codable, Sendable, Equatable {
         self.sha256 = value
         self.sourceVersion = sourceVersion
         self.resource = resource
+    }
+}
+
+
+public extension BotContextFileBaseline {
+    /// Stream the real file bytes (bounded) and build the import-time baseline.
+    /// The returned version is `content-sha256` + `subject:file-bytes` and the
+    /// resource is `file` identity; callers supply the normalized VFS path/file
+    /// id. The digest is metadata only, never a model-visible body.
+    static func compute(fileAt url: URL,
+                        ownerBotID: String,
+                        resourceKey: String) throws -> BotContextFileBaseline {
+        guard !ownerBotID.isEmpty else {
+            throw BotContextSourceError.invalidRequest("file baseline requires an owner bot")
+        }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        var total: Int64 = 0
+        while true {
+            let chunk = try handle.read(upToCount: 1_048_576) ?? Data()
+            if chunk.isEmpty { break }
+            total += Int64(chunk.count)
+            guard total <= BotAttachmentPolicy.maxBytes else {
+                throw BotContextSourceError.invalidRequest("file exceeds the attachment size limit")
+            }
+            hasher.update(data: chunk)
+        }
+        let hex = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        let resource = try BotContextResource(
+            kind: .file, key: resourceKey, owner: ownerBotID)
+        return try BotContextFileBaseline(
+            sha256: "sha256:\(hex)",
+            sourceVersion: .fileBytes("sha256:\(hex)"),
+            resource: resource)
     }
 }
 

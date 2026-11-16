@@ -73,10 +73,10 @@ final class BotContextSourceScenarioTests: XCTestCase {
         let title = "A07-Fixture-\(UUID().uuidString)"
         let calendar = EKCalendar(for: .event, eventStore: store)
         calendar.title = title
-        guard let source = store.defaultCalendarForNewEvents?.source ?? store.sources.first else {
+        guard let ekSource = store.defaultCalendarForNewEvents?.source ?? store.sources.first else {
             throw XCTSkip("no EventKit source in this simulator")
         }
-        calendar.source = source
+        calendar.source = ekSource
         try store.saveCalendar(calendar, commit: true)
         let event = EKEvent(eventStore: store)
         event.calendar = calendar
@@ -136,11 +136,13 @@ final class BotContextSourceScenarioTests: XCTestCase {
         try store.execute(save)
         let createdID = contact.identifier
         defer {
-            let mutable = CNMutableContact()
-            mutable.identifier = createdID
-            let delete = CNSaveRequest()
-            delete.delete(mutable)
-            try? store.execute(delete)
+            if let saved = try? store.unifiedContact(
+                withIdentifier: createdID, keysToFetch: [CNContactIdentifierKey as CNKeyDescriptor]),
+               let mutable = saved.mutableCopy() as? CNMutableContact {
+                let delete = CNSaveRequest()
+                delete.delete(mutable)
+                try? store.execute(delete)
+            }
         }
 
         let (registry, ledger) = await makeRegistry()
@@ -176,8 +178,13 @@ final class BotContextSourceScenarioTests: XCTestCase {
             kind: .file, name: "selected.txt", mimeType: "text/plain",
             byteCount: 16, sha256: hash)
         _ = try source.accept(selection)
-        let observations = try await registry.observations(
-            for: botID, sources: [.selectedMedia])
+        var observations: [BotContextObservation] = []
+        for _ in 0..<50 {
+            observations = try await registry.observations(
+                for: botID, sources: [.selectedMedia])
+            if !observations.isEmpty { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
         guard case .known(let basis, let value, _, _, let subject)? = observations.first?.sourceVersion else {
             return XCTFail("selected file must carry a known content version")
         }
@@ -252,10 +259,10 @@ final class BotContextSourceScenarioTests: XCTestCase {
         let observations = try await registry.observations(for: botID, sources: [.power])
         // Simulator may not report battery state; the real source must still be
         // readable and recheckable without inventing a version.
-        let recheckResult = await registry.recheck(
-            botID: botID, source: .power,
-            baseline: nil, latestKind: observations.first?.kind)
-        XCTAssertTrue([.unknown, .changed, .current].contains(recheckResult.state))
+        let rechecks = await registry.recheck(botID: botID, sources: [.power])
+        let recheckResult = rechecks.first { $0.source == .power }
+        XCTAssertNotNil(recheckResult)
+        XCTAssertTrue([.unknown, .changed, .current].contains(recheckResult!.state))
         await registry.revoke(source: .power, reason: "a07-revoke")
     }
 
@@ -295,8 +302,8 @@ final class BotContextSourceScenarioTests: XCTestCase {
         let revision = (await ledger.state(for: .calendar)).permissionRevision
         let observation = try await driver.inject(
             kind: .calendarChanged,
-            sourceVersion: .unversioned(),
-            payload: .object(["changed": .bool(true)]))
+            payload: .object(["changed": .bool(true)]),
+            sourceVersion: .unversioned())
         XCTAssertEqual(observation.permissionRevision, revision)
         await registry.revoke(source: .calendar, reason: "a07-revoke")
         let after = await ledger.state(for: .calendar)
