@@ -10,32 +10,43 @@ import PhoneDSHBot
 enum BotA05EventImporter {
     private struct Line: Decodable { let event: BotEvent }
 
-    static func importIfRequested(store: SQLiteDomainStore) async throws {
-        guard let path = ProcessInfo.processInfo.environment["PDSH_A05_IMPORT_EVENTS"],
-              !path.isEmpty else { return }
+    static func importIfRequested(store: SQLiteDomainStore) async {
+        let env = ProcessInfo.processInfo.environment
+        let defaultPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("a05/bot-events.jsonl").path
+        let path = (env["PDSH_A05_IMPORT_EVENTS"].flatMap { $0.isEmpty ? nil : $0 }) ?? defaultPath
         let url = URL(fileURLWithPath: path)
-        guard let data = try? Data(contentsOf: url) else { return }
+        guard let data = try? Data(contentsOf: url) else {
+            NSLog("A05 import: no readable fixture at %@", path)
+            return
+        }
+        NSLog("A05 import: reading %@ (%d bytes)", path, data.count)
         var existing = Set<String>()
         if let current = try? await store.events(after: 0, limit: 100_000) {
             existing = Set(current.map(\.eventId))
         }
         let decoder = JSONDecoder()
-        for raw in data.split(separator: UInt8(ascii: "\n")) {
-            guard !raw.isEmpty,
-                  let line = try? decoder.decode(Line.self, from: Data(raw)),
-                  !existing.contains(line.event.eventId) else { continue }
+        var decoded = 0
+        var appended = 0
+        for (index, raw) in data.split(separator: UInt8(ascii: "\n")).enumerated() {
+            guard !raw.isEmpty else { continue }
+            let line: Line
+            do { line = try decoder.decode(Line.self, from: Data(raw)) }
+            catch {
+                NSLog("A05 import: decode failed line %d: %@", index + 1, String(describing: error))
+                continue
+            }
+            decoded += 1
+            guard !existing.contains(line.event.eventId) else { continue }
             do {
                 _ = try await store.append(line.event)
                 existing.insert(line.event.eventId)
+                appended += 1
             } catch {
-                // A duplicate from an interrupted replay is already present;
-                // any other failure must surface so the fixture is not silent.
-                if let current = try? await store.events(after: 0, limit: 100_000),
-                   current.contains(where: { $0.eventId == line.event.eventId }) {
-                    continue
-                }
-                throw error
+                NSLog("A05 import: append failed line %d type=%@: %@",
+                      index + 1, line.event.type, String(describing: error))
             }
         }
+        NSLog("A05 import: decoded=%d appended=%d", decoded, appended)
     }
 }
