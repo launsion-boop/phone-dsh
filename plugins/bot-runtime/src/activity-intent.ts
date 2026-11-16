@@ -15,7 +15,9 @@ import { botOwnedSessions } from './bot-sessions.ts'
  * shadow.
  */
 const TOOL_NAMES = ['read', 'glob', 'grep', 'web_search', 'web_fetch'] as const
+const BASH_TOOL = 'bash' as const
 type ToolName = typeof TOOL_NAMES[number]
+type ShadowName = ToolName | typeof BASH_TOOL
 type RegisteredTool = NonNullable<ReturnType<Context['tools']['get']>>
 type PresentationMeta = NonNullable<RegisteredTool['output']['presentationMeta']>
 type PresentResult = NonNullable<RegisteredTool['presentResult']>
@@ -24,8 +26,15 @@ type ScopeKey = object
 const WRAPPED = Symbol('phone-dsh.activity-intent')
 const ACTIVITY_DESCRIPTION =
   '本次调用的公开进展，一句用户当前语言的话：当前任务对象 + 当前进展'
-  + '（约 10–20 个中文字，带结果最多约 28 字）。不要写命令摘要、完整路径、'
+  + '（约 10–20 个中文字，带结果最多约 28 字）。如果前面已有真实工具结果，'
+  + '先简述该结果，再写当前动作；没有真实结果不要编造。不要写命令摘要、完整路径、'
   + '长 URL、凭证或内部 id。宿主执行前会删除此字段。'
+
+const BASH_DESCRIPTION =
+  '用用户当前语言写这次 bash 调用为何服务当前任务：当前任务对象 + 当前进展。'
+  + '如果前面已有真实工具结果，先简述该结果再写当前动作；没有真实结果不要编造。'
+  + '例如「定位 #174 的合并资料」「按 #174 的冲突结果继续核对 main」。'
+  + '不要写 List workspace、列出目录、完整路径、URL、凭证或命令摘要。'
 
 interface SourceState {
   source: RegisteredTool
@@ -39,7 +48,7 @@ interface InstalledTool {
 interface AgentState {
   readonly scope: ScopeKey
   readonly context: Context
-  readonly installed: Map<ToolName, InstalledTool>
+  readonly installed: Map<ShadowName, InstalledTool>
   queue: Promise<void>
 }
 
@@ -78,6 +87,43 @@ export function withActivityParameters(parameters: RegisteredTool['parameters'])
       },
     },
   }
+}
+
+export function withBashDescriptionParameters(parameters: RegisteredTool['parameters']): RegisteredTool['parameters'] {
+  const root = isRecord(parameters) ? parameters : { type: 'object' }
+  const properties = isRecord(root.properties) ? root.properties : {}
+  const description = isRecord(properties.description) ? properties.description : { type: 'string' }
+  // Existing bash.description parameter only: replace its model-facing prose.
+  // Type/required/original handler/arguments/output stay untouched.
+  return {
+    ...root,
+    properties: {
+      ...properties,
+      description: { ...description, description: BASH_DESCRIPTION },
+    },
+  }
+}
+
+/** Doc-only bash wrapper: no activity property, no stripping, same args/execute. */
+function bashDescriptionWrapper(state: SourceState): RegisteredTool {
+  const wrapper: RegisteredTool = {
+    name: BASH_TOOL,
+    get description() { return state.source.description },
+    get parameters() { return withBashDescriptionParameters(state.source.parameters) },
+    get output() { return state.source.output },
+    get deferLoading() { return state.source.deferLoading },
+    get timeoutMs() { return state.source.timeoutMs },
+    get presentCall() { return state.source.presentCall },
+    get presentResult() { return state.source.presentResult },
+    get isConcurrencySafe() { return state.source.isConcurrencySafe },
+    get projectContent() { return state.source.projectContent },
+    get finalizeContent() { return state.source.finalizeContent },
+    async execute(args, exec) {
+      return state.source.execute(args, exec)
+    },
+  }
+  Object.defineProperty(wrapper, WRAPPED, { value: true })
+  return wrapper
 }
 
 function withActivityOutput(output: RegisteredTool['output']): RegisteredTool['output'] {
@@ -143,7 +189,7 @@ export default function activityIntent(ctx: Context): void {
     String(agent?.id || agent?.session?.id || '')
 
   /** Nearest inherited non-wrapper definition. */
-  const sourceFor = (scope: ScopeKey, name: ToolName): RegisteredTool | undefined => {
+  const sourceFor = (scope: ScopeKey, name: ShadowName): RegisteredTool | undefined => {
     const global = ctx.tools.get(name)
     for (const key of scopeChainOf(scope)) {
       const candidate = ctx.tools.get(name, key)
@@ -169,7 +215,7 @@ export default function activityIntent(ctx: Context): void {
     return (await answer) === true
   }
 
-  const install = async (state: AgentState, name: ToolName): Promise<void> => {
+  const install = async (state: AgentState, name: ShadowName): Promise<void> => {
     const source = sourceFor(state.scope, name)
     const current = state.installed.get(name)
     if (source === undefined) {
@@ -194,7 +240,8 @@ export default function activityIntent(ctx: Context): void {
       const fiber = await state.context.plugin({
         inject: ['tools'],
         apply(scoped: Context) {
-          dispose = scoped.tools.register(activityWrapper(name, sourceState),
+          dispose = scoped.tools.register(
+            name === BASH_TOOL ? bashDescriptionWrapper(sourceState) : activityWrapper(name, sourceState),
             when === undefined ? undefined : { when })
         },
       })
@@ -207,7 +254,7 @@ export default function activityIntent(ctx: Context): void {
   }
 
   const installAll = async (state: AgentState): Promise<void> => {
-    for (const name of TOOL_NAMES) await install(state, name)
+    for (const name of [...TOOL_NAMES, BASH_TOOL] as ShadowName[]) await install(state, name)
   }
 
   const enqueue = (state: AgentState): Promise<void> => {

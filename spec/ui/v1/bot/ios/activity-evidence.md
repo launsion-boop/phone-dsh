@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # iOS real Bot activity projection
 
-Status: normative iOS-only refinement, revision `activity-evidence-v3.4` (2026-11-16).
+Status: normative iOS-only refinement, revision `activity-evidence-v3.5` (2026-11-16).
 This revision replaces the long-object policy of v2.3. It is grounded in the
 `tool/call` and `assistant/message` events the pinned DSH already writes; it adds no wire
 field, no extra model request, no second history, and no new `BotActivity` member. Android
@@ -30,7 +30,7 @@ The projection resolves one sentence for the newest unresolved *visible* call.
    still says why this step serves the task (for example "定位 #174 的合并资料"). It never
    invents a result.
 
-### Model-required per-call activity parameter (v3.4)
+### Model-required per-call activity and bash description (v3.5)
 
 The five host-native work tools `read`, `glob`, `grep`, `web_search` and `web_fetch`
 declare one model-facing required string parameter, `activity`, in the **real Bot-scope
@@ -57,6 +57,14 @@ identity or approval digest. No other tool declares it. `bash` keeps its existin
 `description` and `Task` its existing `task_title`; this revision does not change their
 schemas or their approval path. The Bot prompt teaches all three forms as task-level,
 user-language progress.
+
+The Bot-scope wrapper also replaces only the **model-facing prose of the existing
+`bash.description` parameter** with task-level, user-language guidance: current task object
+and progress, and, when a real result already exists, that result before the current action.
+It does not add `activity` to bash, does not strip or rewrite any bash argument, and leaves
+the original execute/output/schema/required and handler untouched; global/workbench bash and
+the identity/approval digest are unchanged. This is a description-only edit to an existing
+field, not a new field or schema.
 
 Only the exact raw tool names `read`, `glob`, `grep`, `web_search` and `web_fetch` consume
 `activity`; a namespaced business tool such as `mcp__other__read` does not, even though the

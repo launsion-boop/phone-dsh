@@ -55,7 +55,7 @@ have no useful object and use a label only.
 
 | Visible tool | Activity source (existing field) | Action label / notes |
 | --- | --- | --- |
-| `bash` | `description` (required) | intent as-is; fallback `正在运行命令`; never the command text |
+| `bash` | `description` (required); Bot model description only | intent as-is; fallback `正在运行命令`; never the command text. The Bot wrapper changes only the parameter prose (user language, task object/progress, known result); args/execute/required stay original |
 | `read` | required `activity`; then `file_path` | `activity` as-is; fallback `在翻文件 · <basename>` (`packages/fs/tool-fs/src/read.ts:78-87`) |
 | `write` | `file_path` | `在写文件 · <basename>` (`packages/fs/tool-fs/src/write.ts:74-86`) |
 | `edit` | `file_path` | `在改文件 · <basename>` (`packages/fs/tool-fs/src/edit.ts:86-97`) |

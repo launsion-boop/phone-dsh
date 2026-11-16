@@ -8,7 +8,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import activityIntent, { withActivityParameters } from '../bot-runtime/src/activity-intent.ts'
+import activityIntent, { withActivityParameters, withBashDescriptionParameters } from '../bot-runtime/src/activity-intent.ts'
 import { botOwnedSessions } from '../bot-runtime/src/bot-sessions.ts'
 import { mountRuntime } from './bot-runtime-test-kit.ts'
 
@@ -39,7 +39,7 @@ function schemaFor(schemas: readonly { name: string; parameters: unknown }[], na
   const schema = schemas.find(entry => entry.name === name)
   assert.ok(schema, `${name} schema must exist`)
   return schema.parameters as {
-    properties?: Record<string, { type?: string; minLength?: number; maxLength?: number }>
+    properties?: Record<string, { type?: string; minLength?: number; maxLength?: number; description?: string }>
     required?: string[]
   }
 }
@@ -54,6 +54,25 @@ async function registerInScope(scope: ReturnType<typeof createScope>, tool: Retu
   })
   assert.ok(dispose)
   return dispose
+}
+
+function bashProbe(seen: unknown[] = []) {
+  return defineTool({
+    name: 'bash',
+    description: 'probe bash',
+    parameters: {
+      description: { type: 'string', required: true, description: 'original bash description' },
+      command: { type: 'string', required: true },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
+    execute: async args => {
+      seen.push(args)
+      return 'ok'
+    },
+  })
 }
 
 /** Production shape: preset scope owns the Bot tool, Agent is its child. */
@@ -256,6 +275,48 @@ test('tool/call arguments retain activity while the real handler receives none',
     const parsed = JSON.parse(String(call.data.arguments)) as Record<string, unknown>
     assert.equal(parsed.activity, '定位 #174 的合并资料')
     assert.equal(parsed.file_path, '/dsh/workspace/notes.md')
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('bash keeps its schema/args; only the Bot model description changes', async () => {
+  const ctx = await mountRuntime()
+  const globalSeen: unknown[] = []
+  const botSeen: unknown[] = []
+  try {
+    ctx.tools.register(bashProbe(globalSeen))
+    const presetKey = {}
+    const preset = createScope(ctx, presetKey)
+    const original = bashProbe(botSeen)
+    await registerInScope(preset, original)
+    await ctx.plugin(activityIntent)
+
+    const agent = { id: 'gb-bash-doc', session: { id: 'gb-bash-doc' } } as {
+      id: string; session: { id: string }; ctx?: Context
+    }
+    const agentScope = createScope(ctx, agent, { parent: presetKey })
+    agent.ctx = agentScope.ctx
+    await ctx.serial('agent/created', { agent: agent as never, source: 'startup' })
+    await new Promise(resolve => setImmediate(resolve))
+    const scope = scopeOf(agentScope.ctx)
+    assert.ok(scope)
+
+    const botSchema = schemaFor(ctx.tools.schemas(scope), 'bash')
+    assert.equal(botSchema.properties?.activity, undefined)
+    assert.match(botSchema.properties?.description?.description ?? '', /如果前面已有真实工具结果/)
+    assert.deepEqual(botSchema.required, ['description', 'command'])
+
+    const globalSchema = schemaFor(ctx.tools.schemas(), 'bash')
+    assert.equal(globalSchema.properties?.description?.description, 'original bash description')
+    assert.deepEqual(original.parameters.required, ['description', 'command'])
+
+    const wrapped = ctx.tools.get('bash', scope)
+    assert.ok(wrapped)
+    const args = { description: '定位 #174 的合并资料', command: 'ls' }
+    await wrapped!.execute(args, {} as never)
+    assert.deepEqual(botSeen, [args])
+    assert.deepEqual(globalSeen, [])
   } finally {
     await ctx.fiber.dispose()
   }
