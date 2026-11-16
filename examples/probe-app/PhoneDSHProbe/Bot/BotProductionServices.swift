@@ -989,6 +989,11 @@ struct BotProductionInfoSnapshot: Sendable {
 /// Read/write view over the same `BotMemory` and `RoutineMachine` the
 /// composition root injected; nothing here opens a second fact store.
 actor BotProductionInfoService {
+    /// Set once by the unit's `make`; nil keeps cloud actions fail-closed.
+    private var cloudWiring: BotCloudScheduleWiring?
+
+    func attachCloudWiring(_ wiring: BotCloudScheduleWiring?) { cloudWiring = wiring }
+
     private let environment: BotProductionEnvironment
     private let scheduler: RoutineScheduler?
     private let settingsStore: ProactiveSettingsStore

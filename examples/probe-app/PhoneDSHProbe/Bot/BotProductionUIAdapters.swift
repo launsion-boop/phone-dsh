@@ -145,7 +145,7 @@ extension BotProductionInfoService {
                 try await self.setRoutineEnabled(id, enabled: enabled)
             },
             setRoutineCloudSchedule: { [self] id, enabled in
-                guard let wiring = self.cloudWiring else {
+                guard let wiring = await self.cloudWiring else {
                     throw BotInfoActionError.cloudScheduleUnavailable
                 }
                 try await wiring.setRoutineCloudSchedule(routineID: id, enabled: enabled)

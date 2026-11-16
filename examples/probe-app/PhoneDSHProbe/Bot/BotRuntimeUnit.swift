@@ -235,7 +235,7 @@ final class BotRuntimeUnit {
             finished: { [weak maintenance] in
                 await maintenance?.noteUserTurnFinished()
             })
-        var info = BotProductionInfoService(
+        let info = BotProductionInfoService(
             environment: environment, scheduler: scheduler, settingsStore: settingsStore,
             maintenance: maintenance,
             bridgeDiagnostic: { [runtime, remote] in
@@ -243,7 +243,7 @@ final class BotRuntimeUnit {
                       await remote.ownsSession(diagnostic.sessionId) else { return nil }
                 return diagnostic
             })
-        info.cloudWiring = cloudWiring
+        await info.attachCloudWiring(cloudWiring)
         let deviceResults = DeviceTaskResultOutbox(domain: store, now: resolvedNow)
         await environment.setRoutineCanceller { [scheduler] routineID in
             await scheduler.cancelRunning(routineId: routineID)
