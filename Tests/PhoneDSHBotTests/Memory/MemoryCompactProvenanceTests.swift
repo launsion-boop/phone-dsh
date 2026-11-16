@@ -68,6 +68,23 @@ final class MemoryCompactProvenanceTests: XCTestCase {
         XCTAssertEqual(written.data["trust"]?.stringValue, "user")
         XCTAssertNotNil(written.data["derivation"]?.objectValue,
                         "the host-derived anchor must still get the Plan A derivation")
+
+        // Combined read view: the production ReadMemory returns the artifact
+        // source status derived by L, not a second host-constructed carrier.
+        let readArguments = BotJSONValue.object([
+            "path": .string("agent/playbook/weekly.md"),
+        ])
+        let readCall = UUID().uuidString
+        _ = try await runtime.registerIdentity(
+            runtimeId: BotMCPRuntime.defaultRuntimeID, sessionId: "gb-main",
+            callId: readCall, name: "ReadMemory", arguments: readArguments)
+        let read = await runtime.execute(
+            name: "ReadMemory", arguments: readArguments,
+            context: BotMCPRequestContext(callId: readCall))
+        let statuses = read.structuredContent?["source_statuses"]?.arrayValue ?? []
+        XCTAssertEqual(statuses.first?["ref"]?.stringValue, "record://session/gb-main#8",
+                       "ReadMemory source_statuses must name the host anchor: \(String(describing: read.structuredContent))")
+        XCTAssertEqual(statuses.first?["trust"]?.stringValue, "user")
     }
 
     func testExplicitEvidenceIsNotReplacedByTheImplicitAnchor() async throws {
