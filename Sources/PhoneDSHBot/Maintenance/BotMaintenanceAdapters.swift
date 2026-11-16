@@ -63,9 +63,18 @@ public struct BotProvenanceInvalidationAdapter: BotMaintenanceInvalidationReadin
             let derived = BotDerivedRef(
                 kind: .memory, id: artifact.path, version: artifact.version)
             let statuses = try await provenance.sourceStatuses(for: derived)
-            return Dictionary(uniqueKeysWithValues: statuses.map {
-                ($0.ref, $0)
-            })
+            // Different roles/baselines can report the same ref. Never crash on
+            // `uniqueKeysWithValues` and never let a benign duplicate hide a
+            // worse one; keep the worst state per ref for the caller to map.
+            var merged: [String: BotSourceStatus] = [:]
+            for status in statuses {
+                if let existing = merged[status.ref],
+                   Self.severity(existing.state) >= Self.severity(status.state) {
+                    continue
+                }
+                merged[status.ref] = status
+            }
+            return merged
         }
     }
 
@@ -94,14 +103,40 @@ public struct BotProvenanceInvalidationAdapter: BotMaintenanceInvalidationReadin
             case .erased: mapped = .erased
             case .unavailable, .unknown: mapped = .unknown
             }
-            result[reference] = BotMaintenanceDependencyStatus(
+            let candidate = BotMaintenanceDependencyStatus(
                 reference: status.ref,
                 state: mapped,
                 reason: status.reasons.first?.rawValue,
                 observedAtMS: status.observedAtMS,
                 derivedPaths: [])
+            if let existing = result[reference],
+               Self.dependencySeverity(existing.state) >= Self.dependencySeverity(candidate.state) {
+                continue
+            }
+            result[reference] = candidate
         }
         return result
+    }
+
+    private static func severity(_ state: BotSourceStatus.State) -> Int {
+        switch state {
+        case .current: return 0
+        case .changed: return 1
+        case .unknown, .unavailable: return 2
+        case .revoked: return 3
+        case .erased: return 4
+        }
+    }
+
+    private static func dependencySeverity(
+        _ state: BotMaintenanceDependencyStatus.State) -> Int {
+        switch state {
+        case .live: return 0
+        case .changed: return 1
+        case .unknown: return 2
+        case .revoked: return 3
+        case .erased: return 4
+        }
     }
 }
 
