@@ -122,7 +122,7 @@ final class BotFeedbackToolsTests: XCTestCase {
             return XCTFail("scope rejection needs structured content")
         }
         XCTAssertEqual(body["ok"], .bool(false))
-        XCTAssertEqual(body["code"], .string("scope-not-shareable"))
+        XCTAssertEqual(body["code"], .string("scope-requires-confirmation"))
         let active = try await center.preferences(botID: "bot-1", scope: nil).active
         XCTAssertEqual(active.count, 0)
     }

@@ -361,6 +361,55 @@ final class FeedbackA05LoopTests: XCTestCase {
             routineId: "routine-model"))
         XCTAssertEqual(held.reason, "feedback-held")
 
+        // The model can undo the feedback it just recorded (the previous tool
+        // result carries the feedback id), and the gate releases.
+        guard case .string(let feedbackID)? = body["feedback_id"] else {
+            return XCTFail("the accepted feedback must return a feedback id")
+        }
+        let undoResult = await tools.execute(
+            name: BotFeedbackTools.toolName,
+            arguments: .object([
+                "action": .string("undo"),
+                "target": .object(["kind": .string("feedback"),
+                                   "id": .string(feedbackID)]),
+            ]),
+            principal: principal,
+            context: BotMCPRequestContext(callId: "mcp-call-undo"))
+        XCTAssertNotEqual(undoResult.isError, true)
+        clock.advance(60_000)
+        let released = await engine.consider(FeedbackFixtures.candidate(
+            "routine-model-3", kind: .routineResult, botId: "bot-a",
+            routineId: "routine-model"))
+        XCTAssertEqual(released.decision, .did)
+
+        // The model can bind a correction to the memory version it applied.
+        let path = "user/prefs/model.md"
+        let writeContext = BotMemoryWriteContext(
+            botID: "bot-a", sessionID: "s-chat", authorKind: .chat,
+            source: BotMemorySource(kind: .userTurn, sessionID: "s-chat"),
+            trust: .user)
+        let written = try await memory.write(
+            BotMemoryWriteRequest(action: .write, path: path, content: "tea",
+                                  expectedVersion: 0,
+                                  evidence: ["record://session/s-chat#11"]),
+            context: writeContext)
+        XCTAssertTrue(written.ok)
+        let correctResult = await tools.execute(
+            name: BotFeedbackTools.toolName,
+            arguments: .object([
+                "action": .string("correct"),
+                "target": .object(["kind": .string("memory"),
+                                   "id": .string(path),
+                                   "version": .number(1)]),
+            ]),
+            principal: principal,
+            context: BotMCPRequestContext(callId: "mcp-call-correct"))
+        XCTAssertNotEqual(correctResult.isError, true)
+        let corrected = try await center.disputedRefs(paths: [path])
+        XCTAssertEqual(corrected[path]?.first?.state, "active")
+        let allEvents = try await feedbackEvents()
+        XCTAssertTrue(allEvents.contains { $0.type == "feedback.recorded" })
+
         let routinePrincipal = BotGatewayPrincipal(
             botId: "bot-a", sessionId: "session-routine", kind: .routine,
             expiresAt: FeedbackFixtures.baseNow + 3_600_000)

@@ -49,9 +49,10 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
     public static let feedbackEventType = "feedback.recorded"
 
     static let memoryReviewEventType = "memory.review_requested"
-    /// G-2 §3.1: `scope=user` only accepts kind-level classes. Reminder and
-    /// routine classes carry a Bot-local id and stay Bot-scoped.
-    static let shareableClassKeys: Set<String> = ["proactive:task-done"]
+    /// G-2 r5: `scope=user` accepts only kind-level classes (`proactive:<kind>`)
+    /// and only from a host-verified UI action; narrow routine/reminder classes
+    /// stay Bot-scoped. The class is derived from the artifact's kind, not from
+    /// the model's words.
     private static let maximumIDLength = 128
     private static let maximumEventPages = 200
 
@@ -403,6 +404,7 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
                                  message: "没有找到要停止提醒的那条真实产物。")
         }
         let classKey = delivery.classKey
+        var effectiveClassKey = classKey
         let scopeKey: String
         switch feedback.scope {
         case .artifact:
@@ -423,17 +425,22 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
             }
             scopeKey = classKey
         case .user:
-            guard Self.shareableClassKeys.contains(classKey) else {
-                return Self.rejected(feedback, code: "scope-not-shareable",
-                                     message: "这个范围不能成为跨 Bot 偏好；只影响当前产物或例行任务。")
-            }
             // G-2 r5: a chat utterance cannot prove the user meant a cross-Bot
             // preference; only a host-verified UI action can.
             guard feedback.origin.kind == .uiAction else {
                 return Self.rejected(feedback, code: "scope-requires-confirmation",
                                      message: "跨 Bot 偏好需要用户在 UI 明确选择；模型不能仅凭一句话扩大范围。")
             }
-            scopeKey = classKey
+            // `user` is the kind-level class (`proactive:<kind>`), never a
+            // Bot-local routine/reminder id. This is what makes a cross-Bot
+            // "don't push this kind" possible without widening to all output.
+            let kindClass = Self.kindLevelClass(kind: delivery.kind)
+            guard Self.isKindLevelClassKey(kindClass) else {
+                return Self.rejected(feedback, code: "scope-not-shareable",
+                                     message: "这个产物没有可跨 Bot 的 kind 级类别。")
+            }
+            effectiveClassKey = kindClass
+            scopeKey = kindClass
         }
         if let expiresAtMS = feedback.expiresAtMS, expiresAtMS <= at {
             return Self.rejected(feedback, code: "insufficient-evidence",
@@ -450,15 +457,15 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
                                       target: BotFeedbackArtifactRef(
                                         kind: .proactive, id: delivery.decisionID ?? delivery.dedupeKey,
                                         deliveryKey: delivery.dedupeKey),
-                                      scope: feedback.scope, classKey: classKey)
+                                      scope: feedback.scope, classKey: effectiveClassKey)
         }
         var record = Self.recordBase(feedback, at: at, scopeKey: scopeKey,
-                                     classKey: classKey, accepted: true)
+                                     classKey: effectiveClassKey, accepted: true)
         record.eventID = Self.eventID(for: record)
         record.expiresAtMS = feedback.expiresAtMS
         snapshot.preferences.append(BotFeedbackPreference(
             id: record.id, botID: feedback.botID, scopeKind: feedback.scope,
-            scopeKey: scopeKey, classKey: classKey, createdAtMS: at,
+            scopeKey: scopeKey, classKey: effectiveClassKey, createdAtMS: at,
             expiresAtMS: feedback.expiresAtMS))
         return try await commit(&record, state: snapshot)
     }
@@ -711,9 +718,11 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
                                  scopeKey: preference.scopeKey, classKey: classKey)
                 }
             case .user:
-                if preference.classKey == classKey {
+                let candidateKindClass = Self.kindLevelClass(kind: candidate.kind.rawValue)
+                if preference.classKey == classKey
+                    || preference.classKey == candidateKindClass {
                     return .held(feedbackID: preference.id, scopeKind: .user,
-                                 scopeKey: preference.scopeKey, classKey: classKey)
+                                 scopeKey: preference.scopeKey, classKey: candidateKindClass)
                 }
             }
         }
@@ -1234,6 +1243,16 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
 
     static func isNarrowClassKey(_ key: String) -> Bool {
         key.hasPrefix("routine:") || key.hasPrefix("proactive:reminder:")
+    }
+
+    static func kindLevelClass(kind: String) -> String {
+        "proactive:\(capped(trim(kind), max: 40))"
+    }
+
+    /// `proactive:<kind>` with no Bot-local id.
+    static func isKindLevelClassKey(_ key: String) -> Bool {
+        let pattern = #"^proactive:[a-z][a-z-]{0,39}$"#
+        return key.range(of: pattern, options: .regularExpression) != nil
     }
 
     static func safeClassKey(_ key: String) -> String? {

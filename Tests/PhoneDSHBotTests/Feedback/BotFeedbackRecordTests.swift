@@ -152,23 +152,34 @@ final class BotFeedbackRecordTests: XCTestCase {
         XCTAssertEqual(deliveredB.decision, .did)
     }
 
-    func testUserScopeRejectsBotLocalClass() async throws {
+    func testUserScopeDerivesKindLevelClassNotRoutineId() async throws {
         let clock = WP6Clock(FeedbackFixtures.baseNow)
+        let deliverer = WP6NotificationDeliverer()
         let store = InMemoryBotFeedbackStore()
         let center = makeCenter(clock, store: store)
-        let deliverer = WP6NotificationDeliverer()
         let engine = ProactiveEngine(
             settings: { wp6Settings() }, now: { clock.now },
             policy: ProactivePolicyConfiguration(fuseMaxWakeups: 50),
             deliverer: deliverer, feedback: center)
-        let decision = await engine.consider(
+        let routineA = await engine.consider(
             FeedbackFixtures.candidate("routine-a", kind: .routineResult, routineId: "r-a"))
+        XCTAssertEqual(routineA.decision, .did)
         let outcome = try await center.record(
-            FeedbackFixtures.suppress(decision, scope: .user))
-        XCTAssertEqual(outcome.status, .rejected)
-        XCTAssertEqual(outcome.code, "scope-not-shareable")
+            FeedbackFixtures.suppress(routineA, scope: .user))
+        XCTAssertEqual(outcome.status, .accepted)
+        XCTAssertEqual(outcome.classKey, "proactive:routine-result",
+                       "user scope is the kind-level class, never routine:<id>")
         let active = try await center.preferences(botID: "bot-1", scope: nil).active
-        XCTAssertEqual(active.count, 0)
+        XCTAssertEqual(active.count, 1)
+        XCTAssertEqual(active.first?.classKey, "proactive:routine-result")
+
+        clock.advance(60_000)
+        let siblingRoutine = await engine.consider(
+            FeedbackFixtures.candidate("routine-b", kind: .routineResult, routineId: "r-b"))
+        XCTAssertEqual(siblingRoutine.reason, "feedback-held",
+                       "kind-level routine-result preference covers this Bot's routine results")
+        let task = await engine.consider(FeedbackFixtures.candidate("task-1"))
+        XCTAssertEqual(task.decision, .did, "other kinds are untouched")
     }
 
     func testSuppressionRejectsUnresolvedTarget() async throws {
@@ -467,7 +478,7 @@ final class BotFeedbackRecordTests: XCTestCase {
 
     // R4: an ambiguous/wider request is left unapplied (the host cannot confirm
     // the user's meaning), rather than silently widened to everything.
-    func testAmbiguousWideningStaysUnapplied() async throws {
+    func testWideningNeedsUIConfirmationAndStaysBounded() async throws {
         let clock = WP6Clock(FeedbackFixtures.baseNow)
         let deliverer = WP6NotificationDeliverer()
         let store = InMemoryBotFeedbackStore()
@@ -483,22 +494,39 @@ final class BotFeedbackRecordTests: XCTestCase {
         let reminder = await engine.consider(
             FeedbackFixtures.candidate("reminder-1", kind: .reminder, reminderId: "rem-1"))
         XCTAssertEqual(reminder.decision, .did)
+        let task = await engine.consider(FeedbackFixtures.candidate("task-1"))
+        XCTAssertEqual(task.decision, .did)
 
+        // A chat utterance cannot widen the scope by itself.
+        var chatWide = FeedbackFixtures.suppress(routine, scope: .user,
+                                                 nonce: "wide-chat")
+        chatWide.origin = FeedbackFixtures.chatOrigin("wide-chat")
+        let chatOutcome = try await center.record(chatWide)
+        XCTAssertEqual(chatOutcome.code, "scope-requires-confirmation")
+        let activeAfterChat = try await center.preferences(botID: "bot-1", scope: nil).active
+        XCTAssertEqual(activeAfterChat.count, 0)
+
+        // An explicit UI choice creates the kind-level routine-result class,
+        // and only that kind is affected.
         let routineUser = try await center.record(
-            FeedbackFixtures.suppress(routine, scope: .user, nonce: "wide-routine"))
-        XCTAssertEqual(routineUser.status, .rejected)
-        XCTAssertEqual(routineUser.code, "scope-not-shareable")
+            FeedbackFixtures.suppress(routine, scope: .user, nonce: "wide-ui-routine"))
+        XCTAssertEqual(routineUser.status, .accepted)
+        XCTAssertEqual(routineUser.classKey, "proactive:routine-result")
         let reminderUser = try await center.record(
-            FeedbackFixtures.suppress(reminder, scope: .user, nonce: "wide-reminder"))
-        XCTAssertEqual(reminderUser.status, .rejected)
-        XCTAssertEqual(reminderUser.code, "scope-not-shareable")
-        let active = try await center.preferences(botID: "bot-1", scope: nil).active
-        XCTAssertEqual(active.count, 0)
+            FeedbackFixtures.suppress(reminder, scope: .user, nonce: "wide-ui-reminder"))
+        XCTAssertEqual(reminderUser.status, .accepted)
+        XCTAssertEqual(reminderUser.classKey, "proactive:reminder")
 
         clock.advance(60_000)
         let routineAgain = await engine.consider(
             FeedbackFixtures.candidate("routine-2", kind: .routineResult, routineId: "r-1"))
-        XCTAssertEqual(routineAgain.decision, .did)
+        XCTAssertEqual(routineAgain.reason, "feedback-held")
+        let reminderAgain = await engine.consider(
+            FeedbackFixtures.candidate("reminder-2", kind: .reminder, reminderId: "rem-2"))
+        XCTAssertEqual(reminderAgain.reason, "feedback-held")
+        let taskAgain = await engine.consider(FeedbackFixtures.candidate("task-2"))
+        XCTAssertEqual(taskAgain.decision, .did,
+                       "kind-level user preferences never suppress another kind")
     }
 
     // R4: no business-word blacklist. Identical handling for an arbitrary
