@@ -250,6 +250,7 @@ final class BotRuntimeComposition {
     /// related/开口 policy is F/S work, so the host records the signal instead
     /// of opening an empty visible turn.
     private var contextWakeLog: [WakeSignal] = []
+    private var contextWakeRouter: BotContextWakeDecisionRouter?
     private var host: PhoneDSHHost?
     private let hostReference = BotHostReference()
     private let workspaceRoot: URL
@@ -721,8 +722,25 @@ final class BotRuntimeComposition {
         try await bind(to: newHost, recovering: false)
         if let contextSources {
             do {
+                let router = BotContextWakeDecisionRouter(
+                    assembly: contextSources,
+                    runner: { [weak self] request in
+                        guard let self else {
+                            return .failure("composition-unavailable")
+                        }
+                        let remote = await MainActor.run {
+                            self.units[request.botId]?.remote
+                        }
+                        guard let remote else {
+                            return .failure("bot-unit-unavailable")
+                        }
+                        return await remote.runRoutine(request)
+                    })
+                contextWakeRouter = router
                 try await contextSources.start { [weak self] signal in
-                    Task { @MainActor in self?.noteContextWake(signal) }
+                    Task { @MainActor in
+                        await self?.contextWakeRouter?.handle(signal)
+                    }
                 }
             } catch {
                 // A source failure must not take the Bot runtime down: the
@@ -737,6 +755,7 @@ final class BotRuntimeComposition {
     /// Bounded host record of context wake requests. Consuming a signal into a
     /// turn is F/S policy and is not wired yet; the signal is never turned into
     /// an empty visible turn here.
+    /// Diagnostics only. The real decision path is `contextWakeRouter`.
     func noteContextWake(_ signal: WakeSignal) {
         contextWakeLog.append(signal)
         if contextWakeLog.count > 128 {
@@ -1085,6 +1104,7 @@ final class BotRuntimeComposition {
     }
 
     func stop() async {
+        contextWakeRouter = nil
         if let contextSources { await contextSources.stopAll() }
         await detachBinding()
         // Interactive cards cannot survive the process; durable todos are
