@@ -275,6 +275,48 @@ final class CloudScheduleMatrixIntegrationTests: XCTestCase {
         await delete(t, device: device, routineID: "matrix8",
                      revision: Int64(first.scheduleRevision))
     }
+
+    /// Requires explicit SC coordination: the test writes a ready marker after
+    /// leasing an occurrence, SC kills and restarts the same instance/DB, then
+    /// writes a done marker. Gated by `PDSH_CLOUD_RESTART_TEST=1`.
+    func testMatrix9ServiceRestartKeepsOccurrenceAndDeliversOnce() async throws {
+        let env = try environment()
+        guard ProcessInfo.processInfo.environment["PDSH_CLOUD_RESTART_TEST"] == "1" else {
+            throw XCTSkip("PDSH_CLOUD_RESTART_TEST not set; kill -9 matrix NOT_RUN")
+        }
+        let h = try await harness(); defer { try? FileManager.default.removeItem(at: h.root) }
+        let device = "dev-matrix9-\(UUID().uuidString.prefix(6))"
+        let t = transport(env)
+        try await makeRoutine(h, id: "matrix9")
+        try await register(t, device: device, routineID: "matrix9")
+        let firstDue = try await waitDue(t, device: device, leaseSeconds: 5)
+        let first = try XCTUnwrap(firstDue, "no due event for restart matrix")
+        let markerDir = ProcessInfo.processInfo.environment["PDSH_CLOUD_RESTART_DIR"]
+            ?? "evidence/cloud-local-matrix"
+        let ready = URL(fileURLWithPath: markerDir).appendingPathComponent("s-restart-ready")
+        let done = URL(fileURLWithPath: markerDir).appendingPathComponent("s-restart-done")
+        try? FileManager.default.removeItem(at: done)
+        try "\(first.eventID) \(first.occurrenceKey)".write(to: ready, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: ready); try? FileManager.default.removeItem(at: done) }
+
+        // Wait for SC to kill and restart the instance (same DB).
+        let deadline = Date().addingTimeInterval(120)
+        while Date() < deadline, !FileManager.default.fileExists(atPath: done.path) {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        guard FileManager.default.fileExists(atPath: done.path) else {
+            XCTFail("SC did not signal the restart within 120s")
+            return
+        }
+        try? await Task.sleep(nanoseconds: 6_000_000_000)
+        let client = makeClient(env, h, device: device, leaseSeconds: 5)
+        let delivered = await pollUntilRun(client, h, timeout: 45)
+        XCTAssertTrue(delivered, "occurrence was not delivered after the service restart")
+        XCTAssertEqual(h.runs.count, 1)
+        _ = await client.pollOnce()
+        XCTAssertEqual(h.runs.count, 1)
+        await delete(t, device: device, routineID: "matrix9")
+    }
 }
 
 private actor MatrixSink: RoutineResultSink {
