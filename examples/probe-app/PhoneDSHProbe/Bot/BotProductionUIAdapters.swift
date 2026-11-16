@@ -54,31 +54,45 @@ extension BotProductionRowService {
                     return .unavailable(reason: "来源服务未连接")
                 }
                 do {
-                    var refs: [String] = []
-                    for eventID in request.eventIDs {
-                        let derived = (try? await provenance.derivedRefs(forEventID: eventID)) ?? []
-                        for artifact in derived {
-                            guard let chain = try? await provenance.reverseTrace(derivedRef: artifact, botID: request.botID)
-                            else { continue }
-                            for derivation in chain {
-                                for source in derivation.sources
-                                where !refs.contains(source.record) {
-                                    refs.append(source.record)
-                                }
-                            }
-                        }
-                    }
-                    guard !refs.isEmpty else {
-                        return .available(BotSourceInspection(sources: [], checkedAtMS: clock()))
-                    }
-                    let statuses = try await provenance.sourceStatuses(for: refs, botID: request.botID)
-                    let views = refs.compactMap { ref -> BotProvenanceSource? in
-                        guard let status = statuses[ref] else { return nil }
-                        return Self.provenanceView(status)
-                    }
-                    return .available(BotSourceInspection(sources: views, checkedAtMS: clock()))
+                    // Root A04 review: ask L for each derived artifact's own
+                    // current state. The refs overload has no artifact
+                    // baseline, so a file observation would flatten to
+                    // unknown and could not show which revision changed.
+                    let entries = try await BotArtifactSourceInspection.inspect(
+                        eventIDs: request.eventIDs, botID: request.botID,
+                        provenance: provenance)
+                    let views = entries.map(Self.provenanceView)
+                    return .available(BotSourceInspection(
+                        sources: views, checkedAtMS: clock()))
                 } catch {
                     return .unavailable(reason: "来源暂时读不出来")
+                }
+            },
+            selectDeliveryResources: { [self] intent in
+                guard let deliverySelection else {
+                    return .rejected(reason: "交付选择服务未连接")
+                }
+                do {
+                    let result = try await deliverySelection.apply(
+                        BotDeliverySelectionSubmission(
+                            nonce: intent.nonce, botID: intent.botID,
+                            rowID: intent.rowID, draftID: intent.draftID,
+                            expectedRevision: intent.expectedRevision,
+                            selectedResourceIDs: intent.selectedResourceIDs))
+                    switch result {
+                    case .accepted(let eventID, _):
+                        return .accepted(eventID: eventID)
+                    case .duplicate(let eventID, _):
+                        return .duplicate(eventID: eventID)
+                    case .stale(let reason):
+                        return .stale(reason: reason)
+                    case .rejected(let reason):
+                        return .rejected(reason: reason)
+                    }
+                } catch let failure as PhoneDSHBot.BotDeliverySelectionFailure {
+                    return .stale(reason: failure.code)
+                } catch {
+                    return .rejected(reason: "交付选择没有保存成功")
                 }
             },
             recordFeedback: { [self] intent in
@@ -467,6 +481,65 @@ private extension BotProductionRowService {
             versionLabel: nil,
             isFallback: false,
             hasUnsafeLabel: false)
+    }
+
+    /// Maps one merged artifact-scoped source. The role is the "why used"
+    /// line; a source shared by several artifacts says so instead of silently
+    /// collapsing their baselines into one status.
+    static func provenanceView(_ entry: BotArtifactSourceInspectionMerged) -> BotProvenanceSource {
+        let kind = provenanceKind(entry)
+        var reason = BotArtifactSourceInspection.roleLabel(entry.role)
+        if entry.artifactCount > 1 {
+            let suffix = "来自 \(entry.artifactCount) 个相关产物"
+            reason = reason.map { "\($0) · \(suffix)" } ?? suffix
+        }
+        return BotProvenanceSource(
+            id: entry.identity,
+            label: kind.label,
+            kind: kind,
+            trust: BotProvenanceTrust(raw: entry.trust),
+            reason: reason,
+            observedAtMS: entry.observedAtMS,
+            verification: verification(entry.review.state),
+            state: provenanceState(entry.state),
+            stateReason: provenanceReason(entry.reasons.first),
+            versionLabel: versionLabel(entry),
+            isFallback: false,
+            hasUnsafeLabel: false)
+    }
+
+    static func provenanceKind(_ entry: BotArtifactSourceInspectionMerged) -> BotProvenanceKind {
+        if let raw = entry.resourceKind {
+            switch raw {
+            case "file": return .file
+            case "web-url": return .web
+            case "context-source": return .other
+            default: break
+            }
+        }
+        return BotProvenanceKind(raw: entry.recordType)
+    }
+
+    static func verification(_ state: BotReviewEffective.State)
+        -> BotProvenanceVerification {
+        switch state {
+        case .verified: return .verified
+        case .unverified: return .unverified
+        case .disputed: return .disputed
+        case .unknown: return .unknown
+        }
+    }
+
+    /// A human version label; raw etags/hashes never enter the UI.
+    static func versionLabel(_ entry: BotArtifactSourceInspectionMerged) -> String? {
+        guard let known = entry.sourceVersion?.knownFields else { return nil }
+        guard let observed = known.observedAtMS ?? entry.observedAtMS, observed > 0 else {
+            return "来源已记录版本"
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date(timeIntervalSince1970: Double(observed) / 1_000))
     }
 
     static func provenanceKind(_ status: BotSourceStatus) -> BotProvenanceKind {
