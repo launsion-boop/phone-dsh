@@ -173,6 +173,7 @@
           },
           "method": {
             "type": "string",
+            "minLength": 1,
             "maxLength": 200
           },
           "at_ms": {
@@ -183,7 +184,16 @@
             "type": "array",
             "maxItems": 8,
             "items": {
-              "type": "string"
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+                  "maxLength": 128
+                },
+                {
+                  "const": "current-user-turn"
+                }
+              ]
             }
           }
         },

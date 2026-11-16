@@ -53,7 +53,7 @@ contract_revision: spec/bot/v2 @ aha/integration-20261116 freeze commit (SHA pub
 | 语义定位 | 无 → `review` 是**模型写入时的核验断言 + 可解析依据**，不是宿主对结论真实性的认证；引用可解析不证明结论成立，独立评测另行检验（§4.4） |
 | write request | 无 `review` → 可选；`refs` 额外接受保留值 `current-user-turn`（只限真实用户回合；隐藏/held/agent/routine/Task/maintainer 拒绝） |
 | write result | 错误码集合无 review 项 → 新增 `memory-review-invalid`（形状、状态/依据组合、引用解析共用这一个码） |
-| read/recall output | 只返回 `evidence` 引用 → 另带宿主派生的 `evidence_status`：与 `evidence` 同序一一对应，`{ref, observed_at_ms, source_version}`；`observed_at_ms` 取原始记录自身时间，取不到（含已抹除）为 `null`；`source_version` 本版一律 `null` |
+| read/recall output | 只返回 `evidence` 引用 → 正常情况下另带宿主派生的 `evidence_status`（resolver 不可用/超限时省略并记 `evidence_status_unavailable`，不得伪造全 null）：与 `evidence` 同序一一对应，`{ref, observed_at_ms, source_version}`；`observed_at_ms` 取原始记录自身时间，取不到（含已抹除）为 `null`；`source_version` 本版一律 `null` |
 | 派生方式 | 无 → **一次读取/召回调用内一次批量解析（共享 resolver snapshot）**，不新增 `memory.evidence_invalidated` 事件流、不持久化 `evidence_status`、不为每条命中重扫事件库 |
 | restore／回滚 | `.restore` 只取 content，evidence 取请求值（实际为空）、trust 回退 → `restore` **继承**被恢复版本的 `evidence`／`trust`／`source`／`review`，模型不得注入或清空；被恢复版本缺字段时保持缺失 |
 | 时效语义 | 文档 `updated_at_ms` 曾被当作唯一时间 → 明确它是记忆写入时间，不是来源观察时间；多个 evidence 各有观察时间 |
@@ -151,6 +151,7 @@ contract_revision: spec/bot/v2 @ aha/integration-20261116 freeze commit (SHA pub
 | --- | --- | --- | --- |
 | r1 | C | 初始冻结（PLAN §2–3；`resolveEvidence` 丢弃逐条时间、文档无核验字段） | M、R、E |
 | r2 | C | 按 M 审计与主审查：字段改名 `review`（避免与 v1 `verification.reported` 同名）；`verified` 必须 `refs≥1` 且宿主逐条解析，method/at_ms 降为自述；`evidence_status` 明确为一次批量解析的派生视图、不新增事件流；补 `restore` 继承元数据；兼容矩阵明确旧严格 reader 会拒绝、发布仅 iOS | M、R、E、Q |
+| r6 | C | Q-01a：golden `review.method` 加 `minLength:1`、`refs` 加 record/`current-user-turn` oneOf，与 write-request 一致；Q-09：resolver 失败省略 `evidence_status` 并记 `evidence_status_unavailable`，契约文字同步 | M、R、Q |
 | r5 | C | 主协调裁决 Q-06：`disputed` 不强制两条引用（同一原文可同时包含矛盾双方），统一为“≥1 条可定位争议的记录”；Q-07：`review` 明确为写入时历史断言，抹除后不得当当前有效证据，不新建失效机制 | M、R、E、Q |
 | r4 | C | Q-01：`UpdateMemory` 模型可见 inputSchema 补 `review`（与 write-request schema 一致）；golden `tool-catalog.phone.json` 同步 properties/review/descriptionContains；Q-06：`disputed` 文案统一为“≥1，至少一方”；Q-07：明确 `restore` 不重解析 `review.refs` | M、R、E、Q |
 | r3 | C | 真实基线 AHA-COMPACT-REUSE：复用正确但 `evidence: []` 硬失败 → 冻结最小出处提示（工具 description 末句），不新增自动检索 hook；由 E 做真实模型 A/B，无增益则撤回 | M、R、E、Q |

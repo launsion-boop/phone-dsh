@@ -180,8 +180,9 @@ maintainer 回合都得不到保留值（`memory-evidence-invalid`）。
 - maintainer 的机械检查（§4.4）不因为 `review` 放宽：引用仍要能解析、trust 仍要一致；
   `least-verified` 候选可以把缺 `review` 或 `state != verified` 的文档排进候选，但不改变写入边界。
 
-**逐条证据时效（宿主派生，不持久化、不写事件、不参与版本前提）。** `ReadMemory` 的文档结果与
-`RecallMemory` 的每个命中另带 `evidence_status`，与 `evidence` 一一对应、同序：
+**逐条证据时效（宿主派生，不持久化、不写事件、不参与版本前提）。** 正常情况下 `ReadMemory` 的文档结果与
+`RecallMemory` 的每个命中另带 `evidence_status`，与 `evidence` 一一对应、同序；**resolver 不可用或超限时
+省略该成员并记录诊断码 `evidence_status_unavailable`**，不得用全 `null` 冒充「来源缺失」：
 
 | 字段 | 含义 |
 | --- | --- |
