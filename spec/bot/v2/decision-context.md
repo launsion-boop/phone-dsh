@@ -34,6 +34,24 @@
   事实」注入，`unknown` 必须带 reason。材料项的 `ref` 用 `memory:<path>@v<version>` 或规范
   `record://`；`adopted` 时产物必须能回指同一 ref。
 
+### 1.6 `.regenerate` 工具结果（model-visible，iOS-only）
+
+交付/审批副作用执行前，R 的 pre-delivery review 发现 turn、授权 revision、材料、recipient 或 goal
+与 pre-step 时不同，宿主**不得执行**该动作，返回给模型一条 tool result：
+
+```json
+{"ok":false,"code":"decision_context_changed","reason":"material-changed",
+ "materials":{…decision-material block…},"message":"材料已更新，请按新参数重新生成并重走授权"}
+```
+
+- 形状冻结在 `decision-tool-result.schema.json`：`ok:false` + `code` 常量 + 封闭 `reason`
+  （`turn-changed|authorization-revision-changed|material-changed|recipient-changed|goal-changed`）
+  + 新的材料块 + 人话 `message`（≤300）。
+- 它不是 P25 事件、不是 P27 行/card/user-action、不是 cloud wire；不落库、不写第二套 trace。
+  成功路径仍用该交付工具自己的正常结果，没有 `ok:true` 变体。
+- 模型收到后按新材料重新生成参数，再走既有授权；宿主不得在发送后偷偷补附件，也不得把旧审批
+  当作新参数的授权。`materials` 必须通过 §1 的材料块规则（limits/state/无指令字段）。
+
 ## 2. 交付来源、建议附件与重绑定
 
 ### 2.1 行/交付展示（U 的 `sources` / `delivery` 投影）

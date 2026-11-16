@@ -227,6 +227,17 @@ def main() -> int:
             if key in expected and result.get(key) != expected[key]:
                 raise AssertionError(
                     f"feedback.{case['name']}: {key} {result.get(key)!r} != {expected[key]!r}")
+    for index, result in enumerate(golden.get("tool_results", {}).get("valid", [])):
+        check(result, "decision-tool-result.schema.json", f"tool_results.valid[{index}]")
+        check_material(result["materials"], f"tool_results.valid[{index}].materials")
+    for case in golden.get("tool_results", {}).get("invalid", []):
+        rejected = False
+        try:
+            check(case["instance"], "decision-tool-result.schema.json", case["name"])
+        except SpecError:
+            rejected = True
+        if not rejected:
+            raise AssertionError(f"tool_results.invalid[{case['name']}]: unexpectedly accepted")
     for index, trace in enumerate(golden["trace"]["valid"]):
         check_trace(trace, f"trace.valid[{index}]")
     for case in golden["trace"]["invalid"]:
@@ -273,7 +284,9 @@ def main() -> int:
             mutations += 1
     if mutations < 12:
         raise AssertionError(f"mutation coverage too low: {mutations}")
-    print(f"decision-context vectors: PASS (material {len(golden['material']['valid'])}/"
+    print(f"decision-context vectors: PASS (tool results "
+          f"{len(golden.get('tool_results', {}).get('valid', []))}/"
+          f"{len(golden.get('tool_results', {}).get('invalid', []))}, material {len(golden['material']['valid'])}/"
           f"{len(golden['material']['invalid'])}, suggestions {len(golden['suggestion']['valid'])}/"
           f"{len(golden['suggestion']['invalid'])}, user actions {len(golden['user_actions']['valid'])}/"
           f"{len(golden['user_actions']['invalid'])}, feedback {len(feedback_results)}, "
