@@ -38,6 +38,12 @@ public final class EventKitCalendarSource: BotContextSource, BotContextSourceStr
         "\(EKEventStore.authorizationStatus(for: .event).rawValue)"
     }
 
+    /// EventKit `.writeOnly` maps to `.limited`, but it cannot read events; only
+    /// full access/authorized can. Contacts' limited access remains readable.
+    public func canRead(_ authorization: BotSourceAuthorization) -> Bool {
+        authorization == .authorized
+    }
+
     public func requestAuthorization() async -> BotSourceAuthorization {
         let current = Self.map(EKEventStore.authorizationStatus(for: .event))
         // Already authorized (or denied/restricted) needs no second TCC prompt.

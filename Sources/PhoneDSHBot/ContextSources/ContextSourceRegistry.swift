@@ -14,6 +14,15 @@ public protocol BotContextSource: Sendable {
     func authorization() async -> BotSourceAuthorization
     func observations(since: Int64?) async throws -> [BotContextObservation]
     func stop() async
+    /// Whether this authorization actually permits reading this source's data.
+    /// Generic `limited` is readable for Contacts but not for EventKit write-only.
+    func canRead(_ authorization: BotSourceAuthorization) -> Bool
+}
+
+public extension BotContextSource {
+    func canRead(_ authorization: BotSourceAuthorization) -> Bool {
+        authorization.allowsReading
+    }
 }
 
 /// A source that can push OS callbacks. The revision is passed at start so the
@@ -184,7 +193,8 @@ public actor BotContextSourceRegistry: BotContextSourceRegistrying {
             throw BotContextSourceError.notRegistered(source)
         }
         let current = await ledger.state(for: source)
-        if current.authorization.allowsReading {
+        if current.authorization.allowsReading,
+           registered[source]!.source.canRead(current.authorization) {
             try await subscribe(botID: botID, sources: [source])
             return await ledger.state(for: source)
         }
@@ -203,7 +213,9 @@ public actor BotContextSourceRegistry: BotContextSourceRegistrying {
         var osStatus = await registered[source]!.source.authorization()
         try await ensureConsentRequestCurrent(
             requestID, key: key, source: source, expectedRevision: expectedRevision)
-        if source.requiresOSPermission, osStatus == .notDetermined {
+        if source.requiresOSPermission,
+           (osStatus == .notDetermined || osStatus == .limited),
+           !registered[source]!.source.canRead(osStatus) {
             guard let requesting = registered[source]?.requesting else {
                 throw BotContextSourceError.unsupported("\(source.rawValue) has no OS permission requester")
             }
@@ -222,7 +234,9 @@ public actor BotContextSourceRegistry: BotContextSourceRegistrying {
             throw BotContextSourceError.notAuthorized(
                 source, permissionRevision: state.permissionRevision)
         }
-        guard osStatus.allowsReading || !source.requiresOSPermission else {
+        guard source.requiresOSPermission
+                ? registered[source]!.source.canRead(osStatus)
+                : osStatus.allowsReading else {
             throw BotContextSourceError.notAuthorized(
                 source, permissionRevision: await ledger.state(for: source).permissionRevision)
         }
