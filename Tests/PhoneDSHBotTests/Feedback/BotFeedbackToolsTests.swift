@@ -103,6 +103,32 @@ final class BotFeedbackToolsTests: XCTestCase {
         XCTAssertEqual(index?.records.filter { $0.action == .adopt }.count, 1)
     }
 
+    func testRejectionCarriesDiscoverableTargetKindsAndHint() async throws {
+        let clock = WP6Clock(FeedbackFixtures.baseNow)
+        let store = InMemoryBotFeedbackStore()
+        let (center, _) = await makeCenterAndDecision(clock, store: store)
+        let tools = BotFeedbackTools(center: center)
+        let result = await tools.execute(
+            name: BotFeedbackTools.toolName,
+            arguments: arguments(action: "suppress", kind: "routine",
+                                 id: "routine-does-not-exist", scope: "class"),
+            principal: principal(kind: .chat),
+            context: BotMCPRequestContext(callId: "call-hint"))
+        guard case .object(let body)? = result.structuredContent else {
+            return XCTFail("rejection must be structured")
+        }
+        XCTAssertEqual(body["ok"], .bool(false))
+        XCTAssertEqual(body["reason"], .string("target-unresolved"))
+        guard case .string(let hint)? = body["hint"], !hint.isEmpty else {
+            return XCTFail("rejection needs a generic hint")
+        }
+        guard case .array(let kinds)? = body["accepted_target_kinds"] else {
+            return XCTFail("rejection needs accepted target kinds")
+        }
+        XCTAssertTrue(kinds.contains(.string("routine")))
+        XCTAssertTrue(kinds.contains(.string("memory")))
+    }
+
     func testBotLocalUserScopeIsRejectedInTheResult() async throws {
         let clock = WP6Clock(FeedbackFixtures.baseNow)
         let store = InMemoryBotFeedbackStore()

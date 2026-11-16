@@ -161,6 +161,11 @@ public struct BotFeedbackTools: BotTeamToolHandling {
         ]
         if !effectiveAccept, let reason = outcome.reason {
             fields["reason"] = .string(reason)
+            // A generic, contract-level hint lets the model correct a wrong
+            // kind/scope without guessing and without any test-specific id.
+            fields["hint"] = .string(Self.rejectionHint(for: outcome.action))
+            fields["accepted_target_kinds"] = .array(
+                BotFeedbackArtifactKind.allCases.map { BotJSONValue.string($0.rawValue) })
         }
         if let value = outcome.feedbackID { fields["feedback_id"] = .string(value) }
         if let value = outcome.classKey { fields["class_key"] = .string(value) }
@@ -176,6 +181,19 @@ public struct BotFeedbackTools: BotTeamToolHandling {
             ])
         }
         return .object(fields)
+    }
+
+    static func rejectionHint(for action: BotFeedbackAction) -> String {
+        switch action {
+        case .adopt:
+            return "adopt needs a delivery row ref from the row/context, or a delivered proactive artifact; a plain message row is adopted by the UI only."
+        case .suppress:
+            return "suppress needs a delivered proactive/delivery artifact (scope artifact/class) or a routine id from automation_status (scope routine/class); a routine target with scope artifact is invalid, and an ordinary message row does not define a class."
+        case .correct:
+            return "correct needs target.kind=memory with the memory path and the version actually applied by UpdateMemory; a message row is not a memory artifact."
+        case .undo:
+            return "undo needs target.kind=feedback with the feedback_id returned by an earlier accepted RecordFeedback call."
+        }
     }
 
     private static func bare(_ name: String) -> String {

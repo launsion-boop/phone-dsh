@@ -36,10 +36,12 @@ final class FeedbackA05LoopTests: XCTestCase {
         cleanupMemoryTestStore(root)
     }
 
-    private func makeCenter() throws -> BotFeedbackCenter {
+    private func makeCenter(routineReader: (any BotFeedbackRoutineReading)? = nil)
+        throws -> BotFeedbackCenter {
         let reader: any BotFeedbackMemoryReading = memory
         return try BotFeedbackCenter.live(
-            eventLog: store, memory: { _ in reader }, defaults: defaults,
+            eventLog: store, memory: { _ in reader },
+            routineReader: routineReader, defaults: defaults,
             now: { [clock] in clock!.now })
     }
 
@@ -327,6 +329,78 @@ final class FeedbackA05LoopTests: XCTestCase {
                       "production roster catalog lacks RecordFeedback; a real model tool call would get permission_denied before dispatch")
         XCTAssertTrue(BotToolCatalog.isRegistered(BotFeedbackTools.toolName))
         XCTAssertEqual(advertised, BotFeedbackTools.definition)
+    }
+
+    // 8. A real routine can be suppressed before its first run, when there is
+    //    no proactive delivery yet. The host must verify routine existence via
+    //    the routine machine port, bind the narrow routine class, and never
+    //    invent a delivery. This mirrors E's real-upstream scenario.
+    func testRoutineSuppressionBeforeFirstRunUsesTheRealRoutineDocument() async throws {
+        let clock = WP6Clock(FeedbackFixtures.baseNow)
+        let deliverer = WP6NotificationDeliverer()
+        let routineStore = SQLiteRoutineStore(domainStore: store)
+        let machine = RoutineMachine(store: routineStore)
+        let created = try await machine.create(
+            botId: "bot-a", title: "周五交周报提醒", prompt: "提醒交周报",
+            schedule: .interval(everyMinutes: 7 * 24 * 60), now: clock.now,
+            id: "routine-real-1")
+        XCTAssertEqual(created.enabled, true)
+        _ = try await machine.create(
+            botId: "bot-b", title: "private", prompt: "private",
+            schedule: .interval(everyMinutes: 7 * 24 * 60), now: clock.now,
+            id: "routine-b-private")
+        let documentBefore = try await routineStore.read(botId: "bot-a")
+        let routineRevision = documentBefore.version
+
+        let center = try makeCenter(routineReader: BotFeedbackRoutineReader(store: routineStore))
+        let engine = ProactiveEngine(
+            settings: { wp6Settings() }, now: { clock.now },
+            policy: ProactivePolicyConfiguration(fuseMaxWakeups: 50),
+            deliverer: deliverer, feedback: center)
+        let request = BotFeedback(
+            botID: "bot-a", action: .suppress,
+            target: BotFeedbackArtifactRef(kind: .routine, id: "routine-real-1"),
+            scope: .class, origin: ui("ui-routine-real"))
+        let outcome = try await center.record(request)
+        XCTAssertEqual(outcome.status, .accepted, "code=\(outcome.code ?? "nil")")
+        XCTAssertEqual(outcome.classKey, "routine:routine-real-1")
+        XCTAssertEqual(outcome.target.version, routineRevision,
+                       "the target carries the routine document revision")
+
+        clock.advance(60_000)
+        let held = await engine.consider(FeedbackFixtures.candidate(
+            "routine-real-run-1", kind: .routineResult, botId: "bot-a",
+            routineId: "routine-real-1"))
+        XCTAssertEqual(held.reason, "feedback-held")
+        let other = await engine.consider(FeedbackFixtures.candidate(
+            "routine-other-run-1", kind: .routineResult, botId: "bot-a",
+            routineId: "routine-other"))
+        XCTAssertEqual(other.decision, .did)
+
+        // Another Bot's routine is not visible to bot-a.
+        let crossBot = BotFeedback(
+            botID: "bot-a", action: .suppress,
+            target: BotFeedbackArtifactRef(kind: .routine, id: "routine-b-private"),
+            scope: .class, origin: ui("ui-routine-cross"))
+        let crossOutcome = try await center.record(crossBot)
+        XCTAssertEqual(crossOutcome.code, "target-unresolved")
+
+        // Artifact scope is incoherent for a routine target (no single delivery).
+        let artifact = BotFeedback(
+            botID: "bot-a", action: .suppress,
+            target: BotFeedbackArtifactRef(kind: .routine, id: "routine-real-1"),
+            scope: .artifact, origin: ui("ui-routine-artifact"))
+        let artifactOutcome = try await center.record(artifact)
+        XCTAssertEqual(artifactOutcome.code, "ambiguous-scope")
+
+        // A deleted routine is no longer resolvable.
+        _ = try await machine.delete(botId: "bot-a", routineId: "routine-real-1")
+        let deleted = BotFeedback(
+            botID: "bot-a", action: .suppress,
+            target: BotFeedbackArtifactRef(kind: .routine, id: "routine-real-1"),
+            scope: .class, origin: ui("ui-routine-deleted"))
+        let deletedOutcome = try await center.record(deleted)
+        XCTAssertEqual(deletedOutcome.code, "target-unresolved")
     }
 
     // 7. Structural approval path for RecordFeedback: the host classifier is

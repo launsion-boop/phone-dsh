@@ -59,6 +59,10 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
     private let store: any BotFeedbackStoring
     private let eventLog: (any BotEventLog)?
     private let memory: (@Sendable (String) async -> (any BotFeedbackMemoryReading)?)?
+    /// Host-verified routine document for `target.kind=routine`. A routine can
+    /// be suppressed before its first run, so no proactive delivery exists yet;
+    /// this reader must ask the durable routine store, not infer from a delivery.
+    private let routineReader: (any BotFeedbackRoutineReading)?
     private let now: @Sendable () -> Int64
 
     private var state: BotFeedbackState?
@@ -71,12 +75,14 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
     public init(store: any BotFeedbackStoring,
                 eventLog: (any BotEventLog)? = nil,
                 memory: (@Sendable (String) async -> (any BotFeedbackMemoryReading)?)? = nil,
+                routineReader: (any BotFeedbackRoutineReading)? = nil,
                 now: @escaping @Sendable () -> Int64 = {
                     Int64(Date().timeIntervalSince1970 * 1_000)
                 }) {
         self.store = store
         self.eventLog = eventLog
         self.memory = memory
+        self.routineReader = routineReader
         self.now = now
     }
 
@@ -85,13 +91,15 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
     /// on that single call instead of failing the whole composition.
     public static func live(eventLog: (any BotEventLog)?,
                             memory: (@Sendable (String) async -> (any BotFeedbackMemoryReading)?)? = nil,
+                            routineReader: (any BotFeedbackRoutineReading)? = nil,
                             defaults: UserDefaults = .standard,
                             key: String = BotFeedbackIndexFile.defaultsKey,
                             now: @escaping @Sendable () -> Int64 = {
                                 Int64(Date().timeIntervalSince1970 * 1_000)
                             }) throws -> BotFeedbackCenter {
         BotFeedbackCenter(store: UserDefaultsBotFeedbackStore(defaults: defaults, key: key),
-                          eventLog: eventLog, memory: memory, now: now)
+                          eventLog: eventLog, memory: memory,
+                          routineReader: routineReader, now: now)
     }
 
     // MARK: - loading / replay / persistence
@@ -394,14 +402,38 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
 
     private func recordSuppression(_ feedback: BotFeedback, at: Int64,
                                    snapshot: inout BotFeedbackState) async throws -> BotFeedbackOutcome {
-        guard let delivery = await resolveDelivery(feedback.target, botID: feedback.botID,
-                                                   snapshot: snapshot) else {
+        var delivery = await resolveDelivery(feedback.target, botID: feedback.botID,
+                                             snapshot: snapshot)
+        var routineRevision: Int?
+        if delivery == nil, feedback.target.kind == .routine, let routineReader {
+            let routineID = Self.trim(feedback.target.id)
+            if !routineID.isEmpty,
+               let routine = await routineReader.routine(botID: feedback.botID,
+                                                         routineID: routineID) {
+                // A routine may be suppressed before its first run, so there
+                // is no proactive delivery yet. It is still a real durable
+                // artifact; bind a narrow routine class, never a fake delivery.
+                routineRevision = routine.revision
+                delivery = BotFeedbackDelivery(
+                    botID: feedback.botID, dedupeKey: "routine:\(routineID)",
+                    decisionID: nil, kind: ProactiveKind.routineResult.rawValue,
+                    routineID: routineID, reminderID: nil, trigger: nil,
+                    rowID: nil, atMS: at,
+                    classKey: Self.classKey(kind: ProactiveKind.routineResult.rawValue,
+                                            routineID: routineID, reminderID: nil))
+            }
+        }
+        guard let delivery else {
             if feedback.origin.kind == .uiAction, feedback.target.kind == .delivery {
                 return Self.rejected(feedback, code: "ambiguous-scope",
                                      message: "这条消息不是主动提醒，无法推导“这类”的范围；请只对主动提醒/例程结果使用不再提醒。")
             }
             return Self.rejected(feedback, code: "target-unresolved",
                                  message: "没有找到要停止提醒的那条真实产物。")
+        }
+        if feedback.target.kind == .routine, feedback.scope == .artifact {
+            return Self.rejected(feedback, code: "ambiguous-scope",
+                                 message: "例程目标没有单条投递可绑定；请用 routine 或 class 范围停止这个例程的提醒。")
         }
         let classKey = delivery.classKey
         var effectiveClassKey = classKey
@@ -461,6 +493,7 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
         }
         var record = Self.recordBase(feedback, at: at, scopeKey: scopeKey,
                                      classKey: effectiveClassKey, accepted: true)
+        if let routineRevision { record.target.version = routineRevision }
         record.eventID = Self.eventID(for: record)
         record.expiresAtMS = feedback.expiresAtMS
         snapshot.preferences.append(BotFeedbackPreference(
