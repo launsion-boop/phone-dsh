@@ -267,6 +267,15 @@ public actor BotMCPRuntime {
     private var toolCatalogProvider: (@Sendable (String?) async -> [BotMCPToolDefinition]?)?
     private var registrations: [String: BotAttribution] = [:]
     private var registrationArguments: [String: BotJSONValue] = [:]
+    /// Runtime-clock deadline for each local registration. The gateway records
+    /// its own `expiresAt` under *its* clock; the runtime may be driven by an
+    /// injected clock (the eval harness starts at local noon, not wall time),
+    /// so comparing the two clocks would mark every fresh registration expired
+    /// and turn every approval into `unattributed`. The registry stays the
+    /// authority for expiry (checked at approval); this deadline only bounds
+    /// the local mirror.
+    private var registrationDeadlines: [String: Int64] = [:]
+
     /// Bumped by `workerRestarted()`. Every registration/claim/approval is
     /// scoped by it, so a call registered by the previous Worker generation
     /// can never be claimed or approved after the restart.
@@ -718,6 +727,14 @@ public actor BotMCPRuntime {
         "\(runtimeId)@\(registrationGeneration)"
     }
 
+    /// Local expiry bound in the runtime's own clock. Mirrors the gateway's
+    /// default attribution TTL; the gateway remains the expiry authority.
+    private func registrationDeadline() -> Int64 {
+        let (sum, overflow) = now().addingReportingOverflow(
+            BotAttributionRegistry.defaultTTLMilliseconds)
+        return overflow ? Int64.max : sum
+    }
+
     public func registerIdentity(runtimeId: String, sessionId: String, callId: String,
                                  name: String, arguments: BotJSONValue,
                                  argsDigest: String? = nil) async throws -> BotAttribution {
@@ -745,6 +762,7 @@ public actor BotMCPRuntime {
                 if let refreshed = await gateway.refreshToolCall(id: existing.id) {
                     registrations[key] = refreshed
                     registrationArguments[key] = arguments
+                    registrationDeadlines[key] = registrationDeadline()
                     return refreshed
                 }
             }
@@ -754,6 +772,7 @@ public actor BotMCPRuntime {
             arguments: arguments, argsDigest: argsDigest, runtimeId: scope)
         registrations[key] = attribution
         registrationArguments[key] = arguments
+        registrationDeadlines[key] = registrationDeadline()
         return attribution
     }
 
@@ -817,6 +836,7 @@ public actor BotMCPRuntime {
                 if let refreshed = await gateway.refreshToolCall(id: existing.id) {
                     registrations[key] = refreshed
                     registrationArguments[key] = arguments
+                    registrationDeadlines[key] = registrationDeadline()
                     return refreshed
                 }
             }
@@ -826,6 +846,7 @@ public actor BotMCPRuntime {
             name: bareName, arguments: arguments, argsDigest: argsDigest, runtimeId: scope)
         registrations[key] = attribution
         registrationArguments[key] = arguments
+        registrationDeadlines[key] = registrationDeadline()
         return attribution
     }
 
@@ -853,6 +874,7 @@ public actor BotMCPRuntime {
         let callId = match.value.callId
         registrations.removeValue(forKey: match.key)
         registrationArguments.removeValue(forKey: match.key)
+        registrationDeadlines.removeValue(forKey: match.key)
         // A cancelled registration ends its call's interactive approvals
         // (§3). Persist neither a connection state nor the host egress: the
         // Worker's paired `/identity/cancel` is the cancellation signal, and a
@@ -869,12 +891,17 @@ public actor BotMCPRuntime {
                                     callId: String) async -> BotResolvedToolCall? {
         _ = pruneExpiredRegistrationsSync()
         let scope = scopedRuntimeID(runtimeId)
+        let timestamp = now()
         let matches = registrations.filter { key, attribution in
             key.hasPrefix("\(scope)\u{0}") && attribution.callId == callId
                 && (sessionId == nil || attribution.sessionId == sessionId)
-                && attribution.expiresAt > now()
+                && (registrationDeadlines[key].map { $0 > timestamp } ?? false)
         }
         guard matches.count == 1, let attribution = matches.first?.value else { return nil }
+        // The registry owns attribution expiry and cancellation. A local entry
+        // the registry no longer has (expired by its own clock, cancelled, or
+        // rotated) must stay unattributed even when the two clocks disagree.
+        guard await gateway.attribution.get(id: attribution.id) != nil else { return nil }
         guard let principal = await gateway.tokens.lookupSession(attribution.sessionId),
               principal.incarnation == attribution.incarnation else { return nil }
         return BotResolvedToolCall(
@@ -893,6 +920,7 @@ public actor BotMCPRuntime {
         registrationGeneration &+= 1
         registrations.removeAll()
         registrationArguments.removeAll()
+        registrationDeadlines.removeAll()
         for attribution in previousRegistrations.values {
             _ = await gateway.cancelToolCall(id: attribution.id)
         }
@@ -938,11 +966,15 @@ public actor BotMCPRuntime {
 
     private func pruneExpiredRegistrationsSync() -> [BotAttribution] {
         let timestamp = now()
-        let expired = registrations.filter { $0.value.expiresAt <= timestamp }
+        let expired = registrations.filter { key, _ in
+            guard let deadline = registrationDeadlines[key] else { return true }
+            return deadline <= timestamp
+        }
         guard !expired.isEmpty else { return [] }
         for (key, _) in expired {
             registrations.removeValue(forKey: key)
             registrationArguments.removeValue(forKey: key)
+            registrationDeadlines.removeValue(forKey: key)
         }
         return expired.map(\.value)
     }
@@ -1297,6 +1329,7 @@ public actor BotMCPRuntime {
         let registrationKey = key(scope, call.sessionId, call.callId)
         registrations.removeValue(forKey: registrationKey)
         registrationArguments.removeValue(forKey: registrationKey)
+        registrationDeadlines.removeValue(forKey: registrationKey)
         // A replaced Worker keeps its MCP client call open until the App
         // answers. While the App is still reattaching the transport there is
         // nothing that can complete Task/AwaitTask/StopSubagent or an
