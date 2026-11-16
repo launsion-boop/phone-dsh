@@ -21,7 +21,8 @@ public actor BotGrantAttributionStore {
     /// First real grant evaluated for this call, if any. Callers must not use
     /// this as a substitute for a source that was never authorized.
     public func grantId(callId: String) -> String? {
-        grantsByCall[callId]?.first
+        guard let ids = grantsByCall[callId], ids.count == 1 else { return nil }
+        return ids[0]
     }
 
     public func clear(callId: String) {

@@ -999,13 +999,13 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
     private static func eventRecord(ref: String, record: EventRecord,
                                     calls: [String: [String: String]]) -> ResolvedRecord {
         let event = record.event
+        let carrierGrantId = event.data["grant_id"]?.stringValue
         if event.isErasedPayload {
             return ResolvedRecord(
                 ref: ref, resolved: true, erased: true,
                 observedAtMS: Self.usableTime(event.time),
-                recordType: event.type, trust: nil)
+                recordType: event.type, trust: nil, grantId: carrierGrantId)
         }
-        let carrierGrantId = event.data["grant_id"]?.stringValue
         let isContext = event.type == Self.contextObservedType
         let contextObserved = event.data["observed_at_ms"]?.intValue.map { Int64($0) }
         let observed = isContext
@@ -1027,7 +1027,7 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         return ResolvedRecord(
             ref: ref, resolved: true, erased: false,
             observedAtMS: observed, recordType: event.type,
-            trust: trust, version: version)
+            trust: trust, version: version, grantId: carrierGrantId)
     }
 
     /// Event-only facts for a Bot, used by L when the carrier has no DSH
