@@ -13,6 +13,7 @@
     "./volatile-context": "./src/volatile-context.ts",
     "./channel": "./src/channel.ts",
     "./identity-bridge": "./src/identity-bridge.ts",
+    "./activity-intent": "./src/activity-intent.ts",
     "./approval-gate": "./src/approval-gate.ts",
     "./sandbox-approval": "./src/sandbox-approval.ts",
     "./stream-forward": "./src/stream-forward.ts",
