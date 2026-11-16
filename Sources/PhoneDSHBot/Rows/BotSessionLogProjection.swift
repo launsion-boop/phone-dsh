@@ -683,6 +683,33 @@ public struct BotSessionLogProjector: Sendable {
                                   ]), trust: BotRowProvenance.model)
                 result.append(.upsert(draft, order))
             default:
+                if event.type == "routine.defined" {
+                    // A newly defined routine has no run yet, but the durable
+                    // definition is the row the user can suppress for future
+                    // deliveries (G-2 r8/r9). Project one automation row per
+                    // routine document entry; no prompt/keyword special case.
+                    let routines = event.data["document"]?["routines"]?.array ?? []
+                    for (index, value) in routines.enumerated() {
+                        guard let routine = objectValue(value),
+                              let automationID = nonEmpty(routine, "id") ?? nonEmpty(routine, "routineId"),
+                              let name = nonEmpty(routine, "title") ?? nonEmpty(routine, "name") else { continue }
+                        var fields = fieldsFrom(routine)
+                        fields["title"] = .string(name)
+                        fields["status"] = .string("idle")
+                        fields["automation"] = .object(routine.merging([
+                            "automationId": .string(automationID),
+                            "name": .string(name),
+                            "status": .string("idle"),
+                        ]) { _, new in new })
+                        let draft = draft(
+                            id: rowID(sessionID, event.seq) + ":routine-\(index)",
+                            event: event, kind: .message, role: nil,
+                            body: BotRowBody(type: .automation, additionalProperties: fields),
+                            trust: BotRowProvenance.model)
+                        result.append(.upsert(draft, order))
+                    }
+                    continue
+                }
                 if event.type.hasPrefix("automation/") || event.type.hasPrefix("routine/") {
                     let run = objectValue(event.data["automation"]) ?? objectValue(event.data["routine"])
                         ?? objectValue(event.data["run"]) ?? [:]
