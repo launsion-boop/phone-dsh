@@ -1217,9 +1217,9 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
               let scopeKind = BotFeedbackScopeKind(rawValue: scopeKindText),
               let scopeKey = string(scope["key"]) else { return nil }
         var version: Int?
-        if case .number(let number)? = target["version"] { version = Int(number) }
+        if let parsed = BotJSONInteger.int(target["version"]) { version = parsed }
         var expires: Int64?
-        if case .number(let number)? = data["expires_at_ms"] { expires = Int64(number) }
+        if let parsed = BotJSONInteger.int64(data["expires_at_ms"]) { expires = parsed }
         var subjects: [String] = []
         if case .array(let values)? = data["subjects"] {
             for value in values {
@@ -1230,11 +1230,11 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
         if case .object(let appliedObject)? = data["applied"],
            case .object(let memoryObject)? = appliedObject["memory"],
            let path = string(memoryObject["path"]),
-           case .number(let versionNumber)? = memoryObject["version"],
-           case .number(let previousNumber)? = memoryObject["previous_version"] {
+           let versionNumber = BotJSONInteger.int(memoryObject["version"]),
+           let previousNumber = BotJSONInteger.int(memoryObject["previous_version"]) {
             applied = BotFeedbackMemoryApplication(path: path,
-                                                   version: Int(versionNumber),
-                                                   previousVersion: Int(previousNumber))
+                                                   version: versionNumber,
+                                                   previousVersion: previousNumber)
         }
         let botID = botID(fromFeedbackID: feedbackID) ?? event.principal.botId ?? "bot"
         return BotFeedbackRecord(

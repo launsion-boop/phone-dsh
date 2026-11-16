@@ -168,6 +168,88 @@ final class BotFeedbackToolsTests: XCTestCase {
         XCTAssertEqual(result.isError, true)
     }
 
+    // JSON numbers are Doubles: legal JSON such as 1e300, Int64.max+1, 1.5,
+    // NaN or infinity must become invalid_arguments, never a trap. No write
+    // happens before validation; normal version/timestamp values still work.
+    func testNumericArgumentsNeverTrapAndNeverWriteOnInvalidInput() async throws {
+        let clock = WP6Clock(FeedbackFixtures.baseNow)
+        let store = InMemoryBotFeedbackStore()
+        let (center, decision) = await makeCenterAndDecision(clock, store: store)
+        let tools = BotFeedbackTools(center: center)
+        let invalid: [Double] = [
+            1e300, Double.greatestFiniteMagnitude, Double(Int64.max) + 2_048,
+            1.5, -1, .nan, .infinity, -.infinity,
+        ]
+        for (index, number) in invalid.enumerated() {
+            let versionArgs = BotJSONValue.object([
+                "action": .string("suppress"),
+                "scope": .string("class"),
+                "target": .object([
+                    "kind": .string("routine"), "id": .string("routine-1"),
+                    "version": .number(number),
+                ]),
+            ])
+            let versionResult = await tools.execute(
+                name: "RecordFeedback", arguments: versionArgs,
+                principal: principal(kind: .chat),
+                context: BotMCPRequestContext(callId: "bad-version-\(index)"))
+            XCTAssertEqual(versionResult.isError, true, "version \(number) must fail")
+
+            let expiresArgs = BotJSONValue.object([
+                "action": .string("adopt"),
+                "target": .object([
+                    "kind": .string("proactive"), "id": .string(decision.id),
+                    "delivery_key": .string(decision.dedupeKey ?? ""),
+                ]),
+                "expires_at_ms": .number(number),
+            ])
+            let expiresResult = await tools.execute(
+                name: "RecordFeedback", arguments: expiresArgs,
+                principal: principal(kind: .chat),
+                context: BotMCPRequestContext(callId: "bad-expires-\(index)"))
+            XCTAssertEqual(expiresResult.isError, true, "expires \(number) must fail")
+        }
+        let afterInvalid = await store.currentIndex()
+        XCTAssertEqual(afterInvalid?.records.count ?? 0, 0,
+                       "invalid numeric input must not write a feedback record")
+
+        // Normal timestamp/version parse through the same handler.
+        let accepted = await tools.execute(
+            name: "RecordFeedback",
+            arguments: .object([
+                "action": .string("adopt"),
+                "target": .object([
+                    "kind": .string("proactive"), "id": .string(decision.id),
+                    "delivery_key": .string(decision.dedupeKey ?? ""),
+                ]),
+                "expires_at_ms": .number(1_800_000_000_000),
+            ]),
+            principal: principal(kind: .chat),
+            context: BotMCPRequestContext(callId: "good-expires"))
+        guard case .object(let acceptedBody)? = accepted.structuredContent else {
+            return XCTFail("normal timestamp must be accepted")
+        }
+        XCTAssertEqual(acceptedBody["ok"], .bool(true), "body=\(acceptedBody)")
+
+        let normalVersion = await tools.execute(
+            name: "RecordFeedback",
+            arguments: .object([
+                "action": .string("suppress"),
+                "scope": .string("class"),
+                "target": .object([
+                    "kind": .string("routine"), "id": .string("routine-does-not-exist"),
+                    "version": .number(7),
+                ]),
+            ]),
+            principal: principal(kind: .chat),
+            context: BotMCPRequestContext(callId: "good-version"))
+        guard case .object(let versionBody)? = normalVersion.structuredContent else {
+            return XCTFail("normal version must reach the center")
+        }
+        XCTAssertEqual(versionBody["code"], .string("target-unresolved"),
+                       "a normal integer must not be rejected as invalid_arguments")
+    }
+
     func testDefinitionIsClosedAndHasNoClassInput() {
         let definition = BotFeedbackTools.definition
         XCTAssertEqual(definition.name, "RecordFeedback")

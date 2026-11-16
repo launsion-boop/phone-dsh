@@ -59,11 +59,10 @@ public struct BotFeedbackTools: BotTeamToolHandling {
         }
         var version: Int?
         if let rawVersion = targetObject["version"] {
-            guard case .number(let number) = rawVersion, number >= 0,
-                  number == number.rounded() else {
+            guard let parsed = BotJSONInteger.int(rawVersion), parsed >= 0 else {
                 return .failure("invalid_arguments", "target.version 必须是非负整数。")
             }
-            version = Int(number)
+            version = parsed
         }
         var disputedRefs: [String] = []
         if case .array(let refs)? = args["disputed_refs"] {
@@ -76,11 +75,10 @@ public struct BotFeedbackTools: BotTeamToolHandling {
         }
         var expiresAtMS: Int64?
         if let raw = args["expires_at_ms"] {
-            guard case .number(let number) = raw, number >= 0,
-                  number == number.rounded() else {
+            guard let parsed = BotJSONInteger.int64(raw), parsed >= 0 else {
                 return .failure("invalid_arguments", "expires_at_ms 必须是非负整数。")
             }
-            expiresAtMS = Int64(number)
+            expiresAtMS = parsed
         }
         var feedback = BotFeedback(
             botID: principal.botId, action: action,
