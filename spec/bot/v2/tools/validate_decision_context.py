@@ -227,6 +227,24 @@ def main() -> int:
             if key in expected and result.get(key) != expected[key]:
                 raise AssertionError(
                     f"feedback.{case['name']}: {key} {result.get(key)!r} != {expected[key]!r}")
+    proactive = json.loads((BOT / "golden" / "proactive.phone.json").read_text())
+    proactive_cases = 0
+    for case in proactive["cases"]:
+        check(case["expect"], "proactive-decision.schema.json", f"proactive.{case['name']}")
+        want = "mode-off" if case["settings"]["mode"] == "off" else "feedback-held"
+        if case["expect"]["reason"] != want:
+            raise AssertionError(f"proactive.{case['name']}: reason {case['expect']['reason']} != {want}")
+        if case["expect"]["decision"] != "skip":
+            raise AssertionError(f"proactive.{case['name']}: feedback suppression must be skip")
+        if case.get("fuseRecorded") is not False:
+            raise AssertionError(f"proactive.{case['name']}: feedback-held must not record fuse")
+        if "delivery" in case["expect"]:
+            raise AssertionError(f"proactive.{case['name']}: feedback-held must not deliver")
+        proactive_cases += 1
+    for case in proactive["invalid"]:
+        if case["claim"]["reason"] == "feedback-held" and case["settings"]["mode"] == "off":
+            continue
+        raise AssertionError(f"proactive.{case['name']}: invalid case not aligned")
     for index, message in enumerate(golden.get("internal_tool", {}).get("valid", [])):
         check(message, "decision-internal-tool.schema.json", f"internal_tool.valid[{index}]")
         if message.get("ok") is True:
@@ -294,7 +312,7 @@ def main() -> int:
             mutations += 1
     if mutations < 12:
         raise AssertionError(f"mutation coverage too low: {mutations}")
-    print(f"decision-context vectors: PASS (internal tool "
+    print(f"decision-context vectors: PASS (proactive {proactive_cases}, internal tool "
           f"{len(golden.get('internal_tool', {}).get('valid', []))}/"
           f"{len(golden.get('internal_tool', {}).get('invalid', []))}, tool results "
           f"{len(golden.get('tool_results', {}).get('valid', []))}/"

@@ -388,7 +388,7 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 `quiet`、`dnd`、`delivery-failed` 等是 `reason` 值，不是 decision kind；`ProactiveDecision`
 的 JSON 形状由 `proactive-decision.schema.json` 固定。`reason` 的完整集合是
 `delivered`、`would-mode`、`would-only-kind`、`mode-off`、`fuse`、`dnd`、`quiet-hours`、
-`missing-bot`、`delivery-failed`、`delivery-unavailable`、`routine-held`、`routine-quiet`。
+`missing-bot`、`delivery-failed`、`delivery-unavailable`、`routine-held`、`routine-quiet`、`feedback-held`。
 
 一次 `ProactiveEngine.consider` 按以下顺序处理，前一步命中就短路：
 
@@ -396,6 +396,11 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
    记 `routine-quiet`。这两步在 `mode` 之前，因此 `off` 模式下的 held/quiet routine 不是
    `mode-off`。
 2. **模式。** `off` 记 `mode-off`，不检查 DND/安静/保险丝，也不投递。
+2.5 **反馈抑制（G-2 §3.1）。** 位于模式之后、投递类别/硬限制/保险丝之前：若当前 Bot 存在 host
+   校验过的 active `feedback.recorded`（`action=suppress`）且候选命中其 artifact/class 范围 →
+   记 `skip`/`feedback-held`；仍生成 notification，但不投递、不消耗保险丝（`fuseRecorded=false`），
+   routine 不停不删。`off` 模式仍先记 `mode-off`（模式先于反馈抑制）。范围只由 host 从被引用
+   artifact 推导，不由模型词表/正文判断。
 3. **投递类别。** 只有 `on` 且 kind 在 `deliveryKinds` 内才可投递；否则不投递，仍继续走
    硬限制和保险丝检查；两者都未命中时最后记 `would`/`would-only-kind`，不投递、不消耗保险丝。
 4. **硬限制。** Bot id trim 后为空记 `missing-bot`；`dnd == true` 记 `dnd`；落在
@@ -433,7 +438,7 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 它是通知的稳定 identifier（同一 key 替换同一条系统通知），**不是**抑制窗口：同一 key 的候选
 仍然每次判定、仍然可能再次 `did`。
 
-**持久事件与重启恢复。** 每次判定写一条 durable `proactive.considered`（P25 envelope），
+**持久事件与重启恢复。** 每次判定写一条 durable `proactive.considered`（P25 envelope）；`data` 是开放对象，可选 `routineId`/`reminderId`/`rowId` 供反馈目标解析与重启后重建，旧 reader 忽略未知成员，不新增 schema/envelope。
 `data` 至少包含 `decision`、`reason`、`kind`、`botId`、`mode`、`channel`、`fuseRecorded`、
 `dedupeKey`，有 `trigger` 时一并写入。`restoreAccounting` 只取 fuse 窗口内
 `decision == "did"` 或 `"would"` 的事件，按 `kind`/`botId`/`mode`/`fuseRecorded` 重建计数；

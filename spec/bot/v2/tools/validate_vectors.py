@@ -56,7 +56,7 @@ PROACTIVE_DECISIONS = ("did", "would", "skip")
 PROACTIVE_REASONS = (
     "delivered", "would-mode", "would-only-kind", "mode-off", "fuse", "dnd",
     "quiet-hours", "missing-bot", "delivery-failed", "delivery-unavailable",
-    "routine-held", "routine-quiet",
+    "routine-held", "routine-quiet", "feedback-held",
 )
 PROACTIVE_CANDIDATE_FIELDS = (
     "id", "kind", "botId", "dedupeKey", "trigger", "sourceEventId", "createdAt",
