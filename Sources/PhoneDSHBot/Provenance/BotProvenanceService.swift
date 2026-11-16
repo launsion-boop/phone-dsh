@@ -76,11 +76,14 @@ public protocol BotProvenanceRecording: Sendable {
 /// name `BotDerivedState` is a typealias so callers can use either.
 public protocol BotProvenanceQuerying: Sendable {
     func forwardTrace(sourceRef: String) async throws -> [BotDerivedRef]
+    func forwardTrace(sourceRef: String, botID: String?) async throws -> [BotDerivedRef]
     func reverseTrace(derivedRef: BotDerivedRef) async throws -> [BotDerivation]
+    func reverseTrace(derivedRef: BotDerivedRef, botID: String?) async throws -> [BotDerivation]
     func currentState(for derivedRef: BotDerivedRef) async throws -> BotDerivationView
     func currentStates(for derivedRefs: [BotDerivedRef]) async throws
         -> [BotDerivedRef: BotDerivationView]
     func trace(_ record: String) async throws -> [BotDerivationView]
+    func trace(_ record: String, botID: String?) async throws -> [BotDerivationView]
     func sourceStatuses(for artifact: BotDerivedRef) async throws -> [BotSourceStatus]
     func sourceStatuses(for artifact: BotDerivedRef, botID: String?) async throws
         -> [BotSourceStatus]
@@ -415,6 +418,29 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         let scoped = snapshot.scoped(botID: botID)
         let facts = await facts(for: scoped)
         return scoped.sourceStatuses(for: artifact, facts: facts)
+    }
+
+    public func forwardTrace(sourceRef: String,
+                             botID: String?) async throws -> [BotDerivedRef] {
+        let snapshot = try await refresh()
+        let scoped = snapshot.scoped(botID: botID)
+        let facts = await facts(for: scoped)
+        return scoped.trace(sourceRef, facts: facts).map(\.artifact)
+    }
+
+    public func reverseTrace(derivedRef: BotDerivedRef,
+                             botID: String?) async throws -> [BotDerivation] {
+        let snapshot = try await refresh()
+        let scoped = snapshot.scoped(botID: botID)
+        return scoped.reverseTrace(for: derivedRef)
+    }
+
+    public func trace(_ record: String,
+                      botID: String?) async throws -> [BotDerivationView] {
+        let snapshot = try await refresh()
+        let scoped = snapshot.scoped(botID: botID)
+        let facts = await facts(for: scoped)
+        return scoped.trace(record, facts: facts)
     }
 
     public func currentState(for artifact: BotDerivedRef,
