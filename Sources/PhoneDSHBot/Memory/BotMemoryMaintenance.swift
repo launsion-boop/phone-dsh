@@ -342,8 +342,8 @@ public struct BotMemoryMaintenanceSettings: Codable, Sendable, Equatable {
     public var runTokenBudget: Int
     public var dailyTokenBudget: Int
 
-    public init(enabled: Bool = false, runTokenBudget: Int = 160_000,
-                dailyTokenBudget: Int = 512_000) {
+    public init(enabled: Bool = false, runTokenBudget: Int = 400_000,
+                dailyTokenBudget: Int = 1_000_000) {
         self.enabled = enabled
         self.runTokenBudget = max(1, runTokenBudget)
         self.dailyTokenBudget = max(1, dailyTokenBudget)
