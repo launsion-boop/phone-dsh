@@ -404,6 +404,8 @@ targets:
     platform: iOS
     sources:
       - path: PhoneDSHSimTests
+        excludes:
+          - BotDeliveryUITests.swift
       - path: PhoneDSHDeviceTests
       # Keep the device twin at parity with PhoneDSHSimTests: each shared
       # production presentation source is compiled into this test module too.
