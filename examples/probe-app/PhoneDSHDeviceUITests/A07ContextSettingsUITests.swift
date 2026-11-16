@@ -24,6 +24,24 @@ final class A07ContextSettingsUITests: XCTestCase {
         app.launchEnvironment["PDSH_TEST_CREDENTIAL_STORE"] = "1"
         app.launchEnvironment["PDSH_SEED_PROVIDER_KEY"] = "a07-dummy-key"
         app.launchEnvironment["PDSH_SEED_PROVIDER_MODEL"] = "deepseek-chat"
+        addUIInterruptionMonitor(withDescription: "Calendar authorization") { alert in
+            for label in ["允许完全访问", "允许", "Allow Full Access", "Allow"] {
+                if alert.buttons[label].exists {
+                    alert.buttons[label].tap()
+                    return true
+                }
+            }
+            return false
+        }
+        addUIInterruptionMonitor(withDescription: "Contacts authorization") { alert in
+            for label in ["允许", "Allow", "允许访问所有通讯录", "Allow Full Access"] {
+                if alert.buttons[label].exists {
+                    alert.buttons[label].tap()
+                    return true
+                }
+            }
+            return false
+        }
         app.launch()
         // BotProductionHub.connect waits up to 10s for chat.botRuntime; the
         // info sheet must be opened after that composition exists.
@@ -86,6 +104,7 @@ final class A07ContextSettingsUITests: XCTestCase {
         XCTAssertEqual(contacts.value as? String, "0",
                        "pre-grant must not fabricate App consent before the user taps")
         contacts.tap()
+        app.tap() // allow the interruption monitor to accept a real OS prompt
         let on = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value != %@", "0"), object: contacts)
         XCTAssertEqual(XCTWaiter().wait(for: [on], timeout: 10), .completed,
                        "real contacts tap with pre-granted OS permission should write App consent")
