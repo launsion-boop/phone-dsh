@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "prompt:check": "node scripts/check-prompt.mjs"
+    "prompt:check": "node scripts/check-prompt.mjs && node ../scripts/sync-bot-persona.mjs --check"
   },
   "exports": {
     ".": "./src/index.ts",
