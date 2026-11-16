@@ -107,11 +107,18 @@ contract_revision: spec/bot/v2 @ aha/integration-20261116 freeze commit (SHA pub
 
 ### 4.3 凍結的 code-contract 文字（R 落 BotToolCatalog）
 
-- `UpdateMemory` description 末尾追加：
+- `UpdateMemory` description 末尾追加（r2）：
   「可选 `review` 记录这次写入核对到什么程度，它是你的核验断言、不是系统认证：`verified` 必须给
   `basis`（不能是 `model-inference`）且 `refs` 至少一条可解析的真实记录；`disputed` 要在 `refs` 里
   给出冲突双方；没有核对就用 `unverified` + `basis:"model-inference"`，不要自称 verified。
   `method`/`at_ms` 是可选的说明，宿主不会据此认证。」
+- **r3 出处提示（回应真实基线 AHA-COMPACT-REUSE 的 `evidence: []` 硬失败）**：在同一 description
+  的**最末尾**再追加一句，不得改写上面的 r2 文字：
+  「内容只要来自某条会话记录、工具结果或用户原话，就带至少一条 `evidence`（`record://` 或
+  `current-user-turn`）；只有自己的推断才可以不带引用，并在正文里写明是推断。
+  没有出处的记忆在评测里算溯源失败。」
+  这是工具契约文字（不是 R1–R4 行为原则、不新增字段），A/B 由 E 在真实模型上验证；若无可测增益，
+  由 C 在下一次 revision 撤回。
 - `ReadMemory` description 末尾追加：
   「返回的 `evidence_status` 与 `evidence` 同序，给出每条原始记录的 `observed_at_ms`；`null` 表示
   记录取不到或没有时间，`review` 缺省表示没有记录核对判断，`source_version` 本版一律 `null`，
@@ -144,3 +151,4 @@ contract_revision: spec/bot/v2 @ aha/integration-20261116 freeze commit (SHA pub
 | --- | --- | --- | --- |
 | r1 | C | 初始冻结（PLAN §2–3；`resolveEvidence` 丢弃逐条时间、文档无核验字段） | M、R、E |
 | r2 | C | 按 M 审计与主审查：字段改名 `review`（避免与 v1 `verification.reported` 同名）；`verified` 必须 `refs≥1` 且宿主逐条解析，method/at_ms 降为自述；`evidence_status` 明确为一次批量解析的派生视图、不新增事件流；补 `restore` 继承元数据；兼容矩阵明确旧严格 reader 会拒绝、发布仅 iOS | M、R、E、Q |
+| r3 | C | 真实基线 AHA-COMPACT-REUSE：复用正确但 `evidence: []` 硬失败 → 冻结最小出处提示（工具 description 末句），不新增自动检索 hook；由 E 做真实模型 A/B，无增益则撤回 | M、R、E、Q |
