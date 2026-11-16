@@ -165,7 +165,7 @@ maintainer 回合都得不到保留值（`memory-evidence-invalid`）。
 | --- | --- | --- |
 | `verified` | 写入者声称做过核对，并给出了可解析的依据 | `basis` ∈ `user-statement`／`observation`／`record-recheck`（**不得**是 `model-inference`）；`refs` **至少 1 条**，每条都能解析、属于本 Bot、未被抹除；`method` 可选（自由文本，≤200 scalar，宿主不据此认证）；`at_ms` 可选，是写入者声称的时间，宿主不校验时钟 |
 | `unverified` | 写入者明确表示没核对过、或只是自己的判断 | `basis` 必填（通常是 `model-inference`）；可以带 `refs` 说明查过哪些记录，但不会被当作已核对 |
-| `disputed` | 已知存在冲突，两种说法都要保留 | `refs` 至少 1 条，指向冲突的一方或双方；不得静默覆盖任何一方 |
+| `disputed` | 已知存在冲突，两种说法都要保留 | `refs` 至少 1 条，至少指认冲突的一方；能指认双方时都列出；不得静默覆盖任何一方 |
 
 - `review.refs` 与 `evidence` 是两件事：`evidence` 是内容来源，`review.refs` 是核对依据；两者可以
   不同，但都走同一套引用规则（§1.5）。写入请求里 `review.refs` 也接受保留值 `current-user-turn`，
@@ -175,7 +175,8 @@ maintainer 回合都得不到保留值（`memory-evidence-invalid`）。
   是否真的核对过由独立评测检验，不由字段本身证明。
 - `move` 按目标写入的值记录；`delete` 可省略 `review`；`restore` 把历史内容作为新版本写回，
   `evidence`／`trust`／`source`／`review` 从被恢复版本继承（宿主内部回滚同），模型不得注入或清空；
-  被恢复版本本身缺这些字段时保持缺失。
+  被恢复版本本身缺这些字段时保持缺失。**`restore` 不重新解析 `review.refs`**：`review` 是写入时点的
+  断言，之后原始引用被抹除时不会回写或降级该字段，读取方也不得把 `verified` 当作「现在仍成立」。
 - maintainer 的机械检查（§4.4）不因为 `review` 放宽：引用仍要能解析、trust 仍要一致；
   `least-verified` 候选可以把缺 `review` 或 `state != verified` 的文档排进候选，但不改变写入边界。
 

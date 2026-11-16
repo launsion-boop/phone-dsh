@@ -120,7 +120,8 @@
         "expected_version",
         "restore_version",
         "evidence",
-        "marked_contradiction"
+        "marked_contradiction",
+        "review"
       ],
       "actions": [
         "write",
@@ -143,8 +144,51 @@
         "evidence",
         "INDEX.md",
         "agent/inbox",
-        "marked_contradiction"
-      ]
+        "marked_contradiction",
+        "review"
+      ],
+      "review": {
+        "type": "object",
+        "required": [
+          "state",
+          "basis"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "unverified",
+              "disputed"
+            ]
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "user-statement",
+              "observation",
+              "record-recheck",
+              "model-inference"
+            ]
+          },
+          "method": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "at_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "refs": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "readMemory": {
       "required": [
@@ -157,7 +201,8 @@
       "descriptionContains": [
         "document",
         "directory",
-        "version"
+        "version",
+        "evidence_status"
       ]
     },
     "recallMemory": {
@@ -169,7 +214,8 @@
       "descriptionContains": [
         "path",
         "snippet",
-        "evidence"
+        "evidence",
+        "evidence_status"
       ]
     },
     "roots": [
