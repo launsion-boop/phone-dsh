@@ -677,7 +677,7 @@ struct BotUICardContent {
         switch body.type {
         case "widget":
             guard let rawKind = body.cardType, let kind = BotUICardKind(rawValue: rawKind),
-                  [.question, .steps, .task, .document, .progress, .checklist, .link].contains(kind) else { return nil }
+                  [.question, .steps, .task, .attachment, .document, .progress, .checklist, .link].contains(kind) else { return nil }
             return valid(kind: kind, body: body) ? BotUICardContent(kind: kind, body: body) : nil
         case "attachment":
             if let declared = body.cardType, declared != "attachment" { return nil }
