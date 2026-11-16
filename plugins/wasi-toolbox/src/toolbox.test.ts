@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict'
 import * as fsPromises from 'node:fs/promises'
-import { mkdtemp, mkdir, readFile, rm, truncate, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, stat, truncate, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readFileSync } from 'node:fs'
@@ -131,6 +131,36 @@ test('toolbox: a WASI program runs in a tool worker over the SAB VFS proxy', { t
     assert.equal(setup.loads(), 1)
     assert.equal(setup.spawns(), 1)
     assert.equal(setup.toolbox.stats().hotInstances, 1)
+  } finally {
+    await setup.cleanup()
+  }
+})
+
+test('toolbox: cached file bytes do not outlive the dispatch that read them', { timeout: 20_000 }, async () => {
+  const setup = await fixture()
+  try {
+    const input = join(setup.workspace, 'in.txt')
+    // A whole-second mtime survives the utimes round trip exactly.
+    const pinned = 1_700_000_000
+    await utimes(input, pinned, pinned)
+    const first = await setup.toolbox.run({ program: 'fd-echo', argv: ['in.txt', 'out.txt'] })
+    assert.equal(first.exitCode, 0)
+    assert.equal(await readFile(join(setup.workspace, 'out.txt'), 'utf8'), 'echo:hello\n')
+
+    // What a `bash` step between two commands can do: same size, same inode,
+    // and the mtime put back, so the proxy's stat check alone cannot see it.
+    const before = await stat(input)
+    await writeFile(input, 'HELLO\n')
+    await utimes(input, pinned, pinned)
+    const after = await stat(input)
+    assert.equal(after.size, before.size)
+    assert.equal(after.ino, before.ino)
+    assert.equal(after.mtimeMs, before.mtimeMs)
+
+    const second = await setup.toolbox.run({ program: 'fd-echo', argv: ['in.txt', 'out.txt'] })
+    assert.equal(second.exitCode, 0)
+    assert.equal(setup.spawns(), 1, 'the same warm worker and proxy server served both commands')
+    assert.equal(await readFile(join(setup.workspace, 'out.txt'), 'utf8'), 'echo:HELLO\n')
   } finally {
     await setup.cleanup()
   }

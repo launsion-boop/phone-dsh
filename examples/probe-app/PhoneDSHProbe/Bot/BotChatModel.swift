@@ -1335,6 +1335,9 @@ final class BotChatModel: ObservableObject {
     /// Called by `BotProductionPage` when the Bot tab/scene pause changes.
     /// Hiding cancels every UI-only timer and drops the transient live turn so
     /// the first visible read replaces it with the durable projection.
+    /// Whether rows are being read (the page is visible, or a voice turn is waiting on this Bot).
+    var isPageActive: Bool { pageActive }
+
     func setPageActive(_ active: Bool) {
         guard pageActive != active else { return }
         pageActive = active

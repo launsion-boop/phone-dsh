@@ -158,6 +158,13 @@ Unknown `key=value` members after the known ones are ignored; any other `ev …`
 164 bytes, without Opus and without the last flag, or whose id byte is not the low 8 bits of
 the current turn's id is dropped.
 
+Where the heard text goes: the phone creates one Bot per Link device the first time the device
+lists its tools, and remembers the pair on the phone (the shared Bot profile is unchanged). The
+board's heard text goes to that Bot, whatever page is open, and its answer is spoken; a paused
+engine is resumed first while the App may execute. When the Bot cannot be reached (no Bot runtime
+yet) the text takes the durable local-session path of §4.1.1. The Bot path itself uses the Bot's
+own send, not the local SendOutbox, so it is not crash-durable yet.
+
 Consumer rules: subscribe `audio` only while voice is enabled. The phone speaks 「我在」
 **before** writing `listen` (the board would record it), and writes `listen` as soon as 「我在」
 has played, not after the cloud ASR is ready. Each packet's Opus body is

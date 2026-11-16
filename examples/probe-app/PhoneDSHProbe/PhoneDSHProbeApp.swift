@@ -46,10 +46,10 @@ struct PhoneDSHProbeApp: App {
         // USB OTA diagnostics need exclusive ownership of the board's BLE ctrl connection.
         // The normal voice listener is restarted on the next ordinary app launch.
         if !Self.boardDiagnosticRequested {
-            Task { @MainActor in TonoLinkVoiceHost.shared.start() }
+            Task { @MainActor in TonoLinkVoiceHost.shared.start(); DeviceBotRegistry.shared.start() }
         }
         #else
-        Task { @MainActor in TonoLinkVoiceHost.shared.start() }
+        Task { @MainActor in TonoLinkVoiceHost.shared.start(); DeviceBotRegistry.shared.start() }
         #endif
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment["PDSH_APPEARANCE"],

@@ -32,7 +32,7 @@ const decoder = new TextDecoder()
  * @param wouldBe - post-write file length in bytes.
  * @throws {VfsProxyError} `EFBIG` naming the limit when over it.
  */
-function checkFileSize(path: string, wouldBe: number): void {
+export function checkFileSize(path: string, wouldBe: number): void {
   if (wouldBe <= MAX_FILE_SIZE) return
   throw new VfsProxyError(
     'EFBIG',
