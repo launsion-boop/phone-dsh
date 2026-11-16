@@ -50,7 +50,7 @@ STATUS_REASONS = {
         "no-baseline",
         "source-version-unknown",
         "scan-limit-exceeded",
-        "resource-identity-unavailable",
+        "no-resource-identity",
         "resource-scope-mismatch",
         "refresh-not-performed",
         "refresh-unavailable",
@@ -290,7 +290,7 @@ def source_status(ref: str, role: list[str], baseline: dict | None, context: dic
         if resource is not None:
             status["resource"] = resource
         if resource is None:
-            status.update(state="unknown", reasons=["resource-identity-unavailable"])
+            status.update(state="unknown", reasons=["no-resource-identity"])
             return status
         key = resource_tuple(resource)
         entries = context["observations"].get(key, [])

@@ -4269,7 +4269,7 @@
         },
         "state": "unknown",
         "reasons": [
-          "resource-identity-unavailable"
+          "no-resource-identity"
         ],
         "review_effective": {
           "state": "unknown",
@@ -4283,7 +4283,7 @@
             "erased": false,
             "state": "unknown",
             "reasons": [
-              "resource-identity-unavailable"
+              "no-resource-identity"
             ],
             "observed_at_ms": 1800,
             "record_type": "tool/result",

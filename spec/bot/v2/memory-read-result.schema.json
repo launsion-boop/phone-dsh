@@ -219,7 +219,12 @@
                     "no-baseline",
                     "source-version-unknown",
                     "cycle-detected",
-                    "scan-limit-exceeded"
+                    "scan-limit-exceeded",
+                    "no-resource-identity",
+                    "resource-scope-mismatch",
+                    "refresh-not-performed",
+                    "refresh-unavailable",
+                    "refresh-denied"
                   ]
                 }
               },
@@ -392,6 +397,47 @@
                     "additionalProperties": false
                   }
                 ]
+              },
+              "resource": {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "key"
+                ],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "web-url",
+                      "connector-resource",
+                      "file",
+                      "context-source",
+                      "provider"
+                    ]
+                  },
+                  "key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "owner": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "scope": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "additionalProperties": false
+              },
+              "rechecked_at_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
               }
             },
             "additionalProperties": false

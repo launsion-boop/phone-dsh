@@ -61,6 +61,29 @@
 该来源的当前状态只由记录本身是否 live/erased 决定（§4.3）。旧数据没有该成员：合法，但读视图
 必须是 `unknown` + `no-baseline`/`no-derivation`，不得补造版本。
 
+### 2.3 资源身份（resource identity，G-1 r5）
+
+**通道不是资源。** `source` + `origin` 只说明“从哪条通道/工具来”：`web_search`、`mcp://server/tool`
+都不标识具体资料。比较“是否同一资料的新版本”只能用**资源身份**：
+
+`resource = {kind, key, owner?, scope?}`，`kind` 封闭：
+
+| kind | canonical key | owner/scope | 何时可用 |
+| --- | --- | --- | --- |
+| `web-url` | 规范化 URL：scheme/host 小写、去默认端口、保留 path/query、去 fragment | `owner`=信封 owner 或 botID；`scope`=egress grant/授权域 | 来源是 http(s) URL |
+| `connector-resource` | 连接器返回的稳定资源 id | 连接器账号/授权域 | **必须有**连接器资源 id；只有 `mcp://server/tool` → 不可用 |
+| `file` | 规范化绝对路径（+ 文件 id 若来源提供） | 所属 Bot/工作区 | 附件/文件来源 |
+| `context-source` | G-3 的 source + OS 资源 id（eventIdentifier/contact id/region id…） | `owner_bot_id` | G-3 observation |
+| `provider` | 该 provider 契约定义的稳定 key | provider 账号/授权域 | 有专门 provider 契约 |
+
+- `derivation.sources[].resource` 显式给出时优先；没有时只允许按上表**已注册规则**推导（web URL、
+  file、context）。connector/tool 没有稳定资源 id 时**不得**用 origin 代替。
+- 身份比较包含 `owner`/`scope`：**同工具不同资源**、**同 URL 不同 owner/授权域**都不是同一资源，
+  不得合并、不得判 changed。`key` 相同但 owner/scope 不同 → `unknown` + `resource-scope-mismatch`，
+  不比较版本。
+- 取不到稳定身份 → `unknown` + `no-resource-identity`；不得把两条不同资料串成“新版”。
+- 反例（共享向量强制）：同一 connector 的 res-a/res-b；同一 URL 的 bot-a/bot-b 两个授权域。
+
 ## 3. `derivation`：派生物的来源断言
 
 ### 3.1 形状（`derivation.schema.json`）
@@ -103,7 +126,9 @@
   `derivation` 一起放进承载该派生物的事件 `data`；只读时计算不构成基线，E2/E3 的真实版本变化
   将无法成立。P 的 `sourceStates` 负责提供事实，L 的 `derivation` 负责形状，写入端（Memory/
   Routine/Proactive/Delivery 服务）负责持久化；三者不得互相代写。
-- 读时用基线它与**同一来源身份的最新观察**比较（§4.3）。没有基线（旧数据、非观察来源）时不得
+- 观察来源同时 MUST 带 `resource`（或按 §2.3 注册规则可确定）；取不到稳定资源身份时写
+  `unknown` 语义并在读视图给 `no-resource-identity`，不得用 origin 当身份。
+- 读时用基线与**同一资源身份**的最新观察比较（§4.3）。没有基线（旧数据、非观察来源）时不得
   假装比较过；新写入路径不得以「读时再算」代替基线。
 - **失败语义**：写路径 resolve 失败/超限时，整条写入失败并返回
   `memory-source-baseline-unavailable`，不写事件、不产生无基线版本，不降级成 `unknown` 后放行。
@@ -119,7 +144,7 @@
 | `routine` | `routine.defined` / `routine.updated` / `routine.deleted` | `data.derivation`；缺省回退到 `causationId` 指向的记录（role=`creator`）。 |
 | `proactive` | `proactive.considered` | `data.derivation`；缺省回退到 `causationId` 与 `data.trigger` 中的规范 ref（trigger 只作显示）。 |
 | `notification` / `delivery` / `suggestion` / `draft` | G-2 冻结的承载事件（`card.presented`、`ui.send_to_user`、`comm.outbound`、G-2 delivery 事件 data） | `data.derivation`；缺省回退到 `data` 中键名为 `evidence`/`refs`/`sources`/`records` 的规范 ref 数组。 |
-| `skill` | **无** | 读模型固定 `unknown` + `no-skill-write-event`。 |
+| `skill` | **无** | 读模型固定 `unknown` + `no-skill-write-event`。这是**阶段未覆盖**，不是把 A04 的 skill 出处目标删掉：C 必须登记后续契约/接线；若 Bot 侧 skill 只在 DSH 工作台，需选等效通用接缝并保持普通 DSH 行为不变。 |
 
 缺省回退只读**结构化字段**，不扫正文、不按日期/普通词/正文子串匹配，也不把模型自述当来源。
 
@@ -140,6 +165,8 @@
   "trust": "observation",
   "source_version": {"basis":"etag","value":"etag:v2","observed_at_ms":1760000005000},
   "baseline": {"basis":"etag","value":"etag:v1","observed_at_ms":1760000004000},
+  "resource": {"kind":"web-url","key":"https://example.com/a","owner":"bot-a","scope":"grant-7"},
+  "rechecked_at_ms": 1760000010000,
   "latest_ref": "record://session/gb-main#9"
 }
 ```
@@ -147,7 +174,9 @@
 - `state` 封闭：`current`、`changed`、`unavailable`、`revoked`、`erased`、`unknown`。
 - `reasons` 封闭（非 `current` 至少一项）：`record-unresolved`、`record-erased`、
   `grant-revoked`、`source-changed`、`newer-observation-unversioned`、`revision-basis-mismatch`、
-  `no-baseline`、`source-version-unknown`、`cycle-detected`。
+  `no-baseline`、`source-version-unknown`、`cycle-detected`、`scan-limit-exceeded`、
+  `no-resource-identity`、`resource-scope-mismatch`、`refresh-not-performed`、
+  `refresh-unavailable`、`refresh-denied`。
 - `observed_at_ms` 是该记录自己的时间（session 行时间/`bot_events.time`）；没有则显式 `null`。
 - `record_type` 是记录类型（`tool/result`、`user/message`、`memory.document_written` 等）；
   无法取得时为 `null`。
@@ -157,7 +186,8 @@
   `basis_ref` 指向产生版本的那条记录。
 - `baseline` 是写该派生物时快照的版本（可选；旧数据/非观察来源缺省）。它让来源面板/M 能解释
   「为什么 changed」，而不是只看到当前值。
-- `latest_ref` 是同一来源身份的最新观察（含自己）；没有则省略。`scan-limit-exceeded` 是
+- `resource` 是本次比较用的资源身份（§2.3）；`rechecked_at_ms` 是读时真实 recheck 成功的时间。
+  `latest_ref` 是同一资源身份的最新观察（含自己）；没有则省略。`scan-limit-exceeded` 是
   `unknown` 的 reason：读模型在窗口内无法确定最新观察，不得当 current。
 
 ### 4.2 一次批量
@@ -170,7 +200,9 @@
 `conversation.tool_result`（外部工具结果，含信封/结构化 payload）、`comm.inbound`、
 `context.observed`（G-3）以及未来登记为「observation carrier」的事件类型。一次解析在
 `commitSeq > 最早待检基线所在事件` 的窗口内做一遍按 `type` 过滤的扫描，在内存按
-`(source, origin)` 建 latest 索引；不逐条扫 DSH session 行、不读 `materialized/home`。窗口上限
+**资源身份** `(resource.kind, resource.key, owner, scope)`（§2.3）建 latest 索引，**不按** `source+origin`
+合并；没有稳定身份的记录不进入索引、不能参与 changed/current 判定。不逐条扫 DSH session 行、
+不读 `materialized/home`。窗口上限
 **10,000 条事件或 32 个来源身份**（先到者为准）：超出且仍未覆盖全部待检身份时，对应项为
 `unknown` + `scan-limit-exceeded`，整个调用不得声称 current。读模型可以对同一 `generation` 缓存
 该索引，`generation` 变化即丢弃。
@@ -183,19 +215,46 @@
 2. **记录已抹除**（`erasure` 覆盖，或 `record_erased`）→ `erased` + `record-erased`。
 3. **授权撤权**：该 source 带 `grantId`，且 `grant.revoked` 的 `commitSeq` 晚于承载断言的
    `carrier` → `revoked` + `grant-revoked`。没有 `grantId` 时不做撤权推断（不猜）。
-4. **来源已变**：存在同一来源身份（source+origin）的更新观察（`observed_at_ms` 更大；相同
-   时间按记录引用排序更大者），且基线与更新的 `source_version` 都 known：
+4. **无基线**：来源是观察 → `unknown` + `no-baseline`；来源不是观察（用户消息、Bot 自身输出）
+   → `current`（记录不可变，存在即当前）。
+5. **基线 unknown**：`unknown` + `source-version-unknown`；旧数据没有基线时用
+   `no-baseline` / `no-derivation`。
+6. **资源身份**：按 §2.3 解析；观察来源取不到稳定身份 → `unknown` +
+   `no-resource-identity`；同 `kind`+`key` 但 owner/scope 不同的更新观察 →
+   `unknown` + `resource-scope-mismatch`，不与任何版本比较。
+7. **有同一资源身份的更新观察**（`observed_at_ms` 更大；相同时间按记录引用排序更大者）：
    - 同 basis、不同 value → `changed` + `source-changed`；
    - 不同 basis → `unknown` + `revision-basis-mismatch`（不能跨 basis 断言相等/不等）；
-   - 同 basis、同 value → `current`。
-   更新观察存在但版本 unknown → `unknown` + `newer-observation-unversioned`。
-5. **无基线**：来源是观察 → `unknown` + `no-baseline`；来源不是观察（用户消息、Bot 自身输出）
-   → `current`（记录不可变，存在即当前）。
-6. **基线 unknown**：`unknown` + `source-version-unknown`；旧数据没有基线时用 `no-baseline` / `no-derivation`。
-7. 以上都不命中 → `current`。
+   - 同 basis、同 value → `current`；
+   - 更新观察版本 unknown → `unknown` + `newer-observation-unversioned`。
+8. **没有更新观察**：**不等于仍然新鲜**。必须在本读取中做一次真实 recheck：
+   - provider 成功且 revision 相同 → `current`，写 `rechecked_at_ms`；
+   - provider 返回不同 revision → 按 §7 的 changed/revision-basis-mismatch 处理；
+   - 无权限/被拒 → `unknown` + `refresh-denied`；
+   - provider 不可用/超时/无 provider → `unknown` + `refresh-unavailable` / `refresh-not-performed`。
+   非观察来源（用户消息等）仍是 `current`（不可变记录）。
+9. 以上都不命中 → `unknown` + `refresh-not-performed`；**没有 recheck 证据不得返回 current**。
 
-`current` 只表示「没有已知的更新/撤权/抹除」，**不是**「结论已核对」；核对仍是 v2 §1.5.1 的
-`review` 写入断言。`review.verified` 不因 `current` 升级为系统事实认证。
+`current` 只表示「本次读取有真实 recheck 证据且与基线一致，或来源不是观察」，**不是**
+「结论已核对」；核对仍是 v2 §1.5.1 的 `review` 写入断言。`review.verified` 不因 `current` 升级为
+系统事实认证。
+
+### 4.5 真实 recheck 的 producer（E3/A03）
+
+“没有新 observation”不是新鲜度证据。每个来源类必须有真实 producer 在下一次使用/决策时重新观察：
+
+| 来源类 | producer | 失败/无权限表达 |
+| --- | --- | --- |
+| web / connector | R/C 的 egress provider 真实重新抓取（ETag/Last-Modified/条件请求或内容摘要） | `refresh-denied` / `refresh-unavailable` |
+| file / attachment | P 重新 stat + 内容摘要（同一资源身份） | `refresh-unavailable` / `no-resource-identity` |
+| context（G-3） | N 重新查询 OS/事件源（按 consent generation） | `refresh-denied` / `refresh-not-performed` |
+| 无 provider | 不得假定新鲜 | `refresh-not-performed` |
+
+- E3 验收必须**真实修改文件/HTTP 服务内容**（不改测试 seed、不手插 newer observation），再让下一次
+  真实决策走同一 producer 观察；只塞一条 newer event 不算。
+- producer 不可用/失败时，材料块/来源面板必须显示“未能验证/可能过时”，不得显示 current 或 verified。
+- `skill` 当前无写事件：`unknown` + `no-skill-write-event` 是阶段未覆盖，C 登记后续契约/接线，
+  不因本文件自动缩小 A04 范围。
 
 ### 4.4 读取面集成
 
