@@ -6,7 +6,7 @@ does not boot a second Bot. See
 for the normative description, scenarios, dimensions and anti-cheat rules.
 
 ```
-aha_catalog.json     # 8 multi-turn scenarios, existing bot-e2e catalog schema
+aha_catalog.json     # 9 multi-turn scenarios, existing bot-e2e catalog schema
 aha_dimensions.json  # independent scoring map (assertion index + type)
 run.sh               # eval.sh -> score.py (adds --keep-bodies)
 score.py             # reads report.json / transcript.jsonl / bot-events.jsonl
