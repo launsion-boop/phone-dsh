@@ -221,8 +221,8 @@ test('web_search and web_fetch keep their provider readiness condition', async (
   try {
     const flags = { search: false, fetch: false }
     ctx.provide('web', {
-      searchReady: () => flags.search,
-      fetchReady: () => flags.fetch,
+      searchReady: async () => flags.search,
+      fetchReady: async () => flags.fetch,
     })
     const presetKey = {}
     const preset = createScope(ctx, presetKey)

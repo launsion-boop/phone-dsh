@@ -145,15 +145,19 @@ export default function activityIntent(ctx: Context): void {
     return undefined
   }
 
-  const webReady = (name: ToolName, provider: string): boolean => {
+  // pin web/searchReady and web/fetchReady are async; `when` admits a
+  // Promise, so the shadow must await the real provider answer. Casting the
+  // Promise to a boolean would permanently hide an available web tool.
+  const webReady = async (name: ToolName, provider: string): Promise<boolean> => {
     if (name !== 'web_search' && name !== 'web_fetch') return true
     const web = ctx.get('web') as {
-      searchReady?(provider: string): boolean
-      fetchReady?(provider: string): boolean
+      searchReady?(provider: string): boolean | Promise<boolean>
+      fetchReady?(provider: string): boolean | Promise<boolean>
     } | undefined
-    return name === 'web_search'
-      ? web?.searchReady?.(provider) === true
-      : web?.fetchReady?.(provider) === true
+    const answer = name === 'web_search'
+      ? web?.searchReady?.(provider)
+      : web?.fetchReady?.(provider)
+    return (await answer) === true
   }
 
   const install = async (state: AgentState, name: ToolName): Promise<void> => {
