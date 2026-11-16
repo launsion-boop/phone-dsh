@@ -191,6 +191,9 @@ final class BotRuntimeComposition {
     struct Launch {
         let composition: BotRuntimeComposition
         let environment: BotProductionEnvironment
+        /// G-2 trace log for the acceptance harness: retrieved/injected/adopted.
+        /// The host is the single carrier; there is no second trace store.
+        let materialTrace: BotMaterialTraceLog
         /// The Worker environment for the next Host build. It is read from the
         /// composition so a listener that healed onto a new port is reflected
         /// without rebuilding the composition.
@@ -228,6 +231,9 @@ final class BotRuntimeComposition {
     private let schedulerNow: (@Sendable () -> Int64)?
     private let schedulerSleep: RoutineScheduler.Sleeper?
     private var routineRouter: BotRoutineOutboxRouter?
+    /// G-3 cloud scheduling configuration for this install; nil keeps the
+    /// local-only behaviour (no fake caller).
+    private let cloudConfiguration: BotCloudConfiguration?
     private var host: PhoneDSHHost?
     private let hostReference = BotHostReference()
     private let workspaceRoot: URL
@@ -383,6 +389,32 @@ final class BotRuntimeComposition {
             language: language)
         await deferred.attach(volatile)
 
+        // G-2: one decision-context service and one trace log for the process.
+        // The service reuses the Bot's own memory authority; the permission
+        // revision binds a request to the host instance, the grant set and the
+        // roster, and the runtime compares it before a delivery side effect.
+        let materialTrace = BotMaterialTraceLog()
+        let instanceID = UUID().uuidString
+        let grantStore = await runtime.grants
+        let permissionRevision: BotPermissionRevisionEvaluator = { botID, sessionID, recipient in
+            let grantState = grantStore.list(botId: botID)
+                .map { "\($0.id)|\($0.resource)|\($0.expiresAt ?? 0)" }
+                .sorted().joined(separator: ",")
+            let roster = (try? await profileStore.roster())?.bots.map(\.id).sorted()
+                .joined(separator: ",") ?? ""
+            let recipientState = recipient.map { "\($0.kind.rawValue):\($0.id)" } ?? ""
+            return BotArgumentsDigest.digest(
+                ofUTF8: "\(instanceID)|\(botID)|\(sessionID)|\(recipientState)|\(grantState)|\(roster)")
+        }
+        let decisionContext = BotDecisionContextService(
+            memoryForBot: { botID in await runtime.memory(for: botID) },
+            permissionRevision: permissionRevision)
+        await runtime.installDecisionContext(
+            decisionContext, trace: materialTrace, permissionRevision: permissionRevision)
+        await runtime.setRoutineChangeObserver { [weak composition] botID in
+            await composition?.noteRoutineChanged(botID: botID)
+        }
+
         let handler = BotMCPHandler(runtime: runtime)
         let server = BotMCPHTTPServer(handler: handler)
         let url = try await server.start()
@@ -395,7 +427,8 @@ final class BotRuntimeComposition {
             handler: handler, server: server, rosterModel: rosterModel,
             selectionStore: selectionStore,
             workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot(),
-            schedulerNow: now, schedulerSleep: sleep)
+            schedulerNow: now, schedulerSleep: sleep,
+            cloudConfiguration: BotCloudConfiguration.production())
         // A Worker rebuilt by a foreground resume loses its in-memory
         // credential map. On the first rejected registration the App
         // re-claims that exact session's current token and the Worker retries
@@ -428,7 +461,8 @@ final class BotRuntimeComposition {
         let selectedUnit = try await composition.ensureUnit(
             for: rosterModel.selectedBotID ?? selectedCandidate,
             reason: "prepare")
-        return Launch(composition: composition, environment: selectedUnit.environment)
+        return Launch(composition: composition, environment: selectedUnit.environment,
+                      materialTrace: materialTrace)
     }
 
     private static func legacyRenamedName(domain: SQLiteDomainStore) async -> String? {
@@ -450,7 +484,8 @@ final class BotRuntimeComposition {
                  selectionStore: BotSelectionStore,
                  workspaceRoot: URL,
                  schedulerNow: (@Sendable () -> Int64)?,
-                 schedulerSleep: RoutineScheduler.Sleeper?) async throws {
+                 schedulerSleep: RoutineScheduler.Sleeper?,
+                 cloudConfiguration: BotCloudConfiguration? = nil) async throws {
         self.domain = domain
         self.profileStore = profileStore
         self.runtime = runtime
@@ -462,6 +497,7 @@ final class BotRuntimeComposition {
         self.workspaceRoot = workspaceRoot
         self.schedulerNow = schedulerNow
         self.schedulerSleep = schedulerSleep
+        self.cloudConfiguration = cloudConfiguration
         self.outbox = BotProductionEffectRunner(store: domain)
         let mainBotPointer = BotMainBotPointer(rosterModel.mainBotID)
         self.mainBotPointer = mainBotPointer
@@ -548,6 +584,13 @@ final class BotRuntimeComposition {
     }
 
     @discardableResult
+    /// A routine create/update/delete asks that Bot's cloud client to re-sync
+    /// its schedules; a Bot without a client keeps the local-only behaviour.
+    func noteRoutineChanged(botID: String) async {
+        guard let unit = units[botID] else { return }
+        unit.cloudClient?.noteSchedulesChanged()
+    }
+
     func ensureUnit(for botID: String, reason: String = "selected") async throws -> BotRuntimeUnit {
         // Guard: an existing unit is returned untouched. Re-attaching it here
         // (as a selection side effect) would swap a live transport and cut the
@@ -561,7 +604,8 @@ final class BotRuntimeComposition {
             recordService: recordService,
             isMainBot: { [mainBotPointer] in mainBotPointer.isMain(botID) },
             workspaceRoot: workspaceRoot,
-            now: schedulerNow, sleep: schedulerSleep)
+            now: schedulerNow, sleep: schedulerSleep,
+            cloud: cloudConfiguration)
         units[botID] = unit
         let eraser = BotSessionEpochEraser(
             remote: unit.remote,

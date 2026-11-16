@@ -325,6 +325,10 @@ public actor BotMCPRuntime {
     /// Last material block the host handed to each session. Used to bind a
     /// delivery's adopted materials back to the injected block; in-memory only.
     private var activeMaterialBlocks: [String: BotDecisionMaterialBlock] = [:]
+    /// G-3: the composition tells the cloud client when this Bot's routines
+    /// changed so it can re-sync schedules. The runtime is shared by every
+    /// Bot, so the observer receives the calling bot id.
+    private var routineChangeObserver: (@Sendable (String) async -> Void)?
     /// Delivery-class tools whose side effect must revalidate the decision
     /// context first (G-2 frozen list).
     private static let preDeliveryToolNames: Set<String> = [
@@ -339,6 +343,11 @@ public actor BotMCPRuntime {
         decisionContext = service
         materialTrace = trace
         permissionRevisionEvaluator = permissionRevision
+    }
+
+    /// Installs the G-3 routine-change observer (cloud schedule re-sync).
+    public func setRoutineChangeObserver(_ observer: (@Sendable (String) async -> Void)?) {
+        routineChangeObserver = observer
     }
     /// Default bounded wait for a `tools/call` while the App reattaches the
     /// Worker. Long enough to cover the ready-gate fallback and the first
@@ -1464,7 +1473,7 @@ public actor BotMCPRuntime {
             return Self.decisionToolFailure("invalid-request", "step 不合法")
         }
         let stage: BotDecisionStage
-        switch string(args["stage"]) {
+        switch string(args["stage"]) ?? "" {
         case "pre_delivery": stage = .preDelivery
         case "pre_step": stage = .preStep
         default: return Self.decisionToolFailure("invalid-request", "stage 不合法")
@@ -1509,7 +1518,7 @@ public actor BotMCPRuntime {
                 stage: .retrieved, blockID: block.blockID, turnID: block.turnID,
                 sessionID: sessionID, botID: call.principal.botId,
                 materialRefs: block.materials.map(\.ref), atMS: now()))
-            let blockValue = (try? JSONValue.parse(JSONEncoder().encode(block))) ?? .object([:])
+            let blockValue = (try? BotJSONValue.parse(JSONEncoder().encode(block))) ?? .object([:])
             return .success(.object([
                 "schema": .string("bot-decision-context-result/v1"),
                 "ok": .bool(true),
@@ -1599,7 +1608,7 @@ public actor BotMCPRuntime {
         case .materialStatusChanged, .newMaterials: reasonValue = "material-changed"
         case .recipientChanged: reasonValue = "recipient-changed"
         }
-        let materials = (try? JSONValue.parse(JSONEncoder().encode(block))) ?? .object([:])
+        let materials = (try? BotJSONValue.parse(JSONEncoder().encode(block))) ?? .object([:])
         let value = BotJSONValue.object([
             "ok": .bool(false),
             "code": .string("decision_context_changed"),
@@ -2438,6 +2447,7 @@ public actor BotMCPRuntime {
         if !["get", "list"].contains(action) {
             let type = action == "create" ? "routine.defined" : action == "delete" ? "routine.deleted" : "routine.updated"
             _ = try await eventWriter.append(type: type, principal: call.principal, data: result)
+            await routineChangeObserver?(call.principal.botId)
         }
         return .success(result)
     }

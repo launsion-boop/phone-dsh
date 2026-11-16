@@ -47,6 +47,9 @@ final class BotRuntimeUnit {
     let maintenance: BotMemoryMaintenanceController
     let proactive: ProactiveEngine
     let deviceResults: DeviceTaskResultOutbox
+    /// G-3 cloud scheduling client. Optional: an install without a confirmed
+    /// base URL keeps the local-only behaviour instead of faking a caller.
+    let cloudClient: CloudScheduleClient?
     private let routineActivity: BotRoutineActivityFlag
     private let nowProvider: @Sendable () -> Int64
 
@@ -64,6 +67,7 @@ final class BotRuntimeUnit {
                  maintenance: BotMemoryMaintenanceController,
                  proactive: ProactiveEngine,
                  deviceResults: DeviceTaskResultOutbox,
+                 cloudClient: CloudScheduleClient?,
                  routineActivity: BotRoutineActivityFlag,
                  nowProvider: @escaping @Sendable () -> Int64) {
         self.botID = botID
@@ -78,6 +82,7 @@ final class BotRuntimeUnit {
         self.maintenance = maintenance
         self.proactive = proactive
         self.deviceResults = deviceResults
+        self.cloudClient = cloudClient
         self.routineActivity = routineActivity
         self.nowProvider = nowProvider
         self.liveFish = BotLiveFishProjection(botID: botID)
@@ -90,7 +95,8 @@ final class BotRuntimeUnit {
                      isMainBot: @escaping @Sendable () -> Bool = { true },
                      workspaceRoot: URL = BotProductionPaths.workspaceRoot(),
                      now: (@Sendable () -> Int64)? = nil,
-                     sleep: RoutineScheduler.Sleeper? = nil) async throws -> BotRuntimeUnit {
+                     sleep: RoutineScheduler.Sleeper? = nil,
+                     cloud: BotCloudConfiguration? = nil) async throws -> BotRuntimeUnit {
         let memory = await runtime.memory(for: botID)
         let machine = await runtime.routineMachine
         let grants = await runtime.grants
@@ -158,6 +164,20 @@ final class BotRuntimeUnit {
                 allowed: notice.allowed, expired: notice.expired,
                 cancelled: notice.cancelled)
         }
+        let cloudClient: CloudScheduleClient?
+        if let cloud {
+            let transport = CloudScheduleHTTPTransport(
+                configuration: .init(baseURL: cloud.baseURL),
+                tokenProvider: { try await TonoAccountSession.shared.accessToken() })
+            cloudClient = CloudScheduleClient(
+                botID: botID, deviceID: cloud.deviceID, transport: transport,
+                machine: machine, scheduler: scheduler,
+                authorizer: cloud.authorizer,
+                readiness: { [remote] in await remote.isAvailable() },
+                now: resolvedNow, sleep: sleep)
+        } else {
+            cloudClient = nil
+        }
         let maintenance = BotMemoryMaintenanceController(
             store: store, botID: botID, memory: memory, runtime: runtime,
             remote: remote, recordReading: recordService,
@@ -215,6 +235,7 @@ final class BotRuntimeUnit {
             routineOutbox: routineOutbox, rows: rows, info: info,
             maintenance: maintenance,
             proactive: proactive, deviceResults: deviceResults,
+            cloudClient: cloudClient,
             routineActivity: routineActivity, nowProvider: resolvedNow)
     }
 
@@ -296,6 +317,7 @@ final class BotRuntimeUnit {
             "unit.scheduler-start", attempt: attempt, detail: unitDetail
         ) {
             await scheduler.start()
+            cloudClient?.start()
             await startLiveObservation()
         }
         // App-open, idle opportunity (spec/bot/v2 §4.5). It checks enabled,
@@ -333,6 +355,7 @@ final class BotRuntimeUnit {
     /// Drops the Host-bound half but keeps the unit and its durable data. A
     /// later `start(transport:)` reuses the same remote and scheduler.
     func detach() async {
+        cloudClient?.stop()
         await scheduler.stop()
         await stopLiveObservation()
         started = false

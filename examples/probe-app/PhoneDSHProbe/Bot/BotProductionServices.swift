@@ -51,6 +51,42 @@ struct BotProductionContext: Equatable, Sendable {
     var botName: String
 }
 
+/// Cloud scheduling configuration for one install. The base URL is a
+/// deployment fact: `PDSH_CLOUD_BASE_URL` overrides it for the local
+/// integration service, otherwise the existing Tono account origin is used.
+/// The device id is a stable per-install opaque value (never a hard ware id).
+struct BotCloudConfiguration: Sendable {
+    var baseURL: URL
+    var deviceID: String
+    var authorizer: any CloudScheduleAuthorizing
+
+    init(baseURL: URL, deviceID: String,
+         authorizer: any CloudScheduleAuthorizing = CloudScheduleAuthorizer()) {
+        self.baseURL = baseURL
+        self.deviceID = deviceID
+        self.authorizer = authorizer
+    }
+
+    static func production() -> BotCloudConfiguration? {
+        let override = ProcessInfo.processInfo.environment["PDSH_CLOUD_BASE_URL"]
+            .flatMap(URL.init(string:))
+        let fallback = URL(string: "https://account.tonoai.cn")
+        guard let baseURL = override ?? fallback else { return nil }
+        return BotCloudConfiguration(baseURL: baseURL, deviceID: deviceIdentity())
+    }
+
+    /// P18 pending registration: `phone-dsh.bot.cloud.device-id.v1`.
+    static func deviceIdentity() -> String {
+        let key = "phone-dsh.bot.cloud.device-id.v1"
+        if let existing = UserDefaults.standard.string(forKey: key), !existing.isEmpty {
+            return existing
+        }
+        let generated = "dev-" + UUID().uuidString.lowercased()
+        UserDefaults.standard.set(generated, forKey: key)
+        return generated
+    }
+}
+
 struct BotProductionRuntimeContext: Sendable {
     let botID: String
     /// The profile name of this Bot. It is the fallback after the last
