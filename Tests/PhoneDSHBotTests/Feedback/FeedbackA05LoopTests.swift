@@ -381,6 +381,60 @@ final class FeedbackA05LoopTests: XCTestCase {
         XCTAssertEqual(resolvedData["path"], .string(path))
     }
 
+    // The model tool path must reach the same disputed-only shape when it
+    // supplies real refs for an existing version; no UpdateMemory rewrite.
+    func testModelCorrectWithDisputedRefsOmitsApplied() async throws {
+        let path = "user/prefs/model-disputed.md"
+        let context = BotMemoryWriteContext(
+            botID: "bot-a", sessionID: "s-chat", authorKind: .chat,
+            source: BotMemorySource(kind: .userTurn, sessionID: "s-chat"),
+            trust: .user)
+        _ = try await memory.write(
+            BotMemoryWriteRequest(action: .write, path: path, content: "v1",
+                                  expectedVersion: 0,
+                                  evidence: ["record://session/s-chat#21"]),
+            context: context)
+        let center = try makeCenter()
+        let tools = BotFeedbackTools(center: center)
+        let principal = BotGatewayPrincipal(
+            botId: "bot-a", sessionId: "session-chat", kind: .chat,
+            expiresAt: FeedbackFixtures.baseNow + 3_600_000)
+        let result = await tools.execute(
+            name: BotFeedbackTools.toolName,
+            arguments: .object([
+                "action": .string("correct"),
+                "target": .object(["kind": .string("memory"),
+                                   "id": .string(path), "version": .number(1)]),
+                "scope": .string("artifact"),
+                "disputed_refs": .array([.string("record://session/s-chat#21")]),
+            ]),
+            principal: principal,
+            context: BotMCPRequestContext(callId: "mcp-correct-disputed"))
+        XCTAssertNotEqual(result.isError, true)
+        guard case .object(let body)? = result.structuredContent else {
+            return XCTFail("tool result must be structured")
+        }
+        XCTAssertEqual(body["ok"] ?? .null, .bool(true), "body=\(body)")
+        let events = try await feedbackEvents()
+        let recorded = try XCTUnwrap(events.last)
+        guard case .object(let data) = recorded.data else {
+            return XCTFail("feedback event data must be an object")
+        }
+        XCTAssertNil(data["applied"], "model dispute must omit applied")
+        XCTAssertEqual(data["subjects"], .array([.string("record://session/s-chat#21")]))
+        guard case .document(let document) = try await memory.read(path: path) else {
+            return XCTFail("memory document must remain readable")
+        }
+        XCTAssertEqual(document.version, 1)
+        XCTAssertEqual(document.content, "v1")
+        let allEvents = try await store.events(after: 0, limit: 500)
+        let review = try XCTUnwrap(allEvents.first { $0.type == "memory.review_requested" })
+        guard case .object(let reviewData) = review.data else {
+            return XCTFail("review data must be an object")
+        }
+        XCTAssertEqual(reviewData["outcome"], .string("disputed"))
+    }
+
     // 6. Production per-caller catalog gate for the model path. The static
     //    catalog already advertises RecordFeedback at this checkout, but the
     //    roster-aware catalog used by `tools/list` and by the runtime's

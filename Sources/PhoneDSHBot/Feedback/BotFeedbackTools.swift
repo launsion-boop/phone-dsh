@@ -82,7 +82,7 @@ public struct BotFeedbackTools: BotTeamToolHandling {
             }
             expiresAtMS = Int64(number)
         }
-        let feedback = BotFeedback(
+        var feedback = BotFeedback(
             botID: principal.botId, action: action,
             target: BotFeedbackArtifactRef(
                 kind: kind, id: Self.trim(rawID), version: version,
@@ -93,6 +93,13 @@ public struct BotFeedbackTools: BotTeamToolHandling {
                                       nonce: context.callId),
             disputedRefs: disputedRefs,
             expiresAtMS: expiresAtMS)
+        // G-2 r11: a model cannot prove an applied write. When it supplies the
+        // real refs it is disputing an existing version, so record the
+        // disputed-only shape (omit `applied`); a direct host caller can still
+        // record the applied shape explicitly.
+        if action == .correct, !disputedRefs.isEmpty {
+            feedback.disputedOnly = true
+        }
         do {
             let outcome = try await center.record(feedback)
             return .success(Self.encode(outcome))
@@ -190,7 +197,7 @@ public struct BotFeedbackTools: BotTeamToolHandling {
         case .suppress:
             return "suppress needs a delivered proactive/delivery artifact (scope artifact/class) or a routine id from automation_status (scope routine/class); a routine target with scope artifact is invalid, and an ordinary message row does not define a class."
         case .correct:
-            return "correct needs target.kind=memory with the memory path and the version actually applied by UpdateMemory; a message row is not a memory artifact."
+            return "correct needs target.kind=memory with the current version; UpdateMemory is not required. Include real record:// disputed_refs to dispute the existing version without rewriting it (disputed-only), or bind a version actually written in this turn (applied correction)."
         case .undo:
             return "undo needs target.kind=feedback with the feedback_id returned by an earlier accepted RecordFeedback call."
         }
