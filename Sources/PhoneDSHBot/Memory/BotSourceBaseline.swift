@@ -57,14 +57,20 @@ public struct BotSourceBaseline: Sendable, Equatable {
     /// Required for observations under G-1 r5/r8. Supplied by L's
     /// `prepareBaseline`; nil means P must not claim a comparable resource.
     public let resource: BotMemoryResource?
+    /// Authorization grant under which the source was read, when the write
+    /// front-end has a real grant decision. P only carries it into the
+    /// derivation; it never invents a grant or treats a missing one as trusted.
+    public let grantId: String?
 
     public init(record: String, role: BotSourceRole? = nil,
                 sourceVersion: BotSourceVersion?,
-                resource: BotMemoryResource? = nil) {
+                resource: BotMemoryResource? = nil,
+                grantId: String? = nil) {
         self.record = record
         self.role = role
         self.sourceVersion = sourceVersion
         self.resource = resource
+        self.grantId = grantId
     }
 }
 
@@ -166,7 +172,8 @@ public enum BotSourceBaselineBuilder {
                 version = nil
             }
             result.append(BotSourceBaseline(
-                record: ref, role: role, sourceVersion: version))
+                record: ref, role: role, sourceVersion: version,
+                grantId: state.grantId))
         }
         for ref in evidence { try append(ref, role: .evidence) }
         for ref in reviewRefs { try append(ref, role: .review) }
@@ -182,6 +189,7 @@ extension BotSourceBaseline: Codable {
         case role
         case sourceVersion
         case resource
+        case grantId
     }
 
     public init(from decoder: Decoder) throws {
@@ -195,6 +203,7 @@ extension BotSourceBaseline: Codable {
         role = try container.decodeIfPresent(BotSourceRole.self, forKey: .role)
         sourceVersion = try container.decodeIfPresent(BotSourceVersion.self, forKey: .sourceVersion)
         resource = try container.decodeIfPresent(BotMemoryResource.self, forKey: .resource)
+        grantId = try container.decodeIfPresent(String.self, forKey: .grantId)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -206,6 +215,9 @@ extension BotSourceBaseline: Codable {
         }
         if let resource {
             try container.encode(resource, forKey: .resource)
+        }
+        if let grantId {
+            try container.encode(grantId, forKey: .grantId)
         }
     }
 }

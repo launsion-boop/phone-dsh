@@ -1669,6 +1669,7 @@ extension BotSourceBaseline {
             record: record,
             role: role.flatMap { BotDerivationRole(rawValue: $0.rawValue) },
             resource: nil,
-            sourceVersion: sourceVersion?.provenanceSourceVersion(basisRef: record))
+            sourceVersion: sourceVersion?.provenanceSourceVersion(basisRef: record),
+            grantId: grantId)
     }
 }

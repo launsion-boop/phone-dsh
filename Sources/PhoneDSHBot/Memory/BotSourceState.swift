@@ -160,10 +160,15 @@ public struct BotSourceState: Sendable, Equatable {
     /// allows its `sourceVersion` to be omitted, and the read view reports the
     /// record's own liveness instead of inventing a version.
     public let version: BotSourceVersion?
+    /// Authorization grant under which this source was read, when the host has
+    /// a real grant decision. It is carried into the baseline/derivation; a
+    /// nil value is never replaced by a guessed grant.
+    public let grantId: String?
 
     public init(ref: String, resolved: Bool, erased: Bool,
                 observedAtMS: Int64?, recordType: String?,
-                trust: BotRecordTrust?, version: BotSourceVersion?) {
+                trust: BotRecordTrust?, version: BotSourceVersion?,
+                grantId: String? = nil) {
         self.ref = ref
         self.resolved = resolved
         self.erased = erased
@@ -171,6 +176,7 @@ public struct BotSourceState: Sendable, Equatable {
         self.recordType = recordType
         self.trust = trust
         self.version = version
+        self.grantId = grantId
     }
 }
 
@@ -186,6 +192,7 @@ extension BotSourceState: Codable {
         case recordType = "record_type"
         case trust
         case version
+        case grantId = "grant_id"
     }
 
     public init(from decoder: Decoder) throws {
@@ -205,6 +212,7 @@ extension BotSourceState: Codable {
         } else {
             trust = nil
         }
+        grantId = try container.decodeIfPresent(String.self, forKey: .grantId)
         version = try container.decodeIfPresent(BotSourceVersion.self, forKey: .version)
     }
 
@@ -232,6 +240,9 @@ extension BotSourceState: Codable {
         }
         if let version {
             try container.encode(version, forKey: .version)
+        }
+        if let grantId {
+            try container.encode(grantId, forKey: .grantId)
         }
     }
 }
