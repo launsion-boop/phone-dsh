@@ -21,25 +21,25 @@ import Foundation
 // Failure vocabulary is frozen by G-1: `refresh-denied`, `refresh-unavailable`,
 // `refresh-not-performed`, `no-resource-identity`.
 
-public enum BotWebResourceKind: String, Codable, Sendable, Equatable {
+enum BotWebResourceKind: String, Codable, Sendable, Equatable {
     case webURL = "web-url"
     case connector
 }
 
 /// One G-1 source version. `value` carries the basis prefix required by
 /// `spec/bot/v2/provenance.md` §2.3 (`etag:`, `last-modified:`, `sha256:`).
-public struct BotWebRevision: Codable, Sendable, Equatable {
-    public enum Basis: String, Codable, Sendable, Equatable {
+struct BotWebRevision: Codable, Sendable, Equatable {
+    enum Basis: String, Codable, Sendable, Equatable {
         case etag
         case lastModified = "last-modified"
         case contentSHA256 = "content-sha256"
     }
 
-    public var basis: Basis
-    public var value: String
-    public var observedAtMS: Int64
+    var basis: Basis
+    var value: String
+    var observedAtMS: Int64
 
-    public init(basis: Basis, value: String, observedAtMS: Int64) {
+    init(basis: Basis, value: String, observedAtMS: Int64) {
         self.basis = basis
         self.value = value
         self.observedAtMS = observedAtMS
@@ -48,13 +48,13 @@ public struct BotWebRevision: Codable, Sendable, Equatable {
 
 /// The same resource identity the stored observation used (§2.3). `scope` is
 /// metadata for the source-status resolver; it is not a network permission.
-public struct BotWebResourceIdentity: Codable, Sendable, Equatable {
-    public var kind: BotWebResourceKind
-    public var url: String
-    public var owner: String?
-    public var scope: String?
+struct BotWebResourceIdentity: Codable, Sendable, Equatable {
+    var kind: BotWebResourceKind
+    var url: String
+    var owner: String?
+    var scope: String?
 
-    public init(kind: BotWebResourceKind, url: String,
+    init(kind: BotWebResourceKind, url: String,
                 owner: String? = nil, scope: String? = nil) {
         self.kind = kind
         self.url = url
@@ -63,20 +63,20 @@ public struct BotWebResourceIdentity: Codable, Sendable, Equatable {
     }
 }
 
-public struct BotWebRecheckRequest: Sendable, Equatable {
-    public static let defaultTimeoutMilliseconds = 2_000
-    public static let maximumTimeoutMilliseconds = 3_000
-    public static let defaultMaximumBodyBytes = 1_048_576
-    public static let maximumBodyBytes = 2_097_152
+struct BotWebRecheckRequest: Sendable, Equatable {
+    static let defaultTimeoutMilliseconds = 2_000
+    static let maximumTimeoutMilliseconds = 3_000
+    static let defaultMaximumBodyBytes = 1_048_576
+    static let maximumBodyBytes = 2_097_152
 
-    public var resource: BotWebResourceIdentity
+    var resource: BotWebResourceIdentity
     /// The last recorded revision for the same identity, when one exists. Its
     /// basis selects the conditional header and the comparison.
-    public var baseline: BotWebRevision?
-    public var timeoutMilliseconds: Int
-    public var maximumBodyBytes: Int
+    var baseline: BotWebRevision?
+    var timeoutMilliseconds: Int
+    var maximumBodyBytes: Int
 
-    public init(resource: BotWebResourceIdentity, baseline: BotWebRevision? = nil,
+    init(resource: BotWebResourceIdentity, baseline: BotWebRevision? = nil,
                 timeoutMilliseconds: Int = BotWebRecheckRequest.defaultTimeoutMilliseconds,
                 maximumBodyBytes: Int = BotWebRecheckRequest.defaultMaximumBodyBytes) {
         self.resource = resource
@@ -86,14 +86,14 @@ public struct BotWebRecheckRequest: Sendable, Equatable {
     }
 }
 
-public enum BotWebRecheckFailure: String, Codable, Sendable, Equatable {
+enum BotWebRecheckFailure: String, Codable, Sendable, Equatable {
     case refreshDenied = "refresh-denied"
     case refreshUnavailable = "refresh-unavailable"
     case refreshNotPerformed = "refresh-not-performed"
     case noResourceIdentity = "no-resource-identity"
 }
 
-public enum BotWebRecheckOutcome: Sendable, Equatable {
+enum BotWebRecheckOutcome: Sendable, Equatable {
     /// First observation, or an observation with no comparable baseline.
     case observed(current: BotWebRevision, previous: BotWebRevision?, httpStatus: Int)
     /// The producer observed the same basis and value as the baseline.
@@ -114,8 +114,8 @@ public struct BotWebRecheckHTTPRequest: Sendable, Equatable {
     public var url: URL
     /// Only conditional/identity-safe headers. Never credentials or cookies.
     public var headers: [String: String]
-    public var timeoutMilliseconds: Int
-    public var maximumBodyBytes: Int
+    var timeoutMilliseconds: Int
+    var maximumBodyBytes: Int
     public var followsRedirects: Bool
 
     public init(method: String, url: URL, headers: [String: String],
@@ -173,17 +173,17 @@ public struct UnavailableBotWebRecheckTransport: BotWebRecheckTransport {
     }
 }
 
-public struct BotWebSourceRechecker: Sendable {
+struct BotWebSourceRechecker: Sendable {
     private let transport: any BotWebRecheckTransport
     private let now: @Sendable () -> Int64
 
-    public init(transport: any BotWebRecheckTransport,
+    init(transport: any BotWebRecheckTransport,
                 now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }) {
         self.transport = transport
         self.now = now
     }
 
-    public func recheck(_ request: BotWebRecheckRequest) async -> BotWebRecheckOutcome {
+    func recheck(_ request: BotWebRecheckRequest) async -> BotWebRecheckOutcome {
         guard let url = Self.normalizedURL(request.resource.url) else {
             return .notPerformed(.noResourceIdentity)
         }
