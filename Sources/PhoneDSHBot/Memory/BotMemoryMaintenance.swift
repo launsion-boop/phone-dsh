@@ -48,6 +48,7 @@ public enum BotMemoryMaintenanceFailureCode: String, Codable, Sendable {
     case verificationUnrechecked = "maintenance-verification-unrechecked"
     case conflictNotPreserved = "maintenance-conflict-not-preserved"
     case userScopeEvidence = "maintenance-user-scope-evidence"
+    case usageUnavailable = "maintenance-usage-unavailable"
 }
 
 public struct BotMemoryMaintenanceCandidate: Codable, Sendable, Equatable {
@@ -341,8 +342,8 @@ public struct BotMemoryMaintenanceSettings: Codable, Sendable, Equatable {
     public var runTokenBudget: Int
     public var dailyTokenBudget: Int
 
-    public init(enabled: Bool = false, runTokenBudget: Int = 32_000,
-                dailyTokenBudget: Int = 96_000) {
+    public init(enabled: Bool = false, runTokenBudget: Int = 160_000,
+                dailyTokenBudget: Int = 512_000) {
         self.enabled = enabled
         self.runTokenBudget = max(1, runTokenBudget)
         self.dailyTokenBudget = max(1, dailyTokenBudget)
@@ -520,6 +521,7 @@ enum BotMemoryMaintenanceText {
         \(verificationMaterial.map { $0 + "\n\n" } ?? "")交给你的终态，不是步骤：
         - 记忆与原始记录一致；过时或冲突的内容已修正。
         - 判断不了的明确标为不确定，并在文档里保留两种说法和各自的记录引用。
+        - 每篇记忆正文不比它引用的原始记录更长；超长、无依据或引用失效的写入会让整批回滚。
         - 索引在 1,500 字以内；细节下沉到文档。
         - 上次整理以来记录里出现过、没记下来、以后不会再出现的东西，已补上。
         - agent/inbox/ 里的 Task 和 routine 提交已合入（或明确丢弃）。
@@ -626,7 +628,7 @@ public actor BotMemoryMaintenanceController {
     /// but each Bot's daily budget is its own (spec/bot/v2 §4.6).
     public func budgetStatus() async -> BotMemoryMaintenanceBudgetStatus {
         let settings = settingsStore.settings()
-        let usage = await budgetUsage(sessionID: "", since: 0, now: now())
+        let usage = await budgetUsage(sessionID: "", sinceCommitSeq: 0, now: now())
         return BotMemoryMaintenanceBudgetStatus(
             dailyTokensUsed: usage.daily,
             dailyTokenLimit: settings.dailyTokenBudget)
@@ -709,8 +711,8 @@ public actor BotMemoryMaintenanceController {
     private func dailyBudgetExhausted(
         settings: BotMemoryMaintenanceSettings
     ) async -> Bool {
-        let usage = await budgetUsage(sessionID: "", since: 0, now: now())
-        return usage.daily >= settings.dailyTokenBudget
+        let usage = await budgetUsage(sessionID: "", sinceCommitSeq: 0, now: now())
+        return !usage.available || usage.daily >= settings.dailyTokenBudget
     }
 
     private func fireTrigger() async -> BotMemoryMaintenanceTrigger? {
@@ -776,11 +778,11 @@ public actor BotMemoryMaintenanceController {
                 runTokens: settings.runTokenBudget,
                 dailyTokens: settings.dailyTokenBudget),
             verificationPolicy: verificationPolicy)
-        guard (try? await append(
+        guard let startCommitSeq = try? await append(
             type: "memory.maintenance_started",
             eventID: "memory.maintenance_started:\(batchID)",
             data: start, at: startedAt, batchID: batchID,
-            sessionID: maintainerSession)) != nil else {
+            sessionID: maintainerSession) else {
             return nil
         }
 
@@ -889,16 +891,23 @@ public actor BotMemoryMaintenanceController {
             }
         }
 
-        // Budget: per-run usage reads the ledger under the maintenance purpose.
+        // Budget: the run window is the durable event sequence after
+        // `memory.maintenance_started` (ledger timestamps can be in a
+        // different clock domain from the injected host clock); the daily
+        // window stays the UTC day. Tokens are input + output + cache read +
+        // cache write, read from the ledger, never from the model.
         let usage = await budgetUsage(
-            sessionID: maintainerSession, since: startedAt, now: now())
+            sessionID: maintainerSession, sinceCommitSeq: startCommitSeq,
+            now: now())
         var budget = BotMemoryMaintenanceBudget(
             runTokens: settings.runTokenBudget,
             dailyTokens: settings.dailyTokenBudget,
             tokensUsed: usage.run,
             changedDocuments: changes.count,
             changedScalars: writtenScalars)
-        if failure == nil, usage.run > settings.runTokenBudget
+        if !usage.available {
+            if failure == nil { failure = .usageUnavailable }
+        } else if failure == nil, usage.run > settings.runTokenBudget
             || usage.daily > settings.dailyTokenBudget {
             failure = .budgetExceeded
         }
@@ -1328,29 +1337,40 @@ public actor BotMemoryMaintenanceController {
     // MARK: Ledger
 
     /// Per-run and UTC-day token usage for the dedicated maintenance purpose.
-    /// Read from the LLM ledger, never from the model's self-report.
-    private func budgetUsage(sessionID: String, since: Int64, now: Int64)
-        async -> (run: Int, daily: Int) {
+    /// Read from the LLM ledger, never from the model's self-report. The run
+    /// window is the batch's durable event range so a test/eval host clock
+    /// cannot silently produce a zero-cost run.
+    private func budgetUsage(sessionID: String, sinceCommitSeq: Int, now: Int64)
+        async -> (run: Int, daily: Int, available: Bool) {
         let ledger = BotLLMLedger(eventLog: store)
-        guard let records = try? await ledger.records(limit: 100_000) else {
-            return (0, 0)
+        guard let all = try? await ledger.records(limit: 100_000),
+              let afterStart = try? await ledger.records(
+                after: sinceCommitSeq, limit: 100_000) else {
+            return (0, 0, false)
         }
         let nowDate = Date(timeIntervalSince1970: Double(now) / 1_000)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
         let dayStart = Int64((calendar.startOfDay(for: nowDate).timeIntervalSince1970 * 1_000).rounded())
+        func tokens(_ record: BotLLMLedgerRecord) -> Int {
+            record.inputTokens + record.outputTokens
+                + record.cacheReadTokens + record.cacheWriteTokens
+        }
         var run = 0
+        for record in afterStart
+        where record.purpose == .memoryMaintenance
+            && record.botId == botID
+            && record.sessionId == sessionID {
+            run += tokens(record)
+        }
         var daily = 0
-        for record in records
+        for record in all
         where record.purpose == .memoryMaintenance && record.botId == botID {
             guard let date = BotLLMLedgerRecord.date(from: record.ts) else { continue }
             let at = Int64((date.timeIntervalSince1970 * 1_000).rounded())
-            let tokens = record.inputTokens + record.outputTokens
-                + record.cacheReadTokens + record.cacheWriteTokens
-            if at >= dayStart, at <= now { daily += tokens }
-            if record.sessionId == sessionID, at >= since, at <= now { run += tokens }
+            if at >= dayStart, at <= now { daily += tokens(record) }
         }
-        return (run, daily)
+        return (run, daily, true)
     }
 
     // MARK: Event helpers

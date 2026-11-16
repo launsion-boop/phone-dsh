@@ -380,7 +380,8 @@ final class MemoryMaintenanceTests: XCTestCase {
         defer { fixture.cleanup() }
         let (settings, suite) = makeSettings()
         defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
-        await settings.save(BotMemoryMaintenanceSettings(enabled: true))
+        await settings.save(BotMemoryMaintenanceSettings(
+            enabled: true, runTokenBudget: 1_000, dailyTokenBudget: 1_000))
         let memory = await fixture.runtime.memory(for: "main")
         let path = "agent/notes/erased-before-rollback.md"
         try await seedDocument(
@@ -436,7 +437,8 @@ final class MemoryMaintenanceTests: XCTestCase {
         defer { fixture.cleanup() }
         let (settings, suite) = makeSettings()
         defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
-        await settings.save(BotMemoryMaintenanceSettings(enabled: true))
+        await settings.save(BotMemoryMaintenanceSettings(
+            enabled: true, runTokenBudget: 1_000, dailyTokenBudget: 1_000))
         let memory = await fixture.runtime.memory(for: "main")
         try await seedDocument(
             makeDocument("agent/notes/split.md", "拆分前的原文", version: 1),
@@ -485,7 +487,8 @@ final class MemoryMaintenanceTests: XCTestCase {
         defer { fixture.cleanup() }
         let (settings, suite) = makeSettings()
         defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
-        await settings.save(BotMemoryMaintenanceSettings(enabled: true))
+        await settings.save(BotMemoryMaintenanceSettings(
+            enabled: true, runTokenBudget: 1_000, dailyTokenBudget: 1_000))
         let memory = await fixture.runtime.memory(for: "main")
         try await seedDocument(
             makeDocument("agent/notes/state.md", "旧内容", version: 1),
@@ -530,7 +533,8 @@ final class MemoryMaintenanceTests: XCTestCase {
         defer { fixture.cleanup() }
         let (settings, suite) = makeSettings()
         defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
-        await settings.save(BotMemoryMaintenanceSettings(enabled: true))
+        await settings.save(BotMemoryMaintenanceSettings(
+            enabled: true, runTokenBudget: 1_000, dailyTokenBudget: 1_000))
         let memory = await fixture.runtime.memory(for: "main")
         let runner = FakeMaintenanceRunner(sessionID: maintainerSession, memory: memory)
         runner.writes = [.init(
@@ -631,7 +635,8 @@ final class MemoryMaintenanceTests: XCTestCase {
         defer { fixture.cleanup() }
         let (settings, suite) = makeSettings()
         defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
-        await settings.save(BotMemoryMaintenanceSettings(enabled: true))
+        await settings.save(BotMemoryMaintenanceSettings(
+            enabled: true, runTokenBudget: 1_000, dailyTokenBudget: 1_000))
         let memory = await fixture.runtime.memory(for: "main")
         let runner = FakeMaintenanceRunner(sessionID: maintainerSession, memory: memory)
         runner.status = "cancelled"
