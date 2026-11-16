@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 export { default as steering } from './steering.ts'
 export { default as volatileContext } from './volatile-context.ts'
+export { default as decisionContext } from './decision-context.ts'
 export { default as identityBridge } from './identity-bridge.ts'
 export { default as approvalGate } from './approval-gate.ts'
 export { default as sandboxApproval } from './sandbox-approval.ts'
@@ -9,6 +10,9 @@ export { default as redact } from './redact.ts'
 export { dshbotChannel, BotRuntimeRemote, BotStreamHub } from './channel.ts'
 export { assemblePrompt, runtimePersonaBlock, variantBlock } from './prompt/assemble.ts'
 export type { VolatileContextSource, VolatileSnapshot } from './volatile-context.ts'
+export type {
+  DecisionContextConfig, DecisionContextMaterial, DecisionContextSnapshot, DecisionContextSource,
+} from './decision-context.ts'
 export { needsIdentityRegistration, NATIVE_PHONE_TOOL_PREFIX, botSessionOwned, botRuntimeAvailable } from './identity-bridge.ts'
 export { needsStructuralApproval } from './approval-gate.ts'
 export { BOT_SESSION_PREFIX, createBotOwnedSessions, isBotSessionId } from './bot-sessions.ts'

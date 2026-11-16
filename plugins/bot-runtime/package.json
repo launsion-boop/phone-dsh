@@ -11,6 +11,7 @@
     ".": "./src/index.ts",
     "./steering": "./src/steering.ts",
     "./volatile-context": "./src/volatile-context.ts",
+    "./decision-context": "./src/decision-context.ts",
     "./channel": "./src/channel.ts",
     "./identity-bridge": "./src/identity-bridge.ts",
     "./approval-gate": "./src/approval-gate.ts",
