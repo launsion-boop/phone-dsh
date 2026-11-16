@@ -79,7 +79,20 @@ public struct BotProvenanceSnapshot: Sendable {
     /// `BotDerivedRef` can then only resolve its scoped assertion. Nested
     /// views/upstreams use the filtered indexes too.
     func scoped(botID: String?) -> BotProvenanceSnapshot {
-        guard let botID, !botID.isEmpty else { return self }
+        guard let botID, !botID.isEmpty else {
+            // A scoped query without a principal is unknown, never the
+            // unscoped latest cross-Bot assertion. Legacy callers that want the
+            // old behavior must use the unscoped overload explicitly.
+            return BotProvenanceSnapshot(
+                assertions: [:], carrierByName: [:], bySource: [:],
+                eventFacts: eventFacts, erasedRecords: erasedRecords,
+                revokedGrants: revokedGrants, observations: observations,
+                observationsByKindKey: observationsByKindKey,
+                observationResourceByRef: observationResourceByRef,
+                scanLimitExceeded: scanLimitExceeded,
+                cyclicArtifacts: [], artifactByCarrier: [:],
+                generation: generation)
+        }
         var filtered: [BotDerivedRef: [BotProvenanceAssertion]] = [:]
         for (artifact, list) in assertions {
             let wanted = Self.scopeKey(artifact: artifact, botID: botID)

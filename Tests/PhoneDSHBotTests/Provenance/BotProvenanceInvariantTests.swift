@@ -195,4 +195,27 @@ final class BotProvenanceInvariantTests: XCTestCase {
         XCTAssertEqual(skill2.state, .erased)
     }
 
+    /// A scoped query with no principal is unknown, never the latest
+    /// cross-Bot assertion. This is the Q1 nil/empty regression.
+    func testMissingBotIDDoesNotFallBackToUnscoped() async throws {
+        let log = BotProvenanceTestLog()
+        let aSource = try await log.append(ProvenanceTest.event(
+            type: "conversation.user_message", eventId: "nil-source",
+            data: .object(["text": .string("a")]), botID: "bot-a"))
+        let path = "agent/playbook/weekly.md"
+        _ = try await log.append(memoryEvent(
+            path: path, source: "record://event/\(aSource)", role: "evidence",
+            baseline: "etag:a", botID: "bot-a", eventId: "nil-memory"))
+        let service = BotProvenanceService(eventLog: log)
+        let artifact = BotDerivedRef(kind: .memory, id: path, version: 1)
+        let statuses = try await service.sourceStatuses(for: artifact, botID: nil)
+        XCTAssertTrue(statuses.isEmpty)
+        let current = try await service.currentState(for: artifact, botID: nil)
+        XCTAssertTrue(current.sources.isEmpty)
+        XCTAssertNotEqual(current.state, .current)
+        let empty = try await service.sourceStatuses(
+            for: ["record://event/\(aSource)"], botID: "")
+        XCTAssertTrue(empty.isEmpty)
+    }
+
 }

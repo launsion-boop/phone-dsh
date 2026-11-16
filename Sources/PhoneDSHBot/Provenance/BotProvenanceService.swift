@@ -90,6 +90,8 @@ public protocol BotProvenanceQuerying: Sendable {
     func currentState(for artifact: BotDerivedRef, botID: String?) async throws
         -> BotDerivationView
     func sourceStatuses(for refs: [String]) async throws -> [String: BotSourceStatus]
+    func sourceStatuses(for refs: [String], botID: String?) async throws
+        -> [String: BotSourceStatus]
     func generation() async throws -> BotProvenanceGeneration
     func latestSkillChange(name: String) async throws -> BotSkillChangeSnapshot?
     func routineDerivationSources(botID: String, sessionID: String) async throws
@@ -455,6 +457,15 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         let snapshot = try await refresh()
         let facts = await facts(for: snapshot, extraRefs: refs)
         return snapshot.sourceStatuses(for: refs, facts: facts)
+    }
+
+    public func sourceStatuses(for refs: [String],
+                               botID: String?) async throws -> [String: BotSourceStatus] {
+        guard let botID, !botID.isEmpty else { return [:] }
+        let snapshot = try await refresh()
+        let scoped = snapshot.scoped(botID: botID)
+        let facts = await facts(for: scoped, extraRefs: refs)
+        return scoped.sourceStatuses(for: refs, facts: facts)
     }
 
     public func generation() async throws -> BotProvenanceGeneration {
