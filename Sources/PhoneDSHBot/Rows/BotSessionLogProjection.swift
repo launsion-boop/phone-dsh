@@ -689,12 +689,12 @@ public struct BotSessionLogProjector: Sendable {
                     // deliveries (G-2 r8/r9). The snapshot event nests the
                     // document; the live event has the routine at the root.
                     var entries: [[String: BotJSONValue]] = []
-                    if let document = event.data["document"]?.object,
+                    if let document = event.data["document"]?.objectValue,
                        let routines = document["routines"]?.array {
                         entries.append(contentsOf: routines.compactMap(objectValue))
                     }
                     if event.data["id"]?.string != nil || event.data["routineID"]?.string != nil,
-                       let root = event.data.object {
+                       let root = event.data.objectValue {
                         entries.append(root)
                     }
                     for routine in entries {
