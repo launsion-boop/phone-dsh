@@ -450,7 +450,9 @@ final class BotRuntimeComposition {
         let materialState = BotDecisionMaterialStateAdapter(provenance: provenance)
         let workspaceCatalog = BotWorkspaceDirectoryCatalog(
             workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot())
-        let workspaceMaterials = WorkspaceDecisionContextService(catalog: workspaceCatalog)
+        let workspaceMaterials = WorkspaceDecisionContextService(
+            catalog: workspaceCatalog,
+            eligibility: provenance)
         let decisionContext = BotDecisionContextService(
             memoryForBot: { botID in await runtime.memory(for: botID) },
             permissionRevision: permissionRevision,

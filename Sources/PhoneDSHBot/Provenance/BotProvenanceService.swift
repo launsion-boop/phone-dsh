@@ -862,3 +862,9 @@ private extension BotProvenanceSourceVersion {
         }
     }
 }
+
+
+/// The provenance read model is the single authority for workspaceFile
+/// eligibility; the decision-context workspace material service takes it
+/// before injecting a file.
+extension BotProvenanceService: BotWorkspaceFileEligibility {}
