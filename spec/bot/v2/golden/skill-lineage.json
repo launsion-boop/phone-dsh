@@ -90,6 +90,25 @@
             }
           ]
         }
+      },
+      {
+        "schema": "bot-skill-change/v1",
+        "action": "write",
+        "skill": {
+          "name": "project-helper",
+          "file": "project-helper.md",
+          "source": "project-dsh",
+          "owner_bot_id": "bot-a",
+          "revision": 1,
+          "content_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "bytes": 12
+        },
+        "author": {
+          "kind": "bot",
+          "bot_id": "bot-a",
+          "session_id": "gb-main"
+        },
+        "at_ms": 1760000000004
       }
     ],
     "derivation": [
@@ -158,6 +177,24 @@
           "session_id": "gb-main"
         },
         "at_ms": 1760000000002
+      },
+      {
+        "schema": "bot-skill-change/v1",
+        "action": "write",
+        "skill": {
+          "name": "project-no-owner",
+          "file": "project-no-owner.md",
+          "source": "project-dsh",
+          "revision": 1,
+          "content_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "bytes": 12
+        },
+        "author": {
+          "kind": "bot",
+          "bot_id": "bot-a",
+          "session_id": "gb-main"
+        },
+        "at_ms": 1760000000004
       }
     ]
   },

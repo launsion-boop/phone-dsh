@@ -264,6 +264,25 @@
   provider；直接返回对应状态；只有新授权/新 source identity 才重新尝试。
 - 兼容：旧 reader 忽略未知 type；旧数据无事件 → unknown；回滚旧 App 不写/不读新事件，skill 文件
   仍可用；新 App 读到旧数据不伪造 revision。
+- **官方 skill root 作用域（2026-11-17 官方只读核对）**：官方 DSH `skill-filesystem` 会按
+  `projectRoot/.dsh/skills`（source=`project-dsh`）、`projectRoot/.agents/skills`
+  （source=`project-agents`）、user/custom/bundled 多 root 合并；同名 project skill 覆盖
+  user/custom。Bot cwd = per-Bot `botRoot`，因此不同 Bot 的 project skill 可以同名不同 path。
+  feature-admin 的 host 编辑面仍是单一 profile root `/dsh/home/skills`（source=`host`）。所以
+  skill identity 不是单纯的 name：`skill.changed.skill` 带可选 `source`
+  (`host|project-dsh|project-agents|user|custom|bundled`) 与 `owner_bot_id`；L key =
+  `(source, owner_bot_id?, name)`。旧事件缺 `source` 按 `host`（feature-admin 兼容）；project-dsh/
+  project-agents 必须带 owner，且等于真实 Bot；同名不同 source/owner 不合并。不存绝对 cwd/root
+  路径，不按路径猜；`file` 仍是扁平 basename。
+- **真实 producer 链（R2/C）**：只在 `SkillsStore.write/delete` **真实成功**后，读取最终文件字节
+  （delete 用删除前 bytes/hash）并写 `skill.changed`：`file=<name>.md`、`name=skillNameOf(file)`、
+  `content_sha256=sha256(final bytes)`、`bytes`、`previous_sha256`、单调 `revision`、真实 author；
+  不手工 append 目标事件，不凭目录扫描伪造 model citation；失败/部分写/临时文件不写事件。readonly/
+  list 不写；derivation 仅在有真实 source refs 时带，否则省略。
+- **recheck/gate**：`BotSkillFileRechecker` 读真实最终 bytes；`same` 仅当 hash 与 carrier 一致；
+  known erased/revoked/deleted source 不调 file provider，直接 erased/revoked/skill-deleted；
+  G-4 r2 的 worst(content source, upstream, recheck) 保持，缓存/workspace 不得复活 current。
+  D 收据在 producer 接通前仍为 unknown；这不是 PASS。
 
 ### 3.5 artifact scope / 内部 key（G-1 r15，root 裁决）
 

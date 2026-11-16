@@ -3,11 +3,12 @@
 """Validate the G-4 skill-change lineage contract and shared vectors.
 
 Checks skill-change shape, monotonic revisions, content/previous hash rules,
-derivation artifact matching, and the read-state cases: no event -> unknown +
-no-skill-write-event, delete -> unavailable + skill-deleted, no recheck ->
-unknown + refresh-not-performed, matching recheck -> current, changed bytes ->
-changed. Skills are host-global, so a different reader Bot sees the same
-artifact. See spec/bot/v2/provenance.md §3.4.
+derivation artifact matching, source/owner identity and the read-state cases:
+no event -> unknown + no-skill-write-event, delete -> unavailable +
+skill-deleted, no recheck -> unknown + refresh-not-performed, matching recheck
+-> current, changed bytes -> changed. A skill identity is
+(source, owner_bot_id?, name); legacy missing source is host. Project roots are
+per-Bot and never merge by name. See spec/bot/v2/provenance.md §3.4.
 """
 from __future__ import annotations
 import json, sys
@@ -34,6 +35,17 @@ def rejects(instance, name, where):
 
 def validate_event(data):
     check(data, "skill-change.schema.json", "skill.change")
+    skill = data["skill"]
+    source = skill.get("source", "host")
+    owner = skill.get("owner_bot_id")
+    if source in ("project-dsh", "project-agents"):
+        if not owner:
+            raise AssertionError("project skill needs owner_bot_id")
+        author_bot = (data.get("author") or {}).get("bot_id")
+        if author_bot is not None and owner != author_bot:
+            raise AssertionError("project skill owner must match author bot")
+    elif owner is not None:
+        raise AssertionError("global skill must not carry owner_bot_id")
     if "derivation" in data:
         check(data["derivation"], "derivation.schema.json", "skill.derivation")
         artifact = data["derivation"]["artifact"]
