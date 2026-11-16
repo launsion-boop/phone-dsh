@@ -170,7 +170,8 @@
         "maintenance-rollback-conflict",
         "maintenance-verification-unrechecked",
         "maintenance-conflict-not-preserved",
-        "maintenance-user-scope-evidence"
+        "maintenance-user-scope-evidence",
+        "maintenance-usage-unavailable"
       ]
     },
     "notification": {

@@ -658,11 +658,21 @@ TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema
 同一路径多个原因合并，最多保留 4 个原因。索引和 inbox 永远在候选里；候选不保证每次
 都被修改。
 
-**预算。** 单次运行 **32,000 token**、每个 UTC 自然日 **96,000 token**（输入 + 输出 +
-cache read + cache write，以 LLM 账本为准）。维护回合的账本 `purpose` 是独立值
-`memory-maintenance`；日报只统计这个 purpose。预算耗尽时触发条件再满足也不启动，
-在记忆页显示“今日整理预算已用完”，不伪造一次运行。token 用量从 LLM 账本按
-`sessionId = maintainer_session_id` 读取，不依赖模型自报。
+**预算（2026-11-16 修订，G-1 r9）。** 单次运行 **160,000 token**、每个 UTC 自然日
+**512,000 token**（输入 + 输出 + cache read + cache write，以 LLM 账本为准）。维护回合的账本
+`purpose` 是独立值 `memory-maintenance`；日报只统计这个 purpose。预算耗尽时触发条件再满足也不启动，
+在记忆页显示“今日整理预算已用完”，不伪造一次运行。
+
+- **证据**：真实 production assembly（M `b48ba1a53` + K L4 `4028b6d4` + P `4d34a646`）的
+  contradiction 2 样本、2 个真实批次实测 **106,941 / 183,185 token**（12 个模型请求，含 cache
+  read）；旧 32k/96k 把两批都判 `maintenance-budget-exceeded` 整批回滚。新值保留单批约 50% 余量、
+  UTC 日可容纳 ≥2 个真实批次。
+- **tokens_used 必须是本批真实用量**：写 `memory.maintenance_finished` 前，宿主按本批窗口/维护
+  session 汇总 LLM 账本（含 cache read/write）；`tokens_used=0` 只有在整批没有模型调用（例如首个
+  请求前取消）时才合法。拿不到账本 → 整批失败码 **`maintenance-usage-unavailable`**，不写成功、
+  不把 0 当成本。
+- 触发条件、默认关闭、开启门槛不变；预算不是质量门槛的替代，超过新预算仍按失败记录，不截断批次。
+- 若连续 3 个真实批次用量超过新 run 预算的 80%，下一 revision 必须重新评估（不静默调回）。
 
 ### 4.7 多 Bot 分工
 
