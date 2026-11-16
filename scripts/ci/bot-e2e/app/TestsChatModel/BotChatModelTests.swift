@@ -157,7 +157,7 @@ final class BotChatModelTests: XCTestCase {
         ]))
         XCTAssertTrue(model.showsActivityLine)
         XCTAssertEqual(model.lineActivity?.category, .reading)
-        XCTAssertEqual(model.lineActivity?.detail, "读取相关资料")
+        XCTAssertEqual(model.lineActivity?.detail, "在翻文件 · /tmp/report.md")
     }
 
     func testFinalHidesActivityLine() {

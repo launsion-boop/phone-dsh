@@ -179,75 +179,11 @@ enum BotRuntimePresentationFactory {
                 let id = event.data["turn"]?.runtimeString ?? event.data["turn"]?.runtimeInt.map(String.init)
                 return id == nil || id == turn.id
             }
-        struct Call {
-            var id: String
-            var name: String
-            var arguments: [String: PhoneDSHBot.BotJSONValue]
-            var time: Int64
-        }
-        var pending: [Call] = []
-        var seenIDs = Set<String>()
-        var lastReturn: (call: Call, index: Int, failed: Bool, time: Int64)?
-        var phase: (index: Int, streaming: Bool, time: Int64)?
-        let startTime = max(0, tail.first?.time ?? 0)
-        for (index, event) in tail.enumerated() {
-            let time = max(0, event.time)
-            switch event.type {
-            case "tool/call":
-                let id = event.data["callId"]?.runtimeString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if !id.isEmpty && !seenIDs.insert(id).inserted { continue }
-                pending.append(Call(id: id, name: event.data["name"]?.runtimeString ?? "",
-                                    arguments: toolArguments(event.data["arguments"]), time: time))
-            case "tool/result":
-                guard let id = toolResultCallID(event.data) else { continue }
-                let match = id.isEmpty ? (pending.count == 1 ? pending.startIndex : nil)
-                    : pending.firstIndex(where: { !$0.id.isEmpty && $0.id == id })
-                if let match {
-                    let call = pending.remove(at: match)
-                    if BotDisplayContract.isToolCallVisible(named: call.name) {
-                        let message = event.data["message"]?.runtimeObject ?? [:]
-                        lastReturn = (call, index, message["isError"]?.runtimeBool == true || event.data["error"]?.runtimeObject != nil, time)
-                    }
-                }
-            case "step/start": phase = (index, false, time)
-            case "assistant/stream", "assistant/message":
-                if visibleAssistantText(event.data) { phase = (index, true, time) }
-            default: break
-            }
-        }
-        if let call = pending.last(where: { BotDisplayContract.isToolCallVisible(named: $0.name) }) {
-            let phrase = BotActivityEvidence.action(forToolNamed: call.name, arguments: call.arguments)
-            return BotActivity(status: .toolRunning,
-                               detail: phrase.text.isEmpty ? "等待操作结果" : phrase.text,
-                               category: phrase.category, startedAt: call.time)
-        }
-        if let phase, phase.streaming, phase.index > (lastReturn?.index ?? -1) {
-            return BotActivity(status: .streaming, detail: "正在回复", category: .replying, startedAt: phase.time)
-        }
-        if let result = lastReturn {
-            return BotActivity(status: .thinking,
-                               detail: BotActivityEvidence.resultText(forToolNamed: result.call.name, failed: result.failed),
-                               category: .reviewing, startedAt: (phase?.index ?? -1) > result.index ? phase!.time : result.time)
-        }
-        return BotActivity(status: .thinking, detail: "等待响应", category: .thinking,
-                           startedAt: phase?.time ?? startTime)
-    }
-
-    private static func visibleAssistantText(_ data: [String: PhoneDSHBot.BotJSONValue]) -> Bool {
-        if let channel = data["channel"]?.runtimeString, channel != "text" { return false }
-        if let text = data["text"]?.runtimeString, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        let content = data["message"]?.runtimeObject?["content"]
-        if let text = content?.runtimeString { return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        guard case .array(let parts)? = content else { return false }
-        return parts.contains { part in
-            guard let value = part.runtimeObject, value["type"]?.runtimeString == "text",
-                  let text = value["text"]?.runtimeString else { return false }
-            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+        return BotActivityReducer.activity(events: tail)
     }
 
     /// nil means invalid/conflicting correlation, "" means truly absent.
-    private static func toolResultCallID(_ data: [String: PhoneDSHBot.BotJSONValue]) -> String? {
+    static func toolResultCallID(_ data: [String: PhoneDSHBot.BotJSONValue]) -> String? {
         let message = data["message"]?.runtimeObject ?? [:]
         let values = [message["toolCallId"], data["callId"], message["source"]?.runtimeObject?["callId"]]
         var ids = Set<String>()
@@ -261,7 +197,7 @@ enum BotRuntimePresentationFactory {
         return ids.first ?? ""
     }
 
-    private static func toolArguments(_ value: PhoneDSHBot.BotJSONValue?) -> [String: PhoneDSHBot.BotJSONValue] {
+    static func toolArguments(_ value: PhoneDSHBot.BotJSONValue?) -> [String: PhoneDSHBot.BotJSONValue] {
         if let object = value?.runtimeObject { return object }
         guard let text = value?.runtimeString, let data = text.data(using: .utf8),
               let decoded = try? JSONDecoder().decode(PhoneDSHBot.BotJSONValue.self, from: data) else { return [:] }
@@ -294,6 +230,16 @@ struct BotLiveFishProjection {
     private var nextSequence = 1
     private var streaming = false
     private var lastActivityAt: Int64?
+    /// Accumulated text of the current streaming segment. It is patched into
+    /// the one synthetic `assistant/stream` record only when a presentation is
+    /// built, so a turn's token count never adds events, never advances
+    /// `nextSequence` past the real session events, and never reorders them.
+    private var streamText = ""
+    private var streamEventIndex: Int?
+    /// A real text-bearing `assistant/stream` in this step makes the session's
+    /// own deltas authoritative, so later `textDelta` frames are ignored
+    /// instead of duplicating the sentence.
+    private var realTextAuthoritative = false
 
     init(botID: String) {
         self.botID = botID
@@ -303,17 +249,27 @@ struct BotLiveFishProjection {
         switch frame {
         case .streamStart:
             lastActivityAt = max(0, now)
-            if !streaming {
-                streaming = true
-                appendSynthetic(type: "assistant/stream", time: now,
-                                data: ["channel": .string("text")])
-            }
+            streaming = true
+            guard !realTextAuthoritative, streamEventIndex == nil else { return }
+            streamText = ""
+            appendSynthetic(type: "assistant/stream", time: now,
+                            data: ["channel": .string("text")])
+            streamEventIndex = records.count - 1
         case .textDelta(let text):
             lastActivityAt = max(0, now)
-            if !streaming {
-                streaming = true
+            streaming = true
+            // `activity-evidence-v2.1` accumulates the step's text-channel
+            // deltas. Keep the snapshot in the accumulator and patch the one
+            // synthetic record at presentation time: appending per token made
+            // every frame sort/reduce the whole replay and pushed synthetic
+            // sequence numbers past the real `assistant/message`/`tool/call`
+            // events they must follow.
+            guard !realTextAuthoritative else { return }
+            streamText += text
+            if streamEventIndex == nil {
                 appendSynthetic(type: "assistant/stream", time: now,
-                                data: ["channel": .string("text"), "text": .string(text)])
+                                data: ["channel": .string("text")])
+                streamEventIndex = records.count - 1
             }
         case .event(let event):
             guard let type = event["type"]?.stringValue else { return }
@@ -324,15 +280,31 @@ struct BotLiveFishProjection {
             switch type {
             case "turn/start":
                 // Keep the replay bounded to the open turn, like BotLiveTurn.
+                endStreamSnapshot(discardText: true)
                 records.removeAll(keepingCapacity: true)
                 streaming = false
                 lastActivityAt = max(0, now)
             case "step/start":
                 streaming = false
-            case "tool/call", "user/message", "assistant/message":
+                endStreamSnapshot()
+            case "assistant/stream":
+                // The session's own text deltas are authoritative for this
+                // step; drop the live snapshot so the reducer cannot see the
+                // sentence twice. Textless stream markers clear nothing.
+                let text = event["data"]?["text"]?.stringValue ?? ""
+                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    endStreamSnapshot(discardText: true)
+                    realTextAuthoritative = true
+                }
+                lastActivityAt = max(0, now)
+            case "assistant/message", "tool/call", "tool/result":
+                endStreamSnapshot()
+                lastActivityAt = max(0, now)
+            case "user/message":
                 lastActivityAt = max(0, now)
             case "turn/end":
                 streaming = false
+                endStreamSnapshot()
                 lastActivityAt = max(0, now)
             default:
                 break
@@ -343,6 +315,29 @@ struct BotLiveFishProjection {
                                 data: ["reason": .string("turn failed")])
             }
         }
+    }
+
+    /// Finish the current streaming segment: persist the accumulated text into
+    /// its single synthetic record once, so the call that follows can still
+    /// read it, then let a later segment create its own record.
+    private mutating func endStreamSnapshot(discardText: Bool = false) {
+        if let index = streamEventIndex {
+            storeStreamText(discardText ? "" : streamText, at: index)
+        }
+        streamText = ""
+        streamEventIndex = nil
+        realTextAuthoritative = false
+    }
+
+    private mutating func storeStreamText(_ text: String, at index: Int) {
+        guard records.indices.contains(index), case .object(var record) = records[index] else {
+            return
+        }
+        var data: [String: JSONValue] = [:]
+        if case .object(let current)? = record["data"] { data = current }
+        data["text"] = .string(text)
+        record["data"] = .object(data)
+        records[index] = .object(record)
     }
 
     mutating func noteInteraction(now: Int64 = BotLiveFishProjection.now) {
@@ -358,7 +353,25 @@ struct BotLiveFishProjection {
     }
 
     func presentation(now: Int64 = BotLiveFishProjection.now) -> BotRuntimePresentation {
-        BotRuntimePresentationFactory.live(botID: botID, events: records, now: now)
+        BotRuntimePresentationFactory.live(botID: botID, events: presentationRecords(), now: now)
+    }
+
+    /// The accumulated text snapshot is patched into the one synthetic
+    /// `assistant/stream` record here instead of on every delta, so the
+    /// record list stays as small as the real event list and the factory's
+    /// `seq` sort cannot move real events behind live text.
+    private func presentationRecords() -> [JSONValue] {
+        guard let index = streamEventIndex, records.indices.contains(index),
+              !streamText.isEmpty, case .object(var record) = records[index] else {
+            return records
+        }
+        var data: [String: JSONValue] = [:]
+        if case .object(let current)? = record["data"] { data = current }
+        data["text"] = .string(streamText)
+        record["data"] = .object(data)
+        var patched = records
+        patched[index] = .object(record)
+        return patched
     }
 
     /// Sixty seconds without a turn, a frame or a user touch.
@@ -387,122 +400,76 @@ struct BotLiveFishProjection {
     }
 }
 
-/// iOS evidence policy. The shared phrase table remains the legacy vocabulary
-/// for other clients; only semantic action fields can override it here.
-/// No raw reasoning, command, task prompt or business-summary text is displayed.
+/// iOS evidence policy for `activity-evidence-v2.1`. One bubble sentence is
+/// the real work of this call: the model's per-call intent, the same-step
+/// public progress sentence, or the call's own argument object. Only
+/// credential shapes, generic fillers and completion claims are rejected;
+/// file names, paths, URLs, PR numbers and names stay recognisable.
 enum BotActivityEvidence {
-    /// Only a purpose, never a file identifier or command, enters this label.
-    /// Metadata is deliberately not passed to the legacy target-suffix builder.
+    /// A longer sentence is truncated with `…` for display only.
+    static let maxCharacters = 512
+
+    /// Compatibility entry point for callers that only need the tool label.
+    /// The production bubble resolves the sentence alongside the same-step
+    /// public text in `BotActivityReducer.sentence`.
     static func action(forToolNamed name: String,
                        arguments: [String: PhoneDSHBot.BotJSONValue]) -> BotToolActivityPhrase {
-        let bare = BotActivityPhrases.bareToolName(name).lowercased()
-        var result = BotActivityPhrases.toolActivity(forToolNamed: name, arguments: [:])
-        let fallbacks: [String: String] = [
-            "bash": "执行当前操作", "read": "读取相关资料", "write": "保存处理结果",
-            "edit": "更新相关内容", "glob": "查找相关资料", "grep": "查找相关内容",
-            "web_search": "查找相关信息", "web_fetch": "查看网页内容",
-            "job_list": "查看任务进展", "job_output": "等待任务结果", "job_kill": "停止当前任务",
-            "todo_write": "整理待办事项", "create_goal": "确定处理目标",
-            "get_goal": "查看处理目标", "update_goal": "更新处理目标",
-            "updatememory": "更新记忆内容", "readmemory": "查阅相关记忆", "recallmemory": "查找相关记忆",
-            "task": "安排协作任务", "awaittask": "等待协作结果", "stopsubagent": "停止协作任务",
-            "sendtoagent": "联系协作助手", "createteammate": "创建协作助手",
-            "sendtouser": "发送回复", "send_to_user": "发送回复", "botvolatilecontext": "读取当前信息",
-            "show_attachment": "展示处理结果", "show_document": "展示整理结果",
-            "show_progress": "更新任务进度", "show_checklist": "整理检查清单", "show_link": "整理参考来源",
-        ]
-        result.text = fallbacks[bare] ?? (result.text.isEmpty ? "等待操作结果" : result.text)
-        if bare == "updateroutine" {
-            let actions = ["create": "创建例行安排", "update": "更新例行安排", "delete": "删除例行安排",
-                           "list": "查看例行安排", "get": "查看例行安排", "pause": "暂停例行安排", "resume": "恢复例行安排"]
-            result.text = actions[arguments["action"]?.runtimeString ?? ""] ?? "处理例行安排"
-        }
-        if bare == "web_search" {
-            var topic = arguments["query"]?.runtimeString
-            if topic == nil, case .array(let queries)? = arguments["queries"] {
-                topic = queries.compactMap { $0.runtimeString }.first
-            }
-            if let topic, let spoken = spokenIntent(topic), spoken.count <= 10 {
-                result.text = "查询" + spoken
-            }
-        }
-        let keys: [String]
-        switch bare {
-        case "bash": keys = ["description"]
-        case "task": keys = ["task_title", "description"]
-        default: keys = []
-        }
-        for key in keys {
-            guard let raw = arguments[key]?.runtimeString,
-                  let text = spokenIntent(raw) else { continue }
-            result.text = text
-            break
-        }
-        return result
+        let resolved = BotActivityReducer.sentence(toolName: name, arguments: arguments,
+                                                   publicText: nil)
+        return BotToolActivityPhrase(category: resolved.category, text: resolved.text)
     }
 
-    /// Reject unsuitable prose instead of cutting a sentence into an ellipsis.
-    /// This is a display policy; original tool arguments are never rewritten.
-    static func spokenIntent(_ raw: String) -> String? {
-        let first = raw.components(separatedBy: .newlines).first ?? ""
+    /// One display sentence: first line, collapsed whitespace, sentence-final
+    /// punctuation stripped, capped at 512 characters (511 + `…`). The
+    /// sentence keeps its real objects; only the shapes below are rejected.
+    static func displayText(_ raw: String) -> String? {
+        let firstLine = raw.components(separatedBy: .newlines).first ?? ""
+        var text = firstLine
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let punctuation = CharacterSet(charactersIn: "。！？!?；;，,、.…")
-        let text = first.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: punctuation).trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasCJK = text.unicodeScalars.contains { (0x3400...0x9FFF).contains($0.value) }
-        let limit = hasCJK ? 16 : 48
-        guard !text.isEmpty, text.count <= limit,
-              text.split(whereSeparator: \.isWhitespace).count <= 7,
-              !text.unicodeScalars.contains(where: CharacterSet.symbols.contains) else { return nil }
-        if Self.forbiddenIntents.contains(where: { text.range(of: $0, options: .regularExpression) != nil }) {
-            return nil
+        while let last = text.unicodeScalars.last, punctuation.contains(last) {
+            text.removeLast()
         }
-        let firstToken = text.split(whereSeparator: \.isWhitespace).first.map(String.init)?.lowercased() ?? ""
-        guard !Self.commandTokens.contains(firstToken) else { return nil }
-        let generic = ["思考中", "整理思绪", "准备下一步", "马上就好", "正在处理", "处理中"]
-        let completion = #"(?i)^(?:已(?:完成|成功|验证|发送|删除)|completed\b|verified\b|all tests passed\b|done\b)"#
-        guard !generic.contains(text), text.range(of: completion, options: .regularExpression) == nil else { return nil }
-        return text
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        let lower = text.lowercased()
+        guard !fillerPhrases.contains(text), !fillerPhrases.contains(lower) else { return nil }
+        guard text.range(of: receiptPattern, options: .regularExpression) == nil else { return nil }
+        guard !completionPrefixes.contains(where: { text.hasPrefix($0) }) else { return nil }
+        for word in englishCompletionWords {
+            guard lower.hasPrefix(word) else { continue }
+            let rest = lower.dropFirst(word.count)
+            if rest.isEmpty || rest.first.map({ !$0.isLetter && !$0.isNumber }) == true {
+                return nil
+            }
+        }
+        guard !credentialPatterns.contains(where: {
+            text.range(of: $0, options: .regularExpression) != nil
+        }) else { return nil }
+        guard text.count > maxCharacters else { return text }
+        return String(text.prefix(maxCharacters - 1)) + "…"
     }
 
-    /// Shapes that must never reach a spoken label: destinations, code
-    /// punctuation, credentials, opaque identifiers and bare filenames.
-    /// A purpose that trips one of these is replaced by the tool-kind
-    /// fallback instead of being truncated or spoken.
-    private static let forbiddenIntents: [String] = [
-        #"(?i)(https?:|www\.|[/\\`<>|{}\[\]=:：*?&#%“”‘’《》]|mcp__|[a-z0-9]+_[a-z0-9_]+)"#,
-        // Dotfiles and `name.ext`; a bare version such as 3.5 stays allowed.
-        #"(?i)(^|\s)\.|[\p{L}\p{N}_-]+\.[a-z]{1,8}(?=$|[^a-z0-9])"#,
-        // Key material and assignments.
-        #"(?i)(bearer\s+\S+|(?:api[_-]?key|access[_-]?token|session[_-]?token|password|passwd|secret)\s*[:=])"#,
-        // Cloud, chat and GitHub style tokens.
-        #"(?i)(\bsk[-_][a-z0-9][a-z0-9_-]{5,}|\bxox[abprs][-_][a-z0-9-]{6,}|\b(?:ghp|gho|ghs|ghu|github_pat|akia|asia)[-_]?[a-z0-9]{8,})"#,
-        // Addresses, UUIDs, long hex, `job-7` style handles.
-        #"(?i)([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[0-9a-f]{16,}\b|\b[a-z]{2,}-[0-9]+\b)"#,
+    private static let fillerPhrases: Set<String> = [
+        "思考中", "整理思绪", "准备下一步", "马上就好", "正在处理", "处理中",
+        "等待响应", "等待模型响应", "正在回复", "好的", "我来看看", "我看一下",
+        "稍等", "开始",
     ]
-
-    /// Command words: a purpose never starts with one, and a tool call whose
-    /// `description` is a command must fall back to the tool-kind label.
-    private static let commandTokens: Set<String> = [
-        "git", "ls", "cd", "pwd", "cat", "sed", "awk", "grep", "rg", "find", "chmod",
-        "chown", "cp", "mv", "rm", "mkdir", "rmdir", "touch", "echo", "printf", "curl",
-        "wget", "ssh", "scp", "rsync", "tar", "zip", "unzip", "make", "npm", "npx",
-        "pnpm", "yarn", "node", "python", "python3", "pip", "pip3", "swift", "cargo",
-        "rustc", "go", "xcodebuild", "xcodegen", "pytest", "brew", "docker", "kubectl",
-        "terraform", "aws", "gcloud", "gh", "jq", "yq", "ps", "kill", "pkill", "sudo",
-        "systemctl", "launchctl", "defaults", "plutil", "osascript", "env", "export",
-        "xargs", "head", "tail", "wc", "sort", "uniq", "open", "az",
+    private static let receiptPattern = #"^已收到.*结果$"#
+    private static let completionPrefixes = [
+        "已完成", "已成功", "已验证", "已确认", "已修复", "已合并", "已发送",
+        "已删除", "已通过", "已解决",
     ]
-
-    static func resultText(forToolNamed name: String, failed: Bool) -> String {
-        if failed { return "这步遇到问题" }
-        switch BotActivityPhrases.bareToolName(name).lowercased() {
-        case "read", "readmemory", "get_goal": return "已收到读取结果"
-        case "glob", "grep", "web_search", "web_fetch", "recallmemory": return "已收到查询结果"
-        case "write", "edit", "updatememory", "updateroutine": return "已收到更新结果"
-        case "task", "awaittask", "sendtoagent": return "已收到协作反馈"
-        default: return "已收到操作结果"
-        }
-    }
+    private static let englishCompletionWords = ["completed", "verified", "done", "all tests passed"]
+    private static let credentialPatterns = [
+        #"(?i)\bbearer\s+\S+"#,
+        #"(?i)(?:api[_-]?key|access[_-]?token|session[_-]?token|password|passwd|secret|token)\s*[:=]"#,
+        #"(?i)\bsk-[a-z0-9][a-z0-9_-]{5,}"#,
+        #"(?i)\bghp_[a-z0-9]{8,}"#,
+        #"(?i)\bxox[abprs]-[a-z0-9-]{6,}"#,
+        #"(?i)\bakia[a-z0-9]{12,}"#,
+    ]
 
     static func lineActivity(factory: BotActivity?, streaming: Bool,
                              pendingApprovals: Int, visible: Bool) -> BotActivity? {
@@ -514,8 +481,8 @@ enum BotActivityEvidence {
         return phase ?? BotActivity(status: .thinking, detail: "等待响应", category: .thinking)
     }
 
-    /// Every activity entering the iOS line has one stable, evidence-based
-    /// label. The legacy synonym pool is never used by this display path.
+    /// Every activity entering the iOS line has one stable, event-based label.
+    /// The legacy synonym pool is never used by this display path.
     static func normalized(_ activity: BotActivity) -> BotActivity {
         guard activity.detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return activity }
         var result = activity
@@ -532,4 +499,354 @@ enum BotActivityEvidence {
         }
         return result
     }
+}
+
+/// `activity-evidence-v2.1` reducer: one deterministic fold over the open
+/// turn's events. The durable factory and the live frames both call it, so a
+/// replay of the same events yields the same activity. Model text only fills
+/// `detail`; status and category come from the call lifecycle.
+enum BotActivityReducer {
+    struct Resolution: Equatable {
+        var text: String
+        var category: BotActivityCategory
+    }
+
+    private struct Rule {
+        var category: BotActivityCategory
+        var label: String
+        var intentKeys: [String] = []
+        var objectKeys: [String] = []
+        var objectKind: ObjectKind = .plain
+        var secondaryKeys: [String] = []
+        /// Public task progress is the default source for every visible
+        /// work tool; only card/messaging tools opt out (`v2.3`).
+        var allowsPublicText = true
+    }
+
+    private enum ObjectKind { case plain, url, query, links }
+
+    /// The v2.1 table. `BotActivityPhrases` stays the legacy vocabulary for
+    /// Android and for non-production callers.
+    private static let rules: [String: Rule] = [
+        "bash": Rule(category: .running, label: "正在运行命令",
+                     intentKeys: ["description"]),
+        "read": Rule(category: .reading, label: "在翻文件",
+                     objectKeys: ["file_path", "path", "filePath"]),
+        "write": Rule(category: .writing, label: "在写文件",
+                      objectKeys: ["file_path", "path", "filePath"]),
+        "edit": Rule(category: .writing, label: "在改文件",
+                     objectKeys: ["file_path", "path", "filePath"]),
+        "str_replace_editor": Rule(category: .writing, label: "在改文件",
+                                   objectKeys: ["file_path", "path", "filePath"]),
+        "glob": Rule(category: .searching, label: "在找文件", objectKeys: ["pattern"]),
+        "grep": Rule(category: .searching, label: "在搜内容", objectKeys: ["pattern"],
+                     secondaryKeys: ["path"]),
+        "web_search": Rule(category: .searching, label: "在网上搜",
+                           objectKeys: ["query", "queries"], objectKind: .query),
+        "web_fetch": Rule(category: .browsing, label: "在开网页", objectKeys: ["url"],
+                          objectKind: .url),
+        "job_list": Rule(category: .running, label: "看看进展"),
+        "job_output": Rule(category: .running, label: "等待结果"),
+        "job_kill": Rule(category: .running, label: "停止任务"),
+        "todo_write": Rule(category: .writing, label: "整理待办"),
+        "create_goal": Rule(category: .writing, label: "定个目标", objectKeys: ["objective"]),
+        "get_goal": Rule(category: .reading, label: "看看目标"),
+        "update_goal": Rule(category: .writing, label: "更新目标", objectKeys: ["objective"]),
+        "task": Rule(category: .messaging, label: "启动子任务",
+                     intentKeys: ["task_title", "description"]),
+        "awaittask": Rule(category: .running, label: "等子任务结果"),
+        "stopsubagent": Rule(category: .running, label: "停止子任务"),
+        "updatememory": Rule(category: .memory, label: "在记笔记", objectKeys: ["path"]),
+        "readmemory": Rule(category: .memory, label: "在翻记忆", objectKeys: ["path"]),
+        "recallmemory": Rule(category: .memory, label: "回想一下", objectKeys: ["query"]),
+        "updateroutine": Rule(category: .writing, label: "修改例行任务", objectKeys: ["title"]),
+        "listroutines": Rule(category: .reading, label: "看看例行任务"),
+        // Card and messaging tools already carry their own public content, so
+        // they never borrow the model's streamed prose (`v2.3`).
+        "sendtouser": Rule(category: .messaging, label: "整理回复",
+                           allowsPublicText: false),
+        "send_to_user": Rule(category: .messaging, label: "整理回复",
+                             allowsPublicText: false),
+        "ask_user": Rule(category: .messaging, label: "想问问你",
+                         allowsPublicText: false),
+        "show_next_steps": Rule(category: .messaging, label: "给你选项",
+                                allowsPublicText: false),
+        "show_attachment": Rule(category: .messaging, label: "送上附件",
+                                objectKeys: ["path"], allowsPublicText: false),
+        "show_document": Rule(category: .reading, label: "打开文档",
+                              objectKeys: ["title", "path"], allowsPublicText: false),
+        "show_progress": Rule(category: .writing, label: "更新进度",
+                              objectKeys: ["title"], allowsPublicText: false),
+        "show_checklist": Rule(category: .writing, label: "列个清单",
+                               objectKeys: ["title"], allowsPublicText: false),
+        "show_link": Rule(category: .messaging, label: "放上链接",
+                          objectKeys: ["links", "url"], objectKind: .links,
+                          allowsPublicText: false),
+        "requestapproval": Rule(category: .messaging, label: "请你确认",
+                                objectKeys: ["detail"], allowsPublicText: false),
+        "sendtoagent": Rule(category: .messaging, label: "给其他 Bot 发消息",
+                            objectKeys: ["bot_name"], allowsPublicText: false),
+        "createteammate": Rule(category: .messaging, label: "创建协作 Bot",
+                               objectKeys: ["name"], allowsPublicText: false),
+    ]
+    private static let unknownRule = Rule(category: .generic, label: "等待操作结果")
+
+    private static func rule(for rawName: String) -> Rule {
+        rules[BotActivityPhrases.bareToolName(rawName).lowercased()] ?? unknownRule
+    }
+
+    /// Fold the open turn's events (already ordered and turn-filtered by the
+    /// factory) into the one visible activity.
+    static func activity(events: [BotDSHSessionEvent]) -> BotActivity? {
+        struct Call {
+            var id: String
+            var name: String
+            var time: Int64
+            var resolution: Resolution
+        }
+        guard let firstEvent = events.first else { return nil }
+        let startTime = max(0, firstEvent.time)
+        var pending: [Call] = []
+        var seenIDs = Set<String>()
+        var lastReturn: (call: Call, index: Int, failed: Bool, time: Int64)?
+        var phase: (index: Int, streaming: Bool, time: Int64)?
+        var currentStep: Int?
+        var streamText = ""
+        var messageText: String?
+        var candidateStep: Int?
+
+        func clearCandidate() {
+            streamText = ""
+            messageText = nil
+            candidateStep = nil
+        }
+        func candidate() -> String? { messageText ?? (streamText.isEmpty ? nil : streamText) }
+
+        for (index, event) in events.enumerated() {
+            let time = max(0, event.time)
+            let eventStep = event.data["step"]?.runtimeInt
+            switch event.type {
+            case "turn/start":
+                currentStep = nil
+                clearCandidate()
+            case "step/start":
+                currentStep = eventStep
+                phase = (index, false, time)
+                clearCandidate()
+            case "assistant/stream":
+                guard event.data["channel"]?.runtimeString == "text",
+                      let chunk = event.data["text"]?.runtimeString,
+                      !chunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { break }
+                // Text-channel deltas accumulate within the step; a durable
+                // `assistant/message` replaces the accumulated text.
+                messageText = nil
+                streamText += chunk
+                candidateStep = eventStep ?? currentStep
+                phase = (index, true, time)
+            case "assistant/message":
+                guard let text = publicMessageText(event.data) else { break }
+                streamText = ""
+                messageText = text
+                candidateStep = eventStep ?? currentStep
+                phase = (index, true, time)
+            case "tool/call":
+                let id = event.data["callId"]?.runtimeString?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let callStep = eventStep ?? currentStep
+                var usable: String?
+                if let text = candidate() {
+                    if let candidateStep, let callStep {
+                        usable = candidateStep == callStep ? text : nil
+                    } else {
+                        usable = text
+                    }
+                }
+                clearCandidate()
+                if !id.isEmpty, !seenIDs.insert(id).inserted { break }
+                let name = event.data["name"]?.runtimeString ?? ""
+                let arguments = BotRuntimePresentationFactory.toolArguments(event.data["arguments"])
+                pending.append(Call(id: id, name: name, time: time,
+                                    resolution: sentence(toolName: name, arguments: arguments,
+                                                         publicText: usable)))
+            case "tool/result":
+                clearCandidate()
+                guard let id = BotRuntimePresentationFactory.toolResultCallID(event.data) else {
+                    break
+                }
+                let match = id.isEmpty ? (pending.count == 1 ? pending.startIndex : nil)
+                    : pending.firstIndex(where: { !$0.id.isEmpty && $0.id == id })
+                guard let match else { break }
+                let call = pending.remove(at: match)
+                guard BotDisplayContract.isToolCallVisible(named: call.name) else { break }
+                let message = event.data["message"]?.runtimeObject ?? [:]
+                let failed = message["isError"]?.runtimeBool == true
+                    || event.data["error"]?.runtimeObject != nil
+                lastReturn = (call, index, failed, time)
+            case "turn/end":
+                clearCandidate()
+            default:
+                break
+            }
+        }
+
+        if let call = pending.last(where: { BotDisplayContract.isToolCallVisible(named: $0.name) }) {
+            return BotActivity(status: .toolRunning, detail: call.resolution.text,
+                               category: call.resolution.category, startedAt: call.time)
+        }
+        if let phase, phase.streaming, phase.index > (lastReturn?.index ?? -1) {
+            return BotActivity(status: .streaming, detail: "正在回复", category: .replying,
+                               startedAt: phase.time)
+        }
+        if let result = lastReturn {
+            return BotActivity(status: .thinking,
+                               detail: result.failed ? "这步遇到问题" : result.call.resolution.text,
+                               category: .reviewing,
+                               startedAt: (phase?.index ?? -1) > result.index ? phase!.time : result.time)
+        }
+        return BotActivity(status: .thinking, detail: "等待响应", category: .thinking,
+                           startedAt: phase?.time ?? startTime)
+    }
+
+    /// Priority: the call's own model intent, then the same-step public
+    /// progress sentence (with its real primary object appended), then the
+    /// call's own argument object, then the concrete action label.
+    static func sentence(toolName: String, arguments: [String: PhoneDSHBot.BotJSONValue],
+                         publicText: String?) -> Resolution {
+        let rule = Self.rule(for: toolName)
+        for key in rule.intentKeys {
+            guard let raw = arguments[key]?.runtimeString,
+                  let text = BotActivityEvidence.displayText(raw) else { continue }
+            return Resolution(text: text, category: rule.category)
+        }
+        if rule.allowsPublicText, let publicText,
+           let text = BotActivityEvidence.displayText(publicText) {
+            var sentence = text
+            if let object = objectText(rule, arguments: arguments), !mentions(sentence, object) {
+                sentence += " · " + object.display
+            }
+            return Resolution(text: capped(sentence), category: rule.category)
+        }
+        var label = rule.label
+        if let object = objectText(rule, arguments: arguments) {
+            label += " · " + object.display
+        }
+        if let secondary = secondaryText(rule, arguments: arguments) {
+            label += " · " + secondary
+        }
+        return Resolution(text: capped(label), category: rule.category)
+    }
+
+    private static func capped(_ text: String) -> String {
+        guard text.count > BotActivityEvidence.maxCharacters else { return text }
+        return String(text.prefix(BotActivityEvidence.maxCharacters - 1)) + "…"
+    }
+
+    /// The durable `assistant/message` text: only real text blocks count, so a
+    /// reasoning-only message yields no candidate.
+    private static func publicMessageText(_ data: [String: PhoneDSHBot.BotJSONValue]) -> String? {
+        let content = data["message"]?.runtimeObject?["content"] ?? data["content"]
+        if let text = content?.runtimeString {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+        }
+        guard case .array(let parts)? = content else { return nil }
+        let texts = parts.compactMap { part -> String? in
+            guard let value = part.runtimeObject,
+                  value["type"]?.runtimeString == "text",
+                  let text = value["text"]?.runtimeString,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return text
+        }
+        return texts.isEmpty ? nil : texts.joined(separator: " ")
+    }
+
+    private static func objectText(_ rule: Rule,
+                                   arguments: [String: PhoneDSHBot.BotJSONValue])
+        -> (raw: String, display: String)? {
+        for key in rule.objectKeys {
+            guard let value = arguments[key] else { continue }
+            switch rule.objectKind {
+            case .links:
+                if case .array(let items) = value {
+                    if let url = items.compactMap({ $0.runtimeObject }).first?["url"]?.runtimeString {
+                        let raw = url.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !raw.isEmpty { return (raw, displayURL(raw)) }
+                    }
+                    continue
+                }
+                if let raw = value.runtimeString?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !raw.isEmpty {
+                    return (raw, displayURL(raw))
+                }
+                continue
+            case .query:
+                if case .array(let items) = value {
+                    if let first = items.compactMap({ $0.runtimeString })
+                        .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                        let text = first.trimmingCharacters(in: .whitespacesAndNewlines)
+                        return (text, text)
+                    }
+                    continue
+                }
+            case .url:
+                if let raw = value.runtimeString?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !raw.isEmpty {
+                    return (raw, displayURL(raw))
+                }
+                continue
+            case .plain:
+                break
+            }
+            guard let raw = value.runtimeString?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !raw.isEmpty else { continue }
+            return (raw, raw)
+        }
+        return nil
+    }
+
+    private static func secondaryText(_ rule: Rule,
+                                      arguments: [String: PhoneDSHBot.BotJSONValue]) -> String? {
+        for key in rule.secondaryKeys {
+            guard let text = arguments[key]?.runtimeString?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { continue }
+            return text
+        }
+        return nil
+    }
+
+    private static func mentions(_ sentence: String, _ object: (raw: String, display: String)) -> Bool {
+        if !object.display.isEmpty, sentence.contains(object.display) { return true }
+        return object.raw != object.display && sentence.contains(object.raw)
+    }
+
+    /// A displayed URL keeps its host, path and non-sensitive query parameters
+    /// and drops the scheme, `www.`, userinfo and sensitive parameters.
+    static func displayURL(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let absolute = trimmed.contains("://") ? trimmed : "https://" + trimmed
+        guard var components = URLComponents(string: absolute) else {
+            var text = trimmed
+            for scheme in ["https://", "http://"] where text.hasPrefix(scheme) {
+                text.removeFirst(scheme.count)
+            }
+            if text.hasPrefix("www.") { text.removeFirst(4) }
+            return text
+        }
+        components.user = nil
+        components.password = nil
+        if let items = components.queryItems {
+            let kept = items.filter { !sensitiveQueryNames.contains($0.name.lowercased()) }
+            components.queryItems = kept.isEmpty ? nil : kept
+        }
+        var text = components.host ?? ""
+        if text.hasPrefix("www.") { text.removeFirst(4) }
+        if text.isEmpty { return trimmed }
+        let path = components.path
+        if !path.isEmpty, path != "/" { text += path }
+        if let query = components.percentEncodedQuery, !query.isEmpty { text += "?" + query }
+        return text
+    }
+
+    private static let sensitiveQueryNames: Set<String> = [
+        "token", "access_token", "api_key", "key", "password", "secret", "signature", "sig",
+    ]
 }
