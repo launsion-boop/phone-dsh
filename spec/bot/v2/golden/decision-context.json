@@ -165,6 +165,70 @@
         },
         "truncated": false,
         "canceled": false
+      },
+      {
+        "block_id": "dm:1",
+        "turn_id": "gb-main#3",
+        "session_id": "gb-main",
+        "bot_id": "bot-a",
+        "stage": "pre_step",
+        "authorization_revision": "auth-r1",
+        "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "retrieved_at_ms": 1760000010000,
+        "materials": [
+          {
+            "material_id": "mat:ws3",
+            "ref": "workspace:docs/100%25%20%23done.md@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "path": "docs/100% #done.md",
+            "scope": "agent",
+            "version": 1794837000,
+            "updated_at_ms": 1794837000000,
+            "snippet": "文件内容。",
+            "evidence": [],
+            "selection_reason": "match",
+            "state": "current"
+          }
+        ],
+        "limits": {
+          "max_materials": 4,
+          "max_characters": 1600,
+          "max_snippet_characters": 240,
+          "deadline_ms": 1500
+        },
+        "truncated": false,
+        "canceled": false
+      },
+      {
+        "block_id": "dm:1",
+        "turn_id": "gb-main#3",
+        "session_id": "gb-main",
+        "bot_id": "bot-a",
+        "stage": "pre_step",
+        "authorization_revision": "auth-r1",
+        "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "retrieved_at_ms": 1760000010000,
+        "materials": [
+          {
+            "material_id": "mat:ws3",
+            "ref": "workspace:%252E%252E@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "path": "%2E%2E",
+            "scope": "agent",
+            "version": 1794837000,
+            "updated_at_ms": 1794837000000,
+            "snippet": "文件内容。",
+            "evidence": [],
+            "selection_reason": "match",
+            "state": "current"
+          }
+        ],
+        "limits": {
+          "max_materials": 4,
+          "max_characters": 1600,
+          "max_snippet_characters": 240,
+          "deadline_ms": 1500
+        },
+        "truncated": false,
+        "canceled": false
       }
     ],
     "invalid": [
@@ -795,6 +859,181 @@
               "material_id": "mat:ws2",
               "ref": "workspace:Meeting%20Notes%20照片%40%25.md@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
               "path": "Meeting Notes 照片@%.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-encoded-slash",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws3",
+              "ref": "workspace:%2Fetc/passwd@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "path": "/etc/passwd",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-encoded-nul",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws3",
+              "ref": "workspace:a%00b.md@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "path": "a\u0000b.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-malformed-percent",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws3",
+              "ref": "workspace:a%ZZb.md@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "path": "a%ZZb.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-lowercase-hex",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws3",
+              "ref": "workspace:%2e%2e@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "path": "..",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-encoded-path-mismatch",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws3",
+              "ref": "workspace:%252E%252E@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "path": "..",
               "scope": "agent",
               "version": 1794837000,
               "updated_at_ms": 1794837000000,
