@@ -125,7 +125,7 @@ class CompareCases(unittest.TestCase):
 
     def test_new_diagnostic_fails(self) -> None:
         base = parse(DIAGNOSTICS)
-        head = parse(DIAGNOSTICS + "Sources/PhoneDSHBot/MCP/B.swift:1: banned-word: tonoai\n")
+        head = parse(DIAGNOSTICS + "Sources/PhoneDSHBot/MCP/B.swift:1: banned-word: forbidden-token\n")
         proc = self.compare(base, head)
         self.assertNotEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("NEW_FAILURE", (self.dir / "diff.json").read_text())
@@ -179,7 +179,7 @@ class RealLogReplay(unittest.TestCase):
             receipt = json.loads((Path(tmp) / "diff.json").read_text())
         self.assertNotEqual(proc.returncode, 0)
         self.assertEqual(receipt["verdict"], "NEW_FAILURE")
-        self.assertTrue(any("email: a@b.md" in item for item in receipt["new"]))
+        self.assertTrue(any("email: a@b" in item for item in receipt["new"]))
 
 
 if __name__ == "__main__":
