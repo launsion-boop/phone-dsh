@@ -180,7 +180,11 @@ final class BotRuntimeUnit {
                 machine: machine, scheduler: scheduler,
                 authorizer: cloud.authorizer,
                 readiness: { [remote] in await remote.isAvailable() },
-                now: resolvedNow, sleep: sleep)
+                now: resolvedNow,
+                sleep: sleep ?? { milliseconds in
+                    guard milliseconds > 0 else { return }
+                    try? await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
+                })
         } else {
             cloudClient = nil
         }
@@ -323,7 +327,7 @@ final class BotRuntimeUnit {
             "unit.scheduler-start", attempt: attempt, detail: unitDetail
         ) {
             await scheduler.start()
-            cloudClient?.start()
+            await cloudClient?.start()
             await startLiveObservation()
         }
         // App-open, idle opportunity (spec/bot/v2 §4.5). It checks enabled,
@@ -361,7 +365,7 @@ final class BotRuntimeUnit {
     /// Drops the Host-bound half but keeps the unit and its durable data. A
     /// later `start(transport:)` reuses the same remote and scheduler.
     func detach() async {
-        cloudClient?.stop()
+        await cloudClient?.stop()
         await scheduler.stop()
         await stopLiveObservation()
         started = false

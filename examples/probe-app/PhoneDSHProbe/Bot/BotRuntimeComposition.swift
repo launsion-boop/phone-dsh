@@ -627,7 +627,7 @@ final class BotRuntimeComposition {
     /// its schedules; a Bot without a client keeps the local-only behaviour.
     func noteRoutineChanged(botID: String) async {
         guard let unit = units[botID] else { return }
-        unit.cloudClient?.noteSchedulesChanged()
+        await unit.cloudClient?.noteSchedulesChanged()
     }
 
     func ensureUnit(for botID: String, reason: String = "selected") async throws -> BotRuntimeUnit {
