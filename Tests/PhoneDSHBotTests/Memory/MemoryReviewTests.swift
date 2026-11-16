@@ -316,6 +316,19 @@ final class MemoryReviewTests: XCTestCase {
                        .number(1_760_000_004_000))
     }
 
+    /// Q-09: over the batch ceiling the resolver rejects instead of silently
+    /// degrading to unknown times.
+    func testEvidenceSnapshotRejectsMoreThan512DistinctRefs() async throws {
+        let references = (0..<513).map { "record://session/gb-main#\($0)" }
+        do {
+            _ = try await service.evidenceSnapshot(
+                for: references, callerBotID: "bot-a", callerSessionID: "gb-main")
+            XCTFail("513 distinct refs must be rejected")
+        } catch let error as BotRecordServiceError {
+            XCTAssertEqual(error, .invalidArguments)
+        }
+    }
+
     func testEvidenceSnapshotCoversTheFullRecallBatchAndDeduplicates() async throws {
         let references = (0..<400).map { "record://session/gb-main#\($0)" }
         let snapshot = try await service.evidenceSnapshot(
@@ -401,6 +414,183 @@ final class MemoryReviewTests: XCTestCase {
             XCTAssertEqual(document.trust, legacyTrust,
                            "restore must not narrow a legal legacy trust")
         }
+    }
+
+    // MARK: - Q-10: review validation boundaries
+
+    func testUnknownReviewStateOrBasisIsRejected() async throws {
+        let unknownState = try await call([
+            "action": "write", "path": "agent/notes/bad-state.md",
+            "content": "x", "expected_version": 0,
+            "review": ["state": "confirmed", "basis": "observation"],
+        ])
+        XCTAssertEqual(unknownState.isError, true)
+        XCTAssertEqual(unknownState.structuredContent?["error"]?["code"]?.stringValue,
+                       "memory-review-invalid")
+
+        let unknownBasis = try await call([
+            "action": "write", "path": "agent/notes/bad-basis.md",
+            "content": "x", "expected_version": 0,
+            "review": ["state": "unverified", "basis": "vibes"],
+        ])
+        XCTAssertEqual(unknownBasis.isError, true)
+        XCTAssertEqual(unknownBasis.structuredContent?["error"]?["code"]?.stringValue,
+                       "memory-review-invalid")
+    }
+
+    func testReviewExtraMemberIsRejected() async throws {
+        let written = try await call([
+            "action": "write", "path": "agent/notes/extra.md",
+            "content": "x", "expected_version": 0,
+            "review": ["state": "unverified", "basis": "model-inference",
+                       "confidence": 0.9],
+        ])
+        XCTAssertEqual(written.isError, true)
+        XCTAssertEqual(written.structuredContent?["error"]?["code"]?.stringValue,
+                       "memory-review-invalid")
+    }
+
+    func testReviewRefsCapIsEnforced() async throws {
+        let refs = Array(repeating: observation, count: 9)
+        let written = try await call([
+            "action": "write", "path": "agent/notes/too-many-refs.md",
+            "content": "x", "expected_version": 0,
+            "review": ["state": "verified", "basis": "record-recheck", "refs": refs],
+        ])
+        XCTAssertEqual(written.isError, true)
+        XCTAssertEqual(written.structuredContent?["error"]?["code"]?.stringValue,
+                       "memory-review-invalid")
+    }
+
+    func testReviewMethodLengthBoundary() async throws {
+        let empty = try await call([
+            "action": "write", "path": "agent/notes/empty-method.md",
+            "content": "x", "expected_version": 0,
+            "review": ["state": "unverified", "basis": "model-inference", "method": ""],
+        ])
+        XCTAssertEqual(empty.isError, true)
+
+        let tooLong = try await call([
+            "action": "write", "path": "agent/notes/long-method.md",
+            "content": "x", "expected_version": 0,
+            "review": ["state": "unverified", "basis": "model-inference",
+                       "method": String(repeating: "a", count: 201)],
+        ])
+        XCTAssertEqual(tooLong.isError, true)
+
+        let boundary = try await call([
+            "action": "write", "path": "agent/notes/ok-method.md",
+            "content": "x", "expected_version": 0,
+            "review": ["state": "unverified", "basis": "model-inference",
+                       "method": String(repeating: "a", count: 200)],
+        ])
+        XCTAssertEqual(boundary.structuredContent?["ok"], .bool(true),
+                       "\(String(describing: boundary.structuredContent))")
+    }
+
+    func testDisputedWithOneSideIsAccepted() async throws {
+        // r5 wording: disputed needs at least one cited side, not both.
+        let written = try await call([
+            "action": "write", "path": "agent/notes/disputed-one.md",
+            "content": "两个说法冲突，先保留一边。", "expected_version": 0,
+            "evidence": [observation],
+            "review": ["state": "disputed", "basis": "record-recheck",
+                       "refs": [observation]],
+        ])
+        XCTAssertEqual(written.structuredContent?["ok"], .bool(true),
+                       "\(String(describing: written.structuredContent))")
+        let read = try await call(["path": "agent/notes/disputed-one.md"], name: "ReadMemory")
+        XCTAssertEqual(read.structuredContent?["review"]?["state"]?.stringValue, "disputed")
+    }
+
+    // MARK: - Q-10: truly erased records (tombstone, not a deleted file)
+
+    func testTombstonedSessionLineMakesEvidenceStatusNull() async throws {
+        _ = try await call([
+            "action": "write", "path": "agent/notes/tombstoned.md",
+            "content": "observed", "expected_version": 0,
+            "evidence": [userMessage],
+        ])
+        try rewriteSessionLog(tombstoneSeq: 3)
+        let read = try await call(["path": "agent/notes/tombstoned.md"], name: "ReadMemory")
+        let status = read.structuredContent?["evidence_status"]?.arrayValue?.first
+        XCTAssertEqual(status?["ref"]?.stringValue, userMessage)
+        XCTAssertEqual(status?["observed_at_ms"], .null)
+    }
+
+    func testErasedEventPayloadMakesEvidenceStatusNull() async throws {
+        // The grant store fails closed on a non-empty event stream without a
+        // snapshot; production recovers at composition start.
+        try await runtime.grants.recover()
+        let sequence = try await store.append(BotEvent(
+            type: "comm.inbound",
+            eventId: "q10-erased-event",
+            time: 1_760_000_000_600,
+            origin: .local(source: "comm-service"),
+            traceId: "q10-erased-event",
+            principal: BotPrincipal(botId: "bot-a", sessionId: "gb-main", kind: "chat"),
+            causationId: nil,
+            correlationId: nil,
+            data: .object(["note": .string("will be erased")])))
+        let reference = "record://event/\(sequence)"
+        _ = try await call([
+            "action": "write", "path": "agent/notes/erased-event.md",
+            "content": "observed", "expected_version": 0,
+            "evidence": [reference],
+        ])
+        let erasure = BotErasureEventData(
+            erasureId: "q10-erasure",
+            reason: "memory-path-erase",
+            atMS: 1_760_000_000_700,
+            // The target path deliberately differs from the document under
+            // test: this simulates erasing the *cited event's payload*, not
+            // the memory document that cites it.
+            targets: [BotErasureEventData.Target(
+                kind: "memory", scope: "agent", path: "agent/notes/unrelated.md")])
+        let event = BotEvent(
+            type: "erasure",
+            eventId: "q10-erasure",
+            time: 1_760_000_000_700,
+            origin: .local(source: "user"),
+            traceId: "q10-erasure",
+            principal: BotPrincipal(botId: "bot-a", sessionId: "gb-main", kind: "chat"),
+            causationId: nil,
+            correlationId: nil,
+            data: try BotJSONValue.parse(JSONEncoder().encode(erasure)))
+        try await store.erasePayloads(
+            [sequence], erasureEvent: event, atMS: 1_760_000_000_700)
+        let read = try await call(["path": "agent/notes/erased-event.md"], name: "ReadMemory")
+        let status = read.structuredContent?["evidence_status"]?.arrayValue?.first
+        XCTAssertEqual(status?["ref"]?.stringValue, reference)
+        XCTAssertEqual(status?["observed_at_ms"], .null)
+    }
+
+    /// Q-07 / r5: restore inherits without re-resolving. A later-erased
+    /// verified ref keeps the review verbatim and reports a null observation.
+    func testRestoreAfterVerifiedRefErasureKeepsReviewVerbatim() async throws {
+        let written = try await call([
+            "action": "write", "path": "agent/notes/verified-later-erased.md",
+            "content": "observed", "expected_version": 0,
+            "evidence": [userMessage],
+            "review": ["state": "verified", "basis": "record-recheck",
+                       "refs": [userMessage]],
+        ])
+        XCTAssertEqual(written.structuredContent?["ok"], .bool(true))
+        try rewriteSessionLog(tombstoneSeq: 3)
+        let restored = try await call([
+            "action": "restore", "path": "agent/notes/verified-later-erased.md",
+            "expected_version": 1, "restore_version": 1,
+        ])
+        XCTAssertEqual(restored.structuredContent?["ok"], .bool(true),
+                       "\(String(describing: restored.structuredContent))")
+        let read = try await call(
+            ["path": "agent/notes/verified-later-erased.md"], name: "ReadMemory")
+        XCTAssertEqual(read.structuredContent?["review"]?["state"]?.stringValue, "verified",
+                       "restore inherits the review; it does not re-validate or downgrade it")
+        XCTAssertEqual(read.structuredContent?["review"]?["refs"]?.arrayValue?.first?.stringValue,
+                       userMessage)
+        XCTAssertEqual(read.structuredContent?["evidence_status"]?.arrayValue?
+                        .first?["observed_at_ms"], .null)
     }
 
     // MARK: - restore / rollback inheritance
@@ -555,6 +745,40 @@ final class MemoryReviewTests: XCTestCase {
             causationId: nil,
             correlationId: nil,
             data: data))
+    }
+
+    /// Rewrite the session log with a real erasure tombstone at `seq`, so the
+    /// record reader sees `line.erased` (not merely a deleted file).
+    private func rewriteSessionLog(tombstoneSeq seq: Int) throws {
+        let events: [[String: Any]] = [
+            [
+                "type": BotSessionErasureTombstone.type, "seq": seq,
+                "time": 1_760_000_000_300, "ignorable": true,
+                "data": [String: Any](),
+            ],
+            [
+                "type": "tool/call", "seq": 4, "time": 1_760_000_004_000,
+                "data": ["turn": 1, "step": 1, "callId": "call-1",
+                         "name": "web_fetch", "arguments": "{\"url\":\"https://example.com\"}"],
+            ],
+            [
+                "type": "assistant/message", "seq": 5, "time": 1_760_000_005_000,
+                "data": "opaque-non-object",
+            ],
+        ]
+        let header: [String: Any] = [
+            "type": "session", "version": 4, "id": "gb-main",
+            "createdAt": 1_760_000_000_000, "isSeeded": false, "delegationDepth": 0,
+        ]
+        let lines = try [header] + events
+        let text = try lines.map { object in
+            String(decoding: try JSONSerialization.data(
+                withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
+        }.joined(separator: "\n") + "\n"
+        try text.write(
+            to: root.appendingPathComponent(
+                "materialized/home/sessions/gb-main/session.v4.jsonl"),
+            atomically: true, encoding: .utf8)
     }
 
     private func call(

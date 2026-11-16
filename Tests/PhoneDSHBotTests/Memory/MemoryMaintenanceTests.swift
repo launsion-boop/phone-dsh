@@ -155,6 +155,82 @@ final class MemoryMaintenanceTests: XCTestCase {
         XCTAssertEqual(BotMemoryMaintenanceText.readableText(raw: "not json"), "not json")
     }
 
+    /// Q-08: a persisted review that no longer decodes is corruption, not
+    /// "no judgement"; the whole batch must roll back. A missing key stays
+    /// legal.
+    func testMalformedPersistedReviewFailsTheMechanicalCheck() async throws {
+        let reader = FakeMaintenanceReader(
+            trust: .user, texts: [evidence: "用户：我每天早上八点起床。"])
+        let missing = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/missing.md",
+            expected: 0, version: 1, scope: "agent")
+        let malformed = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/malformed.md",
+            expected: 0, version: 1, scope: "agent",
+            extra: ["review": .object([
+                "state": .string("future-state"), "basis": .string("observation"),
+            ])])
+        let valid = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/valid.md",
+            expected: 0, version: 1, scope: "agent",
+            extra: [
+                "evidence": .array([.string(evidence)]),
+                "trust": .string("user"),
+                "review": .object([
+                    "state": .string("verified"), "basis": .string("record-recheck"),
+                    "refs": .array([.string(evidence)]),
+                ]),
+            ])
+
+        let missingOK = await BotMemoryMaintenanceController.referencesResolve(
+            [missing], botID: "main", sessionID: maintainerSession, reading: reader)
+        XCTAssertTrue(missingOK, "an absent review means no recorded judgment")
+
+        let malformedOK = await BotMemoryMaintenanceController.referencesResolve(
+            [malformed], botID: "main", sessionID: maintainerSession, reading: reader)
+        XCTAssertFalse(malformedOK, "a present but undecodable review must fail the batch")
+
+        let validOK = await BotMemoryMaintenanceController.referencesResolve(
+            [valid], botID: "main", sessionID: maintainerSession, reading: reader)
+        XCTAssertTrue(validOK)
+    }
+
+    /// Q-10: `least-verified` now keys off the persisted review state.
+    func testLeastVerifiedCandidateUsesReviewState() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let (settings, suite) = makeSettings()
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let memory = await fixture.runtime.memory(for: "main")
+        try await seedDocument(
+            makeDocument("agent/notes/old.md", "old", version: 1, evidence: [evidence]),
+            store: fixture.store)
+        let context = BotMemoryWriteContext(
+            botID: "main", sessionID: "gb-main", authorKind: .chat,
+            source: BotMemorySource(kind: .userTurn, sessionID: "gb-main"),
+            trust: .user, isMainBot: true)
+        let verified = try await memory.write(
+            BotMemoryWriteRequest(
+                action: .write, path: "agent/notes/verified.md", content: "x",
+                expectedVersion: 0, evidence: [evidence],
+                review: BotMemoryReview(
+                    state: .verified, basis: .recordRecheck, refs: [evidence])),
+            context: context)
+        XCTAssertTrue(verified.ok, "\(String(describing: verified.code))")
+        let controller = makeController(
+            fixture: fixture, memory: memory,
+            runner: FakeMaintenanceRunner(sessionID: maintainerSession, memory: memory),
+            reader: FakeMaintenanceReader(trust: .user, texts: [evidence: "用户原话"]),
+            settings: settings)
+        let candidates = try await controller.candidates()
+        let old = candidates.first { $0.path == "agent/notes/old.md" }
+        XCTAssertTrue(old?.reasons.contains(.leastVerified) == true,
+                      "an evidence-bearing document without a review stays a candidate")
+        let verifiedCandidate = candidates.first { $0.path == "agent/notes/verified.md" }
+        XCTAssertFalse(verifiedCandidate?.reasons.contains(.leastVerified) == true,
+                       "a verified review must not be a least-verified candidate")
+    }
+
     func testDisabledByDefaultAndCommittedBatchIsVisibleAndRollbackable() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
@@ -537,7 +613,8 @@ final class MemoryMaintenanceTests: XCTestCase {
     }
 
     private func makeMemoryEvent(
-        type: String, path: String, expected: Int, version: Int, scope: String
+        type: String, path: String, expected: Int, version: Int, scope: String,
+        extra: [String: BotJSONValue] = [:]
     ) -> BotEvent {
         BotEvent(
             type: type, eventId: "\(type):\(path):\(version)",
@@ -550,7 +627,7 @@ final class MemoryMaintenanceTests: XCTestCase {
                 "expected_version": .number(Double(expected)),
                 "version": .number(Double(version)),
                 "content": .string("x"),
-            ]))
+            ].merging(extra) { _, new in new }))
     }
 
     private func databaseScalar(_ sql: String, file: URL) throws -> String? {

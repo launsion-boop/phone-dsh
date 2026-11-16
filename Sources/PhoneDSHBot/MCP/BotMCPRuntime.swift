@@ -1829,20 +1829,34 @@ public actor BotMCPRuntime {
     /// Host-derived per-evidence observation time for one read/recall call.
     /// One batched resolve for the whole call; never persisted. A reference
     /// that cannot resolve (missing, foreign, erased) reports null.
+    ///
+    /// Returns nil when the resolver itself is unavailable or rejects the
+    /// batch (for example more than 512 distinct refs). That is not the same
+    /// thing as "the record is gone", so callers omit `evidence_status` and
+    /// record a diagnostic instead of fabricating all-null entries.
     private func evidenceStatuses(
         for references: [String], call: BotResolvedToolCall
-    ) async -> [String: BotMemoryEvidenceStatus] {
+    ) async -> [String: BotMemoryEvidenceStatus]? {
         guard !references.isEmpty else { return [:] }
         let canonical = references.map { BotRecordReference.canonicalize($0) ?? $0 }
-        var snapshot: BotRecordEvidenceSnapshot?
-        if let resolver = recordEvidence {
-            snapshot = try? await resolver.evidenceSnapshot(
+        guard let resolver = recordEvidence else {
+            noteBridgeError(code: "evidence_status_unavailable",
+                            sessionId: call.principal.sessionId)
+            return nil
+        }
+        let snapshot: BotRecordEvidenceSnapshot
+        do {
+            snapshot = try await resolver.evidenceSnapshot(
                 for: canonical, callerBotID: call.principal.botId,
                 callerSessionID: call.principal.sessionId)
+        } catch {
+            noteBridgeError(code: "evidence_status_unavailable",
+                            sessionId: call.principal.sessionId)
+            return nil
         }
         var statuses: [String: BotMemoryEvidenceStatus] = [:]
         for ref in canonical where statuses[ref] == nil {
-            let point = snapshot?.point(for: ref)
+            let point = snapshot.point(for: ref)
             let observed: Int64?
             if let point, point.resolved, !point.erased {
                 observed = point.observedAtMS
@@ -1888,9 +1902,10 @@ public actor BotMCPRuntime {
             ]
             if let trust = document.trust { output["trust"] = .string(trust) }
             if let review = document.review { output["review"] = try encode(review) }
-            let statuses = await evidenceStatuses(for: document.evidence, call: call)
-            output["evidence_status"] = try evidenceStatusValue(
-                statuses, for: document.evidence)
+            if let statuses = await evidenceStatuses(for: document.evidence, call: call) {
+                output["evidence_status"] = try evidenceStatusValue(
+                    statuses, for: document.evidence)
+            }
             if document.deleted {
                 output["deleted"] = .bool(true)
                 output["deletion_reason"] = .string(document.deletionReason ?? "forget")
@@ -1954,7 +1969,10 @@ public actor BotMCPRuntime {
             for: page.hits.flatMap(\.evidence), call: call)
         let encodedHits = try page.hits.map { hit -> BotJSONValue in
             var object = (try encode(hit)).objectValue ?? [:]
-            object["evidence_status"] = try evidenceStatusValue(statuses, for: hit.evidence)
+            if let statuses {
+                object["evidence_status"] = try evidenceStatusValue(
+                    statuses, for: hit.evidence)
+            }
             return .object(object)
         }
         return .success(.object([

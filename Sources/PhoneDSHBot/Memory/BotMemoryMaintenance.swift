@@ -1082,7 +1082,7 @@ public actor BotMemoryMaintenanceController {
 
     // MARK: Checks
 
-    private static func referencesResolve(
+    static func referencesResolve(
         _ writes: [BotEvent], botID: String, sessionID: String,
         reading: any BotMemoryMaintenanceRecordReading
     ) async -> Bool {
@@ -1093,8 +1093,16 @@ public actor BotMemoryMaintenanceController {
             // still resolve; a verified claim whose basis vanished fails the
             // batch. Review refs are checked separately from `evidence` so they
             // never change the trust re-derivation below.
-            let review = event.data["review"].flatMap {
-                decode(BotMemoryReview.self, from: $0)
+            // A missing key means "no recorded judgment" and is allowed. A
+            // present key that no longer decodes (unknown enum value, extra
+            // member, wrong shape) is corruption and must fail the batch
+            // instead of silently skipping the review checks.
+            var review: BotMemoryReview?
+            if let rawReview = event.data["review"] {
+                guard let decoded = decode(BotMemoryReview.self, from: rawReview) else {
+                    return false
+                }
+                review = decoded
             }
             if let review {
                 if BotMemoryAuthorizer.reviewError(review) != nil { return false }
