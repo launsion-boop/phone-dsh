@@ -341,9 +341,6 @@ final class BotRuntimeComposition {
                         workspaceRoot: URL? = nil,
                         now: (@Sendable () -> Int64)? = nil,
                         sleep: RoutineScheduler.Sleeper? = nil) async throws -> Launch {
-        // Debug-only A05 fixture replay: durable production events, normal
-        // projections. Production launches without the env never enter here.
-        await BotA05EventImporter.importIfRequested(store: store)
         let legacyName = await legacyRenamedName(domain: store)
         var roster = try await profileStore.roster()
         if roster.bots.isEmpty {
