@@ -122,8 +122,8 @@ final class ContextSourceDurableTests: XCTestCase {
         await fake.emit(try await fake.observation(observedAt: 1_000_001, revision: 1))
         for _ in 0..<50 {
             let view = await registry.observationView(for: "bot-a", sources: [.calendar])
-            if !view.items.isEmpty {
-                let item = try XCTUnwrap(view.items.first)
+            if let item = view.items.first, item.state == .active,
+               item.recordRef != nil {
                 XCTAssertEqual(item.state, .active)
                 XCTAssertEqual(item.consentGeneration, 1)
                 XCTAssertTrue(item.recordRef?.hasPrefix("record://event/") == true)

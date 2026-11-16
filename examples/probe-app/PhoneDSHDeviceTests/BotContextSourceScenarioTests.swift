@@ -63,43 +63,94 @@ final class BotContextSourceScenarioTests: XCTestCase {
         }
     }
 
-    // A07-01 calendar authorization + real snapshot/observation.
-    func testCalendarAuthorizationAndRealSnapshot() async throws {
+    // A07-01 calendar: create a dedicated fixture calendar/event, read it
+    // through the real adapter, then delete both by ID.
+    func testCalendarFixtureObservedAndCleanedUp() async throws {
 #if canImport(EventKit)
         let source = EventKitCalendarSource(now: now)
         try skipUnlessAuthorized(await source.authorization(), "calendar", service: "calendar")
+        let store = EKEventStore()
+        let title = "A07-Fixture-\(UUID().uuidString)"
+        let calendar = EKCalendar(for: .event, eventStore: store)
+        calendar.title = title
+        guard let source = store.defaultCalendarForNewEvents?.source ?? store.sources.first else {
+            throw XCTSkip("no EventKit source in this simulator")
+        }
+        calendar.source = source
+        try store.saveCalendar(calendar, commit: true)
+        let event = EKEvent(eventStore: store)
+        event.calendar = calendar
+        event.title = title
+        event.startDate = Date().addingTimeInterval(60)
+        event.endDate = event.startDate.addingTimeInterval(1_800)
+        try store.save(event, span: .thisEvent, commit: true)
+        defer {
+            if let saved = store.event(withIdentifier: event.eventIdentifier) {
+                try? store.remove(saved, span: .thisEvent, commit: true)
+            }
+            if let savedCalendar = store.calendar(withIdentifier: calendar.calendarIdentifier) {
+                try? store.removeCalendar(savedCalendar, commit: true)
+            }
+        }
+
         let (registry, ledger) = await makeRegistry()
         try await subscribe(.calendar, source, registry: registry, ledger: ledger)
-        // A real EventKit query ran inside start(); give the registry a moment.
         var observations: [BotContextObservation] = []
         for _ in 0..<50 {
-            observations = try await registry.observations(
-                for: botID, sources: [.calendar])
-            if !observations.isEmpty { break }
+            observations = try await registry.observations(for: botID, sources: [.calendar])
+            if observations.contains(where: { String(describing: $0.payload).contains(title) }) {
+                break
+            }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
-        XCTAssertFalse(observations.isEmpty, "authorized EventKit must produce a real snapshot")
-        XCTAssertEqual(observations.first?.source, .calendar)
-        XCTAssertEqual(observations.first?.delivery, .os)
-        XCTAssertEqual(observations.first?.permissionRevision, 1)
+        let fixtureObservation = observations.first {
+            String(describing: $0.payload).contains(title)
+        }
+        let observed = try XCTUnwrap(fixtureObservation, "real EventKit fixture was not observed")
+        XCTAssertEqual(observed.source, .calendar)
+        XCTAssertEqual(observed.delivery, .os)
+        XCTAssertEqual(observed.permissionRevision, 1)
         await registry.revoke(source: .calendar, reason: "a07-revoke")
 #else
         throw XCTSkip("EventKit not available")
 #endif
     }
 
-    // A07-02 contacts authorization; the real adapter must not enumerate on start.
-    func testContactsAuthorizationDoesNotEnumerateOnStart() async throws {
+    // A07-02 contacts: a dedicated fixture contact is created, queried by a
+    // unique name through the real Contacts adapter, and deleted by ID.
+    func testContactsFixtureQueriedAndCleanedUp() async throws {
 #if canImport(Contacts)
         let source = ContactsSource(now: now)
         let status = await source.authorization()
         guard status.allowsReading else {
             throw XCTSkip("SKIP contacts: real OS status=\(status.rawValue); pre-grant with simctl privacy grant contacts")
         }
+        let store = CNContactStore()
+        let given = "A07Fixture\(UUID().uuidString.prefix(8))"
+        let contact = CNMutableContact()
+        contact.givenName = given
+        contact.familyName = "Native"
+        contact.organizationName = "phoneDSH A07 fixture"
+        let save = CNSaveRequest()
+        save.add(contact, toContainerWithIdentifier: nil)
+        try store.execute(save)
+        let createdID = contact.identifier
+        defer {
+            let mutable = CNMutableContact()
+            mutable.identifier = createdID
+            let delete = CNSaveRequest()
+            delete.delete(mutable)
+            try? store.execute(delete)
+        }
+
         let (registry, ledger) = await makeRegistry()
         try await subscribe(.contacts, source, registry: registry, ledger: ledger)
-        let observations = try await registry.observations(for: botID, sources: [.contacts])
-        XCTAssertTrue(observations.isEmpty, "subscribe must not enumerate contacts")
+        let initial = try await registry.observations(for: botID, sources: [.contacts])
+        XCTAssertTrue(initial.isEmpty, "subscribe must not enumerate contacts")
+        let observed = try await registry.readContacts(
+            botID: botID, query: given, limit: 5)
+        XCTAssertTrue(String(describing: observed.payload).contains(createdID))
+        XCTAssertTrue(String(describing: observed.payload).contains(given))
         await registry.revoke(source: .contacts, reason: "a07-revoke")
 #else
         throw XCTSkip("Contacts not available")

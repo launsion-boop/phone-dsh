@@ -534,3 +534,52 @@ final class ContextSourceRecheckTests: XCTestCase {
         XCTAssertEqual(result.sourceVersion, version)
     }
 }
+
+final class ContextSourceRevocationEvidenceTests: XCTestCase {
+    private let now: @Sendable () -> Int64 = { 6_000_000 }
+
+    func testRevokeClearsOldObservationAndReconsentDoesNotResurrectIt() async throws {
+        let fake = FakeContextSource(kind: .calendar, osStatus: .authorized)
+        let ledger = BotContextConsentLedger(
+            store: InMemoryBotContextSourceConsentStore(), now: now)
+        let registry = BotContextSourceRegistry(
+            ledger: ledger, audit: BotContextAuditLog(), now: now)
+        _ = await ledger.load()
+        try await registry.register(fake)
+        _ = try await registry.requestConsent(source: .calendar, botID: "bot-a")
+        let old = try await fake.observation(
+            id: "old-observation", observedAt: 6_000_001)
+        await fake.emit(old)
+        for _ in 0..<50 {
+            let items = try await registry.observations(for: "bot-a", sources: [.calendar])
+            if !items.isEmpty { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        await registry.revoke(source: .calendar, reason: "user-revoked")
+        do {
+            _ = try await registry.observations(for: "bot-a", sources: [.calendar])
+            XCTFail("a revoked source must not read")
+        } catch {
+            XCTAssertEqual(error as? BotContextSourceError, .revoked(.calendar))
+        }
+        let inactive = await registry.observationView(
+            for: "bot-a", sources: [.calendar])
+        XCTAssertTrue(inactive.items.allSatisfy { $0.state == .inactive })
+        XCTAssertTrue(inactive.items.allSatisfy { $0.recordRef == nil || !$0.recordRef!.isEmpty })
+        // The view item has no payload member at all.
+
+        _ = try await registry.requestConsent(source: .calendar, botID: "bot-a")
+        let fresh = try await fake.observation(
+            id: "fresh-observation", observedAt: 6_000_003)
+        await fake.emit(fresh)
+        var received: [BotContextObservation] = []
+        for _ in 0..<50 {
+            received = try await registry.observations(for: "bot-a", sources: [.calendar])
+            if !received.isEmpty { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(received.map(\.id), ["fresh-observation"])
+        XCTAssertFalse(received.contains { $0.id == old.id })
+    }
+}
