@@ -40,7 +40,8 @@ phase to `.reviewing`; it never emits a receipt. Turn end/stop clears the activi
 
 1. Declared required `activity` for the exact five read/search tools (`read`, `glob`,
    `grep`, `web_search`, `web_fetch`).
-2. Per-call model intent: `bash.description`, phone `Task.task_title` then
+2. Per-call model intent: `bash.description` (the Bot-scope parameter prose asks for the
+   user-language task object/progress and a known prior result), phone `Task.task_title` then
    `Task.description`, goal `objective`, card/document/routine `title`,
    `RequestApproval.detail` as the object of that tool's action label. `prompt`,
    `summary`, `label` and other business fields are not activity text.
@@ -158,20 +159,22 @@ and a high-effort header were rejected; several macOS compile-boundary errors we
 in `cff5dd149`; an empty session copy was replaced by the real session path and a hard
 failure in the replay entry.
 
-### Natural-request control: PASS with required declared activity
+### Natural-request control: PASS with required activity (v3.5)
 
-On head `e0a1804f` the real first `request/header` declares `activity` on read/glob/grep
-with `required` including it and `minLength: 1`; web tools were absent in these scenarios.
-All three natural scenarios pass (5/6/6 requests, every header Flash/max). ACT-04:
-`查看 pr 目录里的资料结构` (14), `在读 #174 的说明笔记` (13), `在读 main 分支的情况笔记`
-(15). ACT-05: `查找 notes 目录与其中的会议资料` (19), `在读周三例会的会议记录` (11),
-`在读待办清单文件` (8), `确认 notes 目录是否还有其他文件` (19). ACT-06:
-`查看 inbox 与 notes 目录结构` (21), `读李光浩的来信` (7), `读发布背景笔记` (7), then a
-next-step card; it drafts in public text and sends nothing. Across 11 unique details there
-are 10 activity/model sentences and 1 card label; there is no filename fallback in the
-accepted natural run. The wrapper-only required field clones the required array; the original
-definition/validator/required list are unchanged, and old calls without activity still
-execute (real ToolRuntime regression).
+On head `7ef72269b` the real first `request/header` declares `activity` on read/glob/grep
+with `required` including it and `minLength: 1`; bash keeps its existing `description`
+field with Bot-only model prose; web tools were absent. All three natural scenarios pass
+(5/6/6 requests, every header Flash/max). ACT-04:
+`查看工作区与 pr 资料目录` (14), `读取 #174 的资料笔记` (13), `读取 main 侧的笔记` (12).
+ACT-05: `先看工作区里 notes 资料有哪些` (18), `在读周三例会纪要原文` (10),
+`在读 actions 清单核对待办项` (18). ACT-06:
+`查看 inbox 和 notes 目录内容` (21), `在读李光浩的来信内容` (10),
+`在读发布背景笔记` (8), `在写文件 · draft-reply-liguangh…` (28), `打开文档 · 给李光浩的回复草稿`
+(16). Every read uses activity, with no read filename fallback. The first bash bubble is a
+real directory-stage description, and not every sentence explicitly carries the previous
+result (ACT-05’s todo check is a partial reference); the ACT-06 write uses a short file
+object because write is outside the five-tool activity coverage. These are recorded quality
+observations, not perfect or zero-fallback claims.
 
 Not run: physical iPhone, full App UI run, Android, deployment. Those are not inferred
 from the simulator or harness evidence.

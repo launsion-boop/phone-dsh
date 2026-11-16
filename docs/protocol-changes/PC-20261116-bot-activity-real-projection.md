@@ -98,7 +98,9 @@ contract commit before implementing.
   `plugins/tests/bot-persona.test.ts`. Scope: remove the "no file names/paths/URLs"
   prohibition, keep `bash.description` / `Task.task_title` guidance, align "等待响应",
   state that the declared five-tool `activity` field is model-facing required while the
-  original handler stays unchanged, record the real tool-source coverage from pinned DSH. Commands: `cd plugins && node scripts/run-tests.mjs
+  original handler stays unchanged; document the existing `bash.description` model prose
+  as user-language task object/progress plus known result, without a bash activity field or
+  argument rewrite; record the real tool-source coverage from pinned DSH. Commands: `cd plugins && node scripts/run-tests.mjs
   tests/bot-persona.test.ts` (NOT_RUN if deps absent).
 - projection: `examples/probe-app/PhoneDSHProbe/Bot/BotRuntimePresentation.swift`,
   `scripts/ci/bot-e2e/app/TestsChatModel/BotActivityLineTests.swift`,
@@ -136,7 +138,7 @@ will be refreshed by the lead at integration if UI edits shift them; values do n
 
 ## 5. Revision history
 
-This table is historical. **The current revision is `activity-evidence-v3.4`**; the earlier
+This table is historical. **The current revision is `activity-evidence-v3.5`**; the earlier
 “no metadata field” decision was superseded by the model-facing required `activity` field
 in v3.4.
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractRevision": "activity-evidence-v3.4",
+  "contractRevision": "activity-evidence-v3.5",
   "model": {
     "provider": "deepseek-official",
     "model": "deepseek-flash",
@@ -132,22 +132,21 @@
       "reason": "the first probe copied an empty ACT-01-session.jsonl and produced zero events. The real session is under runs/<scenario>-1/host/materialized/<dsh-home>/sessions/...; the replay entry now fails hard on an empty log."
     }
   ],
-  "reviewedCodeHead": "e0a1804f082c3a948c4830f4bbed88cb4eb885ef",
+  "reviewedCodeHead": "7ef72269b67641650100df531c09c2cd13450d21",
   "scenarioAssetsCommit": "eba3569511f7a43bd989c012ade8885ae018e579",
-  "reviewedCodeHeadTree": "1360c693ff2240dfa602eadac4a0ecf2ecf804d6",
+  "reviewedCodeHeadTree": "74f61a6f6f40b9601b7906c652bb113a5b1e04c8",
   "scenarioAssetsTree": "6d8affc14fc3886171e7cfe8800c5ddab0bdb8b1",
   "naturalControl": {
     "status": "PASS",
-    "head": "e0a1804f082c3a948c4830f4bbed88cb4eb885ef",
-    "bundle": "/tmp/pdsh-lead-build-required/www/image.tar.gz",
-    "bundleSha256": "2364ceb4a4ee3c3d942e913b80e3c79c3f849baf4d8deb6f7c9f922d190279c4",
+    "head": "7ef72269b67641650100df531c09c2cd13450d21",
+    "bundle": "/tmp/pdsh-lead-build-v35/www/image.tar.gz",
+    "bundleSha256": "4c69a6e1ae2edf3ff6fadc2ebeeeb09ab0deb1daff75e6e1e52b41ba60108d79",
     "catalog": "scripts/ci/bot-e2e/activity/catalog-natural.json",
     "model": {
       "provider": "deepseek-official",
       "model": "deepseek-flash",
       "reasoningEffort": "max"
     },
-    "promptScope": "Task + material location + normal scope constraint; no progress/read-count/output-format guidance.",
     "header": {
       "read": {
         "activity": true,
@@ -177,6 +176,7 @@
       "web_fetch": "absent in this scenario",
       "bash": {
         "activity": false,
+        "description": "Bot model prose only",
         "required": [
           "description",
           "command"
@@ -194,23 +194,24 @@
         "activity": [
           {
             "seq": 17,
-            "detail": "查看 pr 目录里的资料结构",
+            "detail": "查看工作区与 pr 资料目录",
             "chars": 14,
-            "source": "activity"
+            "source": "bash.description"
           },
           {
             "seq": 24,
-            "detail": "在读 #174 的说明笔记",
+            "detail": "读取 #174 的资料笔记",
             "chars": 13,
             "source": "activity"
           },
           {
             "seq": 25,
-            "detail": "在读 main 分支的情况笔记",
-            "chars": 15,
+            "detail": "读取 main 侧的笔记",
+            "chars": 12,
             "source": "activity"
           }
-        ]
+        ],
+        "note": "first bash is a real directory-stage description; both reads use the declared activity; final answer gives 3 conflicts."
       },
       {
         "id": "ACT-05-NATURAL-MEETING",
@@ -219,29 +220,24 @@
         "activity": [
           {
             "seq": 17,
-            "detail": "查找 notes 目录与其中的会议资料",
-            "chars": 19,
-            "source": "activity"
+            "detail": "先看工作区里 notes 资料有哪些",
+            "chars": 18,
+            "source": "bash.description"
           },
           {
             "seq": 24,
-            "detail": "在读周三例会的会议记录",
-            "chars": 11,
+            "detail": "在读周三例会纪要原文",
+            "chars": 10,
             "source": "activity"
           },
           {
-            "seq": 25,
-            "detail": "在读待办清单文件",
-            "chars": 8,
-            "source": "activity"
-          },
-          {
-            "seq": 31,
-            "detail": "确认 notes 目录是否还有其他文件",
-            "chars": 19,
+            "seq": 29,
+            "detail": "在读 actions 清单核对待办项",
+            "chars": 18,
             "source": "activity"
           }
-        ]
+        ],
+        "note": "read bubbles use activity; the second read visibly names the todo check, a partial known-result reference."
       },
       {
         "id": "ACT-06-NATURAL-EMAIL",
@@ -250,40 +246,46 @@
         "activity": [
           {
             "seq": 17,
-            "detail": "查看 inbox 与 notes 目录结构",
+            "detail": "查看 inbox 和 notes 目录内容",
             "chars": 21,
-            "source": "activity"
+            "source": "bash.description"
           },
           {
             "seq": 24,
-            "detail": "读李光浩的来信",
-            "chars": 7,
+            "detail": "在读李光浩的来信内容",
+            "chars": 10,
             "source": "activity"
           },
           {
             "seq": 25,
-            "detail": "读发布背景笔记",
-            "chars": 7,
+            "detail": "在读发布背景笔记",
+            "chars": 8,
             "source": "activity"
           },
           {
             "seq": 31,
-            "detail": "给你选项",
-            "chars": 4,
-            "source": "show_next_steps label"
+            "detail": "在写文件 · draft-reply-liguangh…",
+            "chars": 28,
+            "source": "short object fallback (write has no activity)"
+          },
+          {
+            "seq": 36,
+            "detail": "打开文档 · 给李光浩的回复草稿",
+            "chars": 16,
+            "source": "show_document label"
           }
         ],
-        "note": "The model produced the draft in assistant text and did not send; it ended with a next-step card, so no file write card appears."
+        "note": "reads use activity; write falls back to the short file object because write is outside the five-tool activity coverage; draft is produced in text and not sent."
       }
     ],
     "fallbackRatio": {
       "uniqueActivityDetails": 11,
-      "shortObjectFallbacks": 0,
-      "ratio": 0.0,
-      "sampleNote": "Small sample across 3 natural scenarios; 10 activity/model sentences + 1 next-step card label; no filename fallback."
+      "shortObjectFallbacks": 1,
+      "ratio": 0.091,
+      "sampleNote": "Only the ACT-06 write object is a short-object fallback; read activity has no filename fallback. The first bash descriptions are real directory-stage prose, not fallback."
     },
-    "qualityObservation": "The required model-facing activity field eliminated the ACT-06 read fallback observed in the optional version. Every read carries a Chinese task-level activity; ACT-06 drafts in public text and ends with a next-step card rather than a file card. Header required arrays and minLength are recorded from the real request.",
-    "previousAttempts": "Preset/global/direct/inject, shared-service race, optional-field omission and required-in-original-validator probes are retained; the accepted run is e0a1804f with wrapper-only required."
+    "qualityObservation": "Reads use the declared required activity on every run and there is no read filename fallback. The first bash descriptions remain directory-level (“查看工作区与 pr 资料目录”, “先看工作区里 notes 资料有哪些”, “查看 inbox 和 notes 目录内容”); not every sentence explicitly carries the previous result (ACT-05’s “核对待办项” is only a partial reference). The ACT-06 write uses a short object fallback because write is outside the five-tool activity coverage. These are recorded quality observations, not claimed as perfect or as zero fallback for all tools.",
+    "previousAttempts": "Historical invalid probe required-in-original and optional/preset attempts are retained only as history; v3.4 wrapper-only required and v3.5 bash-description are current."
   },
   "previousGuidedRun": {
     "head": "cff5dd1492f1224cb23b223871049692cd538b10",

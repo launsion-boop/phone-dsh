@@ -14,14 +14,14 @@ framework is introduced.
   gives only the task and the material location. It contains no 10–20 character progress
   instruction, no fixed read count and no output-format instruction. Tools are free; the
   receipt verifies that the real session actually read the seed (read or bash).
-  **Current status: PASS on head `e0a1804f`.** The real first `request/header`
-  declares `activity` as required (minLength 1) on read/glob/grep; web tools were absent in
-  these scenarios; bash/Task keep their old fields. All three natural scenarios passed
-  (5/6/6 requests, Flash/max); every read carries a Chinese task-level activity; no
-  filename fallback remains (11 unique details: 10 activity/model sentences + 1 next-step
-  card). ACT-06 drafts in public text and does not send. The wrapper-only required field
-  still executes old calls without activity; original validator/required list unchanged.
-  Earlier blocked/optional attempts remain in `receipt.json.failedAttempts`.
+  **Current status: PASS on head `7ef72269b`.** The real first `request/header` declares
+  `activity` as required (minLength 1) on read/glob/grep; bash keeps its existing
+  `description` field with Bot-only model prose; web tools were absent. All three natural
+  scenarios passed (5/6/6 requests, Flash/max). Every read uses activity; no read filename
+  fallback. ACT-06's write still uses a short file-object fallback because write is outside
+  the five-tool activity coverage. The first bash descriptions remain directory-level and
+  not every sentence explicitly carries the previous result; these are recorded quality
+  observations, not claimed perfect. Earlier failed/optional attempts are history.
 - `receipt.json`: the accepted actual activity sequence, with source seq/tool, raw model
   sentence, displayed detail, length/CJK count, object and result-continuation judgment,
   plus the model configuration read from `request/header`.
