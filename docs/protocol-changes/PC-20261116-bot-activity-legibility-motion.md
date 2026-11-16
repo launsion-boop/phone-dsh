@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # iOS Bot activity: readable type and restrained transitions
 
-Contract revision: `activity-ui-v1`, frozen 2026-11-16.
+Contract revision: `activity-ui-v2`, frozen 2026-11-16.
 Base: `2b167fc99980bee430ea6d90f1ef46b852de30b3`.
 Protocol impact: P09; P27: none — no row/action/persistence shape change;
 P26: none — model/tool activity semantics are unchanged.
@@ -10,6 +10,14 @@ The user asks for a more readable Bot activity bubble and natural dynamic text
 changes. This is an iOS presentation refinement of `activity-evidence-v3.5`.
 The bubble remains single-line, non-interactive and outside the transcript's
 scroll content. No new state, model call, tool, control, history or detail view.
+
+Latest user ruling: waiting for a response and streaming a reply show **only
+three dots** in this same bubble, without the visible words `等待响应` or
+`正在回复`. This supersedes the earlier no-dots presentation requirement.
+Real task progress, approvals and errors retain their text. The internal
+activity values remain compatible; no placeholder message is inserted into the
+transcript. Accessibility uses a meaningful phase label rather than reading
+three punctuation marks aloud.
 
 ## Frozen presentation
 
@@ -31,6 +39,10 @@ scroll content. No new state, model call, tool, control, history or detail view.
   surface may ease to its new width; the reserved band and composer do not move.
 - Reduce Motion: no sweep, slide or size animation. Prefer Cross-Fade: opacity
   transition only. Inactive pages and waiting/error states stop ambient motion.
+- Three dots are 5 pt at the default text size, separated by 4 pt, with a subtle
+  staggered pulse and at most 2 pt lift. Reduce Motion/inactive pages use static
+  dots. The waiting-to-reply transition keeps the same dots without restarting
+  the visual cue. Dots and text occupy the same reserved-height band.
 - Keep the existing 800 ms latest-wins scheduling for normal progress. Waiting
   for user action and failures bypass pending display dwell so an obsolete work
   sentence is not briefly recolored as an error or approval.

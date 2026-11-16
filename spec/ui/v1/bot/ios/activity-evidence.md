@@ -203,7 +203,7 @@ the 800 ms latest-wins window and `· N 分钟` suffix. Approval and failure tex
 pending display dwell. The bubble is non-interactive: its reserved band remains
 hit-transparent and no tap target, sheet, expanded view or control is added.
 
-The `activity-ui-v1` refinement uses 16 pt medium text in a 22 pt line box, scaling both
+The `activity-ui-v2` refinement uses 16 pt medium text in a 22 pt line box, scaling both
 with Dynamic Type (callout). The band is `max(38, scaledLineBox + 16)` pt in both visible
 and hidden states. Width hugs the current sentence up to 94% of the content column;
 long text truncates at the tail while the accessibility label retains the short sentence.
@@ -212,6 +212,13 @@ does not contribute to layout width. Reduce Motion removes motion; Prefer Cross-
 removes translation. The subdued highlight cannot wash out the readable base text.
 See [the frozen visual contract](../../../../../docs/protocol-changes/PC-20261116-bot-activity-legibility-motion.md).
 The UI does not re-sanitise, rewrite or lengthen `detail`.
+
+Waiting for the first response (`thinking` category) and replying (`replying` category)
+render as three dots in the same bubble, with no visible `等待响应` / `正在回复` text
+or duration suffix. Real operation progress (including reviewing a returned result),
+approval and error sentences remain text. This is presentation only: no empty/typing
+transcript row, new event or model output is created. Dots are static under Reduce Motion
+or on an inactive page; their accessibility label describes the phase.
 
 No transport, persistence, schema or Android change is required. Old persisted rows and
 old clients keep the existing value shape. The shared `activity.schema.json`,
