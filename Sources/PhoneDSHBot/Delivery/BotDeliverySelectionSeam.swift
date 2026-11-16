@@ -143,12 +143,32 @@ public struct BotDeliverySelectionSource: Sendable, Equatable {
         return .object(object)
     }
 
+    /// The shared `JSONValue.intValue` never traps, but it rounds a fractional
+    /// double (`1.5` -> `2`). A revision/timestamp is an integer domain, so D
+    /// requires an exact integral double and an exact Int64 range check here.
+    static func int64(_ value: BotJSONValue?) -> Int64? {
+        guard let value, case .number(let number) = value,
+              number.isFinite, number.rounded() == number else { return nil }
+        return Int64(exactly: number)
+    }
+
     public static func parse(_ value: BotJSONValue?) -> BotDeliverySelectionSource? {
         guard case .object(let object)? = value,
               let ref = object["ref"]?.stringValue, !ref.isEmpty else { return nil }
         let label = object["label"]?.stringValue ?? "工作区文件"
         let version = object["source_version"].flatMap {
             try? JSONDecoder().decode(BotProvenanceSourceVersion.self, from: $0.encoded())
+        }
+        let observedAtMS: Int64?
+        if let rawObserved = object["observed_at_ms"] ?? object["observed_at"] {
+            if case .null = rawObserved {
+                observedAtMS = nil
+            } else {
+                guard let value = Self.int64(rawObserved) else { return nil }
+                observedAtMS = value
+            }
+        } else {
+            observedAtMS = nil
         }
         return BotDeliverySelectionSource(
             ref: ref,
@@ -159,7 +179,7 @@ public struct BotDeliverySelectionSource: Sendable, Equatable {
             reason: object["reason"]?.stringValue,
             stateDetail: object["state_detail"]?.stringValue
                 ?? object["state_reason"]?.stringValue,
-            observedAtMS: object["observed_at_ms"]?.intValue.map(Int64.init),
+            observedAtMS: observedAtMS,
             versionLabel: object["version_label"]?.stringValue,
             latestRef: object["latest_ref"]?.stringValue,
             sourceVersion: version)
@@ -400,7 +420,8 @@ public struct BotDeliverySelectionDraft: Sendable, Equatable {
                              requestSeq: Int) -> BotDeliverySelectionDraft? {
         guard case .object(let delivery)? = data["delivery"],
               let draftID = delivery["draft_id"]?.stringValue, !draftID.isEmpty,
-              let revision = delivery["revision"]?.intValue, revision >= 1 else { return nil }
+              let revision64 = BotDeliverySelectionSource.int64(delivery["revision"]),
+              let revision = Int(exactly: revision64), revision >= 1 else { return nil }
         var resources: [BotDeliverySelectionResource] = []
         if let rawResources = delivery["resources"] {
             guard case .array(let values) = rawResources, values.count <= 10 else {
@@ -436,6 +457,18 @@ public struct BotDeliverySelectionDraft: Sendable, Equatable {
                   parsed.turnID.hasPrefix(sessionID + "#") else { return nil }
             binding = parsed
         }
+        let requestedAtMS: Int64
+        if let raw = data["requestedAt"] {
+            guard let value = BotDeliverySelectionSource.int64(raw) else { return nil }
+            requestedAtMS = value
+        } else {
+            requestedAtMS = 0
+        }
+        var expiresAtMS: Int64?
+        if let raw = data["expiresAt"] {
+            guard let value = BotDeliverySelectionSource.int64(raw) else { return nil }
+            expiresAtMS = value
+        }
         let rowID = data["id"]?.stringValue ?? "e-\(botID)-approval-\(approvalID)"
         return BotDeliverySelectionDraft(
             botID: botID,
@@ -449,8 +482,8 @@ public struct BotDeliverySelectionDraft: Sendable, Equatable {
             resources: resources,
             binding: binding,
             digest: data["digest"]?.stringValue ?? "",
-            requestedAtMS: data["requestedAt"]?.intValue.map(Int64.init) ?? 0,
-            expiresAtMS: data["expiresAt"]?.intValue.map(Int64.init),
+            requestedAtMS: requestedAtMS,
+            expiresAtMS: expiresAtMS,
             persistent: data["persistent"]?.boolValue == true,
             requestSeq: requestSeq)
     }
