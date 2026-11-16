@@ -3,12 +3,6 @@
 import CryptoKit
 import Foundation
 
-/// Host-resolved skill root for one G-1 identity `(source, owner?, name)`.
-/// App composition supplies this; R2 never guesses a materialized path.
-public protocol BotSkillRootResolving: Sendable {
-    func root(for source: BotSkillSource, ownerBotID: String?) -> URL?
-}
-
 public enum BotSkillProvenanceError: Error, Equatable, Sendable {
     case pathOutsideSkillRoots
     case invalidFileName
