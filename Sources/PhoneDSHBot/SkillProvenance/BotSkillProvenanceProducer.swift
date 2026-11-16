@@ -71,6 +71,35 @@ public struct BotSkillProvenanceProducer: Sendable {
         return try await recorder(request)
     }
 
+    /// A real Bot project-root delete observed from the filesystem lifecycle.
+    /// The file must be gone (ENOENT); a read/permission failure is not a
+    /// delete and must not call this method. Revision/previous come from L.
+    public func recordBotDelete(vfsPath: String, botID: String,
+                                sessionID: String?) async throws
+        -> BotDerivedRef? {
+        guard let target = classify(vfsPath: vfsPath, botID: botID) else { return nil }
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: target.url.path,
+                                          isDirectory: &isDirectory) {
+            throw BotSkillProvenanceError.fileStillPresent
+        }
+        let snapshot = try await latest(BotSkillIdentity(
+            source: target.source, ownerBotID: target.owner, name: target.name))
+        guard let snapshot, snapshot.action == "write",
+              let previous = snapshot.contentSHA256 else {
+            throw BotSkillProvenanceError.missingPreviousVersion
+        }
+        let request = BotSkillWriteRequest(
+            name: target.name, file: target.file,
+            revision: snapshot.revision + 1, action: .delete,
+            contentSHA256: nil, bytes: nil, previousSHA256: previous,
+            author: BotSkillChangeAuthor(kind: "bot", botID: botID,
+                                         sessionID: sessionID),
+            atMS: now(), sources: [],
+            source: target.source, ownerBotID: target.owner)
+        return try await recorder(request)
+    }
+
     /// A real feature-admin `SkillsStore.write` under `/dsh/home/skills`.
     public func recordUserDshWrite(fileName: String,
                                    sources: [BotDerivationSource] = []) async throws
@@ -97,9 +126,7 @@ public struct BotSkillProvenanceProducer: Sendable {
     public func recordUserDshDelete(fileName: String) async throws
         -> BotDerivedRef? {
         guard let target = userDshTarget(fileName: fileName) else { return nil }
-        if FileManager.default.fileExists(atPath: target.url.path) {
-            throw BotSkillProvenanceError.fileStillPresent
-        }
+        try requireAbsent(target.url)
         let snapshot = try await latest(BotSkillIdentity(
             source: .userDsh, ownerBotID: nil, name: target.name))
         guard let snapshot, snapshot.action == "write",
@@ -166,6 +193,22 @@ public struct BotSkillProvenanceProducer: Sendable {
               name.range(of: #"^[a-z0-9]+(-[a-z0-9]+)*$"#,
                          options: .regularExpression) != nil else { return nil }
         return name
+    }
+
+    /// Strict ENOENT check: an unreadable/permission-denied file is not a
+    /// delete. Only `NSFileReadNoSuchFileError`/`NSFileNoSuchFileError` pass.
+    private func requireAbsent(_ url: URL) throws {
+        do {
+            _ = try FileManager.default.attributesOfItem(atPath: url.path)
+            throw BotSkillProvenanceError.fileStillPresent
+        } catch let error as BotSkillProvenanceError {
+            throw error
+        } catch let error as NSError {
+            guard error.code == NSFileReadNoSuchFileError
+                    || error.code == NSFileNoSuchFileError else {
+                throw BotSkillProvenanceError.unreadable
+            }
+        }
     }
 
     private func readFinalBytes(_ url: URL) throws -> Data {

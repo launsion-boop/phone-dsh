@@ -110,6 +110,54 @@ final class BotSkillProvenanceProducerTests: XCTestCase {
         XCTAssertEqual(snapshotA?.revision, 1)
     }
 
+    func testProjectDeleteUsesRealAbsenceAndPreviousDurableHash() async throws {
+        let log = BotProvenanceTestLog()
+        let service = service(log)
+        let producer = producer(service)
+        let file = projectDir.appendingPathComponent("weekly-report.md")
+        try Data("v1".utf8).write(to: file)
+        _ = try await producer.recordBotWrite(
+            vfsPath: "\(botRoot!)/.dsh/skills/weekly-report.md",
+            botID: "bot-a", sessionID: "gb-main")
+        try FileManager.default.removeItem(at: file)
+        _ = try await producer.recordBotDelete(
+            vfsPath: "\(botRoot!)/.dsh/skills/weekly-report.md",
+            botID: "bot-a", sessionID: "gb-main")
+        let snapshot = try await service.latestSkillChange(
+            identity: BotSkillIdentity(source: .projectDsh,
+                                       ownerBotID: "bot-a", name: "weekly-report"))
+        XCTAssertEqual(snapshot?.revision, 2)
+        XCTAssertEqual(snapshot?.action, "delete")
+        XCTAssertEqual(snapshot?.previousSHA256, sha256(Data("v1".utf8)))
+        XCTAssertEqual(snapshot?.ownerBotID, "bot-a")
+        let events = await log.all().filter { $0.type == "skill.changed" }
+        XCTAssertEqual(events.last?.data["skill"]?["source"]?.stringValue, "project-dsh")
+        XCTAssertEqual(events.last?.data["skill"]?["owner_bot_id"]?.stringValue, "bot-a")
+        do {
+            _ = try await producer.recordBotDelete(
+                vfsPath: "\(botRoot!)/.dsh/skills/weekly-report.md",
+                botID: "bot-a", sessionID: "gb-main")
+            XCTFail("delete of a missing file must not append")
+        } catch {
+            XCTAssertEqual(error as? BotSkillProvenanceError, .missingPreviousVersion)
+        }
+    }
+
+    func testProjectDeleteRefusesFileStillPresent() async throws {
+        let log = BotProvenanceTestLog()
+        let producer = producer(service(log))
+        let file = projectDir.appendingPathComponent("still.md")
+        try Data("present".utf8).write(to: file)
+        do {
+            _ = try await producer.recordBotDelete(
+                vfsPath: "\(botRoot!)/.dsh/skills/still.md",
+                botID: "bot-a", sessionID: "gb-main")
+            XCTFail("fileStillPresent expected")
+        } catch {
+            XCTAssertEqual(error as? BotSkillProvenanceError, .fileStillPresent)
+        }
+    }
+
     func testUserDshFeatureAdminWriteAndDelete() async throws {
         let log = BotProvenanceTestLog()
         let service = service(log)
