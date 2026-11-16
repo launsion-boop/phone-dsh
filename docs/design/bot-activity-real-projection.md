@@ -164,7 +164,7 @@ failure in the replay entry.
 On head `7ef72269b` the real first `request/header` declares `activity` on read/glob/grep
 with `required` including it and `minLength: 1`; bash keeps its existing `description`
 field with Bot-only model prose; web tools were absent. All three natural scenarios pass
-(5/6/6 requests, every header Flash/max). ACT-04:
+(5/6/7 requests, every header Flash/max). ACT-04:
 `查看工作区与 pr 资料目录` (14), `读取 #174 的资料笔记` (13), `读取 main 侧的笔记` (12).
 ACT-05: `先看工作区里 notes 资料有哪些` (18), `在读周三例会纪要原文` (10),
 `在读 actions 清单核对待办项` (18). ACT-06:

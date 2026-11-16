@@ -242,7 +242,7 @@
       {
         "id": "ACT-06-NATURAL-EMAIL",
         "gate": "PASS",
-        "modelRequests": 6,
+        "modelRequests": 7,
         "activity": [
           {
             "seq": 17,

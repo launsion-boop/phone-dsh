@@ -17,7 +17,7 @@ framework is introduced.
   **Current status: PASS on head `7ef72269b`.** The real first `request/header` declares
   `activity` as required (minLength 1) on read/glob/grep; bash keeps its existing
   `description` field with Bot-only model prose; web tools were absent. All three natural
-  scenarios passed (5/6/6 requests, Flash/max). Every read uses activity; no read filename
+  scenarios passed (5/6/7 requests, Flash/max). Every read uses activity; no read filename
   fallback. ACT-06's write still uses a short file-object fallback because write is outside
   the five-tool activity coverage. The first bash descriptions remain directory-level and
   not every sentence explicitly carries the previous result; these are recorded quality
