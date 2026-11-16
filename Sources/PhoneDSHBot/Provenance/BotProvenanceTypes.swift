@@ -81,6 +81,34 @@ public enum BotProvenanceRecheckOutcome: Sendable, Equatable {
     case notPerformed
 }
 
+/// Last durable `skill.changed` for one skill. Host reconciliation uses this to
+/// decide whether a file hash already has a carrier and what the next revision is.
+public struct BotSkillChangeSnapshot: Sendable, Equatable {
+    public var name: String
+    public var file: String
+    public var revision: Int
+    public var action: String
+    public var contentSHA256: String?
+    public var previousSHA256: String?
+    public var bytes: Int?
+    public var carrier: String
+    public var atMS: Int64
+
+    public init(name: String, file: String, revision: Int, action: String,
+                contentSHA256: String?, previousSHA256: String?, bytes: Int?,
+                carrier: String, atMS: Int64) {
+        self.name = name
+        self.file = file
+        self.revision = revision
+        self.action = action
+        self.contentSHA256 = contentSHA256
+        self.previousSHA256 = previousSHA256
+        self.bytes = bytes
+        self.carrier = carrier
+        self.atMS = atMS
+    }
+}
+
 public enum BotSkillRecheckOutcome: Sendable, Equatable {
     case same(atMS: Int64)
     case changed(actualSHA256: String, atMS: Int64)
@@ -665,6 +693,10 @@ struct BotProvenanceResolvedFacts: Sendable, Equatable {
     var latestVersion: BotProvenanceSourceVersion?
     var resource: BotResourceIdentity?
     var recheckOutcome: BotProvenanceRecheckOutcome?
+    /// Recheck results are per baseline. A source record can back several
+    /// artifacts/versions with different captured baselines; one global outcome
+    /// must never decide all of them.
+    var recheckOutcomesByBaseline: [BotProvenanceSourceVersion: BotProvenanceRecheckOutcome] = [:]
     var skillRecheckOutcome: BotSkillRecheckOutcome?
     var scanLimitExceeded: Bool
 }

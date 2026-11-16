@@ -31,6 +31,7 @@ struct BotProvenanceObservation: Sendable, Equatable {
 /// events rebuild the same view. `derivation` is an optional member of the
 /// artifact's own carrier event; no carrier field is written or trusted.
 public struct BotProvenanceSnapshot: Sendable {
+    static let contentRoles: Set<String> = ["evidence", "basis", "creator"]
     public static let maximumDepth = 8
     public static let maximumObjects = 10_000
     public static let maximumObservationEvents = 10_000
@@ -52,6 +53,74 @@ public struct BotProvenanceSnapshot: Sendable {
     let cyclicArtifacts: Set<BotDerivedRef>
     let artifactByCarrier: [String: BotDerivedRef]
     public let generation: BotProvenanceGeneration
+
+    /// Host-internal scope key: `user/` memory is shared across Bots; agent
+    /// memory and all other kinds are per-Bot. No persistent artifact field is
+    /// added; the writer's `principal.botId` and the path root are the authority.
+    static func scopeKey(artifact: BotDerivedRef, botID: String?) -> String {
+        let owner = (botID?.isEmpty == false) ? botID! : nil
+        switch artifact.kind {
+        case .skill:
+            return "host"
+        case .memory where artifact.id.hasPrefix("user/"):
+            // A shared document still needs a known writer; a missing
+            // principal is unknown, never implicitly shared.
+            return owner == nil ? "unknown" : "user"
+        case .memory:
+            return owner.map { "bot:\($0)" } ?? "unknown"
+        case .routine, .proactive, .notification, .delivery, .suggestion, .draft:
+            return owner.map { "bot:\($0)" } ?? "unknown"
+        case .review:
+            return owner.map { "bot:\($0)" } ?? "unknown"
+        }
+    }
+
+    /// A read-only view with assertions of other Bots removed. The same
+    /// `BotDerivedRef` can then only resolve its scoped assertion. Nested
+    /// views/upstreams use the filtered indexes too.
+    func scoped(botID: String?) -> BotProvenanceSnapshot {
+        guard let botID, !botID.isEmpty else { return self }
+        var filtered: [BotDerivedRef: [BotProvenanceAssertion]] = [:]
+        for (artifact, list) in assertions {
+            let wanted = Self.scopeKey(artifact: artifact, botID: botID)
+            let kept = list.filter { assertion in
+                Self.scopeKey(artifact: assertion.artifact, botID: assertion.botID)
+                    == wanted
+            }
+            if !kept.isEmpty { filtered[artifact] = kept }
+        }
+        var bySource: [String: Set<BotDerivedRef>] = [:]
+        var artifactByCarrier: [String: BotDerivedRef] = [:]
+        for (artifact, list) in filtered {
+            for assertion in list {
+                for source in assertion.sources {
+                    let ref = BotRecordReference.canonicalize(source.record) ?? source.record
+                    bySource[ref, default: []].insert(artifact)
+                }
+                artifactByCarrier[assertion.carrierRecord] = artifact
+            }
+        }
+        var dependencies: [BotDerivedRef: Set<BotDerivedRef>] = [:]
+        for (artifact, list) in filtered {
+            for assertion in list {
+                for source in assertion.sources {
+                    let ref = BotRecordReference.canonicalize(source.record) ?? source.record
+                    if let upstream = artifactByCarrier[ref], upstream != artifact {
+                        dependencies[artifact, default: []].insert(upstream)
+                    }
+                }
+            }
+        }
+        return BotProvenanceSnapshot(
+            assertions: filtered, carrierByName: [:], bySource: bySource,
+            eventFacts: eventFacts, erasedRecords: erasedRecords,
+            revokedGrants: revokedGrants, observations: observations,
+            observationsByKindKey: observationsByKindKey,
+            observationResourceByRef: observationResourceByRef,
+            scanLimitExceeded: scanLimitExceeded,
+            cyclicArtifacts: Self.stronglyConnectedCycles(dependencies),
+            artifactByCarrier: artifactByCarrier, generation: generation)
+    }
 
     public var referencedRecords: [String] { bySource.keys.sorted() }
 
@@ -79,6 +148,18 @@ public struct BotProvenanceSnapshot: Sendable {
     func sourceStatuses(for artifact: BotDerivedRef,
                         facts: [String: BotProvenanceResolvedFacts]) -> [BotSourceStatus] {
         guard let assertion = latestAssertion(for: artifact) else { return [] }
+        return statuses(for: assertion, facts: facts)
+    }
+
+    /// Artifact-scoped status with the reader's Bot identity. `user/` memory is
+    /// host-shared (any Bot may read the writer's lineage); `agent/` memory and
+    /// every other kind are Bot-private. Without this context two Bots with the
+    /// same path/version would collapse to one carrier.
+    func sourceStatuses(for artifact: BotDerivedRef, botID: String?,
+                        facts: [String: BotProvenanceResolvedFacts]) -> [BotSourceStatus] {
+        guard let assertion = latestAssertion(for: artifact, botID: botID) else {
+            return []
+        }
         return statuses(for: assertion, facts: facts)
     }
 
@@ -314,7 +395,10 @@ public struct BotProvenanceSnapshot: Sendable {
             return status
         }
         // No newer observation is not freshness. A real recheck is required.
-        switch facts.recheckOutcome ?? .notPerformed {
+        let recheckOutcome = baseline.flatMap {
+            facts.recheckOutcomesByBaseline[$0]
+        } ?? facts.recheckOutcome ?? .notPerformed
+        switch recheckOutcome {
         case let .same(atMS):
             status.state = .current
             status.recheckedAtMS = atMS
@@ -389,6 +473,7 @@ public struct BotProvenanceSnapshot: Sendable {
 
         var sourceViews: [BotDerivationSourceView] = []
         var upstream: [BotUpstreamView] = []
+        var contentUpstream: [BotUpstreamView] = []
         for source in assertion.sources {
             let ref = BotRecordReference.canonicalize(source.record) ?? source.record
             let sourceStatus = status(
@@ -404,8 +489,12 @@ public struct BotProvenanceSnapshot: Sendable {
                       !stack.contains(upstreamArtifact) else { continue }
                 let nested = makeView(upstreamArtifact, facts: facts, memo: &memo,
                                       stack: &stack, depth: depth + 1, objects: &objects)
-                upstream.append(BotUpstreamView(
-                    artifact: nested.artifact, state: nested.state))
+                let upstreamView = BotUpstreamView(
+                    artifact: nested.artifact, state: nested.state)
+                upstream.append(upstreamView)
+                if Self.contentRoles.contains(source.role?.rawValue ?? "basis") {
+                    contentUpstream.append(upstreamView)
+                }
             }
         }
         sourceViews.sort { ($0.record, $0.role) < ($1.record, $1.role) }
@@ -413,39 +502,59 @@ public struct BotProvenanceSnapshot: Sendable {
             ($0.artifact.kind.rawValue, $0.artifact.id, $0.artifact.version ?? 0)
                 < ($1.artifact.kind.rawValue, $1.artifact.id, $1.artifact.version ?? 0)
         }
-        let states = sourceViews.map(\.status.state) + upstream.map(\.state)
-        var state = states.isEmpty ? BotProvenanceStatus.current : BotProvenanceStatus.worst(states)
-        var reasonSet = Set(sourceViews.flatMap(\.status.reasons))
-        if upstream.contains(where: { $0.state != .current }) {
+        // G-1 r14 role classes: only evidence/basis/creator are content
+        // provenance. review only feeds review_effective; trigger/recipient are
+        // causal/display-only and must not keep an artifact current.
+        let contentViews = sourceViews.filter {
+            Self.contentRoles.contains($0.role)
+        }
+        let contentStates = contentViews.map(\.status.state) + contentUpstream.map(\.state)
+        var state = contentStates.isEmpty
+            ? BotProvenanceStatus.current
+            : BotProvenanceStatus.worst(contentStates)
+        var reasonSet = Set(contentViews.flatMap(\.status.reasons))
+        if contentUpstream.contains(where: { $0.state != .current }) {
             reasonSet.insert(.upstreamInvalidated)
         }
         if artifact.kind == .skill {
-            // G-4 §3.4: a skill.changed carrier is current only after the host
-            // rechecks the file bytes (or sees a delete). Sources remain
-            // displayable, but do not decide freshness.
+            // G-4 §3.4: the file hash/recheck decides whether the skill body is
+            // current; it does not resurrect an erased/revoked source or a
+            // failed upstream. Combine the two axes instead of overwriting.
             if assertion.isDeleted {
                 state = .unavailable
                 reasonSet = [.skillDeleted]
             } else {
+                let recheckState: BotProvenanceStatus
                 switch facts[assertion.carrierRecord]?.skillRecheckOutcome ?? .notPerformed {
                 case .same:
-                    state = .current
-                    reasonSet = []
+                    recheckState = .current
                 case .changed:
-                    state = .changed
-                    reasonSet = [.sourceChanged]
+                    recheckState = .changed
+                    reasonSet.insert(.sourceChanged)
                 case .denied:
-                    state = .unknown
-                    reasonSet = [.refreshDenied]
+                    recheckState = .unknown
+                    reasonSet.insert(.refreshDenied)
                 case .unavailable:
-                    state = .unknown
-                    reasonSet = [.refreshUnavailable]
+                    recheckState = .unknown
+                    reasonSet.insert(.refreshUnavailable)
                 case .notPerformed:
-                    state = .unknown
-                    reasonSet = [.refreshNotPerformed]
+                    recheckState = .unknown
+                    reasonSet.insert(.refreshNotPerformed)
+                }
+                if contentViews.isEmpty {
+                    // A skill.changed event without derivation is allowed by
+                    // G-4: the file itself is the content. Its recheck still
+                    // cannot override a failed upstream.
+                    state = contentUpstream.isEmpty
+                        ? recheckState
+                        : BotProvenanceStatus.worst([recheckState]
+                            + contentUpstream.map(\.state))
+                } else {
+                    state = BotProvenanceStatus.worst(
+                        [recheckState] + contentStates)
                 }
             }
-        } else if sourceViews.isEmpty {
+        } else if contentViews.isEmpty {
             state = .unknown
             reasonSet = [.noDerivation]
         }
@@ -499,6 +608,23 @@ public struct BotProvenanceSnapshot: Sendable {
             return list.last { $0.artifact.version == version }
         }
         return list.last
+    }
+
+    /// Bot-scoped latest assertion. `user/` memory keeps the shared rule: the
+    /// writer may be another Bot, and reading it must not expose that Bot's
+    /// other records. Everything else must match the reader's Bot.
+    private func latestAssertion(for artifact: BotDerivedRef,
+                                botID: String?) -> BotProvenanceAssertion? {
+        guard let botID, !botID.isEmpty else { return latestAssertion(for: artifact) }
+        guard let list = assertions[artifact] else { return nil }
+        let sharedUser = artifact.kind == .memory && artifact.id.hasPrefix("user/")
+        let filtered = list.filter { assertion in
+            sharedUser || assertion.botID == botID
+        }
+        if let version = artifact.version {
+            return filtered.last { $0.artifact.version == version }
+        }
+        return filtered.last
     }
 
     private func cycleMembers(containing artifact: BotDerivedRef) -> [BotDerivedRef] {

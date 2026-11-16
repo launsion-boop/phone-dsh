@@ -82,8 +82,15 @@ public protocol BotProvenanceQuerying: Sendable {
         -> [BotDerivedRef: BotDerivationView]
     func trace(_ record: String) async throws -> [BotDerivationView]
     func sourceStatuses(for artifact: BotDerivedRef) async throws -> [BotSourceStatus]
+    func sourceStatuses(for artifact: BotDerivedRef, botID: String?) async throws
+        -> [BotSourceStatus]
+    func currentState(for artifact: BotDerivedRef, botID: String?) async throws
+        -> BotDerivationView
     func sourceStatuses(for refs: [String]) async throws -> [String: BotSourceStatus]
     func generation() async throws -> BotProvenanceGeneration
+    func latestSkillChange(name: String) async throws -> BotSkillChangeSnapshot?
+    func routineDerivationSources(botID: String, sessionID: String) async throws
+        -> [BotDerivationSource]
     func derivedRefs(forEventID eventID: String) async throws -> [BotDerivedRef]
     func derivedRef(forEventID eventID: String) async throws -> BotDerivedRef?
 }
@@ -253,6 +260,73 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         return BotDerivedRef(kind: .skill, id: name, version: write.revision)
     }
 
+    public func latestSkillChange(name: String) async throws
+        -> BotSkillChangeSnapshot? {
+        let snapshot = try await refresh()
+        let latest = snapshot.assertions.keys
+            .filter { $0.kind == .skill && $0.id == name }
+            .compactMap(\.version).max()
+        guard let latest,
+              let assertion = snapshot.assertions[
+                BotDerivedRef(kind: .skill, id: name, version: latest)]?.last,
+              let seq = Int(assertion.carrierRecord
+                .replacingOccurrences(of: "record://event/", with: "")),
+              let data = try await eventData(forCommitSeq: seq),
+              let skill = data["skill"]?.objectValue,
+              let file = skill["file"]?.stringValue else { return nil }
+        let at = Int64(data["at_ms"]?.intValue ?? 0)
+        return BotSkillChangeSnapshot(
+            name: name, file: file, revision: latest,
+            action: data["action"]?.stringValue ?? "write",
+            contentSHA256: skill["content_sha256"]?.stringValue,
+            previousSHA256: skill["previous_sha256"]?.stringValue,
+            bytes: skill["bytes"]?.intValue,
+            carrier: assertion.carrierRecord, atMS: at)
+    }
+
+    /// Derivation sources for a routine-run memory write: the durable
+    /// `routine.run_started` is role `trigger` (causal only), and the latest
+    /// routine-definition snapshot for the same routine is role `basis` (the
+    /// saved instruction is real content). If either layer is missing we return
+    /// only what really exists; a trigger without a content source must remain
+    /// unknown/no-derivation rather than become current.
+    public func routineDerivationSources(botID: String, sessionID: String) async throws
+        -> [BotDerivationSource] {
+        let snapshot = try await refresh()
+        let head = snapshot.generation.headCommitSeq
+        guard head > 0 else { return [] }
+        let window = 500
+        let events = try await eventLog.events(
+            after: max(0, head - window), limit: window)
+        guard let started = events.reversed().first(where: {
+            $0.type == "routine.run_started"
+                && $0.principal.sessionId == sessionID
+                && (botID.isEmpty || $0.principal.botId == botID)
+        }), let startedSeq = started.commitSeq,
+              let routineId = started.data["routineId"]?.stringValue,
+              !routineId.isEmpty else { return [] }
+        var result: [BotDerivationSource] = [
+            BotDerivationSource(record: "record://event/\(startedSeq)", role: .trigger)
+        ]
+        // The routine definition snapshot is the saved instruction that caused
+        // this run; it is a content basis, not a second trigger. Scan newest
+        // first so an updated definition wins without replaying all events.
+        for event in events.reversed() {
+            guard event.type == "routine.defined" || event.type == "routine.updated",
+                  event.principal.botId == botID,
+                  let seq = event.commitSeq,
+                  event.data["botId"]?.stringValue == botID,
+                  event.data["document"]?["routines"]?.arrayValue?
+                    .contains(where: { $0["id"]?.stringValue == routineId }) == true else {
+                continue
+            }
+            result.append(BotDerivationSource(
+                record: "record://event/\(seq)", role: .basis))
+            break
+        }
+        return result
+    }
+
     public func invalidate(sourceRef: String,
                            reason: BotInvalidationReason) async throws -> BotInvalidationResult {
         try await invalidate(sourceRefs: [sourceRef], reason: reason)
@@ -333,6 +407,22 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         let snapshot = try await refresh()
         let facts = await facts(for: snapshot)
         return snapshot.sourceStatuses(for: artifact, facts: facts)
+    }
+
+    public func sourceStatuses(for artifact: BotDerivedRef,
+                               botID: String?) async throws -> [BotSourceStatus] {
+        let snapshot = try await refresh()
+        let scoped = snapshot.scoped(botID: botID)
+        let facts = await facts(for: scoped)
+        return scoped.sourceStatuses(for: artifact, facts: facts)
+    }
+
+    public func currentState(for artifact: BotDerivedRef,
+                             botID: String?) async throws -> BotDerivationView {
+        let snapshot = try await refresh()
+        let scoped = snapshot.scoped(botID: botID)
+        let facts = await facts(for: scoped)
+        return scoped.view(for: artifact, facts: facts)
     }
 
     public func sourceStatuses(for refs: [String]) async throws -> [String: BotSourceStatus] {
@@ -532,14 +622,18 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
             }
         }
         if let rechecker {
+            var recheckedKeys = Set<String>()
             for assertion in snapshot.assertions.values.joined() {
                 for source in assertion.sources {
                     guard let baseline = source.sourceVersion else { continue }
                     let ref = BotRecordReference.canonicalize(source.record) ?? source.record
                     guard var fact = facts[ref], fact.isObservation,
                           let resource = source.resource ?? fact.resource else { continue }
-                    fact.recheckOutcome = await rechecker.recheck(
+                    let key = ref + "\u{1F}" + String(describing: baseline)
+                    guard recheckedKeys.insert(key).inserted else { continue }
+                    let outcome = await rechecker.recheck(
                         resource: resource, baseline: baseline, botID: assertion.botID)
+                    fact.recheckOutcomesByBaseline[baseline] = outcome
                     facts[ref] = fact
                 }
             }
