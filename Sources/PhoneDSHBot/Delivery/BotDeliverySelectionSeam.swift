@@ -272,18 +272,11 @@ public struct BotDeliverySelectionBinding: Sendable, Equatable {
     public var approvalID: String
     public var turnID: String?
     public var goalDigest: String?
-    /// A binding block was actually present on the approval. A missing block
-    /// stays legacy-compatible; a present but incomplete block fails closed.
-    public var isPresent: Bool
-    public var isValid: Bool
 
-    public init(approvalID: String, turnID: String? = nil, goalDigest: String? = nil,
-                isPresent: Bool = false, isValid: Bool = true) {
+    public init(approvalID: String, turnID: String? = nil, goalDigest: String? = nil) {
         self.approvalID = approvalID
         self.turnID = turnID
         self.goalDigest = goalDigest
-        self.isPresent = isPresent
-        self.isValid = isValid
     }
 
     public var json: BotJSONValue {
@@ -295,27 +288,16 @@ public struct BotDeliverySelectionBinding: Sendable, Equatable {
 
     public static func parse(_ value: BotJSONValue?,
                              approvalID: String) -> BotDeliverySelectionBinding {
-        guard let value else {
+        guard case .object(let object)? = value else {
             return BotDeliverySelectionBinding(approvalID: approvalID)
         }
-        guard case .object(let object) = value else {
-            return BotDeliverySelectionBinding(approvalID: approvalID, isPresent: true, isValid: false)
-        }
-        let boundApproval = object["approval_id"]?.stringValue ?? ""
-        let boundTurn = object["turn_id"]?.stringValue ?? ""
-        let validTurn = boundTurn.contains("#") && !boundTurn.isEmpty
-            && boundTurn.unicodeScalars.count <= 512
-        let validApproval = !boundApproval.isEmpty && boundApproval == approvalID
-        let valid = validApproval && validTurn
         return BotDeliverySelectionBinding(
-            approvalID: boundApproval.isEmpty ? approvalID : boundApproval,
-            turnID: boundTurn.isEmpty ? nil : boundTurn,
-            goalDigest: object["goal_digest"]?.stringValue,
-            isPresent: true, isValid: valid)
+            approvalID: object["approval_id"]?.stringValue ?? approvalID,
+            turnID: object["turn_id"]?.stringValue,
+            goalDigest: object["goal_digest"]?.stringValue)
     }
 
     public func matches(turnID: String?, goalDigest: String?) -> Bool {
-        if isPresent && !isValid { return false }
         if let boundTurn = self.turnID, !boundTurn.isEmpty {
             guard let turnID, !turnID.isEmpty, turnID == boundTurn else { return false }
         }
