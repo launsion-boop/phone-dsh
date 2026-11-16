@@ -339,6 +339,89 @@ final class BotFeedbackRecordTests: XCTestCase {
         XCTAssertEqual(held.reason, "feedback-held")
     }
 
+    // U's new automation-row dialog sends the row id with `.class` (per
+    // routine) or `.user` (kind-level across Bots). Both must resolve through
+    // the proactive delivery index, not fall back to "no target".
+    func testUIUsesRoutineClassScopeFromAutomationRow() async throws {
+        let clock = WP6Clock(FeedbackFixtures.baseNow)
+        let deliverer = WP6NotificationDeliverer()
+        let store = InMemoryBotFeedbackStore()
+        let center = makeCenter(clock, store: store)
+        let engine = ProactiveEngine(
+            settings: { wp6Settings() }, now: { clock.now },
+            policy: ProactivePolicyConfiguration(fuseMaxWakeups: 50),
+            deliverer: deliverer, feedback: center)
+        var routineA = FeedbackFixtures.candidate(
+            "routine-a-run-1", kind: .routineResult, botId: "bot-1",
+            routineId: "routine-a")
+        routineA.rowId = "row-routine-a"
+        let first = await engine.consider(routineA)
+        XCTAssertEqual(first.decision, .did)
+        let siblingFirst = await engine.consider(FeedbackFixtures.candidate(
+            "routine-b-run-1", kind: .routineResult, botId: "bot-1",
+            routineId: "routine-b"))
+        XCTAssertEqual(siblingFirst.decision, .did)
+
+        let request = BotFeedback(
+            botID: "bot-1", action: .suppress,
+            target: BotFeedbackArtifactRef(kind: .delivery, id: "row-routine-a"),
+            scope: .class, origin: FeedbackFixtures.uiOrigin("ui-class-row"))
+        let outcome = try await center.record(request)
+        XCTAssertEqual(outcome.status, .accepted,
+                       "code=\(outcome.code ?? "nil")")
+        XCTAssertEqual(outcome.classKey, "routine:routine-a")
+
+        clock.advance(60_000)
+        let held = await engine.consider(FeedbackFixtures.candidate(
+            "routine-a-run-2", kind: .routineResult, botId: "bot-1",
+            routineId: "routine-a"))
+        XCTAssertEqual(held.reason, "feedback-held")
+        let sibling = await engine.consider(FeedbackFixtures.candidate(
+            "routine-b-run-2", kind: .routineResult, botId: "bot-1",
+            routineId: "routine-b"))
+        XCTAssertEqual(sibling.decision, .did)
+    }
+
+    func testUIUserScopeFromAutomationRowUsesKindClass() async throws {
+        let clock = WP6Clock(FeedbackFixtures.baseNow)
+        let delivererA = WP6NotificationDeliverer()
+        let delivererB = WP6NotificationDeliverer()
+        let store = InMemoryBotFeedbackStore()
+        let center = makeCenter(clock, store: store)
+        let engineA = ProactiveEngine(
+            settings: { wp6Settings() }, now: { clock.now },
+            policy: ProactivePolicyConfiguration(fuseMaxWakeups: 50),
+            deliverer: delivererA, feedback: center)
+        let engineB = ProactiveEngine(
+            settings: { wp6Settings() }, now: { clock.now },
+            policy: ProactivePolicyConfiguration(fuseMaxWakeups: 50),
+            deliverer: delivererB, feedback: center)
+        var routineA = FeedbackFixtures.candidate(
+            "routine-a-run-1", kind: .routineResult, botId: "bot-a",
+            routineId: "routine-a")
+        routineA.rowId = "row-routine-a"
+        let firstA = await engineA.consider(routineA)
+        XCTAssertEqual(firstA.decision, .did)
+
+        let request = BotFeedback(
+            botID: "bot-a", action: .suppress,
+            target: BotFeedbackArtifactRef(kind: .delivery, id: "row-routine-a"),
+            scope: .user, origin: FeedbackFixtures.uiOrigin("ui-user-row"))
+        let outcome = try await center.record(request)
+        XCTAssertEqual(outcome.status, .accepted,
+                       "code=\(outcome.code ?? "nil")")
+        XCTAssertEqual(outcome.classKey, "proactive:routine-result")
+
+        clock.advance(60_000)
+        let heldB = await engineB.consider(FeedbackFixtures.candidate(
+            "routine-b-run-1", kind: .routineResult, botId: "bot-b",
+            routineId: "routine-b"))
+        XCTAssertEqual(heldB.reason, "feedback-held")
+        let taskB = await engineB.consider(
+            FeedbackFixtures.candidate("task-b1", botId: "bot-b"))
+        XCTAssertEqual(taskB.decision, .did)
+    }
+
     func testUICorrectOnAMessageRowAsksForAMemoryVersion() async throws {
         let clock = WP6Clock(FeedbackFixtures.baseNow)
         let store = InMemoryBotFeedbackStore()
