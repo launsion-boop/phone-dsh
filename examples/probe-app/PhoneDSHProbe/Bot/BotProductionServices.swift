@@ -578,13 +578,19 @@ actor BotProductionRowService {
     /// reconnect line survives the poll that threw.
     private var health = BotProductionWatchHealth.healthy
 
+    /// G-2 feedback center. Optional so a host without a durable store keeps
+    /// the UI's explicit "not connected" answer instead of a fake success.
+    let feedbackCenter: BotFeedbackCenter?
+
     init(environment: BotProductionEnvironment, history: BotRowHistory = BotRowHistory(),
          remote: BotDSHRemoteRuntime? = nil,
-         cardAnswerPromptResumer: (any BotCardAnswerPromptResuming)? = nil) {
+         cardAnswerPromptResumer: (any BotCardAnswerPromptResuming)? = nil,
+         feedbackCenter: BotFeedbackCenter? = nil) {
         self.environment = environment
         self.history = history
         self.remote = remote
         self.cardAnswerPromptResumer = cardAnswerPromptResumer
+        self.feedbackCenter = feedbackCenter
     }
 
     func start() async throws {

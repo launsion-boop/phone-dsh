@@ -120,7 +120,8 @@ final class BotRuntimeUnit {
         let routineOutbox = BotRoutineOutbox(store: store, machine: machine, botID: botID)
         let rows = BotProductionRowService(
             environment: environment, remote: remote,
-            cardAnswerPromptResumer: remote)
+            cardAnswerPromptResumer: remote,
+            feedbackCenter: feedback)
         let routineActivity = BotRoutineActivityFlag()
         let resolvedNow = now ?? { Int64(Date().timeIntervalSince1970 * 1000) }
         let settingsStore = ProactiveSettingsStore.shared

@@ -48,6 +48,35 @@ extension BotProductionRowService {
             },
             presentation: { [self] in
                 try await self.presentation()
+            },
+            recordFeedback: { [self] intent in
+                guard let center = feedbackCenter else {
+                    return .rejected(reason: "反馈服务未连接")
+                }
+                do {
+                    switch intent.verdict {
+                    case .undo:
+                        guard let feedbackID = intent.feedbackID, !feedbackID.isEmpty else {
+                            return .rejected(reason: "缺少要撤销的反馈编号")
+                        }
+                        let outcome = try await center.undo(
+                            feedbackID, botID: intent.botID,
+                            origin: BotFeedbackOrigin(kind: .uiAction, nonce: intent.nonce))
+                        return Self.feedbackActionResult(outcome)
+                    case .adopt, .correct, .suppress:
+                        let action: BotFeedbackAction = intent.verdict == .adopt
+                            ? .adopt : intent.verdict == .correct ? .correct : .suppress
+                        let feedback = BotFeedback(
+                            botID: intent.botID, action: action,
+                            target: BotFeedbackArtifactRef(kind: .delivery, id: intent.rowID),
+                            scope: .artifact,
+                            origin: BotFeedbackOrigin(kind: .uiAction, nonce: intent.nonce))
+                        let outcome = try await center.record(feedback)
+                        return Self.feedbackActionResult(outcome)
+                    }
+                } catch {
+                    return .rejected(reason: "反馈未记录，请重试")
+                }
             })
     }
 }
@@ -358,5 +387,22 @@ extension BotInfoSnapshot {
         guard let result else { return "还没有运行结果。" }
         return BotUIFormat.routineRunResult(
             status: result.status.rawValue, text: result.text, error: result.error)
+    }
+}
+
+private extension BotProductionRowService {
+    /// One UI feedback outcome mapped to the UI's action result. A rejected
+    /// outcome keeps the host's explicit code/message instead of a silent
+    /// success.
+    static func feedbackActionResult(_ outcome: BotFeedbackOutcome) -> BotUIActionResult {
+        let eventID = outcome.feedbackID ?? outcome.reverses ?? ""
+        switch outcome.status {
+        case .accepted:
+            return .accepted(eventID: eventID)
+        case .duplicated:
+            return .duplicate(eventID: eventID)
+        case .rejected:
+            return .rejected(reason: outcome.message ?? outcome.code ?? "反馈被拒绝")
+        }
     }
 }
