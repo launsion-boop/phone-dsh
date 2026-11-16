@@ -22,6 +22,9 @@ framework is introduced.
   the five-tool activity coverage. The first bash descriptions remain directory-level and
   not every sentence explicitly carries the previous result; these are recorded quality
   observations, not claimed perfect. Earlier failed/optional attempts are history.
+  Root's adjacent Bot regressions at the final code head: bot-runtime-mounts,
+  bot-preset-narrowing, bot-tool-surface and bot-identity-approval, 44/44 PASS
+  (`lead/.activity-work/final-adjacent-checks.log`).
 - `receipt.json`: the accepted actual activity sequence, with source seq/tool, raw model
   sentence, displayed detail, length/CJK count, object and result-continuation judgment,
   plus the model configuration read from `request/header`.

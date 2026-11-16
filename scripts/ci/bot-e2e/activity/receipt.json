@@ -284,7 +284,7 @@
       "ratio": 0.091,
       "sampleNote": "Only the ACT-06 write object is a short-object fallback; read activity has no filename fallback. The first bash descriptions are real directory-stage prose, not fallback."
     },
-    "qualityObservation": "Reads use the declared required activity on every run and there is no read filename fallback. The first bash descriptions remain directory-level (“查看工作区与 pr 资料目录”, “先看工作区里 notes 资料有哪些”, “查看 inbox 和 notes 目录内容”); not every sentence explicitly carries the previous result (ACT-05’s “核对待办项” is only a partial reference). The ACT-06 write uses a short object fallback because write is outside the five-tool activity coverage. These are recorded quality observations, not claimed as perfect or as zero fallback for all tools.",
+    "qualityObservation": "Reads use the declared required activity on every run and there is no read filename fallback. The first bash descriptions remain directory-level (“查看工作区与 pr 资料目录”, “先看工作区里 notes 资料有哪些”, “查看 inbox 和 notes 目录内容”); not every sentence explicitly carries the previous result (ACT-05’s “核对待办项” is only a partial reference). The ACT-06 write uses a short object fallback because write is outside the five-tool activity coverage. These are recorded quality observations, not claimed as perfect or as zero fallback for all tools. Root replayed the three v35 sessions through the production bubble timer: the outputs include 读取 #174 的资料笔记 / 在读周三例会纪要原文 / 在读李光浩的来信内容, all short and event-driven. The directory-stage first bash is an honest stage description, not a preset cycle; the write short-object fallback is a recorded boundary. No code blocker remains.",
     "previousAttempts": "Historical invalid probe required-in-original and optional/preset attempts are retained only as history; v3.4 wrapper-only required and v3.5 bash-description are current."
   },
   "previousGuidedRun": {
@@ -296,5 +296,17 @@
       "我先看李光浩的邮件 (9) -> 邮件在问周五清单是否定稿，接着看发布背景 (20)"
     ]
   },
-  "qualityObservation": "The final guided rerun on cefff6a2 kept a short real sequence. ACT-01’s first call selected the English bash.description 'List workspace and pr directory' over the Chinese public sentence; the later result sentence is Chinese. This is the documented per-call-intent priority, not a hidden failure. The natural control shows the same English/fallback share; the short/real/result-continuation criteria are met, while a future prompt-language refinement could reduce the English share."
+  "qualityObservation": "The final guided rerun on cefff6a2 kept a short real sequence. ACT-01’s first call selected the English bash.description 'List workspace and pr directory' over the Chinese public sentence; the later result sentence is Chinese. This is the documented per-call-intent priority, not a hidden failure. The natural control shows the same English/fallback share; the short/real/result-continuation criteria are met, while a future prompt-language refinement could reduce the English share.",
+  "adjacentChecks": {
+    "at": "7ef72269b67641650100df531c09c2cd13450d21",
+    "result": "44/44 PASS",
+    "suites": [
+      "bot-runtime-mounts",
+      "bot-preset-narrowing",
+      "bot-tool-surface",
+      "bot-identity-approval"
+    ],
+    "log": "lead/.activity-work/final-adjacent-checks.log",
+    "note": "Root ran the adjacent Bot regressions at the final code head; this receipt remains the activity-specific evidence."
+  }
 }

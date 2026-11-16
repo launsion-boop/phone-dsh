@@ -174,7 +174,11 @@ ACT-05: `先看工作区里 notes 资料有哪些` (18), `在读周三例会纪�
 real directory-stage description, and not every sentence explicitly carries the previous
 result (ACT-05’s todo check is a partial reference); the ACT-06 write uses a short file
 object because write is outside the five-tool activity coverage. These are recorded quality
-observations, not perfect or zero-fallback claims.
+observations, not perfect or zero-fallback claims. The directory-stage first bash is a real
+stage description, not a preset cycle; the write short-object fallback is an honest boundary.
+Root’s adjacent Bot regressions at the final code head (bot-runtime-mounts,
+bot-preset-narrowing, bot-tool-surface, bot-identity-approval) passed **44/44**
+(`lead/.activity-work/final-adjacent-checks.log`).
 
 Not run: physical iPhone, full App UI run, Android, deployment. Those are not inferred
 from the simulator or harness evidence.
