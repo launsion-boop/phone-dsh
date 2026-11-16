@@ -84,6 +84,26 @@
 - 取不到稳定身份 → `unknown` + `no-resource-identity`；不得把两条不同资料串成“新版”。
 - 反例（共享向量强制）：同一 connector 的 res-a/res-b；同一 URL 的 bot-a/bot-b 两个授权域。
 
+### 2.4 观察 carrier 的真实形状（G-1 r11，Q1 P0-2）
+
+观察索引只能解析**生产真实写入**的 carrier；不存在“carrier 带 `data.observation`”这一契约形状，
+它只是测试自造的实现假设，L 必须删除该假设：
+
+| carrier（durable event / session 行） | 观察字段位置 | resource 身份 | 备注 |
+| --- | --- | --- | --- |
+| `conversation.tool_result`（外部工具结果） | 消息 content 文本里的 v1 §4.3 观察信封（`source/origin/at/owner/ref`） | 按 §2.3 从信封 `source`+`origin` 推导：web URL / file path / connector 需结构化 resource id | 宿主自己的 bash/文件工具不加信封，不是 observation |
+| `context.observed`（G-3） | flat `data`：`source/kind/observed_at_ms/owner_bot_id/consent_generation/source_version/uncertainty/delivery/payload` | `data.resource{kind:"context-source",key:<OS 资源 id>,owner}`（G-3 r3 起必填） | trust=`observation`；P 必须识别，不得落 `.assistant` |
+| `comm.inbound` / `device-task` 终态 | 结构化 held/设备事件；若正文含信封则解析信封 | 来源有稳定资源 id 才给 resource；否则 `no-resource-identity` | 设备任务不是“最新文件版本” |
+| 其他 durable type | 不自动当 observation | — | 不得因工具名前缀 `mcp__*`/`web_search` 就猜 observation；名字不是身份 |
+
+- P 的 `sourceStates`/`evidenceSnapshot` 必须对上述 carrier 返回 `trust=observation`、`resolved`、
+  `observed_at_ms`、version（信封/数据里的来源版本或内容摘要）与 `resource`；`context.observed` 不能
+  落到 `default: assistant`。拿不到 resource → 返回 `no-resource-identity` 语义，不得 current。
+- L 的 observation 索引必须按本表解析；测试里构造的 `data.observation` 不再作为契约证据，golden/测试
+  必须覆盖真实 flat context 与正文信封两类 carrier。
+- 写入端（C/P/L）的 `prepareBaseline` 必须有生产 caller；只存在于测试/assembly API 的不算接线。
+- 若某个 carrier 的正文/结构无法稳定解析，读视图必须 `unknown` + 对应 reason，不得退回 `current`。
+
 ## 3. `derivation`：派生物的来源断言
 
 ### 3.1 形状（`derivation.schema.json`）
