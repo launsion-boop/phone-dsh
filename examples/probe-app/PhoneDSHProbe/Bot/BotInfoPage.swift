@@ -107,59 +107,6 @@ struct BotRoutineInfo: Identifiable, Equatable {
     var cloudScheduleEnabled: Bool = false
 }
 
-/// One native context source as the info page presents it. The production
-/// adapter fills this from the N registry + capability matrix; the UI never
-/// keeps a second capability list.
-struct BotContextSourceInfo: Identifiable, Equatable {
-    /// `BotContextSourceKind.rawValue` (calendar, contacts, ...). Opaque to
-    /// the view; never shown.
-    let id: String
-    var title: String
-    var detail: String
-    /// notDetermined | authorized | limited | denied | restricted | revoked |
-    /// unsupported | deferred. Human labels are derived below.
-    var state: String
-    var subscribed: Bool
-    var usable: Bool
-    var requiresOSPermission: Bool
-
-    var stateLabel: String {
-        switch state {
-        case "authorized": return "已允许"
-        case "limited": return "部分允许"
-        case "denied": return "系统拒绝"
-        case "restricted": return "系统限制"
-        case "revoked": return "已撤销"
-        case "notDetermined": return "未询问"
-        case "unsupported": return "本机不支持"
-        case "deferred": return "后续版本"
-        default: return "状态未知"
-        }
-    }
-
-    var stateTone: BotStatusTone {
-        switch state {
-        case "authorized": return .success
-        case "limited", "notDetermined": return .warning
-        case "denied", "restricted", "revoked": return .danger
-        default: return .neutral
-        }
-    }
-
-    var icon: String {
-        switch id {
-        case "calendar": return "calendar"
-        case "contacts": return "person.crop.circle"
-        case "selected-media": return "photo.on.rectangle"
-        case "location-fence": return "mappin.and.ellipse"
-        case "power": return "battery.50percent"
-        case "own-notification": return "bell"
-        case "external-entry": return "square.and.arrow.down"
-        default: return "sensor.tag.radiowaves.forward"
-        }
-    }
-}
-
 struct BotGrantInfo: Identifiable, Equatable {
     let id: String
     var tool: String
@@ -237,13 +184,6 @@ struct BotInfoDriver {
     var setRoutineCloudSchedule: (String, Bool) async throws -> Void = { _, _ in
         throw BotInfoActionError.cloudScheduleUnavailable
     }
-    /// Native context-source consent/subscription. The production adapter
-    /// reads the N registry/capability matrix; the view never invents a
-    /// capability or an authorization state.
-    var loadContextSources: () async throws -> [BotContextSourceInfo] = { [] }
-    var setContextSourceConsent: (String, Bool) async throws -> Void = { _, _ in
-        throw BotInfoActionError.contextSourcesUnavailable
-    }
     var revokeGrant: (String) async throws -> Void = { _ in }
     var cancelRoutine: (String) async throws -> Void = { _ in }
     var resolveReconciliation: (String, String) async throws -> Void = { _, _ in }
@@ -255,12 +195,9 @@ struct BotInfoDriver {
 
 enum BotInfoActionError: LocalizedError {
     case cloudScheduleUnavailable
-    case contextSourcesUnavailable
-
     var errorDescription: String? {
         switch self {
         case .cloudScheduleUnavailable: return "云端调度接口未连接。"
-        case .contextSourcesUnavailable: return "情境来源接口未连接。"
         }
     }
 }
@@ -277,8 +214,6 @@ final class BotInfoModel: ObservableObject {
     @Published var draftName: String
     @Published private(set) var memories: [BotMemoryDocumentInfo]
     @Published private(set) var routines: [BotRoutineInfo]
-    @Published private(set) var contextSources: [BotContextSourceInfo] = []
-    @Published private(set) var contextSourcesState: BotInfoLoadState = .loading
     @Published private(set) var approvals: [BotApprovalRecord]
     @Published private(set) var grants: [BotGrantInfo]
     @Published private(set) var reconciliations: [BotReconciliationInfo]
@@ -602,36 +537,6 @@ final class BotInfoModel: ObservableObject {
         }
     }
 
-    func loadContextSources() async {
-        guard let driver else {
-            contextSources = []
-            contextSourcesState = .failed("情境来源接口未连接")
-            return
-        }
-        contextSourcesState = .loading
-        do {
-            contextSources = try await driver.loadContextSources()
-            contextSourcesState = .loaded
-        } catch {
-            contextSources = []
-            contextSourcesState = .failed("情境来源读取失败：\(error.localizedDescription)")
-        }
-    }
-
-    func setContextSource(_ source: BotContextSourceInfo, enabled: Bool) async {
-        guard let driver else {
-            actionError = "情境来源设置失败：情境来源接口未连接。"
-            return
-        }
-        do {
-            try await driver.setContextSourceConsent(source.id, enabled)
-            await loadContextSources()
-        } catch {
-            actionError = "情境来源设置失败：\(error.localizedDescription)"
-            await loadContextSources()
-        }
-    }
-
     func setRoutineCloudSchedule(_ routine: BotRoutineInfo, enabled: Bool) async {
         // A missing driver is not a successful no-op: the fixture model must
         // show the same honest failure the production wiring would show.
@@ -687,7 +592,6 @@ enum BotInfoSection: Hashable {
     case routines
     case approvals
     case grants
-    case contextSources
 }
 
 /// A request to present the information page at one section. Routine-due
@@ -708,6 +612,8 @@ struct BotInfoPage: View {
     /// Fixture/preview override for the profile description. Production reads
     /// `BotProfile.description` through the model and leaves this nil.
     private let descriptionOverride: String?
+    private let contextSources: BotContextSourcesAssembly?
+    private let contextBotID: String?
     /// Fixture-only erasure-confirmation preview; production leaves this nil.
     private let memoryConfirmationPreview: BotMemoryConfirmationPreview?
     @Environment(\.dismiss) private var dismiss
@@ -725,13 +631,17 @@ struct BotInfoPage: View {
          highlightRoutineID: String? = nil,
          onDelete: (() async throws -> Void)? = nil,
          description: String? = nil,
-         memoryConfirmationPreview: BotMemoryConfirmationPreview? = nil) {
+         memoryConfirmationPreview: BotMemoryConfirmationPreview? = nil,
+         contextSources: BotContextSourcesAssembly? = nil,
+         contextBotID: String? = nil) {
         self.model = model
         self.isMainBot = isMainBot
         self.highlightRoutineID = highlightRoutineID
         self.onDelete = onDelete
         self.descriptionOverride = description
         self.memoryConfirmationPreview = memoryConfirmationPreview
+        self.contextSources = contextSources
+        self.contextBotID = contextBotID
         var initialPath = NavigationPath()
         if let initialSection { initialPath.append(initialSection) }
         _path = State(initialValue: initialPath)
@@ -808,6 +718,18 @@ struct BotInfoPage: View {
                     Text("打扰")
                 }
 
+                if let contextSources, let contextBotID {
+                    Section("情境来源") {
+                        NavigationLink {
+                            BotContextSourcesSettingsView(
+                                botID: contextBotID, assembly: contextSources)
+                        } label: {
+                            Label("管理情境来源", systemImage: "dot.radiowaves.left.and.right")
+                        }
+                        .accessibilityIdentifier("bot.info.context-sources")
+                    }
+                }
+
                 Section("数据") {
                     NavigationLink(value: BotInfoSection.memory) {
                         BotInfoEntryLabel(title: "记忆", systemImage: "brain", state: model.memoryState,
@@ -829,12 +751,6 @@ struct BotInfoPage: View {
                                           count: model.grants.count)
                     }
                     .accessibilityIdentifier("bot.info.grants")
-                    NavigationLink(value: BotInfoSection.contextSources) {
-                        BotInfoEntryLabel(title: "情境来源", systemImage: "sensor.tag.radiowaves.forward",
-                                          state: model.contextSourcesState,
-                                          count: model.contextSources.filter(\.subscribed).count)
-                    }
-                    .accessibilityIdentifier("bot.info.contextSources")
                 }
 
                 if let error = model.actionError {
@@ -879,7 +795,6 @@ struct BotInfoPage: View {
                 case .routines: BotRoutinesPage(model: model)
                 case .approvals: BotApprovalHistoryPage(model: model)
                 case .grants: BotGrantsPage(model: model)
-                case .contextSources: BotContextSourcesPage(model: model)
                 }
             }
             .toolbar {
@@ -2087,88 +2002,6 @@ private extension RoutinePresenceLevel {
         case .backgroundKeepAlive: return "后台保活"
         case .scheduledNotification: return "预定通知"
         }
-    }
-}
-
-private struct BotContextSourcesPage: View {
-    @ObservedObject var model: BotInfoModel
-
-    var body: some View {
-        List {
-            switch model.contextSourcesState {
-            case .loading:
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("正在读取情境来源…").foregroundStyle(HomeSpec.textSecondary)
-                }
-            case .failed(let message):
-                BotFailureRow(message: message) {
-                    Task { await model.loadContextSources() }
-                }
-            case .loaded:
-                if model.contextSources.isEmpty {
-                    Text("这个版本没有可用的情境来源。")
-                        .foregroundStyle(HomeSpec.textSecondary)
-                } else {
-                    Section {
-                        ForEach(model.contextSources) { source in
-                            sourceRow(source)
-                        }
-                    } footer: {
-                        Text("每个来源单独授权；关闭会撤销同意并停止该来源的读取。系统权限和 App 同意是两层，二者都允许时才读取。")
-                    }
-                }
-            }
-            if let error = model.actionError {
-                Section {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.system(size: 14))
-                        .foregroundStyle(BotUIPalette.danger)
-                }
-            }
-        }
-        .homeGroupedList()
-        .navigationTitle("情境来源")
-        .navigationBarTitleDisplayMode(.inline)
-        .task { await model.loadContextSources() }
-    }
-
-    private func sourceRow(_ source: BotContextSourceInfo) -> some View {
-        Toggle(isOn: Binding(
-            get: { source.subscribed },
-            set: { enabled in
-                Task { await model.setContextSource(source, enabled: enabled) }
-            }
-        )) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: source.icon)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(HomeSpec.textSecondary)
-                    .frame(width: 28, height: 28)
-                    .background(HomeSpec.userBubble, in: RoundedRectangle(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(source.title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(HomeSpec.textPrimary)
-                    Text(source.detail)
-                        .font(.system(size: 12))
-                        .foregroundStyle(HomeSpec.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 6) {
-                        BotStatusPill(text: source.stateLabel, tone: source.stateTone)
-                        if source.requiresOSPermission {
-                            Text("需要系统权限")
-                                .font(.system(size: 11))
-                                .foregroundStyle(HomeSpec.textTertiary)
-                        }
-                    }
-                }
-            }
-        }
-        .toggleStyle(.switch)
-        .disabled(!source.usable)
-        .accessibilityIdentifier("bot.context.source.\(source.id)")
-        .accessibilityLabel("\(source.title)，\(source.stateLabel)")
     }
 }
 
