@@ -683,13 +683,13 @@ public actor BotMCPRuntime {
     /// installed by `registerTeamTools`; the App needs no extra wiring.
     public func toolDefinitions(callerBotID: String?) async -> [BotMCPToolDefinition] {
         guard let callerBotID, !callerBotID.isEmpty else {
-            return BotToolCatalog.allDefinitions
+            return BotToolCatalog.workerDefinitions
         }
         if let provider = toolCatalogProvider,
            let definitions = await provider(callerBotID) {
-            return definitions
+            return definitions + [BotToolCatalog.skillStatusDefinition]
         }
-        return BotToolCatalog.allDefinitions
+        return BotToolCatalog.workerDefinitions
     }
 
     /// Resolves the caller Bot from the App-minted MCP session identity. This
