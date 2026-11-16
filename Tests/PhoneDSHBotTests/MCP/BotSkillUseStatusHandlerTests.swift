@@ -37,7 +37,8 @@ final class BotSkillUseStatusHandlerTests: XCTestCase {
             bytes: 18, previousSHA256: nil,
             author: BotSkillChangeAuthor(kind: "bot", botID: "bot-a",
                                          sessionID: "gb-bot-a"),
-            atMS: 2_000, source: .projectDsh, ownerBotID: "bot-a"))
+            atMS: 2_000, sources: [], source: .projectDsh,
+            ownerBotID: "bot-a"))
         let handler = BotMCPHandler(runtime: fixture.runtime)
         let arguments = BotJSONValue.object([:])
         let registration = await handler.registerIdentity(.object([
