@@ -255,6 +255,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// Serializes steer prompts per session so concurrent sends keep the order
     /// in which the runtime admitted them.
     private var steerTails: [String: Task<Void, Error>] = [:]
+    /// Identity of the tail currently stored in `steerTails`, so the send that
+    /// finishes can drop its entry without deleting a newer tail.
+    private var steerTailTokens: [String: UUID] = [:]
     private var recentHeldChatActions: [(requestId: String, nonce: String)] = []
     private var taskStates: [String: TaskState] = [:]
     private var interruptedTaskWakes: [String] = []
@@ -2856,21 +2859,25 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     }
                 }
             } onCancel: {
-                Task { await self.cancelAdmissionWaiter(id: id) }
+                Task { await self.cancelAdmissionWaiter(id: id, lane: lane, order: order) }
             }
         }
     }
 
-    private func cancelAdmissionWaiter(id: UUID) {
-        for lane in admissionWaiters.keys {
-            guard var waiters = admissionWaiters[lane],
-                  let index = waiters.firstIndex(where: { $0.id == id }) else { continue }
+    private func cancelAdmissionWaiter(id: UUID, lane: String, order: UInt64) {
+        if var waiters = admissionWaiters[lane],
+           let index = waiters.firstIndex(where: { $0.id == id }) {
             let waiter = waiters.remove(at: index)
             admissionWaiters[lane] = waiters
             waiter.continuation.resume()
             return
         }
-        cancelledAdmissionWaiters.insert(id)
+        // A late cancel after the order was served can never register a
+        // waiter again (the loop exits), so it must not leave an entry behind
+        // forever. Only a cancel that can still beat registration is recorded.
+        if order > (servedAdmissionOrder[lane] ?? 0) {
+            cancelledAdmissionWaiters.insert(id)
+        }
     }
 
     /// Admit one supplemental message into the active chat turn. The per
@@ -2907,6 +2914,19 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 }
                 try await self.sendPrompt(
                     sessionId: sessionId, prompt: prompt, mode: "steer", requestId: requestId)
+                // The pre-check above and this send are two actor hops apart,
+                // so the turn can end while the transport call is in flight.
+                // DSH turns an idle steer into the *next* turn's first message
+                // (agent.steer -> next-step + wake), which this collector does
+                // not read. Reporting the finished turn's result for this
+                // message would attribute another turn's answer to it, so abort
+                // and let the caller re-admit the prompt under the same
+                // requestId; DSH dedupes by requestId, so no duplicate lands.
+                guard await self.steerTargetIsCurrent(
+                    sessionId: sessionId, attemptId: coordinator.attemptId,
+                    generation: coordinator.generation) else {
+                    throw AdmissionAborted()
+                }
                 await self.finishAdmission(sessionId: sessionId)
             } catch {
                 if let self { await self.finishAdmission(sessionId: sessionId) }
@@ -2914,6 +2934,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             }
         }
         steerTails[sessionId] = task
+        let token = UUID()
+        steerTailTokens[sessionId] = token
         // The message is now admitted and ordered. Settle at entry, not after
         // the (possibly blocked) send, so a later message may enter the gate
         // while the first prompt is still pending; `steerTails` still sends in
@@ -2921,17 +2943,21 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         if let admissionLane, let admissionOrder {
             advanceAdmissionOrder(lane: admissionLane, order: admissionOrder)
         }
-        do {
-            // Cancelling the caller must cancel the chained send too; a
-            // detached `Task.value` does not propagate cancellation on its own.
-            try await withTaskCancellationHandler {
-                try await task.value
-            } onCancel: {
-                task.cancel()
+        // Cancelling the caller must cancel the chained send too; a detached
+        // `Task.value` does not propagate cancellation on its own.
+        defer {
+            // One tail per session was previously kept forever. Drop this
+            // entry once its send settled, unless a newer send already
+            // replaced it.
+            if steerTailTokens[sessionId] == token {
+                steerTails.removeValue(forKey: sessionId)
+                steerTailTokens.removeValue(forKey: sessionId)
             }
-        } catch {
-            if error is AdmissionAborted { throw error }
-            throw error
+        }
+        try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
         }
     }
 

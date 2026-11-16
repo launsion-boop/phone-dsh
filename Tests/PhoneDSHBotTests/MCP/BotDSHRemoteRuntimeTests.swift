@@ -1682,6 +1682,95 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         recovery.cancel()
         _ = try? await recovery.value
     }
+    /// PR #187 review item 3: the pre-send check and the steer call are two
+    /// actor hops apart. When the turn ends while the steer is in flight, DSH
+    /// turns the prompt into the next turn's first message; the Bot must not
+    /// report the finished turn's answer for it. Drives the real runtime with
+    /// a transport that holds the steer call and ends the turn underneath it.
+    func testSteerThatLosesTheTurnEndDoesNotReturnThePreviousTurnResult() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [
+                [.turn(1), .assistant("first answer"), .end(turn: 1)],
+                [.turn(2), .assistant("second answer"), .end(turn: 2)],
+            ],
+        ], dedupeRequestIds: true)
+        let remote = try await BotDSHRemoteRuntime(
+            transport: transport, runtime: fixture.runtime, now: { 1_000 })
+        // Hold the first turn open after turn/start, then hold its steer send.
+        transport.pause("gb-main")
+        transport.pauseSteerPrompts("gb-main")
+        let first = Task { try await remote.sendUserMessage("first") }
+        for _ in 0..<400 where transport.promptHistory.isEmpty {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertEqual(transport.promptHistory.map(\.mode), ["queue"])
+        let second = Task { try await remote.sendUserMessage("second") }
+        for _ in 0..<400 where transport.steerPromptAttempts == 0 {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertEqual(transport.steerPromptAttempts, 1,
+                       "the steer must reach the transport while the turn is live")
+
+        // End the running turn while the steer call is still in flight.
+        transport.resume("gb-main")
+        let firstResult = try await withAdmissionTimeout(3) { try await first.value }
+        XCTAssertEqual(firstResult.text, "first answer")
+
+        // Let the steer return: its target turn is gone, so it must not be
+        // attributed the finished turn's result.
+        transport.resumeSteerPrompts("gb-main")
+        let secondResult = try await withAdmissionTimeout(5) { try await second.value }
+        XCTAssertEqual(secondResult.text, "second answer",
+                       "the re-admitted message owns the turn it started")
+        XCTAssertNotEqual(secondResult.text, "first answer",
+                          "the previous turn's result must not be reported for this message")
+        XCTAssertEqual(transport.acceptedPromptCount, 2,
+                       "the retry reuses the requestId, which DSH dedupes")
+    }
+
+    /// PR #187 review item 10: the 16-pending-message cap is enforced by the
+    /// runtime, and the 17th message never reaches the transport.
+    func testSeventeenthPendingSteerIsRejectedWithoutAsend() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: ["gb-main": [[.turn(1)]]])
+        let remote = try await BotDSHRemoteRuntime(
+            transport: transport, runtime: fixture.runtime, now: { 1_000 })
+        transport.pause("gb-main")
+        transport.pauseSteerPrompts("gb-main")
+        let head = Task { try await remote.sendUserMessage("head") }
+        for _ in 0..<400 where transport.promptHistory.isEmpty {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        var pending: [Task<BotRemoteTurnResult, Error>] = []
+        for index in 0..<16 {
+            pending.append(Task { try await remote.sendUserMessage("steer-\(index)") })
+            for _ in 0..<400 {
+                let count = await remote.pendingAdmissionCount(sessionId: "gb-main")
+                if count == index + 1 { break }
+                try await Task.sleep(nanoseconds: 5_000_000)
+            }
+            let count = await remote.pendingAdmissionCount(sessionId: "gb-main")
+            XCTAssertEqual(count, index + 1)
+        }
+        do {
+            _ = try await remote.sendUserMessage("overflow")
+            XCTFail("the 17th pending message must be rejected")
+        } catch let error as BotMCPError {
+            XCTAssertEqual(error, .invalidRequest("too_many_pending_messages"))
+        }
+        XCTAssertEqual(transport.acceptedPromptCount, 1,
+                       "only the accepted head prompt reaches the transport")
+
+        for task in pending { task.cancel() }
+        head.cancel()
+        transport.resumeSteerPrompts("gb-main")
+        transport.closeMuxes()
+        for task in pending { _ = try? await task.value }
+        _ = try? await head.value
+    }
 }
 
 /// One transport whose first call never returns, modelling an API request the
