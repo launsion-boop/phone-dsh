@@ -79,8 +79,12 @@ python3 scripts/evals/bot-aha/compare.py \
   （测试未命中目标），不能拿“压缩前就答对”冒充复用。
 - `stored_with_provenance`（当前契约 P0）：每个 live 记忆文档必须有
   `record://` 证据、合法 `author.kind`、合法 `trust`。计划中的
-  `observed_at` / `source_version` / `verification` 单独报告为
-  `planned extended fields`；在契约冻结前是 `NOT_RUN`，不伪造通过。
+  `review`（冻结字段）从 `memory.document_written.review` 校验：`state` ∈
+  `verified|unverified|disputed`；`verified` 不得是 `model-inference` 且 `refs` 至少 1 条可解析
+  `record://`；`disputed` 需 refs；`unverified` 需 basis。缺省是合法（未记录核对），报告为
+  `review` 缺失而不是伪造 verified。`evidence_status` 是 `ReadMemory`/`RecallMemory` 的派生视图、
+  不持久化；scorer 从 session log 的 MCP 工具结果捕获，捕获不到就是 `NOT_RUN`，不从
+  `bot-events` 编造。
 - 重复轮次：scorer 读取 plan 的 repeat，逐轮评分；报告声明轮数、实际 repeats 数量、
   任一轮断言都必须一致，漏轮或轮数不符直接 FAIL，不取 `repeats[0]`。
 - 选集：scorer 只评 `.plan.json` 里实际被选中的场景；`run.sh --only` 同时传给引擎和
@@ -105,7 +109,8 @@ python3 scripts/evals/bot-aha/compare.py \
 2. 基线 = `908d582b`；候选 = C 的 freeze/集成 commit（E 只在只读副本上跑，不改主仓）。
 3. 两边都用 `--upstream real`、同 `--repeat`、同 `--only`；键不落盘。
 4. `compare.py` 要求两侧都是 `upstream=real`、catalog/dimensions 为合法非空 64-hex
-   且一致、场景集一致且每个场景的维度集非空且唯一；否则 `INCOMPARABLE`（exit 2）。
+   且一致、`repeat`/`engine_exit`/`keep_bodies` 一致、场景集一致且每个场景的维度集非空且唯一；
+   否则 `INCOMPARABLE`（exit 2）。2 vs 1 repeat 不是可比较的 A/B。
    任一侧 NOT_RUN 时结论是 NOT_RUN，不写成“候选更好”；两侧都是 mock 的“PASS”不会被比较。
 5. 回归定义：基线通过的维度在候选失败 → FAIL（soft 也算回归，除非契约明确退役该维度，
    退役需在 handoff 记原因）。
@@ -126,7 +131,7 @@ python3 scripts/evals/bot-aha/compare.py \
 - **macOS harness 编译阻塞**：`BotWorkspaceModelImage` 是 iOS-only；修复范围已交 C
   （harness shim 或产品 `#if canImport(UIKit)` guard）。未修复前本目录只能做 catalog/
   评分器单元验证，模型 E2E 一律 NOT_RUN。
-- **freshness 是用户告知版**：基线契约没有 `source_version`/外部抓取，宿主的“参考被外部
+- **freshness 是用户告知版**：基线契约没有外部版本抓取，宿主的“参考被外部
   更新”检测等 M 的冻结字段；当前场景测“用户更正覆盖旧文件/旧记忆”，不冒充外部版本核验。
 - **compaction profile 是 eval-only**：`eval-compaction` 只作用于派生 image，生产 profile
   不变；其他 7 条场景也承载该 profile，但只有 `AHA-COMPACT-REUSE` 依赖它跨阈值。

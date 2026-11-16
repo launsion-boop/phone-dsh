@@ -145,7 +145,31 @@ def check_provenance(documents: list, config: dict, global_provenance: dict) -> 
         trust = document.get("trust")
         if trust is not None and trust not in TRUST_VALUES:
             issues.append(f"{path}: unknown trust {trust!r}")
+        review = document.get("review")
+        if review is not None:
+            if not isinstance(review, dict):
+                issues.append(f"{path}: review is not an object")
+            else:
+                state = review.get("state")
+                basis = review.get("basis")
+                refs = review.get("refs")
+                if state not in {"verified", "unverified", "disputed"}:
+                    issues.append(f"{path}: review.state {state!r} is not frozen")
+                if state == "verified":
+                    if basis == "model-inference":
+                        issues.append(f"{path}: verified review cannot use model-inference")
+                    if not isinstance(refs, list) or not refs:
+                        issues.append(f"{path}: verified review needs refs")
+                    else:
+                        for ref in refs:
+                            if not isinstance(ref, str) or not RECORD_RE.match(ref):
+                                issues.append(f"{path}: verified review ref {ref!r} is malformed")
+                if state == "disputed" and (not isinstance(refs, list) or not refs):
+                    issues.append(f"{path}: disputed review needs refs")
+                if state == "unverified" and not isinstance(basis, str):
+                    issues.append(f"{path}: unverified review needs basis")
     extended_fields = global_provenance.get("extended_fields", [])
+    derived_fields = global_provenance.get("derived_fields", [])
     require_extended = bool(
         global_provenance.get("require_extended", False) or config.get("require_extended", False))
     present = [name for name in extended_fields if documents and all(name in doc for doc in documents)]
@@ -170,6 +194,11 @@ def check_provenance(documents: list, config: dict, global_provenance: dict) -> 
         "extended_present": present,
         "extended_missing": missing,
         "extended_status": extended_status,
+        "derived_fields": derived_fields,
+        "derived_status": "NOT_RUN" if derived_fields else "NONE",
+        "derived_note": (
+            "ReadMemory/RecallMemory-only derived view; durable write events cannot carry it"
+            if derived_fields else ""),
     }
 
 
@@ -192,6 +221,28 @@ def structural_denials(results: Path, scenario_id: str, repeat_count: int) -> di
             except OSError:
                 continue
             counts[index] += text.count("structural approval gate")
+    return counts
+
+
+def scan_evidence_status(results: Path, scenario_id: str, repeat_count: int) -> dict:
+    """Capture the derived `evidence_status` view from MCP tool results.
+
+    The frozen contract says this view is returned by ReadMemory/RecallMemory
+    and is not persisted. It therefore is not in `bot-events.jsonl`; scan the
+    production session log's tool results. If it is absent, the scorer reports
+    NOT_RUN instead of inventing a pass.
+    """
+    counts: dict[int, int] = {index: 0 for index in range(1, repeat_count + 1)}
+    for index in range(1, repeat_count + 1):
+        run_dir = results / "runs" / f"{scenario_id}-{index}"
+        if not run_dir.is_dir():
+            continue
+        for path in run_dir.rglob("session.v*.jsonl"):
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            counts[index] += text.count("evidence_status")
     return counts
 
 
@@ -469,6 +520,8 @@ def check_scenario(scenario_id: str, config: dict, dimensions_doc: dict,
 
     denial_counts = structural_denials(results, scenario_id, plan_repeat)
     record["environment_denials"] = denial_counts
+    evidence_status_counts = scan_evidence_status(results, scenario_id, plan_repeat)
+    record["evidence_status_observation"] = evidence_status_counts
     contamination_policy = config.get("host_tool_contamination", "block")
     total_denials = sum(denial_counts.values())
     if total_denials:
@@ -754,6 +807,7 @@ def main(argv: list[str] | None = None) -> int:
         "upstream": args.upstream,
         "repeat": plan_repeat,
         "engine_exit": args.engine_exit,
+        "keep_bodies": all(bool(scenario.get("keep_bodies")) for scenario in scenarios),
         "overall": overall,
         "reason": reason,
         "selected": selected_ids,

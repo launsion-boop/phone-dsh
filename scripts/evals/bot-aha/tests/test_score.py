@@ -385,6 +385,67 @@ class ScorerMutationTests(unittest.TestCase):
         scenario = next(s for s in report["scenarios"] if s["id"] == "AHA-COMPACT-REUSE")
         self.assertTrue(scenario["provenance"]["p0_ok"], scenario["provenance"]["issues"])
 
+    def test_verified_review_without_refs_fails(self) -> None:
+        events = [{
+            "repeat": 1,
+            "event": {
+                "type": "memory.document_written",
+                "data": {
+                    "path": "agent/playbook/weekly.md",
+                    "version": 1,
+                    "content": "顺序：成果、风险、下周计划",
+                    "evidence": ["record://session/gb-main#3"],
+                    "trust": "user",
+                    "review": {"state": "verified", "basis": "user-statement"},
+                    "author": {"kind": "chat", "bot_id": "bot-a"},
+                },
+            },
+        }]
+        write_evidence(self.results, self.plan, events={"AHA-COMPACT-REUSE": events})
+        code, report = run_score(self.results, self.out)
+        self.assertEqual(code, 1)
+        scenario = next(s for s in report["scenarios"] if s["id"] == "AHA-COMPACT-REUSE")
+        self.assertFalse(scenario["provenance"]["p0_ok"])
+        self.assertTrue(any("verified review needs refs" in issue
+                            for issue in scenario["provenance"]["issues"]))
+
+    def test_verified_review_with_model_inference_fails(self) -> None:
+        events = [{
+            "repeat": 1,
+            "event": {
+                "type": "memory.document_written",
+                "data": {
+                    "path": "agent/playbook/weekly.md",
+                    "version": 1,
+                    "content": "顺序：成果、风险、下周计划",
+                    "evidence": ["record://session/gb-main#3"],
+                    "review": {"state": "verified", "basis": "model-inference",
+                               "refs": ["record://session/gb-main#3"]},
+                    "author": {"kind": "chat", "bot_id": "bot-a"},
+                },
+            },
+        }]
+        write_evidence(self.results, self.plan, events={"AHA-COMPACT-REUSE": events})
+        code, _ = run_score(self.results, self.out)
+        self.assertEqual(code, 1)
+
+    def test_evidence_status_is_captured_from_session_log(self) -> None:
+        write_evidence(self.results, self.plan)
+        run_dir = self.results / "runs" / "AHA-COMPACT-REUSE-1" / "host" / "sessions"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        evidence = json.dumps({
+            "path": "agent/x.md",
+            "evidence_status": [{"observed_at_ms": 1, "source_version": None}],
+        })
+        (run_dir / "session.v4.jsonl").write_text(json.dumps({
+            "type": "tool/result",
+            "data": {"message": {"content": [{"type": "text", "text": evidence}]}},
+        }) + "\n", encoding="utf-8")
+        code, report = run_score(self.results, self.out)
+        self.assertEqual(code, 0, report.get("reason"))
+        scenario = next(s for s in report["scenarios"] if s["id"] == "AHA-COMPACT-REUSE")
+        self.assertEqual(scenario["evidence_status_observation"]["1"], 1)
+
     def test_assertion_mapping_drift_fails(self) -> None:
         write_evidence(
             self.results, self.plan,
@@ -434,13 +495,13 @@ class ScorerMutationTests(unittest.TestCase):
 
     def test_reply_recompute_disagreement_fails(self) -> None:
         write_evidence(self.results, self.plan)
-        path = self.results / "AHA-DISCOVER" / "report.json"
+        path = self.results / "AHA-SOURCE" / "report.json"
         report = json.loads(path.read_text(encoding="utf-8"))
         report["repeats"][0]["assertions"][0]["ok"] = False
         path.write_text(json.dumps(report), encoding="utf-8")
         code, report = run_score(self.results, self.out)
         self.assertEqual(code, 1)
-        scenario = next(s for s in report["scenarios"] if s["id"] == "AHA-DISCOVER")
+        scenario = next(s for s in report["scenarios"] if s["id"] == "AHA-SOURCE")
         self.assertIn("recompute", scenario["reason"])
 
     def write_denials(self, scenario_id: str, repeat: int = 1) -> None:

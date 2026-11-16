@@ -25,6 +25,9 @@ def make_report(overall: str, scenarios: dict, *, catalog: str = HASH,
         "catalog_sha256": catalog,
         "dimensions_sha256": dimensions,
         "upstream": upstream,
+        "repeat": 2,
+        "engine_exit": 1,
+        "keep_bodies": True,
         "scenarios": [
             {
                 "id": scenario_id,
@@ -107,6 +110,20 @@ class CompareTests(unittest.TestCase):
         candidate = make_report("PASS", {"A": ("PASS", {"boundary": True})})
         candidate["scenarios"][0]["dimensions"].append(
             {"name": "boundary", "kind": "hard", "passed": True})
+        code, _ = self.run_compare(baseline, candidate)
+        self.assertEqual(code, 2)
+
+    def test_repeat_mismatch_is_incomparable(self) -> None:
+        baseline = make_report("PASS", {"A": ("PASS", {"boundary": True})})
+        candidate = make_report("PASS", {"A": ("PASS", {"boundary": True})})
+        candidate["repeat"] = 1
+        code, _ = self.run_compare(baseline, candidate)
+        self.assertEqual(code, 2)
+
+    def test_keep_bodies_mismatch_is_incomparable(self) -> None:
+        baseline = make_report("PASS", {"A": ("PASS", {"boundary": True})})
+        candidate = make_report("PASS", {"A": ("PASS", {"boundary": True})})
+        candidate["keep_bodies"] = False
         code, _ = self.run_compare(baseline, candidate)
         self.assertEqual(code, 2)
 

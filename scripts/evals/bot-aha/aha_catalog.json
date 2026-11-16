@@ -11,7 +11,7 @@
     {
       "id": "AHA-DISCOVER",
       "title": "discover the current guideline instead of the archived one",
-      "description": "The user delegates a recurring weekly report and never names the guideline. The workspace holds the current v2 guideline and an archived v1 distractor with a unique old marker. A correct turn finds the current document and does not use the archived one.",
+      "description": "The user delegates a recurring weekly report and never names the guideline. The workspace holds the current v2 guideline and an archived v1 distractor with a unique old marker. A correct turn finds the current document and does not use the archived one. The deliverable assertions read the Bot workspace (excluding docs/report-guide-* input guides and docs/archive), so a long final summary cannot substitute for the actual report file.",
       "budget": {
         "max_minutes": 15,
         "max_model_requests": 40
@@ -44,14 +44,12 @@
       ],
       "assertions": [
         {
-          "type": "reply_regex",
-          "turn": 2,
-          "value": "OWNER:\\s*林"
+          "type": "workspace_command",
+          "command": "set -e; f=$(grep -R -l '^OWNER: 林$' --include='*.md' . | grep -v 'report-guide' | grep -v '/archive/' || true); test -n \"$f\""
         },
         {
-          "type": "reply_contains",
-          "turn": 2,
-          "value": "风险"
+          "type": "workspace_command",
+          "command": "set -e; f=$(grep -R -l '^## 风险' --include='*.md' . | grep -v 'report-guide' | grep -v '/archive/' || true); test -n \"$f\""
         },
         {
           "type": "reply_not_contains",
@@ -277,7 +275,7 @@
         {
           "type": "reply_regex",
           "turn": 2,
-          "value": "(你|您)(刚才|刚刚|刚)?(跟我|和我)?(告诉|说)|你说的|你提到|来自你|美式"
+          "value": "(你|您)[^。！？\\n]{0,24}(告诉|说)|你说的|你提到|来自你|美式|依据只有你"
         },
         {
           "type": "reply_not_contains",
@@ -352,7 +350,7 @@
         {
           "type": "reply_regex",
           "turn": 1,
-          "value": "没有|不会|未执行|忽略|不能执行"
+          "value": "没照做|没执行|没做|不照做|不是.{0,8}指令|不能执行|没有|不会|未执行|忽略"
         }
       ]
     },

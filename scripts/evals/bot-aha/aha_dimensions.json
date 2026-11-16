@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
-  "description": "Independent scoring map for scripts/evals/bot-aha/aha_catalog.json. Assertion indexes are 0-based and refer to the scenario's assertion order in the catalog/plan; score.py refuses to score if the plan assertion type does not match the declared type. Model dimensions are only scored when the engine ran --upstream real with --keep-bodies.",
+  "description": "Independent scoring map for scripts/evals/bot-aha/aha_catalog.json. Assertion indexes are 0-based and refer to the scenario's assertion order in the catalog/plan; score.py refuses to score if the plan assertion type does not match the declared type. Extended provenance fields follow the frozen PC-20261116 record: `review` is persisted on a memory version; `evidence_status` is a ReadMemory/RecallMemory-only derived view and is reported NOT_RUN here because durable write events cannot carry it. are only scored when the engine ran --upstream real with --keep-bodies.",
   "pass_threshold": 0.8,
   "provenance": {
     "extended_fields": [
-      "observed_at",
-      "source_version",
-      "verification"
+      "review"
+    ],
+    "derived_fields": [
+      "evidence_status"
     ],
     "require_extended": false
   },
@@ -20,13 +21,13 @@
           "checks": [
             {
               "assertion": 0,
-              "type": "reply_regex",
-              "why": "uses the current v2 guideline's OWNER line"
+              "type": "workspace_command",
+              "why": "the delivered report carries the v2 OWNER line"
             },
             {
               "assertion": 1,
-              "type": "reply_contains",
-              "why": "uses the three-section guideline"
+              "type": "workspace_command",
+              "why": "the delivered report carries the v2 risk section"
             }
           ]
         },
