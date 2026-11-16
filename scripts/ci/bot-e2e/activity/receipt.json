@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "contractRevision": "activity-evidence-v3.1",
+  "codeHead": "cff5dd1492f1224cb23b223871049692cd538b10",
+  "tree": "b9231d5e1a3d61700a31de3f0101cd3347e12232",
+  "model": {
+    "provider": "deepseek-official",
+    "model": "deepseek-flash",
+    "reasoningEffort": "max",
+    "source": "request/header seq 11 in every accepted scenario"
+  },
+  "scenarios": [
+    {
+      "id": "ACT-01-PR-174",
+      "gate": "PASS",
+      "modelRequests": 5,
+      "finalReply": "main 的记录里没有给出冲突文件数，只有 #174 笔记中写了 3 个冲突文件。",
+      "activity": [
+        {
+          "seq": 17,
+          "event": "tool/call",
+          "tool": "read",
+          "rawModelText": "先看 #174 的改动记录。",
+          "detail": "先看 #174 的改动记录",
+          "chars": 13,
+          "cjk": 7,
+          "object": "#174",
+          "resultContinuation": false
+        },
+        {
+          "seq": 22,
+          "event": "tool/call",
+          "tool": "read",
+          "rawModelText": "#174 这个分支自报改了 3 个文件，接着核对 main 的记录。",
+          "detail": "#174 这个分支自报改了 3 个文件",
+          "chars": 19,
+          "cjk": 11,
+          "object": "#174 / 3 个文件",
+          "resultContinuation": true,
+          "previousResultSeq": 18
+        }
+      ]
+    },
+    {
+      "id": "ACT-02-WEDNESDAY-MEETING",
+      "gate": "PASS",
+      "modelRequests": 5,
+      "finalReply": "李光浩",
+      "activity": [
+        {
+          "seq": 17,
+          "event": "tool/call",
+          "tool": "read",
+          "rawModelText": null,
+          "detail": "在翻文件 · wednesday-meeting.md",
+          "chars": 27,
+          "cjk": 4,
+          "object": "wednesday-meeting.md",
+          "resultContinuation": false,
+          "fallback": "short basename; the model wrote no public sentence before this call"
+        },
+        {
+          "seq": 22,
+          "event": "tool/call",
+          "tool": "read",
+          "rawModelText": "已读到负责人是李光浩，接着查看待办明细。",
+          "detail": "已读到负责人是李光浩，接着查看待办明细",
+          "chars": 19,
+          "cjk": 18,
+          "object": "李光浩",
+          "resultContinuation": true,
+          "previousResultSeq": 18
+        }
+      ]
+    },
+    {
+      "id": "ACT-03-EMAIL-DRAFT",
+      "gate": "PASS",
+      "modelRequests": 5,
+      "finalReply": "清单已定稿，周五可发；我在写给李光浩的回复草稿。",
+      "activity": [
+        {
+          "seq": 17,
+          "event": "tool/call",
+          "tool": "read",
+          "rawModelText": "我先看李光浩的邮件。",
+          "detail": "我先看李光浩的邮件",
+          "chars": 9,
+          "cjk": 9,
+          "object": "李光浩",
+          "resultContinuation": false
+        },
+        {
+          "seq": 22,
+          "event": "tool/call",
+          "tool": "read",
+          "rawModelText": "邮件在问周五清单是否定稿，接着看发布背景。",
+          "detail": "邮件在问周五清单是否定稿，接着看发布背景",
+          "chars": 20,
+          "cjk": 19,
+          "object": "周五清单",
+          "resultContinuation": true,
+          "previousResultSeq": 18
+        }
+      ]
+    }
+  ],
+  "acceptance": {
+    "short": "all displayed details are 9-27 characters; the object fallback is 27 and the model sentences are 9-20",
+    "changesWithStep": "each scenario shows different text before and after the first tool result",
+    "continuation": "ACT-01/02/03 each replace the pre-call sentence with a real post-result sentence that starts from the result",
+    "notPreset": "no 读取相关资料/已收到结果/处理中 rotation appears",
+    "noExtraSummaryModel": "5 model requests per scenario; the activity sentences come from the same main-model turn, not a summarizer",
+    "bubble": "the production reducer output is the non-interactive one-line bubble text"
+  },
+  "failedAttempts": [
+    {
+      "head": "8e7725db4 / 3d599abf3",
+      "status": "not accepted as full assembly",
+      "reason": "the review used a temporary macOS image shim to compile the harness; ACT-01 produced real text but the assembly was not the production composition, and ACT-02 hit an identity-registration failure before reading."
+    },
+    {
+      "head": "3d599abf3",
+      "status": "rejected model config",
+      "reason": "the real request/header showed reasoningEffort=high; the coding-session max was not evidence for the product request."
+    },
+    {
+      "head": "66a650894 / 14a9781e2",
+      "status": "compile-boundary failures",
+      "reason": "the production composition was not macOS-portable: the iOS image bridge, the nested BotModelImageReader type and two inferred closure types failed to compile. Fixed in cff5dd149 without changing iOS behavior."
+    },
+    {
+      "head": "3d599abf3",
+      "status": "empty replay",
+      "reason": "the first probe copied an empty ACT-01-session.jsonl and produced zero events. The real session is under runs/<scenario>-1/host/materialized/<dsh-home>/sessions/...; the replay entry now fails hard on an empty log."
+    }
+  ]
+}
