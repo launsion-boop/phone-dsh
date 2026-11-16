@@ -27,6 +27,10 @@ public protocol BotFeedbackGating: Sendable {
 /// (Bot info page). Also exposes the would/did report.
 public protocol BotFeedbackQuerying: Sendable {
     func records(botID: String, limit: Int) async throws -> [BotFeedbackRecord]
+    /// Read-only preference view for R's decision material (active/revoked,
+    /// class keys). Suppress/adopt remain delivery-gate facts; this API must
+    /// not become a second preference system.
+    func preferences(botID: String, scope: BotFeedbackScopeKind?) async throws -> BotFeedbackPreferences
     func disputedRefs(paths: [String]) async throws -> [String: [BotFeedbackDisputedRef]]
     func wouldReport(botID: String?, fromMS: Int64, toMS: Int64) async throws -> BotWouldCollectionReport
     func storeHealth() async -> String
@@ -35,6 +39,19 @@ public protocol BotFeedbackQuerying: Sendable {
 public extension BotFeedbackRecording {
     func preferences(botID: String) async throws -> BotFeedbackPreferences {
         try await preferences(botID: botID, scope: nil)
+    }
+
+    /// Record a disputed-only correction against an existing applied memory
+    /// version. It never edits the document/version and requires real refs;
+    /// undo clears the dispute via the normal feedback reverse event.
+    func dispute(memoryPath: String, version: Int, botID: String,
+                 refs: [String], origin: BotFeedbackOrigin) async throws -> BotFeedbackOutcome {
+        var feedback = BotFeedback(
+            botID: botID, action: .correct,
+            target: BotFeedbackArtifactRef(kind: .memory, id: memoryPath, version: version),
+            scope: .artifact, origin: origin, disputedRefs: refs)
+        feedback.disputedOnly = true
+        return try await record(feedback)
     }
 }
 
@@ -126,10 +143,12 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
             await replayEvents(eventLog: eventLog, full: true)
             if let current = state {
                 for correction in current.corrections where correction.isActive() {
+                    let original = current.records.last(where: { $0.id == correction.feedbackID })
                     await appendMemoryReviewRequest(
                         path: correction.path, version: correction.correctedVersion,
                         refs: correction.refs, botID: correction.botID,
-                        sessionID: nil, at: correction.atMS)
+                        sessionID: nil, at: correction.atMS,
+                        outcome: original?.applied == nil ? "disputed" : nil)
                 }
                 // Write the rebuilt (phantom-free) index back.
                 await persistIndex(current, bestEffort: true)
@@ -356,7 +375,14 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
         case .undo:
             break
         }
-        return try await commit(&record, state: snapshot, reverses: feedbackID)
+        let outcome = try await commit(&record, state: snapshot, reverses: feedbackID)
+        if let original, originalAction == .correct, original.applied == nil,
+           let correction {
+            await appendMemoryReviewResolved(
+                path: correction.path, version: correction.correctedVersion,
+                feedbackID: feedbackID, botID: originalBotID, at: at)
+        }
+        return outcome
     }
 
     private func recordAdoption(_ feedback: BotFeedback, at: Int64,
@@ -527,6 +553,11 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
             return Self.rejected(feedback, code: "target-unresolved",
                                  message: "纠正需要 memory path 与已应用版本号。")
         }
+        let disputedOnly = feedback.disputedOnly
+        if disputedOnly, feedback.disputedRefs.isEmpty {
+            return Self.rejected(feedback, code: "insufficient-evidence",
+                                 message: "disputed-only 纠正需要真实的 disputed_refs；不先改正文。")
+        }
         var supplied: [String] = []
         for raw in feedback.disputedRefs.prefix(8) {
             guard let reference = BotRecordReference.parse(raw) else {
@@ -561,17 +592,21 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
             // A crash between feedback.recorded and memory.review_requested is
             // recoverable: a retry with the same nonce repairs the review event
             // instead of returning a duplicate with no audit completion.
+            let existingOriginal = snapshot.records.last(where: { $0.id == existing.feedbackID })
+            let existingDisputedOnly = existingOriginal?.applied == nil
             await appendMemoryReviewRequest(
                 path: path, version: version, refs: existing.refs,
-                botID: feedback.botID, sessionID: feedback.origin.sessionID, at: at)
+                botID: feedback.botID, sessionID: feedback.origin.sessionID, at: at,
+                outcome: existingDisputedOnly ? "disputed" : nil)
             return BotFeedbackOutcome(status: .duplicated, feedbackID: existing.feedbackID,
                                       action: .correct,
                                       target: BotFeedbackArtifactRef(kind: .memory, id: path,
                                                                      version: version),
                                       scope: .artifact, classKey: path,
-                                      appliedMemory: BotFeedbackMemoryApplication(
-                                        path: path, version: version,
-                                        previousVersion: existing.supersededVersion))
+                                      appliedMemory: existingDisputedOnly ? nil
+                                        : BotFeedbackMemoryApplication(
+                                            path: path, version: version,
+                                            previousVersion: existing.supersededVersion))
         }
         var refs: [String] = []
         var seen = Set<String>()
@@ -586,8 +621,10 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
                                                                                      version: version),
                                      classKey: path, accepted: true)
         record.subjects = refs
-        record.applied = BotFeedbackMemoryApplication(path: path, version: version,
-                                                      previousVersion: previousVersion)
+        if !disputedOnly {
+            record.applied = BotFeedbackMemoryApplication(path: path, version: version,
+                                                          previousVersion: previousVersion)
+        }
         record.eventID = Self.eventID(for: record)
         snapshot.corrections.append(BotFeedbackCorrection(
             feedbackID: record.id, botID: feedback.botID, path: path, refs: refs,
@@ -595,7 +632,8 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
         let outcome = try await commit(&record, state: snapshot)
         await appendMemoryReviewRequest(path: path, version: version, refs: refs,
                                         botID: feedback.botID,
-                                        sessionID: feedback.origin.sessionID, at: at)
+                                        sessionID: feedback.origin.sessionID, at: at,
+                                        outcome: disputedOnly ? "disputed" : nil)
         return outcome
     }
 
@@ -685,22 +723,43 @@ public actor BotFeedbackCenter: BotFeedbackRecording, BotFeedbackGating, BotFeed
     }
 
     private func appendMemoryReviewRequest(path: String, version: Int, refs: [String],
-                                           botID: String, sessionID: String?, at: Int64) async {
+                                           botID: String, sessionID: String?, at: Int64,
+                                           outcome: String? = nil) async {
         guard let eventLog else { return }
         let scope = BotMemoryAuthorizer.scope(of: path)?.rawValue ?? "agent"
         let eventID = "\(Self.memoryReviewEventType):\(botID):\(path):\(version)"
+        var data: [String: BotJSONValue] = [
+            "path": .string(path),
+            "scope": .string(scope),
+            "version": .number(Double(version)),
+            "evidence": .array(refs.map(BotJSONValue.string)),
+            "marked_at_ms": .number(Double(at)),
+        ]
+        if let outcome { data["outcome"] = .string(outcome) }
         let event = BotEvent(
             type: Self.memoryReviewEventType, eventId: eventID, time: at,
             origin: .local(source: "mcp"), traceId: "trace:\(eventID)",
             principal: BotPrincipal(botId: botID, sessionId: sessionID, kind: "chat"),
-            causationId: nil, correlationId: nil,
-            data: .object([
-                "path": .string(path),
-                "scope": .string(scope),
-                "version": .number(Double(version)),
-                "evidence": .array(refs.map(BotJSONValue.string)),
-                "marked_at_ms": .number(Double(at)),
-            ]))
+            causationId: nil, correlationId: nil, data: .object(data))
+        _ = try? await eventLog.append(event)
+    }
+
+    private func appendMemoryReviewResolved(path: String, version: Int, feedbackID: String,
+                                            botID: String, at: Int64) async {
+        guard let eventLog else { return }
+        let eventID = "memory.review_resolved:feedback:\(feedbackID)"
+        let data: [String: BotJSONValue] = [
+            "path": .string(path),
+            "version": .number(Double(version)),
+            "outcome": .string("dropped"),
+            "feedback_id": .string(feedbackID),
+            "resolved_at_ms": .number(Double(at)),
+        ]
+        let event = BotEvent(
+            type: "memory.review_resolved", eventId: eventID, time: at,
+            origin: .local(source: "mcp"), traceId: "trace:\(eventID)",
+            principal: BotPrincipal(botId: botID, sessionId: nil, kind: "chat"),
+            causationId: nil, correlationId: nil, data: .object(data))
         _ = try? await eventLog.append(event)
     }
 

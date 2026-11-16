@@ -314,6 +314,73 @@ final class FeedbackA05LoopTests: XCTestCase {
         XCTAssertEqual(retracted[path]?.first?.state, "retracted")
     }
 
+    // Q1/A05 causal gate: a correction may dispute the *existing* applied
+    // version without rewriting the memory document. The host must bind the
+    // current version, publish review_requested/disputedRefs, and undo must
+    // clear the dispute without touching the bytes or version.
+    func testCorrectionDisputesExistingVersionWithoutRewriteAndUndoClears() async throws {
+        let path = "user/prefs/disputed-only.md"
+        let context = BotMemoryWriteContext(
+            botID: "bot-a", sessionID: "s-chat", authorKind: .chat,
+            source: BotMemorySource(kind: .userTurn, sessionID: "s-chat"),
+            trust: .user)
+        let written = try await memory.write(
+            BotMemoryWriteRequest(action: .write, path: path, content: "先结论、后风险",
+                                  expectedVersion: 0,
+                                  evidence: ["record://session/s-chat#11"]),
+            context: context)
+        XCTAssertTrue(written.ok)
+        XCTAssertEqual(written.version, 1)
+
+        let center = try makeCenter()
+        let feedback = try await center.dispute(
+            memoryPath: path, version: 1, botID: "bot-a",
+            refs: ["record://session/s-chat#11"], origin: ui("ui-disputed-only"))
+        XCTAssertEqual(feedback.status, .accepted)
+        XCTAssertNil(feedback.appliedMemory, "disputed-only omits the applied member")
+        let disputed = try await center.disputedRefs(paths: [path])
+        XCTAssertEqual(disputed[path]?.first?.correctedVersion, 1)
+        XCTAssertEqual(disputed[path]?.first?.state, "active")
+
+        let events = try await store.events(after: 0, limit: 500)
+        let recorded = try XCTUnwrap(events.first { $0.type == BotFeedbackCenter.feedbackEventType })
+        guard case .object(let eventData) = recorded.data else {
+            return XCTFail("feedback event data must be an object")
+        }
+        XCTAssertNil(eventData["applied"])
+        XCTAssertEqual(eventData["subjects"], .array([.string("record://session/s-chat#11")]))
+        let review = try XCTUnwrap(events.first { $0.type == "memory.review_requested" })
+        guard case .object(let reviewData) = review.data else {
+            return XCTFail("review data must be an object")
+        }
+        XCTAssertEqual(reviewData["outcome"], .string("disputed"))
+
+        guard case .document(let document) = try await memory.read(path: path) else {
+            return XCTFail("memory document must still be readable")
+        }
+        XCTAssertEqual(document.version, 1, "disputing must not rewrite or bump the document")
+        XCTAssertEqual(document.content, "先结论、后风险")
+
+        let undo = try await center.undo(
+            try XCTUnwrap(feedback.feedbackID), botID: "bot-a",
+            origin: ui("ui-disputed-only-undo"))
+        XCTAssertEqual(undo.status, .accepted)
+        let cleared = try await center.disputedRefs(paths: [path])
+        XCTAssertEqual(cleared[path]?.first?.state, "retracted")
+        guard case .document(let afterUndo) = try await memory.read(path: path) else {
+            return XCTFail("memory document must remain readable after undo")
+        }
+        XCTAssertEqual(afterUndo.version, 1)
+        XCTAssertEqual(afterUndo.content, "先结论、后风险")
+        let afterEvents = try await store.events(after: 0, limit: 500)
+        let resolved = try XCTUnwrap(afterEvents.first { $0.type == "memory.review_resolved" })
+        guard case .object(let resolvedData) = resolved.data else {
+            return XCTFail("review_resolved data must be an object")
+        }
+        XCTAssertEqual(resolvedData["outcome"], .string("dropped"))
+        XCTAssertEqual(resolvedData["path"], .string(path))
+    }
+
     // 6. Production per-caller catalog gate for the model path. The static
     //    catalog already advertises RecordFeedback at this checkout, but the
     //    roster-aware catalog used by `tools/list` and by the runtime's

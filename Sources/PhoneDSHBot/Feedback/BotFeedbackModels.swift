@@ -107,6 +107,10 @@ public struct BotFeedback: Codable, Sendable, Equatable {
     /// document's own evidence is unioned in by the host.
     public var disputedRefs: [String]
     public var expiresAtMS: Int64?
+    /// Host-only shape selector; never encoded on the wire. `disputedOnly`
+    /// omits the event's `applied` member and marks the existing version under
+    /// review without rewriting the memory document.
+    var disputedOnly = false
 
     public init(botID: String, action: BotFeedbackAction, target: BotFeedbackArtifactRef,
                 scope: BotFeedbackScopeKind = .artifact, origin: BotFeedbackOrigin,
@@ -125,6 +129,7 @@ public struct BotFeedback: Codable, Sendable, Equatable {
         case botID = "bot_id"
         case disputedRefs = "disputed_refs"
         case expiresAtMS = "expires_at_ms"
+        // `disputedOnly` is host-internal and deliberately not encoded.
     }
 }
 
