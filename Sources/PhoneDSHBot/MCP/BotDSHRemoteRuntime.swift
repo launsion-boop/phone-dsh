@@ -3713,12 +3713,23 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     }
 
     private func appendConversation(type: String, sessionId: String, seq: Int,
-                                    data: BotJSONValue, principalKind: BotSessionKind,
+                                    data originalData: BotJSONValue, principalKind: BotSessionKind,
                                     time eventTime: Int64? = nil,
                                     attemptId: String) async throws -> Int {
         guard coordinators[sessionId]?.attemptId == attemptId else { return -1 }
         let principal = try await ensureSession(sessionId: sessionId, kind: principalKind)
         guard coordinators[sessionId]?.attemptId == attemptId else { return -1 }
+        var data = originalData
+        if type == "conversation.tool_result",
+           let callId = data["message"]?["toolCallId"]?.stringValue,
+           let grantId = await runtime.grantAttribution.grantId(callId: callId),
+           case .object(var object) = data {
+            // G-1 r20: the observation carrier may carry the real grant id.
+            // Omit the field when the authorizer produced no grant; never
+            // infer one from the current memory write or approval text.
+            object["grant_id"] = .string(grantId)
+            data = .object(object)
+        }
         return try await runtime.eventWriter.append(
             type: type, principal: principal, data: data,
             eventId: "dsh:\(sessionId):\(seq):\(type)", origin: .dsh(sessionId: sessionId, seq: seq),

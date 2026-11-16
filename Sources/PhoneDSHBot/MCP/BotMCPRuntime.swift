@@ -233,6 +233,8 @@ public actor BotMCPRuntime {
     public let store: SQLiteDomainStore
     public let gateway: BotGateway
     public let grants: BotGrantStore
+    /// Real authorizer grants seen per tool call, for observation attribution.
+    public let grantAttribution = BotGrantAttributionStore()
     public let authorizer: BotExecutionAuthorizer
     public let eventWriter: BotMCPEventWriter
     public let approvals: BotApprovalCoordinator
@@ -1730,6 +1732,8 @@ public actor BotMCPRuntime {
         let decision = await authorizer.authorizeExecution(
             principal: BotExecutionPrincipal(gateway: call.principal), effects: [effect],
             source: "app-mcp-execution", argsDigest: call.attribution.argsDigest)
+        await grantAttribution.note(callId: call.callId,
+                                    grantIds: decision.grants.map(\.id))
         return decision.allowed ? nil : decision.reason
     }
 

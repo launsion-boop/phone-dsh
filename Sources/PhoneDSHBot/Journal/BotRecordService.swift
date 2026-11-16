@@ -877,7 +877,8 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
             observedAtMS: record.observedAtMS,
             recordType: record.recordType,
             trust: record.trust,
-            version: record.version)
+            version: record.version,
+            grantId: record.grantId)
     }
 
     /// Real file recheck for a provenance resource. Returns nil when the App
@@ -899,6 +900,8 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         var observedAtMS: Int64?
         var recordType: String?
         var trust: BotRecordTrust?
+        /// G-1 r20: the real authorizer grant carried by the observation.
+        var grantId: String?
         /// Version for observations only; non-observation records legally have
         /// no source version (G-1 §2.2) and unresolved/erased records are
         /// explained by the provenance state, not by an invented digest.
@@ -1002,6 +1005,7 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                 observedAtMS: Self.usableTime(event.time),
                 recordType: event.type, trust: nil)
         }
+        let carrierGrantId = event.data["grant_id"]?.stringValue
         let isContext = event.type == Self.contextObservedType
         let contextObserved = event.data["observed_at_ms"]?.intValue.map { Int64($0) }
         let observed = isContext
