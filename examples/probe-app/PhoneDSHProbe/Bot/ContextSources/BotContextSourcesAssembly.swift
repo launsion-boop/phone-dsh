@@ -410,7 +410,7 @@ public final class BotContextSourcesAssembly {
     @discardableResult
     func inject(kind source: BotContextSourceKind,
                        observationKind: BotContextObservationKind,
-                       payload: BotJSONValue = .object([:]),
+                       payload: PhoneDSHBot.BotJSONValue = .object([:]),
                        sourceVersion: BotContextSourceVersion? = nil,
                        uncertainty: BotContextUncertainty = BotContextUncertainty(
                         level: .medium, reason: "simulator-injected", completeness: .partial),
