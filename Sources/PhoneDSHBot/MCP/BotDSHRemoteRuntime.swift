@@ -3719,16 +3719,14 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         guard coordinators[sessionId]?.attemptId == attemptId else { return -1 }
         let principal = try await ensureSession(sessionId: sessionId, kind: principalKind)
         guard coordinators[sessionId]?.attemptId == attemptId else { return -1 }
-        var data = originalData
-        if type == "conversation.tool_result",
-           let callId = data["message"]?["toolCallId"]?.stringValue,
-           let grantId = await runtime.grantAttribution.grantId(callId: callId),
-           case .object(var object) = data {
-            // G-1 r20: the observation carrier may carry the real grant id.
-            // Omit the field when the authorizer produced no grant; never
-            // infer one from the current memory write or approval text.
-            object["grant_id"] = .string(grantId)
-            data = .object(object)
+        let data: BotJSONValue
+        if type == "conversation.tool_result" {
+            data = await BotObservationGrantCarrier.enrich(
+                originalData,
+                callId: originalData["message"]?["toolCallId"]?.stringValue,
+                attribution: runtime.grantAttribution)
+        } else {
+            data = originalData
         }
         return try await runtime.eventWriter.append(
             type: type, principal: principal, data: data,
