@@ -3,7 +3,16 @@
   "title": "BotMemoryRecallHit v2",
   "description": "One document hit. RecallMemory returns the path, a snippet and the evidence references; there is no importance field and no tier.",
   "type": "object",
-  "required": ["path", "scope", "snippet", "score", "relevance", "recency", "updated_at_ms", "version"],
+  "required": [
+    "path",
+    "scope",
+    "snippet",
+    "score",
+    "relevance",
+    "recency",
+    "updated_at_ms",
+    "version"
+  ],
   "properties": {
     "path": {
       "type": "string",
@@ -11,7 +20,10 @@
       "maxLength": 200
     },
     "scope": {
-      "enum": ["agent", "user"]
+      "enum": [
+        "agent",
+        "user"
+      ]
     },
     "snippet": {
       "type": "string",
@@ -52,6 +64,85 @@
         "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
         "maxLength": 128
       }
+    },
+    "evidence_status": {
+      "type": "array",
+      "maxItems": 8,
+      "description": "Host-derived, one entry per evidence item in the same order. observed_at_ms is the source record's own timestamp (null when the record no longer resolves or carries none); source_version is null here because neither session lines nor Bot events expose a source version in v1. Never reuse the memory document's own version.",
+      "items": {
+        "type": "object",
+        "required": [
+          "ref",
+          "observed_at_ms",
+          "source_version"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+            "maxLength": 128
+          },
+          "observed_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "source_version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "review": {
+      "type": "object",
+      "required": [
+        "state",
+        "basis"
+      ],
+      "description": "Writer-recorded check state (a model verification assertion with a resolvable basis, not a host certification of truth). Absent means no recorded judgment. verified requires a non-model basis and at least one resolvable ref; disputed requires the conflicting sides cited in refs. trust stays the separate question of who said it.",
+      "properties": {
+        "basis": {
+          "enum": [
+            "user-statement",
+            "observation",
+            "record-recheck",
+            "model-inference"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "at_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "refs": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+            "maxLength": 128
+          }
+        },
+        "state": {
+          "enum": [
+            "verified",
+            "unverified",
+            "disputed"
+          ]
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

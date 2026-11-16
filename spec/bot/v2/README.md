@@ -73,7 +73,7 @@ Android 与 HarmonyOS 没有 Bot runtime，本目录对它们没有实现端。
 
 `ReadMemory` 读一份文档或列一个目录（`memory-read-result.schema.json`）：
 
-- `{path}` 是 live 文档时返回完整 `content`、`version`、`author`、`evidence`、`trust`。
+- `{path}` 是 live 文档时返回完整 `content`、`version`、`author`、`evidence`、`trust`，以及可选的 `review`（§1.5.1 的核对状态）与 `evidence_status`（§1.5.1 的逐条证据时效，宿主派生）。
 - `{path, version}` 读历史版本；已删除版本返回 `deleted:true`、空 `content` 和
   `deletion_reason`。未知版本返回 `memory-version-not-found`。
 - `{path}` 是根或目录时只列直接子项（`document`/`directory`），按路径排序。
@@ -82,7 +82,7 @@ Android 与 HarmonyOS 没有 Bot runtime，本目录对它们没有实现端。
 `RecallMemory`（`memory-recall.schema.json`）在 live 文档正文上做全文检索，沿用既有 BM25 和
 CJK 分词。`scope` 为 `agent`、`user` 或 `all`；默认 `all`，但 `agent` 只命中本 Bot。
 返回 `path`、最多 500 scalar 的 `snippet`、`version`、`updated_at_ms`、`evidence`、`score`、
-`relevance`、`recency`。两个根的 `INDEX.md` 已在每回合注入，因此不进入检索结果。`score = 0.85 * relevance + 0.15 * recency`，recency 以
+`relevance`、`recency`，以及可选的 `review` 与 `evidence_status`（与 `ReadMemory` 同形，§1.5.1）。两个根的 `INDEX.md` 已在每回合注入，因此不进入检索结果。`score = 0.85 * relevance + 0.15 * recency`，recency 以
 `updated_at_ms` 计算、半衰期 180 天；`importance` 随字段一起删除。空 query 按更新时间倒序。
 结果被截断时返回 `count`、`total` 和 `truncated`。
 
@@ -153,11 +153,49 @@ maintainer 回合都得不到保留值（`memory-evidence-invalid`）。
 - 注入文本必须说明：写记忆时优先引用来源；关于用户的持久事实用用户消息引用，观察所得注明观察，
   没有引用就按自己的推断记录。不得再声称所有聊天回合都是用户陈述。
 
-`memory-write-request.schema.json` 的 `evidence`、`memory-document.schema.json` 的 `trust`／`source`
-与 `golden/memory-write.json` 的 `evidenceCases`／`boundaryCases` 是共享向量；`validate_vectors.py`
-用参考解析器逐条校验 `user`／`observation`／`assistant` 推导、引用无效时的拒绝和 source 规则的叠加。
-物理抹除的共享向量在 `golden/memory-erasure.json`（§1.8）；它同时校验目标范围、版本计数、跨 Bot
-隔离和不覆盖的 session 引用。
+### 1.5.1 核对状态与逐条时效（AHA 增量）
+
+`trust` 回答「谁说的」，可选 `review` 回答「写入者自己核对到什么程度」。`review` 是**模型在写入时
+做出的核验断言**，不是宿主对结论真实性的认证：宿主只校验它有没有可指认、可解析的依据，以及
+状态与依据的组合是否自洽。`review` 随版本持久化；缺省表示**没有记录核对判断**（不得读成
+`verified`，也不得读成 `unverified` 的同义词）；v2 冻结前的旧文档一律缺省，宿主从不替模型合成
+`verified`。
+
+| `review.state` | 含义 | 宿主校验（不通过返回 `memory-review-invalid`，整条写入失败） |
+| --- | --- | --- |
+| `verified` | 写入者声称做过核对，并给出了可解析的依据 | `basis` ∈ `user-statement`／`observation`／`record-recheck`（**不得**是 `model-inference`）；`refs` **至少 1 条**，每条都能解析、属于本 Bot、未被抹除；`method` 可选（自由文本，≤200 scalar，宿主不据此认证）；`at_ms` 可选，是写入者声称的时间，宿主不校验时钟 |
+| `unverified` | 写入者明确表示没核对过、或只是自己的判断 | `basis` 必填（通常是 `model-inference`）；可以带 `refs` 说明查过哪些记录，但不会被当作已核对 |
+| `disputed` | 已知存在冲突，两种说法都要保留 | `refs` 至少 1 条，指向冲突的一方或双方；不得静默覆盖任何一方 |
+
+- `review.refs` 与 `evidence` 是两件事：`evidence` 是内容来源，`review.refs` 是核对依据；两者可以
+  不同，但都走同一套引用规则（§1.5）。写入请求里 `review.refs` 也接受保留值 `current-user-turn`，
+  宿主解析为当前回合用户消息；隐藏、held、`agent:`、routine、Task、maintainer 回合不可用。
+  形状、状态/依据组合、引用解析任一项不合格都返回 `memory-review-invalid`，不降级、不忽略。
+- **可解析不等于结论成立。** 宿主只证明「这条引用当时存在且属于本 Bot」，不证明它支持正文结论；
+  是否真的核对过由独立评测检验，不由字段本身证明。
+- `move` 按目标写入的值记录；`delete` 可省略 `review`；`restore` 把历史内容作为新版本写回，
+  `evidence`／`trust`／`source`／`review` 从被恢复版本继承（宿主内部回滚同），模型不得注入或清空；
+  被恢复版本本身缺这些字段时保持缺失。
+- maintainer 的机械检查（§4.4）不因为 `review` 放宽：引用仍要能解析、trust 仍要一致；
+  `least-verified` 候选可以把缺 `review` 或 `state != verified` 的文档排进候选，但不改变写入边界。
+
+**逐条证据时效（宿主派生，不持久化、不写事件、不参与版本前提）。** `ReadMemory` 的文档结果与
+`RecallMemory` 的每个命中另带 `evidence_status`，与 `evidence` 一一对应、同序：
+
+| 字段 | 含义 |
+| --- | --- |
+| `ref` | 规范化后的 `record://` 引用 |
+| `observed_at_ms` | 该原始记录自身的观察时间（session 行的行时间／`bot_events.time`）；记录已不可解析（含被抹除）或本身没有时间时为 `null` |
+| `source_version` | 来源版本；本版 session 行与 Bot 事件都不暴露来源版本，因此一律 `null`。**不得**用记忆文档自己的 `version` 冒充来源版本，也不得据此声称「最新」 |
+
+- 实现约束：一次读取/召回调用内用**一次批量解析**（共享 resolver snapshot）产出全部状态，
+  不新增 `memory.evidence_invalidated` 之类的派生事件流，也不为每条命中重扫事件库。
+- 多个 evidence 各有各的 `observed_at_ms`，不能用文档级时间或 `updated_at_ms` 掩盖部分过期；
+  `updated_at_ms` 是记忆写入时间，**不是**来源观察时间。
+- `evidence_status` 每次读取重新解析：抹除/撤权后对应项变 `null`，不复用旧值；这是显示语义，
+  不改变 `evidence` 数组、不改变版本、不复活已抹除内容。
+- 记录本身没有时间时 `observed_at_ms = null`（unknown），不是 0；没有来源版本时
+  `source_version = null`，两者都不得伪造成具体值。
 
 ### 1.6 迁移
 
@@ -622,7 +660,7 @@ cache read + cache write，以 LLM 账本为准）。维护回合的账本 `purp
 
 ## 5. 一致性向量
 
-`golden/` 覆盖 `memory-document`、`memory-write`、`memory-read`、`memory-recall`、
+`golden/` 覆盖 `memory-document`（含 `review` 正反例）、`memory-write`（含引用时间与 `memory-review-invalid` 正反例）、`memory-read`／`memory-recall`（含 `review` 与 `evidence_status` 期望值）、
 `memory-injection`、`memory-migration`、`memory-legacy-fact`、`memory-maintenance`、
 `wake-routine`、`held-inbox` 及其合并覆盖文件；旧 fact 形状只保留为迁移输入
 （`memory-legacy-fact`）。

@@ -9,43 +9,50 @@
       "kind": "session",
       "type": "user/message",
       "rpcId": "bot-1",
-      "botId": "bot-a"
+      "botId": "bot-a",
+      "at_ms": 1760000003000
     },
     "record://session/gb-main#4": {
       "kind": "session",
       "type": "tool/call",
       "tool": "web_fetch",
-      "botId": "bot-a"
+      "botId": "bot-a",
+      "at_ms": 1760000004000
     },
     "record://session/gb-main#5": {
       "kind": "session",
       "type": "tool/call",
       "tool": "bash",
-      "botId": "bot-a"
+      "botId": "bot-a",
+      "at_ms": 1760000005000
     },
     "record://session/gb-main#6": {
       "kind": "session",
       "type": "user/message",
       "rpcId": "held:1",
-      "botId": "bot-a"
+      "botId": "bot-a",
+      "at_ms": 1760000006000
     },
     "record://session/gb-main#7": {
       "kind": "session",
       "type": "user/message",
       "rpcId": "agent:call-1",
-      "botId": "bot-a"
+      "botId": "bot-a",
+      "at_ms": 1760000007000
     },
     "record://event/7": {
       "kind": "event",
       "type": "conversation.user_message",
       "rpcId": "user-action:1",
-      "botId": "bot-a"
+      "botId": "bot-a",
+      "at_ms": 1760000008000
     },
     "record://event/8": {
       "kind": "event",
       "type": "conversation.tool_result",
       "tool": "mcp__weather__current",
-      "botId": "bot-a"
+      "botId": "bot-a",
+      "at_ms": 1760000009000
     },
     "record://event/9": {
       "kind": "event",
@@ -55,13 +62,15 @@
         "taskID": "task-1",
         "status": "completed"
       },
-      "botId": "bot-a"
+      "botId": "bot-a",
+      "at_ms": 1760000010000
     },
     "record://session/gb-other#3": {
       "kind": "session",
       "type": "user/message",
       "rpcId": "bot-1",
-      "botId": "bot-b"
+      "botId": "bot-b",
+      "at_ms": 1760000011000
     }
   },
   "evidenceCases": {
@@ -814,6 +823,46 @@
         "scope": "user",
         "version": 1
       }
+    },
+    {
+      "name": "write-with-verified-verification",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "request": {
+        "action": "write",
+        "path": "user/preferences/drinks.md",
+        "content": "# Drinks\n\n- 美式",
+        "expected_version": 0,
+        "evidence": [
+          "current-user-turn"
+        ],
+        "review": {
+          "basis": "user-statement",
+          "at_ms": 1760000020000,
+          "refs": [
+            "current-user-turn"
+          ],
+          "state": "verified"
+        }
+      },
+      "currentUserTurn": "record://session/gb-main#3",
+      "state": {
+        "documents": [],
+        "history": {}
+      },
+      "expect": {
+        "ok": true,
+        "action": "write",
+        "path": "user/preferences/drinks.md",
+        "scope": "user",
+        "version": 1,
+        "previous_version": 0
+      }
     }
   ],
   "visibilityCases": [
@@ -867,5 +916,148 @@
         "user/profile.md"
       ]
     }
-  ]
+  ],
+  "reviewCases": {
+    "valid": [
+      {
+        "name": "verified-user-statement-current-turn",
+        "currentUserTurn": "record://session/gb-main#3",
+        "turn": "user-turn",
+        "refs": [
+          "record://session/gb-main#3"
+        ],
+        "review": {
+          "basis": "user-statement",
+          "at_ms": 1760000020000,
+          "refs": [
+            "current-user-turn"
+          ],
+          "state": "verified"
+        }
+      },
+      {
+        "name": "verified-record-recheck",
+        "refs": [
+          "record://session/gb-main#4"
+        ],
+        "review": {
+          "basis": "record-recheck",
+          "method": "回读 web_fetch 结果",
+          "at_ms": 1760000020000,
+          "refs": [
+            "record://session/gb-main#4"
+          ],
+          "state": "verified"
+        }
+      },
+      {
+        "name": "disputed-two-sides",
+        "refs": [
+          "record://event/7",
+          "record://event/8"
+        ],
+        "review": {
+          "basis": "user-statement",
+          "at_ms": 1760000020000,
+          "refs": [
+            "record://event/7",
+            "record://event/8"
+          ],
+          "state": "disputed"
+        }
+      },
+      {
+        "name": "unverified-model-inference",
+        "refs": [],
+        "review": {
+          "basis": "model-inference",
+          "state": "unverified"
+        }
+      },
+      {
+        "name": "verified-refs-only",
+        "review": {
+          "state": "verified",
+          "basis": "observation",
+          "refs": [
+            "record://session/gb-main#4"
+          ]
+        },
+        "refs": [
+          "record://session/gb-main#4"
+        ]
+      }
+    ],
+    "invalid": [
+      {
+        "name": "verified-model-inference",
+        "refs": [],
+        "review": {
+          "basis": "model-inference",
+          "at_ms": 1,
+          "state": "verified"
+        }
+      },
+      {
+        "name": "verified-no-method-no-refs",
+        "refs": [],
+        "review": {
+          "basis": "record-recheck",
+          "at_ms": 1,
+          "state": "verified"
+        }
+      },
+      {
+        "name": "disputed-no-refs",
+        "refs": [],
+        "review": {
+          "basis": "user-statement",
+          "state": "disputed"
+        }
+      },
+      {
+        "name": "ref-unresolvable",
+        "refs": [
+          "record://event/999"
+        ],
+        "review": {
+          "basis": "record-recheck",
+          "at_ms": 1,
+          "refs": [
+            "record://event/999"
+          ],
+          "state": "verified"
+        }
+      },
+      {
+        "name": "ref-foreign-bot",
+        "refs": [
+          "record://session/gb-other#3"
+        ],
+        "review": {
+          "basis": "user-statement",
+          "refs": [
+            "record://session/gb-other#3"
+          ],
+          "state": "disputed"
+        }
+      },
+      {
+        "name": "current-user-turn-hidden",
+        "turn": "hidden",
+        "currentUserTurn": "record://session/gb-main#3",
+        "refs": [
+          "record://session/gb-main#3"
+        ],
+        "review": {
+          "basis": "user-statement",
+          "at_ms": 1,
+          "refs": [
+            "current-user-turn"
+          ],
+          "state": "verified"
+        }
+      }
+    ]
+  }
 }

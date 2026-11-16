@@ -341,6 +341,30 @@ def validate_write_vectors(fixture=None) -> tuple[int, int, int, int]:
              "content": "x", "expected_version": 0, "evidence": [value]},
             "memory-write-request.schema.json",
             f"write.evidenceReservedInvalid[{index}]")
+    review_cases = fixture.get("reviewCases", {"valid": [], "invalid": []})
+    for index, case in enumerate(review_cases["valid"]):
+        error = review_error(
+            case.get("review"), records, "bot-a",
+            current_user_turn_ref=case.get("currentUserTurn"),
+            turn=case.get("turn", "user-turn"))
+        if error:
+            raise AssertionError(
+                f"reviewCases.valid[{index}] {case.get('name')} rejected: {error}")
+        expected_refs = case.get("refs") or []
+        if expected_refs:
+            resolved = resolve_evidence_refs(
+                expected_refs, case.get("currentUserTurn"), case.get("turn", "user-turn"))
+            if resolved != expected_refs:
+                raise AssertionError(
+                    f"reviewCases.valid[{index}] canonical refs mismatch")
+    for index, case in enumerate(review_cases["invalid"]):
+        error = review_error(
+            case.get("review"), records, "bot-a",
+            current_user_turn_ref=case.get("currentUserTurn"),
+            turn=case.get("turn", "user-turn"))
+        if not error:
+            raise AssertionError(
+                f"reviewCases.invalid[{index}] {case.get('name')} unexpectedly accepted")
     for index, case in enumerate(fixture["boundaryCases"]):
         actual = boundary_error(case.get("sourceKind"), case.get("trust"), case.get("path"))
         permission = permission_error(
@@ -416,6 +440,33 @@ def mutation_count_for_evidence() -> int:
         if case.get("name") == "current-user-turn":
             case["currentUserTurn"] = "record://event/99"
     expect_failure("current-user-turn-unresolved", lambda: validate_write_vectors(mutated))
+
+    mutated = copy.deepcopy(load("memory-write"))
+    for case in mutated["reviewCases"]["valid"]:
+        if case.get("name") == "verified-record-recheck":
+            case["review"]["basis"] = "model-inference"
+    expect_failure("review-model-inference", lambda: validate_write_vectors(mutated))
+
+    mutated = copy.deepcopy(load("memory-write"))
+    for case in mutated["reviewCases"]["valid"]:
+        if case.get("name") == "verified-record-recheck":
+            del case["review"]["refs"]
+    expect_failure("verified-no-refs", lambda: validate_write_vectors(mutated))
+
+    mutated = copy.deepcopy(load("memory-write"))
+    for case in mutated["reviewCases"]["valid"]:
+        if case.get("name") == "verified-record-recheck":
+            case["review"]["refs"] = ["record://event/999"]
+    expect_failure("review-foreign-ref", lambda: validate_write_vectors(mutated))
+
+    mutated = copy.deepcopy(load("memory-document"))
+    mutated["valid"][-1]["review"] = {
+        "status": "verified", "basis": "model-inference", "at_ms": 1, "method": "x"}
+    expect_failure("document-review", lambda: validate_document_vectors(mutated))
+
+    mutated = copy.deepcopy(load("memory-read"))
+    mutated["cases"][-2]["expect"]["evidenceStatus"][0]["observed_at_ms"] = 1
+    expect_failure("read-evidence-status", lambda: validate_read_vectors(mutated))
     return count
 
 
@@ -518,12 +569,101 @@ def derive_trust(records, refs, caller_bot_id, current_user_turn_ref=None,
 # ── document / read / recall ───────────────────────────────────────────────
 
 
-def validate_document_vectors() -> int:
-    fixture = load("memory-document")
-    check_many(fixture["valid"], "memory-document.schema.json", "memory-document")
+REVIEW_STATES = ("verified", "unverified", "disputed")
+REVIEW_BASES = (
+    "user-statement", "observation", "record-recheck", "model-inference",
+)
+REVIEW_ERROR = "memory-review-invalid"
+
+
+def review_error(review, records, caller_bot_id,
+                       current_user_turn_ref=None, turn="user-turn"):
+    """Reference check of the §1.5.1 review rules (shape + semantics).
+
+    Absent means "no recorded judgment" and is valid. Shape is enforced by the
+    schema too; this function additionally enforces the verified/disputed
+    combinations and that every cited basis reference resolves for this Bot.
+    """
+    if review is None:
+        return None
+    if not isinstance(review, dict):
+        return REVIEW_ERROR
+    state = review.get("state")
+    basis = review.get("basis")
+    if state not in REVIEW_STATES or basis not in REVIEW_BASES:
+        return REVIEW_ERROR
+    at_ms = review.get("at_ms")
+    if at_ms is not None and (not isinstance(at_ms, int) or isinstance(at_ms, bool)):
+        return REVIEW_ERROR
+    refs = review.get("refs")
+    if refs is not None and (not isinstance(refs, list) or len(refs) > 8):
+        return REVIEW_ERROR
+    method = review.get("method")
+    if method is not None and (not isinstance(method, str) or not method.strip()):
+        return REVIEW_ERROR
+    if state == "verified":
+        if basis == "model-inference":
+            return REVIEW_ERROR
+        if not refs:
+            return REVIEW_ERROR
+    if state == "disputed" and not refs:
+        return REVIEW_ERROR
+    if refs:
+        try:
+            resolved = resolve_evidence_refs(refs, current_user_turn_ref, turn)
+        except Exception:  # noqa: BLE001 - every failure is the same frozen code
+            return REVIEW_ERROR
+        for canonical in resolved:
+            record = records.get(canonical)
+            if record is None or record.get("botId") != caller_bot_id:
+                return REVIEW_ERROR
+    return None
+
+
+def evidence_status_for(document, records):
+    """Host-derived per-evidence observation time (§1.5.1).
+
+    One entry per evidence item, same order. observed_at_ms is the source
+    record's own timestamp and null when the record no longer resolves or has
+    no time; source_version is null in v1 (neither session lines nor Bot
+    events expose a source version).
+    """
+    parse = record_parser()
+    entries = []
+    for raw in document.get("evidence", []) or []:
+        parsed = parse(raw)
+        canonical = parsed["canonical"] if parsed else raw
+        record = records.get(canonical)
+        at_ms = record.get("at_ms") if isinstance(record, dict) else None
+        entries.append({
+            "ref": canonical,
+            "observed_at_ms": at_ms if isinstance(at_ms, int) else None,
+            "source_version": None,
+        })
+    return entries
+
+
+def document_error(document, records, where):
+    try:
+        check(document, "memory-document.schema.json", where)
+    except Exception:  # noqa: BLE001 - fixture is expected to be rejected
+        return "schema"
+    return review_error(document.get("review"), records, "bot-a")
+
+
+def validate_document_vectors(fixture=None) -> int:
+    fixture = fixture if fixture is not None else load("memory-document")
+    records = fixture.get("records", {})
+    for index, case in enumerate(fixture["valid"]):
+        error = document_error(case, records, f"memory-document.valid[{index}]")
+        if error:
+            raise AssertionError(
+                f"memory-document.valid[{index}] rejected: {error}")
     for index, case in enumerate(fixture["invalid"]):
-        rejects(case["document"], "memory-document.schema.json",
-                f"memory-document.invalid[{index}]")
+        if not document_error(case["document"], records,
+                              f"memory-document.invalid[{index}]"):
+            raise AssertionError(
+                f"memory-document.invalid[{index}] unexpectedly validates")
     return len(fixture["valid"]) + len(fixture["invalid"])
 
 
@@ -550,7 +690,8 @@ def directory_entries(state, path):
     return [entries[key] for key in sorted(entries)]
 
 
-def read_result(case):
+def read_result(case, records=None):
+    records = records or {}
     state = case["state"] if "state" in case else None
     request = case["request"]
     if state is None:
@@ -583,6 +724,9 @@ def read_result(case):
         if entry.get("deleted"):
             result["deleted"] = True
             result["deletion_reason"] = entry.get("deletion_reason", "forget")
+        if "review" in entry:
+            result["review"] = entry["review"]
+        result["evidence_status"] = evidence_status_for({"evidence": evidence}, records)
         return result
     document = state_document(state, path)
     if document is not None:
@@ -597,6 +741,9 @@ def read_result(case):
             "author": document["author"],
             "evidence": document.get("evidence", []),
             **({"trust": document["trust"]} if "trust" in document else {}),
+            **({"review": document["review"]}
+               if "review" in document else {}),
+            "evidence_status": evidence_status_for(document, records),
         }
     entries = directory_entries(state, path)
     if entries or path in ROOTS:
@@ -610,15 +757,15 @@ def read_result(case):
     return {"ok": False, "code": "memory-not-found", "error": "not found"}
 
 
-def validate_read_vectors() -> int:
-    fixture = load("memory-read")
+def validate_read_vectors(fixture=None) -> int:
+    fixture = fixture if fixture is not None else load("memory-read")
     state = fixture["state"]
     for document in state["documents"]:
         check(document, "memory-document.schema.json", "memory-read.state")
     for index, case in enumerate(fixture["cases"]):
         case_state = dict(state)
         case["state"] = case_state
-        actual = read_result(case)
+        actual = read_result(case, fixture.get("records", {}))
         check(actual, "memory-read-result.schema.json", f"memory-read.cases[{index}]")
         expected = case["expect"]
         if actual.get("ok") != expected.get("ok"):
@@ -634,6 +781,10 @@ def validate_read_vectors() -> int:
                 raise AssertionError(f"memory-read.cases[{index}] content unexpectedly present")
             if expected.get("deleted") is not None and actual.get("deleted") != expected["deleted"]:
                 raise AssertionError(f"memory-read.cases[{index}] deleted mismatch")
+            if "review" in expected and actual.get("review") != expected["review"]:
+                raise AssertionError(f"memory-read.cases[{index}] review mismatch")
+            if "evidenceStatus" in expected and actual.get("evidence_status") != expected["evidenceStatus"]:
+                raise AssertionError(f"memory-read.cases[{index}] evidence_status mismatch")
             if "entries" in expected:
                 paths = [entry["path"] for entry in actual.get("entries", [])]
                 if paths != expected["entries"]:
@@ -644,11 +795,44 @@ def validate_read_vectors() -> int:
     return len(fixture["cases"])
 
 
+def recall_status_error(hit, records):
+    """Schema plus the derived-view consistency rule for one recall hit."""
+    try:
+        check(hit, "memory-recall.schema.json", "memory-recall hit")
+    except Exception:  # noqa: BLE001 - negative fixture
+        return "schema"
+    error = review_error(hit.get("review"), records, "bot-a")
+    if error:
+        return error
+    status = hit.get("evidence_status")
+    if status is None:
+        return None
+    evidence = hit.get("evidence", []) or []
+    if len(status) != len(evidence):
+        return "evidence-status-count"
+    for ref, entry in zip(evidence, status):
+        if entry.get("ref") != ref:
+            return "evidence-status-ref"
+        record = records.get(ref)
+        expected = record.get("at_ms") if isinstance(record, dict) else None
+        if entry.get("observed_at_ms") != (expected if isinstance(expected, int) else None):
+            return "evidence-status-time"
+        if entry.get("source_version") is not None:
+            return "evidence-status-source-version"
+    return None
+
+
 def validate_recall_vectors() -> int:
     fixture = load("memory-recall")
-    check_many(fixture["hits"], "memory-recall.schema.json", "memory-recall.hits")
+    records = fixture.get("records", {})
+    for index, hit in enumerate(fixture["hits"]):
+        error = recall_status_error(hit, records)
+        if error:
+            raise AssertionError(f"memory-recall.hits[{index}] rejected: {error}")
     for index, case in enumerate(fixture["invalid"]):
-        rejects(case["hit"], "memory-recall.schema.json", f"memory-recall.invalid[{index}]")
+        if not recall_status_error(case["hit"], records):
+            raise AssertionError(
+                f"memory-recall.invalid[{index}] unexpectedly validates")
     live_paths = {document["path"] for document in fixture["documents"]}
     for index, query in enumerate(fixture["queries"]):
         for path in query.get("expectedPaths", []):

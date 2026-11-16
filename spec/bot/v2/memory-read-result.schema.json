@@ -5,42 +5,210 @@
   "oneOf": [
     {
       "type": "object",
-      "required": ["ok", "kind", "path", "scope", "version", "content", "updated_at_ms", "author", "evidence"],
+      "required": [
+        "ok",
+        "kind",
+        "path",
+        "scope",
+        "version",
+        "content",
+        "updated_at_ms",
+        "author",
+        "evidence"
+      ],
       "properties": {
-        "ok": {"const": true},
-        "kind": {"const": "document"},
-        "path": {"type": "string", "minLength": 3, "maxLength": 200},
-        "scope": {"enum": ["agent", "user"]},
-        "version": {"type": "integer", "minimum": 1},
-        "content": {"type": "string"},
-        "updated_at_ms": {"type": "integer", "minimum": 0},
-        "author": {"type": "object"},
-        "evidence": {"type": "array", "maxItems": 8, "items": {"type": "string"}},
-        "trust": {"type": "string"},
-        "deleted": {"const": true},
-        "deletion_reason": {"enum": ["forget", "erase"]}
+        "ok": {
+          "const": true
+        },
+        "kind": {
+          "const": "document"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "scope": {
+          "enum": [
+            "agent",
+            "user"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "content": {
+          "type": "string"
+        },
+        "updated_at_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "author": {
+          "type": "object"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string"
+          }
+        },
+        "trust": {
+          "type": "string"
+        },
+        "deleted": {
+          "const": true
+        },
+        "deletion_reason": {
+          "enum": [
+            "forget",
+            "erase"
+          ]
+        },
+        "evidence_status": {
+          "type": "array",
+          "maxItems": 8,
+          "description": "Host-derived, one entry per evidence item in the same order. observed_at_ms is the source record's own timestamp (null when the record no longer resolves or carries none); source_version is null here because neither session lines nor Bot events expose a source version in v1. Never reuse the memory document's own version.",
+          "items": {
+            "type": "object",
+            "required": [
+              "ref",
+              "observed_at_ms",
+              "source_version"
+            ],
+            "properties": {
+              "ref": {
+                "type": "string",
+                "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+                "maxLength": 128
+              },
+              "observed_at_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "source_version": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "review": {
+          "type": "object",
+          "required": [
+            "state",
+            "basis"
+          ],
+          "description": "Writer-recorded check state (a model verification assertion with a resolvable basis, not a host certification of truth). Absent means no recorded judgment. verified requires a non-model basis and at least one resolvable ref; disputed requires the conflicting sides cited in refs. trust stays the separate question of who said it.",
+          "properties": {
+            "basis": {
+              "enum": [
+                "user-statement",
+                "observation",
+                "record-recheck",
+                "model-inference"
+              ]
+            },
+            "method": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "at_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "refs": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "string",
+                "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+                "maxLength": 128
+              }
+            },
+            "state": {
+              "enum": [
+                "verified",
+                "unverified",
+                "disputed"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },
     {
       "type": "object",
-      "required": ["ok", "kind", "path", "scope", "entries"],
+      "required": [
+        "ok",
+        "kind",
+        "path",
+        "scope",
+        "entries"
+      ],
       "properties": {
-        "ok": {"const": true},
-        "kind": {"const": "directory"},
-        "path": {"type": "string", "minLength": 3, "maxLength": 200},
-        "scope": {"enum": ["agent", "user"]},
+        "ok": {
+          "const": true
+        },
+        "kind": {
+          "const": "directory"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "scope": {
+          "enum": [
+            "agent",
+            "user"
+          ]
+        },
         "entries": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["path", "name", "kind"],
+            "required": [
+              "path",
+              "name",
+              "kind"
+            ],
             "properties": {
-              "path": {"type": "string", "minLength": 3, "maxLength": 200},
-              "name": {"type": "string", "minLength": 1},
-              "kind": {"enum": ["document", "directory"]},
-              "version": {"type": "integer", "minimum": 1},
-              "updated_at_ms": {"type": "integer", "minimum": 0}
+              "path": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 200
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "enum": [
+                  "document",
+                  "directory"
+                ]
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "updated_at_ms": {
+                "type": "integer",
+                "minimum": 0
+              }
             },
             "additionalProperties": false
           }
@@ -50,12 +218,29 @@
     },
     {
       "type": "object",
-      "required": ["ok", "code", "error"],
+      "required": [
+        "ok",
+        "code",
+        "error"
+      ],
       "properties": {
-        "ok": {"const": false},
-        "code": {"enum": ["memory-path-invalid", "memory-not-found", "memory-version-not-found"]},
-        "error": {"type": "string", "minLength": 1},
-        "path": {"type": "string"}
+        "ok": {
+          "const": false
+        },
+        "code": {
+          "enum": [
+            "memory-path-invalid",
+            "memory-not-found",
+            "memory-version-not-found"
+          ]
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     }

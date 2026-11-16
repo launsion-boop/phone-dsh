@@ -11,10 +11,20 @@
       "content": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
       "version": 3,
       "updated_at_ms": 1760000005000,
-      "author": {"bot_id": "bot-a", "session_id": "gb-main", "kind": "chat"},
-      "evidence": ["record://session/gb-main#3"],
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "evidence": [
+        "record://session/gb-main#3"
+      ],
       "trust": "user",
-      "source": {"kind": "user-turn", "sessionId": "gb-main", "turnId": "1"}
+      "source": {
+        "kind": "user-turn",
+        "sessionId": "gb-main",
+        "turnId": "1"
+      }
     },
     {
       "path": "agent/INDEX.md",
@@ -22,10 +32,17 @@
       "content": "# Index\n\n- profile.md\n- notes/routine.md",
       "version": 2,
       "updated_at_ms": 1760000006000,
-      "author": {"bot_id": "bot-a", "session_id": "gb-main", "kind": "chat"},
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
       "evidence": [],
       "trust": "assistant",
-      "source": {"kind": "agent-message", "sessionId": "gb-main"}
+      "source": {
+        "kind": "agent-message",
+        "sessionId": "gb-main"
+      }
     },
     {
       "path": "agent/log/2025-10.md",
@@ -33,9 +50,122 @@
       "content": "# 2025-10\n\n- 我负责 iOS 工作",
       "version": 1,
       "updated_at_ms": 1760000007000,
-      "author": {"bot_id": "bot-b", "kind": "migration"},
+      "author": {
+        "bot_id": "bot-b",
+        "kind": "migration"
+      },
       "evidence": [],
       "trust": "import"
+    },
+    {
+      "path": "agent/notes/evidence.md",
+      "scope": "user",
+      "content": "# 证据\n\n- 报销规范以 2026-11 版为准",
+      "version": 1,
+      "updated_at_ms": 1760000010000,
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "evidence": [
+        "record://session/gb-main#4"
+      ],
+      "trust": "user",
+      "source": {
+        "kind": "user-turn",
+        "sessionId": "gb-main",
+        "turnId": "1"
+      },
+      "review": {
+        "basis": "record-recheck",
+        "method": "回读原始记录并比对",
+        "at_ms": 1760000011000,
+        "refs": [
+          "record://session/gb-main#4"
+        ],
+        "state": "verified"
+      }
+    },
+    {
+      "path": "user/preferences/coffee.md",
+      "scope": "user",
+      "content": "# Coffee\n\n- 用户爱喝美式（说法一）\n- 用户爱喝拿铁（说法二）",
+      "version": 2,
+      "updated_at_ms": 1760000012000,
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "evidence": [
+        "record://session/gb-main#3",
+        "record://event/7"
+      ],
+      "trust": "user",
+      "source": {
+        "kind": "user-turn",
+        "sessionId": "gb-main",
+        "turnId": "1"
+      },
+      "review": {
+        "basis": "user-statement",
+        "at_ms": 1760000012000,
+        "refs": [
+          "record://session/gb-main#3",
+          "record://event/7"
+        ],
+        "state": "disputed"
+      }
+    },
+    {
+      "path": "agent/notes/inference.md",
+      "scope": "user",
+      "content": "# 推断\n\n- 可能下周需要准备周报",
+      "version": 1,
+      "updated_at_ms": 1760000013000,
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "evidence": [],
+      "trust": "user",
+      "source": {
+        "kind": "user-turn",
+        "sessionId": "gb-main",
+        "turnId": "1"
+      },
+      "review": {
+        "basis": "model-inference",
+        "state": "unverified"
+      }
+    },
+    {
+      "path": "agent/notes/refs-only.md",
+      "scope": "user",
+      "content": "# x",
+      "version": 1,
+      "updated_at_ms": 1,
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "evidence": [],
+      "trust": "user",
+      "source": {
+        "kind": "user-turn",
+        "sessionId": "gb-main",
+        "turnId": "1"
+      },
+      "review": {
+        "state": "verified",
+        "basis": "record-recheck",
+        "refs": [
+          "record://event/7"
+        ]
+      }
     }
   ],
   "invalid": [
@@ -46,7 +176,9 @@
         "scope": "agent",
         "content": "x",
         "updated_at_ms": 1,
-        "author": {"kind": "chat"},
+        "author": {
+          "kind": "chat"
+        },
         "evidence": []
       }
     },
@@ -58,7 +190,9 @@
         "content": "x",
         "version": 0,
         "updated_at_ms": 1,
-        "author": {"kind": "chat"},
+        "author": {
+          "kind": "chat"
+        },
         "evidence": []
       }
     },
@@ -70,7 +204,9 @@
         "content": "x",
         "version": 1,
         "updated_at_ms": 1,
-        "author": {"kind": "chat"},
+        "author": {
+          "kind": "chat"
+        },
         "evidence": []
       }
     },
@@ -82,7 +218,9 @@
         "content": "x",
         "version": 1,
         "updated_at_ms": 1,
-        "author": {"kind": "root"},
+        "author": {
+          "kind": "root"
+        },
         "evidence": []
       }
     },
@@ -94,10 +232,18 @@
         "content": "x",
         "version": 1,
         "updated_at_ms": 1,
-        "author": {"kind": "chat"},
+        "author": {
+          "kind": "chat"
+        },
         "evidence": [
-          "record://event/1", "record://event/2", "record://event/3", "record://event/4",
-          "record://event/5", "record://event/6", "record://event/7", "record://event/8",
+          "record://event/1",
+          "record://event/2",
+          "record://event/3",
+          "record://event/4",
+          "record://event/5",
+          "record://event/6",
+          "record://event/7",
+          "record://event/8",
           "record://event/9"
         ]
       }
@@ -110,8 +256,12 @@
         "content": "x",
         "version": 1,
         "updated_at_ms": 1,
-        "author": {"kind": "chat"},
-        "evidence": ["record://session/gb-main"]
+        "author": {
+          "kind": "chat"
+        },
+        "evidence": [
+          "record://session/gb-main"
+        ]
       }
     },
     {
@@ -122,10 +272,289 @@
         "content": "x",
         "version": 1,
         "updated_at_ms": 1,
-        "author": {"kind": "chat"},
+        "author": {
+          "kind": "chat"
+        },
         "evidence": [],
         "tier": "note"
       }
+    },
+    {
+      "reason": "review-verified-model-inference",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "user",
+        "content": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
+        "version": 1,
+        "updated_at_ms": 1,
+        "author": {
+          "bot_id": "bot-a",
+          "session_id": "gb-main",
+          "kind": "chat"
+        },
+        "evidence": [],
+        "trust": "user",
+        "source": {
+          "kind": "user-turn",
+          "sessionId": "gb-main",
+          "turnId": "1"
+        },
+        "review": {
+          "basis": "model-inference",
+          "at_ms": 1,
+          "state": "verified"
+        }
+      }
+    },
+    {
+      "reason": "review-verified-no-method-no-refs",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "user",
+        "content": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
+        "version": 1,
+        "updated_at_ms": 1,
+        "author": {
+          "bot_id": "bot-a",
+          "session_id": "gb-main",
+          "kind": "chat"
+        },
+        "evidence": [],
+        "trust": "user",
+        "source": {
+          "kind": "user-turn",
+          "sessionId": "gb-main",
+          "turnId": "1"
+        },
+        "review": {
+          "basis": "record-recheck",
+          "at_ms": 1,
+          "state": "verified"
+        }
+      }
+    },
+    {
+      "reason": "review-disputed-no-refs",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "user",
+        "content": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
+        "version": 1,
+        "updated_at_ms": 1,
+        "author": {
+          "bot_id": "bot-a",
+          "session_id": "gb-main",
+          "kind": "chat"
+        },
+        "evidence": [],
+        "trust": "user",
+        "source": {
+          "kind": "user-turn",
+          "sessionId": "gb-main",
+          "turnId": "1"
+        },
+        "review": {
+          "basis": "user-statement",
+          "state": "disputed"
+        }
+      }
+    },
+    {
+      "reason": "review-unknown-status",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "user",
+        "content": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
+        "version": 1,
+        "updated_at_ms": 1,
+        "author": {
+          "bot_id": "bot-a",
+          "session_id": "gb-main",
+          "kind": "chat"
+        },
+        "evidence": [],
+        "trust": "user",
+        "source": {
+          "kind": "user-turn",
+          "sessionId": "gb-main",
+          "turnId": "1"
+        },
+        "review": {
+          "basis": "record-recheck",
+          "state": "confirmed"
+        }
+      }
+    },
+    {
+      "reason": "review-unknown-basis",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "user",
+        "content": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
+        "version": 1,
+        "updated_at_ms": 1,
+        "author": {
+          "bot_id": "bot-a",
+          "session_id": "gb-main",
+          "kind": "chat"
+        },
+        "evidence": [],
+        "trust": "user",
+        "source": {
+          "kind": "user-turn",
+          "sessionId": "gb-main",
+          "turnId": "1"
+        },
+        "review": {
+          "basis": "intuition",
+          "at_ms": 1,
+          "state": "verified"
+        }
+      }
+    },
+    {
+      "reason": "review-extra-property",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "user",
+        "content": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
+        "version": 1,
+        "updated_at_ms": 1,
+        "author": {
+          "bot_id": "bot-a",
+          "session_id": "gb-main",
+          "kind": "chat"
+        },
+        "evidence": [],
+        "trust": "user",
+        "source": {
+          "kind": "user-turn",
+          "sessionId": "gb-main",
+          "turnId": "1"
+        },
+        "review": {
+          "basis": "model-inference",
+          "confidence": 0.9,
+          "state": "unverified"
+        }
+      }
+    },
+    {
+      "reason": "review-too-many-refs",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "user",
+        "content": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
+        "version": 1,
+        "updated_at_ms": 1,
+        "author": {
+          "bot_id": "bot-a",
+          "session_id": "gb-main",
+          "kind": "chat"
+        },
+        "evidence": [],
+        "trust": "user",
+        "source": {
+          "kind": "user-turn",
+          "sessionId": "gb-main",
+          "turnId": "1"
+        },
+        "review": {
+          "basis": "user-statement",
+          "refs": [
+            "record://event/1",
+            "record://event/2",
+            "record://event/3",
+            "record://event/4",
+            "record://event/5",
+            "record://event/6",
+            "record://event/7",
+            "record://event/8",
+            "record://event/9"
+          ],
+          "state": "disputed"
+        }
+      }
+    },
+    {
+      "reason": "review-malformed-ref",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "user",
+        "content": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
+        "version": 1,
+        "updated_at_ms": 1,
+        "author": {
+          "bot_id": "bot-a",
+          "session_id": "gb-main",
+          "kind": "chat"
+        },
+        "evidence": [],
+        "trust": "user",
+        "source": {
+          "kind": "user-turn",
+          "sessionId": "gb-main",
+          "turnId": "1"
+        },
+        "review": {
+          "basis": "user-statement",
+          "refs": [
+            "record://session/gb-main"
+          ],
+          "state": "disputed"
+        }
+      }
+    },
+    {
+      "reason": "review-verified-method-only",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "user",
+        "content": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
+        "version": 1,
+        "updated_at_ms": 1,
+        "author": {
+          "bot_id": "bot-a",
+          "session_id": "gb-main",
+          "kind": "chat"
+        },
+        "evidence": [],
+        "trust": "user",
+        "source": {
+          "kind": "user-turn",
+          "sessionId": "gb-main",
+          "turnId": "1"
+        },
+        "review": {
+          "state": "verified",
+          "basis": "record-recheck",
+          "method": "回读了",
+          "at_ms": 1
+        }
+      }
     }
-  ]
+  ],
+  "records": {
+    "record://event/7": {
+      "kind": "event",
+      "type": "conversation.user_message",
+      "rpcId": "user-action:1",
+      "botId": "bot-a",
+      "at_ms": 1760000003000
+    },
+    "record://session/gb-main#4": {
+      "kind": "session",
+      "type": "tool/call",
+      "tool": "web_fetch",
+      "botId": "bot-a",
+      "at_ms": 1760000004000
+    },
+    "record://session/gb-main#3": {
+      "kind": "session",
+      "type": "user/message",
+      "rpcId": "bot-1",
+      "botId": "bot-a",
+      "at_ms": 1760000003000
+    }
+  }
 }
