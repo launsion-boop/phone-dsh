@@ -29,8 +29,19 @@
 # to the fixed PR merge-base. When unset, the job falls back to
 # `git merge-base origin/<default-branch> HEAD` and fails if that is empty.
 #
-# No real-model credentials are used here. The gating work is offline: Python
-# spec/stage checks, the JVM `:bot` suite, and the strings anchor report.
+# No real-model credentials are used here. Scope is the iOS Bot shared
+# contract: Python spec/p0/cross-tree/stage checks, the JVM `:bot` suite, and
+# the strings anchor report. `phone-android-structure` exercises the native
+# Android APK/JNI/device packaging graph and bootstraps the Android toolchain;
+# it is an explicit workflow_dispatch diagnostic (NOT_IN_SCOPE_ANDROID_PACKAGING,
+# never a pass) and is not run by default.
+#
+# Historical run 43919510006 (9a14b622): stage baseline diff SUCCESS (including
+# the native packaging stage), Android :bot JVM SUCCESS, tool selftest SUCCESS,
+# strings anchor FAILURE (3 registered anchors), overall FAIL. That run was not
+# cancelled. The packaging stage leaves the default scope because it exercises
+# the Android APK/JNI/device graph, not the iOS Bot shared contract; it is not
+# reclassified as a product pass either way.
 name: bot-baseline-diff
 
 on:
@@ -60,6 +71,11 @@ on:
         description: "Fixed base commit to compare against (defaults to the PR base, vars.PR_BASE_SHA, or merge-base)"
         required: false
         type: string
+      run_android_packaging_diagnostic:
+        description: "Run the Android native packaging-graph diagnostic (NOT_IN_SCOPE_ANDROID_PACKAGING; not a pass)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -73,6 +89,7 @@ env:
   # from the event -> merge-base with the default branch.
   CI_BASE_SHA: ${{ github.event.inputs.base_sha || vars.PR_BASE_SHA }}
   CI_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  CI_RUN_ANDROID_PACKAGING_DIAGNOSTIC: ${{ github.event.inputs.run_android_packaging_diagnostic }}
   CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
 
 jobs:
@@ -135,36 +152,51 @@ jobs:
 
           HEAD = Path(".").resolve()
           BASE = Path("/tmp/ci-base")
-          STAGES = [
+          REQUIRED_STAGES = [
               "phone-spec",
+              "phone-p0-conformance",
+              "phone-cross-tree",
               "phone-gate-contracts",
               "phone-hygiene",
               "phone-license",
               "phone-modules",
-              "phone-android-structure",
               "phone-bot-eval-catalog",
           ]
+          OPTIONAL_STAGES = {
+              # Native Android APK/JNI/device packaging graph. It bootstraps
+              # the Android toolchain and is outside the iOS Bot shared
+              # contract; run only on explicit dispatch, and never count it as
+              # a pass (NOT_IN_SCOPE_ANDROID_PACKAGING).
+              "phone-android-structure": "optional_android_packaging",
+          }
+          run_diagnostic = os.environ.get(
+              "CI_RUN_ANDROID_PACKAGING_DIAGNOSTIC") == "true"
+          STAGES = list(REQUIRED_STAGES)
+          if run_diagnostic:
+              STAGES += list(OPTIONAL_STAGES)
           # Evidence-based deadlines: phone-spec took 659 s in run 43903927538;
-          # phone-android-structure normally takes ~29 s but run 43919510006
-          # sat in its Gradle TestKit suite for over an hour. A timed-out stage
-          # is rc=124 and INCOMPLETE, never a pass; the truncated log stays in
-          # the artifact for diagnosis.
+          # the optional packaging diagnostic is bounded so a network-bound
+          # Gradle/sdkmanager path cannot hold the job indefinitely. A
+          # timed-out stage is rc=124 and INCOMPLETE, never a pass.
           STAGE_TIMEOUTS = {
               "phone-spec": 900,
+              "phone-p0-conformance": 300,
+              "phone-cross-tree": 300,
               "phone-gate-contracts": 300,
               "phone-hygiene": 120,
               "phone-license": 60,
               "phone-modules": 120,
-              "phone-android-structure": 300,
               "phone-bot-eval-catalog": 120,
+              "phone-android-structure": 300,
           }
           out = {"stages": {}}
           for root_name, root in (("base", BASE), ("head", HEAD)):
               for stage in STAGES:
                   timeout = STAGE_TIMEOUTS[stage]
                   log = HEAD / "artifacts" / "stages" / f"{root_name}-{stage}.log"
-                  print(f"[stage] {root_name} {stage} START timeout={timeout}s",
-                        flush=True)
+                  scope = OPTIONAL_STAGES.get(stage, "required")
+                  print(f"[stage] {root_name} {stage} START timeout={timeout}s "
+                        f"scope={scope}", flush=True)
                   started = time.monotonic()
                   timed_out = False
                   with open(log, "w", encoding="utf-8") as handle:
@@ -204,6 +236,7 @@ jobs:
                   out["stages"][key] = {"rc": rc, "log": str(log),
                                         "timed_out": timed_out,
                                         "duration_seconds": duration,
+                                        "scope": scope,
                                         "inventory": inventory}
           # The comparator works per side; write one JSON per side.
           for side in ("base", "head"):
@@ -324,6 +357,9 @@ jobs:
               print(f"- NEW `{n}`")
           for n in d.get("incomplete", []):
               print(f"- INCOMPLETE {n}")
+          for name, item in d.get("diagnostic", {}).items():
+              print(f"- DIAGNOSTIC `{name}`: {item.get('status')} — "
+                    f"NOT_IN_SCOPE_ANDROID_PACKAGING (diagnostic only, NOT PASS)")
           for n in d["pre_existing"]:
               print(f"- pre-existing `{n}`")
           PY

@@ -139,6 +139,28 @@ class StageCases(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("INCOMPLETE", (self.dir / "diff.json").read_text())
 
+    def test_optional_android_packaging_is_diagnostic_only(self) -> None:
+        base = stage(0, [], 5)
+        head = stage(1, ["NEW diagnostic"], 5)
+        for entry in (base, head):
+            entry["scope"] = "optional_android_packaging"
+        proc = self.compare({"x": base}, {"x": head})
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        receipt = json.loads((self.dir / "diff.json").read_text())
+        self.assertEqual(receipt["verdict"], "NO_NEW_FAILURE")
+        self.assertEqual(receipt["diagnostic"]["x"]["status"], "NEW_FAILURE")
+
+    def test_timed_out_optional_stage_is_diagnostic_only(self) -> None:
+        base = stage(0, [], 5)
+        head = stage(124, [], 5)
+        head["timed_out"] = True
+        for entry in (base, head):
+            entry["scope"] = "optional_android_packaging"
+        proc = self.compare({"x": base}, {"x": head})
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        receipt = json.loads((self.dir / "diff.json").read_text())
+        self.assertEqual(receipt["diagnostic"]["x"]["status"], "INCOMPLETE")
+
     def test_timed_out_stage_is_incomplete(self) -> None:
         timed = stage(124, [], 5)
         timed["timed_out"] = True
