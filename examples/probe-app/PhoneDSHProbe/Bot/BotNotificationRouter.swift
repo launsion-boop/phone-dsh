@@ -37,6 +37,10 @@ final class BotNotificationRouter: NSObject, UNUserNotificationCenterDelegate {
                 BotNotificationRouter.shared.pendingDeepLink = url
             }
         }
+        // The same response is a legal G-3 own-notification observation entry.
+        Task { @MainActor in
+            _ = await ChatModel.shared.botRuntime?.handleContextNotificationResponse(response)
+        }
         completionHandler()
     }
 

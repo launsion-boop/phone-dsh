@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import UserNotifications
 import PhoneDSH
 import PhoneDSHAgentCore
 import PhoneDSHBot
@@ -234,6 +235,13 @@ final class BotRuntimeComposition {
     /// G-3 cloud scheduling configuration for this install; nil keeps the
     /// local-only behaviour (no fake caller).
     private let cloudConfiguration: BotCloudConfiguration?
+    /// G-3 iOS context sources. Created in `prepare`; started after the first
+    /// successful bind and stopped with the composition.
+    private var contextSources: BotContextSourcesAssembly?
+    /// Bounded wake-signal log. A context observation may request a wake; the
+    /// related/开口 policy is F/S work, so the host records the signal instead
+    /// of opening an empty visible turn.
+    private var contextWakeLog: [WakeSignal] = []
     private var host: PhoneDSHHost?
     private let hostReference = BotHostReference()
     private let workspaceRoot: URL
@@ -428,6 +436,9 @@ final class BotRuntimeComposition {
         if let feedbackCenter {
             await runtime.installFeedbackTools(BotFeedbackTools(center: feedbackCenter))
         }
+        let contextSources = BotContextSourcesAssembly(
+            dependencies: .init(eventLog: store))
+        composition.contextSources = contextSources
 
         let handler = BotMCPHandler(runtime: runtime)
         let server = BotMCPHTTPServer(handler: handler)
@@ -687,6 +698,48 @@ final class BotRuntimeComposition {
         host = newHost
         await hostReference.set(newHost)
         try await bind(to: newHost, recovering: false)
+        if let contextSources {
+            do {
+                try await contextSources.start { [weak self] signal in
+                    Task { @MainActor in self?.noteContextWake(signal) }
+                }
+            } catch {
+                // A source failure must not take the Bot runtime down: the
+                // surface reports unavailable and the rest keeps working.
+                contextWakeLog.append(WakeSignal(botId: "context-sources",
+                                                 reason: "context-source-start-failed",
+                                                 at: Int64(Date().timeIntervalSince1970 * 1000)))
+            }
+        }
+    }
+
+    /// Bounded host record of context wake requests. Consuming a signal into a
+    /// turn is F/S policy and is not wired yet; the signal is never turned into
+    /// an empty visible turn here.
+    func noteContextWake(_ signal: WakeSignal) {
+        contextWakeLog.append(signal)
+        if contextWakeLog.count > 128 {
+            contextWakeLog.removeFirst(contextWakeLog.count - 128)
+        }
+    }
+
+    func recentContextWakes() -> [WakeSignal] { contextWakeLog }
+
+    /// App/notification entry points for the G-3 context sources. Each is a
+    /// no-op until the assembly started and the source is subscribed.
+    func handleContextOpenURL(_ url: URL) async -> Bool {
+        guard let contextSources else { return false }
+        return await contextSources.handleOpenURL(url)
+    }
+
+    func handleContextUserActivity(_ activity: NSUserActivity) async -> Bool {
+        guard let contextSources else { return false }
+        return await contextSources.handleUserActivity(activity)
+    }
+
+    func handleContextNotificationResponse(_ response: UNNotificationResponse) async -> Bool {
+        guard let contextSources else { return false }
+        return await contextSources.handleNotificationResponse(response)
     }
 
     /// The visible 重试 action. A rebind may still be in flight (the d
@@ -1011,6 +1064,7 @@ final class BotRuntimeComposition {
     }
 
     func stop() async {
+        if let contextSources { await contextSources.stopAll() }
         await detachBinding()
         // Interactive cards cannot survive the process; durable todos are
         // deliberate facts and remain for the next launch (spec/bot/v1 §2.7).
