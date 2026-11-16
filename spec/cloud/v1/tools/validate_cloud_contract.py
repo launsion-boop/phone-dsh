@@ -29,7 +29,7 @@ GOLDEN = C / "golden" / "scheduler-wire.json"
 MANIFEST = C / "manifest.json"
 OUTCOMES = ("delivered", "skipped", "failed", "cancelled", "unknown")
 REASONS = ("overlap", "quiet", "disabled", "revoked", "needs_reconciliation", "crash",
-           "timeout", "unavailable", "local_attempt", "superseded", "user_stopped")
+           "timeout", "unavailable", "local_attempt", "superseded", "user_stopped", "run_failed")
 FORBIDDEN = re.compile(r"(prompt|message|content|body|audio|token|credential|secret)", re.I)
 OCCURRENCE = re.compile(r"^[0-9a-f]{64}$")
 

@@ -298,7 +298,8 @@
                       "unavailable",
                       "local_attempt",
                       "superseded",
-                      "user_stopped"
+                      "user_stopped",
+                      "run_failed"
                     ]
                   }
                 },
@@ -373,7 +374,8 @@
                 "unavailable",
                 "local_attempt",
                 "superseded",
-                "user_stopped"
+                "user_stopped",
+                "run_failed"
               ]
             },
             "completed_at_ms": {
@@ -547,7 +549,8 @@
                       "unavailable",
                       "local_attempt",
                       "superseded",
-                      "user_stopped"
+                      "user_stopped",
+                      "run_failed"
                     ]
                   }
                 },

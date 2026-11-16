@@ -169,6 +169,19 @@
       "code": "revision-conflict",
       "state": "pending",
       "server_time_ms": 1760058105000
+    },
+    {
+      "schema": "bot-cloud-ack/v1",
+      "device_id": "dev-1",
+      "event_id": "evt-3",
+      "receipt": {
+        "receipt_id": "rcpt-3",
+        "occurrence_key": "e290fb8a8d7cf46711205c7b9bd56c39141b2a5b954a142dda5de8a1df3acec3",
+        "outcome": "failed",
+        "reason": "run_failed",
+        "completed_at_ms": 1760058100000,
+        "local_run_id": "cloud-e290fb8a8d7cf46711205c7b9bd56c39141b2a5b954a142dda5de8a1df3acec3"
+      }
     }
   ],
   "invalid": [

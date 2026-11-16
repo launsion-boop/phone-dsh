@@ -35,7 +35,7 @@
 - `revision` 单调；旧 revision 409；重复 DELETE 幂等。
 - `catch_up` 默认 `latest`（与 v2「错过的只补一次」一致）。
 - `next_due_at` 只由**服务端时钟**计算；客户端 `completed_at` 仅审计，不作权威。
-- `schedule.kind`：interval（`interval_minutes` 1–10080，`phase_minutes` 0–59）、daily
+- `schedule.kind`：interval（`interval_minutes` 1–10080，`phase_minutes` 0–59；本地 routine 的 phase 若超出 0–59 或不是 interval 对齐偏移，客户端**不得**注册云排程（fail-closed，保留本地 best-effort），不得截断/四舍五入）、daily
   （`local_time`）、weekly（`weekdays` 1=Mon…7=Sun + `local_time`）、cron（五段，无秒/别名；
   `*`, 数字, `a-b`, `a,b`, `*/n`；不支持 L/W/#）。
 - `authorization_ref` 是端上用户同意的记录；云端无法验证，只原样存/回显，不据此声称授权。
@@ -62,7 +62,7 @@ scheduled_for_ms, lease{lease_id,attempt,expires_at_ms}, schedule_revision}]}`�
 
 - first-wins；同 `receipt_id`/同 occurrence 幂等；`unknown` 是**终态**（效果未知），服务端必须停止
   自动 lease/重发，交给端上 needs-reconciliation，不得写成 failed。
-- `skipped|failed|unknown` 必须带封闭 `reason`；`delivered|cancelled` 不带自由文本。
+- `skipped|failed|unknown` 必须带封闭 `reason`；普通运行失败用 `failed`+`run_failed`，不用 `unavailable` 冒充；`delivered|cancelled` 不带自由文本。
 - `local_run_id` 必须是 `cloud-<occurrence_key>`（端上确定性 runId），便于对账。
 
 ### 2.4 reconcile
