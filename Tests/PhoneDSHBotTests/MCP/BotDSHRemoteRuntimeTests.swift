@@ -92,7 +92,14 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
                        "steering must reuse the active turn, not open another")
 
         transport.closeMuxes()
-        for task in tasks { _ = try? await task.value }
+        for task in tasks {
+            do {
+                _ = try await withAdmissionTimeout(2) { try await task.value }
+            } catch {
+                task.cancel()
+                XCTFail("admission task did not settle: \(error)")
+            }
+        }
     }
 
     /// A message cancelled while it waits for the active turn must not open a
@@ -116,21 +123,42 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         }
         second.cancel()
         do {
-            _ = try await second.value
+            _ = try await withAdmissionTimeout(2) { try await second.value }
             XCTFail("cancelled admission must throw CancellationError")
         } catch is CancellationError {
             // expected
+        } catch {
+            XCTFail("cancelled admission did not settle: \(error)")
         }
         XCTAssertEqual(transport.promptHistory.count, 0)
-        transport.resumePrompts("gb-main")
-        for _ in 0..<200 where transport.promptHistory.isEmpty {
+        // A cancelled order must not strand later messages: they enter the
+        // same gate and are delivered in their own order once the first turn
+        // accepts.
+        let third = Task { try await remote.sendUserMessage("third") }
+        let fourth = Task { try await remote.sendUserMessage("fourth") }
+        for _ in 0..<200 {
+            if await remote.pendingAdmissionCount(sessionId: "gb-main") == 2 { break }
             try await Task.sleep(nanoseconds: 5_000_000)
         }
-        XCTAssertEqual(transport.promptHistory.map(\.text), ["first"])
-        XCTAssertEqual(transport.promptHistory.map(\.mode), ["queue"])
+        let pending = await remote.pendingAdmissionCount(sessionId: "gb-main")
+        XCTAssertEqual(pending, 2)
+        XCTAssertEqual(transport.promptHistory.count, 0)
+        transport.resumePrompts("gb-main")
+        for _ in 0..<400 where transport.promptHistory.count < 3 {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertEqual(transport.promptHistory.map(\.text), ["first", "third", "fourth"])
+        XCTAssertEqual(transport.promptHistory.map(\.mode), ["queue", "steer", "steer"])
         XCTAssertEqual(transport.openMuxCount, 1)
         transport.closeMuxes()
-        _ = try? await first.value
+        for task in [first, third, fourth] {
+            do {
+                _ = try await withAdmissionTimeout(2) { try await task.value }
+            } catch {
+                task.cancel()
+                XCTFail("admission task did not settle after close: \(error)")
+            }
+        }
     }
 
     func testBotSessionsAreNamespacedAndClaimedBeforeTurns() async throws {
@@ -1351,6 +1379,26 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
             throw BotMCPError.unauthorized
         }
         return call
+    }
+
+    private struct AdmissionTestTimeout: Error {}
+
+    /// Bounded await for admission tests: a regression must fail in seconds,
+    /// never leave the test process waiting on an unbounded task.
+    private func withAdmissionTimeout<T: Sendable>(
+        _ seconds: Double,
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw AdmissionTestTimeout()
+            }
+            guard let result = try await group.next() else { throw AdmissionTestTimeout() }
+            group.cancelAll()
+            return result
+        }
     }
 
     private func waitUntil(_ condition: @escaping @Sendable () -> Bool) async throws {

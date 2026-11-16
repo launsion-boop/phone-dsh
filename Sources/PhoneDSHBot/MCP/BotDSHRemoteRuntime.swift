@@ -237,7 +237,17 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// the actor before the first `await`, so concurrent `sendUserMessage`
     /// calls cannot reverse just because they resume from different awaits.
     private var nextAdmissionOrder: UInt64 = 0
+    /// Orders whose message has reached a real admission point (steer sent,
+    /// turn created, or queued). Out-of-order settlement is kept in the set so
+    /// a cancelled/overflowed earlier order cannot strand every later order.
+    private var settledAdmissionOrders: Set<UInt64> = []
     private var servedAdmissionOrder: UInt64 = 0
+    private var admissionWaiters: [(id: UUID, order: UInt64,
+                                    continuation: CheckedContinuation<Void, Never>)] = []
+    /// A cancellation can land before the waiter registers. Record the id so
+    /// the registration closure resumes it immediately instead of leaking a
+    /// continuation that only a later order would release.
+    private var cancelledAdmissionWaiters: Set<UUID> = []
     /// Serializes steer prompts per session so concurrent sends keep the order
     /// in which the runtime admitted them.
     private var steerTails: [String: Task<Void, Error>] = [:]
@@ -2805,15 +2815,46 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     }
 
     private func advanceAdmissionOrder(_ order: UInt64) {
-        if order == servedAdmissionOrder { servedAdmissionOrder &+= 1 }
+        guard order >= servedAdmissionOrder else { return }
+        settledAdmissionOrders.insert(order)
+        while settledAdmissionOrders.contains(servedAdmissionOrder) {
+            settledAdmissionOrders.remove(servedAdmissionOrder)
+            servedAdmissionOrder &+= 1
+        }
+        let ready = admissionWaiters.filter { $0.order <= servedAdmissionOrder }
+        admissionWaiters.removeAll { $0.order <= servedAdmissionOrder }
+        for waiter in ready { waiter.continuation.resume() }
     }
 
-    private func waitForAdmissionOrder(_ order: UInt64) async -> Bool {
+    /// Wait until the global admission order reaches `order`. Every waiter is
+    /// registered with an id and a cancellation handler; cancelling a waiter
+    /// removes and resumes exactly that continuation (or records the
+    /// pre-registration cancellation).
+    private func waitForAdmissionOrder(_ order: UInt64) async {
         while servedAdmissionOrder < order {
-            if Task.isCancelled { return false }
-            try? await Task.sleep(nanoseconds: 5_000_000)
+            if Task.isCancelled { return }
+            let id = UUID()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    if Task.isCancelled || cancelledAdmissionWaiters.remove(id) != nil {
+                        continuation.resume()
+                    } else {
+                        admissionWaiters.append((id, order, continuation))
+                    }
+                }
+            } onCancel: {
+                Task { await self.cancelAdmissionWaiter(id: id) }
+            }
         }
-        return true
+    }
+
+    private func cancelAdmissionWaiter(id: UUID) {
+        guard let index = admissionWaiters.firstIndex(where: { $0.id == id }) else {
+            cancelledAdmissionWaiters.insert(id)
+            return
+        }
+        let waiter = admissionWaiters.remove(at: index)
+        waiter.continuation.resume()
     }
 
     /// Admit one supplemental message into the active chat turn. The per
@@ -2837,9 +2878,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 if let previous { _ = try? await previous.value }
                 guard let self else { throw AdmissionAborted() }
                 if let admissionOrder {
-                    guard await self.waitForAdmissionOrder(admissionOrder) else {
-                        throw AdmissionAborted()
-                    }
+                    await self.waitForAdmissionOrder(admissionOrder)
+                    if Task.isCancelled { throw AdmissionAborted() }
                 }
                 guard await coordinator.admission.wait() else {
                     throw AdmissionAborted()
@@ -2851,17 +2891,18 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 }
                 try await self.sendPrompt(
                     sessionId: sessionId, prompt: prompt, mode: "steer", requestId: requestId)
-                if let admissionOrder { await self.advanceAdmissionOrder(admissionOrder) }
                 await self.finishAdmission(sessionId: sessionId)
             } catch {
-                if let self {
-                    if let admissionOrder { await self.advanceAdmissionOrder(admissionOrder) }
-                    await self.finishAdmission(sessionId: sessionId)
-                }
+                if let self { await self.finishAdmission(sessionId: sessionId) }
                 throw error
             }
         }
         steerTails[sessionId] = task
+        // The message is now admitted and ordered. Settle at entry, not after
+        // the (possibly blocked) send, so a later message may enter the gate
+        // while the first prompt is still pending; `steerTails` still sends in
+        // this order. A later cancel/abort cannot strand the next order.
+        if let admissionOrder { advanceAdmissionOrder(admissionOrder) }
         do {
             // Cancelling the caller must cancel the chained send too; a
             // detached `Task.value` does not propagate cancellation on its own.
@@ -2959,6 +3000,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                          prompt: String, requestId: String,
                          allowSteer: Bool = true,
                          admissionOrder: UInt64? = nil) async throws -> BotRemoteTurnResult {
+        if let admissionOrder { await waitForAdmissionOrder(admissionOrder) }
+        if Task.isCancelled { throw CancellationError() }
         _ = try await ensureSession(sessionId: sessionId, kind: kind)
         let origin = BotTurnOrigin(rpcId: requestId)
         let hidden = origin.hidden
@@ -2992,11 +3035,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 // a completed turn.
             }
         }
-        // This message is not entering the active turn (no active chat turn,
-        // or admission aborted). Advance its order before opening/queueing a
-        // normal turn so a later message can proceed without waiting for this
-        // turn to finish.
-        if let admissionOrder { advanceAdmissionOrder(admissionOrder) }
         // The fence above normally leaves only current-generation entries. If
         // a rebind landed while it was suspended, never await the leftover:
         // its stream belongs to the replaced transport and may never settle.
@@ -3028,6 +3066,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 await settlement.finish()
                 return result
             }
+            if let admissionOrder { advanceAdmissionOrder(admissionOrder) }
             queuedTurns[sessionId] = QueuedTurn(
                 attemptId: attemptId, generation: queuedGeneration,
                 settlement: settlement, work: work, cancelled: false)
@@ -3035,7 +3074,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         }
         return try await startCoordinatedTurn(
             sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
-            attemptId: UUID().uuidString.lowercased(), requestId: requestId, origin: origin)
+            attemptId: UUID().uuidString.lowercased(), requestId: requestId, origin: origin,
+            admissionOrder: admissionOrder)
     }
 
     private func performQueuedTurn(
@@ -3080,7 +3120,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private func startCoordinatedTurn(sessionId: String, kind: BotSessionKind,
                                       prompt: String, hidden: Bool, held: Bool,
                                       attemptId: String, requestId: String,
-                                      origin: BotTurnOrigin) async throws -> BotRemoteTurnResult {
+                                      origin: BotTurnOrigin,
+                                      admissionOrder: UInt64? = nil) async throws -> BotRemoteTurnResult {
         let generation = transportGeneration
         let settlement = BotTurnSettlement()
         let work = Task { () throws -> BotRemoteTurnResult in
@@ -3100,6 +3141,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             generation: generation, requestId: requestId, settlement: settlement, work: work,
             admission: BotAdmissionGate(),
             cancelRequested: false, promptAccepted: false, interruption: nil)
+        // The turn now exists. Later messages may observe it and steer; the
+        // admission order advances here, not when the long turn finishes.
+        if let admissionOrder { advanceAdmissionOrder(admissionOrder) }
         return try await work.value
     }
 

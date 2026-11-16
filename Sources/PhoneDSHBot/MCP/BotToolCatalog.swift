@@ -98,12 +98,26 @@ public enum BotToolCatalog {
                         "user-statement", "observation", "record-recheck", "model-inference",
                     ]),
                     "method": .object([
-                        "type": .string("string"), "maxLength": .number(200),
+                        "type": .string("string"), "minLength": .number(1),
+                        "maxLength": .number(200),
                     ]),
                     "at_ms": .object([
                         "type": .string("integer"), "minimum": .number(0),
                     ]),
-                    "refs": array(string(), maxItems: 8),
+                    "refs": .object([
+                        "type": .string("array"),
+                        "maxItems": .number(8),
+                        "items": .object([
+                            "oneOf": .array([
+                                .object([
+                                    "type": .string("string"),
+                                    "pattern": .string("^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$"),
+                                    "maxLength": .number(128),
+                                ]),
+                                .object(["const": .string("current-user-turn")]),
+                            ]),
+                        ]),
+                    ]),
                 ]),
                 "additionalProperties": .bool(false),
             ]),

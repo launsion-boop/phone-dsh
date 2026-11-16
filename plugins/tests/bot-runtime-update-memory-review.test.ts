@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 /**
  * Q-01 direction test: the model-facing UpdateMemory MCP tool accepts a
- * `review` object from the frozen catalog and passes it to the handler. The
- * Swift-side schema exposure is covered by BotToolCatalogReviewSchemaTests.
+ * `review` object from the frozen catalog and passes it to the handler. This
+ * test does NOT validate input against the schema (the MCP executor does not
+ * do that); the golden <-> BotToolCatalog structural comparison lives in
+ * BotToolCatalogReviewSchemaTests.
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
