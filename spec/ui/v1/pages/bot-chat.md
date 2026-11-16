@@ -91,9 +91,9 @@ agent-comm 行与 `bot-drawer.md` §5 及 `spec/bot/v1/README.md` §1.1 使用�
 
 question/steps 选项为整行可点并支持 recommended，提交时只使用宿主写入卡片的 `optionID`；**没有“其他”选项、卡内输入框或自定义答案提交控件**。仅 question 支持关闭：关闭写 durable `card.dismissed`，不产生模型可见回合，宿主在下一次用户回合开头以 held 项告知模型视为不回答；关闭动作被接受后卡片收起为一行「已关闭」，动作失败则保留完整卡片可重试。steps 不提供关闭按钮，`cardDismiss` 对 steps 返回 rejected。用户需要自由回答时直接在 composer 输入，作为普通 `chat` 消息，而不是 `cardAnswer.customText`。审批为拒绝/允许一次/总是允许三选项加 alwaysScope（`alwaysScope=session` 时按钮与回执显示「本次对话都允许」，`until` 时显示「总是允许」），拒绝使用中性文字按钮，禁止把否定语义染红；决定后的卡片回执必须与用户按下的按钮一一对应（「已允许一次」/「本次对话都允许」/「已总是允许」），不能把会话授权显示成一次性允许。checklist 本地勾选和回传行为沿上游；link 仅打开 HTTP/HTTPS 且经系统安全外部打开策略。
 
-需要交互的四类卡片——question、steps、approval、带「把勾选结果发给 Bot」的 checklist——在以下任一情况发生后，从完整卡片收起为一行灰色摘要（id `bot.card.settled`：无卡片底、无描边、无按钮；12pt 语义色图标 + 13pt medium 次要色主文字 + 「 · 说明」13pt 三级色，单行尾部省略，最小高 28、左右 4）：用户操作被接受；宿主写回 answered、superseded 或已决定；发送勾选结果被接受；**checklist** 位于最后一条用户文字之前且用户未操作（被下一条消息略过）——question/steps 不再使用这条本地规则，其过期只由宿主的 durable `status:"superseded"` 决定。动作进行中（`.pending`，沿用现有 loading，选项行显示 spinner + 「正在送出…」，并立即插入 `local-<nonce>` 选择回显）和动作失败（`.failed`）保持完整卡片；失败后可重试，回显回滚。收起使用 0.25s easeInOut 动画，reduce motion 时不做动画。文案逐字为：question/steps 已选择「已选择：<选项 label>」，拿不到 label 时「已送出」，说明用卡片的问题或 prompt，steps 没有 prompt 时说明「建议下一步」；question/steps 被更新的提问卡取代「已过期，用最新那张」，说明同上；被本地或 durable 关闭「已关闭」；planner 拒绝（`card_expired`/`already_answered`/`answer_in_flight`/`card_dismissed`/`unknown_card`/`unknown_option`）在卡片上显示对应人话（「这张卡片已经过期，用最新那张」「已经选过了」「正在送出，稍等」「这张卡片已经关闭」「这张卡片已失效」），不写入 `runtimeNotice`；approval 保持已决定行，被下一条消息自动拒绝的为「已略过，视为拒绝」；checklist 已发送「已发送勾选结果」、说明「<标题> · 已完成 x/y」，被略过「已略过」、说明相同。收起动画结束后若卡片收起集合变化，消息流再滚到底一次，避免内容变短后底部留白。
+需要交互的四类卡片——question、steps、approval、带「把勾选结果发给 Bot」的 checklist——在以下任一情况发生后，从完整卡片收起为一行灰色摘要（id `bot.card.settled`：无卡片底、无描边、无按钮；12pt 语义色图标 + 13pt medium 次要色主文字 + 「 · 说明」13pt 三级色，单行尾部省略，最小高 28、左右 4）：用户操作被接受；宿主写回 answered、superseded 或已决定；发送勾选结果被接受；**checklist** 位于最后一条用户文字之前且用户未操作（被下一条消息略过）——question/steps 不再使用这条本地规则，其过期只由宿主的 durable `status:"superseded"` 决定。动作进行中（`.pending`，沿用现有 loading，选项行显示 spinner + 「正在送出…」，并立即插入 `local-<nonce>` 选择回显）和动作失败（`.failed`）保持完整卡片；失败后可重试，回显回滚。收起使用 0.25s easeInOut 动画，reduce motion 时不做动画。文案逐字为：question/steps 已选择「已选择：<选项 label>」，拿不到 label 时「已送出」，说明用卡片的问题或 prompt，steps 没有 prompt 时说明「建议下一步」；question/steps 被更新的提问卡取代「已过期，用最新那张」，说明同上；被本地或 durable 关闭「已关闭」；planner 拒绝（`card_expired`/`already_answered`/`answer_in_flight`/`card_dismissed`/`unknown_card`/`unknown_option`）在卡片上显示对应人话（「这张卡片已经过期，用最新那张」「已经选过了」「正在送出，稍等」「这张卡片已经关闭」「这张卡片已失效」），不写入 `runtimeNotice`；approval 保持已决定行；不再有「发消息自动拒绝」的收起态，待决定审批保持完整卡片；checklist 已发送「已发送勾选结果」、说明「<标题> · 已完成 x/y」，被略过「已略过」、说明相同。收起动画结束后若卡片收起集合变化，消息流再滚到底一次，避免内容变短后底部留白。
 
-审批仍待决定时用户发送下一条消息（`BotChatModel.send`）视为拒绝：对每张仍待决定的审批走现有 `decide(row:decision:.deny)` 路径，不新增协议字段或动作；拒绝动作在同一个 Task 中先于聊天 action 发出，本地 `actionStates` 已标 `.pending` 或 `.accepted` 的审批立即不再计入 `pendingApprovalCount`，头部随即离开「等你确认」。卡片是否收起统一由 `BotChatModel.settlement(for:)` 判断，`needsAttentionCount` 和「消息流跟随最新待处理卡」使用同一判断；`mutedCardIDs` 只覆盖 checklist（question/steps 的过期是 durable `superseded`）。
+审批仍待决定时用户发送下一条消息**不自动拒绝**：待决定审批保持 `pending`，仍计入 `pendingApprovalCount` / `needsAttentionCount`，直到用户显式点选、宿主记录 durable 过期或被新事件取代；聊天发送与审批决定互不阻塞，连续发送仍可用。旧「发送即拒绝」路径与「已略过，视为拒绝」文案退役（PC-20261116-bot-approval-not-auto-denied）；卡片是否收起仍统一由 `BotChatModel.settlement(for:)` 判断，`mutedCardIDs` 只覆盖 checklist。
 
 所有卡片先验证 `body.type`、`cardType` 和必需数据。未登记或数据不足时不渲染，不用空白卡或猜测默认值补齐。
 
@@ -117,7 +117,7 @@ Task 卡在标题下显示独立验证结论（`body.verification`，P26 §2.8�
 
 ## 5. 验收
 
-每种 P0 卡片在浅色和深色模拟器截图，逐项对照上游内容模型、空状态、超限、按钮层级和交互。覆盖窄屏、长标题、动态字体、44pt 命中区、卡片关闭/选择、重复点击、迟到结果和 progress 同 key 更新。交互卡片的收起另需在浅色和深色验证：已选择、已略过、已关闭、审批已决定/发消息自动拒绝、勾选已发送；确认收起后只有一行摘要且没有按钮，并确认 reduce motion 下无动画。另需覆盖真实鱼头像的 idle/working/alerting/celebrate/sad、活动行显隐和推荐色对比度。模拟器结果不得写成真机结果。
+每种 P0 卡片在浅色和深色模拟器截图，逐项对照上游内容模型、空状态、超限、按钮层级和交互。覆盖窄屏、长标题、动态字体、44pt 命中区、卡片关闭/选择、重复点击、迟到结果和 progress 同 key 更新。交互卡片的收起另需在浅色和深色验证：已选择、已略过、已关闭、审批已决定、勾选已发送；确认收起后只有一行摘要且没有按钮，并确认 reduce motion 下无动画。另需覆盖真实鱼头像的 idle/working/alerting/celebrate/sad、活动行显隐和推荐色对比度。模拟器结果不得写成真机结果。
 
 ## 6. Grok 式改版结构与 id
 

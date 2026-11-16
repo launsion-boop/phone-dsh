@@ -1,0 +1,31 @@
+{
+  "name": "RecordFeedback",
+  "description": "Record explicit feedback the user just gave about one Bot output, routine, or memory. Use this when the user accepts, rejects, corrects, or asks you to stop a kind of proactive message. Bind the exact object you are referring to; never guess an id. scope=user only when the user wants the same class of message suppressed in every Bot.",
+  "effect": "write+confirm",
+  "requires_user_turn": true,
+  "inputSchema": {
+    "type": "object",
+    "required": ["action", "target"],
+    "properties": {
+      "action": {"enum": ["adopt", "undo", "correct", "suppress"]},
+      "target": {
+        "type": "object",
+        "required": ["kind", "id"],
+        "properties": {
+          "kind": {"enum": ["proactive", "routine", "memory", "task", "delivery", "feedback"]},
+          "id": {"type": "string", "minLength": 1, "maxLength": 200},
+          "version": {"type": "integer", "minimum": 0},
+          "delivery_key": {"type": "string", "minLength": 1, "maxLength": 200}
+        },
+        "additionalProperties": false
+      },
+      "scope": {"enum": ["artifact", "routine", "class", "user"], "default": "artifact"},
+      "disputed_refs": {
+        "type": "array", "maxItems": 8,
+        "items": {"type": "string", "pattern": "^record://(session|event)/"}
+      },
+      "expires_at_ms": {"type": "integer", "minimum": 0}
+    },
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotUserAction phone extension v1",
+  "description": "iOS-only extension of the P27 user action contract. The shared user-action.schema.json and its golden are unchanged; these two kinds are produced only by the iOS host/UI and validated with this phone schema. They never reach an older reader. See spec/bot/v2/decision-context.md §3.2.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "nonce",
+        "botID",
+        "kind",
+        "rowID",
+        "draftID",
+        "expectedRevision",
+        "selectedResourceIDs"
+      ],
+      "properties": {
+        "nonce": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "kind": {
+          "const": "deliverySelection"
+        },
+        "rowID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "draftID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "selectedResourceIDs": {
+          "type": "array",
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "nonce",
+        "botID",
+        "kind",
+        "rowID",
+        "verdict"
+      ],
+      "properties": {
+        "nonce": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "kind": {
+          "const": "feedback"
+        },
+        "rowID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "verdict": {
+          "enum": [
+            "adopt",
+            "correct",
+            "suppress"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "nonce",
+        "botID",
+        "kind",
+        "rowID",
+        "verdict",
+        "feedbackID"
+      ],
+      "properties": {
+        "nonce": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "kind": {
+          "const": "feedback"
+        },
+        "rowID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "verdict": {
+          "const": "undo"
+        },
+        "feedbackID": {
+          "type": "string",
+          "pattern": "^feedback:[A-Za-z0-9._:-]{1,128}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

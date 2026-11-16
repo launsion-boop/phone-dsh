@@ -260,10 +260,11 @@ mapping, the local duplicate rules, and the drawer/info/appearance surfaces that
 - A failing `chat` removes its local row; a failing `cardAnswer` rolls back its `local-<nonce>`
   choice echo; a failing attachment import is reported per file and never blocks the remaining
   files/text.
-- Sending the next `chat` implicitly denies every approval still awaiting a decision (id+digest
-  present). The view marks those approvals `pending` synchronously, then performs deny actions in
-  order **before** the chat action. This is the existing `approval` deny path; there is no new action
-  and no new error code.
+- Sending the next `chat` does **not** implicitly deny or otherwise settle an approval still awaiting
+  a decision. A pending approval stays pending (`approvalID`+digest present) until the user decides
+  it explicitly, or the host records a durable expiry/supersession; the composer remains usable.
+  The old auto-deny behavior and the `settlement.approvalAutoDeclined` copy are retired; the plan
+  decision is PC-20261116-bot-approval-not-auto-denied.
 - A card answer/dismiss is only allowed on a card that parses (§4.2) and is not muted; `steps` does
   not support dismiss (`cardDismiss` is rejected for steps).
 
@@ -495,7 +496,7 @@ with it — that disagreement was the defect fixed by `PC-20261114-card-supersed
 card that looked active was expired, and a card that looked stale was still answerable). A
 checklist has no durable expiry — sending its result is an ordinary chat message — so the
 send-time guidance stays app-owned. Muting is not dismissal: a muted checklist keeps its data and
-settles to `已略过`. Approvals are not muted; they are auto-denied on send (§3.1).
+settles to `已略过`. Approvals are not muted and are not auto-denied by sending a message (§3.1).
 
 ### 4.5 Counts
 
