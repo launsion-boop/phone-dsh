@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "vector": "memory-recall.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "upstream": "memory-recall.json",
+  "delta": [
+    "review + evidence_status on a recall hit (PC-20261116-bot-aha-evidence §4.3); the shared baseline keeps the pre-review hit shape for both-end consumers"
+  ],
+  "hits": [
+    {
+      "path": "user/profile.md",
+      "scope": "user",
+      "snippet": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
+      "score": 0.8,
+      "relevance": 0.8,
+      "recency": 0.8,
+      "matched": true,
+      "updated_at_ms": 1760000005000,
+      "version": 2,
+      "evidence": [
+        "record://session/gb-main#3"
+      ],
+      "evidence_status": [
+        {
+          "ref": "record://session/gb-main#3",
+          "observed_at_ms": 1760000003000,
+          "source_version": null
+        }
+      ],
+      "review": {
+        "basis": "user-statement",
+        "at_ms": 1760000005000,
+        "refs": [
+          "record://session/gb-main#3"
+        ],
+        "state": "verified"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "reason": "evidence-status-ref-mismatch",
+      "hit": {
+        "path": "user/profile.md",
+        "scope": "user",
+        "snippet": "x",
+        "score": 0.5,
+        "relevance": 0.5,
+        "recency": 1,
+        "updated_at_ms": 1,
+        "version": 1,
+        "evidence": [
+          "record://session/gb-main#3"
+        ],
+        "evidence_status": [
+          {
+            "ref": "record://event/7",
+            "observed_at_ms": 1,
+            "source_version": null
+          }
+        ]
+      }
+    },
+    {
+      "reason": "review-unknown-status",
+      "hit": {
+        "path": "user/profile.md",
+        "scope": "user",
+        "snippet": "x",
+        "score": 0.5,
+        "relevance": 0.5,
+        "recency": 1,
+        "updated_at_ms": 1,
+        "version": 1,
+        "evidence": [],
+        "review": {
+          "basis": "record-recheck",
+          "state": "confirmed"
+        }
+      }
+    }
+  ]
+}

@@ -122,22 +122,7 @@
       "version": 2,
       "evidence": [
         "record://session/gb-main#3"
-      ],
-      "evidence_status": [
-        {
-          "ref": "record://session/gb-main#3",
-          "observed_at_ms": 1760000003000,
-          "source_version": null
-        }
-      ],
-      "review": {
-        "basis": "user-statement",
-        "at_ms": 1760000005000,
-        "refs": [
-          "record://session/gb-main#3"
-        ],
-        "state": "verified"
-      }
+      ]
     }
   ],
   "invalid": [
@@ -164,47 +149,6 @@
         "updated_at_ms": 1,
         "version": 1,
         "importance": 0.5
-      }
-    },
-    {
-      "reason": "evidence-status-ref-mismatch",
-      "hit": {
-        "path": "user/profile.md",
-        "scope": "user",
-        "snippet": "x",
-        "score": 0.5,
-        "relevance": 0.5,
-        "recency": 1,
-        "updated_at_ms": 1,
-        "version": 1,
-        "evidence": [
-          "record://session/gb-main#3"
-        ],
-        "evidence_status": [
-          {
-            "ref": "record://event/7",
-            "observed_at_ms": 1,
-            "source_version": null
-          }
-        ]
-      }
-    },
-    {
-      "reason": "review-unknown-status",
-      "hit": {
-        "path": "user/profile.md",
-        "scope": "user",
-        "snippet": "x",
-        "score": 0.5,
-        "relevance": 0.5,
-        "recency": 1,
-        "updated_at_ms": 1,
-        "version": 1,
-        "evidence": [],
-        "review": {
-          "basis": "record-recheck",
-          "state": "confirmed"
-        }
       }
     }
   ],

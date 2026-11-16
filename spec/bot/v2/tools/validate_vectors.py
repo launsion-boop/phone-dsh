@@ -74,6 +74,21 @@ def load(name: str):
     return load_json(BOT / "golden" / f"{name}.json")
 
 
+def load_merged(name: str):
+    """Load the shared baseline plus its `.phone.json` overlay when one exists.
+
+    The shared baseline is the subset both ends implement. A phone-only overlay
+    carries the iOS-extension vectors (for example the writer-recorded `review`
+    assertion) that a consumer which has not adopted them must not be required
+    to decode. Consumers that implement the full contract read the merged view.
+    """
+    upstream = load(name)
+    overlay_path = BOT / "golden" / f"{name}.phone.json"
+    if not overlay_path.exists():
+        return upstream
+    return merged_fixture(upstream, load_json(overlay_path))
+
+
 def schema(name: str):
     return load_json(BOT / name)
 
@@ -308,7 +323,7 @@ def result_for_case(case):
 
 
 def validate_write_vectors(fixture=None) -> tuple[int, int, int, int]:
-    fixture = fixture if fixture is not None else load("memory-write")
+    fixture = fixture if fixture is not None else load_merged("memory-write")
     records = fixture["records"]
     evidence = fixture["evidenceCases"]
     for index, case in enumerate(evidence["valid"]):
@@ -415,51 +430,51 @@ def mutation_count_for_evidence() -> int:
             return
         raise AssertionError(f"evidence mutation {label!r} unexpectedly passed")
 
-    mutated = copy.deepcopy(load("memory-write"))
+    mutated = copy.deepcopy(load_merged("memory-write"))
     for record in mutated["records"].values():
         if record.get("type") == "tool/call" and record.get("tool") == "web_fetch":
             record["botId"] = "bot-b"
     expect_failure("foreign-record", lambda: validate_write_vectors(mutated))
 
-    mutated = copy.deepcopy(load("memory-write"))
+    mutated = copy.deepcopy(load_merged("memory-write"))
     mutated["records"]["record://session/gb-main#4"]["tool"] = "bash"
     expect_failure("observation-downgrade", lambda: validate_write_vectors(mutated))
 
-    mutated = copy.deepcopy(load("memory-write"))
+    mutated = copy.deepcopy(load_merged("memory-write"))
     mutated["boundaryCases"][0]["sourceKind"] = "agent-message"
     expect_failure("boundary", lambda: validate_write_vectors(mutated))
 
-    mutated = copy.deepcopy(load("memory-write"))
+    mutated = copy.deepcopy(load_merged("memory-write"))
     for case in mutated["evidenceCases"]["valid"]:
         if case.get("name") == "current-user-turn":
             case["turn"] = "hidden"
     expect_failure("current-user-turn-hidden", lambda: validate_write_vectors(mutated))
 
-    mutated = copy.deepcopy(load("memory-write"))
+    mutated = copy.deepcopy(load_merged("memory-write"))
     for case in mutated["evidenceCases"]["valid"]:
         if case.get("name") == "current-user-turn":
             case["currentUserTurn"] = "record://event/99"
     expect_failure("current-user-turn-unresolved", lambda: validate_write_vectors(mutated))
 
-    mutated = copy.deepcopy(load("memory-write"))
+    mutated = copy.deepcopy(load_merged("memory-write"))
     for case in mutated["reviewCases"]["valid"]:
         if case.get("name") == "verified-record-recheck":
             case["review"]["basis"] = "model-inference"
     expect_failure("review-model-inference", lambda: validate_write_vectors(mutated))
 
-    mutated = copy.deepcopy(load("memory-write"))
+    mutated = copy.deepcopy(load_merged("memory-write"))
     for case in mutated["reviewCases"]["valid"]:
         if case.get("name") == "verified-record-recheck":
             del case["review"]["refs"]
     expect_failure("verified-no-refs", lambda: validate_write_vectors(mutated))
 
-    mutated = copy.deepcopy(load("memory-write"))
+    mutated = copy.deepcopy(load_merged("memory-write"))
     for case in mutated["reviewCases"]["valid"]:
         if case.get("name") == "verified-record-recheck":
             case["review"]["refs"] = ["record://event/999"]
     expect_failure("review-foreign-ref", lambda: validate_write_vectors(mutated))
 
-    mutated = copy.deepcopy(load("memory-document"))
+    mutated = copy.deepcopy(load_merged("memory-document"))
     mutated["valid"][-1]["review"] = {
         "status": "verified", "basis": "model-inference", "at_ms": 1, "method": "x"}
     expect_failure("document-review", lambda: validate_document_vectors(mutated))
@@ -652,7 +667,7 @@ def document_error(document, records, where):
 
 
 def validate_document_vectors(fixture=None) -> int:
-    fixture = fixture if fixture is not None else load("memory-document")
+    fixture = fixture if fixture is not None else load_merged("memory-document")
     records = fixture.get("records", {})
     for index, case in enumerate(fixture["valid"]):
         error = document_error(case, records, f"memory-document.valid[{index}]")
@@ -823,7 +838,7 @@ def recall_status_error(hit, records):
 
 
 def validate_recall_vectors() -> int:
-    fixture = load("memory-recall")
+    fixture = load_merged("memory-recall")
     records = fixture.get("records", {})
     for index, hit in enumerate(fixture["hits"]):
         error = recall_status_error(hit, records)

@@ -41,12 +41,14 @@ final class MemoryReviewTests: XCTestCase {
 
     // MARK: - shared fixtures
 
-    /// Drives the frozen `memory-write.json` reviewCases through the real
-    /// authorizer (shape) and, where the shape is legal, the real record
-    /// resolver (existence/ownership).
+    /// Drives the phone-extension `memory-write.phone.json` reviewCases through
+    /// the real authorizer (shape) and, where the shape is legal, the real
+    /// record resolver (existence/ownership). The shared `memory-write.json`
+    /// baseline stays review-free for consumers that only implement the common
+    /// fields; this test reads the overlay that carries the extension vectors.
     func testReviewGoldenCasesThroughAuthorizerAndResolver() async throws {
         let golden = try MemoryTestFixtures.decode(
-            MemoryWriteReviewGolden.self, "memory-write")
+            MemoryWriteReviewGolden.self, "memory-write.phone")
         // The shared vectors reference `record://event/7` and `#8`; give this
         // Bot eight of its own durable events so those refs really resolve.
         for index in 1...8 {
@@ -96,8 +98,21 @@ final class MemoryReviewTests: XCTestCase {
         }
     }
 
-    func testHiddenTurnCannotUseCurrentUserTurnAsReviewRef() async throws {
-        let rejected = try await call([
+    /// The reviewed recall hit is a phone-extension vector: the shared
+    /// `memory-recall.json` baseline stays review-free, so decode the overlay
+    /// through the real `BotMemoryRecallHit` codec (not a hand-written copy).
+    func testReviewedRecallHitDecodesThroughTheRealCodec() throws {
+        struct Overlay: Decodable { let hits: [BotMemoryRecallHit] }
+        let overlay: Overlay = try MemoryTestFixtures.decode(
+            Overlay.self, "memory-recall.phone")
+        let reviewed = try XCTUnwrap(overlay.hits.first { $0.review != nil })
+        XCTAssertEqual(reviewed.path, "user/profile.md")
+        XCTAssertEqual(reviewed.review?.state, .verified)
+        XCTAssertEqual(reviewed.review?.basis, .userStatement)
+        XCTAssertEqual(reviewed.review?.refs, [userMessage])
+    }
+
+    func testHiddenTurnCannotUseCurrentUserTurnAsReviewRef() async throws {        let rejected = try await call([
             "action": "write", "path": "user/preferences/hidden.md",
             "content": "# hidden",
             "expected_version": 0,

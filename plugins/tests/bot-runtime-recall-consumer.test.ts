@@ -11,10 +11,8 @@
  * model request contains the RecallMemory tool result verbatim.
  */
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import { readBotGoldenMerged } from './bot-golden.ts'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { createMcpToolDefinition } from '@deepseek-ai/dsh-mcp-client'
@@ -44,11 +42,9 @@ interface RecallGolden {
   }[]
 }
 
-const repository = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
-const golden = JSON.parse(readFileSync(
-  join(repository, 'spec/bot/v2/golden/memory-recall.json'),
-  'utf8',
-)) as RecallGolden
+// The shared `memory-recall.json` baseline stays review-free for consumers that
+// only implement the common fields; the reviewed hit lives in the phone overlay.
+const golden = readBotGoldenMerged('memory-recall') as unknown as RecallGolden
 const hit = golden.hits.find(candidate => candidate.review !== undefined)
 assert.ok(hit !== undefined, 'the shared recall golden carries a reviewed hit')
 
