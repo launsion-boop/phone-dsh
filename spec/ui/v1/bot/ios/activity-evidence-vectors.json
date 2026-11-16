@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "platform": "ios",
-  "revision": "activity-evidence-v3.1",
+  "revision": "activity-evidence-v3.3",
   "now": 1000,
   "cases": [
     {
@@ -4312,6 +4312,318 @@
         "status": "tool-running",
         "detail": "在网上搜 · qqqqqqqqqqqqqqqqqqqq…",
         "category": "searching",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "read-activity-intent",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "file_path": "/dsh/workspace/pr/174-notes.md",
+              "activity": "核对 #174 的合并资料"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "核对 #174 的合并资料",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "read-activity-over-public",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "assistant/stream",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "channel": "text",
+            "text": "正在处理"
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 250,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "file_path": "/dsh/workspace/report.md",
+              "activity": "核对 #174 的合并资料"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "核对 #174 的合并资料",
+        "category": "reading",
+        "startedAt": 250
+      }
+    },
+    {
+      "id": "glob-activity-intent",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "glob",
+            "arguments": {
+              "pattern": "**/*.swift",
+              "activity": "定位 #174 的改动文件"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "定位 #174 的改动文件",
+        "category": "searching",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "grep-activity-intent",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "grep",
+            "arguments": {
+              "pattern": "conflict",
+              "activity": "核对 #174 的冲突记录"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "核对 #174 的冲突记录",
+        "category": "searching",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "web-search-activity-intent",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "web_search",
+            "arguments": {
+              "query": "PR 174 merge status",
+              "activity": "查 #174 的合并状态"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "查 #174 的合并状态",
+        "category": "searching",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "web-fetch-activity-intent",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "web_fetch",
+            "arguments": {
+              "url": "https://example.com/pr/174",
+              "activity": "核对 #174 的合并页"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "核对 #174 的合并页",
+        "category": "browsing",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "read-activity-long",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "file_path": "/dsh/workspace/pr/174-notes.md",
+              "activity": "核对 #174 与 main 的三个冲突文件，然后继续检查远端分支的合并状态"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "核对 #174 与 main 的三个冲突文件",
+        "category": "reading",
         "startedAt": 200
       }
     }

@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # iOS real Bot activity projection
 
-Status: normative iOS-only refinement, revision `activity-evidence-v3.2` (2026-11-16).
+Status: normative iOS-only refinement, revision `activity-evidence-v3.3` (2026-11-16).
 This revision replaces the long-object policy of v2.3. It is grounded in the
 `tool/call` and `assistant/message` events the pinned DSH already writes; it adds no wire
 field, no extra model request, no second history, and no new `BotActivity` member. Android
@@ -29,6 +29,34 @@ The projection resolves one sentence for the newest unresolved *visible* call.
    "Inspect directory" is not a valid activity sentence; when the model runs `ls`/`cat`, it
    still says why this step serves the task (for example "定位 #174 的合并资料"). It never
    invents a result.
+
+### Optional per-call activity parameter (v3.3)
+
+The five host-native work tools `read`, `glob`, `grep`, `web_search` and `web_fetch`
+declare one optional model-facing string parameter, `activity`, in the **real Bot-scope
+tool schema**. It is not a prompt-only field and it is not a new wire/event/state field.
+The value is a short, user-language, task-level progress sentence for this call, following
+the same short-display bound as the public sentence (10–20 Chinese characters preferred,
+at most 28 with an interim result). It names this task's object/goal and the current step,
+not a command or a directory operation: `核对 #174 的合并资料` or `在给李光浩拟回复草稿`
+are valid; `List workspace`, `列出目录`, `定位 notes 资料目录` are not. It never
+fabricates a result.
+
+The Bot-scope shadow registers the original definition with `activity` added to
+`parameters.properties` (never to `required`), and its `execute` strips `activity` before
+calling the original handler. The existing `tool/call.arguments` therefore retain the
+value for projection, while the read/search handler never receives it. These five tools do
+not pass through the Bot MCP identity/approval roundtrip, so this field is not part of any
+identity or approval digest. No other tool declares it. `bash` keeps its existing
+`description` and `Task` its existing `task_title`; this revision does not change their
+schemas or their approval path. The Bot prompt teaches all three forms as task-level,
+user-language progress.
+
+Priority for the five tools is `activity`, then the normal same-step public progress, then
+the short object fallback. If `activity` is absent, empty, non-string, or unusable, the
+existing behavior is unchanged. Old sessions and clients that do not know the field keep
+working; the handler sees exactly the original arguments. Reconnect re-reads the same
+declared tool list; the field is optional in every schema exchange.
 2. **Same-turn, same-step public progress** — the main model's latest meaningful public
    `assistant/stream` (channel `text`) or `assistant/message` text. It must be in the same
    turn and same step and must have arrived after the previous tool call/result boundary in
