@@ -138,33 +138,161 @@
   "reviewedCodeHeadTree": "b9231d5e1a3d61700a31de3f0101cd3347e12232",
   "scenarioAssetsTree": "6d8affc14fc3886171e7cfe8800c5ddab0bdb8b1",
   "naturalControl": {
-    "status": "BLOCKED",
-    "head": "91a26c50cb17d4161516c75ab987d083752d6ef2",
+    "status": "PASS",
+    "head": "cefff6a288a3a2a2a40c14f86aa37ac7619d026b",
     "catalog": "scripts/ci/bot-e2e/activity/catalog-natural.json",
-    "reason": "The natural prompts have no progress/read/output guidance, but the Bot structural approval gate rejects bash with \"这个对话与 App 的身份登记已失效或未完成\" while glob/read succeed. ACT-05/06 never read their seeds; ACT-05 was temporarily (and wrongly) marked PASS by a weak reply regex matching the refusal text, which is rejected. ACT-04 eventually read both seeds through glob/read after the bash rejection and gave the correct conflict answer, but the natural control as a whole is not a pass and does not prove default-prompt behavior.",
+    "model": {
+      "provider": "deepseek-official",
+      "model": "deepseek-flash",
+      "reasoningEffort": "max"
+    },
     "scenarios": [
       {
         "id": "ACT-04-NATURAL-174",
         "evalGate": "PASS",
+        "modelRequests": 10,
         "seedRead": true,
-        "bashIdentityFailure": true,
-        "detail": "first bash call rejected by the identity gate; the model retried with glob and read, read 174-notes.md/main-notes.md, and answered 3 conflicts. The activity sequence is therefore real but includes the failure and object fallbacks, not a clean natural progress sequence."
+        "tools": [
+          "bash",
+          "read",
+          "ask_user"
+        ],
+        "activity": [
+          {
+            "seq": 17,
+            "detail": "List workspace and pr directory",
+            "chars": 31,
+            "source": "bash.description"
+          },
+          {
+            "seq": 24,
+            "detail": "在翻文件 · 174-notes.md",
+            "chars": 19,
+            "source": "short object fallback"
+          },
+          {
+            "seq": 25,
+            "detail": "在翻文件 · main-notes.md",
+            "chars": 20,
+            "source": "short object fallback"
+          },
+          {
+            "seq": 31,
+            "detail": "Inspect workspace root and git/github config",
+            "chars": 44,
+            "source": "bash.description"
+          },
+          {
+            "seq": 38,
+            "detail": "Show env vars and github CLI help",
+            "chars": 33,
+            "source": "bash.description"
+          },
+          {
+            "seq": 45,
+            "detail": "Look for repo identity clues",
+            "chars": 28,
+            "source": "bash.description"
+          },
+          {
+            "seq": 52,
+            "detail": "Check for other repo material",
+            "chars": 29,
+            "source": "bash.description"
+          },
+          {
+            "seq": 59,
+            "detail": "想问问你",
+            "chars": 4,
+            "source": "ask_user label"
+          }
+        ],
+        "note": "bash and both reads succeeded; the model later asked the user for a repo identity. The activity is real but mostly English tool descriptions plus two basename fallbacks."
       },
       {
         "id": "ACT-05-NATURAL-MEETING",
-        "evalGate": "FAIL",
-        "seedRead": false,
-        "bashIdentityFailure": true,
-        "detail": "the bash call was rejected; the model gave up and showed next steps. A weak regex matched the refusal prose (周三例会/待办); that PASS is rejected."
+        "evalGate": "PASS",
+        "modelRequests": 6,
+        "seedRead": true,
+        "tools": [
+          "bash",
+          "read"
+        ],
+        "activity": [
+          {
+            "seq": 17,
+            "detail": "List workspace and notes directory",
+            "chars": 34,
+            "source": "bash.description"
+          },
+          {
+            "seq": 24,
+            "detail": "在翻文件 · wednesday-meeting.md",
+            "chars": 27,
+            "source": "short object fallback"
+          },
+          {
+            "seq": 29,
+            "detail": "在翻文件 · actions.md",
+            "chars": 17,
+            "source": "short object fallback"
+          }
+        ],
+        "note": "bash and both reads succeeded; no post-result model sentence was selected, so the sequence is object fallback after the first description."
       },
       {
         "id": "ACT-06-NATURAL-EMAIL",
-        "evalGate": "NOT_RUN",
-        "seedRead": false,
-        "bashIdentityFailure": true,
-        "detail": "the natural loop was stopped after the meeting failure; no seed read and no accepted activity evidence."
+        "evalGate": "PASS",
+        "modelRequests": 7,
+        "seedRead": true,
+        "tools": [
+          "bash",
+          "read",
+          "write",
+          "show_attachment"
+        ],
+        "activity": [
+          {
+            "seq": 17,
+            "detail": "List workspace, inbox and notes",
+            "chars": 31,
+            "source": "bash.description"
+          },
+          {
+            "seq": 24,
+            "detail": "在翻文件 · liguanghao-email.md",
+            "chars": 26,
+            "source": "short object fallback"
+          },
+          {
+            "seq": 25,
+            "detail": "在翻文件 · release-context.md",
+            "chars": 25,
+            "source": "short object fallback"
+          },
+          {
+            "seq": 31,
+            "detail": "资料很少，就只有他的来信和一条发布背景；我现在来拟草稿",
+            "chars": 27,
+            "source": "assistant public progress, after the read results"
+          },
+          {
+            "seq": 36,
+            "detail": "送上附件 · liguanghao-reply.md",
+            "chars": 26,
+            "source": "show_attachment label"
+          }
+        ],
+        "note": "bash and both reads succeeded; the local draft was written and attached, not sent. This case proves result-to-next-call continuation in the natural control."
       }
     ],
-    "nextStep": "Bot runtime owner diagnoses the bash/file-access identity-registration boundary; do not bypass the gate or relax the assertions. Natural evidence must be rerun on the fixed head before claiming default-prompt effectiveness."
+    "fallbackRatio": {
+      "uniqueActivityDetails": 16,
+      "shortObjectFallbacks": 6,
+      "ratio": 0.375,
+      "sampleNote": "Small observational sample across 3 scenarios; 8 model/tool-description details and 2 card labels make up the rest. This is not a production-wide rate."
+    },
+    "qualityObservation": "The default prompt produced mostly English bash descriptions and six basename fallbacks; the main model’s Chinese public progress was not always selected because the per-call bash description ranks first. Every detail is short and real, and ACT-06 shows a post-result Chinese continuation. A future prompt-language refinement could reduce the English/fallback share; it is not claimed as fixed here.",
+    "previousAttempts": "The earlier natural attempts (head 91a26c50c) were blocked by the wall-clock gateway expiry bug; the false weak-regex PASS on the meeting refusal and the NOT_RUN email are retained in failedAttempts below. The clock fix at cefff6a2 made this accepted run possible."
   }
 }

@@ -156,18 +156,23 @@ and a high-effort header were rejected; several macOS compile-boundary errors we
 in `cff5dd149`; an empty session copy was replaced by the real session path and a hard
 failure in the replay entry.
 
-### Natural-request control: blocked, not accepted
+### Natural-request control: PASS on the clock-fixed head
 
 `scripts/ci/bot-e2e/activity/catalog-natural.json` removes all progress/read/output
-guidance from the user prompt. On head `91a26c50c` the Bot structural approval gate
-rejected `bash` with the identity-registration error while `glob`/`read` succeeded.
-ACT-05/06 never read their seeds; ACT-05 was temporarily and wrongly marked PASS by a
-weak reply regex matching the refusal text, and that PASS is rejected. ACT-04 eventually
-read both seeds through glob/read after the `bash` rejection and answered correctly, but
-the natural control as a whole is not a pass and does not prove default-prompt behaviour.
-The catalog and replay entry are committed for a rerun after the Bot bash/file-access
-identity boundary is diagnosed and fixed; the identity gate was not bypassed and no
-assertion was loosened.
+guidance from the user prompt. On head `cefff6a2` all three natural scenarios passed; each
+session read its seeds with `bash`/`read` and every `request/header` is Flash/max. The
+observed sequence has 16 unique activity details: 6 short basename fallbacks (37.5%),
+8 model/tool-description details and 2 card labels. ACT-06 shows a real post-result
+Chinese continuation (`资料很少，就只有他的来信和一条发布背景；我现在来拟草稿` after the
+two seeds). The default prompt still produced several English `bash.description` lines
+and object fallbacks because the per-call description ranks first; this is recorded as a
+quality observation, not a hidden failure.
+
+Earlier natural attempts on head `91a26c50c` were blocked by the wall-clock gateway/expiry
+bug (bash identity registration). The meeting run was temporarily a weak-regex false PASS
+on refusal text and the email run was stopped; both are retained in
+`receipt.json.failedAttempts`. The clock fix is `cefff6a2`; no identity bypass and no
+loosened assertion was used.
 
 Not run: physical iPhone, full App UI run, Android, deployment. Those are not inferred
 from the simulator or harness evidence.

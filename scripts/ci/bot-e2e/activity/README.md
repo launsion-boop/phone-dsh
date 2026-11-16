@@ -14,13 +14,16 @@ framework is introduced.
   gives only the task and the material location. It contains no 10–20 character progress
   instruction, no fixed read count and no output-format instruction. Tools are free; the
   receipt verifies that the real session actually read the seed (read or bash).
-  **Current status: BLOCKED.** The natural run hit the Bot structural approval gate:
-  `bash` was rejected with the identity-registration error, while `glob`/`read` succeeded.
-  ACT-05/06 never read their seeds; the meeting run was only a weak-regex false PASS on the
-  refusal text. ACT-04 eventually read its seeds through glob/read and answered correctly,
-  but that is not a clean natural pass. The catalog and replay entry are committed so the
-  owner can rerun after the bash identity boundary is fixed; do not bypass the gate or
-  loosen assertions.
+  **Current status: PASS on head `cefff6a2`.** All 3 natural scenarios passed; every
+  session read its seeds with `bash`/`read` (no identity rejection), and every
+  `request/header` says Flash/max. The small observed sequence has 16 unique activity
+  details, 6 short basename fallbacks (37.5%), 8 model/tool-description details and 2 card
+  labels; ACT-06 shows a real post-result Chinese continuation. The default prompt still
+  produced several English `bash.description` lines and object fallbacks because the
+  per-call description ranks first; that is recorded as a quality observation, not hidden.
+  Earlier blocked attempts on head `91a26c50c` (wall-clock gateway expiry, the meeting
+  false weak-regex PASS and the NOT_RUN email) are retained in
+  `receipt.json.failedAttempts`; the clock fix is `cefff6a2`.
 - `receipt.json`: the accepted actual activity sequence, with source seq/tool, raw model
   sentence, displayed detail, length/CJK count, object and result-continuation judgment,
   plus the model configuration read from `request/header`.
