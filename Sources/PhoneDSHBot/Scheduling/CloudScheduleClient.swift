@@ -130,6 +130,7 @@ public actor CloudScheduleClient {
         guard !started else { return }
         started = true
         active = true
+        requiresReauthentication = false
         needsFullSync = true
         needsReconcile = true
         startLoop()
@@ -169,6 +170,33 @@ public actor CloudScheduleClient {
     /// client makes no cloud request on a 401/403.
     public func noteAuthenticationRefreshed() {
         requiresReauthentication = false
+    }
+
+    /// Production credential lifecycle: a real successful account/token update
+    /// re-arms the client and immediately reconciles/syncs instead of waiting
+    /// for the next timer or for the user to edit a schedule.
+    public func credentialsDidChange() async {
+        requiresReauthentication = false
+        if started, active {
+            _ = await runCycle()
+        }
+    }
+
+    /// Logout / credential invalidation: no retry loop, no HTTP, until the
+    /// account is signed in again and `credentialsDidChange()` is called.
+    public func credentialsInvalidated() {
+        requiresReauthentication = true
+        backoffMS = 0
+    }
+
+    /// Foreground/background bridge. `deactivate()` stops polling; `activate()`
+    /// resumes and clears an auth block only when the account is usable again.
+    public func scenePhaseChanged(active isActive: Bool) async {
+        if isActive {
+            await activate()
+        } else {
+            deactivate()
+        }
     }
 
     public func currentDiagnostic() -> String? { lastDiagnostic }
