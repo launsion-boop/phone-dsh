@@ -294,6 +294,16 @@ final class BotEvalRunnerTests: XCTestCase {
             try await pumped(timeout: 240) {
                 try await launch.composition.start(host: host)
             }
+            // The eval host, unlike the App UI, sends the first user action
+            // immediately after start. Wait for the production runtime
+            // readiness seam before it so a fast first tool call is not
+            // rejected by the identity claim that is still settling. This is
+            // an eval precondition; the production identity check still runs.
+            guard await launch.composition.waitUntilRuntimeReady(
+                timeoutMilliseconds: 30_000) else {
+                throw EvalRunnerError.invalid(
+                    "Bot runtime did not become ready before the scenario action")
+            }
             if let engine = engineHolder.engine {
                 do {
                     let visibility = try await harnessAssertPageVisible(
