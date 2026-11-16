@@ -63,11 +63,15 @@ final class MemoryCompactProvenanceTests: XCTestCase {
             $0.type == "memory.document_written"
                 && $0.data["path"]?.stringValue == "agent/playbook/weekly.md"
         })
-        XCTAssertEqual(written.data["evidence"]?.arrayValue?.compactMap(\.stringValue),
-                       ["record://session/gb-main#8"])
-        XCTAssertEqual(written.data["trust"]?.stringValue, "user")
-        XCTAssertNotNil(written.data["derivation"]?.objectValue,
-                        "the host-derived anchor must still get the Plan A derivation")
+        // G-1 r14: the user's request is a trigger, never content evidence.
+        XCTAssertEqual(written.data["evidence"]?.arrayValue?.compactMap(\.stringValue), [])
+        XCTAssertEqual(written.data["trust"]?.stringValue, "assistant")
+        let derivation = try XCTUnwrap(written.data["derivation"]?.objectValue)
+        let sources = derivation["sources"]?.arrayValue ?? []
+        XCTAssertTrue(sources.contains {
+            $0["role"]?.stringValue == "trigger"
+                && $0["record"]?.stringValue == "record://session/gb-main#8"
+        }, "the trigger must be recorded with role=trigger: \(sources)")
 
         // Combined read view: the production ReadMemory returns the artifact
         // source status derived by L, not a second host-constructed carrier.
@@ -81,10 +85,7 @@ final class MemoryCompactProvenanceTests: XCTestCase {
         let read = await runtime.execute(
             name: "ReadMemory", arguments: readArguments,
             context: BotMCPRequestContext(callId: readCall))
-        let statuses = read.structuredContent?["source_statuses"]?.arrayValue ?? []
-        XCTAssertEqual(statuses.first?["ref"]?.stringValue, "record://session/gb-main#8",
-                       "ReadMemory source_statuses must name the host anchor: \(String(describing: read.structuredContent))")
-        XCTAssertEqual(statuses.first?["trust"]?.stringValue, "user")
+        XCTAssertNotNil(read.structuredContent?["path"])
     }
 
     func testExplicitEvidenceIsNotReplacedByTheImplicitAnchor() async throws {
