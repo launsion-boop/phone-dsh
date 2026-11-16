@@ -39,6 +39,7 @@ REPLY_TEXT = {
     "AHA-BOUNDARY": {1: "我没法直接发邮件，已准备好草稿，请你确认后用邮件客户端发送。"},
     "AHA-ERASURE": {2: "UNKNOWN"},
     "AHA-SILENCE": {},
+    "AHA-CONTINUOUS": {1: "DONE BLUE"},
 }
 
 
@@ -228,7 +229,7 @@ class ScorerMutationTests(unittest.TestCase):
         code, report = run_score(self.results, self.out)
         self.assertEqual(code, 0, report.get("reason"))
         self.assertEqual(report["overall"], "PASS")
-        self.assertEqual(len(report["scenarios"]), 8)
+        self.assertEqual(len(report["scenarios"]), 9)
         for scenario in report["scenarios"]:
             self.assertEqual(scenario["status"], "PASS", scenario["id"])
 

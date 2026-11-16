@@ -329,6 +329,38 @@
           "additionalProperties": false,
           "properties": {
             "type": {
+              "const": "concurrent_user_message"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "mock": {
+              "$ref": "#/$defs/mock"
+            },
+            "timeout_s": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "delay_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "type",
+            "text",
+            "delay_ms"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
               "const": "agent_message"
             },
             "bot": {
@@ -934,6 +966,43 @@
           },
           "required": [
             "type"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "event_count"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "expect_ok": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "event": {
+              "type": "string",
+              "minLength": 1
+            },
+            "where": {
+              "$ref": "#/$defs/scalarMap"
+            },
+            "payload_contains": {
+              "type": "string"
+            },
+            "equals": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "type",
+            "event",
+            "equals"
           ]
         },
         {

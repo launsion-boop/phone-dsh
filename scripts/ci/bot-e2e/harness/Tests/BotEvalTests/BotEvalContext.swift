@@ -26,6 +26,7 @@ final class EvalRunContext {
     let schedulerClock: EvalSchedulerClock
 
     var aliases: [String: String] = [:]
+    var concurrentTasks: [Task<Void, Never>] = []
     var policy = EvalApprovalPolicy(defaultDecision: "manual", rules: [])
     private var turnCounters: [String: Int] = [:]
     var replies: [EvalReply] = []
@@ -75,6 +76,14 @@ final class EvalRunContext {
 
     func unit(for botID: String) async throws -> BotRuntimeUnit {
         try await composition.ensureUnit(for: botID, reason: "eval")
+    }
+
+    /// Waits for every eval-only concurrent send scheduled by
+    /// `concurrent_user_message` before assertions inspect the turn.
+    func awaitConcurrentSends() async {
+        let tasks = concurrentTasks
+        concurrentTasks.removeAll()
+        for task in tasks { await task.value }
     }
 
     func nextTurn(_ botID: String) -> Int {

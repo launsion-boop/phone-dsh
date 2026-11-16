@@ -41,8 +41,10 @@ def validate_report(report: dict, label: str) -> list[str]:
     if not isinstance(repeat, int) or repeat < 1:
         errors.append(f"{label}: repeat {repeat!r} is not a positive integer")
     engine_exit = report.get("engine_exit")
-    if not isinstance(engine_exit, int):
-        errors.append(f"{label}: engine_exit {engine_exit!r} is not an integer")
+    if engine_exit not in (0, 1):
+        errors.append(
+            f"{label}: engine_exit {engine_exit!r} is not a completed product run "
+            "(3/6 mean missing prerequisites or infrastructure failure)")
     if not isinstance(report.get("keep_bodies"), bool):
         errors.append(f"{label}: keep_bodies {report.get('keep_bodies')!r} is not a boolean")
     scenarios = report.get("scenarios") or []
@@ -101,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     errors = validate_report(baseline, args.baseline_label) + \
         validate_report(candidate, args.candidate_label)
     for field in ("catalog_sha256", "dimensions_sha256", "upstream",
-                  "repeat", "engine_exit", "keep_bodies"):
+                  "repeat", "keep_bodies"):
         if baseline.get(field) != candidate.get(field):
             errors.append(
                 f"{field} differs ({baseline.get(field)!r} vs {candidate.get(field)!r})")

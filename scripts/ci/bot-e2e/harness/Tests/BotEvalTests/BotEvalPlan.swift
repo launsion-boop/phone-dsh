@@ -73,7 +73,8 @@ struct EvalPlan: Decodable {
     }
 
     static let knownActions: Set<String> = [
-        "create_bot", "user_message", "agent_message", "ui_action", "approval_policy",
+        "create_bot", "user_message", "concurrent_user_message", "agent_message",
+        "ui_action", "approval_policy",
         "advance_clock", "seed_held_item", "restart_worker", "run_maintenance",
     ]
     static let knownAssertions: Set<String> = [
@@ -83,7 +84,7 @@ struct EvalPlan: Decodable {
         "bot_event", "no_bot_event", "tool_called", "no_tool_call",
         "memory_contains", "memory_absent", "approval_count", "echo_requests",
         "tool_surface", "session_log_absent", "session_event", "no_session_event",
-        "card_count", "card_placement", "card_file_exists",
+        "card_count", "card_placement", "card_file_exists", "event_count",
     ]
 }
 
@@ -232,6 +233,7 @@ struct EvalAction: Decodable {
     var taskID: String?
     var threadID: String?
     var seconds: Int?
+    var delayMs: Int?
     var title: String?
     var fromAgentID: String?
     var fromAgentName: String?
@@ -259,6 +261,7 @@ struct EvalAction: Decodable {
         case taskID = "task_id"
         case threadID = "thread_id"
         case seconds
+        case delayMs = "delay_ms"
         case title
         case fromAgentID = "from_agent_id"
         case fromAgentName = "from_agent_name"
@@ -294,6 +297,7 @@ struct EvalAction: Decodable {
         taskID = try container.decodeIfPresent(String.self, forKey: .taskID)
         threadID = try container.decodeIfPresent(String.self, forKey: .threadID)
         seconds = try container.decodeIfPresent(Int.self, forKey: .seconds)
+        delayMs = try container.decodeIfPresent(Int.self, forKey: .delayMs)
         title = try container.decodeIfPresent(String.self, forKey: .title)
         fromAgentID = try container.decodeIfPresent(String.self, forKey: .fromAgentID)
         fromAgentName = try container.decodeIfPresent(String.self, forKey: .fromAgentName)

@@ -142,6 +142,11 @@ python3 scripts/evals/bot-aha/compare.py \
 - **Android 不在本轮**：仅 iOS。
 - **Q-D07 诊断单槽**：`latestBridgeError` 是既有单一诊断槽，只表示“最近一次 bridge 错误”，
   不是逐事件历史；评测不把它当历史证据，也不新增协议层。需要历史时读 durable 事件/日志。
+- **AHA-CONTINUOUS（admission §4.9）未实现测试**：现有 `bot-e2e` driver actions 是顺序执行的
+  `user_message`（等待该回合结束），没有“回合进行中再注入一条 user message”的 action/seam。
+  因此连续消息的“中途纠正被当轮消费”真实场景本轮 **NOT_RUN**，缺的是 catalog action +
+  runner 的并发注入能力（不是产品结论）。新增它需要扩展 `scripts/ci/bot-e2e` 的 action 词汇与
+  plan schema；未扩协议、未改产品。
 - **Q-D06 解码边界**：对已知 enum/shape 的解码失败按 M 收窄后的语义处理（失败即拒绝/报告），
   不借此重写旧数据兼容；fixtures 只覆盖当前冻结 shape，旧记录兼容由 M 的迁移测试负责，
   本评测不以新 shape 反向改写旧数据。

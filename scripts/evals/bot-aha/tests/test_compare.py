@@ -113,6 +113,31 @@ class CompareTests(unittest.TestCase):
         code, _ = self.run_compare(baseline, candidate)
         self.assertEqual(code, 2)
 
+    def test_baseline_fail_exit1_vs_candidate_pass_exit0_is_comparable(self) -> None:
+        baseline = make_report("FAIL", {"A": ("FAIL", {"boundary": False})})
+        baseline["engine_exit"] = 1
+        candidate = make_report("PASS", {"A": ("PASS", {"boundary": True})})
+        candidate["engine_exit"] = 0
+        code, report = self.run_compare(baseline, candidate)
+        self.assertEqual(code, 0)
+        self.assertEqual(report["verdict"], "PASS")
+
+    def test_not_run_exit3_is_incomparable(self) -> None:
+        baseline = make_report("NOT_RUN", {"A": ("NOT_RUN", {"boundary": True})})
+        baseline["engine_exit"] = 3
+        candidate = make_report("PASS", {"A": ("PASS", {"boundary": True})})
+        candidate["engine_exit"] = 0
+        code, _ = self.run_compare(baseline, candidate)
+        self.assertEqual(code, 2)
+
+    def test_infrastructure_exit6_is_incomparable(self) -> None:
+        baseline = make_report("FAIL", {"A": ("FAIL", {"boundary": False})})
+        baseline["engine_exit"] = 6
+        candidate = make_report("PASS", {"A": ("PASS", {"boundary": True})})
+        candidate["engine_exit"] = 0
+        code, _ = self.run_compare(baseline, candidate)
+        self.assertEqual(code, 2)
+
     def test_repeat_mismatch_is_incomparable(self) -> None:
         baseline = make_report("PASS", {"A": ("PASS", {"boundary": True})})
         candidate = make_report("PASS", {"A": ("PASS", {"boundary": True})})

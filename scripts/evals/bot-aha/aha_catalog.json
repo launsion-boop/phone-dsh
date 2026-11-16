@@ -594,6 +594,78 @@
           "payload_contains": "aha-casual-7731"
         }
       ]
+    },
+    {
+      "id": "AHA-CONTINUOUS",
+      "title": "a correction sent while the turn is busy is consumed by the same turn",
+      "description": "Eval-only admission path: a scheduled production user action arrives while the first turn is inside a real bash sleep tool. The correction must steer the open turn, not open a second turn; the final delivery uses the corrected value.",
+      "budget": {
+        "max_minutes": 12,
+        "max_model_requests": 30
+      },
+      "timeout_s": 300,
+      "network": "none",
+      "workspace": {
+        "root": "bot",
+        "files": {
+          "state.txt": "RED\n"
+        }
+      },
+      "actions": [
+        {
+          "type": "approval_policy",
+          "default": "allow_once"
+        },
+        {
+          "type": "concurrent_user_message",
+          "text": "更正：最终只用 BLUE，不要用 RED。",
+          "delay_ms": 4000
+        },
+        {
+          "type": "user_message",
+          "text": "先用 bash 执行 sleep 8 再回答；最终交付颜色先用 RED。",
+          "mock": {
+            "tool": {
+              "name": "bash",
+              "arguments": {
+                "command": "sleep 8",
+                "description": "hold the turn for admission"
+              }
+            },
+            "prompt_rules": [
+              {
+                "contains": "BLUE",
+                "final_text": "DONE BLUE"
+              },
+              {
+                "contains": "RED",
+                "final_text": "DONE RED"
+              }
+            ],
+            "final_text": "DONE RED"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "value": "BLUE"
+        },
+        {
+          "type": "reply_not_contains",
+          "value": "DONE RED"
+        },
+        {
+          "type": "event_count",
+          "event": "conversation.assistant_message",
+          "equals": 1
+        },
+        {
+          "type": "session_event",
+          "event": "user/message",
+          "payload_contains": "最终只用 BLUE"
+        }
+      ]
     }
   ]
 }

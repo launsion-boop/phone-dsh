@@ -336,6 +336,41 @@
         "required": false
       },
       "host_tool_contamination": "warn"
+    },
+    "AHA-CONTINUOUS": {
+      "validity": [],
+      "dimensions": [
+        {
+          "name": "continuous_admission",
+          "kind": "hard",
+          "checks": [
+            {
+              "assertion": 0,
+              "type": "reply_contains",
+              "why": "final delivery uses the corrected value"
+            },
+            {
+              "assertion": 1,
+              "type": "reply_not_contains",
+              "why": "final delivery does not keep the superseded value"
+            },
+            {
+              "assertion": 2,
+              "type": "event_count",
+              "why": "the correction is consumed by the same turn (one turn_started)"
+            },
+            {
+              "assertion": 3,
+              "type": "session_event",
+              "why": "the correction really reached the Bot session"
+            }
+          ]
+        }
+      ],
+      "provenance": {
+        "required": false
+      },
+      "host_tool_contamination": "warn"
     }
   }
 }

@@ -275,6 +275,15 @@ enum EvalAssertions {
                 ? "no \(assertion.event ?? "?") event matched \(whereDescription(assertion))"
                 : "found \(events.count) forbidden \(assertion.event ?? "?") event(s)")
 
+        case "event_count":
+            let events = matchingEvents(assertion, snapshot: snapshot)
+            guard let expected = assertion.equals else {
+                throw EvalAssertionError.invalid("event_count needs equals")
+            }
+            return (events.count == expected,
+                    "counted \(events.count) \(assertion.event ?? "?") event(s), expected \(expected)"
+                    + " (\(whereDescription(assertion)))")
+
         case "tool_called", "no_tool_call":
             let calls = matchingToolCalls(assertion, snapshot: snapshot)
             let found = !calls.isEmpty

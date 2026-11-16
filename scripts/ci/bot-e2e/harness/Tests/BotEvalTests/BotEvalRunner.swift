@@ -328,6 +328,7 @@ final class BotEvalRunnerTests: XCTestCase {
                     break
                 }
             }
+            await context.awaitConcurrentSends()
             let allEvents = try await BotProductionEventReader.all(domain: store)
             let calls = try await collectToolCalls(
                 events: allEvents, context: context)
@@ -462,6 +463,25 @@ final class BotEvalRunnerTests: XCTestCase {
                 status: "ok",
                 detail: "created \(profile.id)",
                 replies: [])
+
+        case "concurrent_user_message":
+            // Eval-only admission seam: schedule the production user action
+            // while the next action's turn is still running. The runner never
+            // writes the model prompt directly; the same `rows.perform`
+            // dispatcher accepts the correction and the product admission lane
+            // decides whether it steers into the open turn.
+            let botID = try context.botID(for: action.bot)
+            let unit = try await context.unit(for: botID)
+            let text = action.text ?? ""
+            let delay = action.delayMs ?? 500
+            let nonce = context.nonce("steer", action: action, repeat: index)
+            context.concurrentTasks.append(Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(max(0, delay)) * 1_000_000)
+                _ = try? await unit.rows.perform(BotUserAction(
+                    nonce: nonce, botID: botID, kind: .chat, text: text))
+            })
+            return EvalActionOutcome(status: "ok", detail: "scheduled delay_ms=\(delay)",
+                                     replies: [])
 
         case "user_message":
             let botID = try context.botID(for: action.bot)
