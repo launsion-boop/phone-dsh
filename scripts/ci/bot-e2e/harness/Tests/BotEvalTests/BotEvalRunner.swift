@@ -223,6 +223,23 @@ final class BotEvalRunnerTests: XCTestCase {
         environment["DEEPSEEK_BASE_URL"] = modelBaseURL.absoluteString
         environment["DEEPSEEK_API_KEY"] = ChatHostConfiguration.workerPlaceholderKey
         environment["PDSH_MODEL_NAME"] = modelName
+        // The eval harness selects the product model explicitly. Production
+        // reads the same non-secret document from the native settings store;
+        // this test-only override pins the requested reasoning effort so the
+        // real request/header (not the coding session) proves Flash/max.
+        if let data = try? JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "selectedId": "eval",
+            "providers": [[
+                "id": "eval",
+                "displayName": "Eval",
+                "baseURL": modelBaseURL.absoluteString,
+                "model": modelName,
+                "reasoningEffort": "max",
+            ]],
+        ]), let json = String(data: data, encoding: .utf8) {
+            environment["PDSH_MODEL_PROVIDER_JSON"] = json
+        }
         environment["DSH_TELEMETRY_DISABLED"] = "1"
         environment["PDSH_LLM_DELIVERY_IDLE_TIMEOUT_MS"] = "10000"
         let modelRule = ChatHostConfiguration.modelHostRule(for: modelBaseURL)
