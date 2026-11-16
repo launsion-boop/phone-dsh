@@ -362,9 +362,9 @@ public enum BotToolCatalog {
         ], required: ["purpose"], additionalProperties: false))
 
     public static var allDefinitions: [BotMCPToolDefinition] {
-        definitions + [fishActionDefinition, volatileContextDefinition,
-                       attachToModelDefinition,
-                       BotFeedbackTools.definition] + baseTeamDefinitions
+        definitions + baseTeamDefinitions
+            + [fishActionDefinition, volatileContextDefinition,
+               attachToModelDefinition, BotFeedbackTools.definition]
     }
 
     public static func isRegistered(_ name: String) -> Bool {

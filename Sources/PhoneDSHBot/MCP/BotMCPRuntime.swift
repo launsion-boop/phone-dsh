@@ -851,6 +851,7 @@ public actor BotMCPRuntime {
         _ = pruneExpiredRegistrationsSync()
         let bareName = bareToolName(name)
         guard BotToolCatalog.isRegistered(bareName)
+                || bareName == BotToolCatalog.skillStatusName
                 || ["bash", "write", "edit", "read_image", "phone"].contains(bareName)
                 || BotDeviceToolProvider.tools.contains(bareName)
                 || handlesTeamTool(bareName) else {
