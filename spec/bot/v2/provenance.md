@@ -238,6 +238,14 @@
 - 读取：任一 Bot 都可读同一 skill 的 lineage（skill 是 host-global，非 Bot 私有）；不得因此读取
   其他 Bot 的 session/事件。删除的 skill 不再可读正文，但历史 lineage 保留（最新事件 action=delete
   → unavailable + `skill-deleted`）。
+- **state 优先级（G-4 r2，不得被文件 same 覆盖）**：skill write 的内容状态 =
+  worst(content source 状态, content 上游状态, 文件 recheck 结果)。`recheck=same` 只有在上述来源与
+  上游全部 `current` 时才把结果变成 `current`；任一 source erased/revoked/changed/unavailable 或
+  上游失效必须保留（例如 source 已 erased + 文件字节未变 → `erased`，不是 `current`）。
+  `recheck=changed` 为 changed；denied/unavailable/notPerformed 为 unknown + 对应 reason。
+  最新 assertion 为 delete 时删除状态优先（unavailable + skill-deleted），但这不抹掉历史来源审计。
+- 文件“当前字节未变”与“来源仍可用”是两件事：文件 recheck 只回答前者，不能重置 source/upstream
+  的失效状态；任何实现不得在 skill 分支无条件 `current/reasons=[]`。
 - 兼容：旧 reader 忽略未知 type；旧数据无事件 → unknown；回滚旧 App 不写/不读新事件，skill 文件
   仍可用；新 App 读到旧数据不伪造 revision。
 

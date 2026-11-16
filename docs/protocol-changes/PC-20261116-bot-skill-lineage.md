@@ -61,3 +61,17 @@
 - 命令：`python3 -B spec/bot/v2/tools/validate_skill_lineage.py`；`validate_provenance.py`；
   `python3 -B spec/bot/v1/tools/validate_vectors.py`；registry/cross_check。
 - 未做：producer/host bridge、启动对账、真实跨 Bot/压缩运行时证据；不以本契约冻结代替。
+
+
+## 5. r2（skill 文件 same 不得覆盖来源失效，2026-11-16）
+
+- 固定 SHA 复核：`BotProvenanceIndex.makeView` 在 L `a2dd6b1c` 与 integration `9a373ade` 的
+  `artifact.kind == .skill` 分支对 `recheck=.same` 无条件 `state=.current/reasons=[]`，会覆盖此前汇总的
+  source erased/revoked/upstream 失效。
+- 契约新增优先级：skill 内容状态 = worst(content source, content upstream, file recheck)；`same` 只在
+  来源与上游全部 current 时 current；source erased/revoked/changed 或 upstream 失效必须保留
+  （source erased + 文件未变 → erased）；delete 仍优先 unavailable+skill-deleted。文件 current 与
+  来源可用是两件事。
+- 新增 golden：source-erased-file-same / source-revoked-file-same / upstream-erased-file-same /
+  trigger-erased-file-same-stays-current；validator 按 content role worst 计算。
+- L 必须修 skill 分支并跑真实 skill.changed + erased source + same digest 反例；C 接生产 rechecker。

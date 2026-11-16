@@ -56,6 +56,40 @@
           "session_id": "gb-main"
         },
         "at_ms": 1760000000002
+      },
+      {
+        "schema": "bot-skill-change/v1",
+        "action": "write",
+        "skill": {
+          "name": "weekly-report",
+          "file": "weekly-report.md",
+          "revision": 1,
+          "content_sha256": "sha256:e29d98667c0e89430dfa9e6af9e5d2d3e255bc3014dc87b2580d9a1a0c31a656",
+          "bytes": 18
+        },
+        "author": {
+          "kind": "user",
+          "bot_id": "bot-a",
+          "session_id": "gb-main"
+        },
+        "at_ms": 1760000000001,
+        "derivation": {
+          "artifact": {
+            "kind": "skill",
+            "id": "weekly-report",
+            "version": 1
+          },
+          "sources": [
+            {
+              "record": "record://event/7",
+              "role": "evidence"
+            },
+            {
+              "record": "record://event/8",
+              "role": "trigger"
+            }
+          ]
+        }
       }
     ],
     "derivation": [
@@ -289,6 +323,222 @@
       ],
       "reader": "bot-b",
       "recheck": "sha256:e29d98667c0e89430dfa9e6af9e5d2d3e255bc3014dc87b2580d9a1a0c31a656",
+      "expected": {
+        "state": "current",
+        "reasons": []
+      }
+    },
+    {
+      "name": "source-erased-file-same",
+      "events": [
+        {
+          "schema": "bot-skill-change/v1",
+          "action": "write",
+          "skill": {
+            "name": "weekly-report",
+            "file": "weekly-report.md",
+            "revision": 1,
+            "content_sha256": "sha256:e29d98667c0e89430dfa9e6af9e5d2d3e255bc3014dc87b2580d9a1a0c31a656",
+            "bytes": 18
+          },
+          "author": {
+            "kind": "user",
+            "bot_id": "bot-a",
+            "session_id": "gb-main"
+          },
+          "at_ms": 1760000000001,
+          "derivation": {
+            "artifact": {
+              "kind": "skill",
+              "id": "weekly-report",
+              "version": 1
+            },
+            "sources": [
+              {
+                "record": "record://event/7",
+                "role": "evidence"
+              },
+              {
+                "record": "record://event/8",
+                "role": "trigger"
+              }
+            ]
+          }
+        }
+      ],
+      "recheck": "sha256:e29d98667c0e89430dfa9e6af9e5d2d3e255bc3014dc87b2580d9a1a0c31a656",
+      "source_states": {
+        "record://event/7": {
+          "state": "erased",
+          "reasons": [
+            "record-erased"
+          ]
+        }
+      },
+      "expected": {
+        "state": "erased",
+        "reasons": [
+          "record-erased"
+        ]
+      }
+    },
+    {
+      "name": "source-revoked-file-same",
+      "events": [
+        {
+          "schema": "bot-skill-change/v1",
+          "action": "write",
+          "skill": {
+            "name": "weekly-report",
+            "file": "weekly-report.md",
+            "revision": 1,
+            "content_sha256": "sha256:e29d98667c0e89430dfa9e6af9e5d2d3e255bc3014dc87b2580d9a1a0c31a656",
+            "bytes": 18
+          },
+          "author": {
+            "kind": "user",
+            "bot_id": "bot-a",
+            "session_id": "gb-main"
+          },
+          "at_ms": 1760000000001,
+          "derivation": {
+            "artifact": {
+              "kind": "skill",
+              "id": "weekly-report",
+              "version": 1
+            },
+            "sources": [
+              {
+                "record": "record://event/7",
+                "role": "evidence"
+              },
+              {
+                "record": "record://event/8",
+                "role": "trigger"
+              }
+            ]
+          }
+        }
+      ],
+      "recheck": "sha256:e29d98667c0e89430dfa9e6af9e5d2d3e255bc3014dc87b2580d9a1a0c31a656",
+      "source_states": {
+        "record://event/7": {
+          "state": "revoked",
+          "reasons": [
+            "grant-revoked"
+          ]
+        }
+      },
+      "expected": {
+        "state": "revoked",
+        "reasons": [
+          "grant-revoked"
+        ]
+      }
+    },
+    {
+      "name": "upstream-erased-file-same",
+      "events": [
+        {
+          "schema": "bot-skill-change/v1",
+          "action": "write",
+          "skill": {
+            "name": "weekly-report",
+            "file": "weekly-report.md",
+            "revision": 1,
+            "content_sha256": "sha256:e29d98667c0e89430dfa9e6af9e5d2d3e255bc3014dc87b2580d9a1a0c31a656",
+            "bytes": 18
+          },
+          "author": {
+            "kind": "user",
+            "bot_id": "bot-a",
+            "session_id": "gb-main"
+          },
+          "at_ms": 1760000000001,
+          "derivation": {
+            "artifact": {
+              "kind": "skill",
+              "id": "weekly-report",
+              "version": 1
+            },
+            "sources": [
+              {
+                "record": "record://event/7",
+                "role": "evidence"
+              },
+              {
+                "record": "record://event/8",
+                "role": "trigger"
+              }
+            ]
+          }
+        }
+      ],
+      "recheck": "sha256:e29d98667c0e89430dfa9e6af9e5d2d3e255bc3014dc87b2580d9a1a0c31a656",
+      "upstream_states": [
+        {
+          "artifact": {
+            "kind": "memory",
+            "id": "user/x.md",
+            "version": 1
+          },
+          "state": "erased"
+        }
+      ],
+      "expected": {
+        "state": "erased",
+        "reasons": [
+          "upstream-invalidated"
+        ]
+      }
+    },
+    {
+      "name": "trigger-erased-file-same-stays-current",
+      "events": [
+        {
+          "schema": "bot-skill-change/v1",
+          "action": "write",
+          "skill": {
+            "name": "weekly-report",
+            "file": "weekly-report.md",
+            "revision": 1,
+            "content_sha256": "sha256:e29d98667c0e89430dfa9e6af9e5d2d3e255bc3014dc87b2580d9a1a0c31a656",
+            "bytes": 18
+          },
+          "author": {
+            "kind": "user",
+            "bot_id": "bot-a",
+            "session_id": "gb-main"
+          },
+          "at_ms": 1760000000001,
+          "derivation": {
+            "artifact": {
+              "kind": "skill",
+              "id": "weekly-report",
+              "version": 1
+            },
+            "sources": [
+              {
+                "record": "record://event/7",
+                "role": "evidence"
+              },
+              {
+                "record": "record://event/8",
+                "role": "trigger"
+              }
+            ]
+          }
+        }
+      ],
+      "recheck": "sha256:e29d98667c0e89430dfa9e6af9e5d2d3e255bc3014dc87b2580d9a1a0c31a656",
+      "source_states": {
+        "record://event/8": {
+          "state": "erased",
+          "reasons": [
+            "record-erased"
+          ]
+        }
+      },
       "expected": {
         "state": "current",
         "reasons": []
