@@ -1,0 +1,399 @@
+{
+  "schemaVersion": 1,
+  "vector": "cloud-scheduler",
+  "source": {
+    "cloud_checkout": "64a3d2098ca282ef16fc287fab96a979858fbd7a"
+  },
+  "valid": [
+    {
+      "schema": "bot-cloud-schedule-request/v1",
+      "op": "register",
+      "device_id": "dev-1",
+      "bot_id": "bot-a",
+      "routine_id": "routine-1",
+      "revision": 1,
+      "enabled": true,
+      "schedule": {
+        "kind": "daily",
+        "timezone": "Asia/Taipei",
+        "local_time": "09:00"
+      },
+      "catch_up": "latest",
+      "authorization_ref": "record://event/7"
+    },
+    {
+      "schema": "bot-cloud-schedule-response/v1",
+      "schedule_id": "sched-1",
+      "revision": 1,
+      "next_due_at_ms": 1760058000000
+    },
+    {
+      "schema": "bot-cloud-poll-request/v1",
+      "device_id": "dev-1",
+      "limit": 16,
+      "lease_s": 300
+    },
+    {
+      "schema": "bot-cloud-poll-response/v1",
+      "events": [
+        {
+          "event_id": "evt-1",
+          "device_id": "dev-1",
+          "bot_id": "bot-a",
+          "routine_id": "routine-1",
+          "occurrence_key": "e290fb8a8d7cf46711205c7b9bd56c39141b2a5b954a142dda5de8a1df3acec3",
+          "occurrence_at_ms": 1760058000000,
+          "scheduled_for_ms": 1760058000000,
+          "lease": {
+            "lease_id": "lease-1",
+            "attempt": 1,
+            "expires_at_ms": 1760058300000
+          },
+          "schedule_revision": 1
+        }
+      ],
+      "server_time_ms": 1760058105000
+    },
+    {
+      "schema": "bot-cloud-ack/v1",
+      "device_id": "dev-1",
+      "event_id": "evt-1",
+      "receipt": {
+        "receipt_id": "rcpt-1",
+        "occurrence_key": "e290fb8a8d7cf46711205c7b9bd56c39141b2a5b954a142dda5de8a1df3acec3",
+        "outcome": "unknown",
+        "reason": "needs_reconciliation",
+        "completed_at_ms": 1760058100000,
+        "local_run_id": "cloud-e290fb8a8d7cf46711205c7b9bd56c39141b2a5b954a142dda5de8a1df3acec3"
+      }
+    },
+    {
+      "schema": "bot-cloud-reconcile-request/v1",
+      "device_id": "dev-1",
+      "since_ms": 1760000000000,
+      "limit": 16
+    },
+    {
+      "schema": "bot-cloud-reconcile-response/v1",
+      "events": [],
+      "next_cursor_ms": 1760058200000,
+      "server_time_ms": 1760058105000
+    },
+    {
+      "schema": "bot-cloud-schedule-request/v1",
+      "op": "register",
+      "device_id": "dev-1",
+      "bot_id": "bot-a",
+      "routine_id": "routine-2",
+      "revision": 1,
+      "enabled": true,
+      "schedule": {
+        "kind": "interval",
+        "timezone": "UTC",
+        "interval_minutes": 60,
+        "phase_minutes": 0
+      },
+      "catch_up": "none"
+    },
+    {
+      "schema": "bot-cloud-schedule-request/v1",
+      "op": "update",
+      "device_id": "dev-1",
+      "bot_id": "bot-a",
+      "routine_id": "routine-3",
+      "revision": 2,
+      "enabled": true,
+      "schedule": {
+        "kind": "weekly",
+        "timezone": "Asia/Taipei",
+        "local_time": "09:00",
+        "weekdays": [
+          1,
+          5
+        ]
+      },
+      "catch_up": "latest"
+    },
+    {
+      "schema": "bot-cloud-schedule-request/v1",
+      "op": "register",
+      "device_id": "dev-1",
+      "bot_id": "bot-a",
+      "routine_id": "routine-4",
+      "revision": 1,
+      "enabled": true,
+      "schedule": {
+        "kind": "cron",
+        "timezone": "UTC",
+        "cron": "30 8 * * 1-5"
+      },
+      "catch_up": "latest"
+    },
+    {
+      "schema": "bot-cloud-reconcile-response/v1",
+      "events": [
+        {
+          "event_id": "evt-2",
+          "device_id": "dev-1",
+          "bot_id": "bot-a",
+          "routine_id": "routine-1",
+          "occurrence_key": "e290fb8a8d7cf46711205c7b9bd56c39141b2a5b954a142dda5de8a1df3acec3",
+          "occurrence_at_ms": 1760058000000,
+          "scheduled_for_ms": 1760058000000,
+          "lease": {
+            "lease_id": "lease-2",
+            "attempt": 2,
+            "expires_at_ms": 1760058400000
+          },
+          "schedule_revision": 1,
+          "state": "terminal",
+          "receipt": {
+            "receipt_id": "rcpt-2",
+            "outcome": "unknown",
+            "reason": "needs_reconciliation"
+          }
+        }
+      ],
+      "next_cursor_ms": 1760058300000,
+      "server_time_ms": 1760058105000
+    },
+    {
+      "schema": "bot-cloud-ack-response/v1",
+      "accepted": true,
+      "duplicate": false,
+      "state": "terminal",
+      "server_time_ms": 1760058105000
+    },
+    {
+      "schema": "bot-cloud-error/v1",
+      "code": "revision-conflict",
+      "state": "pending",
+      "server_time_ms": 1760058105000
+    }
+  ],
+  "invalid": [
+    {
+      "name": "occurrence-not-64hex",
+      "instance": {
+        "schema": "bot-cloud-poll-response/v1",
+        "events": [
+          {
+            "event_id": "e",
+            "device_id": "d",
+            "bot_id": "b",
+            "routine_id": "r",
+            "occurrence_key": "xyz",
+            "occurrence_at_ms": 1,
+            "scheduled_for_ms": 1,
+            "lease": {
+              "lease_id": "l",
+              "attempt": 1,
+              "expires_at_ms": 2
+            },
+            "schedule_revision": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "outcome-missing",
+      "instance": {
+        "schema": "bot-cloud-ack/v1",
+        "device_id": "d",
+        "event_id": "e",
+        "receipt": {
+          "receipt_id": "r",
+          "occurrence_key": "83780627ece961fa8e2df76a2542035666ec6950e5c203942f051b2c3a7d76ab",
+          "completed_at_ms": 1
+        }
+      }
+    }
+  ],
+  "semantic_invalid": [
+    {
+      "name": "schedule-op-missing-schedule",
+      "message": {
+        "schema": "bot-cloud-schedule-request/v1",
+        "op": "register",
+        "device_id": "d",
+        "bot_id": "b",
+        "routine_id": "r",
+        "revision": 1,
+        "enabled": true
+      }
+    },
+    {
+      "name": "weekly-without-weekdays",
+      "message": {
+        "schema": "bot-cloud-schedule-request/v1",
+        "op": "register",
+        "device_id": "d",
+        "bot_id": "b",
+        "routine_id": "r",
+        "revision": 1,
+        "enabled": true,
+        "schedule": {
+          "kind": "weekly",
+          "timezone": "UTC",
+          "local_time": "09:00"
+        }
+      }
+    },
+    {
+      "name": "failed-without-reason",
+      "message": {
+        "schema": "bot-cloud-ack/v1",
+        "device_id": "d",
+        "event_id": "e",
+        "receipt": {
+          "receipt_id": "r",
+          "occurrence_key": "83780627ece961fa8e2df76a2542035666ec6950e5c203942f051b2c3a7d76ab",
+          "outcome": "failed",
+          "completed_at_ms": 1
+        }
+      }
+    },
+    {
+      "name": "delivered-with-reason",
+      "message": {
+        "schema": "bot-cloud-ack/v1",
+        "device_id": "d",
+        "event_id": "e",
+        "receipt": {
+          "receipt_id": "r",
+          "occurrence_key": "83780627ece961fa8e2df76a2542035666ec6950e5c203942f051b2c3a7d76ab",
+          "outcome": "delivered",
+          "reason": "quiet",
+          "completed_at_ms": 1
+        }
+      }
+    },
+    {
+      "name": "wrong-local-run-id",
+      "message": {
+        "schema": "bot-cloud-ack/v1",
+        "device_id": "d",
+        "event_id": "e",
+        "receipt": {
+          "receipt_id": "r",
+          "occurrence_key": "83780627ece961fa8e2df76a2542035666ec6950e5c203942f051b2c3a7d76ab",
+          "outcome": "delivered",
+          "completed_at_ms": 1,
+          "local_run_id": "ok"
+        }
+      }
+    },
+    {
+      "name": "occurrence-mismatch",
+      "message": {
+        "schema": "bot-cloud-poll-response/v1",
+        "events": [
+          {
+            "event_id": "e",
+            "device_id": "d",
+            "bot_id": "b",
+            "routine_id": "r",
+            "occurrence_key": "d35bc23666215b8c63cbe2ee2a293d491d87c703e8e9a7121e00d0c0879374b1",
+            "occurrence_at_ms": 1,
+            "scheduled_for_ms": 1,
+            "lease": {
+              "lease_id": "l",
+              "attempt": 1,
+              "expires_at_ms": 2
+            },
+            "schedule_revision": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "cross-device",
+      "message": {
+        "schema": "bot-cloud-poll-response/v1",
+        "events": [
+          {
+            "event_id": "e",
+            "device_id": "dev-2",
+            "bot_id": "b",
+            "routine_id": "r",
+            "occurrence_key": "83780627ece961fa8e2df76a2542035666ec6950e5c203942f051b2c3a7d76ab",
+            "occurrence_at_ms": 1,
+            "scheduled_for_ms": 1,
+            "lease": {
+              "lease_id": "l",
+              "attempt": 1,
+              "expires_at_ms": 2
+            },
+            "schedule_revision": 1
+          }
+        ]
+      },
+      "device": "dev-1"
+    },
+    {
+      "name": "content-field",
+      "message": {
+        "schema": "bot-cloud-poll-request/v1",
+        "device_id": "d",
+        "prompt": "hello"
+      }
+    }
+  ],
+  "schedule_math": [
+    {
+      "name": "interval-60",
+      "schedule": {
+        "kind": "interval",
+        "timezone": "UTC",
+        "interval_minutes": 60
+      },
+      "after_ms": 1760000000000,
+      "expected_ms": 1760003600000
+    },
+    {
+      "name": "daily-taipei",
+      "schedule": {
+        "kind": "daily",
+        "timezone": "Asia/Taipei",
+        "local_time": "09:00"
+      },
+      "after_ms": 1760050000000,
+      "expected_ms": 1760058000000
+    },
+    {
+      "name": "weekly-monday",
+      "schedule": {
+        "kind": "weekly",
+        "timezone": "UTC",
+        "local_time": "09:00",
+        "weekdays": [
+          1,
+          3,
+          5
+        ]
+      },
+      "after_ms": 1760050000000,
+      "expected_ms": 1760086800000
+    },
+    {
+      "name": "cron-weekdays",
+      "schedule": {
+        "kind": "cron",
+        "timezone": "UTC",
+        "cron": "30 8 * * 1-5"
+      },
+      "after_ms": 1760050000000,
+      "expected_ms": 1760085000000
+    },
+    {
+      "name": "daily-new-york-dst",
+      "schedule": {
+        "kind": "daily",
+        "timezone": "America/New_York",
+        "local_time": "09:00"
+      },
+      "after_ms": 1772881200000,
+      "expected_ms": 1772892000000
+    }
+  ]
+}

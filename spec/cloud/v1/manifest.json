@@ -1,0 +1,46 @@
+{
+  "package": "mobile-scheduler",
+  "version": "v1.0.0",
+  "contract_revision": "G-3",
+  "immutable": true,
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "dbbc08c0dfa45d84465417e34a5a4070d2fbfa226e1d22d661729ed14057431e",
+      "required": true
+    },
+    {
+      "path": "schema/scheduler-wire.schema.json",
+      "sha256": "790023397c90ad061c70334adde1e4460b5d0fd8ed720bdb62ec7e75738e3de6",
+      "required": true
+    },
+    {
+      "path": "golden/scheduler-wire.json",
+      "sha256": "b3755a9a4f027790d05ccb4b081adbc3ef44c35aa7e98fe008ace1844bf4d569",
+      "required": true
+    },
+    {
+      "path": "tools/validate_cloud_contract.py",
+      "sha256": "77d60a186bbda6de2d6e953038baf82b054eefc1609ebd060fa7f35e4eef7346",
+      "required": true
+    }
+  ],
+  "import": {
+    "target": "contracts/mobile-scheduler/v1",
+    "whole_package": true,
+    "must_not_edit_existing": true,
+    "manifest_update": "cloud-side only",
+    "verify": "sha256 of every file; mismatch => refuse import"
+  },
+  "boundaries": {
+    "cloud_stores_user_content": false,
+    "agent_on_device": true,
+    "stores": [
+      "opaque ids",
+      "timestamps",
+      "versions",
+      "enum outcomes",
+      "receipts"
+    ]
+  }
+}

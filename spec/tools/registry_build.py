@@ -228,6 +228,10 @@ PATH_PROJECTIONS = {'P01': {'authority': ['spec/v1/channel.md', 'spec/v1/schema'
  # P28 is a frozen target.  B/C/D have landed.  The Android Kotlin end is
  # recorded in spec/README.md §3.1 and is added here when C0 creates
  # android/pclink; registry_check rejects a glob that matches no file.
+ 'P29': {'authority': ['spec/cloud/v1'],
+         'ends': {'Python': ['spec/cloud/v1/tools/validate_cloud_contract.py']},
+         'status': ['target'],
+         'evidence': ['spec/cloud/v1/tools/validate_cloud_contract.py']},
  'P28': {'authority': ['spec/pclink/v1/README.md', 'spec/pclink/v1/schema',
                        'spec/pclink/v1/golden', 'spec/pclink/v1/endpoints.json'],
          'ends': {'Node': ['relay', 'pclink', 'spec/pclink/v1/tools/vectors.mjs'],

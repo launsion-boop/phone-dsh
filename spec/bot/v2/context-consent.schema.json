@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotContextConsentState v1",
+  "description": "Persisted context-source consent/subscription state at phone-dsh.bot.context-source-consent.v1 (P18-owned key, P26 semantics). It is a cache of user consent and OS authorization, not a grant: every read/wake re-checks generation. Unknown version or corrupt JSON is ignored and rebuilt to notDetermined, never to authorized.",
+  "type": "object",
+  "required": [
+    "v",
+    "consents",
+    "subscriptions"
+  ],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "consents": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "required": [
+          "source",
+          "state",
+          "generation",
+          "updated_at_ms",
+          "by"
+        ],
+        "properties": {
+          "source": {
+            "enum": [
+              "calendar",
+              "contacts",
+              "selected-media",
+              "location-fence",
+              "power",
+              "own-notification",
+              "external-entry"
+            ]
+          },
+          "owner_bot_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "state": {
+            "enum": [
+              "notDetermined",
+              "authorized",
+              "limited",
+              "denied",
+              "revoked"
+            ]
+          },
+          "os_state": {
+            "enum": [
+              "notDetermined",
+              "authorized",
+              "limited",
+              "denied",
+              "restricted"
+            ]
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "updated_at_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "by": {
+            "enum": [
+              "user",
+              "system",
+              "os"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "subscriptions": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": [
+          "bot_id",
+          "source",
+          "subscribed_at_ms",
+          "consent_generation"
+        ],
+        "properties": {
+          "bot_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "source": {
+            "enum": [
+              "calendar",
+              "contacts",
+              "selected-media",
+              "location-fence",
+              "power",
+              "own-notification",
+              "external-entry"
+            ]
+          },
+          "subscribed_at_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "consent_generation": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
