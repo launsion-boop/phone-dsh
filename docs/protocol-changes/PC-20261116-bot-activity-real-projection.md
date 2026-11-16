@@ -9,7 +9,7 @@ status: frozen
 breaking: false
 version_decision: No wire, event, durable-value or schema change. Existing BotActivity fields and existing DSH tool arguments only. Prompt text is packaged into the Worker image, so a prompt change still requires the supported packer and real-runtime evidence for that image.
 base: 908d582b9ee91886ba197bebd54b863c8093cced
-contract_revision: activity-evidence-v2
+contract_revision: activity-evidence-v2.1
 ```
 
 ## 1. Roles and trigger
@@ -65,7 +65,9 @@ option:
   native file/search/web tool already carries its real object argument
   (`file_path`, `pattern`, `url`, `queries[]`). The pinned agent loop appends the
   `assistant/message` for a step before that step's `tool/call`, so the same-turn,
-  same-step public progress sentence is available without a new field.
+  same-step public progress sentence is available without a new field. Live text
+  deltas in the step are accumulated and the durable message replaces the
+  accumulation; a single delta is not a sentence.
 - Phone MCP `Task` already carries `task_title` / `description`, and card/memory tools
   already carry `title` / `path` / `query` / `detail`.
 - Adding a field would create a second protocol surface, change argument digests in the
@@ -143,6 +145,7 @@ will be refreshed by the lead at integration if UI edits shift them; values do n
 | revision | owner | reason | notified |
 | --- | --- | --- | --- |
 | activity-evidence-v2 (this commit) | lead | Initial freeze after four lane audits; real-object projection with no new metadata field | runtime / projection / ui / review sessions |
+| activity-evidence-v2.1 | lead | Clarify that public text is accumulated from text-channel deltas and replaced by the step assistant/message; no interface or vector-shape change | runtime / projection / ui sessions |
 
 ## 6. Protocol impact
 

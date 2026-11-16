@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # iOS real Bot activity projection
 
-Status: normative iOS-only refinement, revision `activity-evidence-v2` (2026-11-16).
+Status: normative iOS-only refinement, revision `activity-evidence-v2.1` (2026-11-16).
 This revision replaces the 2026-11-14 label policy in this file. It is grounded in the
 `tool/call` and `assistant/message` events the pinned DSH already writes; it adds no wire
 field, no extra model request, no second history, and no new `BotActivity` member. Android
@@ -31,10 +31,12 @@ in order:
    previous tool call/result boundary in that step; `step/start`, `tool/call`,
    `tool/result`, `turn/start` and `turn/end` clear the candidate. Reasoning, analysis
    channels, reasoning blocks, cross-turn text and text left over from an earlier step or
-   an earlier call are never used. The sentence explains *why* the Bot is reading or
-   running this step and what it found, so it outranks a bare path label. A generic
-   acknowledgement, a filler, a completion claim or credential text is not meaningful and
-   falls through.
+   an earlier call are never used. Text-channel deltas in one step are accumulated; a
+   durable `assistant/message` for that step replaces the accumulated text, so a single
+   streamed fragment is never treated as the whole sentence. The sentence explains *why*
+   the Bot is reading or running this step and what it found, so it outranks a bare path
+   label. A generic acknowledgement, a filler, a completion claim or credential text is
+   not meaningful and falls through.
 3. **Real argument object** — the call's own argument keys:
    `read`/`write`/`edit`/`str_replace_editor`: `file_path` (then `path`, `filePath`);
    `glob`: `pattern`; `grep`: `pattern` and, when present, `path`;
@@ -45,7 +47,7 @@ in order:
    `sendtoagent`: `bot_name`; `createteammate`: `name`.
    Paths and URLs stay recognisable: no basename-only or host-only rewrite.
 4. **Concrete fallback** — the tool's short action label (see the table in
-   `activity-evidence-v2` below); unknown visible tools use "等待操作结果".
+   `activity-evidence-v2.1` below); unknown visible tools use "等待操作结果".
 
 When a meaningful public sentence is chosen and the call also has a real primary object
 that the sentence does not already mention, the object is appended after ` · ` so the
