@@ -464,6 +464,54 @@ final class BotEvalRunnerTests: XCTestCase {
                 detail: "created \(profile.id)",
                 replies: [])
 
+        case "delivery_select":
+            let botID = try context.botID(for: action.bot)
+            let unit = try await context.unit(for: botID)
+            let outcome = await unit.rows.applyDeliverySelectionHarness(
+                BotDeliverySelectionHarnessAction(
+                    nonce: context.nonce("delivery", action: action, repeat: index),
+                    bot: botID, rowID: action.rowID, approvalID: action.approvalID,
+                    draftID: action.draftID, expectedRevision: action.expectedRevision,
+                    selectedResourceIDs: action.selectedResourceIDs, select: action.select))
+            guard outcome.status == "accepted" || outcome.status == "duplicate" else {
+                throw EvalRunnerError.action("delivery select \(outcome.status): \(outcome.reason ?? "")")
+            }
+            return EvalActionOutcome(
+                status: "ok",
+                detail: "delivery \(outcome.rowID ?? "") rev=\(outcome.revision ?? -1) digest=\(outcome.digest ?? "")",
+                replies: [])
+
+        case "concurrent_delivery_select":
+            let botID = try context.botID(for: action.bot)
+            let unit = try await context.unit(for: botID)
+            let delay = action.delayMs ?? 1500
+            let decision = Self.decision(from: action.decision ?? "allow_once")
+            context.concurrentTasks.append(Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(max(0, delay)) * 1_000_000)
+                for _ in 0..<600 {
+                    let outcome = await unit.rows.applyDeliverySelectionHarness(
+                        BotDeliverySelectionHarnessAction(
+                            nonce: context.nonce("delivery", action: action, repeat: index),
+                            bot: botID, rowID: nil, approvalID: nil, draftID: nil,
+                            expectedRevision: nil,
+                            selectedResourceIDs: action.selectedResourceIDs,
+                            select: action.select ?? "first"))
+                    guard outcome.status == "accepted" || outcome.status == "duplicate",
+                          let approvalID = outcome.approvalID,
+                          let digest = await context.composition.runtime.approvals.pendingDigest(
+                              approvalId: approvalID) else {
+                        try? await Task.sleep(nanoseconds: 50_000_000)
+                        continue
+                    }
+                    _ = try? await unit.rows.perform(BotUserAction(
+                        nonce: context.nonce("delivery-approve", action: action, repeat: index),
+                        botID: botID, kind: .approval,
+                        approvalID: approvalID, decision: decision, digest: digest))
+                    return
+                }
+            })
+            return EvalActionOutcome(status: "ok", detail: "scheduled delivery select+approve", replies: [])
+
         case "concurrent_user_message":
             // Eval-only admission seam: schedule the production user action
             // while the next action's turn is still running. The runner never
@@ -757,54 +805,6 @@ final class BotEvalRunnerTests: XCTestCase {
             return EvalActionOutcome(
                 status: result.status == "accepted" ? "ok" : "error",
                 detail: "dismissed \(card.id): \(result.status)", replies: [])
-
-        case "delivery_select":
-            let botID = try context.botID(for: action.bot)
-            let unit = try await context.unit(for: botID)
-            let outcome = await unit.rows.applyDeliverySelectionHarness(
-                BotDeliverySelectionHarnessAction(
-                    nonce: context.nonce("delivery", action: action, repeat: index),
-                    bot: botID, rowID: action.rowID, approvalID: action.approvalID,
-                    draftID: action.draftID, expectedRevision: action.expectedRevision,
-                    selectedResourceIDs: action.selectedResourceIDs, select: action.select))
-            guard outcome.status == "accepted" || outcome.status == "duplicate" else {
-                throw EvalRunnerError.action("delivery select \(outcome.status): \(outcome.reason ?? "")")
-            }
-            return EvalActionOutcome(
-                status: "ok",
-                detail: "delivery \(outcome.rowID ?? "") rev=\(outcome.revision ?? -1) digest=\(outcome.digest ?? "")",
-                replies: [])
-
-        case "concurrent_delivery_select":
-            let botID = try context.botID(for: action.bot)
-            let unit = try await context.unit(for: botID)
-            let delay = action.delayMs ?? 1500
-            let decision = Self.decision(from: action.decision ?? "allow_once")
-            context.concurrentTasks.append(Task { @MainActor in
-                try? await Task.sleep(nanoseconds: UInt64(max(0, delay)) * 1_000_000)
-                for _ in 0..<600 {
-                    let outcome = await unit.rows.applyDeliverySelectionHarness(
-                        BotDeliverySelectionHarnessAction(
-                            nonce: context.nonce("delivery", action: action, repeat: index),
-                            bot: botID, rowID: nil, approvalID: nil, draftID: nil,
-                            expectedRevision: nil,
-                            selectedResourceIDs: action.selectedResourceIDs,
-                            select: action.select ?? "first"))
-                    guard outcome.status == "accepted" || outcome.status == "duplicate",
-                          let approvalID = outcome.approvalID,
-                          let digest = await context.composition.runtime.approvals.pendingDigest(
-                              approvalId: approvalID) else {
-                        try? await Task.sleep(nanoseconds: 50_000_000)
-                        continue
-                    }
-                    _ = try? await unit.rows.perform(BotUserAction(
-                        nonce: context.nonce("delivery-approve", action: action, repeat: index),
-                        botID: botID, kind: .approval,
-                        approvalID: approvalID, decision: decision, digest: digest))
-                    return
-                }
-            })
-            return EvalActionOutcome(status: "ok", detail: "scheduled delivery select+approve", replies: [])
 
         case "approval":
             let pending = try pendingApproval(
