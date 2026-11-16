@@ -14,14 +14,14 @@ framework is introduced.
   gives only the task and the material location. It contains no 10–20 character progress
   instruction, no fixed read count and no output-format instruction. Tools are free; the
   receipt verifies that the real session actually read the seed (read or bash).
-  **Current status: PASS on head `49b288531` (natural) with the final web-ready fix
-  `d8f5a466`.** The real first `request/header` now declares `activity` on read/glob/grep
-  (web tools were absent in these scenarios); every session read its seeds; all headers are
-  Flash/max. Bubbles: ACT-04 all 13/12/12 chars via `activity`; ACT-05 all 18/15/8/6 chars
-  via `activity`; ACT-06 21-char activity, two read filename fallbacks, then a 23-char
-  result-carrying public sentence before the write. 12 unique details, 2 short-object
-  fallbacks (16.7%, small sample). The two missing read activities are recorded, not hidden.
-  Earlier blocked attempts remain in `receipt.json.failedAttempts`.
+  **Current status: PASS on head `e0a1804f`.** The real first `request/header`
+  declares `activity` as required (minLength 1) on read/glob/grep; web tools were absent in
+  these scenarios; bash/Task keep their old fields. All three natural scenarios passed
+  (5/6/6 requests, Flash/max); every read carries a Chinese task-level activity; no
+  filename fallback remains (11 unique details: 10 activity/model sentences + 1 next-step
+  card). ACT-06 drafts in public text and does not send. The wrapper-only required field
+  still executes old calls without activity; original validator/required list unchanged.
+  Earlier blocked/optional attempts remain in `receipt.json.failedAttempts`.
 - `receipt.json`: the accepted actual activity sequence, with source seq/tool, raw model
   sentence, displayed detail, length/CJK count, object and result-continuation judgment,
   plus the model configuration read from `request/header`.

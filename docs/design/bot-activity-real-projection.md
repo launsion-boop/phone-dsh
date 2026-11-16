@@ -156,24 +156,20 @@ and a high-effort header were rejected; several macOS compile-boundary errors we
 in `cff5dd149`; an empty session copy was replaced by the real session path and a hard
 failure in the replay entry.
 
-### Natural-request control: PASS with declared activity
+### Natural-request control: PASS with required declared activity
 
-On head `49b288531` the real first `request/header` declares `activity` on read/glob/grep
-(web tools were absent in these scenarios), and all three natural scenarios pass. Every
-session read its seeds; every header is Flash/max. ACT-04 uses `定位 #174 的合并资料`,
-`读 #174 的记录文件`, `读 main 分支的记录`; ACT-05 uses `列出工作区里的 notes 目录内容`,
-`在找 notes 里的会议资料`, `在读周三例会记录`, `在读待办清单`; ACT-06 starts with
-`查看工作区与 inbox/notes 目录`, then two read calls fall back to filenames, and its next
-public sentence `仅依据这两份材料：邮件问「周五发布清单是否定稿` carries the result into the
-write step. Across 12 unique details 2 are short-object fallbacks (16.7%, small sample).
-The final web-ready fix `d8f5a466` awaits the async `searchReady`/`fetchReady`; these
-scenarios register no web tools, so it is unit-proven (7/7) and does not change these
-bubbles.
-
-Earlier natural attempts on head `91a26c50c` were blocked by the wall-clock gateway/expiry
-bug; the meeting weak-regex false PASS and the stopped email run are retained in
-`receipt.json.failedAttempts`. The clock fix is `cefff6a2`; no identity bypass and no
-loosened assertion was used.
+On head `e0a1804f` the real first `request/header` declares `activity` on read/glob/grep
+with `required` including it and `minLength: 1`; web tools were absent in these scenarios.
+All three natural scenarios pass (5/6/6 requests, every header Flash/max). ACT-04:
+`查看 pr 目录里的资料结构` (14), `在读 #174 的说明笔记` (13), `在读 main 分支的情况笔记`
+(15). ACT-05: `查找 notes 目录与其中的会议资料` (19), `在读周三例会的会议记录` (11),
+`在读待办清单文件` (8), `确认 notes 目录是否还有其他文件` (19). ACT-06:
+`查看 inbox 与 notes 目录结构` (21), `读李光浩的来信` (7), `读发布背景笔记` (7), then a
+next-step card; it drafts in public text and sends nothing. Across 11 unique details there
+are 10 activity/model sentences and 1 card label; the optional version's two read filename
+fallbacks are gone. The wrapper-only required field clones the required array; the original
+definition/validator/required list are unchanged, and old calls without activity still
+execute (real ToolRuntime regression).
 
 Not run: physical iPhone, full App UI run, Android, deployment. Those are not inferred
 from the simulator or harness evidence.

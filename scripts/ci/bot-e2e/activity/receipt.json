@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractRevision": "activity-evidence-v3.3",
+  "contractRevision": "activity-evidence-v3.4",
   "model": {
     "provider": "deepseek-official",
     "model": "deepseek-flash",
@@ -132,14 +132,15 @@
       "reason": "the first probe copied an empty ACT-01-session.jsonl and produced zero events. The real session is under runs/<scenario>-1/host/materialized/<dsh-home>/sessions/...; the replay entry now fails hard on an empty log."
     }
   ],
-  "reviewedCodeHead": "d8f5a466c3e23ac67b9aa64592539f4cd00925c2",
+  "reviewedCodeHead": "e0a1804f082c3a948c4830f4bbed88cb4eb885ef",
   "scenarioAssetsCommit": "eba3569511f7a43bd989c012ade8885ae018e579",
-  "reviewedCodeHeadTree": "1a481f259ade008435407d808d97defd2b05d484",
+  "reviewedCodeHeadTree": "1360c693ff2240dfa602eadac4a0ecf2ecf804d6",
   "scenarioAssetsTree": "6d8affc14fc3886171e7cfe8800c5ddab0bdb8b1",
   "naturalControl": {
     "status": "PASS",
-    "head": "49b288531535b936582ffb21284cee3c46ee4533",
-    "finalWebFix": "d8f5a466c3e23ac67b9aa64592539f4cd00925c2 awaits the async webReady methods; natural scenarios register no web tools, so this fix is unit-proven (7/7) and does not change the read/glob/grep bubbles below.",
+    "head": "e0a1804f082c3a948c4830f4bbed88cb4eb885ef",
+    "bundle": "/tmp/pdsh-lead-build-required/www/image.tar.gz",
+    "bundleSha256": "2364ceb4a4ee3c3d942e913b80e3c79c3f849baf4d8deb6f7c9f922d190279c4",
     "catalog": "scripts/ci/bot-e2e/activity/catalog-natural.json",
     "model": {
       "provider": "deepseek-official",
@@ -148,123 +149,141 @@
     },
     "promptScope": "Task + material location + normal scope constraint; no progress/read-count/output-format guidance.",
     "header": {
-      "read": "activity=true",
-      "glob": "activity=true",
-      "grep": "activity=true",
+      "read": {
+        "activity": true,
+        "required": [
+          "file_path",
+          "activity"
+        ],
+        "minLength": 1
+      },
+      "glob": {
+        "activity": true,
+        "required": [
+          "pattern",
+          "activity"
+        ],
+        "minLength": 1
+      },
+      "grep": {
+        "activity": true,
+        "required": [
+          "pattern",
+          "activity"
+        ],
+        "minLength": 1
+      },
       "web_search": "absent in this scenario",
       "web_fetch": "absent in this scenario",
-      "bash": "activity=false",
-      "mcp__phone__Task": "activity=false"
+      "bash": {
+        "activity": false,
+        "required": [
+          "description",
+          "command"
+        ]
+      },
+      "mcp__phone__Task": {
+        "activity": false
+      }
     },
     "scenarios": [
       {
         "id": "ACT-04-NATURAL-174",
-        "evalGate": "PASS",
+        "gate": "PASS",
         "modelRequests": 5,
-        "seedRead": true,
         "activity": [
           {
             "seq": 17,
-            "detail": "定位 #174 的合并资料",
-            "chars": 13,
+            "detail": "查看 pr 目录里的资料结构",
+            "chars": 14,
             "source": "activity"
           },
           {
             "seq": 24,
-            "detail": "读 #174 的记录文件",
-            "chars": 12,
+            "detail": "在读 #174 的说明笔记",
+            "chars": 13,
             "source": "activity"
           },
           {
             "seq": 25,
-            "detail": "读 main 分支的记录",
-            "chars": 12,
+            "detail": "在读 main 分支的情况笔记",
+            "chars": 15,
             "source": "activity"
           }
-        ],
-        "note": "all three bubbles use the declared activity field; final answer gives 3 conflicts."
+        ]
       },
       {
         "id": "ACT-05-NATURAL-MEETING",
-        "evalGate": "PASS",
+        "gate": "PASS",
         "modelRequests": 6,
-        "seedRead": true,
         "activity": [
           {
             "seq": 17,
-            "detail": "列出工作区里的 notes 目录内容",
-            "chars": 18,
+            "detail": "查找 notes 目录与其中的会议资料",
+            "chars": 19,
             "source": "activity"
           },
           {
-            "seq": 21,
-            "detail": "在找 notes 里的会议资料",
-            "chars": 15,
+            "seq": 24,
+            "detail": "在读周三例会的会议记录",
+            "chars": 11,
             "source": "activity"
           },
           {
-            "seq": 26,
-            "detail": "在读周三例会记录",
+            "seq": 25,
+            "detail": "在读待办清单文件",
             "chars": 8,
             "source": "activity"
           },
           {
-            "seq": 27,
-            "detail": "在读待办清单",
-            "chars": 6,
+            "seq": 31,
+            "detail": "确认 notes 目录是否还有其他文件",
+            "chars": 19,
             "source": "activity"
-          },
-          {
-            "seq": 33,
-            "detail": "给你选项",
-            "chars": 4,
-            "source": "show_next_steps label"
           }
-        ],
-        "note": "all work bubbles use activity; no filename fallback."
+        ]
       },
       {
         "id": "ACT-06-NATURAL-EMAIL",
-        "evalGate": "PASS",
+        "gate": "PASS",
         "modelRequests": 6,
-        "seedRead": true,
         "activity": [
           {
             "seq": 17,
-            "detail": "查看工作区与 inbox/notes 目录",
+            "detail": "查看 inbox 与 notes 目录结构",
             "chars": 21,
             "source": "activity"
           },
           {
             "seq": 24,
-            "detail": "在翻文件 · liguanghao-email.md",
-            "chars": 26,
-            "source": "short object fallback"
+            "detail": "读李光浩的来信",
+            "chars": 7,
+            "source": "activity"
           },
           {
             "seq": 25,
-            "detail": "在翻文件 · release-context.md",
-            "chars": 25,
-            "source": "short object fallback"
+            "detail": "读发布背景笔记",
+            "chars": 7,
+            "source": "activity"
           },
           {
             "seq": 31,
-            "detail": "仅依据这两份材料：邮件问「周五发布清单是否定稿",
-            "chars": 23,
-            "source": "public progress after the read results"
+            "detail": "给你选项",
+            "chars": 4,
+            "source": "show_next_steps label"
           }
         ],
-        "note": "two read calls had no activity and fall back to filenames; the next public sentence carries the real result into the write step. Final draft attached, not sent."
+        "note": "The model produced the draft in assistant text and did not send; it ended with a next-step card, so no file write card appears."
       }
     ],
     "fallbackRatio": {
-      "uniqueActivityDetails": 12,
-      "shortObjectFallbacks": 2,
-      "ratio": 0.167,
-      "sampleNote": "Small sample; guided control carries the clean result-continuation evidence."
+      "uniqueActivityDetails": 11,
+      "shortObjectFallbacks": 0,
+      "ratio": 0.0,
+      "sampleNote": "Small sample across 3 natural scenarios; 10 activity/model sentences + 1 next-step card label; no filename fallback."
     },
-    "qualityObservation": "The declared activity field is now visible in the real first request header and dominates the bubbles in ACT-04/05. ACT-06’s two read calls omitted it and fall back to filenames, then the next public sentence carries the result. This is recorded; no prompt/assertion was changed after seeing it.",
-    "previousAttempts": "Preset/global/direct/inject attempts and the shared-service race are retained in the ledger; the accepted run is 49b with the lazy botOwnedSessions fix."
+    "qualityObservation": "The required model-facing activity field eliminated the ACT-06 read fallback observed in the optional version. Every read carries a Chinese task-level activity; ACT-06 drafts in public text and ends with a next-step card rather than a file card. Header required arrays and minLength are recorded from the real request.",
+    "previousAttempts": "Preset/global/direct/inject, shared-service race, optional-field omission and required-in-original-validator probes are retained; the accepted run is e0a1804f with wrapper-only required."
   },
   "previousGuidedRun": {
     "head": "cff5dd1492f1224cb23b223871049692cd538b10",
