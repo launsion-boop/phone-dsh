@@ -652,6 +652,9 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if value.unicodeScalars.count >= 8 { result.insert(value) }
         }
+        // Legacy whitespace/ASCII-punctuation tokens. Kept verbatim because old
+        // notes and the maintained vectors were produced with this rule; the
+        // generic segmentation below is additive.
         let separators = Set(",;:!?()[]{}<>\"'".map { $0 })
         for token in content.split(whereSeparator: { $0.isWhitespace || separators.contains($0) }) {
             let value = String(token)
@@ -660,27 +663,97 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 result.insert(value)
             }
         }
-        // A marker is often written inside a CJK sentence without ASCII
-        // whitespace or punctuation around it ("随机词：QUOKKA_AHA_9D2，…").
-        // Splitting only on whitespace/ASCII punctuation then yields just the
-        // composite token, so session lines that mention the bare marker
-        // (titles, the assistant reply) never match and survive erasure. Also
-        // extract marker-shaped runs from inside any token. Requiring a letter
-        // keeps timestamps/digit runs out of the needle set.
-        if let regex = try? NSRegularExpression(
-            pattern: "[A-Za-z0-9][A-Za-z0-9._-]{7,}") {
-            let text = content as NSString
-            for match in regex.matches(
-                in: content, range: NSRange(location: 0, length: text.length)) {
-                let value = text.substring(with: match.range)
-                guard value.contains(where: { $0.isLetter }),
-                      value.contains("_") || value.contains(where: { $0.isNumber }) else {
-                    continue
+        // Generic, Unicode-aware candidates: split at every Z*/P*/S*/C*
+        // boundary and again at script boundaries, keep script-homogeneous
+        // letter/number/mark runs of at least six scalars that contain a
+        // letter. This is what makes a marker inside CJK prose, a Cyrillic or
+        // Arabic word, or a Latin run next to emoji discoverable without any
+        // marker-specific shape rule.
+        result.formUnion(Self.scriptBoundaryCandidates(in: content))
+        return result
+    }
+
+    private static let minimumErasureCandidateScalars = 6
+
+    /// Splits `content` on Unicode separators/punctuation/symbols/control and
+    /// at script changes, then returns the long-enough runs that contain at
+    /// least one letter. Pure-digit runs and runs shorter than six scalars are
+    /// dropped so common short words cannot become erasure targets.
+    static func scriptBoundaryCandidates(in content: String) -> Set<String> {
+        var result = Set<String>()
+        var run: [Unicode.Scalar] = []
+        var runScript: UInt16?
+
+        func flush() {
+            defer {
+                run.removeAll(keepingCapacity: true)
+                runScript = nil
+            }
+            guard run.count >= minimumErasureCandidateScalars,
+                  run.contains(where: { $0.properties.isAlphabetic }) else { return }
+            result.insert(String(String.UnicodeScalarView(run)))
+        }
+
+        for scalar in content.unicodeScalars {
+            switch scalar.properties.generalCategory {
+            case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter,
+                 .modifierLetter, .otherLetter:
+                let script = scriptIdentifier(scalar)
+                if let runScript, runScript != script {
+                    flush()
                 }
-                result.insert(value)
+                runScript = script
+                run.append(scalar)
+            case .decimalNumber, .letterNumber, .otherNumber,
+                 .nonspacingMark, .spacingMark, .enclosingMark:
+                // Digits and combining marks stay inside the current run; a
+                // leading neutral run adopts the script of its first letter.
+                run.append(scalar)
+            default:
+                flush()
             }
         }
+        flush()
         return result
+    }
+
+    /// Coarse script identity for the common scripts. Unlisted letters share
+    /// one bucket, which still separates them from the listed scripts. Combining
+    /// marks and digits never call this.
+    private static func scriptIdentifier(_ scalar: Unicode.Scalar) -> UInt16 {
+        switch scalar.value {
+        case 0x0041...0x005A, 0x0061...0x007A, 0x00AA, 0x00BA,
+             0x00C0...0x02AF, 0x1D00...0x1D7F, 0x1E00...0x1EFF,
+             0x2C60...0x2C7F, 0xA720...0xA7FF, 0xAB30...0xAB6F,
+             0xFB00...0xFB06, 0xFF21...0xFF3A, 0xFF41...0xFF5A:
+            return 1 // Latin
+        case 0x0370...0x03FF, 0x1F00...0x1FFF:
+            return 2 // Greek
+        case 0x0400...0x052F, 0x2DE0...0x2DFF, 0xA640...0xA69F:
+            return 3 // Cyrillic
+        case 0x0530...0x058F:
+            return 4 // Armenian
+        case 0x0590...0x05FF, 0xFB1D...0xFB4F:
+            return 5 // Hebrew
+        case 0x0600...0x06FF, 0x0750...0x077F, 0x08A0...0x08FF,
+             0xFB50...0xFDFF, 0xFE70...0xFEFF:
+            return 6 // Arabic
+        case 0x0900...0x097F, 0xA8E0...0xA8FF:
+            return 7 // Devanagari
+        case 0x0E00...0x0E7F:
+            return 8 // Thai
+        case 0x3040...0x309F:
+            return 9 // Hiragana
+        case 0x30A0...0x30FF, 0x31F0...0x31FF:
+            return 10 // Katakana
+        case 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF,
+             0x20000...0x2FA1F, 0x30000...0x3134F:
+            return 11 // Han
+        case 0x1100...0x11FF, 0x3130...0x318F, 0xA960...0xA97F, 0xAC00...0xD7AF:
+            return 12 // Hangul
+        default:
+            return 255 // other letter scripts, one shared bucket
+        }
     }
 
     private static func payloadContains(_ value: BotJSONValue, any needles: [String]) -> Bool {
