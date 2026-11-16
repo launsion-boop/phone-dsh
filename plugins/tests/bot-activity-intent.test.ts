@@ -104,6 +104,41 @@ test('activity-intent is a global profile row, not a preset row', () => {
   assert.ok(profile.includes("name: '@phone-dsh/dsh-bot-runtime/activity-intent'"))
 })
 
+test('a claimed legacy non-gb Bot still receives activity', async () => {
+  const ctx = await mountRuntime()
+  try {
+    const { agent } = await productionAgent(ctx, 'legacy-bot-session', probe('read'))
+    assert.ok(agent.ctx)
+    const scope = scopeOf(agent.ctx)
+    assert.ok(scope)
+    assert.equal(schemaFor(ctx.tools.schemas(scope), 'read').properties?.activity?.type, 'string')
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('apply does not claim the shared Bot ownership service', async () => {
+  const ctx = await mountRuntime()
+  try {
+    await ctx.plugin(activityIntent)
+    assert.equal(ctx.get('dshbotOwnedSessions'), undefined,
+      'activity-intent must wait for the channel/identity provider; creating it at apply races them')
+    const presetKey = {}
+    const preset = createScope(ctx, presetKey)
+    const agent = { id: 'gb-activity-owned-late', session: { id: 'gb-activity-owned-late' } } as { id: string; session: { id: string }; ctx?: Context }
+    const agentScope = createScope(ctx, agent, { parent: presetKey })
+    agent.ctx = agentScope.ctx
+    await registerInScope(preset, probe('read'))
+    botOwnedSessions(ctx).add(agent.id)
+    await ctx.serial('agent/created', { agent: agent as never, source: 'startup' })
+    const scope = scopeOf(agentScope.ctx)
+    assert.ok(scope)
+    assert.equal(schemaFor(ctx.tools.schemas(scope), 'read').properties?.activity?.type, 'string')
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
 test('the shadow wraps the Bot-scope handler, not the global handler', async () => {
   const ctx = await mountRuntime()
   const globalSeen: unknown[] = []
@@ -130,7 +165,6 @@ test('the shadow wraps the Bot-scope handler, not the global handler', async () 
     assert.equal(schemaFor(ctx.tools.schemas(), 'read').properties?.activity, undefined)
 
     // A workbench agent is not Bot-owned; agent/created must not install.
-    botOwnedSessions(ctx).add('workbench-activity', 'non-bot-token')
     const workbench = { id: 'workbench-activity', session: { id: 'workbench-activity' } } as { id: string; session: { id: string }; ctx?: Context }
     const workbenchScope = createScope(ctx, workbench)
     workbench.ctx = workbenchScope.ctx

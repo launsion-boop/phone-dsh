@@ -2,7 +2,7 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
 import { scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
-import { botOwnedSessions, isBotSessionId } from './bot-sessions.ts'
+import { botOwnedSessions } from './bot-sessions.ts'
 
 /**
  * Bot-only activity metadata for the read/search tools. The phone-bot preset
@@ -126,7 +126,6 @@ function activityWrapper(name: string, state: SourceState): RegisteredTool {
  */
 export default function activityIntent(ctx: Context): void {
   const states = new Map<ScopeKey, AgentState>()
-  const owned = botOwnedSessions(ctx)
 
   const contextOfAgent = (agent: Agent | undefined): Context | undefined =>
     (agent as { ctx?: Context } | undefined)?.ctx
@@ -205,9 +204,10 @@ export default function activityIntent(ctx: Context): void {
 
   const stateFor = (agent: Agent | undefined): AgentState | undefined => {
     const sessionId = sessionIdOf(agent)
-    // Only the App-minted `gb-` Bot namespace, even if a non-Bot session was
-    // claimed into the shared registry. Workbench/standard never match.
-    if (agent === undefined || !isBotSessionId(sessionId) || !owned.has(sessionId)) return undefined
+    // Only a session the channel/identity actually claimed. `has` intentionally
+    // accepts an App-claimed legacy non-`gb-` Bot; an unclaimed workbench does
+    // not match. Do not replace this with a namespace-only predicate.
+    if (agent === undefined || !botOwnedSessions(ctx).has(sessionId)) return undefined
     const context = contextOfAgent(agent)
     const scope = context === undefined ? undefined : scopeOf(context)
     if (context === undefined || scope === undefined) return undefined
