@@ -67,6 +67,30 @@ test('activity guidance teaches one short, object-bearing, result-carrying sente
   }
 })
 
+test('bash.description and Task.task_title are task-level and in the user language', () => {
+  for (const lang of ['zh', 'en'] as const) {
+    const { persona } = assemblePrompt({ lang })
+    assert.ok(persona.includes('`description`'), `${lang} must teach bash.description`)
+    assert.ok(persona.includes('`task_title`'), `${lang} must teach Task.task_title`)
+    if (lang === 'zh') {
+      for (const token of ['跟随用户当前语言', '任务对象 + 当前进展', '定位 #174 的合并资料',
+        'List workspace', '列出目录', 'Inspect workspace root and git/github config']) {
+        assert.ok(persona.includes(token), `zh task-intent guidance must include ${token}`)
+      }
+      assert.ok(persona.includes('首选来源'))
+      assert.ok(persona.includes('没有新信息时不要编造结果'))
+    } else {
+      for (const token of ["user's current language", 'task object plus progress',
+        'Locating the merge materials for #174', 'List workspace', 'List directory',
+        'Inspect workspace root and git/github config']) {
+        assert.ok(persona.includes(token), `en task-intent guidance must include ${token}`)
+      }
+      assert.ok(persona.includes('preferred activity source'))
+      assert.ok(persona.includes('do not invent a result when there is nothing new'))
+    }
+  }
+})
+
 test('reply length and the work step agree on meaningful public progress', () => {
   for (const lang of ['zh', 'en'] as const) {
     const { persona } = assemblePrompt({ lang })

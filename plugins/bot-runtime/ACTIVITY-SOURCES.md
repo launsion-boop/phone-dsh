@@ -102,6 +102,27 @@ have no useful object and use a label only.
 - Credentials (`Bearer …`, key assignments, `sk-…`, `ghp_…`, `xox…`, `AKIA…`) and
   internal ids/handles.
 
+## bash.description / Task.task_title are task sentences
+
+Pinned DSH `packages/shell/tool-bash/src/index.ts:374` describes `description` as a 5–10
+word English command summary with examples such as "List files in current directory".
+That default is wrong for the Bot bubble: the projection uses this field as its first
+source, so an English tool-local sentence would outrank the model's Chinese task progress.
+
+The Bot prompts therefore require:
+
+- the user's current language — for a Chinese user, write `description` / `task_title` in
+  Chinese;
+- the current task object + current progress, not the command or tool action;
+- even for `ls`/`cat`, say why it is being run for this task, e.g. "定位 #174 的合并资料";
+- never "List workspace", "列出目录", "Inspect workspace root and git/github config" or
+  similar tool-local summaries;
+- no invented result when there is nothing new; wait for the real result or keep the
+  previous sentence.
+
+`Task.task_title` follows the same rule; `Task.description` may carry the same task-level
+sentence. No new field or handler change is involved.
+
 ## Display
 
 The visible line is one short sentence: about 10–20 Chinese characters, at most about 28
@@ -116,8 +137,9 @@ display object.
 ## What the prompt must say
 
 The system prompts in both languages must teach the model to use `bash.description` and
-`Task.task_title` for one short progress sentence: about 10–20 Chinese characters, at most
-about 28 when it carries a previous result, made of action + this task's short object
+`Task.task_title` in the user's current language for one short progress sentence: about
+10–20 Chinese characters, at most about 28 when it carries a previous result, made of
+action + this task's short object
 (basename, host, `#PR`, title, person or meeting). The next sentence must carry the real
 result. Full paths, long URLs, whole commands, JSON, raw long answers and technical
 parameters stay off the line; credentials and internal ids are not allowed. Keep
