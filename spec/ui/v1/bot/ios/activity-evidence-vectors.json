@@ -4626,6 +4626,49 @@
         "category": "reading",
         "startedAt": 200
       }
+    },
+    {
+      "id": "mcp-read-activity-ignored",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "mcp__other__read",
+            "arguments": {
+              "file_path": "/dsh/workspace/report.md",
+              "activity": "核对 #174 的合并资料"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "在翻文件 · report.md",
+        "category": "reading",
+        "startedAt": 200
+      }
     }
   ]
 }

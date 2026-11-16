@@ -55,8 +55,10 @@ identity or approval digest. No other tool declares it. `bash` keeps its existin
 schemas or their approval path. The Bot prompt teaches all three forms as task-level,
 user-language progress.
 
-Priority for the five tools is `activity`, then the normal same-step public progress, then
-the short object fallback. If `activity` is absent, empty, non-string, or unusable, the
+Only the exact raw tool names `read`, `glob`, `grep`, `web_search` and `web_fetch` consume
+`activity`; a namespaced business tool such as `mcp__other__read` does not, even though the
+legacy display rule resolves its bare name. Priority for the five tools is `activity`, then
+the normal same-step public progress, then the short object fallback. If `activity` is absent, empty, non-string, or unusable, the
 existing behavior is unchanged. Old sessions and clients that do not know the field keep
 working; the handler sees exactly the original arguments. Reconnect re-reads the same
 declared tool list; the field is optional in every schema exchange.

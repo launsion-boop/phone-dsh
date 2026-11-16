@@ -653,6 +653,10 @@ enum BotActivityReducer {
         "createteammate": Rule(category: .messaging, label: "创建协作 Bot",
                                objectKeys: ["name"], allowsPublicText: false),
     ]
+    private static let exactActivityToolNames: Set<String> = [
+        "read", "glob", "grep", "web_search", "web_fetch",
+    ]
+
     private static let unknownRule = Rule(category: .generic, label: "等待操作结果")
 
     private static func rule(for rawName: String) -> Rule {
@@ -779,6 +783,10 @@ enum BotActivityReducer {
                          publicText: String?) -> Resolution {
         let rule = Self.rule(for: toolName)
         for key in rule.intentKeys {
+            // v3.3: `activity` is declared only on the five exact native
+            // tools. A namespaced business tool such as mcp__other__read must
+            // not supply display intent through the same bare rule.
+            if key == "activity" && !Self.exactActivityToolNames.contains(toolName) { continue }
             guard let raw = arguments[key]?.runtimeString,
                   let text = BotActivityEvidence.displayText(raw) else { continue }
             return Resolution(text: text, category: rule.category)
