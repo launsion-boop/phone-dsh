@@ -45,6 +45,9 @@ public enum BotMemoryMaintenanceFailureCode: String, Codable, Sendable {
     case changeBudgetExceeded = "maintenance-change-budget-exceeded"
     case budgetExceeded = "maintenance-budget-exceeded"
     case rollbackConflict = "maintenance-rollback-conflict"
+    case verificationUnrechecked = "maintenance-verification-unrechecked"
+    case conflictNotPreserved = "maintenance-conflict-not-preserved"
+    case userScopeEvidence = "maintenance-user-scope-evidence"
 }
 
 public struct BotMemoryMaintenanceCandidate: Codable, Sendable, Equatable {
@@ -89,22 +92,29 @@ public struct BotMemoryMaintenanceChecks: Codable, Sendable, Equatable {
     public var indexWithinLimit: Bool
     public var documentsNotLongerThanEvidence: Bool
     public var changeBudgetWithinLimit: Bool
+    /// Host recheck of the batch's verification claims (G-1). Absent on old
+    /// batches means no verification record existed, never a fabricated pass.
+    public var verificationRechecked: Bool?
 
     public init(referencesResolve: Bool, indexWithinLimit: Bool,
-                documentsNotLongerThanEvidence: Bool, changeBudgetWithinLimit: Bool) {
+                documentsNotLongerThanEvidence: Bool, changeBudgetWithinLimit: Bool,
+                verificationRechecked: Bool? = nil) {
         self.referencesResolve = referencesResolve
         self.indexWithinLimit = indexWithinLimit
         self.documentsNotLongerThanEvidence = documentsNotLongerThanEvidence
         self.changeBudgetWithinLimit = changeBudgetWithinLimit
+        self.verificationRechecked = verificationRechecked
     }
 
     public static let passed = Self(
         referencesResolve: true, indexWithinLimit: true,
-        documentsNotLongerThanEvidence: true, changeBudgetWithinLimit: true)
+        documentsNotLongerThanEvidence: true, changeBudgetWithinLimit: true,
+        verificationRechecked: true)
 
     public var passedAll: Bool {
         referencesResolve && indexWithinLimit
             && documentsNotLongerThanEvidence && changeBudgetWithinLimit
+            && (verificationRechecked ?? true)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -112,6 +122,7 @@ public struct BotMemoryMaintenanceChecks: Codable, Sendable, Equatable {
         case indexWithinLimit = "index_within_limit"
         case documentsNotLongerThanEvidence = "documents_not_longer_than_evidence"
         case changeBudgetWithinLimit = "change_budget_within_limit"
+        case verificationRechecked = "verification_rechecked"
     }
 }
 
@@ -178,11 +189,13 @@ public struct BotMemoryMaintenanceStart: Codable, Sendable, Equatable {
     public var maintainerSessionID: String
     public var candidates: [BotMemoryMaintenanceCandidate]
     public var budget: BotMemoryMaintenanceStartBudget
+    public var verificationPolicy: BotMemoryMaintenanceVerificationPolicy?
 
     public init(batchID: String, botID: String, trigger: BotMemoryMaintenanceTrigger,
                 startedAtMS: Int64, maintainerSessionID: String,
                 candidates: [BotMemoryMaintenanceCandidate],
-                budget: BotMemoryMaintenanceStartBudget) {
+                budget: BotMemoryMaintenanceStartBudget,
+                verificationPolicy: BotMemoryMaintenanceVerificationPolicy? = nil) {
         self.batchID = batchID
         self.botID = botID
         self.trigger = trigger
@@ -190,6 +203,7 @@ public struct BotMemoryMaintenanceStart: Codable, Sendable, Equatable {
         self.maintainerSessionID = maintainerSessionID
         self.candidates = candidates
         self.budget = budget
+        self.verificationPolicy = verificationPolicy
     }
 
     enum CodingKeys: String, CodingKey {
@@ -199,6 +213,7 @@ public struct BotMemoryMaintenanceStart: Codable, Sendable, Equatable {
         case startedAtMS = "started_at_ms"
         case maintainerSessionID = "maintainer_session_id"
         case candidates, budget
+        case verificationPolicy = "verification_policy"
     }
 }
 
@@ -216,6 +231,7 @@ public struct BotMemoryMaintenanceBatch: Codable, Sendable, Equatable {
     public var failureCode: String?
     public var notification: Bool
     public var userScopeOwner: Bool
+    public var verification: BotMaintenanceDurableVerification?
 
     public init(batchID: String, botID: String, status: BotMemoryMaintenanceStatus,
                 trigger: BotMemoryMaintenanceTrigger, startedAtMS: Int64,
@@ -223,7 +239,8 @@ public struct BotMemoryMaintenanceBatch: Codable, Sendable, Equatable {
                 changes: [BotMemoryMaintenanceChange],
                 checks: BotMemoryMaintenanceChecks,
                 budget: BotMemoryMaintenanceBudget, failureCode: String?,
-                notification: Bool, userScopeOwner: Bool) {
+                notification: Bool, userScopeOwner: Bool,
+                verification: BotMaintenanceDurableVerification? = nil) {
         self.batchID = batchID
         self.botID = botID
         self.status = status
@@ -237,6 +254,7 @@ public struct BotMemoryMaintenanceBatch: Codable, Sendable, Equatable {
         self.failureCode = failureCode
         self.notification = notification
         self.userScopeOwner = userScopeOwner
+        self.verification = verification
     }
 
     enum CodingKeys: String, CodingKey {
@@ -248,6 +266,7 @@ public struct BotMemoryMaintenanceBatch: Codable, Sendable, Equatable {
         case maintainerSessionID = "maintainer_session_id"
         case failureCode = "failure_code"
         case userScopeOwner = "user_scope_owner"
+        case verification
     }
 }
 
@@ -480,7 +499,8 @@ enum BotMemoryMaintenanceText {
         candidates: [BotMemoryMaintenanceCandidate],
         trigger: BotMemoryMaintenanceTrigger,
         settings: BotMemoryMaintenanceSettings,
-        userScopeOwner: Bool
+        userScopeOwner: Bool,
+        verificationMaterial: String? = nil
     ) -> String {
         let candidateLines = candidates.map { candidate in
             "- \(candidate.path)（\(candidate.reasons.map(\.rawValue).joined(separator: "、"))）"
@@ -497,7 +517,7 @@ enum BotMemoryMaintenanceText {
         触发原因：\(trigger.rawValue)。单次预算：\(settings.runTokenBudget) token；每日预算：\(settings.dailyTokensDescription)。
         \(userRoot)
 
-        交给你的终态，不是步骤：
+        \(verificationMaterial.map { $0 + "\n\n" } ?? "")交给你的终态，不是步骤：
         - 记忆与原始记录一致；过时或冲突的内容已修正。
         - 判断不了的明确标为不确定，并在文档里保留两种说法和各自的记录引用。
         - 索引在 1,500 字以内；细节下沉到文档。
@@ -538,6 +558,10 @@ public actor BotMemoryMaintenanceController {
     private let remote: any BotMemoryMaintenanceTurnRunning
     private let settingsStore: BotMemoryMaintenanceSettingsStore
     private let recordReading: (any BotMemoryMaintenanceRecordReading)?
+    private let verification: (any BotMemoryMaintenanceVerifying)?
+    private let feedbackReading: (any BotMaintenanceFeedbackReading)?
+    private let invalidationReading: (any BotMaintenanceInvalidationReading)?
+    private let verificationPolicy: BotMemoryMaintenanceVerificationPolicy?
     private let isMainBot: @Sendable () -> Bool
     private let isAppActive: @Sendable () -> Bool
     private let notify: @Sendable (String) async -> Void
@@ -554,6 +578,10 @@ public actor BotMemoryMaintenanceController {
         remote: any BotMemoryMaintenanceTurnRunning,
         settingsStore: BotMemoryMaintenanceSettingsStore = .shared,
         recordReading: (any BotMemoryMaintenanceRecordReading)? = nil,
+        verification: (any BotMemoryMaintenanceVerifying)? = nil,
+        feedbackReading: (any BotMaintenanceFeedbackReading)? = nil,
+        invalidationReading: (any BotMaintenanceInvalidationReading)? = nil,
+        verificationPolicy: BotMemoryMaintenanceVerificationPolicy? = nil,
         isMainBot: @escaping @Sendable () -> Bool = { true },
         isAppActive: @escaping @Sendable () -> Bool = { true },
         notify: @escaping @Sendable (String) async -> Void = { _ in },
@@ -566,6 +594,12 @@ public actor BotMemoryMaintenanceController {
         self.remote = remote
         self.settingsStore = settingsStore
         self.recordReading = recordReading
+        self.verification = verification
+            ?? BotMemoryMaintenanceVerificationSupport.makeDefault(
+                recordReading: recordReading)
+        self.feedbackReading = feedbackReading
+        self.invalidationReading = invalidationReading
+        self.verificationPolicy = verificationPolicy
         self.isMainBot = isMainBot
         self.isAppActive = isAppActive
         self.notify = notify
@@ -720,13 +754,28 @@ public actor BotMemoryMaintenanceController {
         var beforeVersions: [String: Int] = [:]
         for document in previousLive { beforeVersions[document.path] = document.version }
 
+        // Host recheck of the candidates happens before the model sees them:
+        // the material below is objective source/state evidence, not a step
+        // list and not a user turn.
+        let candidatePaths = Set(candidates.map(\.path))
+        let candidateDocuments = previousLive.filter {
+            candidatePaths.contains($0.path)
+        }
+        let preVerification = await verifyDocuments(
+            candidateDocuments, strictPaths: [], baselines: [:],
+            sessionID: maintainerSession)
+        let material = preVerification.flatMap {
+            BotMemoryMaintenanceVerificationSupport.materialLine(for: $0)
+        }
+
         let start = BotMemoryMaintenanceStart(
             batchID: batchID, botID: botID, trigger: trigger,
             startedAtMS: startedAt, maintainerSessionID: maintainerSession,
             candidates: candidates,
             budget: BotMemoryMaintenanceStartBudget(
                 runTokens: settings.runTokenBudget,
-                dailyTokens: settings.dailyTokenBudget))
+                dailyTokens: settings.dailyTokenBudget),
+            verificationPolicy: verificationPolicy)
         guard (try? await append(
             type: "memory.maintenance_started",
             eventID: "memory.maintenance_started:\(batchID)",
@@ -737,7 +786,8 @@ public actor BotMemoryMaintenanceController {
 
         let prompt = BotMemoryMaintenanceText.prompt(
             batchID: batchID, botID: botID, candidates: candidates,
-            trigger: trigger, settings: settings, userScopeOwner: userScopeOwner)
+            trigger: trigger, settings: settings, userScopeOwner: userScopeOwner,
+            verificationMaterial: material)
         let turnResult: BotRemoteTurnResult?
         do {
             turnResult = try await remote.runMaintenanceTurn(
@@ -763,6 +813,27 @@ public actor BotMemoryMaintenanceController {
         }
         let writtenScalars = lastContent.values
             .reduce(0) { $0 + BotMemoryMaintenanceText.scalarCount($1) }
+
+        // Host recheck after the turn, on the live changed documents. A
+        // committed batch may not keep a `verified` that this recheck does not
+        // back; the whole batch rolls back.
+        var changedDocuments: [BotMemoryDocument] = []
+        for change in changes where !change.deleted {
+            if case .document(let version)? = try? await memory.read(path: change.path) {
+                changedDocuments.append(BotMemoryDocument(
+                    path: version.path, scope: version.scope,
+                    content: version.content, version: version.version,
+                    updatedAtMS: version.updatedAtMS, author: version.author,
+                    evidence: version.evidence, trust: version.trust,
+                    source: version.source, review: version.review))
+            }
+        }
+        let baselines = BotMemoryMaintenanceVerificationSupport.baselines(
+            in: afterEvents, batchID: batchID)
+        let postVerification = await verifyDocuments(
+            changedDocuments,
+            strictPaths: Set(changedDocuments.map(\.path)),
+            baselines: baselines, sessionID: maintainerSession)
 
         var checks = BotMemoryMaintenanceChecks(
             referencesResolve: false, indexWithinLimit: false,
@@ -792,6 +863,12 @@ public actor BotMemoryMaintenanceController {
         checks.changeBudgetWithinLimit =
             changes.count <= Self.maximumChangedDocuments
             && writtenScalars <= Self.maximumChangedScalars
+        // Check 5: every changed document's verification claim is backed by
+        // this host recheck (G-1). Without a verifier the check stays absent;
+        // production passes one, so a missing dependency fails closed there.
+        if verification != nil {
+            checks.verificationRechecked = postVerification?.blocking == 0
+        }
 
         if !checks.referencesResolve {
             failure = .evidenceUnresolved
@@ -801,6 +878,15 @@ public actor BotMemoryMaintenanceController {
             failure = .documentLongerThanEvidence
         } else if !checks.changeBudgetWithinLimit {
             failure = .changeBudgetExceeded
+        }
+        if failure == nil, verification != nil {
+            if postVerification == nil {
+                failure = .verificationUnrechecked
+            } else if let verificationFailure =
+                BotMemoryMaintenanceVerificationSupport.failureCode(
+                    for: postVerification) {
+                failure = verificationFailure
+            }
         }
 
         // Budget: per-run usage reads the ledger under the maintenance purpose.
@@ -854,7 +940,8 @@ public actor BotMemoryMaintenanceController {
             maintainerSessionID: maintainerSession, changes: changes,
             checks: checks, budget: budget,
             failureCode: failure?.rawValue,
-            notification: shouldNotify, userScopeOwner: userScopeOwner)
+            notification: shouldNotify, userScopeOwner: userScopeOwner,
+            verification: Self.merged(preVerification, postVerification)?.durable())
         _ = try? await append(
             type: "memory.maintenance_finished",
             eventID: "memory.maintenance_finished:\(batchID)",
@@ -983,6 +1070,63 @@ public actor BotMemoryMaintenanceController {
             data: record, at: record.rolledBackAtMS, batchID: batchID,
             sessionID: sessionID)
         return record
+    }
+
+    // MARK: Host verification
+
+    private func verifyDocuments(
+        _ documents: [BotMemoryDocument],
+        strictPaths: Set<String>,
+        baselines: [String: BotMaintenanceSourceBaseline],
+        sessionID: String
+    ) async -> BotMaintenanceVerificationSummary? {
+        guard let verification, !documents.isEmpty else { return nil }
+        let paths = documents.map(\.path)
+        var disputed: [String: [String]] = [:]
+        if let feedbackReading,
+           let value = try? await feedbackReading.disputedReferences(forPaths: paths) {
+            disputed = value
+        }
+        var references: [String] = []
+        for document in documents {
+            references.append(contentsOf: document.evidence)
+            references.append(contentsOf: document.review?.refs ?? [])
+        }
+        var invalidated: [String: BotMaintenanceDependencyStatus] = [:]
+        if let invalidationReading, !references.isEmpty,
+           let value = try? await invalidationReading.invalidationStatuses(
+                for: Array(Set(references))) {
+            invalidated = value
+        }
+        do {
+            return try await verification.verify(BotMaintenanceVerificationRequest(
+                documents: documents, callerBotID: botID,
+                callerSessionID: sessionID, checkedAtMS: now(),
+                baselines: baselines, strictPaths: strictPaths,
+                disputedReferences: disputed,
+                invalidatedReferences: invalidated))
+        } catch {
+            // A failed recheck is not a pass: the caller maps nil to
+            // maintenance-verification-unrechecked when a verifier exists.
+            return nil
+        }
+    }
+
+    static func merged(
+        _ pre: BotMaintenanceVerificationSummary?,
+        _ post: BotMaintenanceVerificationSummary?
+    ) -> BotMaintenanceVerificationSummary? {
+        guard pre != nil || post != nil else { return nil }
+        var order: [String] = []
+        var byPath: [String: BotMaintenanceDocumentVerification] = [:]
+        for summary in [pre, post].compactMap({ $0 }) {
+            for finding in summary.findings {
+                if byPath[finding.path] == nil { order.append(finding.path) }
+                byPath[finding.path] = finding
+            }
+        }
+        return BotMaintenanceVerificationSummary(
+            findings: order.compactMap { byPath[$0] })
     }
 
     // MARK: Candidates
