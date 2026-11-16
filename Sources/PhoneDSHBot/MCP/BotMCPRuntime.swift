@@ -2248,7 +2248,10 @@ public actor BotMCPRuntime {
                 throw BotMemoryReviewRejected(
                     message: "review.at_ms 必须是不小于 0 的整数毫秒时间")
             }
-            atMS = Int64(number)
+            guard let timestamp = Int64(exactly: number) else {
+                throw BotMCPError.invalidRequest("timeout/limit must be an integer")
+            }
+            atMS = timestamp
         }
         var refs: [String] = []
         if let value = object["refs"] {
@@ -2925,10 +2928,11 @@ public actor BotMCPRuntime {
 
     private func optionalInt(_ value: BotJSONValue?) throws -> Int? {
         guard let value else { return nil }
-        guard case .number(let number) = value, number.isFinite, number.rounded() == number else {
+        guard case .number(let number) = value,
+              let converted = Int(exactly: number) else {
             throw BotMCPError.invalidRequest("timeout/limit must be an integer")
         }
-        return Int(number)
+        return converted
     }
 
     private func bareToolName(_ name: String) -> String {
