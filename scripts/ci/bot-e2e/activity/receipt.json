@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractRevision": "activity-evidence-v3.2",
+  "contractRevision": "activity-evidence-v3.3",
   "model": {
     "provider": "deepseek-official",
     "model": "deepseek-flash",
@@ -132,20 +132,30 @@
       "reason": "the first probe copied an empty ACT-01-session.jsonl and produced zero events. The real session is under runs/<scenario>-1/host/materialized/<dsh-home>/sessions/...; the replay entry now fails hard on an empty log."
     }
   ],
-  "reviewedCodeHead": "abf3d3c5a1c1777b1d9f596262b015750e5de19e",
+  "reviewedCodeHead": "d8f5a466c3e23ac67b9aa64592539f4cd00925c2",
   "scenarioAssetsCommit": "eba3569511f7a43bd989c012ade8885ae018e579",
-  "reviewedCodeHeadTree": "9bad81f77ebb1ff4dff30871d0a13905ad9a8af6",
+  "reviewedCodeHeadTree": "1a481f259ade008435407d808d97defd2b05d484",
   "scenarioAssetsTree": "6d8affc14fc3886171e7cfe8800c5ddab0bdb8b1",
   "naturalControl": {
     "status": "PASS",
-    "head": "abf3d3c5a1c1777b1d9f596262b015750e5de19e",
+    "head": "49b288531535b936582ffb21284cee3c46ee4533",
+    "finalWebFix": "d8f5a466c3e23ac67b9aa64592539f4cd00925c2 awaits the async webReady methods; natural scenarios register no web tools, so this fix is unit-proven (7/7) and does not change the read/glob/grep bubbles below.",
     "catalog": "scripts/ci/bot-e2e/activity/catalog-natural.json",
     "model": {
       "provider": "deepseek-official",
       "model": "deepseek-flash",
       "reasoningEffort": "max"
     },
-    "promptScope": "The natural prompts contain only the task, the material location, and a scope constraint (use only the provided material; do not search for a repo or ask the user). They contain no 10–20 character progress instruction, no fixed read count and no output-format instruction.",
+    "promptScope": "Task + material location + normal scope constraint; no progress/read-count/output-format guidance.",
+    "header": {
+      "read": "activity=true",
+      "glob": "activity=true",
+      "grep": "activity=true",
+      "web_search": "absent in this scenario",
+      "web_fetch": "absent in this scenario",
+      "bash": "activity=false",
+      "mcp__phone__Task": "activity=false"
+    },
     "scenarios": [
       {
         "id": "ACT-04-NATURAL-174",
@@ -155,75 +165,75 @@
         "activity": [
           {
             "seq": 17,
-            "detail": "定位 pr/ 目录与工作区内容",
-            "chars": 15,
-            "source": "Chinese bash.description"
+            "detail": "定位 #174 的合并资料",
+            "chars": 13,
+            "source": "activity"
           },
           {
             "seq": 24,
-            "detail": "在翻文件 · 174-notes.md",
-            "chars": 19,
-            "source": "short object fallback"
+            "detail": "读 #174 的记录文件",
+            "chars": 12,
+            "source": "activity"
           },
           {
             "seq": 25,
-            "detail": "在翻文件 · main-notes.md",
-            "chars": 20,
-            "source": "short object fallback"
+            "detail": "读 main 分支的记录",
+            "chars": 12,
+            "source": "activity"
           }
         ],
-        "note": "both seed files read; final answer says 3 conflicting files. The first bubble is Chinese task-level; the read steps fall back to filenames because read has no description field and no public sentence preceded them."
+        "note": "all three bubbles use the declared activity field; final answer gives 3 conflicts."
       },
       {
         "id": "ACT-05-NATURAL-MEETING",
         "evalGate": "PASS",
-        "modelRequests": 7,
+        "modelRequests": 6,
         "seedRead": true,
         "activity": [
           {
             "seq": 17,
-            "detail": "定位 notes 資料目錄",
-            "chars": 13,
-            "source": "Chinese bash.description"
+            "detail": "列出工作区里的 notes 目录内容",
+            "chars": 18,
+            "source": "activity"
           },
           {
-            "seq": 24,
-            "detail": "列出 notes 全部檔案",
-            "chars": 13,
-            "source": "Chinese bash.description"
+            "seq": 21,
+            "detail": "在找 notes 里的会议资料",
+            "chars": 15,
+            "source": "activity"
           },
           {
-            "seq": 31,
-            "detail": "在翻文件 · wednesday-meeting.md",
-            "chars": 27,
-            "source": "short object fallback"
+            "seq": 26,
+            "detail": "在读周三例会记录",
+            "chars": 8,
+            "source": "activity"
           },
           {
-            "seq": 32,
-            "detail": "在翻文件 · actions.md",
-            "chars": 17,
-            "source": "short object fallback"
+            "seq": 27,
+            "detail": "在读待办清单",
+            "chars": 6,
+            "source": "activity"
           },
           {
-            "seq": 38,
+            "seq": 33,
             "detail": "给你选项",
             "chars": 4,
             "source": "show_next_steps label"
           }
         ],
-        "note": "both seed files read; final summary gives 3 todos / 李光浩. The first two bubbles are Chinese task-level; the read steps are filename fallbacks; no natural post-result model sentence was available."
+        "note": "all work bubbles use activity; no filename fallback."
       },
       {
         "id": "ACT-06-NATURAL-EMAIL",
         "evalGate": "PASS",
-        "modelRequests": 7,
+        "modelRequests": 6,
         "seedRead": true,
         "activity": [
           {
             "seq": 17,
-            "detail": "查看收件箱和笔记目录内容",
-            "chars": 12,
-            "source": "Chinese bash.description"
+            "detail": "查看工作区与 inbox/notes 目录",
+            "chars": 21,
+            "source": "activity"
           },
           {
             "seq": 24,
@@ -239,28 +249,22 @@
           },
           {
             "seq": 31,
-            "detail": "在写文件 · reply-liguanghao.md",
-            "chars": 26,
-            "source": "write label"
-          },
-          {
-            "seq": 36,
-            "detail": "送上附件 · reply-liguanghao.md",
-            "chars": 26,
-            "source": "show_attachment label"
+            "detail": "仅依据这两份材料：邮件问「周五发布清单是否定稿",
+            "chars": 23,
+            "source": "public progress after the read results"
           }
         ],
-        "note": "both seed files read; local draft written and attached, not sent. The first bubble is Chinese task-level; the read/write steps are short object labels."
+        "note": "two read calls had no activity and fall back to filenames; the next public sentence carries the real result into the write step. Final draft attached, not sent."
       }
     ],
     "fallbackRatio": {
-      "uniqueActivityDetails": 13,
-      "shortObjectFallbacks": 6,
-      "ratio": 0.462,
-      "sampleNote": "Small observational sample across 3 natural scenarios; 5 Chinese model/tool descriptions and 2 card/label details make up the rest. Not a production-wide rate."
+      "uniqueActivityDetails": 12,
+      "shortObjectFallbacks": 2,
+      "ratio": 0.167,
+      "sampleNote": "Small sample; guided control carries the clean result-continuation evidence."
     },
-    "qualityObservation": "After the v3.2 prompt fix, the natural bubbles no longer show English command summaries: each scenario starts with a Chinese task-level sentence. The read steps still fall back to filenames because read has no description field and the model did not write a public sentence before those calls; no natural post-result sentence was available, so the natural control does not itself prove result-continuation (the guided control does). The task-scope constraint in the natural prompts is a normal task constraint, not progress guidance.",
-    "previousAttempts": "Earlier natural attempts on 91a26c50c (wall-clock gateway expiry, weak-regex false PASS, NOT_RUN email) and the intermediate cefff6a2/abf3d3c5a quality runs are retained in failedAttempts. The accepted run is abf3d3c5a/natural-clean2 after the v3.2 prompt fix."
+    "qualityObservation": "The declared activity field is now visible in the real first request header and dominates the bubbles in ACT-04/05. ACT-06’s two read calls omitted it and fall back to filenames, then the next public sentence carries the result. This is recorded; no prompt/assertion was changed after seeing it.",
+    "previousAttempts": "Preset/global/direct/inject attempts and the shared-service race are retained in the ledger; the accepted run is 49b with the lazy botOwnedSessions fix."
   },
   "previousGuidedRun": {
     "head": "cff5dd1492f1224cb23b223871049692cd538b10",

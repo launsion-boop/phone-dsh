@@ -156,23 +156,22 @@ and a high-effort header were rejected; several macOS compile-boundary errors we
 in `cff5dd149`; an empty session copy was replaced by the real session path and a hard
 failure in the replay entry.
 
-### Natural-request control: PASS on the clock-fixed head
+### Natural-request control: PASS with declared activity
 
-`scripts/ci/bot-e2e/activity/catalog-natural.json` removes all progress/read/output
-guidance from the user prompt; the only extra constraint is a normal task scope (use only
-the provided material; do not search for a repo or ask the user). On head `abf3d3c5a` all
-three natural scenarios passed; each session read its seeds with `bash`/`read` and every
-`request/header` is Flash/max. The observed sequence has 13 unique activity details:
-6 short basename fallbacks (46.2%), 5 Chinese task-level model/tool descriptions and 2
-card/label details. Every scenario starts with a Chinese task-level sentence; the read
-steps still fall back to filenames because read has no description field and no public
-sentence preceded them. No natural post-result sentence was available, so natural does not
-itself prove continuation; the guided control does. This is recorded as a quality
-observation, not a hidden failure.
+On head `49b288531` the real first `request/header` declares `activity` on read/glob/grep
+(web tools were absent in these scenarios), and all three natural scenarios pass. Every
+session read its seeds; every header is Flash/max. ACT-04 uses `定位 #174 的合并资料`,
+`读 #174 的记录文件`, `读 main 分支的记录`; ACT-05 uses `列出工作区里的 notes 目录内容`,
+`在找 notes 里的会议资料`, `在读周三例会记录`, `在读待办清单`; ACT-06 starts with
+`查看工作区与 inbox/notes 目录`, then two read calls fall back to filenames, and its next
+public sentence `仅依据这两份材料：邮件问「周五发布清单是否定稿` carries the result into the
+write step. Across 12 unique details 2 are short-object fallbacks (16.7%, small sample).
+The final web-ready fix `d8f5a466` awaits the async `searchReady`/`fetchReady`; these
+scenarios register no web tools, so it is unit-proven (7/7) and does not change these
+bubbles.
 
 Earlier natural attempts on head `91a26c50c` were blocked by the wall-clock gateway/expiry
-bug (bash identity registration). The meeting run was temporarily a weak-regex false PASS
-on refusal text and the email run was stopped; both are retained in
+bug; the meeting weak-regex false PASS and the stopped email run are retained in
 `receipt.json.failedAttempts`. The clock fix is `cefff6a2`; no identity bypass and no
 loosened assertion was used.
 
