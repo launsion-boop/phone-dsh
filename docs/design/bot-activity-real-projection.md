@@ -156,5 +156,18 @@ and a high-effort header were rejected; several macOS compile-boundary errors we
 in `cff5dd149`; an empty session copy was replaced by the real session path and a hard
 failure in the replay entry.
 
+### Natural-request control: blocked, not accepted
+
+`scripts/ci/bot-e2e/activity/catalog-natural.json` removes all progress/read/output
+guidance from the user prompt. On head `91a26c50c` the Bot structural approval gate
+rejected `bash` with the identity-registration error while `glob`/`read` succeeded.
+ACT-05/06 never read their seeds; ACT-05 was temporarily and wrongly marked PASS by a
+weak reply regex matching the refusal text, and that PASS is rejected. ACT-04 eventually
+read both seeds through glob/read after the `bash` rejection and answered correctly, but
+the natural control as a whole is not a pass and does not prove default-prompt behaviour.
+The catalog and replay entry are committed for a rerun after the Bot bash/file-access
+identity boundary is diagnosed and fixed; the identity gate was not bypassed and no
+assertion was loosened.
+
 Not run: physical iPhone, full App UI run, Android, deployment. Those are not inferred
 from the simulator or harness evidence.

@@ -136,5 +136,35 @@
   "reviewedCodeHead": "cff5dd1492f1224cb23b223871049692cd538b10",
   "scenarioAssetsCommit": "eba3569511f7a43bd989c012ade8885ae018e579",
   "reviewedCodeHeadTree": "b9231d5e1a3d61700a31de3f0101cd3347e12232",
-  "scenarioAssetsTree": "6d8affc14fc3886171e7cfe8800c5ddab0bdb8b1"
+  "scenarioAssetsTree": "6d8affc14fc3886171e7cfe8800c5ddab0bdb8b1",
+  "naturalControl": {
+    "status": "BLOCKED",
+    "head": "91a26c50cb17d4161516c75ab987d083752d6ef2",
+    "catalog": "scripts/ci/bot-e2e/activity/catalog-natural.json",
+    "reason": "The natural prompts have no progress/read/output guidance, but the Bot structural approval gate rejects bash with \"这个对话与 App 的身份登记已失效或未完成\" while glob/read succeed. ACT-05/06 never read their seeds; ACT-05 was temporarily (and wrongly) marked PASS by a weak reply regex matching the refusal text, which is rejected. ACT-04 eventually read both seeds through glob/read after the bash rejection and gave the correct conflict answer, but the natural control as a whole is not a pass and does not prove default-prompt behavior.",
+    "scenarios": [
+      {
+        "id": "ACT-04-NATURAL-174",
+        "evalGate": "PASS",
+        "seedRead": true,
+        "bashIdentityFailure": true,
+        "detail": "first bash call rejected by the identity gate; the model retried with glob and read, read 174-notes.md/main-notes.md, and answered 3 conflicts. The activity sequence is therefore real but includes the failure and object fallbacks, not a clean natural progress sequence."
+      },
+      {
+        "id": "ACT-05-NATURAL-MEETING",
+        "evalGate": "FAIL",
+        "seedRead": false,
+        "bashIdentityFailure": true,
+        "detail": "the bash call was rejected; the model gave up and showed next steps. A weak regex matched the refusal prose (周三例会/待办); that PASS is rejected."
+      },
+      {
+        "id": "ACT-06-NATURAL-EMAIL",
+        "evalGate": "NOT_RUN",
+        "seedRead": false,
+        "bashIdentityFailure": true,
+        "detail": "the natural loop was stopped after the meeting failure; no seed read and no accepted activity evidence."
+      }
+    ],
+    "nextStep": "Bot runtime owner diagnoses the bash/file-access identity-registration boundary; do not bypass the gate or relax the assertions. Natural evidence must be rerun on the fixed head before claiming default-prompt effectiveness."
+  }
 }
