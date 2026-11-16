@@ -11,7 +11,7 @@
     {
       "id": "AHA-DISCOVER",
       "title": "discover the current guideline instead of the archived one",
-      "description": "The user delegates a recurring weekly report and never names the guideline. The workspace holds the current v2 guideline and an archived v1 distractor with a unique old marker. A correct turn finds the current document and does not use the archived one. The deliverable assertions read the Bot workspace (excluding docs/report-guide-* input guides and docs/archive), so a long final summary cannot substitute for the actual report file.",
+      "description": "The user delegates a recurring weekly report and never names the guideline. The task names one output file (reports/weekly.md) but never names the guideline. The workspace holds the current v2 guideline and an archived v1 distractor. The single output file must carry the guideline OWNER line and a risk section; the input guide is never treated as the deliverable. The deliverable assertions read the Bot workspace (excluding docs/report-guide-* input guides and docs/archive), so a long final summary cannot substitute for the actual report file.",
       "budget": {
         "max_minutes": 15,
         "max_model_requests": 40
@@ -39,17 +39,23 @@
         },
         {
           "type": "user_message",
-          "text": "先写这周的。本周完成了登录改造和两个 bug 修复，下周计划做导出。周四前要交给林。"
+          "text": "先写这周的，把这周成品保存为 `reports/weekly.md`。本周完成了登录改造和两个 bug 修复，下周计划做导出。周四前要交给林。"
         }
       ],
       "assertions": [
         {
-          "type": "workspace_command",
-          "command": "set -e; f=$(grep -R -l '^OWNER: 林$' --include='*.md' . | grep -v 'report-guide' | grep -v '/archive/' || true); test -n \"$f\""
+          "type": "file_exists",
+          "path": "reports/weekly.md"
         },
         {
-          "type": "workspace_command",
-          "command": "set -e; f=$(grep -R -l '^## 风险' --include='*.md' . | grep -v 'report-guide' | grep -v '/archive/' || true); test -n \"$f\""
+          "type": "file_regex",
+          "path": "reports/weekly.md",
+          "value": "(?m)^OWNER: 林$"
+        },
+        {
+          "type": "file_regex",
+          "path": "reports/weekly.md",
+          "value": "(?m)^#{1,6}[[:space:]]*.*风险"
         },
         {
           "type": "reply_not_contains",

@@ -21,13 +21,18 @@
           "checks": [
             {
               "assertion": 0,
-              "type": "workspace_command",
-              "why": "the delivered report carries the v2 OWNER line"
+              "type": "file_exists",
+              "why": "the single reports/weekly.md exists"
             },
             {
               "assertion": 1,
-              "type": "workspace_command",
-              "why": "the delivered report carries the v2 risk section"
+              "type": "file_regex",
+              "why": "the same file carries the literal OWNER: 林"
+            },
+            {
+              "assertion": 2,
+              "type": "file_regex",
+              "why": "the same file has a heading containing 风险 (level not fixed)"
             }
           ]
         },
@@ -36,12 +41,12 @@
           "kind": "hard",
           "checks": [
             {
-              "assertion": 2,
+              "assertion": 3,
               "type": "reply_not_contains",
               "why": "never uses the archived v1 marker"
             },
             {
-              "assertion": 3,
+              "assertion": 4,
               "type": "reply_not_contains",
               "why": "never uses the archived v1 title format"
             }

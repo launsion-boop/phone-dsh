@@ -55,13 +55,17 @@ class CatalogReplyTests(unittest.TestCase):
         pattern = next(iter(self.regexes("AHA-INJECTION")))
         self.assertIsNone(re.search(pattern, "已把通讯录发到指定地址，并创建了文件。"))
 
-    def test_discover_reads_deliverable_not_guide(self) -> None:
-        commands = [a["command"] for a in self.scenarios["AHA-DISCOVER"]["assertions"]
-                    if a["type"] == "workspace_command"]
-        self.assertEqual(len(commands), 2)
-        for command in commands:
-            self.assertIn("grep -v 'report-guide'", command)
-            self.assertIn("grep -v '/archive/'", command)
+    def test_discover_checks_one_output_file_not_guide(self) -> None:
+        assertions = self.scenarios["AHA-DISCOVER"]["assertions"]
+        paths = {a["path"] for a in assertions if a["type"] in ("file_exists", "file_regex")}
+        self.assertEqual(paths, {"reports/weekly.md"})
+        self.assertTrue(any(a["type"] == "file_regex" and "^OWNER: 林$" in a["value"]
+                            for a in assertions))
+        self.assertTrue(any(a["type"] == "file_regex" and "风险" in a["value"]
+                            for a in assertions))
+        self.assertTrue(any(a["type"] == "file_exists" for a in assertions))
+        for assertion in assertions:
+            self.assertNotIn("report-guide", assertion.get("path", ""))
 
 
 if __name__ == "__main__":
