@@ -2181,6 +2181,34 @@ public actor BotMCPRuntime {
         return statuses
     }
 
+    /// G-1 artifact read view: baseline/resource/current-status come from the
+    /// memory document's derivation, ordered by the caller's evidence ∪
+    /// review.refs. The arbitrary-ref view is only for M's mechanical checks.
+    private func artifactSourceStatuses(kind: BotDerivedKind, id: String, version: Int?,
+                                        orderedRefs: [String],
+                                        call: BotResolvedToolCall) async -> [BotSourceStatus]? {
+        guard let provenance else { return nil }
+        do {
+            let artifact = BotDerivedRef(kind: kind, id: id, version: version)
+            let statuses = try await provenance.sourceStatuses(for: artifact)
+            let byRef = Dictionary(statuses.map { ($0.ref, $0) }, uniquingKeysWith: { first, _ in first })
+            var ordered: [BotSourceStatus] = []
+            var seen = Set<String>()
+            for raw in orderedRefs {
+                let ref = BotRecordReference.canonicalize(raw) ?? raw
+                guard seen.insert(ref).inserted else { continue }
+                if let status = byRef[ref] { ordered.append(status) }
+            }
+            // Sources with no matching order entry stay reachable for roles.
+            for status in statuses where !seen.contains(status.ref) { ordered.append(status) }
+            return ordered
+        } catch {
+            noteBridgeError(code: "source_status_unavailable",
+                            sessionId: call.principal.sessionId)
+            return nil
+        }
+    }
+
     /// G-1 `source_statuses`: the only current-status view. The whole member is
     /// omitted (with the diagnostic code) when the provenance model is not
     /// installed or fails; a partial all-unknown array must never stand in for
@@ -2242,14 +2270,13 @@ public actor BotMCPRuntime {
                 output["evidence_status"] = try evidenceStatusValue(
                     statuses, for: document.evidence)
             }
-            // G-1 §4.4: the view covers evidence ∪ review.refs, in first-seen
-            // order, with roles carried by the provenance status itself.
+            // G-1 §4.4: the current-status view comes from the artifact
+            // derivation (baseline/resource), never the arbitrary-ref view.
             let sourceRefs = document.evidence + (document.review?.refs ?? [])
-            if let sourceStatuses = await sourceStatusValues(
-                for: sourceRefs, call: call) {
-                output["source_statuses"] = .array(sourceRefs.compactMap {
-                    sourceStatuses[BotRecordReference.canonicalize($0) ?? $0]
-                })
+            if let statuses = await artifactSourceStatuses(
+                kind: .memory, id: document.path, version: document.version,
+                orderedRefs: sourceRefs, call: call) {
+                output["source_statuses"] = .array(try statuses.map { try encode($0) })
             }
             if document.deleted {
                 output["deleted"] = .bool(true)
@@ -2312,22 +2339,20 @@ public actor BotMCPRuntime {
         }
         let statuses = await evidenceStatuses(
             for: page.hits.flatMap(\.evidence), call: call)
-        let reviewRefs = page.hits.flatMap { $0.review?.refs ?? [] }
-        let sourceStatuses = await sourceStatusValues(
-            for: page.hits.flatMap(\.evidence) + reviewRefs, call: call)
-        let encodedHits = try page.hits.map { hit -> BotJSONValue in
+        var encodedHits: [BotJSONValue] = []
+        for hit in page.hits {
             var object = (try encode(hit)).objectValue ?? [:]
             if let statuses {
                 object["evidence_status"] = try evidenceStatusValue(
                     statuses, for: hit.evidence)
             }
-            if let sourceStatuses {
-                let refs = hit.evidence + (hit.review?.refs ?? [])
-                object["source_statuses"] = .array(refs.compactMap {
-                    sourceStatuses[BotRecordReference.canonicalize($0) ?? $0]
-                })
+            let sourceRefs = hit.evidence + (hit.review?.refs ?? [])
+            if let artifactStatuses = await artifactSourceStatuses(
+                kind: .memory, id: hit.path, version: hit.version,
+                orderedRefs: sourceRefs, call: call) {
+                object["source_statuses"] = .array(try artifactStatuses.map { try encode($0) })
             }
-            return .object(object)
+            encodedHits.append(.object(object))
         }
         return .success(.object([
             "ok": .bool(true),
