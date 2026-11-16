@@ -158,6 +158,21 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
     /// `refresh-not-performed`; the resolver never guesses.
     private let fileRechecks: (any BotFileSourceRechecking)?
 
+    /// Identical record calls in one maintenance run were replaying the same
+    /// large output at every step. A hit is only reused when the durable event
+    /// head and the session-log file stamps are unchanged; otherwise the
+    /// normal bounded result is produced again.
+    private struct RecentRecordOutput {
+        var fingerprint: String
+        var total: Int
+        var first: String?
+        var next: String?
+        var totalChars: Int
+    }
+    private var recentRecordOutputs: [String: RecentRecordOutput] = [:]
+    private var recentRecordOrder: [String] = []
+    private static let recentRecordLimit = 64
+
     public init(store: SQLiteDomainStore, gateway: BotGateway, workspaceRoot: URL,
                 sessionLogLocator: (@Sendable (String) -> URL?)? = nil,
                 now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) },
@@ -210,6 +225,64 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         await service.execute(arguments: arguments, callerSessionID: callerSessionID)
     }
 
+    private func finish(tool: String, result: EncodedResult,
+                        callerSessionID: String, arguments: [String],
+                        sessions: [String]) async throws -> BotRecordCommandOutput {
+        let key = callerSessionID + "\u{1F}" + arguments.joined(separator: "\u{1F}")
+        var stamps: [String] = ["h:\(result.head)"]
+        for sessionID in Set(sessions).sorted() {
+            guard let url = sessionLogLocator(sessionID),
+                  let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+                stamps.append("\(sessionID):missing")
+                continue
+            }
+            let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+            let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+            stamps.append("\(sessionID):\(size):\(modified)")
+        }
+        let fingerprint = stamps.joined(separator: "|")
+        if let cached = recentRecordOutputs[key], cached.fingerprint == fingerprint {
+            return try Self.cachedOutput(tool: tool, cached: cached)
+        }
+        let output = try Self.output(
+            tool: tool, data: result.value, truncated: result.truncated,
+            total: result.total, first: result.first, next: result.next,
+            totalChars: result.totalChars)
+        recentRecordOutputs[key] = RecentRecordOutput(
+            fingerprint: fingerprint, total: result.total, first: result.first,
+            next: result.next, totalChars: result.totalChars)
+        recentRecordOrder.removeAll { $0 == key }
+        recentRecordOrder.append(key)
+        while recentRecordOrder.count > Self.recentRecordLimit {
+            recentRecordOutputs.removeValue(forKey: recentRecordOrder.removeFirst())
+        }
+        return output
+    }
+
+    private static func cachedOutput(tool: String,
+                                     cached: RecentRecordOutput) throws -> BotRecordCommandOutput {
+        let value = BotJSONValue.object([
+            "ok": .bool(true),
+            "tool": .string(tool),
+            "cached": .bool(true),
+            "duplicate": .bool(true),
+            "truncated": .bool(false),
+            "total": .number(Double(cached.total)),
+            "first": cached.first.map(BotJSONValue.string) ?? .null,
+            "next": cached.next.map(BotJSONValue.string) ?? .null,
+            "totalChars": .number(Double(cached.totalChars)),
+            "data": .object([
+                "cached": .bool(true),
+                "message": .string("相同查询/读取自上次调用后未变化；请复用上一条工具结果，不再重复展开。"),
+                "first": cached.first.map(BotJSONValue.string) ?? .null,
+                "next": cached.next.map(BotJSONValue.string) ?? .null,
+                "total": .number(Double(cached.total)),
+                "totalChars": .number(Double(cached.totalChars)),
+            ]),
+        ])
+        return BotRecordCommandOutput(stdout: try encode(value) + "\n", exitCode: 0)
+    }
+
     /// Runs one `phone record` argv. The host shell calls this with the
     /// out-of-band session; tests call it directly.
     public func execute(arguments: [String], callerSessionID: String) async -> BotRecordCommandOutput {
@@ -219,13 +292,22 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
             case let .search(query, since, session):
                 let result = try await search(query: query, since: since, session: session,
                                               callerSessionID: callerSessionID)
-                return try Self.output(tool: "record.search", data: result.value,
-                                       truncated: result.truncated)
+                let sessions = [callerSessionID] + (session.map { [$0] } ?? [])
+                return try await finish(tool: "record.search", result: result,
+                                        callerSessionID: callerSessionID,
+                                        arguments: arguments, sessions: sessions)
             case let .read(reference, around):
                 let result = try await read(reference: reference, around: around,
                                             callerSessionID: callerSessionID)
-                return try Self.output(tool: "record.read", data: result.value,
-                                       truncated: result.truncated)
+                let sessions: [String]
+                if case let .session(sessionID, _)? = BotRecordReference.parse(reference) {
+                    sessions = [callerSessionID, sessionID]
+                } else {
+                    sessions = [callerSessionID]
+                }
+                return try await finish(tool: "record.read", result: result,
+                                        callerSessionID: callerSessionID,
+                                        arguments: arguments, sessions: sessions)
             }
         } catch let error as BotRecordUsageError {
             return Self.failure(tool: error.tool, code: error.code, message: error.message, exitCode: 2)
@@ -361,7 +443,91 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
     private struct EncodedResult {
         var value: BotJSONValue
         var truncated: Bool
+        var total: Int
+        var first: String?
+        var next: String?
+        var totalChars: Int
+        var head: Int
     }
+
+    private struct SearchHit {
+        var value: BotJSONValue
+        var ref: String
+        var key: String
+        var time: Int64
+    }
+
+    /// Default search indexes the readable projection, not a nested tool
+    /// result that merely echoed another record. The raw record remains
+    /// available through an explicit `read` by ref.
+    static func searchProjection(type: String, data: BotJSONValue) -> String {
+        if ["conversation.tool_result", "tool/result"].contains(type),
+           recordToolOutput(data) != nil {
+            return "phone record search output (nested body omitted from default search)"
+        }
+        return searchable(data)
+    }
+
+    private static func recordToolOutput(_ data: BotJSONValue) -> String? {
+        var found: String?
+        func walk(_ value: BotJSONValue, depth: Int) {
+            guard found == nil, depth < 8 else { return }
+            switch value {
+            case let .string(text):
+                guard text.count >= 8, text.hasPrefix("{"),
+                      let parsed = try? BotJSONValue.parse(Data(text.utf8)) else { return }
+                if let tool = parsed["tool"]?.stringValue,
+                   ["record.search", "record.read"].contains(tool) {
+                    found = tool
+                }
+            case let .array(values): values.forEach { walk($0, depth: depth + 1) }
+            case let .object(object):
+                for (_, item) in object { walk(item, depth: depth + 1) }
+            case .number, .bool, .null: break
+            }
+        }
+        walk(data, depth: 0)
+        return found
+    }
+
+    private static func primaryText(type: String, data: BotJSONValue) -> String {
+        var parts: [String] = []
+        func walk(_ value: BotJSONValue, depth: Int) {
+            guard depth < 6, parts.reduce(0, { $0 + $1.count }) < 4_000 else { return }
+            switch value {
+            case let .string(text):
+                if !text.hasPrefix("{") { parts.append(text) }
+            case let .array(values): values.forEach { walk($0, depth: depth + 1) }
+            case let .object(object):
+                for key in ["message", "content", "text", "data"] {
+                    if let item = object[key] { walk(item, depth: depth + 1) }
+                }
+            default: break
+            }
+        }
+        walk(data, depth: 0)
+        let text = parts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? type : text
+    }
+
+    private static func dedupeType(_ type: String) -> String {
+        switch type {
+        case "conversation.tool_result", "tool/result": return "tool-result"
+        case "conversation.user_message", "user/message": return "user-message"
+        case "conversation.assistant_message", "assistant/message": return "assistant-message"
+        default: return type
+        }
+    }
+
+    private static func dedupeKey(type: String, time: Int64, data: BotJSONValue) -> String {
+        let normalized = dedupeType(type)
+        return "\(normalized)|\(time)|\(primaryText(type: normalized, data: data))"
+    }
+
+    /// A tool result is an argument to the next model call. Keep every single
+    /// search/read bounded so one wide query or a large record cannot grow the
+    /// next step without limit; the model gets explicit total/first/next hints.
+    public static let maximumReturnedChars = 8_000
 
     private func search(query: String, since: Int64?, session: String?,
                         callerSessionID: String) async throws -> EncodedResult {
@@ -373,60 +539,101 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         }
         let sessions = session.map { [$0] } ?? owned.sorted()
         let needle = query.lowercased()
-        var hits: [BotJSONValue] = []
-        var overflow = false
+        var rawHits: [SearchHit] = []
+        var total = 0
         for sessionID in sessions {
             guard let lines = try? sessionLines(sessionID: sessionID) else { continue }
             for line in lines {
+                let data = Self.sessionData(line.raw)
+                let projected = data.map {
+                    Self.searchProjection(type: line.type, data: $0)
+                } ?? line.searchable
                 guard !line.erased,
                       since == nil || line.time >= since!,
-                      line.searchable.lowercased().contains(needle) else { continue }
-                if hits.count == Self.maximumHits { overflow = true; break }
-                hits.append(.object([
-                    "ref": .string("record://session/\(sessionID)#\(line.seq)"),
-                    "record": .string("session"),
-                    "sessionId": .string(sessionID),
-                    "seq": .number(Double(line.seq)),
-                    "type": .string(line.type),
-                    "time": .number(Double(line.time)),
-                    "snippet": .string(Self.snippet(line.searchable, needle: needle)),
-                ]))
-            }
-            if overflow { break }
-        }
-        if !overflow {
-            for record in events where record.event.principal.botId == caller.botId {
-                guard !record.event.isErasedPayload,
-                      since == nil || record.event.time >= since!,
-                      record.searchable.lowercased().contains(needle),
-                      let commitSeq = record.event.commitSeq else { continue }
-                if hits.count == Self.maximumHits { overflow = true; break }
-                var fields: [String: BotJSONValue] = [
-                    "ref": .string("record://event/\(commitSeq)"),
-                    "record": .string("event"),
-                    "commitSeq": .number(Double(commitSeq)),
-                    "type": .string(record.event.type),
-                    "time": .number(Double(record.event.time)),
-                    "snippet": .string(Self.snippet(record.searchable, needle: needle)),
-                ]
-                if let sessionID = record.event.principal.sessionId {
-                    fields["sessionId"] = .string(sessionID)
-                }
-                hits.append(.object(fields))
+                      projected.lowercased().contains(needle) else { continue }
+                total += 1
+                let ref = "record://session/\(sessionID)#\(line.seq)"
+                let key = data.map {
+                    Self.dedupeKey(type: line.type, time: line.time, data: $0)
+                } ?? "\(line.type)|\(line.time)|\(line.seq)"
+                rawHits.append(SearchHit(
+                    value: .object([
+                        "ref": .string(ref),
+                        "record": .string("session"),
+                        "sessionId": .string(sessionID),
+                        "seq": .number(Double(line.seq)),
+                        "type": .string(line.type),
+                        "time": .number(Double(line.time)),
+                        "snippet": .string(Self.snippet(projected, needle: needle)),
+                    ]),
+                    ref: ref, key: key, time: line.time))
             }
         }
-        hits.sort { lhs, rhs in
-            let left = lhs["time"]?.numberValue ?? 0
-            let right = rhs["time"]?.numberValue ?? 0
-            if left != right { return left > right }
-            return (lhs["ref"]?.stringValue ?? "") < (rhs["ref"]?.stringValue ?? "")
+        for record in events where record.event.principal.botId == caller.botId {
+            guard !record.event.isErasedPayload,
+                  since == nil || record.event.time >= since!,
+                  record.searchable.lowercased().contains(needle),
+                  let commitSeq = record.event.commitSeq else { continue }
+            total += 1
+            let ref = "record://event/\(commitSeq)"
+            var fields: [String: BotJSONValue] = [
+                "ref": .string(ref),
+                "record": .string("event"),
+                "commitSeq": .number(Double(commitSeq)),
+                "type": .string(record.event.type),
+                "time": .number(Double(record.event.time)),
+                "snippet": .string(Self.snippet(record.searchable, needle: needle)),
+            ]
+            if let sessionID = record.event.principal.sessionId {
+                fields["sessionId"] = .string(sessionID)
+            }
+            rawHits.append(SearchHit(
+                value: .object(fields), ref: ref,
+                key: Self.dedupeKey(type: record.event.type, time: record.event.time,
+                                    data: record.event.data),
+                time: record.event.time))
         }
+        rawHits.sort { lhs, rhs in
+            if lhs.time != rhs.time { return lhs.time > rhs.time }
+            return lhs.ref < rhs.ref
+        }
+        var deduped: [SearchHit] = []
+        var keptByKey: [String: Int] = [:]
+        for hit in rawHits {
+            let key = hit.key.isEmpty ? hit.ref : hit.key
+            if let index = keptByKey[key] {
+                var object = deduped[index].value.objectValue ?? [:]
+                var alsoAt = object["alsoAt"]?.arrayValue ?? []
+                alsoAt.append(.string(hit.ref))
+                object["alsoAt"] = .array(alsoAt)
+                deduped[index].value = .object(object)
+            } else {
+                keptByKey[key] = deduped.count
+                deduped.append(hit)
+            }
+        }
+        let hits = Array(deduped.prefix(Self.maximumHits))
+        let nextRef = deduped.count > Self.maximumHits ? deduped[Self.maximumHits].ref : nil
+        let firstRef = hits.first?.ref
+        let overflow = total > hits.count
         let data = BotJSONValue.object([
             "query": .string(query),
             "since": since.map { BotJSONValue.number(Double($0)) } ?? .null,
-            "hits": .array(hits),
+            "hits": .array(hits.map(\.value)),
+            "total": .number(Double(total)),
+            "deduped": .number(Double(deduped.count)),
+            "first": firstRef.map(BotJSONValue.string) ?? .null,
+            "next": nextRef.map(BotJSONValue.string) ?? .null,
+            "truncated": .bool(overflow),
         ])
-        return EncodedResult(value: data, truncated: overflow)
+        return EncodedResult(
+            value: data, truncated: overflow, total: total, first: firstRef,
+            next: nextRef, totalChars: 0,
+            head: events.compactMap(\.event.commitSeq).max() ?? 0)
+    }
+
+    private static func sessionData(_ raw: String) -> BotJSONValue? {
+        (try? BotJSONValue.parse(Data(raw.utf8)))?["data"]
     }
 
     // MARK: - Read
@@ -456,8 +663,12 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                 return (.session(sessionID: sessionID, seq: line.seq), (range.lowerBound, range.upperBound))
             }.last
             var encoded: [BotJSONValue] = []
+            let windowCount = end - start + 1
+            let lineBudget = max(512, (Self.maximumReturnedChars - 1_800) / windowCount)
+            var totalChars = 0
             for index in start...end {
                 let line = lines[index]
+                totalChars += line.raw.unicodeScalars.count
                 var fields: [String: BotJSONValue] = [
                     "ref": .string("record://session/\(sessionID)#\(line.seq)"),
                     "record": .string("session"),
@@ -466,7 +677,7 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                     "type": .string(line.type),
                     "time": .number(Double(line.time)),
                 ]
-                let (rawText, truncated) = Self.boundedRaw(line.raw)
+                let (rawText, truncated) = Self.boundedRaw(line.raw, maxChars: lineBudget)
                 fields["raw"] = .string(rawText)
                 fields["truncated"] = .bool(truncated)
                 if line.erased { fields["erased"] = .bool(true) }
@@ -480,10 +691,20 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                 }
                 encoded.append(.object(fields))
             }
+            let firstRef = "record://session/\(sessionID)#\(lines[start].seq)"
+            let nextRef = end + 1 < lines.count
+                ? "record://session/\(sessionID)#\(lines[end + 1].seq)" : nil
+            let truncated = encoded.contains { $0["truncated"]?.boolValue == true }
             return EncodedResult(value: .object([
                 "ref": .string(reference.canonical),
                 "lines": .array(encoded),
-            ]), truncated: encoded.contains { $0["truncated"]?.boolValue == true })
+                "totalChars": .number(Double(totalChars)),
+                "first": .string(firstRef),
+                "next": nextRef.map(BotJSONValue.string) ?? .null,
+                "truncated": .bool(truncated),
+            ]), truncated: truncated, total: encoded.count, first: firstRef,
+               next: nextRef, totalChars: totalChars,
+               head: events.compactMap(\.event.commitSeq).max() ?? 0)
         case let .event(commitSeq):
             guard let record = events.first(where: { $0.event.commitSeq == commitSeq }) else {
                 throw BotRecordServiceError.unknownRecord
@@ -494,7 +715,9 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
             guard !record.event.isErasedPayload else {
                 throw BotRecordServiceError.erasedRecord
             }
-            let (rawText, truncated) = Self.boundedRaw(record.raw)
+            let totalChars = record.raw.unicodeScalars.count
+            let (rawText, truncated) = Self.boundedRaw(
+                record.raw, maxChars: max(512, Self.maximumReturnedChars - 1_500))
             return EncodedResult(value: .object([
                 "ref": .string(reference.canonical),
                 "lines": .array([.object([
@@ -506,7 +729,13 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                     "raw": .string(rawText),
                     "truncated": .bool(truncated),
                 ])]),
-            ]), truncated: truncated)
+                "totalChars": .number(Double(totalChars)),
+                "first": .string(reference.canonical),
+                "next": .null,
+                "truncated": .bool(truncated),
+            ]), truncated: truncated, total: 1, first: reference.canonical,
+               next: nil, totalChars: totalChars,
+               head: events.compactMap(\.event.commitSeq).max() ?? 0)
         }
     }
 
@@ -1030,7 +1259,8 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                 let raw = (try? codec.encode(event))
                     .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
                 records.append(EventRecord(event: event, raw: raw,
-                                           searchable: Self.searchable(event.data)))
+                                           searchable: Self.searchProjection(
+                                               type: event.type, data: event.data)))
             }
             guard let last = page.last?.commitSeq else { break }
             cursor = last
@@ -1107,20 +1337,68 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         return (String(decoding: data.prefix(maximumRawBytes), as: UTF8.self), true)
     }
 
+    private static func boundedRaw(_ raw: String, maxChars: Int) -> (String, Bool) {
+        let scalars = raw.unicodeScalars
+        guard scalars.count > maxChars else { return (raw, false) }
+        let end = scalars.index(scalars.startIndex, offsetBy: maxChars)
+        return (String(String.UnicodeScalarView(scalars[..<end])), true)
+    }
+
     // MARK: - Envelopes
 
     private static func output(tool: String, data: BotJSONValue,
-                               truncated: Bool) throws -> BotRecordCommandOutput {
-        let value = BotJSONValue.object([
+                               truncated: Bool, total: Int = 0,
+                               first: String? = nil, next: String? = nil,
+                               totalChars: Int = 0) throws -> BotRecordCommandOutput {
+        var value = BotJSONValue.object([
             "ok": .bool(true),
             "tool": .string(tool),
             "egress": .bool(false),
             "scope": .string("bot"),
             "data": data,
             "truncated": .bool(truncated),
+            "total": .number(Double(total)),
+            "first": first.map(BotJSONValue.string) ?? .null,
+            "next": next.map(BotJSONValue.string) ?? .null,
+            "totalChars": .number(Double(totalChars)),
             "nextCursor": .null,
         ])
-        let text = try encode(value)
+        if case var .object(object) = value {
+            if var dataObject = object["data"]?.objectValue {
+                dataObject["truncated"] = .bool(truncated)
+                dataObject["total"] = .number(Double(total))
+                dataObject["first"] = first.map(BotJSONValue.string) ?? .null
+                dataObject["next"] = next.map(BotJSONValue.string) ?? .null
+                if tool == "record.read" {
+                    dataObject["totalChars"] = .number(Double(totalChars))
+                }
+                object["data"] = .object(dataObject)
+                value = .object(object)
+            }
+        }
+        var text = try encode(value)
+        if text.unicodeScalars.count > maximumReturnedChars {
+            let compact = BotJSONValue.object([
+                "ok": .bool(true),
+                "tool": .string(tool),
+                "egress": .bool(false),
+                "scope": .string("bot"),
+                "truncated": .bool(true),
+                "total": .number(Double(total)),
+                "first": first.map(BotJSONValue.string) ?? .null,
+                "next": next.map(BotJSONValue.string) ?? .null,
+                "totalChars": .number(Double(totalChars)),
+                "data": .object([
+                    "truncated": .bool(true),
+                    "total": .number(Double(total)),
+                    "first": first.map(BotJSONValue.string) ?? .null,
+                    "next": next.map(BotJSONValue.string) ?? .null,
+                    "totalChars": .number(Double(totalChars)),
+                    "message": .string("单次结果超过 8000 字符；已省略正文，请用 first/next 定位或缩小窗口。"),
+                ]),
+            ])
+            text = try encode(compact)
+        }
         if text.utf8.count > maximumOutputBytes {
             return failure(tool: tool, code: "output_too_large",
                            message: "the result exceeds 256 KiB; narrow the query or read a smaller window",
