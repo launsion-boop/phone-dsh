@@ -506,18 +506,6 @@ phone record read <record-ref> [--around <0..20>]
 类型与至多 20 条片段；`read` 返回中心行和前后至多 20 行原文（每条带引用与 `truncated`），
 原文按落盘字节返回，不重新编码。单次输出上限 256 KiB。
 
-**检索投影（2026-11-16 addendum，G）。** `search` 只索引每条记录**自己的顶层可读文本**：session 行的
-`message.content` text 块、durable 消息的 `data.text`/`data.message.text`、tool result 的 text 块。
-不得递归遍历 `data`/`raw`/`lines`/`hits` 或嵌套 JSON 字符串，也不得解引用嵌套 `record://` 后再索引。
-- 顶层文本解析为 P19 envelope 且 `tool == "record.search"|"record.read"` 的记录是 **record bridge
-  回显**，默认不进 search 索引；原文仍可按 ref 显式 `read`。其他 assistant/tool 产物仍可检索，
-  但只索引其顶层文本。
-- 一个规范 `record://` 只产生一条 hit（按 ref 去重）；同一 ref 在多个记录/嵌套 raw/assistant 引用中
-  出现不得重复计数。
-- 沿用 `hits ≤20`、`snippet ≤400`、单次输出 ≤256 KiB；snippet 折叠空白且不返回转义 `raw`。
-  `read` 仍按 ref 返回原文（256 KiB 上限），但调用方不得把 `read` 的 `lines[].raw` 当新来源再喂回。
-- 来源/信任/授权不变；不按业务关键词或样例特判。共享正反例见 `golden/record-search-projection.json`。
-
 **压缩后可回查。** DSH 压缩摘要用 `surfaceOp.replace` 替换 surface 区间，但被替换的行仍留在
 session log 里。`read` 一个 replace 事件时 `data` 带 `replacedRange`（起止引用）；`read` 该区间内的
 原始行时带 `shadowedBy`（替换事件引用）。因此 `phone record read` 能取回压缩前的原文，`search`

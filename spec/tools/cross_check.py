@@ -92,7 +92,6 @@ GOLDEN_READERS = (
     ("spec/v1/golden/github-oauth", "github-oauth-cases.json", "services/github-oauth/server.test.mjs", False),
     ("spec/v1/golden/github-oauth", "github-oauth-cases.json", "examples/probe-app/PhoneDSHSimTests/GitHubOAuthTests.swift", False),
     ("spec/bot/v1/golden", "*.json", "spec/bot/v1/tools/validate_vectors.py", False),
-    ("spec/bot/v1/golden", "record-search-projection.json", "spec/bot/v1/tools/validate_record_search_projection.py", False),
     ("spec/bot/v2/golden", "*.json", "spec/bot/v2/tools/validate_vectors.py", False),
     ("spec/bot/v2/golden", "provenance.json", "spec/bot/v2/tools/validate_provenance.py", False),
     ("spec/bot/v2/golden", "decision-context.json", "spec/bot/v2/tools/validate_decision_context.py", False),
