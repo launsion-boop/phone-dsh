@@ -62,6 +62,11 @@ public struct BotContextSourcesDependencies {
 public final class BotContextSourcesAssembly {
     public let registry: BotContextSourceRegistry
     public let wakeRelay: BotContextWakeRelay
+    /// Sendable snapshot of the real consent generations, for the decision
+    /// context permission revision. It is sampled from the same ledger the
+    /// registry gates reads with; a consent change therefore changes the
+    /// revision even when no BotGrant was issued.
+    public let consentRevision: @Sendable () async -> String
 
     private let ledger: BotContextConsentLedger
     private let dependencies: BotContextSourcesDependencies
@@ -79,6 +84,12 @@ public final class BotContextSourcesAssembly {
         self.dependencies = dependencies
         let ledger = BotContextConsentLedger(store: dependencies.consentStore, now: dependencies.now)
         self.ledger = ledger
+        self.consentRevision = {
+            let states = await ledger.states()
+            return states.map {
+                "\($0.source.rawValue):\($0.permissionRevision):\($0.authorization.rawValue):\($0.osAuthorization?.rawValue ?? "-")"
+            }.sorted().joined(separator: ",")
+        }
         let durableWriter = dependencies.eventLog.map {
             BotContextDurableWriter(eventLog: $0, now: dependencies.now)
         }

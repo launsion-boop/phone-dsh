@@ -412,6 +412,9 @@ final class BotRuntimeComposition {
         // roster, and the runtime compares it before a delivery side effect.
         let materialTrace = BotMaterialTraceLog()
         let instanceID = UUID().uuidString
+        let contextSources = BotContextSourcesAssembly(
+            dependencies: .init(eventLog: store))
+        let consentRevision = contextSources.consentRevision
         let grantStore = await runtime.grants
         let permissionRevision: BotPermissionRevisionEvaluator = { botID, sessionID, recipient in
             let grantState = await grantStore.list(botId: botID)
@@ -420,8 +423,9 @@ final class BotRuntimeComposition {
             let roster = (try? await profileStore.roster())?.bots.map(\.id).sorted()
                 .joined(separator: ",") ?? ""
             let recipientState = recipient.map { "\($0.kind.rawValue):\($0.id)" } ?? ""
+            let contextState = await consentRevision()
             return BotArgumentsDigest.digest(
-                ofUTF8: "\(instanceID)|\(botID)|\(sessionID)|\(recipientState)|\(grantState)|\(roster)")
+                ofUTF8: "\(instanceID)|\(botID)|\(sessionID)|\(recipientState)|\(grantState)|\(contextState)|\(roster)")
         }
         // G-1 provenance first: the decision material state adapter reads it.
         let fileRechecker = BotFileSourceRechecker(
@@ -469,8 +473,6 @@ final class BotRuntimeComposition {
         if let feedbackCenter {
             await runtime.installFeedbackTools(BotFeedbackTools(center: feedbackCenter))
         }
-        let contextSources = BotContextSourcesAssembly(
-            dependencies: .init(eventLog: store))
         let handler = BotMCPHandler(runtime: runtime)
         let server = BotMCPHTTPServer(handler: handler)
         let url = try await server.start()
