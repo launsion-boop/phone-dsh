@@ -332,6 +332,14 @@ final class BotMaintenanceVerificationTests: XCTestCase {
         XCTAssertTrue(summary.findings[0].blocking)
     }
 
+    func testMaterialExcerptIsBoundedAndCollapsed() {
+        let nested = String(repeating: "{\"raw\":\"nested\"}", count: 200)
+        let excerpt = BotMaintenanceEvidenceVerifier.excerpt(nested, limit: 120)
+        XCTAssertLessThanOrEqual(excerpt.count, 121, "excerpt plus ellipsis")
+        XCTAssertTrue(excerpt.hasSuffix("…"))
+        XCTAssertFalse(excerpt.contains("\n"))
+    }
+
     func testFactExtractionIsDomainFree() {
         let facts = BotMaintenanceFacts.importantFacts(
             in: #"会面在「Blue Bottle」3 号桌，预算 12,000 元，编号 QUOKKA_9D2，邮箱 a@b.com。"#)

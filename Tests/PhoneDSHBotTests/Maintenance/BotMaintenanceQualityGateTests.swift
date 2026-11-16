@@ -36,11 +36,12 @@ final class BotMaintenanceQualityGateTests: XCTestCase {
         _ id: String, _ kind: BotMaintenanceQualitySampleKind,
         status: BotMaintenanceQualitySampleStatus = .pass,
         corrected: Bool = true, preserved: Bool = false,
-        stale: Bool = false
+        stale: Bool = false, committed: Bool? = true
     ) -> BotMaintenanceQualitySampleResult {
         BotMaintenanceQualitySampleResult(
             id: id, kind: kind, status: status, corrected: corrected,
-            preservedBothSides: preserved, staleDetected: stale)
+            preservedBothSides: preserved, staleDetected: stale,
+            committed: committed)
     }
 
     private func batch(
@@ -198,6 +199,55 @@ final class BotMaintenanceQualityGateTests: XCTestCase {
             suites: [])
         XCTAssertEqual(noSuite.verdict, .notRun)
         XCTAssertTrue(noSuite.reasons.contains("memory-suite-not-run"))
+    }
+
+    func testUncommittedSampleCannotPass() {
+        let result = evaluate(
+            spec: spec(),
+            samples: [
+                sample("c1", .contradiction, committed: false),
+                sample("c2", .contradiction),
+                sample("s1", .staleExternal, stale: true),
+                sample("s2", .staleExternal, stale: true),
+            ],
+            batches: [batch("mm-1"), batch("mm-2")],
+            suites: [memorySuite()])
+        XCTAssertEqual(result.verdict, .fail)
+        XCTAssertEqual(result.metrics.contradictionCorrected, 1)
+    }
+
+    func testSampleWithoutBatchAssociationIsNotRun() {
+        let result = evaluate(
+            spec: spec(),
+            samples: [
+                sample("c1", .contradiction, committed: nil),
+                sample("c2", .contradiction),
+                sample("s1", .staleExternal, stale: true),
+                sample("s2", .staleExternal, stale: true),
+            ],
+            batches: [batch("mm-1"), batch("mm-2")],
+            suites: [memorySuite()])
+        XCTAssertEqual(result.verdict, .notRun)
+        XCTAssertTrue(result.reasons.contains("sample-without-committed-batch"))
+    }
+
+    func testExtraFailingSampleCountsAgainstTheFixedDenominator() {
+        let result = evaluate(
+            spec: spec(),
+            samples: [
+                sample("c1", .contradiction),
+                sample("c2", .contradiction),
+                sample("c3", .contradiction, corrected: false),
+                sample("s1", .staleExternal, stale: true),
+                sample("s2", .staleExternal, stale: true),
+            ],
+            batches: [batch("mm-1"), batch("mm-2")],
+            suites: [memorySuite()])
+        XCTAssertEqual(result.verdict, .fail)
+        XCTAssertTrue(result.reasons.contains(
+            "extra-failing-samples:contradiction"))
+        XCTAssertEqual(result.metrics.contradictionSamples, 3)
+        XCTAssertEqual(result.metrics.contradictionCorrected, 2)
     }
 
     func testCatalogMismatchIsNotRun() {

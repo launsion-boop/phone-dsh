@@ -411,6 +411,12 @@ public enum BotMaintenanceQualityGate {
         if committedBatches == 0 {
             reasons.append("no-committed-batches")
         }
+        if committedBatches < spec.thresholds.minRealBatches {
+            reasons.append("too-few-committed-batches")
+        }
+        if samples.contains(where: { $0.committed == nil }) {
+            reasons.append("sample-without-committed-batch")
+        }
         for batch in batches where batch.status == "committed" && !batch.checksPassed {
             reasons.append("committed-batch-with-failed-checks")
         }
@@ -434,24 +440,37 @@ public enum BotMaintenanceQualityGate {
             reasons.append("memory-suite-not-run")
         }
 
-        let contradictionTotal = spec.samples.contradiction
+        let contradictionDeclared = spec.samples.contradiction
         let contradictionMatching = samples.filter { $0.kind == .contradiction }
-        if contradictionMatching.count < contradictionTotal {
+        if contradictionMatching.count < contradictionDeclared {
             reasons.append("missing-samples:contradiction")
         }
+        // Extra samples are not ignored: the denominator grows, so an extra
+        // failing sample cannot hide behind the declared fixed count.
+        let contradictionTotal = max(contradictionDeclared,
+                                     contradictionMatching.count)
         let contradictionPassed = contradictionMatching.filter {
-            $0.status == .pass && ($0.committed ?? true)
+            $0.status == .pass && $0.committed == true
                 && ($0.corrected
                     || ($0.preservedBothSides && $0.corrected == false))
         }.count
-        let staleTotal = spec.samples.staleExternal
+        if contradictionMatching.count > contradictionDeclared,
+           contradictionPassed < contradictionMatching.count {
+            reasons.append("extra-failing-samples:contradiction")
+        }
+        let staleDeclared = spec.samples.staleExternal
         let staleMatching = samples.filter { $0.kind == .staleExternal }
-        if staleMatching.count < staleTotal {
+        if staleMatching.count < staleDeclared {
             reasons.append("missing-samples:stale-external")
         }
+        let staleTotal = max(staleDeclared, staleMatching.count)
         let stalePassed = staleMatching.filter {
-            $0.status == .pass && ($0.committed ?? true) && $0.staleDetected
+            $0.status == .pass && $0.committed == true && $0.staleDetected
         }.count
+        if staleMatching.count > staleDeclared,
+           stalePassed < staleMatching.count {
+            reasons.append("extra-failing-samples:stale-external")
+        }
 
         let correctionRate = contradictionTotal == 0 ? 0
             : Double(contradictionPassed) / Double(contradictionTotal)
@@ -490,6 +509,7 @@ public enum BotMaintenanceQualityGate {
                 || $0 == "memory-suite-not-run"
                 || $0 == "catalog-sha-mismatch"
                 || $0 == "catalog-sha-unpinned"
+                || $0 == "sample-without-committed-batch"
         })
         let verdict: BotMaintenanceQualityVerdict
         if reasons.isEmpty {

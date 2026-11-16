@@ -350,6 +350,10 @@ public struct BotMaintenanceDocumentVerification: Codable, Sendable, Equatable {
     /// True when this document is on the batch's changed path and the host
     /// found a violation that must fail the batch.
     public var blocking: Bool
+    /// Bounded material excerpts for the maintainer turn. They never change a
+    /// verdict and are not part of the durable verification projection.
+    public var documentExcerpt: String?
+    public var referenceExcerpts: [String: String]
 
     public init(path: String, documentVersion: Int,
                 state: BotMaintenanceFindingState,
@@ -358,7 +362,8 @@ public struct BotMaintenanceDocumentVerification: Codable, Sendable, Equatable {
                 preferredReference: String? = nil,
                 claims: [BotMaintenanceClaim] = [],
                 checkedAtMS: Int64, persistedReviewState: String? = nil,
-                blocking: Bool = false) {
+                blocking: Bool = false, documentExcerpt: String? = nil,
+                referenceExcerpts: [String: String] = [:]) {
         self.path = path
         self.documentVersion = documentVersion
         self.state = state
@@ -370,6 +375,8 @@ public struct BotMaintenanceDocumentVerification: Codable, Sendable, Equatable {
         self.checkedAtMS = checkedAtMS
         self.persistedReviewState = persistedReviewState
         self.blocking = blocking
+        self.documentExcerpt = documentExcerpt
+        self.referenceExcerpts = referenceExcerpts
     }
 
     enum CodingKeys: String, CodingKey {
@@ -380,6 +387,8 @@ public struct BotMaintenanceDocumentVerification: Codable, Sendable, Equatable {
         case preferredReference = "preferred_ref"
         case checkedAtMS = "checked_at_ms"
         case persistedReviewState = "persisted_review_state"
+        case documentExcerpt = "document_excerpt"
+        case referenceExcerpts = "reference_excerpts"
     }
 }
 
@@ -875,7 +884,13 @@ public struct BotMaintenanceEvidenceVerifier: Sendable {
             claims: claims,
             checkedAtMS: request.checkedAtMS,
             persistedReviewState: document.review?.state.rawValue,
-            blocking: blocking)
+            blocking: blocking,
+            documentExcerpt: Self.excerpt(document.content, limit: 240),
+            referenceExcerpts: Dictionary(uniqueKeysWithValues: considered.compactMap {
+                reference -> (String, String)? in
+                guard let text = probe(reference)?.text else { return nil }
+                return (reference, Self.excerpt(text, limit: 160))
+            }))
     }
 
     // MARK: Helpers
@@ -918,6 +933,15 @@ public struct BotMaintenanceEvidenceVerifier: Sendable {
             subject: subject,
             revisionKind: state.revision?.kind ?? baseline?.revisionKind,
             revisionValue: state.revision?.value ?? baseline?.revisionValue)
+    }
+
+    /// Bounded, whitespace-collapsed material excerpt. This is a display
+    /// projection only: it never feeds schema validation or a verdict.
+    static func excerpt(_ text: String, limit: Int) -> String {
+        let collapsed = text.split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        guard collapsed.count > limit else { return collapsed }
+        return String(collapsed.prefix(limit)) + "…"
     }
 
     static func derivedTrust(_ trusts: [BotRecordTrust]) -> BotRecordTrust {
