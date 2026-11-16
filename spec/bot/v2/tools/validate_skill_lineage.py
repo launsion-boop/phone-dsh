@@ -36,7 +36,7 @@ def rejects(instance, name, where):
 def validate_event(data):
     check(data, "skill-change.schema.json", "skill.change")
     skill = data["skill"]
-    source = skill.get("source", "host")
+    source = skill.get("source", "user-dsh")
     owner = skill.get("owner_bot_id")
     if source in ("project-dsh", "project-agents"):
         if not owner:

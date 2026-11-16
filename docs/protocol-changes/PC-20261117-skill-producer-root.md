@@ -38,3 +38,20 @@
 - R2 real producer/helper and Bot-only use-site guards; C small shared runtime/composition; L index/
   state/rechecker; G contract. Need actual filesystem create/update/delete + revoke/erase counterexample,
   fixed SHA and real caller; no manual event append/unit-only PASS. A04 remains OPEN.
+
+
+## Revision 2 — exact official sources, no root path, Bot loader disabled
+
+- Official source enum is `project-dsh|project-agents|custom|user-dsh|user-agents|bundled`; legacy
+  missing source means `user-dsh` (feature-admin `/dsh/home/skills`).
+- Identity is `(source, owner_bot_id?, name)`. No `skill.root` path/VFS field: for project roots the
+  source + per-Bot owner uniquely identifies the configured root; adding a path is not needed and would
+  leak/relocate the root identity. Do not invent a root field.
+- `phone-bot` preset currently drops `skill-filesystem`/`tool-skill`, so Bot project-dsh files are not
+  loaded by official discovery. A04 may record **file lineage** from real Bot write/edit, but cannot
+  claim Bot skill load/use; that remains OPEN/BLOCKED.
+- Delete: official `tool-fs` has no delete; `bash rm` emits no fs/observed. Do not parse bash. Feature
+  admin `skillsDelete` is the real user-dsh delete; Bot project delete requires a real managed entry
+  before A04 can claim it; otherwise OPEN.
+- Producer R2 records only actual final bytes/hash/revision/author from real write/edit; derivation only
+  when real sources exist; no scan/pretend citation.

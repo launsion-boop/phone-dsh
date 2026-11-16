@@ -58,14 +58,14 @@
             },
             "source": {
               "enum": [
-                "host",
                 "project-dsh",
                 "project-agents",
-                "user",
                 "custom",
+                "user-dsh",
+                "user-agents",
                 "bundled"
               ],
-              "description": "Official DSH skill root source. Missing on legacy events means host."
+              "description": "Official DSH skill root source. Missing on legacy events means user-dsh (feature-admin host root)."
             },
             "owner_bot_id": {
               "type": "string",
@@ -156,14 +156,14 @@
             },
             "source": {
               "enum": [
-                "host",
                 "project-dsh",
                 "project-agents",
-                "user",
                 "custom",
+                "user-dsh",
+                "user-agents",
                 "bundled"
               ],
-              "description": "Official DSH skill root source. Missing on legacy events means host."
+              "description": "Official DSH skill root source. Missing on legacy events means user-dsh (feature-admin host root)."
             },
             "owner_bot_id": {
               "type": "string",

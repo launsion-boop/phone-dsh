@@ -270,10 +270,14 @@
   user/custom。Bot cwd = per-Bot `botRoot`，因此不同 Bot 的 project skill 可以同名不同 path。
   feature-admin 的 host 编辑面仍是单一 profile root `/dsh/home/skills`（source=`host`）。所以
   skill identity 不是单纯的 name：`skill.changed.skill` 带可选 `source`
-  (`host|project-dsh|project-agents|user|custom|bundled`) 与 `owner_bot_id`；L key =
-  `(source, owner_bot_id?, name)`。旧事件缺 `source` 按 `host`（feature-admin 兼容）；project-dsh/
-  project-agents 必须带 owner，且等于真实 Bot；同名不同 source/owner 不合并。不存绝对 cwd/root
-  路径，不按路径猜；`file` 仍是扁平 basename。
+  (`project-dsh|project-agents|custom|user-dsh|user-agents|bundled`) 与 `owner_bot_id`；L key =
+  `(source, owner_bot_id?, name)`。旧事件缺 `source` 按 `user-dsh`（feature-admin host root 兼容）；
+  project-dsh/project-agents 必须带 owner，且等于真实 Bot；同名不同 source/owner 不合并。不存绝对
+  cwd/root 路径，不按路径猜；`file` 仍是扁平 basename。
+  官方 `phone-bot` preset 当前 **drop 了 skill-filesystem/tool-skill**，所以 Bot project-dsh 写入
+  不会进入模型 skill discovery；A04 目前只能证明**文件 lineage**，不能声称 Bot skill 已被加载/
+  使用。Bot 删除也没有官方 fs delete 事件（bash rm 不发 fs/observed）；不得解析 bash 猜 delete，
+  只能由真实 managed entry 产生。
 - **真实 producer 链（R2/C）**：只在 `SkillsStore.write/delete` **真实成功**后，读取最终文件字节
   （delete 用删除前 bytes/hash）并写 `skill.changed`：`file=<name>.md`、`name=skillNameOf(file)`、
   `content_sha256=sha256(final bytes)`、`bytes`、`previous_sha256`、单调 `revision`、真实 author；
