@@ -589,7 +589,7 @@ final class BotRuntimeComposition {
         let selectedUnit = try await composition.ensureUnit(
             for: rosterModel.selectedBotID ?? selectedCandidate,
             reason: "prepare")
-        await composition.startContextSourcesIfNeeded()
+        Task { await composition.startContextSourcesIfNeeded() }
         return Launch(composition: composition, environment: selectedUnit.environment,
                       materialTrace: materialTrace)
     }
