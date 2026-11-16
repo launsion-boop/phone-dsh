@@ -43,14 +43,14 @@ final class BotSkillAdminObserver: @unchecked Sendable {
     }
 
     private func snapshot() -> [String: Date] {
-        let keys: [FileAttributeKey] = [.modificationDate]
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey]
         guard let files = try? FileManager.default.contentsOfDirectory(
-            at: root, includingPropertiesForKeys: keys,
+            at: root, includingPropertiesForKeys: Array(keys),
             options: [.skipsHiddenFiles]) else { return [:] }
         var result: [String: Date] = [:]
         for file in files where file.pathExtension == "md" {
-            let values = try? file.resourceValues(forKeys: Set(keys))
-            result[file.lastPathComponent] = values?.modificationDate ?? .distantPast
+            let values = try? file.resourceValues(forKeys: keys)
+            result[file.lastPathComponent] = values?.contentModificationDate ?? .distantPast
         }
         return result
     }
