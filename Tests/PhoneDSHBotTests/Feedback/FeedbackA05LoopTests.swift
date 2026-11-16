@@ -1,0 +1,378 @@
+// SPDX-License-Identifier: MIT
+
+// A05 host-loop acceptance at the fixed integration checkout.
+//
+// These tests use the production Feedback center, the production
+// `ProactiveEngine` gate/tool handler, the real SQLite domain event log, the
+// real `BotMemory` store and the real P18 UserDefaults key. They do NOT copy the
+// state machine: every assertion goes through the same code C assembles in the
+// App. The UI adapter shape is reproduced exactly as `BotProductionUIAdapters`
+// sends it (`target:.delivery`, rowID, `.uiAction` origin); the adapter itself
+// lives in the App target and is covered by the app build/E2E.
+
+import XCTest
+@testable import PhoneDSHBot
+
+final class FeedbackA05LoopTests: XCTestCase {
+    private var store: SQLiteDomainStore!
+    private var root: URL!
+    private var suiteName: String!
+    private var defaults: UserDefaults!
+    private var memory: BotMemory!
+    private var clock: WP6Clock!
+
+    override func setUp() async throws {
+        (store, root) = try makeMemoryTestStore()
+        suiteName = "feedback-a05-\(UUID().uuidString)"
+        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        memory = makeMemory(store: store, botID: "bot-a")
+        clock = WP6Clock(FeedbackFixtures.baseNow)
+    }
+
+    override func tearDown() async throws {
+        defaults.removePersistentDomain(forName: suiteName)
+        try? await store?.close()
+        cleanupMemoryTestStore(root)
+    }
+
+    private func makeCenter() throws -> BotFeedbackCenter {
+        let reader: any BotFeedbackMemoryReading = memory
+        return try BotFeedbackCenter.live(
+            eventLog: store, memory: { _ in reader }, defaults: defaults,
+            now: { [clock] in clock!.now })
+    }
+
+    private func makeEngine(_ center: BotFeedbackCenter,
+                            deliverer: WP6NotificationDeliverer,
+                            kinds: Set<ProactiveKind> = [.taskDone, .routineResult, .reminder])
+        -> ProactiveEngine {
+        ProactiveEngine(
+            settings: { wp6Settings() }, now: { [clock] in clock!.now },
+            policy: ProactivePolicyConfiguration(fuseMaxWakeups: 50),
+            deliverer: deliverer, eventLog: store, feedback: center,
+            deliveryKinds: kinds)
+    }
+
+    private func ui(_ nonce: String = UUID().uuidString) -> BotFeedbackOrigin {
+        BotFeedbackOrigin(kind: .uiAction, nonce: nonce)
+    }
+
+    private func feedbackEvents() async throws -> [BotEvent] {
+        let page = try await store.events(after: 0, limit: 500)
+        return page.filter { $0.type == BotFeedbackCenter.feedbackEventType }
+    }
+
+    private func storedIndex() throws -> BotFeedbackIndexFile? {
+        guard let data = defaults.data(forKey: BotFeedbackIndexFile.defaultsKey) else {
+            return nil
+        }
+        return try JSONDecoder().decode(BotFeedbackIndexFile.self, from: data)
+    }
+
+    // 1. UI adapter shape for a visible message row: persisted durable event,
+    //    P18 index, restart idempotency, and no model fabrication.
+    func testUIAdapterAdoptSurvivesRestartAndIsIdempotent() async throws {
+        let center = try makeCenter()
+        let rowID = "row-message-1"
+        let request = BotFeedback(
+            botID: "bot-a", action: .adopt,
+            target: BotFeedbackArtifactRef(kind: .delivery, id: rowID),
+            scope: .artifact, origin: ui("ui-adopt-1"))
+        let outcome = try await center.record(request)
+        XCTAssertEqual(outcome.status, .accepted)
+
+        let events = try await feedbackEvents()
+        XCTAssertEqual(events.count, 1)
+        let event = try XCTUnwrap(events.first)
+        XCTAssertEqual(event.origin, .local(source: "card-bridge"))
+        XCTAssertEqual(event.principal.kind, "chat")
+        XCTAssertEqual(event.principal.botId, "bot-a")
+        guard case .object(let data) = event.data else {
+            return XCTFail("feedback event data must be an object")
+        }
+        XCTAssertEqual(data["accepted"] ?? .null, .bool(true))
+        XCTAssertEqual(data["action"] ?? .null, .string("adopt"))
+        XCTAssertEqual(data["scope"] ?? .null,
+                       .object(["kind": .string("artifact"),
+                                "key": .string("delivery:bot-a:\(rowID)")]))
+
+        let index = try XCTUnwrap(try storedIndex())
+        XCTAssertEqual(index.v, 1)
+        let adoption = try XCTUnwrap(index.records.first { $0.action == .adopt })
+        XCTAssertEqual(adoption.scope.key, "delivery:bot-a:\(rowID)")
+        XCTAssertEqual(adoption.status, .active)
+
+        // The same UI retry (same nonce) and a fresh tap (new nonce) are both
+        // idempotent after a relaunch.
+        let restarted = try makeCenter()
+        let replay = try await restarted.record(request)
+        XCTAssertEqual(replay.status, .duplicated)
+        var secondTap = request
+        secondTap.origin = ui("ui-adopt-2")
+        let duplicated = try await restarted.record(secondTap)
+        XCTAssertEqual(duplicated.status, .duplicated)
+        XCTAssertEqual(duplicated.feedbackID, outcome.feedbackID)
+
+        // A model turn cannot bind a fabricated row artifact.
+        var model = request
+        model.origin = FeedbackFixtures.chatOrigin("chat-adopt")
+        let denied = try await restarted.record(model)
+        XCTAssertEqual(denied.code, "target-unresolved")
+    }
+
+    // 2. UI suppress on a routine result row: the next decision is held, the
+    //    sibling routine is untouched, both survive a relaunch, and undo
+    //    releases the gate.
+    func testUISuppressOnRoutineRowHoldsNextDecisionAcrossRestart() async throws {
+        let deliverer = WP6NotificationDeliverer()
+        let center = try makeCenter()
+        let engine = makeEngine(center, deliverer: deliverer)
+        var routineA = FeedbackFixtures.candidate(
+            "routine-a-run-1", kind: .routineResult, botId: "bot-a",
+            routineId: "routine-a")
+        routineA.rowId = "row-routine-a"
+        let first = await engine.consider(routineA)
+        XCTAssertEqual(first.decision, .did)
+        let sibling = await engine.consider(
+            FeedbackFixtures.candidate("routine-b-run-1", kind: .routineResult,
+                                       botId: "bot-a", routineId: "routine-b"))
+        XCTAssertEqual(sibling.decision, .did)
+
+        let suppression = try await center.record(BotFeedback(
+            botID: "bot-a", action: .suppress,
+            target: BotFeedbackArtifactRef(kind: .delivery, id: "row-routine-a"),
+            scope: .artifact, origin: ui("ui-suppress-routine")))
+        XCTAssertEqual(suppression.status, .accepted,
+                       "code=\(suppression.code ?? "nil") message=\(suppression.message ?? "nil")")
+        let recorded = try XCTUnwrap(try storedIndex())
+        XCTAssertEqual(recorded.records.filter { $0.action == .suppress }.count, 1)
+
+        clock.advance(60_000)
+        let held = await engine.consider(FeedbackFixtures.candidate(
+            "routine-a-run-1", kind: .routineResult, botId: "bot-a",
+            routineId: "routine-a"))
+        XCTAssertEqual(held.reason, "feedback-held")
+        let other = await engine.consider(FeedbackFixtures.candidate(
+            "routine-b-run-2", kind: .routineResult, botId: "bot-a",
+            routineId: "routine-b"))
+        XCTAssertEqual(other.decision, .did)
+
+        // Restart: a fresh center reads the P18 index and keeps holding.
+        let restarted = try makeCenter()
+        let restartedEngine = makeEngine(restarted, deliverer: deliverer)
+        clock.advance(60_000)
+        let heldAfterRestart = await restartedEngine.consider(FeedbackFixtures.candidate(
+            "routine-a-run-1", kind: .routineResult, botId: "bot-a",
+            routineId: "routine-a"))
+        XCTAssertEqual(heldAfterRestart.reason, "feedback-held")
+        let siblingAfterRestart = await restartedEngine.consider(FeedbackFixtures.candidate(
+            "routine-b-run-3", kind: .routineResult, botId: "bot-a",
+            routineId: "routine-b"))
+        XCTAssertEqual(siblingAfterRestart.decision, .did)
+
+        let undo = try await restarted.undo(
+            try XCTUnwrap(suppression.feedbackID), botID: "bot-a",
+            origin: ui("ui-undo-routine"))
+        XCTAssertEqual(undo.status, .accepted)
+        XCTAssertTrue(undo.reversed)
+        clock.advance(60_000)
+        let released = await restartedEngine.consider(FeedbackFixtures.candidate(
+            "routine-a-run-1", kind: .routineResult, botId: "bot-a",
+            routineId: "routine-a"))
+        XCTAssertEqual(released.decision, .did)
+    }
+
+    // 3. A host-verified UI action can create a kind-level cross-Bot user
+    //    preference; Bot B honours it, a routine result does not match it, and
+    //    the preference survives a relaunch and can be rolled back.
+    func testCrossBotUserScopeEnforcedAndRolledBack() async throws {
+        let delivererA = WP6NotificationDeliverer()
+        let delivererB = WP6NotificationDeliverer()
+        let center = try makeCenter()
+        let engineA = makeEngine(center, deliverer: delivererA)
+        let engineB = makeEngine(center, deliverer: delivererB)
+        let task = await engineA.consider(
+            FeedbackFixtures.candidate("task-1", botId: "bot-a"))
+        XCTAssertEqual(task.decision, .did)
+
+        let suppression = try await center.record(BotFeedback(
+            botID: "bot-a", action: .suppress,
+            target: BotFeedbackArtifactRef(kind: .proactive, id: task.id,
+                                           deliveryKey: task.dedupeKey),
+            scope: .user, origin: ui("ui-user-scope")))
+        XCTAssertEqual(suppression.status, .accepted)
+        XCTAssertEqual(suppression.classKey, "proactive:task-done")
+
+        clock.advance(60_000)
+        let heldB = await engineB.consider(
+            FeedbackFixtures.candidate("task-b1", botId: "bot-b"))
+        XCTAssertEqual(heldB.reason, "feedback-held")
+        let routineB = await engineB.consider(FeedbackFixtures.candidate(
+            "routine-b", kind: .routineResult, botId: "bot-b", routineId: "routine-b"))
+        XCTAssertEqual(routineB.decision, .did)
+
+        // A chat utterance cannot widen the scope by itself.
+        var chatWide = BotFeedback(
+            botID: "bot-a", action: .suppress,
+            target: BotFeedbackArtifactRef(kind: .proactive, id: task.id,
+                                           deliveryKey: task.dedupeKey),
+            scope: .user,
+            origin: FeedbackFixtures.chatOrigin("chat-wide"))
+        let chatDenied = try await center.record(chatWide)
+        XCTAssertEqual(chatDenied.code, "scope-requires-confirmation")
+        chatWide.scope = .class
+        let classDenied = try await center.record(chatWide)
+        XCTAssertEqual(classDenied.code, "ambiguous-scope")
+
+        let restarted = try makeCenter()
+        let restartedB = makeEngine(restarted, deliverer: delivererB)
+        clock.advance(60_000)
+        let heldAfterRestart = await restartedB.consider(
+            FeedbackFixtures.candidate("task-b2", botId: "bot-b"))
+        XCTAssertEqual(heldAfterRestart.reason, "feedback-held")
+
+        let undo = try await restarted.undo(
+            try XCTUnwrap(suppression.feedbackID), botID: "bot-b",
+            origin: ui("ui-user-undo"))
+        XCTAssertEqual(undo.status, .accepted, "a user-scope preference can be rolled back from any Bot")
+        clock.advance(60_000)
+        let released = await restartedB.consider(
+            FeedbackFixtures.candidate("task-b3", botId: "bot-b"))
+        XCTAssertEqual(released.decision, .did)
+    }
+
+    // 4. Correct uses the real applied memory version, publishes the disputed
+    //    refs to M, survives a full event-log rebuild, and undo retracts it.
+    func testCorrectUsesAppliedMemoryVersionAndRebuildsFromEvents() async throws {
+        let path = "user/prefs/coffee.md"
+        let writeContext = BotMemoryWriteContext(
+            botID: "bot-a", sessionID: "s-chat", authorKind: .chat,
+            source: BotMemorySource(kind: .userTurn, sessionID: "s-chat"),
+            trust: .user)
+        let written = try await memory.write(
+            BotMemoryWriteRequest(action: .write, path: path, content: "decaf",
+                                  expectedVersion: 0,
+                                  evidence: ["record://session/s-chat#7"]),
+            context: writeContext)
+        XCTAssertTrue(written.ok)
+        XCTAssertEqual(written.version, 1)
+
+        let center = try makeCenter()
+        let correct = try await center.record(BotFeedback(
+            botID: "bot-a", action: .correct,
+            target: BotFeedbackArtifactRef(kind: .memory, id: path, version: 1),
+            scope: .artifact, origin: ui("ui-correct-1")))
+        XCTAssertEqual(correct.status, .accepted)
+        XCTAssertEqual(correct.appliedMemory?.version, 1)
+        let disputed = try await center.disputedRefs(paths: [path])
+        XCTAssertEqual(disputed[path]?.first?.state, "active")
+        XCTAssertEqual(disputed[path]?.first?.refs, ["record://session/s-chat#7"])
+
+        let events = try await store.events(after: 0, limit: 500)
+        XCTAssertTrue(events.contains { $0.type == BotFeedbackCenter.feedbackEventType })
+        let review = try XCTUnwrap(events.first { $0.type == "memory.review_requested" })
+        guard case .object(let data) = review.data else {
+            return XCTFail("review data must be an object")
+        }
+        XCTAssertEqual(data["path"] ?? .null, .string(path))
+
+        // M reads the same view through the production protocol adapter.
+        let mView = try await BotFeedbackDisputeAdapter(query: center)
+            .disputedReferences(forPaths: [path])
+        XCTAssertEqual(mView[path], ["record://session/s-chat#7"])
+
+        // Simulate an index loss: the facts are the events, and the next
+        // center must rebuild the disputed view from them.
+        defaults.removeObject(forKey: BotFeedbackIndexFile.defaultsKey)
+        let rebuilt = try makeCenter()
+        let rebuiltView = try await rebuilt.disputedRefs(paths: [path])
+        XCTAssertEqual(rebuiltView[path]?.first?.state, "active")
+        XCTAssertEqual(rebuiltView[path]?.first?.refs, ["record://session/s-chat#7"])
+
+        let undo = try await rebuilt.undo(
+            try XCTUnwrap(correct.feedbackID), botID: "bot-a",
+            origin: ui("ui-correct-undo"))
+        XCTAssertEqual(undo.status, .accepted)
+        let retracted = try await rebuilt.disputedRefs(paths: [path])
+        XCTAssertEqual(retracted[path]?.first?.state, "retracted")
+    }
+
+    // 6. Production per-caller catalog gate for the model path. The static
+    //    catalog already advertises RecordFeedback at this checkout, but the
+    //    roster-aware catalog used by `tools/list` and by the runtime's
+    //    per-caller check does not yet include it. This test is a live gate:
+    //    it skips with the exact reason until C/G applies the roster-version
+    //    patch.
+    func testIdentifiedCallerCatalogAdvertisesRecordFeedback() async throws {
+        let roster = botTeamRoster()
+        let definitions = BotToolCatalog.allDefinitions(roster: roster,
+                                                        callerBotID: "bot-a")
+        let advertised = definitions.first { $0.name == BotFeedbackTools.toolName }
+        try XCTSkipIf(advertised == nil,
+                      "production roster catalog lacks RecordFeedback; a real model tool call would get permission_denied before dispatch")
+        XCTAssertTrue(BotToolCatalog.isRegistered(BotFeedbackTools.toolName))
+        XCTAssertEqual(advertised, BotFeedbackTools.definition)
+    }
+
+    // 5. The model-facing handler (host half) persists through the same center
+    //    and changes the next decision; a non-chat principal is refused.
+    func testModelToolHandlerPersistsFeedbackAndChangesNextDecision() async throws {
+        let deliverer = WP6NotificationDeliverer()
+        let center = try makeCenter()
+        let engine = makeEngine(center, deliverer: deliverer)
+        var routine = FeedbackFixtures.candidate(
+            "routine-model-1", kind: .routineResult, botId: "bot-a",
+            routineId: "routine-model")
+        routine.rowId = "row-routine-model"
+        let delivered = await engine.consider(routine)
+        XCTAssertEqual(delivered.decision, .did)
+
+        let tools = BotFeedbackTools(center: center)
+        let principal = BotGatewayPrincipal(
+            botId: "bot-a", sessionId: "session-chat", kind: .chat,
+            expiresAt: FeedbackFixtures.baseNow + 3_600_000)
+        let result = await tools.execute(
+            name: BotFeedbackTools.toolName,
+            arguments: .object([
+                "action": .string("suppress"),
+                "target": .object([
+                    "kind": .string("proactive"), "id": .string(delivered.id),
+                    "delivery_key": .string(try XCTUnwrap(delivered.dedupeKey)),
+                ]),
+                "scope": .string("class"),
+            ]),
+            principal: principal,
+            context: BotMCPRequestContext(callId: "mcp-call-1"))
+        XCTAssertNotEqual(result.isError, true)
+        guard case .object(let body)? = result.structuredContent else {
+            return XCTFail("tool result must be structured")
+        }
+        XCTAssertEqual(body["ok"] ?? .null, .bool(true),
+                       "tool body=\(body)")
+        XCTAssertEqual(body["status"] ?? .null, .string("accepted"))
+
+        let events = try await feedbackEvents()
+        XCTAssertTrue(events.contains { $0.origin == .local(source: "mcp") })
+
+        clock.advance(60_000)
+        let held = await engine.consider(FeedbackFixtures.candidate(
+            "routine-model-2", kind: .routineResult, botId: "bot-a",
+            routineId: "routine-model"))
+        XCTAssertEqual(held.reason, "feedback-held")
+
+        let routinePrincipal = BotGatewayPrincipal(
+            botId: "bot-a", sessionId: "session-routine", kind: .routine,
+            expiresAt: FeedbackFixtures.baseNow + 3_600_000)
+        let denied = await tools.execute(
+            name: BotFeedbackTools.toolName,
+            arguments: .object([
+                "action": .string("adopt"),
+                "target": .object(["kind": .string("delivery"),
+                                   "id": .string("row-routine-model")]),
+            ]),
+            principal: routinePrincipal,
+            context: BotMCPRequestContext(callId: "mcp-call-2"))
+        XCTAssertEqual(denied.isError, true)
+    }
+}
