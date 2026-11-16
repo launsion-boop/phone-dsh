@@ -85,7 +85,7 @@
           "ref": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 2048
           },
           "path": {
             "type": "string",

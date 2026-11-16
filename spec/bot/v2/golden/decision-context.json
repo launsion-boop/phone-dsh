@@ -133,6 +133,38 @@
         },
         "truncated": false,
         "canceled": false
+      },
+      {
+        "block_id": "dm:1",
+        "turn_id": "gb-main#3",
+        "session_id": "gb-main",
+        "bot_id": "bot-a",
+        "stage": "pre_step",
+        "authorization_revision": "auth-r1",
+        "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "retrieved_at_ms": 1760000010000,
+        "materials": [
+          {
+            "material_id": "mat:ws2",
+            "ref": "workspace:Meeting%20Notes%20%E7%85%A7%E7%89%87%40%25.md@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "path": "Meeting Notes 照片@%.md",
+            "scope": "agent",
+            "version": 1794837000,
+            "updated_at_ms": 1794837000000,
+            "snippet": "文件内容。",
+            "evidence": [],
+            "selection_reason": "match",
+            "state": "current"
+          }
+        ],
+        "limits": {
+          "max_materials": 4,
+          "max_characters": 1600,
+          "max_snippet_characters": 240,
+          "deadline_ms": 1500
+        },
+        "truncated": false,
+        "canceled": false
       }
     ],
     "invalid": [
@@ -665,6 +697,111 @@
               "evidence": [],
               "selection_reason": "match",
               "state": "unknown"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-encoded-traversal",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws2",
+              "ref": "workspace:%2e%2e/secret.md@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "path": "../secret.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-raw-space-ref",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws2",
+              "ref": "workspace:Meeting Notes 照片.md@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "path": "Meeting Notes 照片.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-encoded-at-mismatch",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws2",
+              "ref": "workspace:Meeting%20Notes%20照片%40%25.md@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "path": "Meeting Notes 照片@%.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
             }
           ],
           "limits": {

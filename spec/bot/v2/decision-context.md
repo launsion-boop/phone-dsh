@@ -23,11 +23,17 @@
   updated_at_ms, snippet, evidence[0..2], selection_reason, state, reason?}`。
 - **workspace 候选（G-2 r6 additive）**：同一个 block 可混入 ≤2 条 Bot 工作区文件材料，不新增
   MCP 工具/`systemPrompt.context` section/profile 行。
-  - `ref = workspace:<bot-root-relative-path>@sha256:<64 lowercase hex>`，≤256；path 不以 `/` 开头、
-    不含 `..` 段、反斜线/空白/控制字符，≤200；`sha256` 是对本次实际读取字节（≤64 KiB）计算的
-    `sha256:`，与 `ref` 中值一致。
-  - `path` 与 ref 中的 path 逐字一致（bot-root-relative，模型可直接 `read`）；`scope` 固定 `agent`
-    （该 Bot 自己的工作区）；`version`=mtime 秒（≥1）；`updated_at_ms`=mtime ms；`evidence=[]`；
+  - `ref = workspace:<percent-encoded-path>@sha256:<64 lowercase hex>`，≤2048；**path 段**用 RFC 3986
+    百分号编码（UTF-8 字节；unreserved `A-Z a-z 0-9 - . _ ~` 与 `/` 原样，其余一律 `%HH` 大写；
+    `%` 自身编码 `%25`，空格 `%20`，`@` `%40`，中文按 UTF-8 编码）。`sha256` 是对本次实际读取字节
+    （≤64 KiB）计算的 `sha256:`，与 ref 中值一致。
+  - `path` 字段是**原始 bot-root-relative 路径**（人类可读、模型可直接 `read`），可与 ref path 段
+    不同拼写但 decode 一次后必须逐字相等；允许空格、中文、`@`、`%` 等正常文件名，仍拒绝绝对路径、
+    `..` 段、NUL/控制字符、反斜线、symlink 逃逸。**只 decode 一次**：编码后的 `%2e%2e` 在 decode
+    后按 `..` 拒绝；`%252e%252e` 只得到字面 `%2e%2e`，不得二次 decode 成 traversal。
+  - simple/legacy ref（path 段只含 safe 字符、无 `%`）保持兼容：编码形态等于原文；新写入一律用
+    上述 canonical 编码。宿主重读用 `path` 原样，Worker 解析 ref 时 decode 一次后与 `path` 比较。
+  - `scope` 固定 `agent`；`version`=mtime 秒（≥1）；`updated_at_ms`=mtime ms；`evidence=[]`；
     `selection_reason ∈ match|recency|goal`。
   - `state` 固定 `current`（同一 turn 的真实 read+sha256 观察；ref 固定该次读取的字节身份；
     pre-delivery/reuse 必须重新读取并核对 hash，不一致则丢弃/重生成，不复用旧副本）。不写

@@ -18,6 +18,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from urllib.parse import quote, unquote_to_bytes
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
@@ -58,22 +59,45 @@ def digest(draft: str, revision: int, ids, params) -> str:
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def valid_workspace_path(path: str) -> bool:
+    if not (1 <= len(path) <= 200) or path.startswith("/") or "\\" in path:
+        return False
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7f for ch in path):
+        return False
+    segments = path.split("/")
+    return not any(segment in ("", ".", "..") for segment in segments)
+
+
 def parse_workspace_ref(ref: str):
     prefix = "workspace:"
     if not ref.startswith(prefix):
         return None
     body = ref[len(prefix):]
-    path, sep, digest = body.rpartition("@sha256:")
+    encoded, sep, digest = body.rpartition("@sha256:")
     if sep != "@sha256:" or len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
         return None
-    if not (1 <= len(path) <= 200) or path.startswith("/") or "\\" in path:
+    if encoded.startswith("/"):
         return None
-    if any(ch.isspace() or ord(ch) < 0x20 for ch in path):
+    # exactly one decode; reject malformed escapes and invalid UTF-8
+    i = 0
+    while i < len(encoded):
+        if encoded[i] == "%":
+            if i + 2 >= len(encoded) or any(c not in "0123456789abcdefABCDEF" for c in encoded[i+1:i+3]):
+                return None
+            i += 3
+        else:
+            i += 1
+    try:
+        raw = unquote_to_bytes(encoded).decode("utf-8")
+    except UnicodeDecodeError:
         return None
-    segments = path.split("/")
-    if any(segment in ("", ".", "..") for segment in segments):
+    if not valid_workspace_path(raw):
         return None
-    return path, digest
+    canonical = quote(raw, safe="/-._~")
+    legacy_safe = all(ch.isascii() and (ch.isalnum() or ch in "-._~/") for ch in raw)
+    if encoded != canonical and not (encoded == raw and legacy_safe):
+        return None
+    return raw, digest
 
 
 def check_material(block: dict, where: str) -> None:
