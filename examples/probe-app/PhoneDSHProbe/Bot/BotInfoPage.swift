@@ -539,8 +539,14 @@ final class BotInfoModel: ObservableObject {
     }
 
     func setRoutineCloudSchedule(_ routine: BotRoutineInfo, enabled: Bool) async {
+        // A missing driver is not a successful no-op: the fixture model must
+        // show the same honest failure the production wiring would show.
+        guard let driver else {
+            actionError = "云端调度设置失败：云端调度开关未连接。"
+            return
+        }
         do {
-            try await driver?.setRoutineCloudSchedule(routine.id, enabled)
+            try await driver.setRoutineCloudSchedule(routine.id, enabled)
             guard let index = routines.firstIndex(where: { $0.id == routine.id }) else { return }
             routines[index].cloudScheduleEnabled = enabled
         } catch {
