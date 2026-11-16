@@ -32,7 +32,9 @@ public struct BotProvenanceRecheckerComposite: BotProvenanceRechecking {
         case .contextSource:
             guard let context else { return .notPerformed }
             return await context.recheck(resource: resource, baseline: baseline, botID: botID)
-        case .provider:
+        case .provider, .workspaceFile:
+            // A workspaceFile is gated by its tracked derivation before the
+            // material is selected; it has no independent recheck provider.
             return .notPerformed
         }
     }
