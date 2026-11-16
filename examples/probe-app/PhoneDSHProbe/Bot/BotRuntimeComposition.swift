@@ -426,7 +426,7 @@ final class BotRuntimeComposition {
             feedbackCenter = nil
         }
         if let feedbackCenter {
-            await runtime.registerTeamTools(BotFeedbackTools(center: feedbackCenter))
+            await runtime.installFeedbackTools(BotFeedbackTools(center: feedbackCenter))
         }
 
         let handler = BotMCPHandler(runtime: runtime)

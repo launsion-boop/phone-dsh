@@ -343,12 +343,14 @@ public enum BotToolCatalog {
 
     public static var allDefinitions: [BotMCPToolDefinition] {
         definitions + [fishActionDefinition, volatileContextDefinition,
-                       attachToModelDefinition, decisionContextDefinition] + baseTeamDefinitions
+                       attachToModelDefinition, decisionContextDefinition,
+                       BotFeedbackTools.definition] + baseTeamDefinitions
     }
 
     public static func isRegistered(_ name: String) -> Bool {
         name == volatileContextName || name == attachToModelName
-            || name == decisionContextName || p0Names.contains(name)
+            || name == decisionContextName || name == BotFeedbackTools.definition.name
+            || p0Names.contains(name)
     }
 
     public static func isTeamTool(_ name: String) -> Bool {

@@ -329,6 +329,9 @@ public actor BotMCPRuntime {
     /// changed so it can re-sync schedules. The runtime is shared by every
     /// Bot, so the observer receives the calling bot id.
     private var routineChangeObserver: (@Sendable (String) async -> Void)?
+    /// G-2 feedback handler. Registered as a catalog-visible tool, so it is
+    /// dispatched from the catalog switch instead of the team-tool seam.
+    private var feedbackTools: BotFeedbackTools?
     /// Delivery-class tools whose side effect must revalidate the decision
     /// context first (G-2 frozen list).
     private static let preDeliveryToolNames: Set<String> = [
@@ -348,6 +351,13 @@ public actor BotMCPRuntime {
     /// Installs the G-3 routine-change observer (cloud schedule re-sync).
     public func setRoutineChangeObserver(_ observer: (@Sendable (String) async -> Void)?) {
         routineChangeObserver = observer
+    }
+
+    /// Installs the G-2 feedback handler. It is a catalog tool (not a team
+    /// tool), so a single dispatch case executes it after the usual
+    /// attribution, catalog and effect checks.
+    public func installFeedbackTools(_ tools: BotFeedbackTools) {
+        feedbackTools = tools
     }
     /// Default bounded wait for a `tools/call` while the App reattaches the
     /// Worker. Long enough to cover the ready-gate fallback and the first
@@ -1738,6 +1748,13 @@ public actor BotMCPRuntime {
         case BotToolCatalog.attachToModelName:
             return try await attachToModel(arguments, call: call)
         case "SendToUser": return try await sendToUser(arguments, call: call)
+        case BotFeedbackTools.toolName:
+            guard let feedbackTools else {
+                return .failure("unavailable", "反馈服务没有装配")
+            }
+            return await feedbackTools.execute(
+                name: name, arguments: arguments, principal: call.principal,
+                context: BotMCPRequestContext(callId: call.callId))
         default: throw BotMCPError.unknownTool(name)
         }
     }
