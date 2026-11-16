@@ -138,6 +138,21 @@ public struct BotMaintenanceDependencyStatus: Sendable, Equatable {
         self.observedAtMS = observedAtMS
         self.derivedPaths = derivedPaths
     }
+
+    /// Worst-state merge for the same reference. A benign duplicate must not
+    /// hide an erased/revoked/changed observation from another role/baseline.
+    public static func worse(_ lhs: Self, _ rhs: Self) -> Self {
+        func rank(_ state: State) -> Int {
+            switch state {
+            case .live: return 0
+            case .changed: return 1
+            case .unknown: return 2
+            case .revoked: return 3
+            case .erased: return 4
+            }
+        }
+        return rank(lhs.state) >= rank(rhs.state) ? lhs : rhs
+    }
 }
 
 /// The artifact whose baseline/scope the invalidation query belongs to.
