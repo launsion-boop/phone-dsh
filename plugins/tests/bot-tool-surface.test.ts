@@ -121,7 +121,7 @@ test('Bot sessions use a phone-bot preset that exposes exactly the prompt native
   assert.deepEqual(enabledNativeTools(bot), [...PHONE_NATIVE_TOOLS, 'skill'].sort())
   assert.deepEqual(rows.map(row => row.id), [
     'agent-instructions', 'time-context', 'tool-bash', 'tool-fs', 'tool-fs-search',
-    'tool-jobs', 'skill-filesystem', 'tool-skill', 'command-goal', 'tool-goal',
+    'tool-jobs', 'skill-filesystem', 'tool-skill', 'skill-use-gate', 'command-goal', 'tool-goal',
     'tool-todo', 'tool-web', 'compaction',
   ])
 })

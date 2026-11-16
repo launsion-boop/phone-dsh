@@ -2,6 +2,7 @@
 export { default as steering } from './steering.ts'
 export { default as volatileContext } from './volatile-context.ts'
 export { default as decisionContext } from './decision-context.ts'
+export { default as skillUseGate } from './skill-use-gate.ts'
 export { default as identityBridge } from './identity-bridge.ts'
 export { default as approvalGate } from './approval-gate.ts'
 export { default as sandboxApproval } from './sandbox-approval.ts'

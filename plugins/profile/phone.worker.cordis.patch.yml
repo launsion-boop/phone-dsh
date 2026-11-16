@@ -819,6 +819,12 @@
             name: '@deepseek-ai/dsh-skill-filesystem'
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
+          # Bot-only provenance gate before the official `skill` loader runs.
+          # nil/untracked and all non-current statuses deny; only a real
+          # producer `current` may load. The host answers through
+          # mcp__phone__BotSkillUseStatus.
+          - id: skill-use-gate
+            name: '@phone-dsh/dsh-bot-runtime/skill-use-gate'
           - id: command-goal
             name: '@deepseek-ai/dsh-command-goal'
           - id: tool-goal
@@ -963,6 +969,12 @@
             name: '@deepseek-ai/dsh-skill-filesystem'
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
+          # Bot-only provenance gate before the official `skill` loader runs.
+          # nil/untracked and all non-current statuses deny; only a real
+          # producer `current` may load. The host answers through
+          # mcp__phone__BotSkillUseStatus.
+          - id: skill-use-gate
+            name: '@phone-dsh/dsh-bot-runtime/skill-use-gate'
           - id: command-goal
             name: '@deepseek-ai/dsh-command-goal'
           - id: tool-goal
