@@ -1873,7 +1873,7 @@ public actor BotMCPRuntime {
         guard let expectedVersion = try optionalInt(args["expected_version"]), expectedVersion >= 0 else {
             throw BotMCPError.invalidRequest("更新记忆需要提供不小于 0 的版本号")
         }
-        let evidence: BotRecordEvidence
+        var evidence: BotRecordEvidence
         do {
             evidence = try await validatedEvidence(args, call: call)
                 ?? BotRecordEvidence(trust: .assistant, refs: [])
@@ -1886,6 +1886,18 @@ public actor BotMCPRuntime {
         } catch {
             return .failure("memory-evidence-invalid",
                             "每条依据都必须指向这个 Bot 已有的一条 record:// 记录，或者是真实用户回合里的 current-user-turn。")
+        }
+        // COMPACT stored_with_provenance: every non-index document must carry
+        // a record reference. A chat write that omitted evidence entirely is
+        // still anchored to the host-observed current user turn; the host does
+        // not invent a source and does not attach it to explicit evidence.
+        // Other turn kinds keep their existing evidence rules.
+        if evidence.refs.isEmpty, call.principal.kind == .chat,
+           [.write, .append, .replace].contains(action),
+           BotMemoryAuthorizer.scope(of: path) == .agent,
+           !BotMemoryAuthorizer.isIndex(path),
+           let currentRef = currentUserMessageRefs[call.sessionId] {
+            evidence = BotRecordEvidence(trust: .user, refs: [currentRef])
         }
         let review: BotMemoryReview?
         if action == .restore {
