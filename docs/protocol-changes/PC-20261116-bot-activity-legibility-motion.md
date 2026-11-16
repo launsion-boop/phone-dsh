@@ -38,7 +38,7 @@ three punctuation marks aloud.
   intrinsic width or cause a second resize at transition completion. The bubble
   surface may ease to its new width; the reserved band and composer do not move.
 - Reduce Motion: no sweep, slide or size animation. Prefer Cross-Fade: opacity
-  transition only. Inactive pages and waiting/error states stop ambient motion.
+  transition only. Inactive pages and approval/error states stop ambient motion.
 - Three dots are 5 pt at the default text size, separated by 4 pt, with a subtle
   staggered pulse and at most 2 pt lift. Reduce Motion/inactive pages use static
   dots. The waiting-to-reply transition keeps the same dots without restarting

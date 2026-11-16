@@ -461,7 +461,8 @@ enum BotUIFixtures {
         case .runningThinking, .runningTool, .runningToolDescribed,
              .runningToolReviewing, .runningToolPhone:
             return [BotUIRow.text(id: "\(fixture.rawValue)-user", seq: 1, role: "user",
-                                  text: "帮我检查一下构建结果。")]
+                                  text: fixture == .runningToolDescribed
+                                    ? "查一下 #174 能不能合并。" : "帮我检查一下构建结果。")]
         case .runningToolUnauthorized, .runningToolReplay:
             return [BotUIRow.text(id: "\(fixture.rawValue)-user", seq: 1, role: "user",
                                   text: "用 bash 执行 echo probe-15，只回结果")]
@@ -1199,11 +1200,13 @@ struct BotUIFixtureRootView: View {
             ])))
         case .runningToolDescribed:
             chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
-            chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
-                "callId": .string("fixture-described"),
-                "name": .string("bash"),
-                "arguments": .string("{\"command\":\"cat diary/*.md\",\"description\":\"对比 #174 与 main 的三个冲突文件\"}"),
-            ])))
+            if !ProcessInfo.processInfo.arguments.contains("-BotUIActivityMotion") {
+                chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
+                    "callId": .string("fixture-described"),
+                    "name": .string("bash"),
+                    "arguments": .string("{\"command\":\"cat diary/*.md\",\"description\":\"对比 #174 与 main 的三个冲突文件\"}"),
+                ])))
+            }
         case .runningToolReviewing:
             chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
             chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
@@ -1397,6 +1400,43 @@ struct BotUIFixtureRootView: View {
             }
         }
         .task {
+            if fixture == .runningToolDescribed,
+               ProcessInfo.processInfo.arguments.contains("-BotUIActivityMotion") {
+                // Capture-only playback of real-model activity wording. This
+                // exercises the production event projection/timing/views; it
+                // is visual evidence, not a new model or production workflow.
+                let phrases = [
+                    "读取 #174 的资料笔记",
+                    "读取 main 侧的笔记",
+                    "#174 记录显示 3 个冲突文件，接着核对主干侧",
+                ]
+                var previous: String?
+                var seq = 2
+                for index in 0..<9 {
+                    do {
+                        try await Task.sleep(for: .milliseconds(index == 0 ? 2_400 : 1_800))
+                    } catch { return }
+                    guard !Task.isCancelled else { return }
+                    if let previous {
+                        chatModel.receive(.event(BotUIFixtures.liveEvent(
+                            "tool/result", turn: 1, seq: seq,
+                            data: ["callId": .string(previous)])))
+                        seq += 1
+                    }
+                    let call = "fixture-motion-\(index)"
+                    chatModel.receive(.event(BotUIFixtures.liveEvent(
+                        "tool/call", turn: 1, seq: seq, data: [
+                            "callId": .string(call), "name": .string("read"),
+                            "arguments": .object([
+                                "file_path": .string("pr/174-notes.md"),
+                                "activity": .string(phrases[index % phrases.count]),
+                            ]),
+                        ])))
+                    seq += 1
+                    previous = call
+                }
+                return
+            }
             if fixture == .chatLayoutKeyboard {
                 // Keep the production 800ms durable watch alive while the
                 // keyboard is up (pageActive defaults true for the fixture).

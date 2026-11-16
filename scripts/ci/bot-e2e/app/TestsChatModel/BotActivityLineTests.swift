@@ -706,6 +706,21 @@ final class BotActivityLineTests: XCTestCase {
 
     // MARK: - 800 ms latest-wins
 
+    func testUrgentDisplayReplacesAndClearsPendingProgress() {
+        for urgent in [activity("等你确认", category: .waiting, startedAt: 0),
+                       activity("读取失败，请重试", category: .reviewing, startedAt: 0)] {
+            var state = BotActivityLineState()
+            state.receive(activity("读取 #174 的笔记", category: .reading, startedAt: 1_000), at: 1_000)
+            state.receive(activity("核对 main 的笔记", category: .reading, startedAt: 1_100), at: 1_100)
+            XCTAssertEqual(state.text, "读取 #174 的笔记")
+            state.receive(urgent, at: 1_150, immediately: true)
+            XCTAssertEqual(state.text, urgent.detail)
+            state.tick(at: 1_800)
+            XCTAssertEqual(state.text, urgent.detail, "obsolete pending work must not reappear")
+            XCTAssertNil(state.nextDeadline)
+        }
+    }
+
     func testRecentActivityHoldsFor800msAndLatestWins() {
         var state = BotActivityLineState()
         let first = activity("第一件事", category: .reading, startedAt: 1_000)

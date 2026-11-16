@@ -78,6 +78,7 @@ struct BotChatPage: View {
     /// focused after the responder resigned and not reopen on the next tap.
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .callout) private var activityLineHeight = BotActivityBubble.lineHeight
 
     init(model: BotChatModel, isMainBot: Bool = false,
          cardActions: BotCardActions = BotCardActions(),
@@ -243,7 +244,7 @@ struct BotChatPage: View {
     }
 
     /// The only activity surface: the bottom-leading bubble carries the
-    /// lifecycle's sentence (three dots + resolved activity text + glint)
+    /// lifecycle's short sentence with a restrained transition and glint
     /// immediately above the composer. It replaced the floating line under
     /// the header, so the page draws no separate status line.
     ///
@@ -251,10 +252,10 @@ struct BotChatPage: View {
     /// transcript's ScrollView and `BotComposerDock` — it is not in the scroll
     /// content, not inside `BotComposerDockHeightKey`, and not observed by
     /// `BotTranscriptViewportReader` or the tail preference. Its height is
-    /// pinned to `BotActivityBubble.height` in both states, so a bubble
+    /// pinned to the scaled activity line box in both states, so a bubble
     /// appearing, disappearing or swapping to a longer sentence performs no
     /// vertical layout pass, moves no message and cannot re-trigger autoscroll.
-    /// The cap is 86% of the transcript column; the bubble itself hugs its
+    /// The cap is 94% of the transcript column; the bubble itself hugs its
     /// text. `allowsHitTesting(false)` keeps the reserved band from stealing a
     /// tap from the transcript or the composer.
     private var activityBubbleBand: some View {
@@ -274,7 +275,7 @@ struct BotChatPage: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .frame(height: BotActivityBubble.height)
+        .frame(height: BotActivityBubble.bandHeight(forLineHeight: activityLineHeight))
         .padding(.horizontal, HomeSpec.contentInset)
         .padding(.top, 4)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2),

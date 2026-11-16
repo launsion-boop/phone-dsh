@@ -2,7 +2,7 @@
 # Bot activity real projection (iOS)
 
 Status: implemented on the isolated iOS branch; real-model acceptance is recorded in the
-task handoff. Contract revision: `activity-evidence-v3.1`, change record
+task handoff. Contract revision: `activity-evidence-v3.5`, change record
 [PC-20261116-bot-activity-real-projection](../protocol-changes/PC-20261116-bot-activity-real-projection.md).
 
 ## Problem
@@ -76,11 +76,16 @@ the action prefix. There is no separate 42-character target allowance.
 ## UI
 
 `BotActivity` keeps `{status, detail, category, startedAt}`. The bubble is the existing
-32pt band with one line, tail truncation and the 86% width cap. It is non-interactive:
+38pt default band with one line, 16pt medium text, tail truncation and a 94% width cap.
+Text and band scale together with Dynamic Type. Waiting and replying show only three
+dots; task progress, approval and errors keep their text. Changes use a restrained
+220ms transition; Reduce Motion disables ambient motion. It is non-interactive:
 the band keeps `allowsHitTesting(false)`, and there is no tap target, sheet, full-text
 view, history, button or extra control. The accessibility label carries the short real
-sentence. The 800 ms latest-wins timing and `· N 分钟` suffix are unchanged. UI does not
-re-sanitise or lengthen `detail`.
+sentence. Normal progress retains 800 ms latest-wins timing; approvals and errors
+bypass pending dwell. UI does not re-sanitise or lengthen `detail`. See the
+[UI receipt](../receipts/bot-activity-ui-20261116/README.md) for native screenshots,
+recordings, four UI tests and the final 49-test logic run (91 shared vectors).
 
 ## Prompt and Worker image
 
@@ -99,9 +104,12 @@ change is not proof that the image uses it.
 No wire, event, persisted-value or schema change. `BotActivity` and the shared
 `activity.schema.json`, `activity-phrases.json` and `strings.json` values are unchanged.
 Old rows and old clients keep the shape. Android is out of scope by the user's ruling.
-No DSH pin, production default or profile key changes. No metadata argument is added:
-pinned DSH `tool/call` arguments are the model's original JSON, and the existing
-`bash.description` / `Task.task_title` / argument object / same-step public text suffice.
+No DSH pin, production default or profile key changes. The Bot-scoped wrapper adds
+model-facing required `activity` only to read/glob/grep/web_search/web_fetch, using a
+cloned schema. It strips that field before invoking the original handler; original
+validators and required arrays remain unchanged, so old calls without activity still
+execute. `bash.description` and `Task.task_title` retain their existing argument shapes.
+No DSH source, global tool or Workbench tool is changed.
 
 The macOS eval host compiles the same production `BotRuntimeComposition`. Its App-side
 vision bridge (`BotWorkspaceModelImage`) is guarded by `#if canImport(UIKit)`; on macOS the
@@ -111,6 +119,9 @@ compile boundary for the eval host, not a product capability change; image/visio
 part of this task's acceptance.
 
 ## Verification
+
+The following initial run is historical; final natural-model evidence is below and
+final UI/logic results are in the linked UI receipt.
 
 Run on the isolated worktree with Xcode 26.5 / Swift 6.3.2 and the iPhone 17 simulator.
 
@@ -180,5 +191,10 @@ Root’s adjacent Bot regressions at the final code head (bot-runtime-mounts,
 bot-preset-narrowing, bot-tool-surface, bot-identity-approval) passed **44/44**
 (`lead/.activity-work/final-adjacent-checks.log`).
 
-Not run: physical iPhone, full App UI run, Android, deployment. Those are not inferred
+The earlier full plugin suite reported 2648 passes, 21 skips and two unrelated timing
+failures (shell-ext timeout and workflow-worker); this is not a full-suite PASS. Final
+affected activity/persona tests passed 19/19 with typecheck; adjacent Bot tests passed
+44/44. Known hygiene and P0 UI provenance failures remain documented.
+
+Not run: physical iPhone, full App live-model end-to-end, Android, deployment. Those are not inferred
 from the simulator or harness evidence.
