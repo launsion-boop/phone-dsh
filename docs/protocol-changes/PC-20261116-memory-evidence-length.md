@@ -44,3 +44,12 @@
   remain; no test deleted, no Android behavior implemented, no decoder loosened.
 - Only these two iOS/Swift-only maintenance cases were added by this change; no other shared base
   memory case was added. Android base reader sees the same old cases. CI rerun is C/root's step.
+
+
+## Final baseline split (K-L1)
+
+- `memory-write.json` is back to the 17-case shared baseline (908 merge-base): the review case
+  `write-with-verified-verification` now lives only in `memory-write.phone.json`, and the two
+  maintenance evidence-length cases only in `memory-write.next.json` (next-unenabled). Android's
+  `MemoryWriteGoldenTest` therefore sees 17 cases; iOS/TS merged consumers see 17+1 phone cases and
+  the Swift write path tests remain.
