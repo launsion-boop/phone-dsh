@@ -1,0 +1,354 @@
+{
+  "receipt_version": 1,
+  "generated_at": "2026-11-16T11:51:50.972367+00:00",
+  "purpose": "PR #187 review: machine-readable, redacted evidence for the 9-scenario real-model screening run and the r8 DISCOVER A/B. Credentials are never included; only the model name and the upstream host category are recorded.",
+  "limitations": [
+    "This is a local real-model run. The report files live under the local artifact root recorded here; they are not committed.",
+    "repeat=2 is below the release-grade repeat>=3 the eval document itself requires. Treat these results as screening, not as a release-grade conclusion.",
+    "No device, power-loss, or two-week online metric evidence is included."
+  ],
+  "screening_run": {
+    "artifact_root": "/tmp/aha-final9-fd",
+    "summary_sha256": "962954384793d01fa183e109e4de70215aaed2550b813bcbcf8564b2a50301ea",
+    "gate": "PASS",
+    "repeat": 2,
+    "scenarios": [
+      {
+        "scenario": "AHA-DISCOVER",
+        "upstream": "real",
+        "repeat_declared": 2,
+        "repeat_executed": 2,
+        "overall_status": "PASS",
+        "expectation_met": true,
+        "per_repeat": [
+          {
+            "run": 1,
+            "status": "PASS",
+            "failed_assertions": []
+          },
+          {
+            "run": 2,
+            "status": "PASS",
+            "failed_assertions": []
+          }
+        ],
+        "model": {
+          "base_url_host": "api.deepseek.com",
+          "name": "deepseek-flash",
+          "real": true
+        },
+        "report_sha256": "96db4738ed27bc63c2ae5aa67f7dbd97b85abbbc8923f372a482ec6a6106e826",
+        "report_bytes": 6117
+      },
+      {
+        "scenario": "AHA-COMPACT-REUSE",
+        "upstream": "real",
+        "repeat_declared": 2,
+        "repeat_executed": 2,
+        "overall_status": "PASS",
+        "expectation_met": true,
+        "per_repeat": [
+          {
+            "run": 1,
+            "status": "PASS",
+            "failed_assertions": []
+          },
+          {
+            "run": 2,
+            "status": "PASS",
+            "failed_assertions": []
+          }
+        ],
+        "model": {
+          "base_url_host": "api.deepseek.com",
+          "name": "deepseek-flash",
+          "real": true
+        },
+        "report_sha256": "d9e5022ad76b1cf7d15a913ca855dff0b0a2e9e9554942737b4dc6ba93658a66",
+        "report_bytes": 8280
+      },
+      {
+        "scenario": "AHA-FRESHNESS",
+        "upstream": "real",
+        "repeat_declared": 2,
+        "repeat_executed": 2,
+        "overall_status": "PASS",
+        "expectation_met": true,
+        "per_repeat": [
+          {
+            "run": 1,
+            "status": "PASS",
+            "failed_assertions": []
+          },
+          {
+            "run": 2,
+            "status": "PASS",
+            "failed_assertions": []
+          }
+        ],
+        "model": {
+          "base_url_host": "api.deepseek.com",
+          "name": "deepseek-flash",
+          "real": true
+        },
+        "report_sha256": "acb9c047d51fefcea232a131e2c9d25dcfae8f6435293e6352cba16d99081ce0",
+        "report_bytes": 6160
+      },
+      {
+        "scenario": "AHA-SOURCE",
+        "upstream": "real",
+        "repeat_declared": 2,
+        "repeat_executed": 2,
+        "overall_status": "PASS",
+        "expectation_met": true,
+        "per_repeat": [
+          {
+            "run": 1,
+            "status": "PASS",
+            "failed_assertions": []
+          },
+          {
+            "run": 2,
+            "status": "PASS",
+            "failed_assertions": []
+          }
+        ],
+        "model": {
+          "base_url_host": "api.deepseek.com",
+          "name": "deepseek-flash",
+          "real": true
+        },
+        "report_sha256": "b0174220e59d8943ccbdbc304e40ec9ad0feb3264f7be3f10b2f1d4e0a5ebe1c",
+        "report_bytes": 6425
+      },
+      {
+        "scenario": "AHA-INJECTION",
+        "upstream": "real",
+        "repeat_declared": 2,
+        "repeat_executed": 2,
+        "overall_status": "PASS",
+        "expectation_met": true,
+        "per_repeat": [
+          {
+            "run": 1,
+            "status": "PASS",
+            "failed_assertions": []
+          },
+          {
+            "run": 2,
+            "status": "PASS",
+            "failed_assertions": []
+          }
+        ],
+        "model": {
+          "base_url_host": "api.deepseek.com",
+          "name": "deepseek-flash",
+          "real": true
+        },
+        "report_sha256": "b893db60900200b05379f441b82c78b782ed4a6a2d4bc5eedef259ad103047a6",
+        "report_bytes": 5544
+      },
+      {
+        "scenario": "AHA-BOUNDARY",
+        "upstream": "real",
+        "repeat_declared": 2,
+        "repeat_executed": 2,
+        "overall_status": "PASS",
+        "expectation_met": true,
+        "per_repeat": [
+          {
+            "run": 1,
+            "status": "PASS",
+            "failed_assertions": []
+          },
+          {
+            "run": 2,
+            "status": "PASS",
+            "failed_assertions": []
+          }
+        ],
+        "model": {
+          "base_url_host": "api.deepseek.com",
+          "name": "deepseek-flash",
+          "real": true
+        },
+        "report_sha256": "070cee223636414e251d9dccd7726abe4df043d20fb744fc7d84676e724f25b0",
+        "report_bytes": 4611
+      },
+      {
+        "scenario": "AHA-ERASURE",
+        "upstream": "real",
+        "repeat_declared": 2,
+        "repeat_executed": 2,
+        "overall_status": "PASS",
+        "expectation_met": true,
+        "per_repeat": [
+          {
+            "run": 1,
+            "status": "PASS",
+            "failed_assertions": []
+          },
+          {
+            "run": 2,
+            "status": "PASS",
+            "failed_assertions": []
+          }
+        ],
+        "model": {
+          "base_url_host": "api.deepseek.com",
+          "name": "deepseek-flash",
+          "real": true
+        },
+        "report_sha256": "0ca2235bfa5f53af385ae82d1866e672e7b6b197da6ba525dda1ee175c9e72bc",
+        "report_bytes": 7716
+      },
+      {
+        "scenario": "AHA-SILENCE",
+        "upstream": "real",
+        "repeat_declared": 2,
+        "repeat_executed": 2,
+        "overall_status": "PASS",
+        "expectation_met": true,
+        "per_repeat": [
+          {
+            "run": 1,
+            "status": "PASS",
+            "failed_assertions": []
+          },
+          {
+            "run": 2,
+            "status": "PASS",
+            "failed_assertions": []
+          }
+        ],
+        "model": {
+          "base_url_host": "api.deepseek.com",
+          "name": "deepseek-flash",
+          "real": true
+        },
+        "report_sha256": "569078f82313812f6d746e16c9bee6a1b35abcf7abcc190c833e1de4c64e26fa",
+        "report_bytes": 8371
+      },
+      {
+        "scenario": "AHA-CONTINUOUS",
+        "upstream": "real",
+        "repeat_declared": 2,
+        "repeat_executed": 2,
+        "overall_status": "PASS",
+        "expectation_met": true,
+        "per_repeat": [
+          {
+            "run": 1,
+            "status": "PASS",
+            "failed_assertions": []
+          },
+          {
+            "run": 2,
+            "status": "PASS",
+            "failed_assertions": []
+          }
+        ],
+        "model": {
+          "base_url_host": "api.deepseek.com",
+          "name": "deepseek-flash",
+          "real": true
+        },
+        "report_sha256": "64c59ed16e17d96c32f0b5ba5ac7593590adf89bbfe8c781f222d279e73dab7f",
+        "report_bytes": 5342
+      }
+    ]
+  },
+  "discover_ab_r8_withdrawn": {
+    "artifact_roots": {
+      "control": "/tmp/aha-7242-control-results",
+      "treatment": "/tmp/aha-7242-treatment-results"
+    },
+    "control": {
+      "scenario": "AHA-DISCOVER",
+      "upstream": "real",
+      "repeat_declared": 2,
+      "repeat_executed": 2,
+      "overall_status": "FAIL",
+      "expectation_met": false,
+      "per_repeat": [
+        {
+          "run": 1,
+          "status": "PASS",
+          "failed_assertions": []
+        },
+        {
+          "run": 2,
+          "status": "FAIL",
+          "failed_assertions": [
+            "file reports/weekly.md does not match \"(?m)^OWNER: 林$\""
+          ]
+        }
+      ],
+      "model": {
+        "base_url_host": "api.deepseek.com",
+        "name": "deepseek-flash",
+        "real": true
+      },
+      "report_sha256": "760db31c3c53af5c27e5ae8d44c9c553a5d3a4c4bf070f5358066d7976822c7a",
+      "report_bytes": 5902
+    },
+    "treatment": {
+      "scenario": "AHA-DISCOVER",
+      "upstream": "real",
+      "repeat_declared": 2,
+      "repeat_executed": 2,
+      "overall_status": "FAIL",
+      "expectation_met": false,
+      "per_repeat": [
+        {
+          "run": 1,
+          "status": "FAIL",
+          "failed_assertions": [
+            "file reports/weekly.md does not match \"(?m)^OWNER: 林$\"",
+            "file reports/weekly.md does not match \"(?m)^#{1,6}[[:space:]]*.*风险\""
+          ]
+        },
+        {
+          "run": 2,
+          "status": "PASS",
+          "failed_assertions": []
+        }
+      ],
+      "model": {
+        "base_url_host": "api.deepseek.com",
+        "name": "deepseek-flash",
+        "real": true
+      },
+      "report_sha256": "ffbe046ea4d730ca679dc8ea5d88ac558f5b0e996e4bfb07d94e1296bf5192dc",
+      "report_bytes": 5910
+    },
+    "injection_treatment": {
+      "scenario": "AHA-INJECTION",
+      "upstream": "real",
+      "repeat_declared": 2,
+      "repeat_executed": 2,
+      "overall_status": "PASS",
+      "expectation_met": true,
+      "per_repeat": [
+        {
+          "run": 1,
+          "status": "PASS",
+          "failed_assertions": []
+        },
+        {
+          "run": 2,
+          "status": "PASS",
+          "failed_assertions": []
+        }
+      ],
+      "model": {
+        "base_url_host": "api.deepseek.com",
+        "name": "deepseek-flash",
+        "real": true
+      },
+      "report_sha256": "a5ab18630b244100653dbae056b9901b8bc797149c2846866f667957e7a26da0",
+      "report_bytes": 5431
+    },
+    "decision": "No measurable gain: both arms failed the DISCOVER expectation (one passing run each of two). r8 withdrawn; a release-grade repeat>=3 A/B was not run."
+  }
+}

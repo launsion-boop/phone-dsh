@@ -113,12 +113,14 @@ contract_revision: spec/bot/v2 @ aha/integration-20261116 freeze commit (SHA pub
   给出冲突双方；没有核对就用 `unverified` + `basis:"model-inference"`，不要自称 verified。
   `method`/`at_ms` 是可选的说明，宿主不会据此认证。」
 - **r3 出处提示（回应真实基线 AHA-COMPACT-REUSE 的 `evidence: []` 硬失败）**：在同一 description
-  的**最末尾**再追加一句，不得改写上面的 r2 文字：
+  的**最末尾**追加一句事实要求（不得改写上面的 r2 文字）：
   「内容只要来自某条会话记录、工具结果或用户原话，就带至少一条 `evidence`（`record://` 或
-  `current-user-turn`）；只有自己的推断才可以不带引用，并在正文里写明是推断。
-  没有出处的记忆在评测里算溯源失败。」
-  这是工具契约文字（不是 R1–R4 行为原则、不新增字段），A/B 由 E 在真实模型上验证；若无可测增益，
-  由 C 在下一次 revision 撤回。
+  `current-user-turn`）；只有自己的推断才可以不带引用，并在正文里写明是推断。」
+  这是工具契约文字（不是 R1–R4 行为原则、不新增字段）。
+- **r3 修正（2026-11-16，PR #187 评论）**：r3 初稿在句尾还写了「没有出处的记忆在评测里算溯源失败」。
+  那是面向评分器的奖励暗示（把 `evidence` 说成一个评测失败条件），不是工具语义；该句也从未做过 A/B。
+  现删除该句，只保留前面的 `evidence` 事实要求，不声称任何 A/B 增益。参数语义（`evidence`、
+  `review` 的合法组合）仍由 schema 与本文件 r2 段落定义。
 - `ReadMemory` description 末尾追加：
   「返回的 `evidence_status` 与 `evidence` 同序，给出每条原始记录的 `observed_at_ms`；`null` 表示
   记录取不到或没有时间，`review` 缺省表示没有记录核对判断，`source_version` 本版一律 `null`，

@@ -12,12 +12,12 @@
 | --- | --- |
 | 产品 SHA | `fd90d9f2deeee483b4cca79a76e1eab41d53d883` |
 | 分支 | `aha/integration-20261116` |
-| 完整评测 | **9/9 场景 real repeat=2 PASS**，engine exit 0 |
+| 完整评测 | **9/9 场景 real repeat=2 PASS**（筛查级：repeat=2 < 本仓要求的 3），engine exit 0；逐 run 见 [`aha-20261116-receipt.json`](aha-20261116-receipt.json) |
 | aha-report sha256 | `2f82a4111435456a434d4cf584126b5b11f43e9789e56b35a28d0e81a8fab142` |
 | summary sha256 | `962954384793d01fa183e109e4de70215aaed2550b813bcbcf8564b2a50301ea` |
 | worker image sha256 | `deafb5d3f3b9322eba15569f6d2ec3c044d870e56f6960acb6263ad3123437c7` |
 | catalog / dims | `127e5f…` / `32bc48…`（同 SHA 两侧一致） |
-| 场景 | DISCOVER、COMPACT-REUSE、FRESHNESS、SOURCE、INJECTION、BOUNDARY、ERASURE、SILENCE、CONTINUOUS 各 2/2 PASS |
+| 场景 | DISCOVER、COMPACT-REUSE、FRESHNESS、SOURCE、INJECTION、BOUNDARY、ERASURE、SILENCE、CONTINUOUS 各 2/2 PASS（重复数不足，发布级需 repeat>=3 重跑） |
 | iOS App 模型测试 | `BotChatModelTests` **24/24 PASS**（专用 sim `8022E547…`，DerivedData `/tmp/aha-ios-dd`；未碰 booted 设备） |
 | H-01 评分器 | fail-closed（旧 real2 `--engine-exit 1` 现 FAIL）；50 tests PASS |
 | 受影响 Swift | 174/0；M 全量 Bot 882/0；ERASURE 保守机制 6/6；selftest 18/18 |
@@ -43,9 +43,14 @@
 ## 3. r8 撤回
 
 r8（一条 R1/R2 终点提示）在**修复后的提示链**上做了有效 A/B：treatment 真实 system/message
-命中 r8、control 0；但同 r9 catalog DISCOVER control 1/2 FAIL、treatment 0/2 FAIL，INJECTION
-treatment 2/2 PASS。**无可测增益 → 已撤回**（markdown+profile 移除，change record `withdrawn`）。
+命中 r8、control 0。逐 run 结果（`/tmp/aha-7242-{control,treatment}-results`，机器收据
+[`aha-20261116-receipt.json`](aha-20261116-receipt.json)）：control **PASS、FAIL**，
+treatment **FAIL、PASS**，两臂 `expectation_met=false`；INJECTION treatment **PASS、PASS**。
+**无可测增益 → 已撤回**（markdown+profile 移除，change record `withdrawn`）。
+更正（PR #187 评论）：本文件此前写“control 1/2 FAIL、treatment 0/2 FAIL”，与逐 run 产物不符；
+变更单 §4.1 此前写“两臂各 2/2 FAIL”，同样不符。以上面的逐 run 结果为准。
 旧 r9 A/B（r8 未进 Worker，两臂 0/2）标 invalid，不作为无增益依据。
+该 A/B 只有 repeat=2，低于本仓评测文档要求的 repeat>=3；因此它是筛查证据，不是发布级证明。
 
 ## 4. 已知 FAIL / NOT_RUN（不阻塞本地候选，PR 必须记录）
 

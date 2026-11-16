@@ -68,9 +68,16 @@ English：
 ## 4.1 有效 A/B 与撤回（2026-11-16）
 
 提示链修复后（source-of-truth → profile → pack fail-closed），treatment 真实 Bot system/message
-命中 r8 中文 1 次，control 0 次；同 r9 catalog `AHA-DISCOVER --upstream real --repeat 2`：
-control FAIL 2/2、treatment FAIL 2/2（treatment 未更好），treatment `AHA-INJECTION` PASS 2/2。
+命中 r8 中文 1 次，control 0 次；同 r9 catalog `AHA-DISCOVER --upstream real --repeat 2`。
+逐 run 结果（产物 `/tmp/aha-7242-{control,treatment}-results`，脱敏机器收据
+`docs/evals/aha-20261116-receipt.json`）：control **PASS、FAIL**，treatment **FAIL、PASS**，
+两臂 `expectation_met=false`；treatment `AHA-INJECTION` **PASS、PASS**。
 **无可测增益 → 撤回 r8**（markdown 段落 + 生成 profile 一并移除，`sync --check` 仍 PASS）。
+更正（PR #187 评论）：本节初稿写“control FAIL 2/2、treatment FAIL 2/2”，与逐 run 产物不符
+（每臂各 1 次 PASS）；验收报告初稿的“control 1/2 FAIL、treatment 0/2 FAIL”也不符
+（treatment 有 1 次 FAIL）。以逐 run 产物为准，撤回结论不变。
+该 A/B 只有 repeat=2，低于评测文档要求的发布级 repeat>=3；要把它升级为发布级结论，必须用
+同一 catalog 重跑 `--repeat 3`，本次未跑，记为 NOT_RUN。
 英文 increment 从未生成（profile 只 zh）；该缺口随撤回消失。
 
 ## 5. 修訂紀錄
