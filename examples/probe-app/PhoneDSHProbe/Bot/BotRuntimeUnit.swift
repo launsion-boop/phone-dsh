@@ -148,6 +148,9 @@ final class BotRuntimeUnit {
             eventLog: store,
             workspaceState: BotDeliverySelectionHost.workspaceStateResolver(
                 workspace: deliveryWorkspace),
+            evidenceSources: provenance.map {
+                BotDeliverySelectionHost.workspaceEvidenceResolver(provenance: $0)
+            },
             now: resolvedNow)
         await runtime.installDeliverySelection(deliverySelection)
         let rows = BotProductionRowService(

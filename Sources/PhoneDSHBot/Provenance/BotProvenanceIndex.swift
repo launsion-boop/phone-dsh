@@ -1019,6 +1019,48 @@ extension BotProvenanceSnapshot {
                 carrierRecord: record, eventType: event.type,
                 botID: event.principal.botId, sessionID: event.principal.sessionId,
                 review: nil)]
+        case "approval.requested":
+            // A02 delivery: the approval row is the durable draft/selection.
+            // Its selected resources carry the real source refs/versions the
+            // host selected; map them instead of appending a second event.
+            guard let delivery = event.data["delivery"]?.objectValue,
+                  let approvalID = event.data["approvalID"]?.stringValue,
+                  !approvalID.isEmpty,
+                  let revision = delivery["revision"]?.intValue,
+                  revision >= 1 else { return [] }
+            var sources: [BotDerivationSource] = []
+            for resource in delivery["resources"]?.arrayValue ?? [] {
+                guard resource["selected"]?.boolValue == true,
+                      let source = resource["source"]?.objectValue else { continue }
+                var evidence: [BotDerivationSource] = []
+                for item in source["evidence_sources"]?.arrayValue ?? [] {
+                    guard let object = item.objectValue,
+                          let record = object["record"]?.stringValue,
+                          record.hasPrefix("record://") else { continue }
+                    let role = object["role"]?.stringValue
+                        .flatMap(BotDerivationRole.init(rawValue:)) ?? .evidence
+                    let version = object["source_version"].flatMap {
+                        try? JSONDecoder().decode(
+                            BotProvenanceSourceVersion.self,
+                            from: $0.encoded())
+                    }
+                    evidence.append(BotDerivationSource(
+                        record: record, role: role, sourceVersion: version))
+                }
+                if evidence.isEmpty,
+                   let ref = source["ref"]?.stringValue,
+                   ref.hasPrefix("record://") {
+                    evidence = [BotDerivationSource(record: ref, role: .evidence)]
+                }
+                sources.append(contentsOf: evidence)
+            }
+            return [BotProvenanceAssertion(
+                artifact: BotDerivedRef(kind: .delivery, id: approvalID,
+                                        version: revision),
+                sources: dedupe(sources), basis: nil,
+                carrierSeq: event.commitSeq ?? 0, carrierRecord: record,
+                eventType: event.type, botID: event.principal.botId,
+                sessionID: event.principal.sessionId, review: nil)]
         case "card.presented", "ui.send_to_user", "comm.outbound":
             let kind: BotDerivedKind = event.type == "ui.send_to_user"
                 ? .notification : .delivery

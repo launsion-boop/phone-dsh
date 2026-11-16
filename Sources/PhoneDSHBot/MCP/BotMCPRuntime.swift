@@ -1847,6 +1847,23 @@ public actor BotMCPRuntime {
             fields["id"] = .string("card-\(UUID().uuidString.lowercased())")
             fields["tool"] = .string(name)
             fields["callId"] = .string(call.callId)
+            // A real delivery card carries the record-backed sources of the
+            // resources the user selected. The refs come from the production
+            // workspaceFile derivation; no ref is invented when the file was
+            // written outside that path.
+            if let deliverySelection, name == "show_attachment" || name == "show_document" {
+                let block = activeMaterialBlocks[call.sessionId]
+                let liveTurn = currentTurnID(sessionId: call.sessionId)
+                    .map { "\(call.sessionId)#\($0)" }
+                let sources = await deliverySelection.approvedEvidence(
+                    name: name, arguments: arguments, botID: call.principal.botId,
+                    sessionID: call.sessionId, turnID: liveTurn ?? block?.turnID,
+                    goalDigest: block?.goalDigest)
+                if !sources.isEmpty {
+                    fields["evidence"] = .array(sources.map { .string($0.record) })
+                    fields["delivery_sources"] = .array(sources.map(\.json))
+                }
+            }
             _ = try await eventWriter.append(type: "card.presented", principal: call.principal, data: .object(fields))
             if final {
                 // Same seam as ask_user/show_next_steps: a successful wrap-up
