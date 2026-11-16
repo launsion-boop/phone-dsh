@@ -37,10 +37,12 @@ final class A05FeedbackUITests: XCTestCase {
         reveal(suppress)
         XCTAssertTrue(suppress.exists, "automation suppress action missing")
         suppress.tap()
-        XCTAssertTrue(app.buttons["只这一条"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["这个例行任务的结果"].exists)
-        XCTAssertTrue(app.buttons["所有 Bot 的这类"].exists)
-        app.buttons["这个例行任务的结果"].tap()
+        // A routine definition has no single delivery: artifact scope is not
+        // offered, only this routine's class and the kind-level user scope.
+        XCTAssertFalse(app.buttons["只这一条"].exists)
+        XCTAssertTrue(app.buttons["这个例行任务的结果"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["所有 Bot 的这类"].firstMatch.exists)
+        app.buttons["这个例行任务的结果"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["已记录：这类别推了"].waitForExistence(timeout: 10),
                       "suppress receipt missing")
     }
@@ -52,7 +54,7 @@ final class A05FeedbackUITests: XCTestCase {
         suppress.tap()
         XCTAssertTrue(app.buttons["所有 Bot 的这类"].waitForExistence(timeout: 5),
                       "user scope must be offered")
-        app.buttons["所有 Bot 的这类"].tap()
+        app.buttons["所有 Bot 的这类"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["已记录：这类别推了"].waitForExistence(timeout: 10),
                       "user-scope suppress receipt missing")
     }
