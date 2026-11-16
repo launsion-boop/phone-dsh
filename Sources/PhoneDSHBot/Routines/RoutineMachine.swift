@@ -86,6 +86,7 @@ public actor RoutineMachine {
                        urgentReason: String = "", delivery: RoutineDeliveryMode = .held,
                        interruptReason: String = "", creator: RoutineCreator? = nil,
                        completionCriteria: String = "", constraints: String = "",
+                       derivation: RoutineDerivation? = nil,
                        now: Int64, id: String? = nil) async throws -> Routine {
         let routineId = id ?? "routine-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12))"
         let next = enabled ? try RoutineScheduleMath.nextRunAt(schedule, now: now, createdAt: now) : nil
@@ -100,12 +101,15 @@ public actor RoutineMachine {
                 throw RoutineError.invalidRoutine("routine already exists: \(routineId)")
             }
             document.routines.append(routine)
-            return RoutineMutation(value: routine, botId: botId)
+            let derivationJSON = try derivation?.validated().map { $0.json(artifactID: routine.id) }
+            return RoutineMutation(value: routine, botId: botId, derivation: derivationJSON)
         }
     }
 
     @discardableResult
-    public func update(botId: String, routineId: String, patch: RoutinePatch, now: Int64) async throws -> Routine {
+    public func update(botId: String, routineId: String, patch: RoutinePatch,
+                       derivation: RoutineDerivation? = nil,
+                       now: Int64) async throws -> Routine {
         try await store.mutate(botId: botId) { document in
             guard let index = document.routines.firstIndex(where: { $0.id == routineId }) else {
                 throw RoutineError.routineNotFound(routineId)
@@ -155,7 +159,8 @@ public actor RoutineMachine {
                 next.nextRunAt = nil
             }
             document.routines[index] = next
-            return RoutineMutation(value: next, botId: botId)
+            let derivationJSON = try derivation?.validated().map { $0.json(artifactID: next.id) }
+            return RoutineMutation(value: next, botId: botId, derivation: derivationJSON)
         }
     }
 
