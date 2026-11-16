@@ -17,6 +17,10 @@ enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case chatLayoutKeyboard
     case chatLayoutTyping
     case runningStreamingWithLine, runningAwaitingApproval
+    /// The reported ordering bug: the Bot writes the answer, then presents the
+    /// suggestion card. The card must stay below the live answer, not flash
+    /// above it and jump back down when the durable answer row lands.
+    case runningTextThenSteps
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
     case composerAttachments, composerLongDraft, infoAppearance
     case info, infoEmpty, infoError, infoLong, infoMemory, infoGrants, infoRoutines, infoReconcile
@@ -468,6 +472,9 @@ enum BotUIFixtures {
         case .runningStreamingWithLine:
             return [BotUIRow.text(id: "running-streaming-user", seq: 1, role: "user",
                                   text: "帮我检查一下构建结果。")]
+        case .runningTextThenSteps:
+            return [BotUIRow.text(id: "text-then-steps-user", seq: 1, role: "user",
+                                  text: "帮我总结今天的发布检查。")]
         case .runningAwaitingApproval:
             return [
                 BotUIRow.text(id: "running-approval-user", seq: 1, role: "user",
@@ -1244,6 +1251,30 @@ struct BotUIFixtureRootView: View {
             // replying (the old rule hid it as soon as text arrived).
             chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
             chat.receive(.textDelta("我已经读到构建日志，正在把失败项整理出来…"))
+        case .runningTextThenSteps:
+            // The turn writes first, then presents its closing suggestion
+            // card. Both rows are stamped by the production event clock; the
+            // card's `createdAt` is newer than the committed answer, so the
+            // transcript must draw it below the live text.
+            chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+            chat.receive(.event(BotUIFixtures.liveEvent("assistant/message", turn: 1, seq: 2, data: [
+                "message": .object([
+                    "role": .string("assistant"),
+                    "content": .array([.object([
+                        "type": .string("text"),
+                        "text": .string("今天的发布检查全部通过，下面是可以继续的动作。"),
+                    ])]),
+                ]),
+            ])))
+            var steps = BotUIFixtures.cardRow("closing-steps", seq: 3,
+                                              body: BotUIFixtures.widget("steps", [
+                "steps": [
+                    ["id": "review", "label": "查看验收结果", "recommended": true],
+                    ["id": "pr", "label": "创建 Pull Request"],
+                ],
+            ]))
+            steps.createdAt = Int(Date().timeIntervalSince1970 * 1_000) + 5_000
+            chat.apply(BotUIRowBatch(rows: [steps], deletes: [], cursor: 1, reset: false))
         case .runningAwaitingApproval:
             // A running turn with a pending approval: the line must say
             // 「等你确认」 and the fish must be alerting.

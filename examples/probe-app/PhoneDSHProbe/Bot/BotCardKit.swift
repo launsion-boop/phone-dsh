@@ -18,31 +18,53 @@ import SwiftUI
 import UIKit
 
 /// The card accent follows the same per-Bot appearance that colors its fish.
-/// The source hex is `BotFishColor.hex`, which also seeds `BotFishPalette`;
-/// this small transform keeps it readable without rebuilding the fish LUT.
+/// `BotFishColor.hex` is the avatar's own coat colour; the card uses it
+/// directly for decorative fills (`brand`) and only walks its brightness
+/// until it can carry 12pt ink (`accent`). The previous fixed 0.42 light /
+/// +48%-towards-white transform turned a bright purple avatar into navy in
+/// light mode and a pastel in dark mode, so the card no longer read as the
+/// same Bot.
 struct BotCardTheme {
     var appearance: BotFishAppearance = .classic
 
-    var accent: Color {
-        let raw = appearance.color.hex.dropFirst()
-        let hex = UInt32(raw, radix: 16) ?? 0x1680F3
-        let source = [CGFloat((hex >> 16) & 0xFF),
-                      CGFloat((hex >> 8) & 0xFF),
-                      CGFloat(hex & 0xFF)].map { $0 / 255 }
-        return Color(uiColor: UIColor { traits in
-            let channels = source.map { value in
-                traits.userInterfaceStyle == .dark
-                    ? value + (1 - value) * 0.48
-                    : value * 0.42
-            }
-            return UIColor(red: channels[0], green: channels[1], blue: channels[2], alpha: 1)
-        })
-    }
+    /// Text, icons and controls: the avatar colour at a readable contrast.
+    var accent: Color { dynamicColor(minimumContrast: 4.5) }
 
+    /// The top rule and washes: the avatar colour itself whenever it is at
+    /// least visible on the card, so the card reads as that Bot.
+    var brand: Color { dynamicColor(minimumContrast: 1.5) }
+
+    /// `accent` is already contrast-checked against the card surface, so the
+    /// scheme's conventional ink keeps at least 4.5:1 on both surfaces.
     var buttonInk: Color {
         Color(uiColor: UIColor { traits in
             traits.userInterfaceStyle == .dark ? .black : .white
         })
+    }
+
+    private func dynamicColor(minimumContrast: Double) -> Color {
+        Color(uiColor: UIColor { traits in
+            let rgb = Self.resolve(appearance.color,
+                                   on: Self.background(for: traits),
+                                   minimumContrast: minimumContrast)
+            return UIColor(red: CGFloat(rgb.red), green: CGFloat(rgb.green),
+                           blue: CGFloat(rgb.blue), alpha: 1)
+        })
+    }
+
+    private static func resolve(_ color: BotFishColor,
+                                on background: BotColorAccessibility.RGB,
+                                minimumContrast: Double) -> BotColorAccessibility.RGB {
+        let source = BotColorAccessibility.rgb(hex: color.hex)
+            ?? BotColorAccessibility.rgb(hex: BotFishColor.blue.hex)!
+        return BotColorAccessibility.accessible(source, on: background,
+                                                minimumContrast: minimumContrast)
+    }
+
+    private static func background(for traits: UITraitCollection) -> BotColorAccessibility.RGB {
+        traits.userInterfaceStyle == .dark
+            ? BotColorAccessibility.RGB(red: 0x1C / 255, green: 0x1C / 255, blue: 0x1E / 255)
+            : .white
     }
 }
 
@@ -87,8 +109,9 @@ enum BotCardMetrics {
     static let metaLine: CGFloat = 18
 }
 
-/// Card categories share the current Bot's brand accent; notice remains
-/// intentionally neutral. Status colors are owned by `BotCardTone`.
+/// Card categories share the current Bot's brand colour; notice remains
+/// intentionally neutral. `ink` is the readable text/icon variant and
+/// `brand` the avatar's own decorative colour.
 enum BotCardCategory {
     case choice, work, document, approval, notice
 
@@ -99,7 +122,14 @@ enum BotCardCategory {
         }
     }
 
-    func wash(theme: BotCardTheme) -> Color { ink(theme: theme).opacity(0.09) }
+    func brand(theme: BotCardTheme) -> Color {
+        switch self {
+        case .choice, .work, .document, .approval: theme.brand
+        case .notice: HomeSpec.textSecondary
+        }
+    }
+
+    func wash(theme: BotCardTheme) -> Color { brand(theme: theme).opacity(0.09) }
 }
 
 extension View {
@@ -245,7 +275,7 @@ struct BotCardSurface<Content: View>: View {
             .overlay(RoundedRectangle(cornerRadius: BotCardMetrics.radius, style: .continuous)
                 .strokeBorder(category.ink(theme: theme).opacity(0.18), lineWidth: 1))
             .overlay(alignment: .top) {
-                category.ink(theme: theme).frame(height: 3)
+                category.brand(theme: theme).frame(height: 3)
                     .accessibilityHidden(true)
             }
             .clipShape(RoundedRectangle(cornerRadius: BotCardMetrics.radius, style: .continuous))
@@ -701,7 +731,7 @@ struct BotCardProgressBar: View {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule().fill(HomeSpec.userBubble)
-                    Capsule().fill(ink ?? theme.accent)
+                    Capsule().fill(ink ?? theme.brand)
                         .frame(width: geometry.size.width * CGFloat(percent) / 100)
                 }
             }
