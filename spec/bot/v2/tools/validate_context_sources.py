@@ -82,6 +82,9 @@ def secret_keys(value) -> list[str]:
 def check_observation(case: dict) -> None:
     observation = case["observation"]
     check(observation, "context-observation.schema.json", case["name"])
+    resource = observation["resource"]
+    if resource["kind"] != "context-source" or not resource["key"]:
+        raise AssertionError(f"{case['name']}: context resource identity")
     if observation["source"] in UNSUPPORTED:
         raise AssertionError(f"{case['name']}: unsupported source cannot emit observations")
     keys = secret_keys(observation["payload"])

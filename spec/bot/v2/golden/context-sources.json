@@ -104,7 +104,12 @@
           "changed": true
         },
         "dedupe_key": "calendar:changed:1",
-        "wake_requested": true
+        "wake_requested": true,
+        "resource": {
+          "kind": "context-source",
+          "key": "calendar:EKEvent:1",
+          "owner": "bot-a"
+        }
       },
       "expect": "accept"
     },
@@ -133,7 +138,12 @@
           "fence_id": "home"
         },
         "dedupe_key": "fence:home:1",
-        "wake_requested": true
+        "wake_requested": true,
+        "resource": {
+          "kind": "context-source",
+          "key": "fence:home",
+          "owner": "bot-a"
+        }
       },
       "expect": "accept"
     },
@@ -160,7 +170,12 @@
         "delivery": "os",
         "payload": {},
         "dedupe_key": "calendar:changed:1",
-        "wake_requested": true
+        "wake_requested": true,
+        "resource": {
+          "kind": "context-source",
+          "key": "calendar:EKEvent:2",
+          "owner": "bot-a"
+        }
       },
       "expect": "accept"
     },
@@ -189,7 +204,12 @@
           "changed": true
         },
         "dedupe_key": "calendar:changed:1",
-        "wake_requested": true
+        "wake_requested": true,
+        "resource": {
+          "kind": "context-source",
+          "key": "calendar:EKEvent:3",
+          "owner": "bot-a"
+        }
       },
       "expect": "reject",
       "error": "delivery-origin-mismatch"
@@ -219,7 +239,12 @@
           "access_token": "sk-live-1"
         },
         "dedupe_key": "calendar:changed:1",
-        "wake_requested": true
+        "wake_requested": true,
+        "resource": {
+          "kind": "context-source",
+          "key": "calendar:EKEvent:4",
+          "owner": "bot-a"
+        }
       },
       "expect": "reject",
       "error": "credential-in-observation"
@@ -249,7 +274,12 @@
           "changed": true
         },
         "dedupe_key": "calendar:changed:1",
-        "wake_requested": true
+        "wake_requested": true,
+        "resource": {
+          "kind": "context-source",
+          "key": "x:1",
+          "owner": "bot-a"
+        }
       },
       "expect": "reject"
     }
