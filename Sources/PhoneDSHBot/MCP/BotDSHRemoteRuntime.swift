@@ -3442,6 +3442,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         var resultTexts: [String] = []
         var toolNames: [String: String] = [:]
         var toolFinals: [String: Bool] = [:]
+        var toolWritePaths: [String: String] = [:]
+        var currentUserSourceRef: String?
         var recordRefs: [String] = []
         var suppressWrapUp = false
         let live = kind == .chat && !hidden
@@ -3558,6 +3560,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             switch type {
             case "turn/start":
                 currentTurn = eventTurn ?? currentTurn
+                currentUserSourceRef = nil
                 if let currentTurn { await runtime.updateTurn(sessionId: sessionId, turnId: currentTurn) }
                 stepStartedAt = eventTime
                 firstDeltaAt = nil
@@ -3577,11 +3580,12 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     await runtime.noteInjectedDecisionMaterial(injected)
                 }
                 if !hidden {
-                    let userSeq = try await appendConversation(
+                    let userCommitSeq = try await appendConversation(
                         type: "conversation.user_message", sessionId: sessionId, seq: seq,
                         data: data, principalKind: kind, time: eventTime, attemptId: attemptId)
-                    if userSeq > 0 {
-                        userSourceRefs[sessionId] = "record://event/\(userSeq)"
+                    if userCommitSeq > 0,
+                       data["source"]?["kind"]?.stringValue == "user" {
+                        currentUserSourceRef = "record://event/\(userCommitSeq)"
                     }
                 }
             case "assistant/message":
@@ -3620,9 +3624,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 let name = data["name"]?.stringValue ?? ""
                 toolNames[callId] = name
                 if name == "write" || name == "edit",
-                   let path = BotWorkspaceDerivation.path(
-                       arguments: data["arguments"], botID: botId) {
-                    writePaths[callId] = path
+                   let path = Self.toolWritePath(from: data),
+                   let relative = Self.workspaceRelativePath(path, root: botRoot()) {
+                    toolWritePaths[callId] = relative
                 }
                 if isContentCardTool(name), let final = contentCardFinal(in: data["arguments"]) {
                     toolFinals[callId] = final
@@ -3650,26 +3654,14 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     kind: watchdogKind(kind), id: "\(sessionId):\(currentTurn ?? "unknown")",
                     name: name, status: failed ? "error" : "ok", callId: callId, at: eventTime)
                 var resultData = data
-                if !failed, let path = writePaths.removeValue(forKey: callId),
-                   let userRef = userSourceRefs[sessionId],
-                   case .object(var object) = resultData {
-                    object["derivation"] = .object([
-                        "artifact": .object([
-                            "kind": .string("workspaceFile"),
-                            "id": .string(path),
-                        ]),
-                        "sources": .array([.object([
-                            "record": .string(userRef),
-                            "role": .string("evidence"),
-                            "resource": .object([
-                                "kind": .string("workspace-file"),
-                                "key": .string(path),
-                                "owner": .string(botId),
-                            ]),
-                        ])]),
-                    ])
+                if !failed, let path = toolWritePaths[callId],
+                   let userRef = currentUserSourceRef,
+                   case var .object(object) = data {
+                    object["derivation"] = Self.workspaceFileDerivation(
+                        path: path, botID: botId, userRecord: userRef)
                     resultData = .object(object)
                 }
+                toolWritePaths.removeValue(forKey: callId)
                 let resultCommitSeq = try await appendConversation(
                     type: "conversation.tool_result", sessionId: sessionId, seq: seq,
                     data: resultData, principalKind: kind, time: eventTime, attemptId: attemptId)
@@ -3743,6 +3735,63 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         }
         guard case .bool(let final)? = object?["final"] else { return nil }
         return final
+    }
+
+    static func toolWritePath(from data: BotJSONValue) -> String? {
+        var arguments = data["arguments"]
+        if case let .string(text)? = arguments {
+            arguments = try? BotJSONValue.parse(Data(text.utf8))
+        }
+        guard let object = arguments?.objectValue else { return nil }
+        return object["file_path"]?.stringValue ?? object["path"]?.stringValue
+    }
+
+    /// Only a path inside this Bot's root becomes a workspaceFile id. The id
+    /// is normalized bot-root-relative with no leading slash, empty segment or
+    /// `..`; an absolute path outside the root is ignored (no derivation).
+    static func workspaceRelativePath(_ raw: String, root: String) -> String? {
+        var value = raw
+        let prefix = root.hasSuffix("/") ? root : root + "/"
+        if value.hasPrefix(prefix) {
+            value = String(value.dropFirst(prefix.count))
+        } else if value.hasPrefix("/") {
+            return nil
+        }
+        guard !value.isEmpty, !value.hasPrefix("/"), !value.contains("\\") else {
+            return nil
+        }
+        let parts = value.split(separator: "/", omittingEmptySubsequences: false)
+        guard !parts.isEmpty else { return nil }
+        for part in parts {
+            guard !part.isEmpty, part != ".", part != ".." else { return nil }
+            guard !part.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) else {
+                return nil
+            }
+        }
+        return parts.joined(separator: "/")
+    }
+
+    /// Frozen workspaceFile derivation: artifact id is the relative path, no
+    /// monotonic version; the real current user turn is the evidence source.
+    /// A missing user source never produces a derivation.
+    static func workspaceFileDerivation(path: String, botID: String,
+                                        userRecord: String) -> BotJSONValue {
+        .object([
+            "artifact": .object([
+                "kind": .string("workspaceFile"),
+                "id": .string(path),
+            ]),
+            "sources": .array([.object([
+                "record": .string(userRecord),
+                "role": .string("evidence"),
+                "resource": .object([
+                    "kind": .string("workspace-file"),
+                    "key": .string(path),
+                    "owner": .string(botID),
+                    "scope": .string("agent"),
+                ]),
+            ])]),
+        ])
     }
 
     private func appendConversation(type: String, sessionId: String, seq: Int,
