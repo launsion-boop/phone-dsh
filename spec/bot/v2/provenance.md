@@ -97,8 +97,14 @@
 | 其他 durable type | 不自动当 observation | — | 不得因工具名前缀 `mcp__*`/`web_search` 就猜 observation；名字不是身份 |
 
 - P 的 `sourceStates`/`evidenceSnapshot` 必须对上述 carrier 返回 `trust=observation`、`resolved`、
-  `observed_at_ms`、version（信封/数据里的来源版本或内容摘要）与 `resource`；`context.observed` 不能
-  落到 `default: assistant`。拿不到 resource → 返回 `no-resource-identity` 语义，不得 current。
+  `observed_at_ms`、record type 与 version（信封/数据里的来源版本或内容摘要）；`context.observed`
+  不能落到 `default: assistant`。**resource 身份由 L 从真实 carrier 推导**（tool_result 信封
+  `source+origin`、`context.observed` 的 flat `resource`），P 的 facts 不要求返回 resource，也**不得**
+  从工具名前缀/通道猜；若 P 恰好已有 resource 可一并给出，但 L 必须自行解析真实 carrier 并在缺失时
+  给 `no-resource-identity`，不得 current。
+- P 与 L 的 adapter 必须对 **session 和 event 两类 ref** 都工作：L 不能只把 `record://session/...`
+  送 P；`record://event/N` 必须按事件 principal 的 botID 送 P facts（sessionID 可为 nil，P 对 nil
+  返回空时 L 按 owner 组/事件上下文重试）。否则 event 来源仍会走测试自造的 observation 路径。
 - L 的 observation 索引必须按本表解析；测试里构造的 `data.observation` 不再作为契约证据，golden/测试
   必须覆盖真实 flat context 与正文信封两类 carrier。
 - 写入端（C/P/L）的 `prepareBaseline` 必须有生产 caller；只存在于测试/assembly API 的不算接线。
