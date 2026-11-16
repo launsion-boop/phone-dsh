@@ -125,6 +125,14 @@ public struct BotWorkspaceDirectoryCatalog: BotWorkspaceCataloging {
             throw BotWorkspaceCatalogError.invalidBotRoot
         }
         let root = directory.standardizedFileURL.resolvingSymlinksInPath()
+        let limit = max(1, min(maximumCount, maximumListedFiles))
+        // DirectoryEnumerator's iterator is not available from an async
+        // context (a Swift 6 error); the bounded traversal runs synchronously
+        // and only the caller awaits the result.
+        return Self.listFiles(in: root, limit: limit)
+    }
+
+    private static func listFiles(in root: URL, limit: Int) -> [BotWorkspaceFileEntry] {
         let rootPrefix = root.path + "/"
         let keys: [URLResourceKey] = [
             .isRegularFileKey, .fileSizeKey, .contentModificationDateKey,
@@ -133,7 +141,6 @@ public struct BotWorkspaceDirectoryCatalog: BotWorkspaceCataloging {
             at: root, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else {
             return []
         }
-        let limit = max(1, min(maximumCount, maximumListedFiles))
         var entries: [BotWorkspaceFileEntry] = []
         entries.reserveCapacity(min(limit, 256))
         for case let url as URL in enumerator {

@@ -280,16 +280,16 @@ final class WorkspaceDecisionContextTests: XCTestCase {
         XCTAssertNotEqual(current, observed)
         XCTAssertEqual(current, sha256(Data("# 规范\n- 第二版（已改）".utf8)))
 
-        let memoryRef = await service.currentContentSHA256(
+        let memoryRefValue = await service.currentContentSHA256(
             forWorkspaceRef: "memory:user/a.md@v1", botID: "main")
-        XCTAssertNil(memoryRef)
-        let escapeRef = await service.currentContentSHA256(
+        XCTAssertNil(memoryRefValue)
+        let escapeRefValue = await service.currentContentSHA256(
             forWorkspaceRef: "workspace:../escape.md@sha256:" + String(repeating: "0", count: 64),
             botID: "main")
-        XCTAssertNil(escapeRef)
-        let shortRef = await service.currentContentSHA256(
+        XCTAssertNil(escapeRefValue)
+        let shortRefValue = await service.currentContentSHA256(
             forWorkspaceRef: "workspace:docs/guide.md@sha256:short", botID: "main")
-        XCTAssertNil(shortRef)
+        XCTAssertNil(shortRefValue)
     }
 
     func testInvalidWorkspacePathsAreRejectedByTheService() {
@@ -365,8 +365,9 @@ final class WorkspaceDecisionContextTests: XCTestCase {
         let large = try await catalog.readText(botID: "main", path: "docs/large.md",
                                                maximumBytes: 64 * 1024)
         XCTAssertNil(large)
-        XCTAssertNil(try await catalog.readText(botID: "main", path: "docs/missing.md",
-                                                maximumBytes: 64 * 1024))
+        let missing = try await catalog.readText(botID: "main", path: "docs/missing.md",
+                                                 maximumBytes: 64 * 1024)
+        XCTAssertNil(missing)
     }
 
     func testDirectoryCatalogRefusesEscapesAndSymlinksOutsideTheBotRoot() async throws {
@@ -386,6 +387,8 @@ final class WorkspaceDecisionContextTests: XCTestCase {
             XCTFail("relative escape must be refused")
         } catch let error as BotWorkspaceCatalogError {
             XCTAssertEqual(error, .invalidPath)
+        } catch {
+            XCTFail("unexpected error: \(error)")
         }
         do {
             _ = try await catalog.readText(botID: "main", path: "/etc/passwd",
@@ -393,6 +396,8 @@ final class WorkspaceDecisionContextTests: XCTestCase {
             XCTFail("absolute path must be refused")
         } catch let error as BotWorkspaceCatalogError {
             XCTAssertEqual(error, .invalidPath)
+        } catch {
+            XCTFail("unexpected error: \(error)")
         }
         do {
             _ = try await catalog.readText(botID: "main", path: "docs/link.md",
@@ -413,6 +418,8 @@ final class WorkspaceDecisionContextTests: XCTestCase {
             XCTFail("a non-workspace root must be refused")
         } catch let error as BotWorkspaceCatalogError {
             XCTAssertEqual(error, .invalidBotRoot)
+        } catch {
+            XCTFail("unexpected error: \(error)")
         }
     }
 
