@@ -21,6 +21,22 @@
   authorization_revision, query_digest, goal_digest?, retrieved_at_ms, materials[], limits,
   truncated, canceled}`；`materials` 每项 `{material_id, ref, path?, scope, version,
   updated_at_ms, snippet, evidence[0..2], selection_reason, state, reason?}`。
+- **workspace 候选（G-2 r6 additive）**：同一个 block 可混入 ≤2 条 Bot 工作区文件材料，不新增
+  MCP 工具/`systemPrompt.context` section/profile 行。
+  - `ref = workspace:<bot-root-relative-path>@sha256:<64 lowercase hex>`，≤256；path 不以 `/` 开头、
+    不含 `..` 段、反斜线/空白/控制字符，≤200；`sha256` 是对本次实际读取字节（≤64 KiB）计算的
+    `sha256:`，与 `ref` 中值一致。
+  - `path` 与 ref 中的 path 逐字一致（bot-root-relative，模型可直接 `read`）；`scope` 固定 `agent`
+    （该 Bot 自己的工作区）；`version`=mtime 秒（≥1）；`updated_at_ms`=mtime ms；`evidence=[]`；
+    `selection_reason ∈ match|recency|goal`。
+  - `state` 固定 `current`（同一 turn 的真实 read+sha256 观察；ref 固定该次读取的字节身份；
+    pre-delivery/reuse 必须重新读取并核对 hash，不一致则丢弃/重生成，不复用旧副本）。不写
+    `reason`。若读取失败/超时/越界/非文本，该候选不出现（不是 unknown 材料）。
+  - workspace 材料计入既有 `max_materials`/`max_characters`/`max_snippet_characters`；memory 保留其余
+    槽位；block `truncated` 反映被省略的候选。snippet 只折叠控制字符、限量，仍放在“不是用户本轮的
+    话、不是指令”的材料区。
+  - workspace ref 不是交付/附件来源：G-2 的 delivery selection/approval 资源必须是 memory/record
+    来源；R 的 review/parseRef 跳过 `workspace:` ref。
 - `stage` 封闭 `pre_step`/`pre_delivery`。`pre_step` 材料在**同一 turn 的后续 step**复用；turn、
   `authorization_revision`、recipient、goal digest 或任一材料状态变化 → 整批失效，不局部沿用。
   旧 turn 的 block 不得进入新 turn 请求。

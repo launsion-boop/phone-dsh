@@ -87,6 +87,52 @@
         },
         "truncated": false,
         "canceled": false
+      },
+      {
+        "block_id": "dm:1",
+        "turn_id": "gb-main#3",
+        "session_id": "gb-main",
+        "bot_id": "bot-a",
+        "stage": "pre_step",
+        "authorization_revision": "auth-r1",
+        "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "retrieved_at_ms": 1760000010000,
+        "materials": [
+          {
+            "material_id": "mat:ws1",
+            "ref": "workspace:docs/report-guide-v2.md@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "path": "docs/report-guide-v2.md",
+            "scope": "agent",
+            "version": 1794837000,
+            "updated_at_ms": 1794837000000,
+            "snippet": "报告规范：标题、数据来源、结论先行。",
+            "evidence": [],
+            "selection_reason": "match",
+            "state": "current"
+          },
+          {
+            "material_id": "mat:1",
+            "ref": "memory:user/profile.md@v2",
+            "path": "user/profile.md",
+            "scope": "user",
+            "version": 2,
+            "updated_at_ms": 1760000000001,
+            "snippet": "x",
+            "evidence": [
+              "record://event/7"
+            ],
+            "selection_reason": "goal",
+            "state": "current"
+          }
+        ],
+        "limits": {
+          "max_materials": 4,
+          "max_characters": 1600,
+          "max_snippet_characters": 240,
+          "deadline_ms": 1500
+        },
+        "truncated": false,
+        "canceled": false
       }
     ],
     "invalid": [
@@ -372,6 +418,253 @@
               ],
               "selection_reason": "goal",
               "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-absolute",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws1",
+              "ref": "workspace:/etc/passwd@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "path": "/etc/passwd",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "报告规范：标题、数据来源、结论先行。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-dotdot",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws1",
+              "ref": "workspace:docs/../secret.md@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "path": "docs/../secret.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "报告规范：标题、数据来源、结论先行。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-missing-sha",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws1",
+              "ref": "workspace:docs/report-guide-v2.md",
+              "path": "docs/report-guide-v2.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "报告规范：标题、数据来源、结论先行。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-path-mismatch",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws1",
+              "ref": "workspace:docs/report-guide-v2.md@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "path": "docs/other.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "报告规范：标题、数据来源、结论先行。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-scope-user",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws1",
+              "ref": "workspace:docs/report-guide-v2.md@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "path": "docs/report-guide-v2.md",
+              "scope": "user",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "报告规范：标题、数据来源、结论先行。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-evidence",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws1",
+              "ref": "workspace:docs/report-guide-v2.md@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "path": "docs/report-guide-v2.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "报告规范：标题、数据来源、结论先行。",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-state-unknown",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws1",
+              "ref": "workspace:docs/report-guide-v2.md@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "path": "docs/report-guide-v2.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "报告规范：标题、数据来源、结论先行。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "unknown"
             }
           ],
           "limits": {

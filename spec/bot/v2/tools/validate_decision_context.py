@@ -58,6 +58,24 @@ def digest(draft: str, revision: int, ids, params) -> str:
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def parse_workspace_ref(ref: str):
+    prefix = "workspace:"
+    if not ref.startswith(prefix):
+        return None
+    body = ref[len(prefix):]
+    path, sep, digest = body.rpartition("@sha256:")
+    if sep != "@sha256:" or len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+        return None
+    if not (1 <= len(path) <= 200) or path.startswith("/") or "\\" in path:
+        return None
+    if any(ch.isspace() or ord(ch) < 0x20 for ch in path):
+        return None
+    segments = path.split("/")
+    if any(segment in ("", ".", "..") for segment in segments):
+        return None
+    return path, digest
+
+
 def check_material(block: dict, where: str) -> None:
     limits = block["limits"]
     if len(block["materials"]) > limits["max_materials"]:
@@ -68,7 +86,20 @@ def check_material(block: dict, where: str) -> None:
     for item in block["materials"]:
         if scalars(item["snippet"]) > limits["max_snippet_characters"]:
             raise AssertionError(f"{where}: {item['material_id']} snippet too long")
-        if item["ref"] == "current-user-turn" or not (
+        workspace = parse_workspace_ref(item["ref"])
+        if workspace is not None:
+            path, digest = workspace
+            if item["path"] != path:
+                raise AssertionError(f"{where}: workspace path does not match ref")
+            if item["scope"] != "agent":
+                raise AssertionError(f"{where}: workspace scope must be agent")
+            if item.get("evidence"):
+                raise AssertionError(f"{where}: workspace material must not carry evidence")
+            if item["state"] != "current" or "reason" in item:
+                raise AssertionError(f"{where}: workspace state must be current without reason")
+            if item["version"] < 1 or item["updated_at_ms"] < 0:
+                raise AssertionError(f"{where}: workspace version/time")
+        elif item["ref"] == "current-user-turn" or not (
                 item["ref"].startswith("memory:") or RECORD.match(item["ref"])):
             raise AssertionError(f"{where}: invalid material ref {item['ref']!r}")
         if item["state"] not in STATE:
