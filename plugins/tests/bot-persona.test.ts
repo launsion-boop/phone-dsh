@@ -27,7 +27,7 @@ test('both persona languages mount every P0 and no P1, with all variants', () =>
   assert.ok(parseMountSpec('when: unknown=value').error)
 })
 
-test('activity guidance uses real task objects with the code-aligned wait sentence', () => {
+test('activity guidance teaches one short, object-bearing, result-carrying sentence', () => {
   for (const lang of ['zh', 'en'] as const) {
     const { persona } = assemblePrompt({ lang })
     assert.ok(persona.includes('`description`'), `${lang} must keep bash.description guidance`)
@@ -35,31 +35,34 @@ test('activity guidance uses real task objects with the code-aligned wait senten
     assert.ok(persona.includes('等待响应'), `${lang} must use the code-aligned wait sentence`)
     assert.equal(persona.includes('等待模型响应'), false, `${lang} still uses the removed wait sentence`)
     if (lang === 'zh') {
-      for (const token of ['文件名', '路径', 'URL', '#PR', '人名', '会议名']) {
-        assert.ok(persona.includes(token), `zh activity guidance must allow ${token}`)
+      for (const token of ['10–20 个中文字', '动作 + 这次任务里的对象', '文件名', '#PR', '人名', '会议名',
+        '在对比 #174 和 main 的冲突', '冲突在 3 个文件里，在逐个看', '读取相关资料', '已收到查询结果']) {
+        assert.ok(persona.includes(token), `zh activity guidance must include ${token}`)
       }
-      assert.ok(persona.includes('不要复制整条命令或 JSON'))
-      assert.ok(persona.includes('不要写凭证'))
-      assert.ok(persona.includes('不要写内部 id'))
+      assert.ok(persona.includes('不要把完整路径、长 URL、整条命令、JSON、原始长回答或技术参数搬上屏'))
+      assert.ok(persona.includes('不要写凭证或内部 id'))
+      assert.ok(persona.includes('下一句要接住上一句的真实结果'))
+      assert.ok(persona.includes('不要往未声明的字段写 intent'))
+      assert.ok(persona.includes('不另开摘要模型或请求'))
+      assert.ok(persona.includes('不调用专用活动工具'))
+      assert.ok(persona.includes('不为刷新气泡发旁白'))
       assert.equal(persona.includes('不要包含文件名、路径、扩展名、网址、命令、内部 ID 或代码'), false,
         'zh must not keep the generalized filename/path prohibition')
-      assert.ok(persona.includes('同一回合同一步'))
-      assert.ok(persona.includes('不要为活动栏额外发状态旁白'))
-      assert.ok(persona.includes('不要仅为刷新提示而调用工具'))
-      assert.ok(persona.includes('不要编造进度'))
     } else {
-      for (const token of ['file name', 'path', 'URL', '#PR', 'person', 'meeting name']) {
-        assert.ok(persona.includes(token), `en activity guidance must allow ${token}`)
+      for (const token of ['10–20 Chinese characters', "action + this task's object", 'file name', '#PR',
+        'person', 'meeting', 'Comparing #174 with main', 'The conflict is in 3 files; checking each one',
+        'Reading related material', 'Got the query result']) {
+        assert.ok(persona.includes(token), `en activity guidance must include ${token}`)
       }
-      assert.ok(persona.includes('Never paste the whole command or JSON'))
-      assert.ok(persona.includes('credentials'))
-      assert.ok(persona.includes('internal ids'))
+      assert.ok(persona.includes('never put a full path, long URL, whole command, JSON, raw long answer or technical parameters'))
+      assert.ok(persona.includes('never include credentials or internal ids'))
+      assert.ok(persona.includes('the next sentence must build on the real result'))
+      assert.ok(persona.includes('never write intent into an undeclared field'))
+      assert.ok(persona.includes('no separate summary model or request'))
+      assert.ok(persona.includes('no dedicated activity tool'))
+      assert.ok(persona.includes('no narration just to refresh the bubble'))
       assert.equal(persona.includes('Do not include filenames, paths, extensions, URLs, commands, internal IDs or code'), false,
         'en must not keep the generalized filename/path prohibition')
-      assert.ok(persona.includes('same turn and step'))
-      assert.ok(persona.includes('status narration'))
-      assert.ok(persona.includes('refresh this indicator'))
-      assert.ok(persona.includes('Do not invent progress'))
     }
   }
 })
