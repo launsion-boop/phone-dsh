@@ -494,6 +494,11 @@ allow-list/超时/大小约束），不新增端点、不新增存储、不新�
   `erased > revoked > changed > unavailable > unknown > current`。`review` 只进
   `review_effective`；`trigger`/`recipient` 不参与 state/upstream（G-1 r14）。非 current 的
   `reasons` 是参与状态的来源 reason 并集（去重、字典序）。
+- **sources 与 content 状态分开（G-1 r22）**：`sources` 是 derivation 断言里的**全部** source
+  （含 `trigger`/`recipient`），即使 content 状态是 `unknown`+`no-derivation` 也必须列出并带各自
+  status；`no-derivation` 只表示没有 content role（evidence/basis/creator），**不是**省略 sources 的
+  许可。revoked/erased/unavailable/unknown 的 source 仍显示其状态，便于审计。L 的 view 必须保留
+  这些条目；golden expected 不因 content 状态为空而删 source。
 - `upstream`：若某 source 的 `record` 是另一个派生物的 `carrier`（该来源本身是派生物断言），
   递归其状态；深度 ≤8、对象总数 ≤10,000，超出截断并给 `truncated: true`，不得静默返回 current。
 - **环**：依赖图成环时，环内对象一律 `unavailable` + `cycle-detected`，不参与 current；
