@@ -398,6 +398,24 @@
 §4 的唯一当前状态视图。既有 `evidence_status` 保留为 legacy：`source_version` 继续 `null`，
 不再扩展、不得改变语义；新读取方用 `source_statuses`，新代码不得再写第二套判定。
 
+### 4.5.1 云侧公开来源 recheck（E7，复用现有 fetch）
+
+web/connector 的真实 recheck 可以复用云仓**现有** `POST /v1/web/fetch`（Bearer + 既有 target/
+allow-list/超时/大小约束），不新增端点、不新增存储、不新增 wire 字段；原正文只在内存中用于比较：
+
+- 归一化：对返回 `content` 统一换行（`\r\n`/`\r` → `\n`）、去首尾空白，按 UTF-8 计算
+  `sha256:<hex>`（G-1 `basis=content-sha256`，web 公开文本用 `subject:"record-text"`）；`title` 不入
+  version。规则由 R/P 共用，不得一边归一化一边不归一化。
+- `observed_at_ms`：优先云响应标准 `Date` 头（秒级，转 ms）；需要 ms 精度时可用客户端接收时间，但
+  必须标明来源；不得用模型/客户端本地猜测的抓取时间冒充云时间。
+- identity：请求的规范化 URL（scheme/host 小写、去默认端口、保留 path/query、去 fragment）；现有
+  response 不暴露 redirect 最终 URL，因此**不得**声称跨 redirect 的资源身份；digest 变即 changed。
+- 比较：同 digest → current/unchanged；不同 → changed；401/403/私网/目标拒绝 → refresh-denied；
+  5xx/超时/空正文/不可得 → refresh-unavailable/refresh-not-performed；这些情况不得 current，也不得
+  用旧正文冒充新鲜。
+- 云侧不落正文/URL/凭据到 DB/log；手机只在内存 hash/比较，写时基线仍按 G-1 持久化。
+- 若现有响应未来不足以表达版本/时间，再以最小 additive delta 变更；本 revision 不需要。
+
 ### 4.6 cross-Bot shared read（G-1 补充）
 
 - 共享 `user/` 记忆的 evidence 可能指向**另一个 Bot**的 session/event。宿主只能按引用解析出被引用的

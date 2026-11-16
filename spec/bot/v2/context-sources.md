@@ -80,6 +80,18 @@ capability matrix 由运行时 Swift 数据（`ContextSourceCapabilityMatrix`）
   另带，不静默）。
 - 读取前必须重查授权，不依赖缓存里的 `authorized`；撤权后下一次读取零 OS 调用。
 
+## 4.1 使用处 consent / 授权核验（A09 语义，2026-11-16）
+
+- 源读取/材料消费在**真正使用处**按当前 N consent generation 与 grant 核验：读取前重查
+  `authorization(for:)`/订阅 generation；撤权后不得读取、不得注入旧 observation/缓存材料。
+- 云调度是**独立 opt-in**：`routine.cloud_schedule.enabled` 且 `authorization_ref` 仍可解析/未
+  erased，执行前重查；不满足 → refuse/cancel，不调度。云调度不因“模型有记忆/材料”自动获得授权。
+- F suppression 只在 delivery 出口（proactive gate）抑制，不停 routine、不影响云调度；
+  cross-goal 不误停。
+- 只有 routine 有**真实持久 basis 依赖**（可解析的 `derivation.sources` content role 指向该来源）时，
+  该来源撤权才可停止/quiet 该 routine；没有真实依赖只查 cloud 授权，不凭标题/关键词推断，也不得用
+  nil resolver 冒充已验证。无新映射表/字段，复用 derivation/authorization_ref。
+
 ## 5. 唤醒（沿用既有 WakeSignal）
 
 - 复用 `WakeSignal(botId, reason, at)`；`reason` 固定 `context:<source>:<kind>`（如
