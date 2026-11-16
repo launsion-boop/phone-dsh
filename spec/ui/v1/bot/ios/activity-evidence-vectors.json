@@ -592,14 +592,14 @@
             "callId": "a",
             "name": "web_fetch",
             "arguments": {
-              "url": "https://user:password@example.com/report?token=secret&view=1"
+              "url": "https://user:password@localhost/report?token=secret&view=1"
             }
           }
         }
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在开网页 · example.com",
+        "detail": "在开网页 · localhost",
         "category": "browsing",
         "startedAt": 200
       }

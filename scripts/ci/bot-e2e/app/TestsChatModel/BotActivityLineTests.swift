@@ -455,8 +455,8 @@ final class BotActivityLineTests: XCTestCase {
 
     func testDisplayedURLObjectIsTheHostOnly() {
         let call = BotActivityEvidence.action(forToolNamed: "web_fetch", arguments: arguments(
-            "{\"url\":\"https://user:password@example.com/report?token=secret&view=1\"}"))
-        XCTAssertEqual(call.text, "在开网页 · example.com")
+            "{\"url\":\"https://user:password@localhost/report?token=secret&view=1\"}"))
+        XCTAssertEqual(call.text, "在开网页 · localhost")
         XCTAssertEqual(BotActivityEvidence.displayHost(
             "https://github.com/launsion-boop/phone-dsh/pull/174"), "github.com")
     }
