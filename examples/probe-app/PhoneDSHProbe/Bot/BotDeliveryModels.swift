@@ -46,10 +46,32 @@ struct BotDeliveryResource: Equatable, Identifiable {
     var source: BotProvenanceSource?
     var hasMalformedValue = false
 
-    var isSelectable: Bool { state == .current }
+    /// G-2 r5: only unreadable/unavailable resources are barred. A changed or
+    /// unknown resource stays selectable but is visibly historical/uncertain;
+    /// the model or user decides whether the older version fits this task.
+    var isSelectable: Bool {
+        switch state {
+        case .current, .changed, .unknown: return true
+        case .unavailable, .revoked, .erased: return false
+        }
+    }
+
+    var isCurrent: Bool { state == .current }
+    var isHistorical: Bool { isSelectable && !isCurrent }
 
     var stateLabel: String? {
         state == .current ? nil : state.label
+    }
+
+    /// A short label that never hides a selectable historical candidate behind
+    /// the same wording as a revoked one.
+    var selectionNote: String? {
+        switch state {
+        case .current: return nil
+        case .changed: return "历史版本，仍可选择"
+        case .unknown: return "时效未知，仍可选择"
+        case .unavailable, .revoked, .erased: return "当前不可读，不可选择"
+        }
     }
 
     static func parse(_ value: BotJSONValue, index: Int) -> BotDeliveryResource? {

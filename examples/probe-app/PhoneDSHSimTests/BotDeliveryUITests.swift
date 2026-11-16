@@ -279,6 +279,43 @@ final class BotDeliveryUITests: XCTestCase {
         XCTAssertFalse(session.toggle("r2"))
     }
 
+    /// G-2 r5: a changed/unknown resource is selectable but visibly not
+    /// current; only revoked/erased/unavailable are barred.
+    func testChangedResourceIsSelectableButMarkedHistorical() {
+        let row = approvalRow(selected: ["r1"], resources: [
+            resource(id: "r1", name: "旧版规范.md", selected: true, state: "changed",
+                     stateReason: "已有 11 月新版"),
+        ], revision: 1, digest: "sha256:" + String(repeating: "a", count: 64))
+        guard case .ready(let draft) = BotDeliveryDraft.parse(row: row) else {
+            return XCTFail("draft should parse")
+        }
+        let resource = draft.resources[0]
+        XCTAssertTrue(resource.isSelectable)
+        XCTAssertFalse(resource.isCurrent)
+        XCTAssertTrue(resource.isHistorical)
+        XCTAssertEqual(resource.selectionNote, "历史版本，仍可选择")
+        XCTAssertEqual(resource.stateReason, "已有 11 月新版")
+        var session = BotDeliverySelectionSession(row: row, draft: draft)
+        XCTAssertEqual(session.availability(for: "r1"), .selectable)
+        XCTAssertFalse(session.hasChanges)
+        XCTAssertTrue(session.toggle("r1"))
+        XCTAssertTrue(session.hasChanges)
+    }
+
+    func testUnknownResourceIsSelectableButMarkedUncertain() {
+        let row = approvalRow(selected: [], resources: [
+            resource(id: "r1", name: "来源待核.md", selected: false, state: "unknown"),
+        ], revision: 1, digest: "sha256:" + String(repeating: "b", count: 64))
+        guard case .ready(let draft) = BotDeliveryDraft.parse(row: row) else {
+            return XCTFail("draft should parse")
+        }
+        XCTAssertTrue(draft.resources[0].isSelectable)
+        XCTAssertEqual(draft.resources[0].selectionNote, "时效未知，仍可选择")
+        var session = BotDeliverySelectionSession(row: row, draft: draft)
+        XCTAssertTrue(session.toggle("r1"))
+        XCTAssertTrue(session.hasChanges)
+    }
+
     func testMissingRevisionFailsClosed() {
         let body: BotUIBody = BotUIBody(type: "approval", values: [
             "approvalID": .string("approval-1"),

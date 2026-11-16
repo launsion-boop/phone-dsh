@@ -140,10 +140,17 @@ struct BotSuggestedResourcesSection: View {
                             .foregroundStyle(HomeSpec.textTertiary)
                             .lineLimit(1)
                     }
-                    if !resource.isSelectable, let reason = resource.stateReason, !reason.isEmpty {
+                    if let note = resource.selectionNote {
+                        Text(note)
+                            .font(.system(size: 12))
+                            .foregroundStyle(resource.isSelectable
+                                             ? HomeSpec.textTertiary : NativeParityTokens.error)
+                    }
+                    if let reason = resource.stateReason, !reason.isEmpty {
                         Text(reason)
                             .font(.system(size: 12))
-                            .foregroundStyle(NativeParityTokens.error)
+                            .foregroundStyle(resource.isSelectable
+                                             ? HomeSpec.textTertiary : NativeParityTokens.error)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
