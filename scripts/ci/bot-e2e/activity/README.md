@@ -5,11 +5,16 @@ This directory holds the reproducible real-model acceptance input for the iOS Bo
 activity bubble. It reuses the existing Bot eval harness; no second harness or fixture
 framework is introduced.
 
-- `catalog.json`: three controlled Bot tasks (#174 merge check, Wednesday meeting summary,
-  local email draft). The seed files are inline under each scenario's `workspace.files`;
-  there is no network, mail account or send tool. Each task forces a two-read sequence so
-  the model can write one short public progress sentence after the first result and before
-  the next call.
+- `catalog.json` (guided): three controlled Bot tasks (#174 merge check, Wednesday meeting
+  summary, local email draft). The seed files are inline under each scenario's
+  `workspace.files`; there is no network, mail account or send tool. The prompts ask for a
+  short progress sentence after each read and force a two-read sequence. This proves the
+  guided behaviour only.
+- `catalog-natural.json` (natural control): the same seeds and tasks, but the user prompt
+  gives only the task and the material location. It contains no 10–20 character progress
+  instruction, no fixed read count and no output-format instruction. Tools are free; the
+  receipt verifies that the real session actually read the seed (read or bash). This is the
+  evidence for default-prompt behaviour.
 - `receipt.json`: the accepted actual activity sequence, with source seq/tool, raw model
   sentence, displayed detail, length/CJK count, object and result-continuation judgment,
   plus the model configuration read from `request/header`.
@@ -31,7 +36,11 @@ export PDSH_BOT_EVAL_BUILD_DIR="<build cache>"
 export PDSH_BOT_EVAL_SCRATCH="<SwiftPM scratch>"
 bash scripts/ci/bot-e2e/eval.sh \
   --catalog scripts/ci/bot-e2e/activity/catalog.json \
-  --upstream real --repeat 1 --keep-bodies --results "<results dir>"
+  --upstream real --repeat 1 --keep-bodies --results "<guided results dir>"
+# Then the natural control, reusing the same packed Worker and Swift scratch:
+bash scripts/ci/bot-e2e/eval.sh \
+  --catalog scripts/ci/bot-e2e/activity/catalog-natural.json \
+  --upstream real --repeat 1 --keep-bodies --results "<natural results dir>"
 ```
 
 The command packs the Worker bundle from this checkout and runs the production Bot

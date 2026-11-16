@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "selftest": false,
+  "description": "Natural-request control for the Bot activity bubble. Same inline seeds as catalog.json, but the user asks only the task and where the material is: no 10-20 character progress instruction, no fixed two-read sequence, no output-format instruction. This separates default-prompt behavior from the guided catalog. Tools are not constrained; the receipt verifies the real session used read or bash to read the seed.",
+  "budget": {
+    "max_minutes": 20,
+    "max_model_requests": 40
+  },
+  "scenarios": [
+    {
+      "id": "ACT-N1-PR-174-NATURAL",
+      "title": "check PR 174 against main with two reads (natural request)",
+      "description": "Natural request: no progress-length instruction, no fixed read count, no output-format instruction. Tools are free; the receipt checks the actual session tool calls read or bash against the seed.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 5,
+        "max_model_requests": 12
+      },
+      "timeout_s": 300,
+      "workspace": {
+        "root": "bot",
+        "files": {
+          "pr/174-notes.md": "# PR 174\n\nconflict files: 3\nfiles: BotChatModel.swift, BotRuntimePresentation.swift, BotActivityPhrases.swift\n",
+          "pr/main-notes.md": "# main\n\nbase commit: 908d582b\nPR 174 touches three files; merge check still open.\n"
+        }
+      },
+      "network": "none",
+      "turns": [
+        {
+          "prompt": "帮我检查 #174 能不能合并，相关材料在 pr/ 目录里。"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "value": "冲突"
+        }
+      ]
+    },
+    {
+      "id": "ACT-N2-WEDNESDAY-MEETING-NATURAL",
+      "title": "summarize Wednesday meeting from two real files (natural request)",
+      "description": "Natural request: no progress-length instruction, no fixed read count, no output-format instruction. Tools are free; the receipt checks the actual tool calls.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 5,
+        "max_model_requests": 12
+      },
+      "timeout_s": 300,
+      "workspace": {
+        "root": "bot",
+        "files": {
+          "notes/wednesday-meeting.md": "# 周三例会\n\n待办 3 项\n负责人：李光浩\n主题：发布清单\n",
+          "notes/actions.md": "# 行动项\n\n李光浩：整理发布清单并核对日期\n截止：本周五\n"
+        }
+      },
+      "network": "none",
+      "turns": [
+        {
+          "prompt": "总结周三例会的结论和待办，材料在 notes/ 目录里。"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "value": "李光浩"
+        }
+      ]
+    },
+    {
+      "id": "ACT-N3-EMAIL-DRAFT-NATURAL",
+      "title": "draft a local reply to Li Guanghao from seeded inbox material (natural request)",
+      "description": "Natural request: local draft only, no send. No progress-length or output-format instruction; tools are free.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 5,
+        "max_model_requests": 12
+      },
+      "timeout_s": 300,
+      "workspace": {
+        "root": "bot",
+        "files": {
+          "inbox/liguanghao-email.md": "# 邮件：李光浩\n\n发件人：李光浩\n日期：周三\n问题：本周五的发布清单是否已经定稿？请确认周五能否发布。\n",
+          "notes/release-context.md": "# 发布背景\n\n发布清单已定稿，周五可以发布。\n负责人：李光浩\n"
+        }
+      },
+      "network": "none",
+      "turns": [
+        {
+          "prompt": "给李光浩写一封回复邮件草稿，材料在 inbox/ 和 notes/ 目录里；不要发送。"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "value": "李光浩"
+        },
+        {
+          "type": "reply_not_contains",
+          "value": "已发送"
+        }
+      ]
+    }
+  ]
+}
