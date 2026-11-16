@@ -209,10 +209,14 @@ final class FeedbackA05LoopTests: XCTestCase {
         // Production deliveryKinds contain routineResult, so the UI-originated
         // user preference is created on a real routine result, not a taskDone
         // fixture. The unrelated kind (reminder) proves kind-level isolation.
+        // Production `BotRuntimeUnit` deliveryKinds is routineResult only.
+        // Do not enable a kind that production cannot deliver just to make a
+        // reminder control pass; the reminder isolation is a separate unit
+        // counterexample below, explicitly not a production feature.
         let engineA = makeEngine(center, deliverer: delivererA,
-                                 kinds: [.routineResult, .reminder])
+                                 kinds: [.routineResult])
         let engineB = makeEngine(center, deliverer: delivererB,
-                                 kinds: [.routineResult, .reminder])
+                                 kinds: [.routineResult])
         let first = await engineA.consider(FeedbackFixtures.candidate(
             "routine-a1", kind: .routineResult, botId: "bot-a",
             routineId: "routine-a"))
@@ -231,12 +235,6 @@ final class FeedbackA05LoopTests: XCTestCase {
             "routine-b1", kind: .routineResult, botId: "bot-b",
             routineId: "routine-b"))
         XCTAssertEqual(heldB.reason, "feedback-held")
-        let reminderB = await engineB.consider(FeedbackFixtures.candidate(
-            "reminder-b1", kind: .reminder, botId: "bot-b",
-            reminderId: "reminder-b"))
-        XCTAssertEqual(reminderB.decision, .did,
-                       "a routine-result user preference must not suppress reminders")
-
         // A chat utterance cannot widen the scope by itself.
         var chatWide = BotFeedback(
             botID: "bot-a", action: .suppress,
@@ -259,7 +257,7 @@ final class FeedbackA05LoopTests: XCTestCase {
 
         let restarted = try makeCenter()
         let restartedB = makeEngine(restarted, deliverer: delivererB,
-                                    kinds: [.routineResult, .reminder])
+                                    kinds: [.routineResult])
         clock.advance(60_000)
         let heldAfterRestart = await restartedB.consider(FeedbackFixtures.candidate(
             "routine-b2", kind: .routineResult, botId: "bot-b",
@@ -275,6 +273,32 @@ final class FeedbackA05LoopTests: XCTestCase {
             "routine-b3", kind: .routineResult, botId: "bot-b",
             routineId: "routine-b"))
         XCTAssertEqual(released.decision, .did)
+    }
+
+    // Unit counterexample only: the delivery gate is kind-scoped, so an
+    // allowed reminder control must not be held by a routine-result user
+    // preference. Production `BotRuntimeUnit.deliveryKinds` is routineResult
+    // only; this test must not be read as a production reminder feature.
+    func testAllowedReminderControlIsNotHeldByRoutineResultPreference() async throws {
+        let center = try makeCenter()
+        let engine = makeEngine(center, deliverer: WP6NotificationDeliverer(),
+                                kinds: [.routineResult, .reminder])
+        let delivered = await engine.consider(FeedbackFixtures.candidate(
+            "routine-a-unit", kind: .routineResult, botId: "bot-a",
+            routineId: "routine-a-unit"))
+        XCTAssertEqual(delivered.decision, .did)
+        let suppression = try await center.record(BotFeedback(
+            botID: "bot-a", action: .suppress,
+            target: BotFeedbackArtifactRef(kind: .proactive, id: delivered.id,
+                                           deliveryKey: delivered.dedupeKey),
+            scope: .user, origin: ui("ui-user-unit")))
+        XCTAssertEqual(suppression.classKey, "proactive:routine-result")
+        clock.advance(60_000)
+        let reminder = await engine.consider(FeedbackFixtures.candidate(
+            "reminder-unit", kind: .reminder, botId: "bot-b",
+            reminderId: "reminder-unit"))
+        XCTAssertEqual(reminder.decision, .did,
+                       "kind-level preference must not suppress another kind")
     }
 
     // 4. Correct uses the real applied memory version, publishes the disputed
