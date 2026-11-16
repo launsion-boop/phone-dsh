@@ -126,8 +126,35 @@ Run on the isolated worktree with Xcode 26.5 / Swift 6.3.2 and the iPhone 17 sim
 - `phone-hygiene` and `ui_check` fail on pre-existing baseline findings in
   `spec/v1/tono-account.md` and stale `Components/ChatPage/NativeShell` provenance
   anchors; the same failures reproduce on a base+contract worktree without this diff.
-- The real model → packed Worker → session log → reducer → short bubble acceptance is
-  recorded in the task handoff; it is not replaced by the vector/unit results above.
+### Accepted real-model evidence
+
+The three controlled tasks in `scripts/ci/bot-e2e/activity/catalog.json` (inline local
+seeds for #174, the Wednesday meeting and a local email draft; no network, mail account or
+send tool) passed on the production Bot composition with the packed Worker:
+
+- `cff5dd1492f1224cb23b223871049692cd538b10` — reviewed code head / tree
+  `b9231d5e1a3d61700a31de3f0101cd3347e12232`.
+- Each scenario `PASS`; 5 model requests per scenario; every session's
+  `request/header.data.header.config` is `deepseek-official` / `deepseek-flash` /
+  `reasoningEffort=max`.
+- ACT-01 `#174`: `先看 #174 的改动记录` (13) → `#174 这个分支自报改了 3 个文件` (19,
+  after the first result).
+- ACT-02 meeting: `在翻文件 · wednesday-meeting.md` (27, object fallback; no model
+  sentence before that call) → `已读到负责人是李光浩，接着查看待办明细` (19, after the
+  first result).
+- ACT-03 email: `我先看李光浩的邮件` (9) → `邮件在问周五清单是否定稿，接着看发布背景`
+  (20, after the first result).
+- `BotActivityReplayTests` (in the existing Bot eval harness) replayed the real ACT-01
+  session through the production decoder + reducer and passed, printing the max header and
+  the same short details.
+- The exact sequences, source seq/tool, lengths and failed-attempt boundaries are in
+  `scripts/ci/bot-e2e/activity/receipt.json`. Raw session logs and Worker bundles stay
+  local.
+
+Earlier attempts are retained as failed/limited evidence: a temporary macOS image shim
+and a high-effort header were rejected; several macOS compile-boundary errors were fixed
+in `cff5dd149`; an empty session copy was replaced by the real session path and a hard
+failure in the replay entry.
 
 Not run: physical iPhone, full App UI run, Android, deployment. Those are not inferred
-from the simulator evidence.
+from the simulator or harness evidence.
