@@ -469,7 +469,7 @@ final class BotRuntimeComposition {
             onDeleted: { name in
                 Task { _ = try? await skillProducer.recordUserDshDelete(fileName: name) }
             })
-        skillDirectoryObservers = [userObserver]
+        var skillObservers: [BotSkillDirectoryObserver] = [userObserver]
         userObserver.start()
         let botRoot = BotWorkspaceLayout.botRoot(
             botId: selectedCandidate, dataDirectory: BotSessionRegistry.botDataDirectory)
@@ -483,7 +483,7 @@ final class BotRuntimeComposition {
                     Task { _ = try? await skillProducer.recordBotDelete(
                         vfsPath: vfs, botID: selectedCandidate, sessionID: nil) }
                 })
-            skillDirectoryObservers.append(observer)
+            skillObservers.append(observer)
             observer.start()
         }
         let materialState = BotDecisionMaterialStateAdapter(provenance: provenance)
@@ -539,6 +539,7 @@ final class BotRuntimeComposition {
             schedulerNow: now, schedulerSleep: sleep,
             cloudConfiguration: productionCloud)
         composition.contextSources = contextSources
+        composition.skillDirectoryObservers = skillObservers
         composition.provenance = provenance
         composition.feedbackCenter = feedbackCenter
         await runtime.setRoutineChangeObserver { [weak composition] botID in
