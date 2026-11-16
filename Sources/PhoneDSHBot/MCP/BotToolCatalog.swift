@@ -219,7 +219,7 @@ public enum BotToolCatalog {
     public static func allDefinitions(roster: BotRoster,
                                       callerBotID: String?) -> [BotMCPToolDefinition] {
         definitions + [fishActionDefinition, volatileContextDefinition,
-                       attachToModelDefinition, decisionContextDefinition,
+                       attachToModelDefinition,
                        BotFeedbackTools.definition]
             + teamDefinitions(roster: roster, callerBotID: callerBotID)
     }
@@ -363,7 +363,7 @@ public enum BotToolCatalog {
 
     public static var allDefinitions: [BotMCPToolDefinition] {
         definitions + [fishActionDefinition, volatileContextDefinition,
-                       attachToModelDefinition, decisionContextDefinition,
+                       attachToModelDefinition,
                        BotFeedbackTools.definition] + baseTeamDefinitions
     }
 
@@ -377,12 +377,13 @@ public enum BotToolCatalog {
     /// Worker-only `tools/list` view: the frozen P26 model catalog stays
     /// unchanged, while the Bot gate can discover its internal status tool.
     public static var workerDefinitions: [BotMCPToolDefinition] {
-        allDefinitions + [skillStatusDefinition]
+        allDefinitions + [decisionContextDefinition, skillStatusDefinition]
     }
 
     public static func workerDefinitions(roster: BotRoster,
                                          callerBotID: String?) -> [BotMCPToolDefinition] {
-        allDefinitions(roster: roster, callerBotID: callerBotID) + [skillStatusDefinition]
+        allDefinitions(roster: roster, callerBotID: callerBotID)
+            + [decisionContextDefinition, skillStatusDefinition]
     }
 
     public static func isTeamTool(_ name: String) -> Bool {

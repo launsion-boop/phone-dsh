@@ -94,7 +94,7 @@ final class BotToolCatalogCallerTests: XCTestCase {
             XCTAssertNotNil(tools["CreateTeammate"], "session \(session ?? "nil")")
             let send = description(tools, "SendToAgent")
             XCTAssertFalse(send.contains("Available bots:"), "session \(session ?? "nil")")
-            XCTAssertEqual(tools.count, BotToolCatalog.allDefinitions.count)
+            XCTAssertEqual(tools.count, BotToolCatalog.workerDefinitions.count)
         }
     }
 
