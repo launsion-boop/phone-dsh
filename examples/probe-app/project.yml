@@ -71,6 +71,15 @@ targets:
       - path: BotFish
         type: folder
         buildPhase: resources
+      # On-device firmware builder (DEBUG page): the page code is tracked in
+      # FirmwareBuilder/; the WebAssembly toolchain and the prebuilt SDK pack
+      # are staged, untracked, into Bundle/firmware-builder (see its README).
+      - path: FirmwareBuilder
+        type: folder
+        buildPhase: resources
+      - path: Bundle/firmware-builder
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: ProbeKit
       # SwiftPM products are not re-exported: every module the app imports
