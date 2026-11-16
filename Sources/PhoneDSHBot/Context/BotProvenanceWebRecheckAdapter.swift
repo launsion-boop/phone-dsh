@@ -37,11 +37,19 @@ public struct BotProvenanceWebRecheckAdapter: BotProvenanceRechecking {
         case .connectorResource: kind = .connector
         default: return .notPerformed
         }
+        // No baseline means there is nothing to compare. In particular, an
+        // erased/revoked source arrives here with no usable baseline; do not
+        // call the provider just to observe a fresh body. L's recheck gate
+        // owns the revoked/erased decision; this guard keeps the adapter from
+        // defeating it when it is handed an unknown source version.
+        guard let webBaseline = Self.webBaseline(baseline) else {
+            return .notPerformed
+        }
         let request = BotWebRecheckRequest(
             resource: BotWebResourceIdentity(
                 kind: kind, url: resource.key,
                 owner: resource.owner ?? botID, scope: resource.scope),
-            baseline: Self.webBaseline(baseline),
+            baseline: webBaseline,
             timeoutMilliseconds: timeoutMilliseconds,
             maximumBodyBytes: maximumBodyBytes)
         return Self.outcome(await rechecker.recheck(request))

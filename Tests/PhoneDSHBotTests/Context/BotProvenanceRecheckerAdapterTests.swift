@@ -4,6 +4,21 @@ import Foundation
 import XCTest
 @testable import PhoneDSHBot
 
+private struct BotWebRecheckTransportBox: BotWebRecheckTransport {
+    let perform: @Sendable (BotWebRecheckHTTPRequest) async throws
+        -> BotWebRecheckHTTPResponse
+
+    init(_ perform: @escaping @Sendable (BotWebRecheckHTTPRequest) async throws
+        -> BotWebRecheckHTTPResponse) {
+        self.perform = perform
+    }
+
+    func perform(_ request: BotWebRecheckHTTPRequest) async throws
+        -> BotWebRecheckHTTPResponse {
+        try await perform(request)
+    }
+}
+
 private struct RecordingRechecker: BotProvenanceRechecking {
     let outcome: BotProvenanceRecheckOutcome
     let record: @Sendable (BotResourceIdentity) -> Void
@@ -64,6 +79,26 @@ final class BotProvenanceRecheckerAdapterTests: XCTestCase {
         XCTAssertEqual(known.basis, .etag)
         XCTAssertEqual(known.value, "etag:\"v2\"")
         XCTAssertEqual(server.requests.last?.headers["if-none-match"], "\"v1\"")
+    }
+
+    func testUnknownBaselineNeverCallsTheTransport() async {
+        final class Counter: @unchecked Sendable {
+            var calls = 0
+        }
+        let counter = Counter()
+        let transport = BotWebRecheckTransportBox { _ in
+            counter.calls += 1
+            return BotWebRecheckHTTPResponse(status: 200, headers: [:], body: Data())
+        }
+        let adapter = BotProvenanceWebRecheckAdapter(transport: transport)
+        let outcome = await adapter.recheck(
+            resource: BotResourceIdentity(
+                kind: .webURL, key: "https://example.test/source"),
+            baseline: .unknown(reason: .sourceUnversioned), botID: "bot-a")
+        guard case .notPerformed = outcome else {
+            return XCTFail("unknown baseline must not call provider, got \(outcome)")
+        }
+        XCTAssertEqual(counter.calls, 0)
     }
 
     func testWebAdapterMapsDeniedAndUnsupportedResource() async throws {
