@@ -413,7 +413,10 @@ public struct WorkspaceDecisionContextService: Sendable {
                 let status = await eligibility.status(
                     forWorkspacePath: entry.path, botID: botID)
                 guard !cancelled() else { return BotWorkspaceSelection() }
-                guard status == .current else { continue }
+                // G-2 r10: nil means "no tracked derivation" (legacy/eval
+                // seed) and keeps the old byte-only behaviour; only a tracked
+                // non-current artifact is withheld.
+                if let status, status != .current { continue }
             }
             guard let encodedPath = Self.encodedWorkspacePath(entry.path),
                   encodedPath.unicodeScalars.count <= Self.maximumRefPathScalars
