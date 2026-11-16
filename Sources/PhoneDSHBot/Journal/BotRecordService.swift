@@ -1333,6 +1333,44 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         return false
     }
 
+    /// Full canonical readable text of one record for the maintenance
+    /// document-vs-evidence check. Unlike the command output this is not
+    /// 8k-bounded; it is never persisted or logged.
+    func canonicalRecordText(_ raw: String, callerSessionID: String) async throws -> String {
+        guard let reference = BotRecordReference.parse(raw) else {
+            throw BotRecordServiceError.invalidReference
+        }
+        let caller = try await principal(for: callerSessionID, botID: nil)
+        let events = try await allEvents()
+        let owned = ownedSessions(
+            botID: caller.botId, callerSessionID: callerSessionID, events: events)
+        let recordRaw: String
+        switch reference {
+        case let .session(sessionID, seq):
+            guard owned.contains(sessionID) else {
+                throw BotRecordServiceError.sessionOutOfScope
+            }
+            guard let lines = try? sessionLines(sessionID: sessionID),
+                  let line = lines.first(where: { $0.seq == seq }) else {
+                throw BotRecordServiceError.unknownRecord
+            }
+            guard !line.erased else { throw BotRecordServiceError.erasedRecord }
+            recordRaw = line.raw
+        case let .event(commitSeq):
+            guard let record = events.first(where: { $0.event.commitSeq == commitSeq }) else {
+                throw BotRecordServiceError.unknownRecord
+            }
+            guard record.event.principal.botId == caller.botId else {
+                throw BotRecordServiceError.sessionOutOfScope
+            }
+            guard !record.event.isErasedPayload else {
+                throw BotRecordServiceError.erasedRecord
+            }
+            recordRaw = record.raw
+        }
+        return BotMemoryMaintenanceText.readableText(raw: recordRaw)
+    }
+
     // MARK: - Storage
 
     private func allEvents() async throws -> [EventRecord] {

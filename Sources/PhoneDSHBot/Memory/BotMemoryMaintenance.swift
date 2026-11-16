@@ -407,22 +407,12 @@ public protocol BotMemoryMaintenanceRecordReading: Sendable {
 }
 
 extension BotRecordService: BotMemoryMaintenanceRecordReading {
-    /// Reads one reference through the same read-only command the agent uses.
-    /// Output is JSON (`{"ok":true,"data":{"lines":[{"raw":…}]}}`); the raw
-    /// line is the record's original JSON. The caller session must be claimed.
+    /// Reads one reference through the canonical full record text, not the
+    /// 8k-bounded search/read output. The batch length check must see the
+    /// whole cited text or it would compare a document against a truncated
+    /// source.
     public func recordText(_ reference: String, callerSessionID: String) async throws -> String {
-        let output = await execute(
-            arguments: ["read", reference, "--around", "0"],
-            callerSessionID: callerSessionID)
-        guard output.exitCode == 0,
-              let data = output.stdout.data(using: .utf8),
-              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let payload = root["data"] as? [String: Any],
-              let lines = payload["lines"] as? [[String: Any]],
-              let raw = lines.first?["raw"] as? String else {
-            throw BotMemoryMaintenanceError.recordUnavailable(reference)
-        }
-        return BotMemoryMaintenanceText.readableText(raw: raw)
+        try await canonicalRecordText(reference, callerSessionID: callerSessionID)
     }
 }
 
