@@ -557,6 +557,14 @@ test('the internal tool origin mapping only uses the frozen r3 enum', () => {
   assert.equal(internalToolOrigin('unknown'), undefined)
 })
 
+test('query extraction prefers the current inquiry over a long held onboarding block', () => {
+  const onboarding = 'onboarding '.repeat(200)
+  assert.equal(queryFromMessages([
+    { content: [{ type: 'text', text: onboarding }], source: { kind: 'user', rpcId: 'held:onboarding' } },
+    { content: [{ type: 'text', text: '我的客户代号是什么？' }], source: { kind: 'user' } },
+  ]), '我的客户代号是什么？')
+})
+
 test('query extraction ignores runtime-context snapshots', () => {
   assert.equal(queryFromMessages([
     { content: [{ type: 'text', text: '用户本轮' }], source: { kind: 'user' } },
