@@ -145,8 +145,6 @@
 	</array>
 	<!-- Phone permissions: each description is requested only when the user
 	     taps that capability in Settings → Phone permissions. -->
-	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>读取你选择时间范围内的日程，并仅在明确确认后创建日历事件。</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>读取提醒事项，并仅在明确确认后创建或完成提醒。</string>
 	<key>NSContactsUsageDescription</key>
