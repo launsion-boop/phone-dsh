@@ -85,6 +85,12 @@ def check_observation(case: dict) -> None:
     resource = observation["resource"]
     if resource["kind"] != "context-source" or not resource["key"]:
         raise AssertionError(f"{case['name']}: context resource identity")
+    version = observation["source_version"]
+    if "subject" in version:
+        if version.get("basis") != "content-sha256":
+            raise AssertionError(f"{case['name']}: subject only with content-sha256")
+        if version["subject"] not in ("file-bytes", "record-text"):
+            raise AssertionError(f"{case['name']}: invalid subject")
     if observation["source"] in UNSUPPORTED:
         raise AssertionError(f"{case['name']}: unsupported source cannot emit observations")
     keys = secret_keys(observation["payload"])

@@ -282,6 +282,40 @@
         }
       },
       "expect": "reject"
+    },
+    {
+      "name": "selected-media-file-bytes",
+      "origin": "os",
+      "observation": {
+        "schema": "bot-context-observation/v1",
+        "source": "selected-media",
+        "kind": "media.selected",
+        "observed_at_ms": 1760000000000,
+        "owner_bot_id": "bot-a",
+        "consent_generation": 0,
+        "resource": {
+          "kind": "context-source",
+          "key": "media:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "owner": "bot-a"
+        },
+        "source_version": {
+          "basis": "content-sha256",
+          "value": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "subject": "file-bytes",
+          "observed_at_ms": 1760000000000
+        },
+        "uncertainty": {
+          "level": "low",
+          "completeness": "complete"
+        },
+        "delivery": "os",
+        "payload": {
+          "mime": "application/pdf"
+        },
+        "dedupe_key": "media:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "wake_requested": false
+      },
+      "expect": "accept"
     }
   ],
   "consent_sequences": [
