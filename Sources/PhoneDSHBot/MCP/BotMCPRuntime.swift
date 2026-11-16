@@ -408,6 +408,19 @@ public actor BotMCPRuntime {
     public func installProvenance(_ service: BotProvenanceService) {
         provenance = service
     }
+
+    /// A04 skill write boundary for the observation producer. The service is
+    /// the single provenance authority; a missing installer fails closed.
+    public func recordSkillWrite(_ request: BotSkillWriteRequest) async throws -> BotDerivedRef {
+        guard let provenance else { throw BotProvenanceError.invalidDerivation("skill-provenance-unavailable") }
+        return try await provenance.recordSkillWrite(request)
+    }
+
+    public func latestSkillChange(identity: BotSkillIdentity) async throws
+        -> BotSkillChangeSnapshot? {
+        guard let provenance else { throw BotProvenanceError.invalidDerivation("skill-provenance-unavailable") }
+        return try await provenance.latestSkillChange(identity: identity)
+    }
     /// Default bounded wait for a `tools/call` while the App reattaches the
     /// Worker. Long enough to cover the ready-gate fallback and the first
     /// session/page, short enough to stay far below the 130 s Worker client
@@ -2819,6 +2832,9 @@ public actor BotMCPRuntime {
 
     private func effectsForApproval(name: String, botID: String,
                                     arguments: BotJSONValue) async -> [BotToolEffect] {
+        // Decision context is a read-only additive internal tool; it never
+        // needs an approval card. The model's real action is RequestApproval.
+        if name == BotToolCatalog.decisionContextName { return [] }
         if name == BotToolCatalog.volatileContextName { return [] }
         let workspace = BotWorkspaceLayout.botRoot(botId: botID)
         if name == "bash" {

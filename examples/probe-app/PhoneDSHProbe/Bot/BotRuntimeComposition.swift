@@ -440,12 +440,15 @@ final class BotRuntimeComposition {
                     configuration: .init(baseURL: cloud.baseURL),
                     tokenProvider: { try await TonoAccountSession.shared.accessToken() }))
         }
+        let skillRoots = BotSkillRoots(
+            workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot())
         let provenance = BotProvenanceService(
             eventLog: store,
             resolver: recordService,
             rechecker: BotProvenanceRecheckerComposite(
                 file: BotProvenanceFileRecheckAdapter(rechecker: fileRechecker),
-                web: webRechecker))
+                web: webRechecker),
+            skillRechecker: BotSkillFileRechecker(roots: skillRoots))
         await runtime.installProvenance(provenance)
         let materialState = BotDecisionMaterialStateAdapter(provenance: provenance)
         let workspaceCatalog = BotWorkspaceDirectoryCatalog(

@@ -43,3 +43,10 @@ struct BotSkillRoots: Sendable {
         }
     }
 }
+
+
+extension BotSkillRoots: BotSkillRootResolving {
+    func root(for source: BotSkillSource, ownerBotID: String?) -> URL? {
+        skillsRoot(source: source.rawValue, ownerBotID: ownerBotID)
+    }
+}
