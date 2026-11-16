@@ -99,6 +99,18 @@ class FactVerdictTests(unittest.TestCase):
             judge.STALE_OLD, judge.STALE_NEW)
         self.assertEqual(verdict, "corrected")
 
+    def test_prior_write_marker_marks_old_value_historical(self):
+        verdict, _ = judge.fact_verdict(
+            document("发布会 11 月 20 日在 3 号厅。用户先写作 11 月 18 日，随后更正为 11 月 20 日。"),
+            judge.STALE_OLD, judge.STALE_NEW)
+        self.assertEqual(verdict, "corrected")
+
+    def test_from_value_marker_marks_old_side_historical(self):
+        verdict, _ = judge.fact_verdict(
+            document("发布会 11 月 20 日在 3 号厅（用户把日期从 11 月 18 日改成 11 月 20 日）"),
+            judge.STALE_OLD, judge.STALE_NEW)
+        self.assertEqual(verdict, "corrected")
+
     def test_stale_forward_with_retired_history(self):
         verdict, _ = judge.fact_verdict(
             document("发布会 11 月 20 日。原记 11 月 18 日，已作废。"),
