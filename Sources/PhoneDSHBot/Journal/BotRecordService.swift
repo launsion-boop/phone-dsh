@@ -663,9 +663,13 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                     continue
                 }
                 if line.erased {
+                    // G-1: an erased record is still *resolved* (the record
+                    // exists); erased is a separate state. The tombstone keeps
+                    // the original time but not the original type/trust.
                     result.append(ResolvedRecord(
-                        ref: canonical, resolved: false, erased: true,
-                        observedAtMS: nil, recordType: nil, trust: nil))
+                        ref: canonical, resolved: true, erased: true,
+                        observedAtMS: Self.usableTime(line.time),
+                        recordType: nil, trust: nil))
                     continue
                 }
                 let observed = Self.usableTime(line.time)
@@ -689,8 +693,9 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                 }
                 if record.event.isErasedPayload {
                     result.append(ResolvedRecord(
-                        ref: canonical, resolved: false, erased: true,
-                        observedAtMS: nil, recordType: nil, trust: nil))
+                        ref: canonical, resolved: true, erased: true,
+                        observedAtMS: Self.usableTime(record.event.time),
+                        recordType: record.event.type, trust: nil))
                     continue
                 }
                 let observed = Self.usableTime(record.event.time)

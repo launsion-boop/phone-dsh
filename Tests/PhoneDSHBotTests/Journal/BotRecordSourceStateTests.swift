@@ -147,9 +147,9 @@ final class BotRecordSourceStateTests: XCTestCase {
         let states = try await service.sourceStates(
             for: [observationRef], callerBotID: "bot-a", callerSessionID: "gb-main")
         let state = try XCTUnwrap(states.first)
-        XCTAssertFalse(state.resolved)
+        XCTAssertTrue(state.resolved, "an erased record still resolves")
         XCTAssertTrue(state.erased)
-        XCTAssertNil(state.observedAtMS)
+        XCTAssertEqual(state.observedAtMS, observationTime)
         XCTAssertNil(state.version)
     }
 
@@ -184,7 +184,7 @@ final class BotRecordSourceStateTests: XCTestCase {
             for: ["record://event/\(sequence)"], callerBotID: "bot-a",
             callerSessionID: "gb-main")
         let state = try XCTUnwrap(states.first)
-        XCTAssertFalse(state.resolved)
+        XCTAssertTrue(state.resolved, "an erased event still resolves")
         XCTAssertTrue(state.erased)
         XCTAssertNil(state.version)
     }

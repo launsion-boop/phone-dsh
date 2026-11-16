@@ -103,7 +103,7 @@ final class BotRecordProvenanceFactTests: XCTestCase {
         let facts = await service.sourceFacts(
             for: [observationRef], botID: "bot-a", sessionID: "gb-main")
         let fact = try XCTUnwrap(facts[observationRef])
-        XCTAssertFalse(fact.resolved)
+        XCTAssertTrue(fact.resolved, "an erased record still resolves")
         XCTAssertTrue(fact.erased)
         XCTAssertNil(fact.version)
     }
