@@ -28,10 +28,21 @@
       "minLength": 1
     },
     "status": {
-      "enum": ["committed", "cancelled", "failed", "rolled_back", "rollback_failed"]
+      "enum": [
+        "committed",
+        "cancelled",
+        "failed",
+        "rolled_back",
+        "rollback_failed"
+      ]
     },
     "trigger": {
-      "enum": ["writes", "index", "contradiction", "manual"]
+      "enum": [
+        "writes",
+        "index",
+        "contradiction",
+        "manual"
+      ]
     },
     "started_at_ms": {
       "type": "integer",
@@ -50,7 +61,13 @@
       "maxItems": 100,
       "items": {
         "type": "object",
-        "required": ["path", "scope", "before_version", "after_version", "deleted"],
+        "required": [
+          "path",
+          "scope",
+          "before_version",
+          "after_version",
+          "deleted"
+        ],
         "properties": {
           "path": {
             "type": "string",
@@ -58,7 +75,10 @@
             "maxLength": 200
           },
           "scope": {
-            "enum": ["agent", "user"]
+            "enum": [
+              "agent",
+              "user"
+            ]
           },
           "before_version": {
             "type": "integer",
@@ -95,13 +115,22 @@
         },
         "change_budget_within_limit": {
           "type": "boolean"
+        },
+        "verification_rechecked": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
     },
     "budget": {
       "type": "object",
-      "required": ["run_tokens", "daily_tokens", "tokens_used", "changed_documents", "changed_scalars"],
+      "required": [
+        "run_tokens",
+        "daily_tokens",
+        "tokens_used",
+        "changed_documents",
+        "changed_scalars"
+      ],
       "properties": {
         "run_tokens": {
           "type": "integer",
@@ -127,7 +156,10 @@
       "additionalProperties": false
     },
     "failure_code": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "enum": [
         null,
         "maintenance-evidence-unresolved",
@@ -135,7 +167,10 @@
         "maintenance-document-longer-than-evidence",
         "maintenance-change-budget-exceeded",
         "maintenance-budget-exceeded",
-        "maintenance-rollback-conflict"
+        "maintenance-rollback-conflict",
+        "maintenance-verification-unrechecked",
+        "maintenance-conflict-not-preserved",
+        "maintenance-user-scope-evidence"
       ]
     },
     "notification": {
@@ -143,6 +178,116 @@
     },
     "user_scope_owner": {
       "type": "boolean"
+    },
+    "verification": {
+      "type": "object",
+      "description": "Optional host recheck summary for this batch; absent on old events means no verification record (never a fabricated verified).",
+      "required": [
+        "checked",
+        "verified",
+        "stale",
+        "disputed",
+        "unverifiable",
+        "blocking"
+      ],
+      "properties": {
+        "checked": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 24
+        },
+        "verified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stale": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "disputed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unverifiable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blocking": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "findings": {
+          "type": "array",
+          "maxItems": 24,
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "state",
+              "reasons",
+              "refs"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 200
+              },
+              "state": {
+                "enum": [
+                  "verified",
+                  "stale",
+                  "disputed",
+                  "unverifiable"
+                ]
+              },
+              "reasons": {
+                "type": "array",
+                "maxItems": 8,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "evidence-unresolved",
+                    "evidence-erased",
+                    "trust-mismatch",
+                    "source-version-changed",
+                    "newer-observation",
+                    "review-stale",
+                    "review-model-basis",
+                    "single-signal-fact",
+                    "cross-signal-mismatch",
+                    "conflict-not-preserved",
+                    "user-scope-without-user-evidence",
+                    "source-version-unknown"
+                  ]
+                }
+              },
+              "refs": {
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "newer_refs": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "preferred_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

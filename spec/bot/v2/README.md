@@ -197,7 +197,29 @@ maintainer 回合都得不到保留值（`memory-evidence-invalid`）。
 - `evidence_status` 每次读取重新解析：抹除/撤权后对应项变 `null`，不复用旧值；这是显示语义，
   不改变 `evidence` 数组、不改变版本、不复活已抹除内容。
 - 记录本身没有时间时 `observed_at_ms = null`（unknown），不是 0；没有来源版本时
-  `source_version = null`，两者都不得伪造成具体值。
+  `source_version = null`，两者都不得伪造成具体值。`evidence_status` 自 G-1 起是 **legacy**
+  三字段视图：不再扩展，`source_version` 保持 `null`，不得改类型或另造第二套判定。
+
+### 1.5.2 当前状态与派生关系（AHA 增量，G-1）
+
+`evidence_status` 只回答「这条 ref 的时间/版本」，不回答「它现在是否仍有效」。当前状态的唯一
+权威是 [provenance.md](provenance.md) §4 的 `source_statuses`：`ReadMemory` 单文档结果与
+`RecallMemory` 每个命中可带一个**可选**数组，覆盖 `evidence ∪ review.refs`，每项
+`{ref, roles, resolved, erased, state, reasons, observed_at_ms, record_type, trust, source_version}`。
+`state` 封闭 `current|changed|unavailable|revoked|erased|unknown`，非 current 必带封闭 reason；
+`baseline`（写时快照）与 `latest_ref`（最新观察）并列，用来解释 changed/为什么失效；
+`current` 只表示没有已知的更新/撤权/抹除，**不是**核对通过的认证。
+
+- 来源版本用 [source-revision.schema.json](source-revision.schema.json) 的互斥形态：
+  `{basis,value,observed_at_ms,basis_ref}` 或显式 `{reason}`；不得用文档 version/记录序号冒充。
+- 派生物用既有 durable 事件 `data` 的可选 `derivation` 成员声明来源（[derivation.schema.json](derivation.schema.json)）；
+  失效/删除/上游失效是读时推导，不新增事件类型、不写 `*invalidated` 事件流，历史 `review`
+  永不回写。派生读视图见 [derivation-view.schema.json](derivation-view.schema.json)。
+- resolver 不可用/超限时**省略整个 `source_statuses`** 并记诊断码 `source_status_unavailable`，
+  不得用全 `unknown` 冒充已计算；缓存/上下文材料必须按 `generation` token 失效。
+- `skill` 当前没有真实写事件：只能显示 `unknown` + `no-skill-write-event`，不得冒充已覆盖。
+- 共享 golden 基线不新增 iOS 字段；G-1 的向量是新 phone-only 文件
+  [golden/provenance.json](golden/provenance.json)，旧 Android/旧 reader 仍只读共享基线。
 
 ### 1.6 迁移
 
@@ -543,7 +565,9 @@ TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema
 
 ### 4.3 批次
 
-一次运行是一个批次，批次 id 形如 `mm-<uuid 的前 32 位小写十六进制>`。
+一次运行是一个批次，批次 id 形如 `mm-<uuid 的前 32 位小写十六进制>`。批次核验的 durable
+增量（`checks.verification_rechecked`、`verification.findings`、失败码）与质量门槛由
+[provenance.md](provenance.md) §6 冻结；旧批次没有 `verification` 是合法，读作「无核验记录」。
 
 - 回合开始前写 durable `memory.maintenance_started`（`memory-maintenance-start.schema.json`）：
   批次 id、触发原因、maintainer session、候选和两条预算。
