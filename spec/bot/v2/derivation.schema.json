@@ -31,7 +31,7 @@
         "id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128
+          "maxLength": 200
         },
         "version": {
           "type": "integer",
@@ -77,8 +77,9 @@
                   "basis": {
                     "enum": [
                       "content-sha256",
-                      "provider-version",
-                      "etag"
+                      "etag",
+                      "last-modified",
+                      "provider-version"
                     ]
                   },
                   "value": {

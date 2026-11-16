@@ -82,7 +82,7 @@
 - `artifact.kind` 封闭：`memory`、`review`、`routine`、`proactive`、`notification`、`delivery`、
   `suggestion`、`draft`、`skill`。`skill` 保留枚举但当前**没有真实写事件**：读模型必须给
   `unknown` + `no-skill-write-event`，不得冒充已覆盖（新增写入路径需另开变更单）。
-- `artifact.id` ≤128 scalar，`version` 仅在该对象真实有单调 revision 时出现。**断言不重复写
+- `artifact.id` ≤200 scalar（memory 用完整 path，与 v2 §1.2 的 200 上限一致），`version` 仅在该对象真实有单调 revision 时出现。**断言不重复写
   `carrier`**：承载它的 durable event 的 `commitSeq` 在 append 时才分配，写 data 时不可知；读模型
   以「包含该 `derivation` 的事件自身」为 carrier，并从事件头取 `record://event/N`。若事件里出现
   自指 carrier 字段，schema 拒绝（`additionalProperties:false`）。

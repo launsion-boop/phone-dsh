@@ -262,8 +262,9 @@
                       "basis": {
                         "enum": [
                           "content-sha256",
-                          "provider-version",
-                          "etag"
+                          "etag",
+                          "last-modified",
+                          "provider-version"
                         ]
                       },
                       "value": {
@@ -335,8 +336,9 @@
                       "basis": {
                         "enum": [
                           "content-sha256",
-                          "provider-version",
-                          "etag"
+                          "etag",
+                          "last-modified",
+                          "provider-version"
                         ]
                       },
                       "value": {

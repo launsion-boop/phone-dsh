@@ -194,6 +194,12 @@
       "basis": "etag",
       "value": "etag:e1",
       "observed_at_ms": 1200
+    },
+    {
+      "basis": "last-modified",
+      "value": "last-modified:Wed, 12 Nov 2025 08:00:00 GMT",
+      "observed_at_ms": 1760000000000,
+      "basis_ref": "record://session/gb-main#7"
     }
   ],
   "invalid_known_revisions": [
