@@ -55,6 +55,7 @@ STATUS_REASONS = {
         "refresh-not-performed",
         "refresh-unavailable",
         "refresh-denied",
+        "cross-bot-unresolved",
     },
 }
 VIEW_REASONS = set().union(*STATUS_REASONS.values()) | {
@@ -357,7 +358,8 @@ def cycle_members(artifacts: list, artifacts_by_carrier: dict[str, int], subject
         edges[index] = [
             artifacts_by_carrier[source["record"]]
             for source in item.get("derivation", {}).get("sources", [])
-            if source.get("record") in artifacts_by_carrier
+            if source.get("role", "basis") in ("evidence", "basis", "creator")
+            and source.get("record") in artifacts_by_carrier
         ]
     done: set[int] = set()
     path: set[int] = set()
@@ -442,12 +444,17 @@ def resolve_case(case: dict) -> dict:
                 nested = artifact_state(upstream_index, stack + (index,), memo)
                 upstream.append({"artifact": nested["artifact"], "state": nested["state"]})
         sources.sort(key=lambda item: (item["record"], item["role"]))
-        member_states = [item["status"]["state"] for item in sources]
+        content_roles = ("evidence", "basis", "creator")
+        content_sources = [item for item in sources if item["role"] in content_roles]
+        member_states = [item["status"]["state"] for item in content_sources]
         member_states += [item["state"] for item in upstream]
-        state = worst_state(member_states) if member_states else "current"
+        if member_states:
+            state = worst_state(member_states)
+        else:
+            state = "unknown"
         reasons = sorted({
             reason
-            for item in sources
+            for item in content_sources
             for reason in item["status"]["reasons"]
         } | {
             "upstream-invalidated" for item in upstream if item["state"] != "current"
@@ -456,22 +463,28 @@ def resolve_case(case: dict) -> dict:
         if artifact_kind == "skill":
             state, reasons = "unknown", ["no-skill-write-event"]
         if not derivation.get("sources"):
-            state = "unknown" if artifact_kind == "skill" else "unknown"
+            state = "unknown"
             if artifact_kind != "skill":
                 reasons = ["no-derivation"]
+        elif not content_sources and artifact_kind != "skill":
+            state, reasons = "unknown", ["no-derivation"]
         review = artifact.get("review")
+        all_current = all(item["status"]["state"] == "current" for item in sources)
+        review_reasons = sorted({
+            reason for item in sources if item["role"] == "review"
+            for reason in item["status"]["reasons"]})
         if review is None:
             review_effective = {"state": "unknown", "reasons": []}
         elif review.get("state") == "disputed":
-            review_effective = {"state": "disputed", "reasons": reasons}
+            review_effective = {"state": "disputed", "reasons": review_reasons}
         elif review.get("state") == "unverified":
             review_effective = {"state": "unverified", "reasons": ["review-model-basis"]
                                 if review.get("basis") == "model-inference" else []}
         elif review.get("state") == "verified":
-            if state == "current":
+            if all_current:
                 review_effective = {"state": "verified", "reasons": []}
             else:
-                review_effective = {"state": "unverified", "reasons": reasons}
+                review_effective = {"state": "unverified", "reasons": review_reasons or reasons}
         else:
             review_effective = {"state": "unknown", "reasons": []}
         upstream.sort(key=lambda item: (item["artifact"]["kind"], item["artifact"]["id"],

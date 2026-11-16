@@ -82,7 +82,9 @@
           "resource-scope-mismatch",
           "refresh-not-performed",
           "refresh-unavailable",
-          "refresh-denied"
+          "refresh-denied",
+          "cross-bot-unresolved",
+          "skill-deleted"
         ]
       }
     },
@@ -185,7 +187,8 @@
                     "resource-scope-mismatch",
                     "refresh-not-performed",
                     "refresh-unavailable",
-                    "refresh-denied"
+                    "refresh-denied",
+                    "cross-bot-unresolved"
                   ]
                 }
               },
@@ -458,7 +461,8 @@
               "resource-scope-mismatch",
               "refresh-not-performed",
               "refresh-unavailable",
-              "refresh-denied"
+              "refresh-denied",
+              "skill-deleted"
             ]
           }
         }

@@ -93,7 +93,8 @@
         "erasure",
         "feedback.recorded",
         "context.observed",
-        "context.consent_changed"
+        "context.consent_changed",
+        "skill.changed"
       ]
     },
     "eventId": {

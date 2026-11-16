@@ -224,7 +224,8 @@
                     "resource-scope-mismatch",
                     "refresh-not-performed",
                     "refresh-unavailable",
-                    "refresh-denied"
+                    "refresh-denied",
+                    "cross-bot-unresolved"
                   ]
                 }
               },

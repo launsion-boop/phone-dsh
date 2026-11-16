@@ -134,8 +134,9 @@
 ```
 
 - `artifact.kind` 封闭：`memory`、`review`、`routine`、`proactive`、`notification`、`delivery`、
-  `suggestion`、`draft`、`skill`。`skill` 保留枚举但当前**没有真实写事件**：读模型必须给
-  `unknown` + `no-skill-write-event`，不得冒充已覆盖（新增写入路径需另开变更单）。
+  `suggestion`、`draft`、`skill`。`skill` 自本 revision 起有真实写事件：成功的 skill 文件
+  create/update/delete 写一条 durable `skill.changed`（见 §3.4）；没有该事件的旧数据仍是
+  `unknown` + `no-skill-write-event`，不得冒充已覆盖。
 - `artifact.id` ≤200 scalar（memory 用完整 path，与 v2 §1.2 的 200 上限一致），`version` 仅在该对象真实有单调 revision 时出现。**断言不重复写
   `carrier`**：承载它的 durable event 的 `commitSeq` 在 append 时才分配，写 data 时不可知；读模型
   以「包含该 `derivation` 的事件自身」为 carrier，并从事件头取 `record://event/N`。若事件里出现
@@ -143,6 +144,22 @@
 - `sources` 0–16 条，`record` 规范且去重；`role` 封闭：`evidence`、`review`、`trigger`、
   `creator`、`recipient`、`basis`。同一记录可因不同 role 出现一次；同一 `(record, role)` 不得
   重复。
+- **role 的 provenance 分类（G-1 r14）**：
+
+  | 类别 | role | 是否内容 provenance | 用途 |
+  | --- | --- | --- | --- |
+  | content | `evidence`、`basis`、`creator` | **是** | 决定 artifact 内容状态、upstream 失效、COMPACT/覆盖 scorer |
+  | verification | `review` | 否（只进 review_effective） | 核对断言是否仍被当前记录支持；不单独把 artifact 判 erased/changed |
+  | causal | `trigger` | **否** | 只记录触发/唤醒关系；不作为“为什么内容成立”的依据，不计覆盖、不参与 worst state |
+  | delivery | `recipient` | **否** | 交付目标/接收方；不是内容来源 |
+
+  - artifact 内容状态只取 content 类 source 的 worst state + content 上游；`review` 只决定
+    `review_effective`，`trigger`/`recipient` 只在 trace/来源面板显示，不能把 artifact 判
+    changed/erased/current，也不计入 COMPACT provenance 覆盖率。
+  - 没有 content source（只 review/trigger/recipient）时，artifact 的 content 状态是
+    `unknown` + `no-derivation`（不得 current）；旧数据无 derivation 同样 unknown。
+  - COMPACT scorer 只统计 content role；不把 trigger/recipient 当 provenance，也不按业务关键词
+    猜来源。
 - `grantId` 可选：该来源当时依赖的授权标识；没有就不猜。
 - `basis` 只作展示（≤200 scalar），宿主不因它认证任何事实。
 - 写入顺序：先在同一次批量 resolve 中得到 trust 与来源版本，再把 `derivation` 放进**承载该
@@ -183,9 +200,46 @@
 | `routine` | `routine.defined` / `routine.updated` / `routine.deleted` | `data.derivation`；缺省回退到 `causationId` 指向的记录（role=`creator`）。 |
 | `proactive` | `proactive.considered` | `data.derivation`；缺省回退到 `causationId` 与 `data.trigger` 中的规范 ref（trigger 只作显示）。 |
 | `notification` / `delivery` / `suggestion` / `draft` | G-2 冻结的承载事件（`card.presented`、`ui.send_to_user`、`comm.outbound`、G-2 delivery 事件 data） | `data.derivation`；缺省回退到 `data` 中键名为 `evidence`/`refs`/`sources`/`records` 的规范 ref 数组。 |
-| `skill` | **无** | 读模型固定 `unknown` + `no-skill-write-event`。这是**阶段未覆盖**，不是把 A04 的 skill 出处目标删掉：C 必须登记后续契约/接线；若 Bot 侧 skill 只在 DSH 工作台，需选等效通用接缝并保持普通 DSH 行为不变。 |
+| `skill` | `skill.changed`（§3.4） | `data.derivation`（可选）或事件本身；artifact id=skill name，version=revision；删除事件后 lineage 为 unavailable + `skill-deleted`。旧数据无事件仍是 unknown + `no-skill-write-event`。 |
 
 缺省回退只读**结构化字段**，不扫正文、不按日期/普通词/正文子串匹配，也不把模型自述当来源。
+
+**新写入的 producer 矩阵（G-1 r14，生产接线缺口必须登记）**：
+
+| artifact | 生产 producer（写前捕获 content source） | 缺 derivation 时的读视图 |
+| --- | --- | --- |
+| memory | P `BotMemory.write` + L `prepareDerivation` | 旧数据无 derivation → unknown/no-derivation；新写入 fail-closed |
+| routine | S `UpdateRoutine`/C 写路径 + L `prepareDerivation` | **生产 producer 缺口**：causationId 只能作 legacy creator 回退，不能当内容来源；无 content derivation → unknown/no-derivation，不得 current |
+| proactive/notification/delivery | F/U/C 的 delivery/proactive 写路径 + L | 无 content derivation → unknown/no-derivation |
+| skill | C plugin→L `recordSkillWrite`（§3.4） | 无 skill.changed → unknown/no-skill-write-event |
+| draft/suggestion | U/G-2 写路径 | 无 content derivation → unknown/no-derivation |
+
+- routine 的 `causationId` 是**因果/触发**记录，fallback 到 role=`creator` 只在它能指认“谁/哪条记录
+  设立了该 routine”时有效；若只是普通回合/唤醒，不能算内容来源。S/C 必须在新写入携带
+  `derivation.sources`（content role），否则 A04 的 routine 出处只能 PARTIAL/NOT_RUN，不得以
+  “有 causationId”关闭。
+
+### 3.4 `skill.changed`（skill 写事件）
+
+成功的 skill 文件 create/update/delete（`/dsh/home/skills/<kebab>.md`）由宿主写一条 durable
+`skill.changed`（P25 add-only；`ignorable:true`；复用既有 `origin.kind=local, source=ipc` 与
+`principal.kind=ipc`；不新增枚举值；author 记录实际写入者）。`data` 形状由 `skill-change.schema.json` 冻结：
+
+- `skill{name,file,revision,content_sha256,bytes}`（delete 用 `previous_sha256`，不带 content/bytes）；
+  `revision` 每 skill 从 1 单调，删除也占一个 revision；`content_sha256` 是对**原始 UTF-8 文件字节**
+  的 `sha256:`（不是抽取文本、不是事件 JSON）；`previous_sha256` 是上一次成功写入的 hash。
+- `author{kind:user|bot|migration|system,bot_id?,session_id?}`；事件不写 skill 正文、不写用户隐私
+  内容，只写 id/revision/hash/author。
+- 可选 `derivation`（G-1 同一形状）：有真实来源时带 `artifact{kind:"skill",id:name,version:revision}`
+  与 sources；没有来源时省略，不得伪造。
+- 写顺序：文件 rename + catalog invalidation 成功后写事件；事件失败 → 该次 mutation 返回失败并把
+  catalog 标脏，下次启动按宿主 skill 目录 hash 对账补事件（author=system，revision 续接，不伪造
+  sources）。文件改动但无事件 → 读 lineage 为 unknown + `no-skill-write-event`，不猜。
+- 读取：任一 Bot 都可读同一 skill 的 lineage（skill 是 host-global，非 Bot 私有）；不得因此读取
+  其他 Bot 的 session/事件。删除的 skill 不再可读正文，但历史 lineage 保留（最新事件 action=delete
+  → unavailable + `skill-deleted`）。
+- 兼容：旧 reader 忽略未知 type；旧数据无事件 → unknown；回滚旧 App 不写/不读新事件，skill 文件
+  仍可用；新 App 读到旧数据不伪造 revision。
 
 ## 4. `source_statuses`：当前状态读视图
 
@@ -313,6 +367,27 @@
 §4 的唯一当前状态视图。既有 `evidence_status` 保留为 legacy：`source_version` 继续 `null`，
 不再扩展、不得改变语义；新读取方用 `source_statuses`，新代码不得再写第二套判定。
 
+### 4.6 cross-Bot shared read（G-1 补充）
+
+- 共享 `user/` 记忆的 evidence 可能指向**另一个 Bot**的 session/event。宿主只能按引用解析出被引用的
+  那条用户原话（及 `user` trust），不得把其他 Bot 的 session、事件、索引或 freshness 暴露给读者；
+  读者 Bot 不能因此扩大 `phone record` 范围。
+- 能解析 → 该 source 可按 `current`（用户消息不可变）显示；不能解析（越权/宿主未提供 shared reader）
+  → `unknown` + `cross-bot-unresolved`，**不得**降级成 current，也不得把别的 Bot 记录标 erased。
+- `latest_ref`/resource 仍属于写者 Bot 的记录；读者只读该引用，不合并到自己的 latest 索引。
+- skill 是 host-global：lineage 跨 Bot 可读；这不改变上面的 session/event 隔离。
+
+### 4.7 COMPACT provenance（压缩不改写来源身份）
+
+- DSH 压缩用 surface replace 替换区间，被替换的 session 行仍保留；`record://session/<id>#<seq>` 的
+  身份、时间、内容摘要不变，`shadowedBy` 只是“被哪条 replace 遮蔽”的读视图链接。
+- 压缩不是新的 observation、不是 source version、不是 erased；不得因 `shadowedBy` 把 source 判
+  changed/current/erased，也不得改写 baseline。latest 索引只按 §4.2 的 durable carrier 建，压缩不会
+  删除 durable event；若某 carrier 只在 session 行且已被 replace，仍按原 ref 解析，解析不到才按
+  `record-unresolved`/`no-resource-identity` 处理。
+- 源面板/材料块可以显示“已被压缩，原文可按引用取回”，但状态仍是来源版本状态；不得用压缩摘要冒充
+  原文或当前事实。
+
 ## 5. 派生对象读视图（`derivation-view.schema.json`）
 
 ```json
@@ -329,10 +404,11 @@
 }
 ```
 
-- `state` 封闭：`current`、`changed`、`unavailable`、`revoked`、`erased`、`unknown`；取
-  `sources[].status.state` 与 `upstream[].state` 的**最坏项**，优先级
-  `erased > revoked > changed > unavailable > unknown > current`。非 current 的 `reasons` 是
-  各来源 reason 的并集（去重、字典序）。
+- `state` 封闭：`current`、`changed`、`unavailable`、`revoked`、`erased`、`unknown`；只取
+  **content 类 source**（`evidence`/`basis`/`creator`）与 content 上游的**最坏项**，优先级
+  `erased > revoked > changed > unavailable > unknown > current`。`review` 只进
+  `review_effective`；`trigger`/`recipient` 不参与 state/upstream（G-1 r14）。非 current 的
+  `reasons` 是参与状态的来源 reason 并集（去重、字典序）。
 - `upstream`：若某 source 的 `record` 是另一个派生物的 `carrier`（该来源本身是派生物断言），
   递归其状态；深度 ≤8、对象总数 ≤10,000，超出截断并给 `truncated: true`，不得静默返回 current。
 - **环**：依赖图成环时，环内对象一律 `unavailable` + `cycle-detected`，不参与 current；
@@ -390,7 +466,8 @@
 
 ## 8. 明确不覆盖
 
-- 当前没有 Bot skill 写事件：`skill` 只以 `unknown` + `no-skill-write-event` 出现，不冒充已覆盖。
+- 旧 skill 数据无 `skill.changed`：仍以 `unknown` + `no-skill-write-event` 出现，不冒充已覆盖；
+  新写入按 §3.4，生产 producer/reconcile 由 C 接。
 - 建议附件/draft 的创建与选择语义在 G-2；本文件只定义它们的来源断言与状态。
 - 云端只读公开来源核验与端云调度在 G-3；云侧不得把本文件的 `unknown` 当 current。
 - 不新增固定知识分类、不新增第二原始库、不新增 `*invalidated` 事件流。
