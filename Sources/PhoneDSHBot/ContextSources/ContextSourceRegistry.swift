@@ -231,13 +231,16 @@ public actor BotContextSourceRegistry: BotContextSourceRegistrying {
                     throw BotContextSourceError.notAuthorized(
                         source, permissionRevision: state.permissionRevision)
                 }
+                let wasSubscribed = await ledger.isSubscribed(botID: botID, source: source)
+                // Record the subscription before starting the adapter: a
+                // pull/snapshot observation emitted during start() must not be
+                // filtered out by the subscription timestamp.
+                try await ledger.subscribe(botID: botID, source: source)
+                if !wasSubscribed { subscribedKinds.append(source) }
                 if registered[source]?.started != true {
                     try await startAdapter(source, revision: state.permissionRevision)
                     startedKinds.append(source)
                 }
-                let wasSubscribed = await ledger.isSubscribed(botID: botID, source: source)
-                try await ledger.subscribe(botID: botID, source: source)
-                if !wasSubscribed { subscribedKinds.append(source) }
             }
         } catch {
             for source in subscribedKinds.reversed() {
