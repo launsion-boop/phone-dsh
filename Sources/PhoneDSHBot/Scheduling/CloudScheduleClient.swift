@@ -247,6 +247,11 @@ public actor CloudScheduleClient {
             }
         } catch let error as CloudScheduleTransportError {
             if case .cancelled = error { return .idle }
+            // A failed cycle may have left a leased cloud event behind (the
+            // ACK never reached the server, or a poll response was lost). The
+            // next cycle reconciles before polling so the event is resolved
+            // from the local run record instead of being forgotten.
+            needsReconcile = true
             noteFailure(error)
             return .failed(error.diagnosticCode)
         } catch is CancellationError {
@@ -526,17 +531,26 @@ public actor CloudScheduleClient {
                                       occurrenceKey: event.occurrenceKey),
             occurrenceKey: event.occurrenceKey, outcome: outcome, reason: reason,
             completedAtMS: now(), localRunID: event.localRunID)
-        do {
-            _ = try await transport.acknowledge(request)
-        } catch let error as CloudScheduleTransportError {
-            if case .conflict = error {
-                // A terminal decision already won (cancel or another ACK).
-                // Reconcile on the next cycle decides the event state; never
-                // re-run because a receipt was rejected.
-                lastDiagnostic = error.diagnosticCode
+        var attempt = 0
+        while true {
+            attempt += 1
+            do {
+                _ = try await transport.acknowledge(request)
                 return
+            } catch let error as CloudScheduleTransportError {
+                if case .conflict = error {
+                    // A terminal decision already won (cancel or another ACK).
+                    // Reconcile on the next cycle decides the event state;
+                    // never re-run because a receipt was rejected.
+                    lastDiagnostic = error.diagnosticCode
+                    return
+                }
+                // The frozen server makes the receipt idempotent, so one
+                // immediate retry with the same receipt id is safe: it either
+                // delivers the receipt or returns duplicate=true after a lost
+                // response. Never create a second receipt id.
+                if attempt >= 2 || !error.isRetryable { throw error }
             }
-            throw error
         }
     }
 

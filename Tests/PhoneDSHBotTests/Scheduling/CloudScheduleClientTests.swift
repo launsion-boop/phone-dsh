@@ -227,19 +227,49 @@ final class CloudScheduleClientTests: XCTestCase {
                                scheduleRevision: revision)
         await f.transport.enqueuePoll(.init(serverTimeMS: f.clock.now, events: [event]))
         await f.transport.failNextAcks(1)
-        let first = await f.client.pollOnce()
-        XCTAssertEqual(first, .failed("transport"))
+        // The frozen receipt is idempotent: one immediate retry with the same
+        // receipt id resolves the lost ACK inside the same cycle.
+        let result = await f.client.pollOnce()
+        XCTAssertEqual(result, .processed(1))
         XCTAssertEqual(f.runs.count, 1)
-        var receiptRequests = await f.transport.receiptRequests
-        XCTAssertEqual(receiptRequests.count, 1)
-
-        await f.transport.enqueuePoll(.init(serverTimeMS: f.clock.now, events: [event]))
-        let second = await f.client.pollOnce()
-        XCTAssertEqual(second, .processed(1))
-        XCTAssertEqual(f.runs.count, 1)
-        receiptRequests = await f.transport.receiptRequests
+        let receiptRequests = await f.transport.receiptRequests
         XCTAssertEqual(receiptRequests.count, 2)
         XCTAssertEqual(receiptRequests[0].receiptID, receiptRequests[1].receiptID)
+        XCTAssertEqual(receiptRequests[0].occurrenceKey, receiptRequests[1].occurrenceKey)
+    }
+
+    func testTransportFailureReconcilesBeforeTheNextPoll() async throws {
+        let now = wp6Date(2026, 5, 12, 12)
+        let f = try fixture(at: now)
+        try await makeRoutine(f, at: now)
+        _ = await f.client.synchronizeNow()
+        let fetched_routine = try await f.machine.get(botId: "bot-a", routineId: "digest")
+        let routine = try XCTUnwrap(fetched_routine)
+        let slot = try XCTUnwrap(routine.nextRunAt)
+        let revision = try XCTUnwrap(routine.cloudSchedule?.seq)
+        let event = cloudEvent(f, occurrenceKey: occurrenceA, occurrenceAt: slot,
+                               scheduleRevision: revision)
+        await f.transport.enqueuePoll(.init(serverTimeMS: f.clock.now, events: [event]))
+        // Both the ACK and its immediate retry fail: the event is left leased
+        // on the cloud and the cycle fails.
+        await f.transport.failNextAcks(2)
+        let failed = await f.client.pollOnce()
+        XCTAssertEqual(failed, .failed("transport"))
+        XCTAssertEqual(f.runs.count, 1)
+
+        // The next cycle reconciles before polling, so the same occurrence is
+        // resolved from the local run record rather than executed again.
+        await f.transport.enqueueReconcile(.init(
+            serverTimeMS: f.clock.now,
+            events: [event],
+            nextCursorMS: now))
+        await f.transport.enqueuePoll(.init(serverTimeMS: f.clock.now, events: []))
+        let recovered = await f.client.pollOnce()
+        XCTAssertEqual(recovered, .processed(1))
+        XCTAssertEqual(f.runs.count, 1)
+        let receipts = await f.transport.receiptRequests
+        XCTAssertEqual(receipts.last?.outcome, .delivered)
+        XCTAssertEqual(receipts.last?.reason, nil)
     }
 
     // MARK: - Unknown outcome / recovery
