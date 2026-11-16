@@ -389,12 +389,31 @@ public actor BotDecisionContextService {
     public typealias MemoryResolver = @Sendable (String) async throws -> BotMemory
     public typealias PermissionRevisionProvider =
         @Sendable (String, String, BotDecisionRecipient?) async -> String
-    /// P/L's G-1 source-state reader. It receives the memory path, version and
-    /// the document's stored evidence refs so the production adapter can
-    /// resolve the real `source_statuses`/freshness instead of returning a
-    /// constant. Required: a material block must never fabricate a state.
+    /// One material-state lookup. It carries the caller identity as well as
+    /// the memory path/version/evidence refs so the production adapter can
+    /// resolve P/L's G-1 `source_statuses`/freshness for the right Bot and
+    /// session instead of returning a constant.
+    public struct BotMaterialStateRequest: Sendable, Equatable {
+        public var botID: String
+        public var sessionID: String
+        public var path: String
+        public var version: Int
+        public var evidence: [String]
+
+        public init(botID: String, sessionID: String, path: String,
+                    version: Int, evidence: [String]) {
+            self.botID = botID
+            self.sessionID = sessionID
+            self.path = path
+            self.version = version
+            self.evidence = evidence
+        }
+    }
+
+    /// P/L's G-1 source-state reader. Required: a material block must never
+    /// fabricate a state.
     public typealias MaterialStateProvider =
-        @Sendable (String, Int, [String]) async -> (BotDecisionMaterialState, BotDecisionMaterialReason?)
+        @Sendable (BotMaterialStateRequest) async -> (BotDecisionMaterialState, BotDecisionMaterialReason?)
 
     private let memoryForBot: MemoryResolver
     private let permissionRevision: PermissionRevisionProvider
@@ -473,7 +492,9 @@ public actor BotDecisionContextService {
                 + evidence.reduce(0) { $0 + $1.unicodeScalars.count } + 64
             if usedCharacters + cost > limits.maxCharacters { continue }
             usedCharacters += cost
-            let state = await materialState(hit.path, hit.version, hit.evidence)
+            let state = await materialState(BotMaterialStateRequest(
+                botID: request.botID, sessionID: request.sessionID,
+                path: hit.path, version: hit.version, evidence: hit.evidence))
             materials.append(BotDecisionMaterial(
                 materialID: "mat:\(requestID):\(materials.count + 1)",
                 ref: ref,

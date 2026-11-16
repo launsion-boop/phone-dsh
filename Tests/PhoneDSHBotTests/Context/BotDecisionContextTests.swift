@@ -57,7 +57,7 @@ final class BotDecisionContextTests: XCTestCase {
         return BotDecisionContextService(
             memoryForBot: { _ in memory },
             permissionRevision: { _, _, _ in revision.get() },
-            materialState: { _, _, _ in (.current, nil) },
+            materialState: { _ in (.current, nil) },
             now: { MemoryTestFixtures.now })
     }
 
@@ -335,8 +335,10 @@ final class BotDecisionContextTests: XCTestCase {
         let service = BotDecisionContextService(
             memoryForBot: { _ in memory },
             permissionRevision: { _, _, _ in "rev-1" },
-            materialState: { path, version, evidence in
-                captured.record(path: path, version: version, evidence: evidence)
+            materialState: { lookup in
+                captured.record(botID: lookup.botID, sessionID: lookup.sessionID,
+                                path: lookup.path, version: lookup.version,
+                                evidence: lookup.evidence)
                 return (.changed, .sourceChanged)
             },
             now: { MemoryTestFixtures.now })
@@ -347,6 +349,8 @@ final class BotDecisionContextTests: XCTestCase {
             XCTAssertEqual(material.reason, .sourceChanged)
             XCTAssertTrue(captured.paths.contains(material.path))
             XCTAssertEqual(captured.versions[material.path], material.version)
+            XCTAssertEqual(captured.botIDs.last, "main")
+            XCTAssertEqual(captured.sessionIDs.last, "gb-main")
         }
         XCTAssertTrue(captured.evidence.contains { !$0.isEmpty },
                       "the provider must receive the document's evidence refs")
@@ -369,11 +373,16 @@ private final class LockedEvidenceCapture: @unchecked Sendable {
     private(set) var paths: [String] = []
     private(set) var versions: [String: Int] = [:]
     private(set) var evidence: [[String]] = []
+    private(set) var botIDs: [String] = []
+    private(set) var sessionIDs: [String] = []
 
-    func record(path: String, version: Int, evidence: [String]) {
+    func record(botID: String, sessionID: String, path: String,
+                version: Int, evidence: [String]) {
         lock.lock(); defer { lock.unlock() }
         paths.append(path)
         versions[path] = version
         self.evidence.append(evidence)
+        botIDs.append(botID)
+        sessionIDs.append(sessionID)
     }
 }
