@@ -87,23 +87,33 @@ public actor BotCloudScheduleWiring {
 }
 
 /// Composes the routine-local consent check with the platform services the App
-/// already has (N source consent/generation, F suppression). A nil closure is
-/// explicit: those services are not wired yet, not a silent allow-all.
+/// already has. A nil closure is explicit: that service is not wired yet, not a
+/// silent allow-all.
+///
+/// `sourceConsent` is the N hook: the App supplies the routine→source relation
+/// (the frozen routine record has no source list, so S cannot infer it) and
+/// returns `.revoked`/`.quiet` when the source that justifies this routine is
+/// no longer authorized.
+///
+/// F suppression is deliberately **not** an authorization input: the frozen F
+/// contract says a suppression holds proactive candidates but never stops or
+/// deletes a routine. Treating it as a scheduling revocation would change that
+/// contract, so it stays out until G/F freeze a different semantic.
 public struct ComposedCloudScheduleAuthorizer: CloudScheduleAuthorizing {
-    public typealias AdditionalCheck = @Sendable (Routine) async -> CloudScheduleReason?
+    public typealias SourceConsentCheck = @Sendable (Routine) async -> CloudScheduleReason?
 
     private let base: any CloudScheduleAuthorizing
-    private let additional: AdditionalCheck?
+    private let sourceConsent: SourceConsentCheck?
 
     public init(base: any CloudScheduleAuthorizing = CloudScheduleAuthorizer(),
-                additional: AdditionalCheck? = nil) {
+                sourceConsent: SourceConsentCheck? = nil) {
         self.base = base
-        self.additional = additional
+        self.sourceConsent = sourceConsent
     }
 
     public func refusal(for routine: Routine) async -> CloudScheduleReason? {
         if let refusal = await base.refusal(for: routine) { return refusal }
-        guard let additional else { return nil }
-        return await additional(routine)
+        guard let sourceConsent else { return nil }
+        return await sourceConsent(routine)
     }
 }

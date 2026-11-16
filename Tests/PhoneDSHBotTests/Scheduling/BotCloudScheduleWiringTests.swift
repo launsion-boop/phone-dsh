@@ -147,7 +147,7 @@ final class BotCloudScheduleWiringTests: XCTestCase {
 
     func testComposedAuthorizerDoesNotSilentlyAllowAll() async {
         let additional = ComposedCloudScheduleAuthorizer(
-            additional: { _ in .revoked })
+            sourceConsent: { _ in .revoked })
         let routine = Routine(id: "r", agentId: "b", title: "t", prompt: "p",
                               schedule: .interval(everyMinutes: 60, timezone: "UTC"),
                               enabled: true, createdAt: 0,

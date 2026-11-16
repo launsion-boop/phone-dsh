@@ -179,6 +179,66 @@ final class CloudScheduleHTTPTransportTests: XCTestCase {
         }
     }
 
+    func testUnauthorizedRefreshesTheTokenAndReplaysOnce() async throws {
+        // First response: 401; after the token provider returns a refreshed
+        // token the same request is replayed once.
+        var calls = 0
+        StubURLProtocol.handler = { request in
+            StubURLProtocol.record(request)
+            calls += 1
+            if calls == 1 {
+                return (401, ["Content-Type": "application/json"],
+                        Data(#"{"schema":"bot-cloud-error/v1","code":"unauthorized","server_time_ms":1}"#.utf8))
+            }
+            return (200, ["Content-Type": "application/json"], Data("""
+            {"schema":"bot-cloud-poll-response/v1","server_time_ms":1762990000000,"events":[]}
+            """.utf8))
+        }
+        let tokens = LockedTokens(["expired-token", "fresh-token"])
+        let transport = CloudScheduleHTTPTransport(
+            configuration: CloudScheduleHTTPConfiguration(baseURL: baseURL),
+            tokenProvider: { tokens.next() },
+            sessionConfiguration: {
+                let c = URLSessionConfiguration.ephemeral
+                c.protocolClasses = [StubURLProtocol.self]
+                return c
+            }())
+        let response = try await transport.poll(CloudSchedulePollRequest(
+            deviceID: "device-a", botID: "bot-a", limit: 1, leaseSeconds: 5))
+        XCTAssertEqual(response.serverTimeMS, 1762990000000)
+        let requests = StubURLProtocol.requests
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests.first?.value(forHTTPHeaderField: "Authorization"),
+                       "Bearer expired-token")
+        XCTAssertEqual(requests.last?.value(forHTTPHeaderField: "Authorization"),
+                       "Bearer fresh-token")
+    }
+
+    func testSecondUnauthorizedIsNotRetried() async {
+        respond(status: 401, json: """
+        {"schema":"bot-cloud-error/v1","code":"unauthorized","server_time_ms":1}
+        """)
+        let tokens = LockedTokens(["expired-token", "still-expired-token"])
+        let transport = CloudScheduleHTTPTransport(
+            configuration: CloudScheduleHTTPConfiguration(baseURL: baseURL),
+            tokenProvider: { tokens.next() },
+            sessionConfiguration: {
+                let c = URLSessionConfiguration.ephemeral
+                c.protocolClasses = [StubURLProtocol.self]
+                return c
+            }())
+        do {
+            _ = try await transport.poll(CloudSchedulePollRequest(
+                deviceID: "device-a", botID: "bot-a", limit: 1, leaseSeconds: 5))
+            XCTFail("expected unauthenticated")
+        } catch let error as CloudScheduleTransportError {
+            XCTAssertEqual(error, .unauthenticated)
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+        XCTAssertEqual(StubURLProtocol.requests.count, 2)
+    }
+
     func testUnauthenticatedAndMissingTokenAreNotRetried() async {
         respond(status: 401, json: """
         {"schema":"bot-cloud-error/v1","code":"unauthenticated","server_time_ms":1}
@@ -263,6 +323,18 @@ final class CloudScheduleHTTPTransportTests: XCTestCase {
 /// Minimal `URLProtocol` stub. Test methods in one XCTestCase run serially, so
 /// one handler is enough; the lock only protects against URLSession's loader
 /// threads.
+private final class LockedTokens: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String]
+    init(_ values: [String]) { self.values = values }
+    func next() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        if values.isEmpty { return "fresh-token" }
+        return values.removeFirst()
+    }
+}
+
 private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) static var handler: (@Sendable (URLRequest) throws -> (Int, [String: String], Data))?

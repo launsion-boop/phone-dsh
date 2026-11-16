@@ -199,52 +199,77 @@ public final class CloudScheduleHTTPTransport: CloudScheduleTransport, @unchecke
         guard let url = components.url else {
             throw CloudScheduleTransportError.transport("invalid_url")
         }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = timeout
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var token = try await currentToken()
+        var refreshedOnce = false
+        while true {
+            var request = URLRequest(url: url)
+            request.httpMethod = method
+            request.timeoutInterval = timeout
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.httpBody = body
+
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: request)
+            } catch is CancellationError {
+                throw CloudScheduleTransportError.cancelled
+            } catch {
+                throw CloudScheduleTransportError.transport("network")
+            }
+            guard let http = response as? HTTPURLResponse else {
+                throw CloudScheduleTransportError.transport("not_http")
+            }
+            dateMS = Self.dateMilliseconds(http.value(forHTTPHeaderField: "Date"))
+            guard data.count <= configuration.maxResponseBytes else {
+                throw CloudScheduleTransportError.transport("response_too_large")
+            }
+            if (200...299).contains(http.statusCode) { return data }
+
+            // One explicit token refresh + replay on 401. The frozen endpoints
+            // are idempotent (schedule revision, same receipt id), so a replay
+            // cannot duplicate a run or a receipt. A second 401 is terminal for
+            // the client until the host says the account signed in again.
+            if http.statusCode == 401, !refreshedOnce {
+                refreshedOnce = true
+                guard let refreshed = try await tokenProvider(), !refreshed.isEmpty else {
+                    throw CloudScheduleTransportError.unauthenticated
+                }
+                if refreshed != token {
+                    token = refreshed
+                    continue
+                }
+                throw CloudScheduleTransportError.unauthenticated
+            }
+            let error = try? CloudScheduleWire.decoder().decode(
+                CloudScheduleWire.ErrorBody.self, from: data)
+            switch http.statusCode {
+            case 401: throw CloudScheduleTransportError.unauthenticated
+            case 403: throw CloudScheduleTransportError.forbidden
+            case 404: throw CloudScheduleTransportError.notFound
+            case 409:
+                throw CloudScheduleTransportError.conflict(
+                    code: error?.code ?? "conflict", currentRevision: error?.revision)
+            case 429:
+                throw CloudScheduleTransportError.rateLimited(
+                    retryAfterMS: error?.retryAfterMS ?? retryAfter(from: http))
+            case 400...499:
+                throw CloudScheduleTransportError.invalidRequest(
+                    code: error?.code ?? "invalid_request")
+            default:
+                throw CloudScheduleTransportError.server(
+                    retryable: error?.retryable ?? true,
+                    retryAfterMS: error?.retryAfterMS ?? retryAfter(from: http))
+            }
+        }
+    }
+
+    private func currentToken() async throws -> String {
         guard let token = try await tokenProvider(), !token.isEmpty else {
             throw CloudScheduleTransportError.unauthenticated
         }
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.httpBody = body
-
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch is CancellationError {
-            throw CloudScheduleTransportError.cancelled
-        } catch {
-            throw CloudScheduleTransportError.transport("network")
-        }
-        guard let http = response as? HTTPURLResponse else {
-            throw CloudScheduleTransportError.transport("not_http")
-        }
-        dateMS = Self.dateMilliseconds(http.value(forHTTPHeaderField: "Date"))
-        guard data.count <= configuration.maxResponseBytes else {
-            throw CloudScheduleTransportError.transport("response_too_large")
-        }
-        if (200...299).contains(http.statusCode) { return data }
-        let error = try? CloudScheduleWire.decoder().decode(CloudScheduleWire.ErrorBody.self, from: data)
-        switch http.statusCode {
-        case 401: throw CloudScheduleTransportError.unauthenticated
-        case 403: throw CloudScheduleTransportError.forbidden
-        case 404: throw CloudScheduleTransportError.notFound
-        case 409:
-            throw CloudScheduleTransportError.conflict(
-                code: error?.code ?? "conflict", currentRevision: error?.revision)
-        case 429:
-            throw CloudScheduleTransportError.rateLimited(
-                retryAfterMS: error?.retryAfterMS ?? retryAfter(from: http))
-        case 400...499:
-            throw CloudScheduleTransportError.invalidRequest(
-                code: error?.code ?? "invalid_request")
-        default:
-            throw CloudScheduleTransportError.server(
-                retryable: error?.retryable ?? true,
-                retryAfterMS: error?.retryAfterMS ?? retryAfter(from: http))
-        }
+        return token
     }
 
     /// The frozen wire error code is `revision-conflict` (hyphen); early SC
