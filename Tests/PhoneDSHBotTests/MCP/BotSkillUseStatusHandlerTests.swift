@@ -21,7 +21,11 @@ final class BotSkillUseStatusHandlerTests: XCTestCase {
         _ = try await fixture.runtime.issueSession(
             botId: "bot-a", sessionId: "gb-bot-a", kind: .chat)
         await beginUserTurn(fixture.runtime, sessionId: "gb-bot-a")
-        let service = BotProvenanceService(eventLog: fixture.store)
+        let log = BotProvenanceTestLog()
+        let source = try await log.append(ProvenanceTest.event(
+            type: "conversation.user_message", eventId: "skill-gate-source",
+            data: .object(["text": .string("write the weekly skill")])))
+        let service = BotProvenanceService(eventLog: log)
         await fixture.runtime.installProvenance(service)
         _ = try await service.recordSkillWrite(BotSkillWriteRequest(
             name: "weekly-report", file: "weekly-report.md", revision: 1,
@@ -30,8 +34,10 @@ final class BotSkillUseStatusHandlerTests: XCTestCase {
             bytes: 18, previousSHA256: nil,
             author: BotSkillChangeAuthor(kind: "bot", botID: "bot-a",
                                          sessionID: "gb-bot-a"),
-            atMS: 2_000, sources: [], source: .projectDsh,
-            ownerBotID: "bot-a"))
+            atMS: 2_000,
+            sources: [BotDerivationSource(record: "record://event/\(source)",
+                                          role: .creator)],
+            source: .projectDsh, ownerBotID: "bot-a"))
         let current = try await registerAndExecute(
             fixture.runtime, name: "BotSkillUseStatus",
             arguments: arguments("weekly-report"),
