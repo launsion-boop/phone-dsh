@@ -113,6 +113,13 @@ CJK 分词。`scope` 为 `agent`、`user` 或 `all`；默认 `all`，但 `agent`
   路径真实存在。
 - 记什么的界线只写在工具描述，不写流程：值得记的是验证过的规则、决定与承诺、偏好、策略及
   原因；能从原始记录重新读到的内容不复制，需要原文时写 `record://` 引用。
+- **写前证据长度闸（2026-11-16 addendum）**：仅当 `BotMemory` 有真实
+  `BotMemoryMaintenanceRecordReading`，且本次写入带 evidence/review 引用、作者是 maintainer 或
+  context trust 是 `observation` 时：content 的 Unicode scalar 数 > 去重后引用记录**完整 canonical
+  正文**的 scalar 数 → 拒绝，返回 `memory-document-longer-than-evidence`（`limit`=引用正文总数，
+  `actual`=content 数），**不落事件/不增版本**；同一回合可改短重试。普通 user 写入（trust user）和
+  无证据的 trigger-only 写入不受影响；不放松 batch rollback、不改预算、不改 trust/fail-closed。
+  `record://` 模型工具返回仍按 8k 有界输出，本闸只用于写前比较。
 
 ### 1.5 证据与信任推导
 

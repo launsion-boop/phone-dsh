@@ -299,6 +299,19 @@ def result_for_case(case):
     else:
         raise AssertionError(f"unknown action {action!r}")
 
+    evidence_refs = request.get("evidence") or request.get("review", {}).get("refs") or []
+    author_kind = (case.get("author") or {}).get("kind")
+    cited = case.get("evidenceScalars")
+    if (action != "delete" and cited is not None and evidence_refs
+            and (author_kind == "maintainer" or case.get("trust") == "observation")
+            and len(content) > cited):
+        return {
+            "ok": False,
+            "code": "memory-document-longer-than-evidence",
+            "error": "document is longer than its cited evidence",
+            "limit": cited,
+            "actual": len(content),
+        }
     if action != "delete" and is_index(path) and len(content) > INDEX_LIMIT:
         return {
             "ok": False,

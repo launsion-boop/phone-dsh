@@ -80,7 +80,8 @@
             "memory-not-found",
             "memory-path-exists",
             "memory-replace-not-found",
-            "memory-version-not-found"
+            "memory-version-not-found",
+            "memory-document-longer-than-evidence"
           ]
         },
         "error": {
@@ -95,14 +96,64 @@
           "minimum": 0
         },
         "limit": {
-          "const": 1500
+          "type": "integer",
+          "minimum": 0
         },
         "actual": {
           "type": "integer",
           "minimum": 0
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "memory-index-too-long"
+              }
+            },
+            "required": [
+              "code"
+            ]
+          },
+          "then": {
+            "required": [
+              "limit",
+              "actual"
+            ],
+            "properties": {
+              "limit": {
+                "const": 1500
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "memory-document-longer-than-evidence"
+              }
+            },
+            "required": [
+              "code"
+            ]
+          },
+          "then": {
+            "required": [
+              "limit",
+              "actual"
+            ],
+            "properties": {
+              "actual": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      ]
     }
   ]
 }
