@@ -43,8 +43,8 @@ struct BotCardView: View {
                 }
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: settlement)
                 if settlement == nil, let artifact = model.feedbackArtifact(for: row) {
-                    BotFeedbackBar(artifact: artifact, state: model.feedbackState) { verdict in
-                        model.sendFeedback(row: row, verdict: verdict)
+                    BotFeedbackBar(artifact: artifact, state: model.feedbackState) { verdict, scope in
+                        model.sendFeedback(row: row, verdict: verdict, scope: scope)
                     }
                     .padding(.top, 2)
                     .padding(.horizontal, 4)

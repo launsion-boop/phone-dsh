@@ -1231,8 +1231,8 @@ private struct BotTranscriptRow: View {
                 VStack(alignment: .leading, spacing: 0) {
                     BotTextRow(row: row)
                     if let artifact = model.feedbackArtifact(for: row) {
-                        BotFeedbackBar(artifact: artifact, state: model.feedbackState) { verdict in
-                            model.sendFeedback(row: row, verdict: verdict)
+                        BotFeedbackBar(artifact: artifact, state: model.feedbackState) { verdict, scope in
+                            model.sendFeedback(row: row, verdict: verdict, scope: scope)
                         }
                         .padding(.horizontal, HomeSpec.contentInset)
                         .padding(.bottom, 4)

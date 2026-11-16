@@ -137,11 +137,22 @@ enum BotFeedbackAvailability: Equatable {
     case unavailable(String)
 }
 
+enum BotFeedbackScope: String, Equatable {
+    /// Only this artifact.
+    case artifact
+    /// This kind of proactive output, across Bots. Only a UI action may create
+    /// it (G-2 r5); the host derives the concrete class from the artifact.
+    case user
+}
+
 struct BotFeedbackIntent: Equatable {
     var nonce: String
     var rowID: String
     var botID: String
     var verdict: BotFeedbackVerdict
+    /// `suppress` is the only verdict that asks for a scope; the UI explicitly
+    /// chooses "this one" vs "this kind in every Bot".
+    var scope: BotFeedbackScope
     /// Only for `undo`; the accepted feedback event id.
     var feedbackID: String?
 }

@@ -849,7 +849,8 @@ final class BotChatModel: ObservableObject {
         return nil
     }
 
-    func sendFeedback(row: BotUIRow, verdict: BotFeedbackVerdict) {
+    func sendFeedback(row: BotUIRow, verdict: BotFeedbackVerdict,
+                      scope: BotFeedbackScope = .artifact) {
         guard let artifact = feedbackArtifact(for: row),
               feedbackState.begin(rowID: artifact.rowID, verdict: verdict) else { return }
         let undoID = verdict == .undo
@@ -861,6 +862,7 @@ final class BotChatModel: ObservableObject {
         }
         let intent = BotFeedbackIntent(nonce: UUID().uuidString, rowID: artifact.rowID,
                                        botID: artifact.botID, verdict: verdict,
+                                       scope: verdict == .suppress ? scope : .artifact,
                                        feedbackID: undoID)
         Task { await performFeedback(intent) }
     }

@@ -510,6 +510,7 @@ final class BotDeliveryUITests: XCTestCase {
         try await waitFor { model.feedbackState.display(for: row.id) == .recorded(.adopt) }
         XCTAssertEqual(intents.count, 1)
         XCTAssertEqual(intents[0].verdict, .adopt)
+        XCTAssertEqual(intents[0].scope, .artifact)
         XCTAssertNil(intents[0].feedbackID)
 
         model.sendFeedback(row: row, verdict: .undo)
@@ -517,6 +518,28 @@ final class BotDeliveryUITests: XCTestCase {
         XCTAssertEqual(intents.count, 2)
         XCTAssertEqual(intents[1].verdict, .undo)
         XCTAssertEqual(intents[1].feedbackID, "evt-feedback-1")
+    }
+
+    func testSuppressCarriesExplicitUserScope() async throws {
+        var intents: [BotFeedbackIntent] = []
+        let row = BotUIRow.text(id: "answer-suppress", seq: 1, role: "assistant",
+                                text: "以后这类周报不用再推。")
+        let driver = BotChatDriver(
+            history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
+            watch: { _ in BotUIRowBatch(rows: [], deletes: [], cursor: 0, reset: false) },
+            perform: { _ in .rejected(reason: "unused") },
+            stopCurrentTurn: { _ in },
+            selectDeliveryResources: { _ in .rejected(reason: "unused") },
+            recordFeedback: { intent in
+                intents.append(intent)
+                return .accepted(eventID: "evt-suppress-1")
+            })
+        let model = BotChatModel(rows: [row], context: BotRuntimeContext(botID: "main", botName: "大肥鱼"),
+                                 driver: driver)
+        model.sendFeedback(row: row, verdict: .suppress, scope: .user)
+        try await waitFor { intents.count == 1 }
+        XCTAssertEqual(intents[0].scope, .user)
+        XCTAssertEqual(intents[0].verdict, .suppress)
     }
 
     func testSendWhileApprovalPendingKeepsApprovalAndLocalEcho() async throws {

@@ -10,8 +10,9 @@ import PhoneDSHBot
 struct BotFeedbackBar: View {
     let artifact: BotFeedbackArtifact
     let state: BotFeedbackState
-    var onFeedback: (BotFeedbackVerdict) -> Void
+    var onFeedback: (BotFeedbackVerdict, BotFeedbackScope) -> Void
     @Environment(\.botCardTheme) private var theme
+    @State private var confirmingSuppress = false
 
     private var display: BotFeedbackDisplay { state.display(for: artifact.rowID) }
 
@@ -37,7 +38,14 @@ struct BotFeedbackBar: View {
             HStack(spacing: 2) {
                 ForEach(artifact.verdicts.filter { !$0.isUndo }, id: \.self) { verdict in
                     Button {
-                        onFeedback(verdict)
+                        // Suppression without a scope would silently mean
+                        // "this one row". The label promises a class, so the
+                        // person explicitly chooses artifact vs user scope.
+                        if verdict == .suppress {
+                            confirmingSuppress = true
+                        } else {
+                            onFeedback(verdict, .artifact)
+                        }
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: verdict.icon)
@@ -85,7 +93,7 @@ struct BotFeedbackBar: View {
             Spacer(minLength: 0)
             if undo, state.canUndo(for: artifact.rowID) {
                 Button("撤销") {
-                    onFeedback(.undo)
+                    onFeedback(.undo, .artifact)
                 }
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(theme.accent)
