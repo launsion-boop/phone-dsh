@@ -501,10 +501,26 @@ public actor BotDecisionContextService {
         let wantedScopes = Set(request.scopes)
         let candidates = page.hits.filter { wantedScopes.contains($0.scope) }
         var disputedByPath: [String: [BotFeedbackDisputedRef]] = [:]
-        if let disputedRefs, !candidates.isEmpty {
-            // F owns the correction state. A failure here must not turn a
-            // disputed material into current; it only leaves provenance as-is.
-            disputedByPath = (try? await disputedRefs(candidates.map(\.path))) ?? [:]
+        var disputedDocuments: [BotMemoryDocument] = []
+        if let disputedRefs {
+            // F owns the correction state. A user-scope disputed document must
+            // enter the next decision even when the recall query no longer
+            // ranks it; private agent documents only through the candidate
+            // set. F itself has no Bot filter, so keep this scoped by this
+            // Bot's own document paths.
+            let documents = (try? await memory.documents()) ?? []
+            let paths = Set(candidates.map(\.path))
+                .union(documents.map(\.path))
+            if !paths.isEmpty {
+                disputedByPath = (try? await disputedRefs(Array(paths))) ?? [:]
+            }
+            for document in documents {
+                guard document.scope == .user || candidates.contains(where: { $0.path == document.path }) else { continue }
+                guard let correction = disputedByPath[document.path]?.first(where: {
+                    $0.state == "active" && $0.correctedVersion == document.version
+                }) else { continue }
+                disputedDocuments.append(document)
+            }
         }
 
         var materials: [BotDecisionMaterial] = []
@@ -560,8 +576,34 @@ public actor BotDecisionContextService {
                     state: .current, reason: nil))
             }
         }
+        for document in disputedDocuments where materials.count < limits.maxMaterials {
+            guard !materials.contains(where: { $0.path == document.path }) else { continue }
+            guard let correction = disputedByPath[document.path]?.first(where: {
+                $0.state == "active" && $0.correctedVersion == document.version
+            }) else { continue }
+            let snippet = Self.sanitizedSnippet(document.content,
+                                                limit: limits.maxSnippetCharacters)
+            guard !snippet.isEmpty else { continue }
+            let evidence = correction.refs
+                .filter { $0.hasPrefix("record://") && $0.unicodeScalars.count <= 128 }
+                .prefix(2)
+            let ref = Self.ref(path: document.path, version: document.version)
+            let cost = snippet.unicodeScalars.count + ref.unicodeScalars.count
+                + document.path.unicodeScalars.count
+                + evidence.reduce(0) { $0 + $1.unicodeScalars.count } + 64
+            if usedCharacters + cost > limits.maxCharacters { continue }
+            usedCharacters += cost
+            materials.append(BotDecisionMaterial(
+                materialID: "mat:\(requestID):d\(materials.count + 1)",
+                ref: ref, path: document.path, scope: document.scope,
+                version: document.version, updatedAtMS: document.updatedAtMS,
+                snippet: snippet, evidence: Array(evidence),
+                selectionReason: .match, state: .unknown,
+                reason: .feedbackDisputed))
+        }
         let nonMemoryCount = materials.count
         for hit in candidates where materials.count < limits.maxMaterials {
+            guard !materials.contains(where: { $0.path == hit.path }) else { continue }
             guard Task.isCancelled == false else { throw BotDecisionContextError.cancelled }
             let snippet = Self.sanitizedSnippet(hit.snippet,
                                                 limit: limits.maxSnippetCharacters)
