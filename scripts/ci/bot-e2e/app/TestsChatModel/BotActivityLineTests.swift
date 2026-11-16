@@ -380,7 +380,7 @@ final class BotActivityLineTests: XCTestCase {
         for _ in 0..<6 { root.deleteLastPathComponent() }
         let path = root.appendingPathComponent("spec/ui/v1/bot/ios/activity-evidence-vectors.json")
         let vectors = try JSONDecoder().decode(Vectors.self, from: Data(contentsOf: path))
-        XCTAssertEqual(vectors.cases.count, 83)
+        XCTAssertEqual(vectors.cases.count, 90)
         for vector in vectors.cases {
             let live = BotRuntimePresentationFactory.live(botID: "main", events: vector.events,
                                                           now: vectors.now).activity
