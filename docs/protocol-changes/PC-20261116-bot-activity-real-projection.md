@@ -156,7 +156,7 @@ will be refreshed by the lead at integration if UI edits shift them; values do n
 | activity-evidence-v3 | lead | User ruling: the bubble is a short real progress sentence (10–20 CJK, about 28 with a result), not a long path/URL/long-answer display. Short object fallback uses basename/host; no append to a model sentence; no 512/full view. 81 vectors | runtime / projection / ui / review sessions |
 | activity-evidence-v3.1 | lead | Final fallback label is shortened after action+object join; remove the old 42-character secondary threshold; add long-basename/query vectors (83) | runtime / projection / ui / review sessions |
 | activity-evidence-v3.2 | lead | Natural-quality ruling: per-call intent/Task title follow the user's language and name the current task object/progress; tool-local command summaries are rejected. Prompt-only enforcement first; no new field/DSH change | runtime / projection / ui / review sessions |
-| activity-evidence-v3.3 | lead | Add optional `activity` to the real Bot-scope schemas of read/glob/grep/web_search/web_fetch; shadow strips it before the handler; no new event/state, no identity/approval digest; bash/Task keep existing fields. Coverage is the five host-native read/search tools only | runtime / projection / ui / review sessions |
+| activity-evidence-v3.3 | lead | Add optional `activity` to the real Bot-scope schemas of read/glob/grep/web_search/web_fetch; shadow strips it before the handler and preserves the web readiness `when`; no new event/state, no identity/approval digest; bash/Task keep existing fields. Coverage is the five host-native read/search tools only | runtime / projection / ui / review sessions |
 
 ## 6. Protocol impact
 

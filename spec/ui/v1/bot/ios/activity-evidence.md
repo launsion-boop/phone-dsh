@@ -44,7 +44,10 @@ fabricates a result.
 
 The Bot-scope shadow registers the original definition with `activity` added to
 `parameters.properties` (never to `required`), and its `execute` strips `activity` before
-calling the original handler. The existing `tool/call.arguments` therefore retain the
+calling the original handler. It preserves the original step admission: `web_search` /
+`web_fetch` keep `ctx.web.searchReady` / `fetchReady(modelSelection.provider)` as their
+`when` condition, so a not-ready web tool is never exposed; `read` / `glob` / `grep` have no
+`when`. The existing `tool/call.arguments` therefore retain the
 value for projection, while the read/search handler never receives it. These five tools do
 not pass through the Bot MCP identity/approval roundtrip, so this field is not part of any
 identity or approval digest. No other tool declares it. `bash` keeps its existing
