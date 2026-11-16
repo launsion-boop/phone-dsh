@@ -8059,7 +8059,8 @@
             }
           }
         ]
-      }
+      },
+      "erasures": []
     },
     {
       "name": "new-grant-generation-after-revocation",
@@ -8277,7 +8278,8 @@
             }
           }
         ]
-      }
+      },
+      "erasures": []
     }
   ],
   "read_results": [
