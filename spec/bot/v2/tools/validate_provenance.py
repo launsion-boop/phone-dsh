@@ -700,6 +700,9 @@ def check_vectors(golden: dict) -> dict:
     cases = golden.get("cases", [])
     results = {}
     for case in cases:
+        for key in ("erasures", "grants"):
+            if key not in case:
+                raise AssertionError(f"case {case['name']}: missing {key} (decoder requires it)")
         view = resolve_case(case)
         check(view, "derivation-view.schema.json", f"case {case['name']}: view")
         for source in view["sources"]:
