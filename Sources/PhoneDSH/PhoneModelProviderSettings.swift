@@ -245,6 +245,26 @@ public protocol ModelProviderSecretStore: Sendable {
     func deleteSecret(for reference: String) throws
 }
 
+/// Test-only in-memory store. Enabled only by the explicit
+/// `PDSH_TEST_CREDENTIAL_STORE=1` launch environment on a simulator; it never
+/// replaces the production Keychain path and must be reported as a test store.
+public final class InMemoryModelProviderSecretStore: ModelProviderSecretStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String: String] = [:]
+    public init() {}
+    public func secret(for reference: String) throws -> String? {
+        lock.lock(); defer { lock.unlock() }; return values[reference]
+    }
+    public func setSecret(_ secret: String, for reference: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        if secret.isEmpty { values.removeValue(forKey: reference) }
+        else { values[reference] = secret }
+    }
+    public func deleteSecret(for reference: String) throws {
+        lock.lock(); defer { lock.unlock() }; values.removeValue(forKey: reference)
+    }
+}
+
 /// Device-only Keychain store using the same accessibility class as the chat
 /// settings it replaces: `AfterFirstUnlockThisDeviceOnly`.
 public struct KeychainModelProviderSecretStore: ModelProviderSecretStore {
@@ -561,7 +581,16 @@ public final class PhoneModelProviderSettings {
     /// and Keychain credential instead of a second secret or endpoint.
     public static let searchBaseURLEnvironmentKey = "DEEPSEEK_SEARCH_BASE_URL"
     /// Process-wide store used by the app; tests construct their own.
-    public static let shared = PhoneModelProviderSettings(accountTokens: TonoAccountSession.shared)
+    public static let shared: PhoneModelProviderSettings = {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["PDSH_TEST_CREDENTIAL_STORE"] == "1" {
+            return PhoneModelProviderSettings(
+                secretStore: InMemoryModelProviderSecretStore(),
+                environment: environment,
+                accountTokens: TonoAccountSession.shared)
+        }
+        return PhoneModelProviderSettings(accountTokens: TonoAccountSession.shared)
+    }()
 
     /// Accounts that are no longer referenced by the committed document. A
     /// crash between the document write and the Keychain delete leaves an
