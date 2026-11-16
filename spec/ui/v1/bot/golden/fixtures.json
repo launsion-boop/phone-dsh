@@ -839,7 +839,7 @@
      "createdAt": 1760000002000
     }
    ],
-   "note": "Rows are pure data; the 已略过，视为拒绝 settlement requires the next-send deny action (imperative)."
+   "note": "Rows are pure data; the auto-declined settlement uses the existing 已略过 copy (the old 已略过，视为拒绝 copy is retired) and requires the next-send deny action (imperative)."
   },
   {
    "scenario": "agentComm",

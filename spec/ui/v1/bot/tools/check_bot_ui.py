@@ -412,7 +412,7 @@ def settlement(inp, row):
         mono = bool(command)
         auto = rid in inp['autoDeclinedApprovalIDs']
         if auto:
-            return settle('xmark.circle', ST['settlement.approvalAutoDeclined'], detail, 'neutral', mono)
+            return settle('xmark.circle', ST['settlement.skipped'], detail, 'neutral', mono)
         if status == 'pending':
             return None
         allowed = status in ('allowed', 'always')

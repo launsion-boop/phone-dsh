@@ -2377,7 +2377,7 @@
   {
    "id": "approval-auto-declined",
    "source": "BotChatModel.swift:512-520",
-   "note": "Auto-declined approval settles to 已略过，视为拒绝 with the monospaced command and leaves the attention count.",
+   "note": "Auto-declined approval settles to 已略过 (the old 已略过，视为拒绝 copy is retired) with the monospaced command and leaves the attention count.",
    "input": {
     "context": {
      "botID": "main",
@@ -2474,7 +2474,7 @@
      {
       "rowID": "approval-1",
       "glyph": "xmark.circle",
-      "title": "已略过，视为拒绝",
+      "title": "已略过",
       "detail": "rm -f /tmp/phone-dsh-old-report.pdf",
       "tone": "neutral",
       "monospacedDetail": true
