@@ -246,7 +246,7 @@ enum BotProductionChecks {
         try require(working.fishState == .working && working.runningTurnID == "7"
                     && working.activity?.status == .toolRunning
                     && working.activity?.category == .reading
-                    && working.activity?.detail == "读取相关资料"
+                    && working.activity?.detail == "在翻文件 · report.md"
                     && working.activity?.startedAt == 1_100,
                     "real turn/tool presentation failed")
         let toolResult = BotDSHSessionEvent(type: "tool/result", seq: 12, time: 1_150, data: [
@@ -257,7 +257,7 @@ enum BotProductionChecks {
             uiEvents: [], now: 1_200)
         try require(reviewing.activity?.status == .thinking
                     && reviewing.activity?.category == .reviewing
-                    && reviewing.activity?.detail == "已收到读取结果"
+                    && reviewing.activity?.detail == "在翻文件 · report.md"
                     && reviewing.activity?.startedAt == 1_150,
                     "finished tool call did not become the reviewing phase")
         let step = BotDSHSessionEvent(type: "step/start", seq: 13, time: 1_250, data: [:])
@@ -266,7 +266,7 @@ enum BotProductionChecks {
             uiEvents: [], now: 1_300)
         try require(thinking.activity?.status == .thinking
                     && thinking.activity?.category == .reviewing
-                    && thinking.activity?.detail == "已收到读取结果"
+                    && thinking.activity?.detail == "在翻文件 · report.md"
                     && thinking.activity?.startedAt == 1_250,
                     "step/start did not return the activity line to thinking")
         let stream = BotDSHSessionEvent(type: "assistant/stream", seq: 14, time: 1_400,
