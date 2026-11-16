@@ -38,32 +38,42 @@ final class MemoryErasureSessionLogTests: XCTestCase {
     func testNeedlesExtractAMarkerEmbeddedInCJKProse() {
         let needles = SQLiteBotMemoryDocumentStore.erasureNeedles(
             in: "记住的随机词：\(marker)，已经写进记忆。")
-        XCTAssertTrue(needles.contains("QUOKKA"),
-                      "script-boundary segmentation must yield the Latin run")
+        XCTAssertTrue(needles.contains("QUOKKA_AHA_9D2"),
+                      "the long identifier run is a candidate regardless of language")
     }
 
-    /// Boundary matrix for the generic segmentation: script changes,
-    /// punctuation/emoji, pure Latin words, Han runs, short words and digit
-    /// runs. No language-specific or marker-shaped special case.
+    /// Boundary matrix for the single generic segmentation: script changes,
+    /// punctuation/emoji, Kana/Hangul, pure Latin words, Han runs, short words
+    /// and digit runs. No language-specific or marker-shaped special case.
     func testGenericNeedleBoundaries() {
         func needles(_ content: String) -> Set<String> {
             SQLiteBotMemoryDocumentStore.erasureNeedles(in: content)
         }
-        XCTAssertTrue(needles("记住的随机词：QUOKKA_AHA_9D2，写好了。").contains("QUOKKA"))
-        XCTAssertTrue(needles("记住：КВОККА_ТЕСТ_9，写好了。").contains("КВОККА"))
-        XCTAssertTrue(needles("记住：ماركر_اختبار，写好了。").contains("اختبار"))
-        XCTAssertTrue(needles("🔥 QUOKKA 🔥（重要）").contains("QUOKKA"))
-        XCTAssertTrue(needles("随机词QUOKKA写好了").contains("QUOKKA"))
-        XCTAssertTrue(needles("随机词QUOKKAКВОККА").contains("КВОККА"))
-        XCTAssertTrue(needles("remember this").contains("remember"))
-        XCTAssertTrue(needles("记住这个随机词").contains("记住这个随机词"))
-        XCTAssertFalse(needles("the and for").contains("the"))
-        XCTAssertFalse(needles("the and for").contains("and"))
+        // Long identifier-style runs survive in any script.
+        XCTAssertTrue(needles("记住的随机词：QUOKKA_AHA_9D2，写好了。").contains("QUOKKA_AHA_9D2"))
+        XCTAssertTrue(needles("记住：КВОККА_ТЕСТ_9，写好了。").contains("КВОККА_ТЕСТ_9"))
+        XCTAssertTrue(needles("记住：ماركر_اختبار，写好了。").contains("ماركر_اختبار"))
+        XCTAssertTrue(needles("🔥SUPERSECRETWORD🔥").contains("SUPERSECRETWORD"))
+        XCTAssertTrue(needles("随机词SUPERSECRETWORD写好了").contains("SUPERSECRETWORD"))
+        XCTAssertTrue(needles("SUPERSECRETWORDКВОККАДЛИННОЕ")
+            .contains("КВОККАДЛИННОЕ"), "script changes split, each run stands alone")
+        // Kana and Hangul use the same rule.
+        XCTAssertTrue(needles("まえおきひらがなひらがな")
+            .contains("まえおきひらがなひらがな"))
+        XCTAssertTrue(needles("한국어로된테스트문장입니다")
+            .contains("한국어로된테스트문장입니다"))
+        // Long Han runs are candidates; short ones are not.
+        XCTAssertTrue(needles("记住这个随机词并且不要忘记").contains("记住这个随机词并且不要忘记"))
+        XCTAssertFalse(needles("记住").contains("记住"))
+        // Ordinary 6-11 scalar words must not become needles.
+        for word in ["remember", "important", "documents", "testing"] {
+            XCTAssertFalse(needles("x \(word) y").contains(word), word)
+        }
         XCTAssertTrue(SQLiteBotMemoryDocumentStore
             .scriptBoundaryCandidates(in: "1234567890").isEmpty,
             "the script-boundary mechanism never yields a pure numeric run")
-        XCTAssertFalse(needles("记住").contains("记住"),
-                       "short words are below the six-scalar threshold")
+        XCTAssertFalse(SQLiteBotMemoryDocumentStore
+            .scriptBoundaryCandidates(in: "remember important documents").contains("remember"))
     }
 
     func testScopeErasureTombstonesTitleAndAssistantMarkerLines() async throws {
@@ -169,7 +179,7 @@ final class MemoryErasureSessionLogTests: XCTestCase {
              ]]]]],
             ["type": "user/message", "seq": 6, "time": MemoryTestFixtures.now,
              "data": ["message": ["role": "user", "content": [[
-                "type": "text", "text": "the and for",
+                "type": "text", "text": "remember important documents",
              ]]]]],
         ])
         let context = BotMemoryWriteContext(
@@ -208,8 +218,8 @@ final class MemoryErasureSessionLogTests: XCTestCase {
         let text = try String(contentsOf: sessionLogURL, encoding: .utf8)
         XCTAssertFalse(text.contains("КВОККА"), "Cyrillic marker run must be tombstoned")
         XCTAssertFalse(text.contains("اختبار"), "Arabic marker run must be tombstoned")
-        XCTAssertTrue(text.contains("the and for"),
-                      "short common words must not become erasure targets")
+        XCTAssertTrue(text.contains("remember important documents"),
+                      "ordinary 6-11 scalar words must not become erasure targets")
         let lines = BotSessionLogReader.lines(from: Data(text.utf8))
         for seq in [3, 4, 5] {
             XCTAssertEqual(lines.first { $0.seq == seq }?.erased, true)

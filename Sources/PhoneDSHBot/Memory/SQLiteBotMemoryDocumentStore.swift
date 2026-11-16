@@ -646,39 +646,33 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
     /// words are never needles.
     static func erasureNeedles(in content: String) -> Set<String> {
         var result = Set<String>()
+        // Content match is the contract's baseline ("与版本文本相同", v1 §4.6 /
+        // v2 §1.8) and is language-agnostic: no character-class filter, no
+        // marker shape. The eight-scalar floor keeps a trivial document from
+        // matching half the session.
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.unicodeScalars.count >= 8 { result.insert(trimmed) }
         for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
             let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if value.unicodeScalars.count >= 8 { result.insert(value) }
         }
-        // Legacy whitespace/ASCII-punctuation tokens. Kept verbatim because old
-        // notes and the maintained vectors were produced with this rule; the
-        // generic segmentation below is additive.
-        let separators = Set(",;:!?()[]{}<>\"'".map { $0 })
-        for token in content.split(whereSeparator: { $0.isWhitespace || separators.contains($0) }) {
-            let value = String(token)
-            guard value.unicodeScalars.count >= 8 else { continue }
-            if value.contains("_") || value.contains(where: { $0.isNumber }) {
-                result.insert(value)
-            }
-        }
-        // Generic, Unicode-aware candidates: split at every Z*/P*/S*/C*
-        // boundary and again at script boundaries, keep script-homogeneous
-        // letter/number/mark runs of at least six scalars that contain a
-        // letter. This is what makes a marker inside CJK prose, a Cyrillic or
-        // Arabic word, or a Latin run next to emoji discoverable without any
-        // marker-specific shape rule.
+        // One generic mechanism for the "unique marker" half: split at Unicode
+        // separators/punctuation/symbols/control and at script changes, keep
+        // long script-homogeneous letter/number/mark runs. There is no
+        // ASCII-only, underscore or digit rule anywhere.
         result.formUnion(Self.scriptBoundaryCandidates(in: content))
         return result
     }
 
-    private static let minimumErasureCandidateScalars = 6
+    private static let minimumErasureCandidateScalars = 12
 
     /// Splits `content` on Unicode separators/punctuation/symbols/control and
     /// at script changes, then returns the long-enough runs that contain at
-    /// least one letter. Pure-digit runs and runs shorter than six scalars are
-    /// dropped so common short words cannot become erasure targets.
+    /// least one letter. Connector punctuation (`_`) joins a run, matching
+    /// UAX #29's ExtendNumLet treatment of identifier characters; every other
+    /// P*/S*/Z*/C* scalar is a boundary. Pure-digit runs and runs shorter than
+    /// twelve scalars are dropped, so ordinary words such as "remember" or
+    /// "important" cannot become erasure targets.
     static func scriptBoundaryCandidates(in content: String) -> Set<String> {
         var result = Set<String>()
         var run: [Unicode.Scalar] = []
@@ -705,9 +699,10 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 runScript = script
                 run.append(scalar)
             case .decimalNumber, .letterNumber, .otherNumber,
-                 .nonspacingMark, .spacingMark, .enclosingMark:
-                // Digits and combining marks stay inside the current run; a
-                // leading neutral run adopts the script of its first letter.
+                 .nonspacingMark, .spacingMark, .enclosingMark,
+                 .connectorPunctuation:
+                // Digits, combining marks and `_` stay inside the current run;
+                // a leading neutral run adopts the script of its first letter.
                 run.append(scalar)
             default:
                 flush()
