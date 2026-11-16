@@ -86,6 +86,7 @@ struct EvalPlan: Decodable {
         "memory_contains", "memory_absent", "approval_count", "echo_requests",
         "tool_surface", "session_log_absent", "session_event", "no_session_event",
         "card_count", "card_placement", "card_file_exists", "event_count",
+        "model_request_count", "model_request_contains", "model_request_absent", "model_request_section_contains", "provenance",
     ]
 }
 
@@ -370,6 +371,10 @@ struct EvalAssertion: Decodable {
     var terminal: Bool
     /// DSH session-log surface placement filter for `session_event`.
     var surfaceOp: String?
+    /// `provenance` minimum derivative count and optional kind filter.
+    var minItems: Int?
+    var kinds: [String]?
+    var section: String?
 
     enum CodingKeys: String, CodingKey {
         case type, bot, value, path, command, turn, event, name, scope, tier, source, method, equals, max
@@ -388,6 +393,9 @@ struct EvalAssertion: Decodable {
         case afterReply = "after_reply"
         case terminal
         case surfaceOp = "surface_op"
+        case minItems = "min_items"
+        case kinds
+        case section
     }
 
     init(type: String, bot: String? = nil, expectOK: Bool = true,
@@ -403,7 +411,8 @@ struct EvalAssertion: Decodable {
          medianMax: Int? = nil, eachMax: Int? = nil, allowNoReply: Bool = false,
          cardTypes: [String]? = nil, excludeCardTypes: [String]? = nil,
          tool: String? = nil, afterReply: Bool = false, terminal: Bool = false,
-         surfaceOp: String? = nil) {
+         surfaceOp: String? = nil, minItems: Int? = nil, kinds: [String]? = nil,
+         section: String? = nil) {
         self.type = type
         self.bot = bot
         self.expectOK = expectOK
@@ -438,6 +447,9 @@ struct EvalAssertion: Decodable {
         self.afterReply = afterReply
         self.terminal = terminal
         self.surfaceOp = surfaceOp
+        self.minItems = minItems
+        self.kinds = kinds
+        self.section = section
     }
 
     init(from decoder: Decoder) throws {
@@ -476,5 +488,8 @@ struct EvalAssertion: Decodable {
         afterReply = try container.decodeIfPresent(Bool.self, forKey: .afterReply) ?? false
         terminal = try container.decodeIfPresent(Bool.self, forKey: .terminal) ?? false
         surfaceOp = try container.decodeIfPresent(String.self, forKey: .surfaceOp)
+        minItems = try container.decodeIfPresent(Int.self, forKey: .minItems)
+        kinds = try container.decodeIfPresent([String].self, forKey: .kinds)
+        section = try container.decodeIfPresent(String.self, forKey: .section)
     }
 }

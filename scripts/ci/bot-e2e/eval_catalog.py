@@ -49,6 +49,7 @@ SUPPORTED_ASSERTIONS = {
     "memory_contains", "memory_absent", "approval_count", "echo_requests",
     "tool_surface", "session_log_absent", "session_event", "no_session_event",
     "card_count", "card_placement", "card_file_exists", "event_count",
+    "model_request_count", "model_request_contains", "model_request_absent", "model_request_section_contains", "provenance",
 }
 CONTEXT_PROFILES_PATH = HERE / "context-profiles.json"
 UI_KINDS = {
@@ -409,6 +410,31 @@ def _check_assertion(errors, path, assertion):
         surface_op = assertion.get("surface_op")
         if surface_op is not None and surface_op not in ("append", "replace"):
             _error(errors, path, f"{kind} surface_op must be append or replace")
+    if kind == "model_request_count":
+        has_equals = "equals" in assertion
+        has_min = "min" in assertion
+        if has_equals == has_min:
+            _error(errors, path, "model_request_count requires exactly one of equals or min")
+        for name in ("equals", "min"):
+            if name in assertion and (not isinstance(assertion[name], int)
+                                      or isinstance(assertion[name], bool)
+                                      or assertion[name] < 0):
+                _error(errors, path, f"model_request_count {name} must be a non-negative integer")
+    if kind in {"model_request_contains", "model_request_absent", "model_request_section_contains"}:
+        if not assertion.get("value"):
+            _error(errors, path, f"{kind} requires a non-empty value")
+        if "ignore_case" in assertion and not isinstance(assertion["ignore_case"], bool):
+            _error(errors, path, f"{kind} ignore_case must be a boolean")
+    if kind == "provenance":
+        if "min_items" in assertion and (not isinstance(assertion["min_items"], int)
+                                         or isinstance(assertion["min_items"], bool)
+                                         or assertion["min_items"] < 0):
+            _error(errors, path, "provenance min_items must be a non-negative integer")
+        kinds = assertion.get("kinds")
+        if kinds is not None:
+            if not isinstance(kinds, list) or not kinds \
+                    or not all(isinstance(kind, str) and kind for kind in kinds):
+                _error(errors, path, "provenance kinds must be a non-empty array of kind names")
 
 
 def _fixture_root(name, fixtures_root: Path) -> Path | None:
