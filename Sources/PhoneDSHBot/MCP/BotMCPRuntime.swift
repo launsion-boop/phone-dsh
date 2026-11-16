@@ -1709,9 +1709,10 @@ public actor BotMCPRuntime {
     private func validatedReview(_ raw: BotJSONValue?,
                                  call: BotResolvedToolCall) async throws -> BotMemoryReview? {
         guard let raw else { return nil }
-        if case .null = raw { return nil }
+        // `review` is an object when present: an explicit null is not "absent"
+        // and the frozen schema does not allow it.
         guard case let .object(object) = raw else {
-            throw BotMemoryReviewRejected(message: "review 必须是一个对象")
+            throw BotMemoryReviewRejected(message: "review 必须是一个对象，不能是 null")
         }
         let allowed: Set<String> = ["state", "basis", "method", "at_ms", "refs"]
         guard object.keys.allSatisfy({ allowed.contains($0) }) else {
@@ -1737,9 +1738,14 @@ public actor BotMCPRuntime {
         }
         var atMS: Int64?
         if let value = object["at_ms"] {
-            guard let number = value.numberValue, number >= 0,
+            // Integer contract: reject null, non-finite and fractional values
+            // instead of truncating them.
+            guard let number = value.numberValue, number.isFinite,
+                  number == number.rounded(.towardZero),
+                  number >= 0,
                   number <= Double(BotRecordReference.maximumDecimal) else {
-                throw BotMemoryReviewRejected(message: "review.at_ms 必须是不小于 0 的毫秒时间")
+                throw BotMemoryReviewRejected(
+                    message: "review.at_ms 必须是不小于 0 的整数毫秒时间")
             }
             atMS = Int64(number)
         }

@@ -172,6 +172,11 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             // it (spec/bot/v2 §1.5.1).
             var evidence = request.evidence
             var trust = request.trust
+            // Raw string form: a legacy version may carry `import`/`system`,
+            // which the narrower `BotRecordTrust` enum cannot represent. The
+            // restored version's value must be inherited verbatim, not
+            // narrowed or defaulted.
+            var inheritedTrust: String?
             var source = request.source
             var review = request.review
             switch request.action {
@@ -196,7 +201,7 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 }
                 writtenContent = restored.content
                 evidence = restored.evidence
-                trust = restored.trust.flatMap(BotRecordTrust.init(rawValue:))
+                inheritedTrust = restored.trust
                 source = restored.source
                 review = restored.review
             case .move:
@@ -249,9 +254,9 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 // `restore` inherits, so a restored version that never carried
                 // a trust must stay missing instead of being assigned a
                 // default. Ordinary writes keep the existing fallback.
-                trust: trust?.rawValue
-                    ?? (request.action == .restore ? nil
-                        : (scope == .user ? "user" : "assistant")),
+                trust: request.action == .restore
+                    ? inheritedTrust
+                    : (trust?.rawValue ?? (scope == .user ? "user" : "assistant")),
                 source: source,
                 review: review)
             let targetExpected = snapshot.live[targetPath]?.version ?? 0

@@ -347,6 +347,62 @@ final class MemoryReviewTests: XCTestCase {
         XCTAssertEqual(document.trust, "assistant")
     }
 
+    // MARK: - pre-review fixes (round 2)
+
+    func testExplicitNullReviewIsRejected() async throws {
+        let written = try await call([
+            "action": "write", "path": "agent/notes/null-review.md",
+            "content": "null review",
+            "expected_version": 0,
+            "review": NSNull(),
+        ])
+        XCTAssertEqual(written.isError, true,
+                       "an explicit null is not the same as an absent review")
+        XCTAssertEqual(written.structuredContent?["error"]?["code"]?.stringValue,
+                       "memory-review-invalid")
+    }
+
+    func testReviewAtMillisecondsMustBeAnInteger() async throws {
+        for atMS in [1.5, -1, NSNull()] as [Any] {
+            let written = try await call([
+                "action": "write", "path": "agent/notes/at-\(UUID().uuidString).md",
+                "content": "at_ms",
+                "expected_version": 0,
+                "review": ["state": "unverified", "basis": "model-inference",
+                           "at_ms": atMS],
+            ])
+            XCTAssertEqual(written.isError, true, "at_ms=\(atMS) must be rejected")
+            XCTAssertEqual(written.structuredContent?["error"]?["code"]?.stringValue,
+                           "memory-review-invalid", "at_ms=\(atMS)")
+        }
+    }
+
+    /// A legacy version may carry `import`/`system`; restore must inherit the
+    /// raw value instead of narrowing it through `BotRecordTrust`.
+    func testRestorePreservesLegacyImportAndSystemTrust() async throws {
+        let context = BotMemoryWriteContext(
+            botID: "bot-a", sessionID: "gb-main", authorKind: .chat,
+            source: BotMemorySource(kind: .agentMessage, sessionID: "gb-main"),
+            trust: nil, isMainBot: true)
+        let memory = await runtime.memory(for: "bot-a")
+        for legacyTrust in ["import", "system"] {
+            let path = "agent/notes/legacy-\(legacyTrust).md"
+            try await appendLegacyVersion(
+                path: path, trust: legacyTrust, content: "old \(legacyTrust)")
+            let restored = try await memory.write(
+                BotMemoryWriteRequest(
+                    action: .restore, path: path,
+                    expectedVersion: 1, restoreVersion: 1),
+                context: context)
+            XCTAssertTrue(restored.ok, "\(String(describing: restored.code))")
+            guard case let .document(document) = try await memory.read(path: path) else {
+                return XCTFail("expected document for \(path)")
+            }
+            XCTAssertEqual(document.trust, legacyTrust,
+                           "restore must not narrow a legal legacy trust")
+        }
+    }
+
     // MARK: - restore / rollback inheritance
 
     func testRestoreInheritsEvidenceTrustAndReview() async throws {
@@ -471,6 +527,34 @@ final class MemoryReviewTests: XCTestCase {
 
     private enum FixtureError: Error {
         case missingCase(String)
+    }
+
+    private func appendLegacyVersion(
+        path: String, trust: String, content: String
+    ) async throws {
+        let data = BotJSONValue.object([
+            "path": .string(path),
+            "scope": .string("agent"),
+            "content": .string(content),
+            "version": .number(1),
+            "expected_version": .number(0),
+            "updated_at_ms": .number(1_760_000_000_500),
+            "author": .object([
+                "bot_id": .string("bot-a"), "kind": .string("chat"),
+            ]),
+            "evidence": .array([]),
+            "trust": .string(trust),
+        ])
+        _ = try await store.append(BotEvent(
+            type: "memory.document_written",
+            eventId: "legacy-trust-\(path)",
+            time: 1_760_000_000_500,
+            origin: .local(source: "memory-service"),
+            traceId: "legacy-trust-\(path)",
+            principal: BotPrincipal(botId: "bot-a", sessionId: "gb-main", kind: "chat"),
+            causationId: nil,
+            correlationId: nil,
+            data: data))
     }
 
     private func call(
