@@ -68,6 +68,7 @@ const TOOL_ROWS: Record<string, readonly string[]> = {
   '@deepseek-ai/dsh-tool-todo': ['todo_write'],
   '@deepseek-ai/dsh-tool-goal': ['create_goal', 'get_goal', 'update_goal'],
   '@deepseek-ai/dsh-tool-web': ['web_search', 'web_fetch'],
+  '@deepseek-ai/dsh-tool-skill': ['skill'],
 }
 
 function enabledNativeTools(presetRow: PatchRow): string[] {
@@ -104,8 +105,6 @@ test('Bot sessions use a phone-bot preset that exposes exactly the prompt native
   for (const forbidden of [
     '@deepseek-ai/dsh-tool-subagent',
     '@deepseek-ai/dsh-tool-subagent-control',
-    '@deepseek-ai/dsh-skill-filesystem',
-    '@deepseek-ai/dsh-tool-skill',
     '@deepseek-ai/dsh-tool-schedule',
     '@deepseek-ai/dsh-tool-ask-user',
     '@deepseek-ai/dsh-tool-present',
@@ -115,14 +114,15 @@ test('Bot sessions use a phone-bot preset that exposes exactly the prompt native
   ]) {
     assert.equal(names.includes(forbidden), false, `phone-bot must not mount ${forbidden}`)
   }
-  for (const forbiddenId of ['delegation', 'planning', 'tool-subagent', 'tool-subagent-fork', 'tool-skill', 'tool-schedule', 'plan-mode']) {
+  for (const forbiddenId of ['delegation', 'planning', 'tool-subagent', 'tool-subagent-fork', 'tool-schedule', 'plan-mode']) {
     assert.equal(ids.includes(forbiddenId), false, `phone-bot must not mount row ${forbiddenId}`)
   }
 
-  assert.deepEqual(enabledNativeTools(bot), [...PHONE_NATIVE_TOOLS].sort())
+  assert.deepEqual(enabledNativeTools(bot), [...PHONE_NATIVE_TOOLS, 'skill'].sort())
   assert.deepEqual(rows.map(row => row.id), [
     'agent-instructions', 'time-context', 'tool-bash', 'tool-fs', 'tool-fs-search',
-    'tool-jobs', 'command-goal', 'tool-goal', 'tool-todo', 'tool-web', 'compaction',
+    'tool-jobs', 'skill-filesystem', 'tool-skill', 'command-goal', 'tool-goal',
+    'tool-todo', 'tool-web', 'compaction',
   ])
 })
 
