@@ -158,7 +158,40 @@ final class BotChatModelTests: XCTestCase {
             "arguments": .string("{\"path\":\"/tmp/report.md\"}"),
         ]))
         XCTAssertTrue(model.showsActivityLine)
+        // Main #188: a short public sentence from the current step is the
+        // visible progress text; the tool call still moves the category to
+        // reading. This is the accepted publicText precedence, not a fallback
+        // that should be reverted to the tool object.
         XCTAssertEqual(model.lineActivity?.category, .reading)
+        XCTAssertEqual(model.lineActivity?.status, .toolRunning,
+                       "the new tool call must leave the reply stream state")
+        XCTAssertEqual(model.lineActivity?.detail, "先看一下报告")
+
+        // The public sentence is tied to this turn/step; the next turn must
+        // not inherit it (a stale publicText from another step would be a
+        // real defect, not the accepted short-progress precedence).
+        model.receive(liveEvent("turn/start", turn: 2, seq: 5))
+        model.receive(liveEvent("tool/call", turn: 2, seq: 6, data: [
+            "callId": .string("call-read-2"),
+            "name": .string("read"),
+            "arguments": .string("{\"path\":\"/tmp/other.md\"}"),
+        ]))
+        XCTAssertEqual(model.lineActivity?.category, .reading)
+        XCTAssertEqual(model.lineActivity?.detail, "在翻文件 · other.md",
+                       "without public progress the tool object is the fallback")
+    }
+
+    func testToolWithoutPublicTextFallsBackToToolObject() {
+        let model = BotChatModel(context: context)
+        model.receive(liveEvent("turn/start", turn: 1, seq: 1))
+        model.receive(liveEvent("tool/call", turn: 1, seq: 2, data: [
+            "callId": .string("call-read-plain"),
+            "name": .string("read"),
+            "arguments": .string("{\"path\":\"/tmp/report.md\"}"),
+        ]))
+        XCTAssertTrue(model.showsActivityLine)
+        XCTAssertEqual(model.lineActivity?.category, .reading)
+        XCTAssertEqual(model.lineActivity?.status, .toolRunning)
         XCTAssertEqual(model.lineActivity?.detail, "在翻文件 · report.md")
     }
 
