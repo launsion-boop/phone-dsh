@@ -126,6 +126,8 @@ export type DecisionContextObserver = (event: DecisionContextObservation) => voi
 export interface DecisionContextConfig {
   /** Internal A/B switch (E's same-image comparison), not a user setting. */
   readonly enabled?: boolean
+  /** Structured activation telemetry (no user text); eval-only diagnostic. */
+  readonly debug?: boolean
   /// G-2 r6 A/B switch: false removes workspace candidates from the block.
   readonly workspaceMaterials?: boolean
   readonly source?: DecisionContextSource
@@ -617,7 +619,10 @@ export default function dshbotDecisionContext(
   config: DecisionContextConfig = {},
 ): void {
   const enabled = config.enabled !== false
-  console.log(`DSHBOT_DECISION_CONTEXT_APPLY enabled=${enabled}`)
+  const debug = config.debug === true
+  const log = (message: string, fields: Record<string, unknown> = {}): void => {
+    if (debug) console.info('[dshbot-decision-context]', message, fields)
+  }
   const workspaceMaterials = config.workspaceMaterials !== false
   const limits = limitsOf(config)
   const source = config.source ?? createPhoneDecisionContextSource(ctx, limits)
@@ -643,11 +648,13 @@ export default function dshbotDecisionContext(
     })
   }
 
+  log('apply', { enabled })
   ctx.on('agent/pre-step', async (payload, next) => {
     if (!enabled) return next()
     const sessionId = actorSession(payload.agent)
-    console.log(`DSHBOT_DECISION_PRESTEP session=${sessionId} preset=${String((payload.agent as { header?: { agentPreset?: unknown } } | undefined)?.header?.agentPreset ?? "")} bot=${isBotAgent(ctx, payload.agent)}`)
-    if (sessionId === '' || !isBotAgent(ctx, payload.agent)) return next()
+    const bot = isBotAgent(ctx, payload.agent)
+    log('pre-step', { sessionId, bot, messages: payload.messages.length })
+    if (sessionId === '' || !bot) return next()
     const current = states.get(sessionId)
     // One retrieval per turn; a later step of the same turn reuses the block.
     // A new turn always replaces it. There is deliberately no time window.
@@ -658,6 +665,7 @@ export default function dshbotDecisionContext(
     const origin = originMessage !== undefined
       ? turnOriginOfMessage(originMessage)
       : resolveTurnOrigin(undefined)
+    log('query', { origin: origin.kind, queryScalars: scalarLength(query) })
     if (!allowOrigins.has(origin.kind) || scalarLength(query) < minQuery) return next()
 
     const deadline = AbortSignal.timeout(limits.deadlineMilliseconds)
@@ -672,6 +680,7 @@ export default function dshbotDecisionContext(
         ...payload.agent === undefined ? {} : { agent: payload.agent },
         signal: combined,
       })
+      log('host', { block: block !== undefined, materials: block?.materials.length ?? 0 })
       if (block === undefined || block.materials.length === 0 || payload.signal.aborted) return next()
       const visible = workspaceMaterials
         ? block
@@ -685,6 +694,7 @@ export default function dshbotDecisionContext(
         adoptedNoted: false,
       }
       states.set(sessionId, state)
+      log('injected', { sessionId, block: block.block_id, materials: visible.materials.length })
       note('retrieved', sessionId, state)
     } catch {
       // Timeout, abort and host failure all mean "no material this turn"; the
