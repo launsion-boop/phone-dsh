@@ -701,6 +701,18 @@ test('read-only memory tools are read + auto and never ask for structural approv
   }
 })
 
+test('RecordFeedback is a known structural write, never an unclassified effect', () => {
+  const effects = phoneEffectsForApproval('mcp__phone__RecordFeedback', {
+    action: 'suppress', target: { kind: 'routine', id: 'r' },
+  })
+  assert.equal(effects.length, 1)
+  assert.equal(effects[0]!.operation, 'dshbot.RecordFeedback')
+  assert.equal(effects[0]!.execution, 'feedback')
+  assert.equal(effects[0]!.known, true)
+  assert.equal(effects[0]!.policy, 'ask')
+  assert.equal(effects[0]!.mutability, 'write')
+})
+
 test('approval memory effect matches the Swift execution resource and sensitive reads never reach approval', async () => {
   const effects = phoneEffectsForApproval('mcp__phone__UpdateMemory', {
     action: 'forget', scope: 'user', fact: '  private   fact ',

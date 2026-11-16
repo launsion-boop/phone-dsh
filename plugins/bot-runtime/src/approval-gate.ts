@@ -293,6 +293,19 @@ export function phoneEffectsForApproval(
     if (action === 'forget' && scope === 'user') return [memoryForgetEffect(args)]
     return []
   }
+  if (bare === 'RecordFeedback') {
+    // A05: the host classifies this as a known write (`until` scope), so the
+    // Worker must not emit an unclassified `session` effect. The resource is
+    // fixed and never carries the user's words, ids or paths.
+    return [{
+      tool: name, operation: 'dshbot.RecordFeedback',
+      resource: 'dshbot:record-feedback', target: 'feedback',
+      mutability: 'write', policy: 'ask',
+      label: 'Record user feedback',
+      detail: 'Binds one host-verified feedback action to a concrete artifact.',
+      ui: false, execution: 'feedback', known: true, isMcp: true,
+    }]
+  }
   return [unclassifiedEffect(name, args)]
 }
 
