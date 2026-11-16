@@ -45,8 +45,11 @@
     来源；R 的 review/parseRef 跳过 `workspace:` ref。
   - **workspace eligibility（G-2 r8）**：注入前必须由 C/R 调 L 的
     `status(forWorkspacePath:botID:)`（按 `workspaceFile` artifact 的 derivation sources 求
-    worst state）；只有 `current` 可作 material。`erased/revoked/unavailable/unknown` 或 nil（无
-    tracking）不注入、不显示为 current；不得因文件仍在磁盘、文件名/内容关键词或旧缓存放行。
+    worst state）。**仅当 status 非 nil 且非 `.current`（erased/revoked/unavailable/changed/unknown）
+    时省略**；`nil` 表示没有任何 tracked `workspaceFile` derivation（legacy/未跟踪 fixture），保持
+    旧字节行为 inject，不得因缺 tracking 把 A/B guide 或无关 fixture 全部判死。已跟踪且 non-current
+    的派生（例如 erase 的 `docs/current.md`）必须省略，不显示 current；不得按文件名/内容关键词或旧
+    缓存放行。
     C/P 在成功 workspace write/edit 时把真实 user turn/memory source 写入
     `conversation.tool_result.data.derivation`（artifact kind=`workspaceFile`，id=规范化相对路径，
     不手 append）；L 反查；R2 的 seam 只在 L 返回 current 时消费。

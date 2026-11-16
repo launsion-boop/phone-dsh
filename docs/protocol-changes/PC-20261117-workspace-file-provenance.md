@@ -47,3 +47,12 @@
   do not use filename/content keywords or broaden a memory delete into "all history denied".
 - E should split assertions: memory material absent vs legitimate workspace file; to test A03 erased
   source propagation use the existing real erase/revoke action, then assert workspace absent/unknown.
+
+## Addendum — nil/untracked semantics (G-2 r10)
+
+- `status(forWorkspacePath:botID:) == nil` means there is **no tracked `workspaceFile` derivation**
+  (legacy or eval-seeded file). It keeps the old byte behavior and is injected; absence of tracking is
+  not evidence of erasure.
+- Only a non-nil status that is not `.current` (erased/revoked/unavailable/changed/unknown) is omitted.
+- This preserves A/B guide fixtures and E's unrelated fixture while still suppressing an erased tracked
+  `docs/current.md`. No filename/content special cases.
