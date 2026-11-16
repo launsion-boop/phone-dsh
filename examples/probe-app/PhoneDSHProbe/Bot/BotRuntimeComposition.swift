@@ -589,6 +589,7 @@ final class BotRuntimeComposition {
         let selectedUnit = try await composition.ensureUnit(
             for: rosterModel.selectedBotID ?? selectedCandidate,
             reason: "prepare")
+        await composition.startContextSourcesIfNeeded()
         return Launch(composition: composition, environment: selectedUnit.environment,
                       materialTrace: materialTrace)
     }
@@ -822,6 +823,30 @@ final class BotRuntimeComposition {
 
     // MARK: - Host binding
 
+    /// Start the context-source registry as soon as the composition exists, so
+    /// the settings surface is not stuck at "unavailable" until a host bind.
+    func startContextSourcesIfNeeded() async {
+        guard let contextSources, !contextSources.isStarted() else { return }
+        let router = BotContextWakeDecisionRouter(
+            assembly: contextSources,
+            runner: { [weak self] request in
+                guard let self else { return .failure("composition-unavailable") }
+                let remote = await MainActor.run { self.units[request.botId]?.remote }
+                guard let remote else { return .failure("bot-unit-unavailable") }
+                return await remote.runRoutine(request)
+            })
+        contextWakeRouter = router
+        do {
+            try await contextSources.start { [weak self] signal in
+                Task { @MainActor in await self?.contextWakeRouter?.handle(signal) }
+            }
+        } catch {
+            contextWakeLog.append(WakeSignal(botId: "context-sources",
+                                             reason: "context-source-start-failed",
+                                             at: Int64(Date().timeIntervalSince1970 * 1000)))
+        }
+    }
+
     func start(host newHost: PhoneDSHHost) async throws {
         if let current = host, current === newHost, started, !state.isFailure {
             return
@@ -832,36 +857,7 @@ final class BotRuntimeComposition {
         host = newHost
         await hostReference.set(newHost)
         try await bind(to: newHost, recovering: false)
-        if let contextSources {
-            do {
-                let router = BotContextWakeDecisionRouter(
-                    assembly: contextSources,
-                    runner: { [weak self] request in
-                        guard let self else {
-                            return .failure("composition-unavailable")
-                        }
-                        let remote = await MainActor.run {
-                            self.units[request.botId]?.remote
-                        }
-                        guard let remote else {
-                            return .failure("bot-unit-unavailable")
-                        }
-                        return await remote.runRoutine(request)
-                    })
-                contextWakeRouter = router
-                try await contextSources.start { [weak self] signal in
-                    Task { @MainActor in
-                        await self?.contextWakeRouter?.handle(signal)
-                    }
-                }
-            } catch {
-                // A source failure must not take the Bot runtime down: the
-                // surface reports unavailable and the rest keeps working.
-                contextWakeLog.append(WakeSignal(botId: "context-sources",
-                                                 reason: "context-source-start-failed",
-                                                 at: Int64(Date().timeIntervalSince1970 * 1000)))
-            }
-        }
+        await startContextSourcesIfNeeded()
     }
 
     /// Bounded host record of context wake requests. Consuming a signal into a
