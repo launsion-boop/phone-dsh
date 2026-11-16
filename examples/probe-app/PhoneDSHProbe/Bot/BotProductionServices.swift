@@ -990,7 +990,7 @@ struct BotProductionInfoSnapshot: Sendable {
 /// composition root injected; nothing here opens a second fact store.
 actor BotProductionInfoService {
     /// Set once by the unit's `make`; nil keeps cloud actions fail-closed.
-    private var cloudWiring: BotCloudScheduleWiring?
+    private(set) var cloudWiring: BotCloudScheduleWiring?
 
     func attachCloudWiring(_ wiring: BotCloudScheduleWiring?) { cloudWiring = wiring }
 
