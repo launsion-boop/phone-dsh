@@ -247,6 +247,11 @@ struct EvalAction: Decodable {
     var timeoutS: Double?
     var policyDefault: String?
     var policyRules: [EvalApprovalRule]?
+    var select: String?
+    var rowID: String?
+    var draftID: String?
+    var expectedRevision: Int?
+    var selectedResourceIDs: [String]?
 
     enum CodingKeys: String, CodingKey {
         case type, index, bot, text, name, description, alias, kind, card
@@ -271,6 +276,11 @@ struct EvalAction: Decodable {
         case policyDefault = "default"
         case policyRules = "rules"
         case fromBot = "from_bot"
+        case rowID = "row_id"
+        case draftID = "draft_id"
+        case expectedRevision = "expected_revision"
+        case selectedResourceIDs = "selected_resource_ids"
+        case select
     }
 
     init(from decoder: Decoder) throws {
@@ -309,6 +319,11 @@ struct EvalAction: Decodable {
         timeoutS = try container.decodeIfPresent(Double.self, forKey: .timeoutS)
         policyDefault = try container.decodeIfPresent(String.self, forKey: .policyDefault)
         policyRules = try container.decodeIfPresent([EvalApprovalRule].self, forKey: .policyRules)
+        select = try container.decodeIfPresent(String.self, forKey: .select)
+        rowID = try container.decodeIfPresent(String.self, forKey: .rowID)
+        draftID = try container.decodeIfPresent(String.self, forKey: .draftID)
+        expectedRevision = try container.decodeIfPresent(Int.self, forKey: .expectedRevision)
+        selectedResourceIDs = try container.decodeIfPresent([String].self, forKey: .selectedResourceIDs)
     }
 }
 
