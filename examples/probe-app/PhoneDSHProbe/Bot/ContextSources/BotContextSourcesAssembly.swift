@@ -171,12 +171,21 @@ public final class BotContextSourcesAssembly {
         guard !started else { return }
         let alreadyRegistered = Set(await registry.registeredSources())
         for (kind, source, provenance) in registrations where !alreadyRegistered.contains(kind) {
-            if let injection = injections[kind] {
-                try await registry.register(injection, provenance: .injected)
-            } else if let source {
-                try await registry.register(source, provenance: provenance)
-            } else {
-                throw BotContextSourceError.unsupported("\(kind.rawValue) has no adapter in this build")
+            do {
+                if let injection = injections[kind] {
+                    try await registry.register(injection, provenance: .injected)
+                } else if let source {
+                    try await registry.register(source, provenance: provenance)
+                } else {
+                    throw BotContextSourceError.unsupported(
+                        "\(kind.rawValue) has no adapter in this build")
+                }
+            } catch {
+                // One unavailable native adapter must not hide the others from
+                // the settings page. The surface reports that source as
+                // unavailable; registration continues for the rest.
+                NSLog("BOT_CONTEXT_SOURCE_REGISTRATION_FAILED=%@ error=%@",
+                      kind.rawValue, String(describing: error))
             }
         }
         _ = await ledger.load()
