@@ -244,7 +244,9 @@ public final class LocationRegionSource: BotContextSource, BotContextSourceStrea
             delivery: .os,
             payload: .object(payload),
             dedupeKey: "location:\(fenceID):\(entered ? "enter" : "exit"):\(stamp / 60_000)",
-            wakeRequested: true) else { return }
+            wakeRequested: true,
+            resource: try? BotContextResource(
+                kind: .contextSource, key: "location:\(fenceID)")) else { return }
         buffer.append(observation)
         sink(observation)
     }
@@ -270,7 +272,9 @@ public final class LocationRegionSource: BotContextSource, BotContextSourceStrea
             delivery: .os,
             payload: .object(["failed": .bool(true)]),
             dedupeKey: "location:failure:\(stamp / 60_000)",
-            wakeRequested: false) else { return }
+            wakeRequested: false,
+            resource: try? BotContextResource(
+                kind: .contextSource, key: "location:monitor")) else { return }
         buffer.append(observation)
     }
 

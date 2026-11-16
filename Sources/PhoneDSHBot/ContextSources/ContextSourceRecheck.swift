@@ -105,7 +105,7 @@ public enum BotContextRecheckEvaluator {
                 sourceVersion: probeVersion(probe), baseline: baseline,
                 observedAtMS: observedAtMS, recheckedAtMS: recheckedAtMS,
                 latestRef: latestRef)
-        case .version(.known(let basis, let value, _, _)):
+        case .version(.known(let basis, let value, _, _, let probeSubject)):
             guard let baseline else {
                 return BotContextRecheck(
                     source: source, state: .unknown, reasons: [.noBaseline],
@@ -120,13 +120,24 @@ public enum BotContextRecheckEvaluator {
                     sourceVersion: .known(basis, value: value),
                     baseline: baseline, observedAtMS: observedAtMS,
                     recheckedAtMS: recheckedAtMS, latestRef: latestRef)
-            case .known(let baselineBasis, let baselineValue, _, _):
+            case .known(let baselineBasis, let baselineValue, _, _, let baselineSubject):
                 guard baselineBasis == basis else {
                     return BotContextRecheck(
                         source: source, state: .unknown, reasons: [.revisionBasisMismatch],
                         sourceVersion: .known(basis, value: value), baseline: baseline,
                         observedAtMS: observedAtMS, recheckedAtMS: recheckedAtMS,
                         latestRef: latestRef)
+                }
+                if basis == .contentSHA256 {
+                    let normalizedBaseline = baselineSubject ?? .recordText
+                    let normalizedProbe = probeSubject ?? .recordText
+                    guard normalizedBaseline == normalizedProbe else {
+                        return BotContextRecheck(
+                            source: source, state: .unknown, reasons: [.refreshNotPerformed],
+                            sourceVersion: .known(basis, value: value), baseline: baseline,
+                            observedAtMS: observedAtMS, recheckedAtMS: recheckedAtMS,
+                            latestRef: latestRef)
+                    }
                 }
                 if baselineValue == value {
                     return BotContextRecheck(

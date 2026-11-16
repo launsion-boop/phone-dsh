@@ -78,7 +78,9 @@ public final class ExternalEntrySource: BotContextSource, BotContextSourceStream
                 "path": .string(path),
             ]),
             dedupeKey: "external-url:\(fingerprint):\(bucket(now()))",
-            wakeRequested: true)
+            wakeRequested: true,
+            resource: try? BotContextResource(
+                kind: .contextSource, key: "url:\(fingerprint)"))
         return try deliver(observation)
     }
 
@@ -108,7 +110,9 @@ public final class ExternalEntrySource: BotContextSource, BotContextSourceStream
             delivery: .os,
             payload: .object(payload),
             dedupeKey: "external-activity:\(fingerprint):\(bucket(now()))",
-            wakeRequested: true)
+            wakeRequested: true,
+            resource: try? BotContextResource(
+                kind: .contextSource, key: "activity:\(fingerprint)"))
         return try deliver(observation)
     }
 
@@ -120,7 +124,7 @@ public final class ExternalEntrySource: BotContextSource, BotContextSourceStream
             kind: .externalShareItem,
             observedAt: now(),
             permissionRevision: try currentRevision(),
-            sourceVersion: .known(.contentSHA256, value: "sha256:\(selection.sha256)", observedAt: now()),
+            sourceVersion: .fileBytes("sha256:\(selection.sha256)", observedAt: now()),
             uncertainty: BotContextUncertainty(level: .low, completeness: .complete),
             delivery: .os,
             payload: .object([
@@ -130,7 +134,9 @@ public final class ExternalEntrySource: BotContextSource, BotContextSourceStream
                 "byteCount": .number(Double(selection.byteCount)),
             ]),
             dedupeKey: "external-share:\(selection.sha256)",
-            wakeRequested: true)
+            wakeRequested: true,
+            resource: try? BotContextResource(
+                kind: .contextSource, key: "share:\(selection.sha256)"))
         return try deliver(observation)
     }
 
@@ -155,7 +161,9 @@ public final class ExternalEntrySource: BotContextSource, BotContextSourceStream
             delivery: .os,
             payload: .object(["text": .string(trimmed)]),
             dedupeKey: "external-paste:\(fingerprint):\(bucket(now()))",
-            wakeRequested: true)
+            wakeRequested: true,
+            resource: try? BotContextResource(
+                kind: .contextSource, key: "paste:\(fingerprint)"))
         return try deliver(observation)
     }
 
@@ -289,7 +297,9 @@ public final class BotContextInjectionDriver: BotContextSource, BotContextSource
             delivery: .injected,
             payload: payload,
             dedupeKey: "injected:\(kind.rawValue):\(observationKind.rawValue):\(stamp)",
-            wakeRequested: wakeRequested)
+            wakeRequested: wakeRequested,
+            resource: try? BotContextResource(
+                kind: .contextSource, key: "injected:\(kind.rawValue)"))
         buffer.append(observation)
         sink(observation)
         return observation

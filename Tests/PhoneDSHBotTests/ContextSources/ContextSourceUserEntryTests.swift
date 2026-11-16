@@ -64,6 +64,9 @@ final class ContextSourceUserEntryTests: XCTestCase {
             byteCount: 1234, sha256: String(repeating: "a", count: 64))
         let shared = try source.accept(sharedItem: selection)
         XCTAssertEqual(shared.kind, .externalShareItem)
+        let sharedBaseline = try XCTUnwrap(shared.fileBaseline(ownerBotID: "bot-a"))
+        XCTAssertEqual(sharedBaseline.subject, "file-bytes")
+        XCTAssertEqual(sharedBaseline.resource.kind, .file)
     }
 
     func testPastedTextRejectsCredentialShapeAndEmptyInput() async throws {
@@ -108,9 +111,14 @@ final class ContextSourceUserEntryTests: XCTestCase {
         XCTAssertNil(payload["fingerprint"], "the digest is metadata, not model-visible payload")
         XCTAssertEqual(payload["byteCount"], .number(13))
         XCTAssertEqual(observation.sourceVersion,
-                       .known(.contentSHA256, value: "sha256:\(hash)", observedAt: 1_000_000))
+                       .fileBytes("sha256:\(hash)", observedAt: 1_000_000))
         XCTAssertFalse(String(describing: payload).contains("receipt-bytes"))
         XCTAssertEqual(emitted.all().count, 1)
+        let baseline = try XCTUnwrap(observation.fileBaseline(ownerBotID: "bot-a"))
+        XCTAssertEqual(baseline.subject, "file-bytes")
+        XCTAssertEqual(baseline.sha256, "sha256:\(hash)")
+        XCTAssertEqual(baseline.resource.kind, .file)
+        XCTAssertEqual(baseline.resource.owner, "bot-a")
 
         await source.stop()
         XCTAssertThrowsError(try source.accept(selection)) { error in

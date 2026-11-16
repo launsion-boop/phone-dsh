@@ -405,6 +405,15 @@ public final class BotContextSourcesAssembly {
         try await registry.readContacts(botID: botID, query: query, limit: limit)
     }
 
+    /// G-1 r13 file baseline for a user-selected media/share observation. The
+    /// caller passes the normalized VFS path/file id when it has one; the digest
+    /// stays metadata and is never copied into a model-visible body.
+    public func fileBaseline(for observation: BotContextObservation,
+                             ownerBotID: String,
+                             resourceKey: String? = nil) -> BotContextFileBaseline? {
+        observation.fileBaseline(ownerBotID: ownerBotID, resourceKey: resourceKey)
+    }
+
     /// Simulator/debug only. The driver stamps `delivery=injected`; the registry
     /// rejects it if it claims `os`.
     @discardableResult

@@ -208,7 +208,9 @@ public final class PowerIdleSource: BotContextSource, BotContextSourceStreaming,
             delivery: .os,
             payload: payload,
             dedupeKey: "power:\(observationKind.rawValue):\(stamp / 60_000)",
-            wakeRequested: wakeRequested) else { return }
+            wakeRequested: wakeRequested,
+            resource: try? BotContextResource(
+                kind: .contextSource, key: "power:state")) else { return }
         buffer.append(observation)
         sink(observation)
     }

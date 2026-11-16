@@ -118,7 +118,7 @@ public final class SelectedMediaSource: BotContextSource, BotContextSourceStream
             kind: .mediaSelected,
             observedAt: now(),
             permissionRevision: revision,
-            sourceVersion: .known(.contentSHA256, value: "sha256:\(selection.sha256)", observedAt: now()),
+            sourceVersion: .fileBytes("sha256:\(selection.sha256)", observedAt: now()),
             uncertainty: BotContextUncertainty(level: .low, completeness: .complete),
             delivery: .os,
             payload: .object([
@@ -128,7 +128,9 @@ public final class SelectedMediaSource: BotContextSource, BotContextSourceStream
                 "byteCount": .number(Double(selection.byteCount)),
             ]),
             dedupeKey: "selected-media:\(selection.sha256)",
-            wakeRequested: true)
+            wakeRequested: true,
+            resource: try? BotContextResource(
+                kind: .contextSource, key: "media:\(selection.sha256)"))
         buffer.append(observation)
         sink(observation)
         return observation
@@ -227,7 +229,9 @@ public final class OwnNotificationSource: BotContextSource, BotContextSourceStre
             delivery: .os,
             payload: .object(payload),
             dedupeKey: "own-notification:\(request.identifier):\(response.actionIdentifier)",
-            wakeRequested: true)
+            wakeRequested: true,
+            resource: try? BotContextResource(
+                kind: .contextSource, key: "notification:\(request.identifier)"))
         return try deliver(observation)
     }
 
@@ -256,7 +260,9 @@ public final class OwnNotificationSource: BotContextSource, BotContextSourceStre
                     "categoryIdentifier": .string(String(request.content.categoryIdentifier.prefix(120))),
                 ]),
                 dedupeKey: "own-notification-delivered:\(request.identifier)",
-                wakeRequested: false) else { continue }
+                wakeRequested: false,
+                resource: try? BotContextResource(
+                    kind: .contextSource, key: "notification:\(request.identifier)")) else { continue }
             result.append(observation)
         }
         return result

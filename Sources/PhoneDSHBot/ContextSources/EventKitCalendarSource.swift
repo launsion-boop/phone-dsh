@@ -110,7 +110,9 @@ public final class EventKitCalendarSource: BotContextSource, BotContextSourceStr
             delivery: .os,
             payload: .object(["changed": .bool(true)]),
             dedupeKey: "calendar:changed:\(stamp / 60_000)",
-            wakeRequested: true) {
+            wakeRequested: true,
+            resource: try? BotContextResource(
+                kind: .contextSource, key: "calendar:changed")) {
             buffer.append(observation)
             sink(observation)
         }
@@ -154,7 +156,9 @@ public final class EventKitCalendarSource: BotContextSource, BotContextSourceStr
                 "reason": .string(reason),
             ]),
             dedupeKey: "calendar:upcoming:\(stamp / 3_600_000):\(items.count)",
-            wakeRequested: false) else { return }
+            wakeRequested: false,
+            resource: try? BotContextResource(
+                kind: .contextSource, key: "calendar:upcoming")) else { return }
         buffer.append(observation)
         sink(observation)
     }

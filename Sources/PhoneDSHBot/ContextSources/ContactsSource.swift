@@ -143,7 +143,9 @@ public final class ContactsSource: BotContextSource, BotContextSourceStreaming,
                 "items": .array(items),
             ]),
             dedupeKey: "contacts:query:\(Self.fingerprint(normalized))",
-            wakeRequested: false)
+            wakeRequested: false,
+            resource: try? BotContextResource(
+                kind: .contextSource, key: "contacts:\(Self.fingerprint(normalized))"))
     }
 
     /// Real r5 recheck of the OS permission. Contacts has no per-contact
@@ -181,7 +183,9 @@ public final class ContactsSource: BotContextSource, BotContextSourceStreaming,
             delivery: .os,
             payload: .object(["changed": .bool(true)]),
             dedupeKey: "contacts:changed:\(stamp / 60_000)",
-            wakeRequested: true) else { return }
+            wakeRequested: true,
+            resource: try? BotContextResource(
+                kind: .contextSource, key: "contacts:store")) else { return }
         buffer.append(observation)
         sink(observation)
     }

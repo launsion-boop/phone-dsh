@@ -58,6 +58,8 @@ final class ContextSourceDurableTests: XCTestCase {
         XCTAssertEqual(data["dedupe_key"], .string("calendar:changed:1"))
         XCTAssertEqual(data["wake_requested"], .bool(true))
         XCTAssertNil(data["id"])
+        XCTAssertEqual(data["resource"]?.objectValue?["kind"]?.stringValue, "context-source")
+        XCTAssertEqual(data["resource"]?.objectValue?["owner"]?.stringValue, "bot-a")
     }
 
     func testConsentChangedEventUsesFrozenShapeAndIgnoresNonConsentAudit() async throws {

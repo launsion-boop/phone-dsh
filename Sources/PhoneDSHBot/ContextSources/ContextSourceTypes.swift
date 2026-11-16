@@ -169,9 +169,17 @@ public enum BotContextSourceVersionUnknownReason: String, Codable, Sendable, Cas
     case invalidReference = "invalid-reference"
 }
 
+/// G-1 r13: a content-sha256 over raw file bytes is `file-bytes`; text or
+/// extracted digests are `record-text` (also the conservative default).
+public enum BotContextSourceVersionSubject: String, Codable, Sendable, CaseIterable {
+    case fileBytes = "file-bytes"
+    case recordText = "record-text"
+}
+
 public enum BotContextSourceVersion: Codable, Sendable, Equatable {
     case known(basis: BotContextSourceVersionBasis, value: String,
-               observedAt: Int64?, basisRef: String?)
+               observedAt: Int64?, basisRef: String?,
+               subject: BotContextSourceVersionSubject? = nil)
     case unknown(reason: BotContextSourceVersionUnknownReason,
                  observedAt: Int64?, basisRef: String?)
 
@@ -183,7 +191,10 @@ public enum BotContextSourceVersion: Codable, Sendable, Equatable {
         switch self {
         case .unknown:
             return true
-        case .known(let basis, let value, _, _):
+        case .known(let basis, let value, _, _, let subject):
+            if let subject {
+                guard basis == .contentSHA256 else { return false }
+            }
             switch basis {
             case .contentSHA256:
                 return value.range(of: #"^sha256:[0-9a-f]{64}$"#, options: .regularExpression) != nil
@@ -199,7 +210,13 @@ public enum BotContextSourceVersion: Codable, Sendable, Equatable {
 
     public static func known(_ basis: BotContextSourceVersionBasis, value: String,
                              observedAt: Int64? = nil) -> BotContextSourceVersion {
-        .known(basis: basis, value: value, observedAt: observedAt, basisRef: nil)
+        .known(basis: basis, value: value, observedAt: observedAt, basisRef: nil, subject: nil)
+    }
+
+    public static func fileBytes(_ value: String,
+                                 observedAt: Int64? = nil) -> BotContextSourceVersion {
+        .known(basis: .contentSHA256, value: value, observedAt: observedAt,
+               basisRef: nil, subject: .fileBytes)
     }
 
     public static func unversioned(_ reason: BotContextSourceVersionUnknownReason = .sourceUnversioned)
@@ -209,13 +226,14 @@ public enum BotContextSourceVersion: Codable, Sendable, Equatable {
 
     public var jsonValue: BotJSONValue {
         switch self {
-        case .known(let basis, let value, let observedAt, let basisRef):
+        case .known(let basis, let value, let observedAt, let basisRef, let subject):
             var object: [String: BotJSONValue] = [
                 "basis": .string(basis.rawValue),
                 "value": .string(value),
             ]
             if let observedAt { object["observed_at_ms"] = .number(Double(observedAt)) }
             if let basisRef { object["basis_ref"] = .string(basisRef) }
+            if let subject { object["subject"] = .string(subject.rawValue) }
             return .object(object)
         case .unknown(let reason, let observedAt, let basisRef):
             var object: [String: BotJSONValue] = ["reason": .string(reason.rawValue)]
@@ -226,7 +244,7 @@ public enum BotContextSourceVersion: Codable, Sendable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case basis, value, observed_at_ms, basis_ref, reason
+        case basis, value, observed_at_ms, basis_ref, reason, subject
     }
 
     public init(from decoder: Decoder) throws {
@@ -235,7 +253,7 @@ public enum BotContextSourceVersion: Codable, Sendable, Equatable {
         let basisRef = try container.decodeIfPresent(String.self, forKey: .basis_ref)
         if let basis = try container.decodeIfPresent(String.self, forKey: .basis) {
             guard container.allKeys.allSatisfy({
-                [.basis, .value, .observed_at_ms, .basis_ref].contains($0)
+                [.basis, .value, .observed_at_ms, .basis_ref, .subject].contains($0)
             }) else {
                 throw DecodingError.dataCorruptedError(
                     forKey: .basis, in: container,
@@ -248,9 +266,16 @@ public enum BotContextSourceVersion: Codable, Sendable, Equatable {
                     forKey: .value, in: container,
                     debugDescription: "known sourceVersion requires a frozen basis and value")
             }
+            let subject = try container.decodeIfPresent(
+                BotContextSourceVersionSubject.self, forKey: .subject)
+            if subject != nil, basisValue != .contentSHA256 {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .subject, in: container,
+                    debugDescription: "subject is only valid for content-sha256")
+            }
             try Self.validateBasisRef(basisRef, container: container)
             self = .known(basis: basisValue, value: value,
-                          observedAt: observedAt, basisRef: basisRef)
+                          observedAt: observedAt, basisRef: basisRef, subject: subject)
             return
         }
         guard container.allKeys.allSatisfy({ [.reason, .observed_at_ms, .basis_ref].contains($0) }),
@@ -267,11 +292,12 @@ public enum BotContextSourceVersion: Codable, Sendable, Equatable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .known(let basis, let value, let observedAt, let basisRef):
+        case .known(let basis, let value, let observedAt, let basisRef, let subject):
             try container.encode(basis.rawValue, forKey: .basis)
             try container.encode(value, forKey: .value)
             try container.encodeIfPresent(observedAt, forKey: .observed_at_ms)
             try container.encodeIfPresent(basisRef, forKey: .basis_ref)
+            try container.encodeIfPresent(subject, forKey: .subject)
         case .unknown(let reason, let observedAt, let basisRef):
             try container.encode(reason.rawValue, forKey: .reason)
             try container.encodeIfPresent(observedAt, forKey: .observed_at_ms)
@@ -334,6 +360,65 @@ public struct BotContextUncertainty: Codable, Sendable, Equatable {
     }
 }
 
+/// Stable resource identity carried by a durable context observation (G-3 r3)
+/// or by a file baseline (G-1 r8/r13).
+public enum BotContextResourceKind: String, Codable, Sendable {
+    case contextSource = "context-source"
+    case file
+}
+
+public struct BotContextResource: Codable, Sendable, Equatable {
+    public var kind: BotContextResourceKind
+    public var key: String
+    public var owner: String?
+    public var scope: String?
+
+    public init(kind: BotContextResourceKind, key: String,
+                owner: String? = nil, scope: String? = nil) throws {
+        let cleanKey = String(key.trimmingCharacters(in: .whitespacesAndNewlines).prefix(512))
+        guard !cleanKey.isEmpty else {
+            throw BotContextSourceError.invalidRequest("resource key must be 1...512 characters")
+        }
+        self.kind = kind
+        self.key = cleanKey
+        self.owner = owner.map { String($0.prefix(128)) }
+        self.scope = scope.map { String($0.prefix(128)) }
+    }
+
+    public var jsonValue: BotJSONValue {
+        var object: [String: BotJSONValue] = [
+            "kind": .string(kind.rawValue),
+            "key": .string(key),
+        ]
+        if let owner { object["owner"] = .string(owner) }
+        if let scope { object["scope"] = .string(scope) }
+        return .object(object)
+    }
+
+    private enum CodingKeys: String, CodingKey { case kind, key, owner, scope }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decode(BotContextResourceKind.self, forKey: .kind)
+        key = try container.decode(String.self, forKey: .key)
+        owner = try container.decodeIfPresent(String.self, forKey: .owner)
+        scope = try container.decodeIfPresent(String.self, forKey: .scope)
+        guard !key.isEmpty, key.unicodeScalars.count <= 512 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .key, in: container,
+                debugDescription: "resource key must be 1...512 characters")
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(key, forKey: .key)
+        try container.encodeIfPresent(owner, forKey: .owner)
+        try container.encodeIfPresent(scope, forKey: .scope)
+    }
+}
+
 public enum BotContextObservationDelivery: String, Codable, Sendable, CaseIterable {
     case os
     case injected
@@ -361,6 +446,7 @@ public struct BotContextObservation: Codable, Sendable, Equatable, Identifiable 
     public var dedupeKey: String
     public var wakeRequested: Bool
     public var recordRef: String?
+    public var resource: BotContextResource?
 
     public init(id: String,
                 source: BotContextSourceKind,
@@ -375,7 +461,8 @@ public struct BotContextObservation: Codable, Sendable, Equatable, Identifiable 
                 payload: BotJSONValue = .object([:]),
                 dedupeKey: String,
                 wakeRequested: Bool = false,
-                recordRef: String? = nil) throws {
+                recordRef: String? = nil,
+                resource: BotContextResource? = nil) throws {
         let trimmedID = id.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedDedupe = dedupeKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedID.isEmpty, trimmedID.unicodeScalars.count <= 200 else {
@@ -425,11 +512,13 @@ public struct BotContextObservation: Codable, Sendable, Equatable, Identifiable 
         self.dedupeKey = trimmedDedupe
         self.wakeRequested = wakeRequested
         self.recordRef = recordRef
+        self.resource = resource
     }
 
     private enum CodingKeys: String, CodingKey {
         case schema, source, kind, observed_at_ms, owner_bot_id, consent_generation
         case source_version, uncertainty, delivery, payload, dedupe_key, wake_requested, record_ref
+        case resource
     }
 
     public init(from decoder: Decoder) throws {
@@ -454,7 +543,8 @@ public struct BotContextObservation: Codable, Sendable, Equatable, Identifiable 
             payload: container.decode(BotJSONValue.self, forKey: .payload),
             dedupeKey: dedupe,
             wakeRequested: container.decode(Bool.self, forKey: .wake_requested),
-            recordRef: container.decodeIfPresent(String.self, forKey: .record_ref))
+            recordRef: container.decodeIfPresent(String.self, forKey: .record_ref),
+            resource: container.decodeIfPresent(BotContextResource.self, forKey: .resource))
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -472,6 +562,7 @@ public struct BotContextObservation: Codable, Sendable, Equatable, Identifiable 
         try container.encode(dedupeKey, forKey: .dedupe_key)
         try container.encode(wakeRequested, forKey: .wake_requested)
         try container.encodeIfPresent(recordRef, forKey: .record_ref)
+        try container.encodeIfPresent(resource, forKey: .resource)
     }
 
     /// The exact durable event data object. `ownerBotID` must be host-bound.
@@ -503,6 +594,18 @@ public struct BotContextObservation: Codable, Sendable, Equatable, Identifiable 
             }
         }
         if let recordRef { object["record_ref"] = .string(recordRef) }
+        let durableResource: BotContextResource
+        if let resource {
+            durableResource = try BotContextResource(
+                kind: .contextSource, key: resource.key,
+                owner: resource.owner ?? ownerBotID, scope: resource.scope)
+        } else {
+            durableResource = try BotContextResource(
+                kind: .contextSource,
+                key: "\(source.rawValue):\(dedupeKey.prefix(400))",
+                owner: ownerBotID)
+        }
+        object["resource"] = durableResource.jsonValue
         return .object(object)
     }
 
@@ -512,7 +615,9 @@ public struct BotContextObservation: Codable, Sendable, Equatable, Identifiable 
             ownerBotID: botID, sessionID: sessionID ?? self.sessionID,
             permissionRevision: permissionRevision, sourceVersion: sourceVersion,
             uncertainty: uncertainty, delivery: delivery, payload: payload,
-            dedupeKey: dedupeKey, wakeRequested: wakeRequested, recordRef: recordRef)
+            dedupeKey: dedupeKey, wakeRequested: wakeRequested, recordRef: recordRef,
+            resource: resource.flatMap { try? BotContextResource(
+                kind: $0.kind, key: $0.key, owner: botID, scope: $0.scope) })
     }
 
     public var wakeReason: String {
