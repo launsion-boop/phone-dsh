@@ -203,6 +203,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private let watchdog: BotWatchdogMonitor
     private let wakeInbox: WakeInbox?
     private var sessions: [String: SessionCredential] = [:]
+    /// G-1 r20/r22: successful write/edit callId -> bot-root-relative path.
+    private var writePaths: [String: String] = [:]
+    /// Canonical durable user-message event ref per session (record://event/N).
+    private var userSourceRefs: [String: String] = [:]
     /// Bumped whenever the Worker is replaced. Every session credential is
     /// re-claimed before its next turn, using its current token when that
     /// incarnation still resolves and a freshly issued one otherwise.
@@ -3573,9 +3577,12 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     await runtime.noteInjectedDecisionMaterial(injected)
                 }
                 if !hidden {
-                    _ = try await appendConversation(
+                    let userSeq = try await appendConversation(
                         type: "conversation.user_message", sessionId: sessionId, seq: seq,
                         data: data, principalKind: kind, time: eventTime, attemptId: attemptId)
+                    if userSeq > 0 {
+                        userSourceRefs[sessionId] = "record://event/\(userSeq)"
+                    }
                 }
             case "assistant/message":
                 let text = textBlocks(data["message"]?["content"])
@@ -3612,6 +3619,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 let callId = data["callId"]?.stringValue ?? ""
                 let name = data["name"]?.stringValue ?? ""
                 toolNames[callId] = name
+                if name == "write" || name == "edit",
+                   let path = BotWorkspaceDerivation.path(
+                       arguments: data["arguments"], botID: botId) {
+                    writePaths[callId] = path
+                }
                 if isContentCardTool(name), let final = contentCardFinal(in: data["arguments"]) {
                     toolFinals[callId] = final
                 }
@@ -3637,9 +3649,30 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 _ = await watchdog.observeToolResult(
                     kind: watchdogKind(kind), id: "\(sessionId):\(currentTurn ?? "unknown")",
                     name: name, status: failed ? "error" : "ok", callId: callId, at: eventTime)
+                var resultData = data
+                if !failed, let path = writePaths.removeValue(forKey: callId),
+                   let userRef = userSourceRefs[sessionId],
+                   case .object(var object) = resultData {
+                    object["derivation"] = .object([
+                        "artifact": .object([
+                            "kind": .string("workspaceFile"),
+                            "id": .string(path),
+                        ]),
+                        "sources": .array([.object([
+                            "record": .string(userRef),
+                            "role": .string("evidence"),
+                            "resource": .object([
+                                "kind": .string("workspace-file"),
+                                "key": .string(path),
+                                "owner": .string(botId),
+                            ]),
+                        ])]),
+                    ])
+                    resultData = .object(object)
+                }
                 let resultCommitSeq = try await appendConversation(
                     type: "conversation.tool_result", sessionId: sessionId, seq: seq,
-                    data: data, principalKind: kind, time: eventTime, attemptId: attemptId)
+                    data: resultData, principalKind: kind, time: eventTime, attemptId: attemptId)
                 if resultCommitSeq > 0,
                    let trace = Self.redactionTrace(in: data),
                    !trace.rules.isEmpty {
