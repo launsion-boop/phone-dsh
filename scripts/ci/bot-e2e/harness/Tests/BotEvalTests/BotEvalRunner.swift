@@ -619,7 +619,7 @@ final class BotEvalRunnerTests: XCTestCase {
                 detail: "held item \(enqueued.item.id) duplicate=\(enqueued.duplicate)",
                 replies: [])
 
-        case "ui_action":
+        case "ui_action", "delivery_select", "concurrent_delivery_select":
             return try await executeUI(action, context: context, repeat: index)
 
         case "approval_policy":

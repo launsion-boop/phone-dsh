@@ -76,6 +76,7 @@ struct EvalPlan: Decodable {
         "create_bot", "user_message", "concurrent_user_message", "agent_message",
         "ui_action", "approval_policy",
         "advance_clock", "seed_held_item", "restart_worker", "run_maintenance",
+        "delivery_select", "concurrent_delivery_select",
     ]
     static let knownAssertions: Set<String> = [
         "file_exists", "no_file", "file_contains", "file_regex", "file_json_path",

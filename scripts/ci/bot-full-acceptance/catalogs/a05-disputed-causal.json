@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "selftest": false,
+  "description": "A05 causal: feedback alone marks an existing memory version disputed; next decision material must be unknown/feedback-disputed; undo restores.",
+  "budget": {
+    "max_minutes": 25,
+    "max_model_requests": 60
+  },
+  "scenarios": [
+    {
+      "id": "A05-DISPUTED-MEMORY",
+      "title": "feedback-only disputed memory is not current; undo restores",
+      "budget": {
+        "max_minutes": 20,
+        "max_model_requests": 45
+      },
+      "timeout_s": 600,
+      "workspace": {
+        "bot": "main",
+        "root": "bot",
+        "files": {}
+      },
+      "network": "none",
+      "actions": [
+        {
+          "type": "approval_policy",
+          "default": "allow_once"
+        },
+        {
+          "type": "user_message",
+          "text": "请记住：客户代号 DISPUTED_BLUE_42，写入 user/client.md。用 UpdateMemory 写 v1。"
+        },
+        {
+          "type": "user_message",
+          "text": "这条记忆与最新事实冲突。不要修改正文或版本。先用 ReadMemory 读 user/client.md 拿到版本和 evidence，再用 RecordFeedback correct 绑定 target kind=memory id=user/client.md version=1，把该 evidence 的真实 record:// 放进 disputed_refs，把它标成 disputed。"
+        },
+        {
+          "type": "user_message",
+          "text": "客户代号是什么？如果记忆被标 disputed，不要当确定事实。"
+        },
+        {
+          "type": "user_message",
+          "text": "撤销刚才那个反馈，用上一条 RecordFeedback 返回的真实 feedback id；让记忆恢复。"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_contains",
+          "value": "DISPUTED_BLUE_42"
+        },
+        {
+          "type": "bot_event",
+          "event": "feedback.recorded",
+          "payload_contains": "correct"
+        },
+        {
+          "type": "bot_event",
+          "event": "memory.review_requested",
+          "payload_contains": "disputed"
+        },
+        {
+          "type": "model_request_contains",
+          "value": "feedback-disputed"
+        },
+        {
+          "type": "bot_event",
+          "event": "memory.review_resolved",
+          "payload_contains": "dropped"
+        },
+        {
+          "type": "model_request_count",
+          "min": 6
+        }
+      ]
+    }
+  ]
+}

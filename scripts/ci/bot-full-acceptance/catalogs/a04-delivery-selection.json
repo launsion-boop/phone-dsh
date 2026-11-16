@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "selftest": false,
+  "description": "A04 real-model vertical: RequestApproval delivery row -> host selects resource -> new digest approval -> show_attachment only selected.",
+  "budget": {
+    "max_minutes": 20,
+    "max_model_requests": 40
+  },
+  "scenarios": [
+    {
+      "id": "A04-DELIVERY-SELECTION",
+      "title": "real model approval delivery selection",
+      "budget": {
+        "max_minutes": 18,
+        "max_model_requests": 30
+      },
+      "timeout_s": 600,
+      "workspace": {
+        "bot": "main",
+        "root": "bot",
+        "fixture": "a04-delivery"
+      },
+      "network": "none",
+      "actions": [
+        {
+          "type": "approval_policy",
+          "default": "manual",
+          "rules": [
+            {
+              "tool": "mcp__phone__BotDecisionContext",
+              "decision": "allow_once"
+            }
+          ]
+        },
+        {
+          "type": "concurrent_delivery_select",
+          "bot": "main",
+          "select": "first",
+          "delay_ms": 5000,
+          "decision": "allow_once"
+        },
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "把 docs/周报.md 发给张三。发送前必须先调用 RequestApproval 请求确认；用户确认后，只把已确认的那份资料用 show_attachment 附上，不要附 docs/预算.md 或其他未选资料。"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "card_count",
+          "card_types": [
+            "attachment"
+          ],
+          "min": 1,
+          "max": 1
+        },
+        {
+          "type": "card_file_exists"
+        },
+        {
+          "type": "bot_event",
+          "event": "approval.requested",
+          "payload_contains": "deliverySelection"
+        },
+        {
+          "type": "bot_event",
+          "event": "card.presented",
+          "payload_contains": "attachment"
+        }
+      ]
+    }
+  ]
+}
