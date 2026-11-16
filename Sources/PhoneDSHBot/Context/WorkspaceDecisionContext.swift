@@ -205,8 +205,10 @@ public struct BotWorkspaceDirectoryCatalog: BotWorkspaceCataloging {
     static func validRelativePath(_ path: String) -> Bool {
         guard !path.isEmpty, path.unicodeScalars.count <= 512,
               !path.hasPrefix("/"), !path.hasSuffix("/"),
-              !path.contains("\\"), !path.contains("\n"), !path.contains("\r"),
-              !path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+              !path.contains("\\"), !path.contains("@"),
+              !path.unicodeScalars.contains(where: {
+                  $0.properties.isWhitespace || CharacterSet.controlCharacters.contains($0)
+              })
         else { return false }
         let segments = path.split(separator: "/", omittingEmptySubsequences: false)
         return !segments.isEmpty
@@ -450,8 +452,10 @@ public struct WorkspaceDecisionContextService: Sendable {
     static func validWorkspacePath(_ path: String) -> Bool {
         guard !path.isEmpty, path.unicodeScalars.count <= maximumPathScalars,
               !path.hasPrefix("/"), !path.hasSuffix("/"),
-              !path.contains("\\"), !path.contains("\n"), !path.contains("\r"),
-              !path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+              !path.contains("\\"), !path.contains("@"),
+              !path.unicodeScalars.contains(where: {
+                  $0.properties.isWhitespace || CharacterSet.controlCharacters.contains($0)
+              })
         else { return false }
         let segments = path.split(separator: "/", omittingEmptySubsequences: false)
         return !segments.isEmpty

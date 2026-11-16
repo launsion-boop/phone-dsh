@@ -107,7 +107,7 @@ final class WorkspaceDecisionContextTests: XCTestCase {
             limits: limits())
 
         XCTAssertEqual(selection.materials.count, 2)
-        XCTAssertTrue(selection.truncated) // the meeting note did not fit/score
+        XCTAssertFalse(selection.truncated) // the unrelated note is not a candidate at all
         let paths = Set(selection.materials.map(\.path))
         XCTAssertEqual(paths, ["docs/report-guide-v2.md", "docs/archive/report-guide-v1.md"])
         let current = selection.materials.first { $0.path == "docs/report-guide-v2.md" }
@@ -288,7 +288,8 @@ final class WorkspaceDecisionContextTests: XCTestCase {
 
     func testInvalidWorkspacePathsAreRejectedByTheService() {
         for path in ["/etc/passwd", "../secret.md", "docs/../secret.md", "docs//a.md",
-                     "docs\\a.md", "docs/a.md\n", ""] {
+                     "docs\\a.md", "docs/a.md\n", "docs/a b.md", "docs/a@b.md",
+                     "docs/a.md " , ""] {
             XCTAssertFalse(WorkspaceDecisionContextService.validWorkspacePath(path), path)
         }
         XCTAssertTrue(WorkspaceDecisionContextService.validWorkspacePath("docs/report-guide-v2.md"))
