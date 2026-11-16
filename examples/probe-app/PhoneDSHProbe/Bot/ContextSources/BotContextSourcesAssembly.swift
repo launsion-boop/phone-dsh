@@ -408,7 +408,7 @@ public final class BotContextSourcesAssembly {
     /// Simulator/debug only. The driver stamps `delivery=injected`; the registry
     /// rejects it if it claims `os`.
     @discardableResult
-    public func inject(kind source: BotContextSourceKind,
+    func inject(kind source: BotContextSourceKind,
                        observationKind: BotContextObservationKind,
                        payload: BotJSONValue = .object([:]),
                        sourceVersion: BotContextSourceVersion? = nil,
