@@ -82,13 +82,31 @@ public enum BotToolCatalog {
             ], required: ["url"]), minItems: 1, maxItems: 4),
             "final": contentCardFinal(),
         ], required: ["links"], additionalProperties: false)),
-        tool("UpdateMemory", "Write, locally modify, move, delete or restore one Markdown memory document. Memory has exactly two roots: user/ (about the user, shared and visible to every Bot) and agent/ (this Bot's own working knowledge, invisible to other Bots). You choose subdirectories and length; there is no tier. Every call must carry the expected_version you just read (0 means the document must not exist); a stale version is rejected. A write to user/ needs a real user turn and at least one evidence reference to a user message; pass the reserved entry \"current-user-turn\" to cite the user message that opened this turn (host-resolved; hidden, held, agent, routine, Task and maintainer turns cannot use it). Facts about the user belong in user/. Each root's INDEX.md is injected every turn and is capped at 1,500 characters; an over-limit write is rejected. Keep verified rules, decisions and commitments, preferences, strategies and reasons; do not copy what raw records already hold — leave a record:// reference when you need the exact source. When correcting a preference, rewrite the original document and remove the old value unless the user asked to keep history. Task and routine sessions may only write agent/inbox/<their own session>/. Set marked_contradiction=true when this write records one side of a contradiction that later background maintenance must resolve or mark uncertain. 可选 `review` 记录这次写入核对到什么程度，它是你的核验断言、不是系统认证：`verified` 必须给 `basis`（不能是 `model-inference`）且 `refs` 至少一条可解析的真实记录；`disputed` 要在 `refs` 里给出冲突双方；没有核对就用 `unverified` + `basis:\"model-inference\"`，不要自称 verified。`method`/`at_ms` 是可选的说明，宿主不会据此认证。 内容只要来自某条会话记录、工具结果或用户原话，就带至少一条 `evidence`（`record://` 或 `current-user-turn`）；只有自己的推断才可以不带引用，并在正文里写明是推断。没有出处的记忆在评测里算溯源失败。", schema([
+        tool("UpdateMemory", "Write, locally modify, move, delete or restore one Markdown memory document. Memory has exactly two roots: user/ (about the user, shared and visible to every Bot) and agent/ (this Bot's own working knowledge, invisible to other Bots). You choose subdirectories and length; there is no tier. Every call must carry the expected_version you just read (0 means the document must not exist); a stale version is rejected. A write to user/ needs a real user turn and at least one evidence reference to a user message; pass the reserved entry \"current-user-turn\" to cite the user message that opened this turn (host-resolved; hidden, held, agent, routine, Task and maintainer turns cannot use it). Facts about the user belong in user/. Each root's INDEX.md is injected every turn and is capped at 1,500 characters; an over-limit write is rejected. Keep verified rules, decisions and commitments, preferences, strategies and reasons; do not copy what raw records already hold — leave a record:// reference when you need the exact source. When correcting a preference, rewrite the original document and remove the old value unless the user asked to keep history. Task and routine sessions may only write agent/inbox/<their own session>/. Set marked_contradiction=true when this write records one side of a contradiction that later background maintenance must resolve or mark uncertain. 可选 `review` 记录这次写入核对到什么程度，它是你的核验断言、不是系统认证：`verified` 必须给 `basis`（不能是 `model-inference`）且 `refs` 至少一条可解析的真实记录；`disputed` 要在 `refs` 里至少给出冲突一方，能给双方时都给出；没有核对就用 `unverified` + `basis:\"model-inference\"`，不要自称 verified。`method`/`at_ms` 是可选的说明，宿主不会据此认证。 内容只要来自某条会话记录、工具结果或用户原话，就带至少一条 `evidence`（`record://` 或 `current-user-turn`）；只有自己的推断才可以不带引用，并在正文里写明是推断。没有出处的记忆在评测里算溯源失败。", schema([
             "action": enumString(["write", "append", "replace", "move", "delete", "restore"]),
             "path": string(), "content": string(), "find": string(), "replace": string(), "to": string(),
             "expected_version": .object(["type": .string("integer"), "minimum": .number(0)]),
             "restore_version": .object(["type": .string("integer"), "minimum": .number(1)]),
             "evidence": array(string(), maxItems: 8),
             "marked_contradiction": .object(["type": .string("boolean")]),
+            "review": .object([
+                "type": .string("object"),
+                "required": .array([.string("state"), .string("basis")]),
+                "properties": .object([
+                    "state": enumString(["verified", "unverified", "disputed"]),
+                    "basis": enumString([
+                        "user-statement", "observation", "record-recheck", "model-inference",
+                    ]),
+                    "method": .object([
+                        "type": .string("string"), "maxLength": .number(200),
+                    ]),
+                    "at_ms": .object([
+                        "type": .string("integer"), "minimum": .number(0),
+                    ]),
+                    "refs": array(string(), maxItems: 8),
+                ]),
+                "additionalProperties": .bool(false),
+            ]),
         ], required: ["action", "path", "expected_version"], additionalProperties: false)),
         tool("ReadMemory", "Read one memory document (optionally a historical version) or list a directory under user/ or agent/. Paths and versions come from the same durable authority as the injected INDEX.md. 返回的 `evidence_status` 与 `evidence` 同序，给出每条原始记录的 `observed_at_ms`；`null` 表示记录取不到或没有时间，`review` 缺省表示没有记录核对判断，`source_version` 本版一律 `null`，不要用文档版本冒充来源版本。", schema([
             "path": string(),

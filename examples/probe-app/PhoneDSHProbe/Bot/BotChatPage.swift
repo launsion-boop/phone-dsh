@@ -1060,8 +1060,7 @@ private struct BotComposerDock: View {
     }
 
     /// Exactly one round button with three states: send (idle, disabled when
-    /// empty), stop (running with an empty draft), send-and-steer (running
-    /// with text). The send id is stable so the capture tests can drive it.
+    /// empty), stop (running with an empty draft), send (running with text). The send id is stable so the capture tests can drive it.
     @ViewBuilder
     private var composerActionButton: some View {
         if model.runningTurnID != nil && !canSend {
@@ -1077,7 +1076,7 @@ private struct BotComposerDock: View {
             }
             .buttonStyle(.plain)
             .disabled(!canSend)
-            .accessibilityLabel(model.runningTurnID != nil ? "发送并 steering" : "发送消息")
+            .accessibilityLabel(model.runningTurnID != nil ? "发送" : "发送消息")
             .accessibilityIdentifier("bot.composer.send")
         }
     }

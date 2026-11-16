@@ -629,16 +629,11 @@ final class BotChatModel: ObservableObject {
         local.provenance.trust = "owner_direct"
         rows.append(local)
 
-        // A send is also the user's answer to every approval still awaiting a
-        // decision: mark them pending synchronously so the header and
-        // pendingApprovalCount leave「等你确认」at once, then deny them in order
-        // before the chat action below. No new protocol action is involved;
-        // this is the existing approval deny path.
-        let autoDeclines = approvalsAwaitingDecision.filter { row in
-            approvalAction(row: row, decision: .deny) != nil
-        }
-        for row in autoDeclines { actionStates["approval:\(row.id)"] = .pending }
-
+        // Sending text is never an answer to a pending approval. The card may
+        // only change through an explicit decision, an explicit stop, or its
+        // existing timeout/revocation path; implicitly denying every pending
+        // approval here would cancel tool work the user did not decide.
+        //
         // The line starts on the local echo and only spans a new turn; steering
         // into an already running turn keeps the existing line. A stopped or
         // finalized turn keeps its live text, so `live != nil` alone does not
@@ -648,9 +643,6 @@ final class BotChatModel: ObservableObject {
             beginTurn(turnID: "fixture-turn")
         }
         Task {
-            // One Task on the MainActor awaits each deny to completion before
-            // the chat action starts, so the driver observes deny → chat.
-            for row in autoDeclines { await autoDeclineApproval(row) }
             await importAndSend(text: trimmed, files: files, messageID: messageID,
                                 nonce: nonce, localID: localID, checklist: checklist)
         }
@@ -1548,9 +1540,18 @@ final class BotChatModel: ObservableObject {
             let reason = result.reason ?? "动作未完成"
             actionStates[key] = .failed(reason)
             // The optimistic row only stands for a choice that reached the
-            // model; a failure rolls it back.
+            // model; a failed choice rolls back. A failed chat message is the
+            // user's text, not a choice: keep its local echo so the message is
+            // not silently lost, and let the visible error/retry path own it.
             if let localRowID, BotChoiceCardUI.echoDisposition(for: .failed(reason)) == .remove {
-                rows.removeAll { $0.id == localRowID }
+                switch action {
+                case .chat:
+                    // Keep the user's text; the failure is visible and can be
+                    // retried, but the message must not disappear.
+                    break
+                default:
+                    rows.removeAll { $0.id == localRowID }
+                }
             }
             clearAwaitingTurn()
             // A refused card action is a normal stale-card outcome: the card

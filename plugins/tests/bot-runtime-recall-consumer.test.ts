@@ -39,7 +39,7 @@ interface RecallGolden {
     updated_at_ms: number
     version: number
     evidence: string[]
-    evidence_status: { ref: string; observed_at_ms: number | null; source_version: string | null }[]
+    evidence_status: { ref: string; observed_at_ms: number | null; source_version: number | null }[]
     review: { state: string; basis: string; method?: string; at_ms?: number; refs?: string[] }
   }[]
 }

@@ -157,6 +157,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         let requestId: String
         let settlement: BotTurnSettlement
         let work: Task<BotRemoteTurnResult, Error>
+        /// Resumes messages admitted while this turn is open but its first
+        /// prompt has not been accepted yet. `open` makes them steer into this
+        /// same turn; `fail` sends them down the normal/queued path when the
+        /// turn ends, is stopped, or its transport is replaced.
+        let admission: BotAdmissionGate
         var cancelRequested: Bool
         var promptAccepted: Bool
         /// Set by `attachTransport` when the Worker transport this attempt was
@@ -224,6 +229,18 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private var reportedTransportFailureGeneration: UInt64?
     private var coordinators: [String: TurnCoordinator] = [:]
     private var queuedTurns: [String: QueuedTurn] = [:]
+    /// User messages waiting for the active chat turn to accept its first
+    /// prompt. The payload stays in the suspended `sendUserMessage` call; this
+    /// count enforces the frozen 16-message admission cap.
+    private var waitingAdmissions: [String: Int] = [:]
+    /// Global admission order for the main chat. The order is assigned inside
+    /// the actor before the first `await`, so concurrent `sendUserMessage`
+    /// calls cannot reverse just because they resume from different awaits.
+    private var nextAdmissionOrder: UInt64 = 0
+    private var servedAdmissionOrder: UInt64 = 0
+    /// Serializes steer prompts per session so concurrent sends keep the order
+    /// in which the runtime admitted them.
+    private var steerTails: [String: Task<Void, Error>] = [:]
     private var recentHeldChatActions: [(requestId: String, nonce: String)] = []
     private var taskStates: [String: TaskState] = [:]
     private var interruptedTaskWakes: [String] = []
@@ -415,6 +432,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         for (sessionId, coordinator) in coordinators where coordinator.interruption == nil {
             guard var current = coordinators[sessionId] else { continue }
             current.interruption = reason
+            await current.admission.fail()
             coordinators[sessionId] = current
         }
     }
@@ -483,6 +501,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
 
     private func cancelTurnsForDetach() async {
         for (sessionId, coordinator) in coordinators {
+            await coordinator.admission.fail()
             coordinator.work.cancel()
             await coordinator.settlement.finish()
             if coordinators[sessionId]?.attemptId == coordinator.attemptId {
@@ -529,6 +548,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             await queued.settlement.finish()
         }
         if let coordinator = coordinators[sessionId], coordinator.generation != generation {
+            await coordinator.admission.fail()
             coordinator.work.cancel()
             if coordinators[sessionId]?.attemptId == coordinator.attemptId {
                 coordinators.removeValue(forKey: sessionId)
@@ -659,10 +679,28 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         // would be cancelled when the rebind swaps the transport. Wait for the
         // same bounded readiness seam the tool gate uses, then open the turn
         // against the replacement Worker.
-        try await awaitRuntimeReadiness()
+        let admissionOrder = assignAdmissionOrder()
+        defer { advanceAdmissionOrder(admissionOrder) }
+        do {
+            try await awaitRuntimeReadiness()
+        } catch {
+            advanceAdmissionOrder(admissionOrder)
+            throw error
+        }
         await onUserTurnStarted?()
-        let sessionId = try await ensureMainSession()
-        let steer = canSteer(sessionId: sessionId)
+        let sessionId: String
+        do {
+            sessionId = try await ensureMainSession()
+        } catch {
+            advanceAdmissionOrder(admissionOrder)
+            throw error
+        }
+        // A message arriving in the pre-accept window is still a steer target:
+        // it must not stage held background as if it were opening a new turn.
+        let activeVisibleChat = coordinators[sessionId].map {
+            $0.generation == transportGeneration && $0.kind == .chat && !$0.hidden
+        } ?? false
+        let steer = canSteer(sessionId: sessionId) || activeVisibleChat
         var body = text
         let attachmentBlock = BotAttachmentPrompt.block(attachments)
         if !attachmentBlock.isEmpty {
@@ -709,7 +747,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         }
         do {
             var result = try await runTurn(sessionId: sessionId, kind: .chat, prompt: prompt,
-                                           requestId: promptRequestId)
+                                           requestId: promptRequestId,
+                                           admissionOrder: admissionOrder)
             if result.status != "completed", result.error == "turn_not_started",
                rebuiltTurnNotStartedGeneration != transportGeneration {
                 // The host accepted the prompt but never opened a turn. A
@@ -726,7 +765,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 mainSessionTask = nil
                 result = try await runTurn(
                     sessionId: rebuilt, kind: .chat, prompt: prompt,
-                    requestId: promptRequestId)
+                    requestId: promptRequestId, admissionOrder: admissionOrder)
             }
             if result.status == "completed" {
                 rebuiltTurnNotStartedGeneration = nil
@@ -2735,11 +2774,123 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         }
     }
 
+    /// Number of user messages held in the pre-accept admission window for
+    /// one session. The frozen cap is 16; this is an observability seam for the
+    /// App/tests, not a wire field.
+    func pendingAdmissionCount(sessionId: String) -> Int {
+        waitingAdmissions[sessionId] ?? 0
+    }
+
     private func canSteer(sessionId: String) -> Bool {
-        guard queuedTurns[sessionId] == nil, let active = coordinators[sessionId],
+        // A queued turn is no reason to refuse steering: once the active turn
+        // accepted its first prompt, every later user message belongs to that
+        // same turn. The admission window (prompt not accepted yet) is handled
+        // by `enqueueSteer` before this check.
+        guard let active = coordinators[sessionId],
               active.generation == transportGeneration,
               active.promptAccepted, !active.cancelRequested, active.kind == .chat, !active.hidden else { return false }
         return true
+    }
+
+    /// A supplemental message that was waiting for the active turn when the
+    /// turn ended, was stopped, or its transport was replaced. The caller
+    /// falls back to the normal/queued path with the same requestId; it is not
+    /// reported as a completed turn.
+    private struct AdmissionAborted: Error {}
+
+    private func assignAdmissionOrder() -> UInt64 {
+        let order = nextAdmissionOrder
+        nextAdmissionOrder &+= 1
+        return order
+    }
+
+    private func advanceAdmissionOrder(_ order: UInt64) {
+        if order == servedAdmissionOrder { servedAdmissionOrder &+= 1 }
+    }
+
+    private func waitForAdmissionOrder(_ order: UInt64) async -> Bool {
+        while servedAdmissionOrder < order {
+            if Task.isCancelled { return false }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        return true
+    }
+
+    /// Admit one supplemental message into the active chat turn. The per
+    /// session tail is claimed *before* the gate wait, so two sends keep the
+    /// order in which the runtime accepted them even though actor resumption
+    /// order is not FIFO. At the actual send point the turn is re-checked:
+    /// if it ended/stopped/was replaced while this message waited, the caller
+    /// gets `AdmissionAborted` and opens a normal turn instead of sending a
+    /// steer into a turn that no longer exists.
+    private func enqueueSteer(sessionId: String, coordinator: TurnCoordinator,
+                              prompt: String, requestId: String,
+                              admissionOrder: UInt64?) async throws {
+        let held = (waitingAdmissions[sessionId] ?? 0) + 1
+        guard held <= 16 else {
+            throw BotMCPError.invalidRequest("too_many_pending_messages")
+        }
+        waitingAdmissions[sessionId] = held
+        let previous = steerTails[sessionId]
+        let task = Task { [weak self] () throws -> Void in
+            do {
+                if let previous { _ = try? await previous.value }
+                guard let self else { throw AdmissionAborted() }
+                if let admissionOrder {
+                    guard await self.waitForAdmissionOrder(admissionOrder) else {
+                        throw AdmissionAborted()
+                    }
+                }
+                guard await coordinator.admission.wait() else {
+                    throw AdmissionAborted()
+                }
+                guard await self.steerTargetIsCurrent(
+                    sessionId: sessionId, attemptId: coordinator.attemptId,
+                    generation: coordinator.generation) else {
+                    throw AdmissionAborted()
+                }
+                try await self.sendPrompt(
+                    sessionId: sessionId, prompt: prompt, mode: "steer", requestId: requestId)
+                if let admissionOrder { await self.advanceAdmissionOrder(admissionOrder) }
+                await self.finishAdmission(sessionId: sessionId)
+            } catch {
+                if let self {
+                    if let admissionOrder { await self.advanceAdmissionOrder(admissionOrder) }
+                    await self.finishAdmission(sessionId: sessionId)
+                }
+                throw error
+            }
+        }
+        steerTails[sessionId] = task
+        do {
+            // Cancelling the caller must cancel the chained send too; a
+            // detached `Task.value` does not propagate cancellation on its own.
+            try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+        } catch {
+            if error is AdmissionAborted { throw error }
+            throw error
+        }
+    }
+
+    private func steerTargetIsCurrent(sessionId: String, attemptId: String,
+                                      generation: UInt64) -> Bool {
+        guard let current = coordinators[sessionId],
+              current.attemptId == attemptId,
+              current.generation == transportGeneration,
+              current.generation == generation,
+              current.promptAccepted, !current.cancelRequested,
+              current.kind == .chat, !current.hidden else { return false }
+        return true
+    }
+
+    private func finishAdmission(sessionId: String) {
+        let next = max(0, (waitingAdmissions[sessionId] ?? 1) - 1)
+        if next == 0 { waitingAdmissions.removeValue(forKey: sessionId) }
+        else { waitingAdmissions[sessionId] = next }
     }
 
     private func cancelTurn(sessionId: String, includeQueued: Bool = false) async throws {
@@ -2784,6 +2935,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             return result
         }
         if !completed {
+            await coordinator.admission.fail()
             coordinator.work.cancel()
             if coordinators[coordinator.sessionId]?.attemptId == coordinator.attemptId {
                 coordinators.removeValue(forKey: coordinator.sessionId)
@@ -2805,7 +2957,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
 
     private func runTurn(sessionId: String, kind: BotSessionKind,
                          prompt: String, requestId: String,
-                         allowSteer: Bool = true) async throws -> BotRemoteTurnResult {
+                         allowSteer: Bool = true,
+                         admissionOrder: UInt64? = nil) async throws -> BotRemoteTurnResult {
         _ = try await ensureSession(sessionId: sessionId, kind: kind)
         let origin = BotTurnOrigin(rpcId: requestId)
         let hidden = origin.hidden
@@ -2815,17 +2968,35 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         // fence drops it (recording its interrupted marker) so this turn can
         // start on the current transport.
         await fenceSupersededTurnState(sessionId: sessionId)
-        if allowSteer, canSteer(sessionId: sessionId), kind == .chat, !hidden,
-           let active = coordinators[sessionId] {
-            try await sendPrompt(sessionId: sessionId, prompt: prompt, mode: "steer", requestId: requestId)
-            guard coordinators[sessionId]?.attemptId == active.attemptId,
-                  active.generation == transportGeneration else {
-                return BotRemoteTurnResult(
-                    sessionId: sessionId, turnId: nil, status: "interrupted",
-                    text: "", error: "transport_replaced")
+        if allowSteer, kind == .chat, !hidden,
+           let active = coordinators[sessionId],
+           active.generation == transportGeneration,
+           active.kind == .chat, !active.hidden {
+            do {
+                try await enqueueSteer(
+                    sessionId: sessionId, coordinator: active,
+                    prompt: prompt, requestId: requestId,
+                    admissionOrder: admissionOrder)
+                // The steer prompt is accepted by the same active turn. Even
+                // if that turn ends immediately afterwards, its collector is
+                // the right result; never open a second turn for a message the
+                // Worker already accepted.
+                return try await active.work.value
+            } catch is AdmissionAborted {
+                // A cancelled send must not start a second turn behind the
+                // user's back.
+                if Task.isCancelled { throw CancellationError() }
+                // The turn ended/stopped/was replaced while this message
+                // waited. Fall through to the normal/queued path, preserving
+                // the same requestId; never report an undelivered message as
+                // a completed turn.
             }
-            return try await active.work.value
         }
+        // This message is not entering the active turn (no active chat turn,
+        // or admission aborted). Advance its order before opening/queueing a
+        // normal turn so a later message can proceed without waiting for this
+        // turn to finish.
+        if let admissionOrder { advanceAdmissionOrder(admissionOrder) }
         // The fence above normally leaves only current-generation entries. If
         // a rebind landed while it was suspended, never await the leftover:
         // its stream belongs to the replaced transport and may never settle.
@@ -2927,6 +3098,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         coordinators[sessionId] = TurnCoordinator(
             sessionId: sessionId, attemptId: attemptId, kind: kind, hidden: hidden,
             generation: generation, requestId: requestId, settlement: settlement, work: work,
+            admission: BotAdmissionGate(),
             cancelRequested: false, promptAccepted: false, interruption: nil)
         return try await work.value
     }
@@ -2963,6 +3135,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             }
             try await sendPrompt(sessionId: sessionId, prompt: prompt, mode: "queue", requestId: requestId)
             coordinators[sessionId]?.promptAccepted = true
+            // Wake every message that arrived in the pre-accept window; they
+            // now steer into this same turn instead of opening a second one.
+            await coordinators[sessionId]?.admission.open()
             let result = try await collectTurn(
                 mux: opened, sessionId: sessionId, kind: kind, hidden: hidden, attemptId: attemptId)
             await opened.close()
@@ -3006,6 +3181,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
 
     private func finishCoordinatedTurn(sessionId: String, attemptId: String) async {
         guard coordinators[sessionId]?.attemptId == attemptId else { return }
+        await coordinators[sessionId]?.admission.fail()
         await runtime.endTurn(sessionId: sessionId)
         coordinators.removeValue(forKey: sessionId)
     }
@@ -3392,5 +3568,41 @@ private actor BotTurnSettlement {
 
     func finish() {
         isFinished = true
+    }
+}
+
+/// One active chat turn's admission window. Messages that arrive before the
+/// turn's first prompt is accepted wait here; `open` releases them to steer
+/// into the same turn, `fail` releases them to the normal/queued path. The
+/// gate is fail-safe: once failed, later waiters return false and never hang.
+private actor BotAdmissionGate {
+    private enum State {
+        case pending
+        case open
+        case failed
+    }
+
+    private var state: State = .pending
+
+    func wait() async -> Bool {
+        while true {
+            switch state {
+            case .open: return true
+            case .failed: return false
+            case .pending:
+                if Task.isCancelled { return false }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+    }
+
+    func open() {
+        guard case .pending = state else { return }
+        state = .open
+    }
+
+    func fail() {
+        guard case .pending = state else { return }
+        state = .failed
     }
 }

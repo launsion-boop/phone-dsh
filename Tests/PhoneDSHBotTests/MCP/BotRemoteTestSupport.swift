@@ -90,6 +90,10 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     private let honorRequestedSessionIDs: Bool
     private var nextCreateIndex = 0
     private var gates: [String: BotScriptedGate] = [:]
+    /// A separate gate in front of `session/prompt`, so a test can hold the
+    /// turn in the pre-accept admission window without pausing its follow
+    /// stream.
+    private var promptGates: [String: BotScriptedGate] = [:]
     private var failingPages: [String: Int] = [:]
     private var remainingSessionListFailures = 0
     private var sessionListArgs: [BotJSONValue] = []
@@ -99,6 +103,7 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     /// Test seam: report a different composed preset than the requested one.
     var createPresetOverride: String?
 
+    private(set) var promptAttempts = 0
     private(set) var prompts: [String: (sessionId: String, mode: String, text: String)] = [:]
     private(set) var promptHistory: [(sessionId: String, mode: String, text: String)] = []
     private(set) var promptRequestIds: [(sessionId: String, requestId: String, mode: String)] = []
@@ -150,6 +155,19 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
 
     func resume(_ sessionId: String) {
         let gate = lock.withLock { gates[sessionId] }
+        if let gate { Task { await gate.open() } }
+    }
+
+    /// Hold `session/prompt` before it is recorded, simulating the window in
+    /// which the turn is open but the Worker has not accepted its first prompt.
+    func pausePrompts(_ sessionId: String) {
+        lock.withLock {
+            if promptGates[sessionId] == nil { promptGates[sessionId] = BotScriptedGate() }
+        }
+    }
+
+    func resumePrompts(_ sessionId: String) {
+        let gate = lock.withLock { promptGates[sessionId] }
         if let gate { Task { await gate.open() } }
     }
 
@@ -267,6 +285,9 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
                 $0["text"]?.stringValue
             }.joined()
             let requestId = request["requestId"]?.stringValue ?? ""
+            lock.withLock { promptAttempts += 1 }
+            let promptGate = lock.withLock { promptGates[sessionId] }
+            if let promptGate { await promptGate.wait() }
             lock.withLock {
                 prompts[sessionId] = (sessionId, mode, text)
                 promptHistory.append((sessionId, mode, text))
