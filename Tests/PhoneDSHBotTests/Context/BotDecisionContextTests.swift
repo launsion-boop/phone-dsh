@@ -66,6 +66,9 @@ final class BotDecisionContextTests: XCTestCase {
         permissionRevision: String = "",
         activeMaterialRefs: [String] = [],
         activeMaterialVersions: [String: String] = [:],
+        activeTurnID: String? = nil,
+        activeRecipientID: String? = nil,
+        activeGoalDigest: String? = nil,
         turn: String = "gb-main#1"
     ) -> BotDecisionRequest {
         BotDecisionRequest(
@@ -78,7 +81,10 @@ final class BotDecisionContextTests: XCTestCase {
             scopes: scopes,
             permissionRevision: permissionRevision,
             activeMaterialRefs: activeMaterialRefs,
-            activeMaterialVersions: activeMaterialVersions)
+            activeMaterialVersions: activeMaterialVersions,
+            activeTurnID: activeTurnID,
+            activeRecipientID: activeRecipientID,
+            activeGoalDigest: activeGoalDigest)
     }
 
     func testMaterialsStayBoundedAndCarryOnlyStoredProvenance() async throws {
@@ -201,7 +207,7 @@ final class BotDecisionContextTests: XCTestCase {
         guard case let .regenerate(block, reason) = review else {
             return XCTFail("expected regenerate, got \(review)")
         }
-        XCTAssertEqual(reason, .permissionRevisionChanged)
+        XCTAssertEqual(reason, .authorizationRevisionChanged)
         XCTAssertEqual(block.authorizationRevision, "rev-2")
     }
 
@@ -222,7 +228,7 @@ final class BotDecisionContextTests: XCTestCase {
         guard case let .regenerate(block, reason) = review else {
             return XCTFail("expected regenerate, got \(review)")
         }
-        XCTAssertEqual(reason, .materialStatusChanged)
+        XCTAssertEqual(reason, .materialChanged)
         XCTAssertTrue(block.materials.contains { $0.path == "user/profile.md" })
     }
 
@@ -238,7 +244,7 @@ final class BotDecisionContextTests: XCTestCase {
         guard case let .regenerate(block, reason) = review else {
             return XCTFail("expected regenerate, got \(review)")
         }
-        XCTAssertEqual(reason, .newMaterials)
+        XCTAssertEqual(reason, .materialChanged)
         XCTAssertEqual(block.stage, .preDelivery)
     }
 
@@ -251,6 +257,75 @@ final class BotDecisionContextTests: XCTestCase {
         } catch let error as BotDecisionContextError {
             guard case .invalidRequest = error else { return XCTFail("unexpected \(error)") }
         }
+    }
+
+    func testReviewRegeneratesWhenTurnRecipientOrGoalChanges() async throws {
+        let service = service()
+        let materials = try await service.materials(for: request())
+        let ref = try XCTUnwrap(materials.materials.first?.ref)
+
+        var otherTurn = request(stage: .preDelivery,
+                                permissionRevision: materials.authorizationRevision,
+                                activeMaterialRefs: [ref],
+                                activeTurnID: "gb-main#1",
+                                turn: "gb-main#2")
+        otherTurn.tool = "SendToUser"
+        guard case let .regenerate(_, reason) = try await service.review(
+            BotDeliveryProposal(request: otherTurn, tool: "SendToUser")) else {
+            return XCTFail("a changed turn must regenerate")
+        }
+        XCTAssertEqual(reason, .turnChanged)
+
+        var recipientChanged = request(stage: .preDelivery,
+                                       permissionRevision: materials.authorizationRevision,
+                                       activeMaterialRefs: [ref],
+                                       activeRecipientID: "bot:other")
+        recipientChanged.tool = "SendToAgent"
+        recipientChanged.recipient = BotDecisionRecipient(kind: .bot, id: "target")
+        guard case let .regenerate(_, recipientReason) = try await service.review(
+            BotDeliveryProposal(request: recipientChanged, tool: "SendToAgent")) else {
+            return XCTFail("a changed recipient must regenerate")
+        }
+        XCTAssertEqual(recipientReason, .recipientChanged)
+
+        var goalChanged = request(stage: .preDelivery,
+                                  permissionRevision: materials.authorizationRevision,
+                                  activeMaterialRefs: [ref],
+                                  activeGoalDigest: BotDecisionContextService.goalDigest("旧目标"))
+        goalChanged.tool = "SendToUser"
+        goalChanged.goal = "新目标"
+        guard case let .regenerate(_, goalReason) = try await service.review(
+            BotDeliveryProposal(request: goalChanged, tool: "SendToUser")) else {
+            return XCTFail("a changed goal must regenerate")
+        }
+        XCTAssertEqual(goalReason, .goalChanged)
+    }
+
+    func testDecisionToolResultMatchesG2R2ShapeAndBoundsMessage() async throws {
+        let materials = try await service().materials(for: request())
+        let longMessage = String(repeating: "m", count: 400)
+        let result = BotDecisionToolResult(
+            reason: .materialChanged, materials: materials, message: longMessage)
+        XCTAssertFalse(result.ok)
+        XCTAssertEqual(result.code, "decision_context_changed")
+        XCTAssertEqual(result.reason, .materialChanged)
+        XCTAssertEqual(result.message.unicodeScalars.count, 300)
+        XCTAssertEqual(result.materials.blockID, materials.blockID)
+
+        let data = try JSONEncoder().encode(result)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(Set(object.keys),
+                       Set(["ok", "code", "reason", "materials", "message"]))
+        XCTAssertEqual(object["ok"] as? Bool, false)
+        XCTAssertEqual(object["code"] as? String, "decision_context_changed")
+        XCTAssertEqual(object["reason"] as? String, "material-changed")
+        let decoded = try JSONDecoder().decode(BotDecisionToolResult.self, from: data)
+        XCTAssertEqual(decoded, result)
+
+        var invalid = object
+        invalid["ok"] = true
+        let invalidData = try JSONSerialization.data(withJSONObject: invalid)
+        XCTAssertThrowsError(try JSONDecoder().decode(BotDecisionToolResult.self, from: invalidData))
     }
 
     func testReferenceParserRejectsTraversalAndNonPositiveVersions() {

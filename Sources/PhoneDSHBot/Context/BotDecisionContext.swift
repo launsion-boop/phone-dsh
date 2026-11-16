@@ -235,6 +235,15 @@ public struct BotDecisionRequest: Codable, Sendable, Equatable {
     public var permissionRevision: String
     public var activeMaterialRefs: [String]
     public var activeMaterialVersions: [String: String]
+    /// Turn the active block was retrieved for. A different current turn must
+    /// invalidate the block (G-2 r2 `turn-changed`).
+    public var activeTurnID: String?
+    /// Recipient at retrieval time (`kind:id`); a change triggers
+    /// `recipient-changed`.
+    public var activeRecipientID: String?
+    /// Index digest of the goal at retrieval time; a change triggers
+    /// `goal-changed`.
+    public var activeGoalDigest: String?
     public var limits: BotDecisionLimits
 
     public init(
@@ -252,6 +261,9 @@ public struct BotDecisionRequest: Codable, Sendable, Equatable {
         permissionRevision: String = "",
         activeMaterialRefs: [String] = [],
         activeMaterialVersions: [String: String] = [:],
+        activeTurnID: String? = nil,
+        activeRecipientID: String? = nil,
+        activeGoalDigest: String? = nil,
         limits: BotDecisionLimits = BotDecisionLimits()
     ) {
         self.stage = stage
@@ -268,6 +280,9 @@ public struct BotDecisionRequest: Codable, Sendable, Equatable {
         self.permissionRevision = permissionRevision
         self.activeMaterialRefs = activeMaterialRefs
         self.activeMaterialVersions = activeMaterialVersions
+        self.activeTurnID = activeTurnID
+        self.activeRecipientID = activeRecipientID
+        self.activeGoalDigest = activeGoalDigest
         self.limits = limits
     }
 }
@@ -290,11 +305,64 @@ public struct BotDeliveryProposal: Sendable, Equatable {
     }
 }
 
+/// G-2 r2 `decision-tool-result.schema.json` reason enum.
 public enum BotRegenerationReason: String, Codable, Sendable, Equatable {
-    case permissionRevisionChanged = "permission_revision_changed"
-    case materialStatusChanged = "material_status_changed"
-    case newMaterials = "new_materials"
-    case recipientChanged = "recipient_changed"
+    case turnChanged = "turn-changed"
+    case authorizationRevisionChanged = "authorization-revision-changed"
+    case materialChanged = "material-changed"
+    case recipientChanged = "recipient-changed"
+    case goalChanged = "goal-changed"
+}
+
+/// The frozen model-visible tool result for a refused delivery. It is not a
+/// P25 event, a P27 row or a cloud message; the side effect must not run.
+public struct BotDecisionToolResult: Codable, Sendable, Equatable {
+    public static let code = "decision_context_changed"
+    public static let maximumMessageScalars = 300
+
+    public let ok: Bool
+    public let code: String
+    public let reason: BotRegenerationReason
+    public let materials: BotDecisionMaterialBlock
+    public let message: String
+
+    public init(reason: BotRegenerationReason, materials: BotDecisionMaterialBlock,
+                message: String = "材料已更新，请按新参数重新生成并重走授权") {
+        self.ok = false
+        self.code = Self.code
+        self.reason = reason
+        self.materials = materials
+        self.message = BotDecisionContextService.boundedScalars(message, Self.maximumMessageScalars)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case ok, code, reason, materials, message
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let ok = try container.decode(Bool.self, forKey: .ok)
+        guard ok == false else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .ok, in: container, debugDescription: "ok must be false")
+        }
+        let code = try container.decode(String.self, forKey: .code)
+        guard code == Self.code else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .code, in: container, debugDescription: "unknown code")
+        }
+        let message = try container.decode(String.self, forKey: .message)
+        guard !message.isEmpty,
+              message.unicodeScalars.count <= Self.maximumMessageScalars else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .message, in: container, debugDescription: "message out of bounds")
+        }
+        self.ok = false
+        self.code = Self.code
+        self.reason = try container.decode(BotRegenerationReason.self, forKey: .reason)
+        self.materials = try container.decode(BotDecisionMaterialBlock.self, forKey: .materials)
+        self.message = message
+    }
 }
 
 public enum BotDeliveryReview: Sendable, Equatable {
@@ -454,6 +522,24 @@ public actor BotDecisionContextService {
         let byPath = Dictionary(documents.map { ($0.path, $0) },
                                 uniquingKeysWith: { first, _ in first })
 
+        if let activeTurn = proposal.request.activeTurnID,
+           !activeTurn.isEmpty, activeTurn != proposal.request.turnID {
+            return .regenerate(
+                block: try await materials(for: deliveryRequest(proposal.request)),
+                reason: .turnChanged)
+        }
+        if let activeRecipient = proposal.request.activeRecipientID,
+           activeRecipient != Self.recipientKey(proposal.request.recipient) {
+            return .regenerate(
+                block: try await materials(for: deliveryRequest(proposal.request)),
+                reason: .recipientChanged)
+        }
+        if let activeGoal = proposal.request.activeGoalDigest,
+           activeGoal != Self.goalDigest(proposal.request.goal) {
+            return .regenerate(
+                block: try await materials(for: deliveryRequest(proposal.request)),
+                reason: .goalChanged)
+        }
         if !proposal.request.permissionRevision.isEmpty {
             let current = await permissionRevision(
                 proposal.request.botID, proposal.request.sessionID, proposal.request.recipient)
@@ -461,7 +547,7 @@ public actor BotDecisionContextService {
             if current != proposal.request.permissionRevision {
                 return .regenerate(
                     block: try await materials(for: deliveryRequest(proposal.request)),
-                    reason: .permissionRevisionChanged)
+                    reason: .authorizationRevisionChanged)
             }
         }
 
@@ -471,7 +557,7 @@ public actor BotDecisionContextService {
                   document.version == parsed.version else {
                 return .regenerate(
                     block: try await materials(for: deliveryRequest(proposal.request)),
-                    reason: .materialStatusChanged)
+                    reason: .materialChanged)
             }
         }
 
@@ -481,7 +567,7 @@ public actor BotDecisionContextService {
                   document.version == parsed.version else {
                 return .regenerate(
                     block: try await materials(for: deliveryRequest(proposal.request)),
-                    reason: .newMaterials)
+                    reason: .materialChanged)
             }
         }
         return .proceed
@@ -608,6 +694,18 @@ public actor BotDecisionContextService {
         if !recipient.isEmpty, snippet.range(of: recipient) != nil { return .recipient }
         if !goal.isEmpty, snippet.range(of: goal) != nil { return .goal }
         return hit.matched ? .match : .recency
+    }
+
+    static func recipientKey(_ recipient: BotDecisionRecipient?) -> String? {
+        guard let recipient else { return nil }
+        return "\(recipient.kind.rawValue):\(recipient.id)"
+    }
+
+    static func goalDigest(_ goal: String?) -> String? {
+        guard let goal, !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return digest(goal)
     }
 
     static func digest(_ value: String) -> String {

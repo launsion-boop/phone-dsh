@@ -18,6 +18,7 @@ import dshbotDecisionContext, {
   BOT_DECISION_CONTEXT_TOOL,
   DECISION_CONTEXT_SECTION,
   createPhoneDecisionContextSource,
+  internalToolOrigin,
   queryFromMessages,
   renderDecisionContext,
   validateDecisionContextResponse,
@@ -98,6 +99,7 @@ interface Mounted {
 async function mountDecision(options: {
   enabled?: boolean
   handler?: (args: Record<string, unknown>) => Record<string, unknown>
+  rawHandler?: (args: Record<string, unknown>) => Record<string, unknown>
   deadlineMilliseconds?: number
   script?: ScriptEntry[]
   source?: (request: { sessionId: string; turn: number; signal: AbortSignal }) => Promise<DecisionMaterialBlock | undefined>
@@ -120,15 +122,29 @@ async function mountDecision(options: {
       },
     },
     call: async args => {
-      calls.push(args as Record<string, unknown>)
-      const sessionId = String((args as Record<string, unknown>).session_id ?? '')
-      const turn = Number((args as Record<string, unknown>).turn ?? 0)
+      const request = args as Record<string, unknown>
+      calls.push(request)
+      const sessionId = String(request.session_id ?? '')
+      const turnId = String(request.turn_id ?? '')
+      const turn = Number(turnId.split('#').pop() ?? 0)
+      if (options.rawHandler !== undefined) {
+        const raw = options.rawHandler(request)
+        return {
+          content: [{ type: 'text', text: JSON.stringify(raw) }],
+          structuredContent: raw,
+        }
+      }
       const response = options.handler !== undefined
-        ? options.handler(args as Record<string, unknown>)
+        ? options.handler(request)
         : decisionResponse(sessionId, turn, 'abc12345')
+      const value = {
+        schema: 'bot-decision-context-result/v1',
+        ok: true,
+        block: response,
+      }
       return {
-        content: [{ type: 'text', text: JSON.stringify(response) }],
-        structuredContent: response,
+        content: [{ type: 'text', text: JSON.stringify(value) }],
+        structuredContent: value,
       }
     },
   }))
@@ -179,8 +195,9 @@ test('the accepted request carries the host block as runtime-context, not as the
     agent.followup(userMessage('帮我看出行准备'))
     await agent.whenIdle()
     assert.equal(mounted.calls.length, 1)
+    assert.equal(mounted.calls[0]!.schema, 'bot-decision-context-request/v1')
     assert.equal(mounted.calls[0]!.session_id, 'gb-decision')
-    assert.equal(mounted.calls[0]!.turn, 1)
+    assert.equal(mounted.calls[0]!.turn_id, 'gb-decision#1')
     assert.equal(mounted.calls[0]!.stage, 'pre_step')
 
     const request = mounted.adapter.requests[0]!.messages as unknown as ModelMessageView[]
@@ -217,10 +234,11 @@ test('a new turn replaces the block and never reuses a previous turn snapshot', 
     handler: args => {
       next += 1
       const blockId = next.toString(16).padStart(8, '0')
-      return decisionResponse(String(args.session_id), Number(args.turn), blockId, {
+      const turn = Number(String(args.turn_id).split('#').pop() ?? 0)
+      return decisionResponse(String(args.session_id), turn, blockId, {
         materials: [material({
           material_id: `mat:${blockId}:1`,
-          snippet: `- 第 ${args.turn} 回合的材料`,
+          snippet: `- 第 ${turn} 回合的材料`,
         })],
       })
     },
@@ -232,8 +250,8 @@ test('a new turn replaces the block and never reuses a previous turn snapshot', 
     agent.followup(userMessage('第二回合'))
     await agent.whenIdle()
     assert.equal(mounted.calls.length, 2)
-    assert.equal(mounted.calls[0]!.turn, 1)
-    assert.equal(mounted.calls[1]!.turn, 2)
+    assert.equal(mounted.calls[0]!.turn_id, 'gb-two-turns#1')
+    assert.equal(mounted.calls[1]!.turn_id, 'gb-two-turns#2')
 
     const second = mounted.adapter.requests[1]!.messages as unknown as ModelMessageView[]
     const contexts = runtimeContextMessages(second)
@@ -326,7 +344,12 @@ test('restricted verifier and maintainer sessions get no Bot material', async ()
 })
 
 test('host failure, timeout and malformed blocks degrade to no material without failing the turn', async () => {
-  const failing = await mountDecision({ handler: () => { throw new Error('host unavailable') } })
+  const failing = await mountDecision({
+    rawHandler: () => ({
+      schema: 'bot-decision-context-result/v1', ok: false,
+      code: 'material-unavailable', message: 'no materials',
+    }),
+  })
   const failingAgent: Agent = await createAgent(failing.ctx, 'gb-host-failure')
   try {
     failingAgent.followup(userMessage('失败也继续'))
@@ -436,6 +459,16 @@ test('rendering is bounded, escaped, state-labelled and non-instructional', () =
   assert.equal(renderDecisionContext(undefined), '')
   assert.equal(renderDecisionContext({ ...block, materials: [] }), '')
   assert.equal(renderDecisionContext({ ...block, canceled: true }), '')
+})
+
+test('the internal tool origin mapping only uses the frozen r3 enum', () => {
+  assert.equal(internalToolOrigin('user'), 'user')
+  assert.equal(internalToolOrigin('agent'), 'bot')
+  assert.equal(internalToolOrigin('routine'), 'routine')
+  assert.equal(internalToolOrigin('task'), 'task')
+  assert.equal(internalToolOrigin('held'), 'proactive')
+  assert.equal(internalToolOrigin('task-wake'), 'proactive')
+  assert.equal(internalToolOrigin('unknown'), undefined)
 })
 
 test('query extraction ignores runtime-context snapshots', () => {

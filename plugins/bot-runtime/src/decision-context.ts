@@ -23,6 +23,8 @@ import type { TurnOriginKind } from './turn-origin.ts'
  */
 
 export const BOT_DECISION_CONTEXT_TOOL = 'mcp__phone__BotDecisionContext'
+export const BOT_DECISION_CONTEXT_REQUEST_SCHEMA = 'bot-decision-context-request/v1'
+export const BOT_DECISION_CONTEXT_RESULT_SCHEMA = 'bot-decision-context-result/v1'
 export const DECISION_CONTEXT_SECTION = 'dshbot:decision-context'
 export const DECISION_CONTEXT_ORDER = 350
 
@@ -411,6 +413,23 @@ export function validateDecisionContextResponse(
   }
 }
 
+/**
+ * Map the Worker turn-origin vocabulary onto the frozen G-2 r3 request enum
+ * (`user|bot|routine|task|proactive`). `unknown` is omitted because `origin`
+ * is optional; no new enum value is introduced.
+ */
+export function internalToolOrigin(origin: TurnOriginKind): 'user' | 'bot' | 'routine' | 'task' | 'proactive' | undefined {
+  switch (origin) {
+    case 'user': return 'user'
+    case 'agent': return 'bot'
+    case 'routine': return 'routine'
+    case 'task': return 'task'
+    case 'held':
+    case 'task-wake': return 'proactive'
+    default: return undefined
+  }
+}
+
 /** Default provider: the single internal `BotDecisionContext` host call. */
 export function createPhoneDecisionContextSource(
   ctx: Context,
@@ -419,13 +438,15 @@ export function createPhoneDecisionContextSource(
   let nextCallId = 0
   return async ({ sessionId, turn, step, query, origin, agent, signal }) => {
     nextCallId += 1
+    const mappedOrigin = internalToolOrigin(origin)
     const argumentsValue = {
+      schema: BOT_DECISION_CONTEXT_REQUEST_SCHEMA,
       session_id: sessionId,
-      turn,
+      turn_id: `${sessionId}#${turn}`,
       step,
       stage: 'pre_step',
       query: bounded(query, 600),
-      origin,
+      ...mappedOrigin === undefined ? {} : { origin: mappedOrigin },
       scopes: ['user', 'agent'],
       limits: {
         max_materials: limits.maxMaterials,
@@ -447,7 +468,10 @@ export function createPhoneDecisionContextSource(
       })
       const result = batch.results[0]?.result
       if (result === undefined || result.isError || signal.aborted || !isRecord(result.value)) return undefined
-      return validateDecisionContextResponse(result.value.structuredContent, { sessionId, turn })
+      const value = result.value.structuredContent
+      if (!isRecord(value) || value.schema !== BOT_DECISION_CONTEXT_RESULT_SCHEMA) return undefined
+      if (value.ok !== true || !isRecord(value.block)) return undefined
+      return validateDecisionContextResponse(value.block, { sessionId, turn })
     } catch {
       return undefined
     }
