@@ -5,7 +5,7 @@ import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { isRestrictedAgent } from '../../lifecycle-gate/src/restricted-session.ts'
 import { agentSessionIdOf } from './volatile-context.ts'
 import { isBotSessionId } from './bot-sessions.ts'
-import { resolveTurnOrigin, turnOriginOfMessage } from './turn-origin.ts'
+import { resolveTurnOrigin, rpcIdFromSource, turnOriginOfMessage } from './turn-origin.ts'
 import type { TurnOriginKind } from './turn-origin.ts'
 
 /**
@@ -242,26 +242,39 @@ function messageText(message: { content?: readonly { type?: string; text?: strin
     .join('')
 }
 
-/** The claimed turn text, excluding runtime-context snapshots.
- *
- * A teammate/onboarding turn can carry a long held block before the real
- * inquiry. The query must describe the current message, not the prefix of the
- * transcript, so pick the last user messages and never let onboarding consume
- * the 600-scalar budget.
- */
+/** The claimed turn text, excluding runtime-context snapshots. */
+function isHeldSource(source: unknown): boolean {
+  return rpcIdFromSource(source)?.startsWith('held:') === true
+}
+
+function isCurrentUserMessage(message: { source?: unknown }, requireUser = true): boolean {
+  const kind = (message.source as { kind?: unknown } | undefined)?.kind
+  if (requireUser && kind !== 'user') return false
+  return !isHeldSource(message.source)
+}
+
+/** The message that opened the current turn: last non-held user message. */
+export function currentTurnMessage(
+  messages: readonly { content?: readonly { type?: string; text?: string }[]; source?: unknown }[],
+): (typeof messages)[number] | undefined {
+  const visible = messages.filter(message =>
+    (message.source as { kind?: unknown } | undefined)?.kind !== 'runtime-context')
+  const userMessages = visible.filter(message => isCurrentUserMessage(message))
+  return userMessages.at(-1) ?? visible.at(-1)
+}
+
 export function queryFromMessages(
   messages: readonly { content?: readonly { type?: string; text?: string }[]; source?: unknown }[],
 ): string {
   const visible = messages.filter(message =>
     (message.source as { kind?: unknown } | undefined)?.kind !== 'runtime-context')
-  const userMessages = visible.filter(message => {
-    const source = message.source as { kind?: unknown; rpcId?: unknown } | undefined
-    return source?.kind === 'user' && !String(source.rpcId ?? '').startsWith('held:')
-  })
-  const picked = userMessages.length > 0
-    ? userMessages.slice(-2)
-    : visible.slice(-2)
-  return bounded(picked
+  const userMessages = visible.filter(message => isCurrentUserMessage(message))
+  // The current turn is the last non-held user message. Put it first so a long
+  // onboarding/held block can never consume the 600-scalar prefix; the prior
+  // user turn is optional background, never a prefix.
+  const selected = (userMessages.length > 0 ? userMessages : visible).slice(-2)
+  const ordered = selected.length > 1 ? [selected[1], selected[0]] : selected
+  return bounded(ordered
     .map(messageText)
     .join('\n')
     .replace(/\s+/gu, ' ')
@@ -627,11 +640,9 @@ export default function dshbotDecisionContext(
     if (current !== undefined && current.turn === payload.turn) return next()
     states.delete(sessionId)
     const query = queryFromMessages(payload.messages)
-    const queryMessage = payload.messages
-      .filter(message => (message.source as { kind?: unknown } | undefined)?.kind !== 'runtime-context')
-      .at(-1)
-    const origin = queryMessage
-      ? turnOriginOfMessage(queryMessage)
+    const originMessage = currentTurnMessage(payload.messages)
+    const origin = originMessage !== undefined
+      ? turnOriginOfMessage(originMessage)
       : resolveTurnOrigin(undefined)
     if (!allowOrigins.has(origin.kind) || scalarLength(query) < minQuery) return next()
 

@@ -19,6 +19,7 @@ import dshbotDecisionContext, {
   DECISION_CONTEXT_SECTION,
   createPhoneDecisionContextSource,
   internalToolOrigin,
+  currentTurnMessage,
   queryFromMessages,
   renderDecisionContext,
   validateDecisionContextResponse,
@@ -570,4 +571,16 @@ test('query extraction ignores runtime-context snapshots', () => {
     { content: [{ type: 'text', text: '用户本轮' }], source: { kind: 'user' } },
     { content: [{ type: 'text', text: '宿主材料' }], source: { kind: 'runtime-context' } },
   ]), '用户本轮')
+
+  const onboarding = 'ONBOARDING_MARKER '.repeat(80)
+  const current = '客户喜欢先看结论，风险段必须写'
+  const messages = [
+    { content: [{ type: 'text', text: onboarding }], source: { kind: 'user', rpcId: 'held:onboarding' } },
+    { content: [{ type: 'text', text: current }], source: { kind: 'user', rpcId: 'user-action:current' } },
+  ]
+  const query = queryFromMessages(messages)
+  assert.ok(query.includes(current), 'current inquiry must survive the query budget')
+  assert.equal(query.includes('ONBOARDING_MARKER'), false, 'held onboarding must not enter the query')
+  assert.ok(query.length <= 600)
+  assert.equal(currentTurnMessage(messages)?.source?.rpcId, 'user-action:current')
 })
