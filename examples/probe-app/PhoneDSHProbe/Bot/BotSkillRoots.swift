@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import PhoneDSHBot
 
 /// G-1/G-4 skill roots for the phone host. The VFS `/dsh/workspace` and
 /// `/dsh/home` are the two materialized mounts; project skills live under the
