@@ -57,6 +57,20 @@ env:
   CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
 
 jobs:
+  # Guard the comparison tools themselves: the negative cases (new sub-check
+  # in a red stage, coverage drop, removed anchor without evidence, short JUnit
+  # run) must fail. This job is cheap and runs before the heavy ones.
+  ci-tools-selftest:
+    name: baseline-diff tool self-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Negative-case tests for the comparison tools
+        run: python3 scripts/ci/test_ci_tools.py
+
   # Python-only contract stages. Each stage is executed on base and head with
   # its own log; comparison is per stage name in scripts/ci/ci_baseline_diff.py.
   stage-baseline-diff:
@@ -92,7 +106,7 @@ jobs:
           set -uo pipefail
           mkdir -p artifacts/stages
           python3 - <<'PY'
-          import json, subprocess
+          import json, subprocess, sys
           from pathlib import Path
 
           HEAD = Path(".").resolve()
@@ -115,10 +129,22 @@ jobs:
                           ["bash", "scripts/ci/check.sh", "--only", stage],
                           cwd=root, stdout=handle, stderr=subprocess.STDOUT,
                           text=True)
-                  # Keep the base/head split in one JSON so the comparator can
-                  # require identical stage sets.
+                  # The stage exit code alone is not evidence: a stage that is
+                  # red at base can hide a second, new failing sub-check. Parse
+                  # the log into an inventory (failures, checks, coverage) and
+                  # let the comparator require it; an unparsable log becomes
+                  # INCOMPLETE, never "no new failure".
+                  inventory_path = log.with_suffix(".inventory.json")
+                  inv = subprocess.run(
+                      [sys.executable, str(HEAD / "scripts/ci/stage_inventory.py"),
+                       str(log), "--json", str(inventory_path)],
+                      cwd=HEAD, text=True, capture_output=True)
+                  inventory = None
+                  if inv.returncode == 0 and inventory_path.exists():
+                      inventory = json.loads(inventory_path.read_text())
                   key = f"{root_name}/{stage}"
-                  out["stages"][key] = {"rc": proc.returncode, "log": str(log)}
+                  out["stages"][key] = {"rc": proc.returncode, "log": str(log),
+                                        "inventory": inventory}
           # The comparator works per side; write one JSON per side.
           for side in ("base", "head"):
               side_out = {"stages": {k.split("/", 1)[1]: v
@@ -150,8 +176,11 @@ jobs:
           print(f"- new failures: {len(d['new'])}")
           print(f"- pre-existing failures: {len(d['pre_existing'])}")
           print(f"- fixed: {len(d['fixed'])}")
+          print(f"- incomplete: {len(d.get('incomplete', []))}")
           for name in d["new"]:
               print(f"- NEW `{name}`")
+          for name in d.get("incomplete", []):
+              print(f"- INCOMPLETE {name}")
           for name in d["pre_existing"]:
               print(f"- pre-existing `{name}`")
           PY
@@ -225,8 +254,11 @@ jobs:
           print(f"- new failures: {len(d['new'])}")
           print(f"- pre-existing failures: {len(d['pre_existing'])}")
           print(f"- fixed: {len(d['fixed'])}")
+          print(f"- incomplete: {len(d.get('incomplete', []))}")
           for n in d["new"]:
               print(f"- NEW `{n}`")
+          for n in d.get("incomplete", []):
+              print(f"- INCOMPLETE {n}")
           for n in d["pre_existing"]:
               print(f"- pre-existing `{n}`")
           PY
@@ -279,6 +311,7 @@ jobs:
           python3 scripts/ci/ci_baseline_diff.py anchors \
             --base artifacts/anchors/base.json \
             --head artifacts/anchors/head.json \
+            --allow-removals scripts/ci/anchor-removals.json \
             --json artifacts/anchors/diff.json
       - name: Anchor summary
         if: always()
@@ -295,8 +328,11 @@ jobs:
           print(f"- new failures: {len(d['new'])}")
           print(f"- pre-existing failures: {len(d['pre_existing'])}")
           print(f"- fixed: {len(d['fixed'])}")
+          print(f"- incomplete: {len(d.get('incomplete', []))}")
           for n in d["new"]:
               print(f"- NEW `{n}`")
+          for n in d.get("incomplete", []):
+              print(f"- INCOMPLETE {n}")
           for n in d["pre_existing"]:
               print(f"- pre-existing `{n}`")
           PY

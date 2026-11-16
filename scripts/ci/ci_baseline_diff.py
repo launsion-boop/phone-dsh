@@ -1,21 +1,33 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Compare structured results collected on the same runner for a fixed base
-and the candidate head.
+"""Compare structured results from a fixed base and the candidate head.
 
-The contract of this helper: a gate may already be red at base. What must not
-happen is a NEW failure on head. Each comparison reports the head-only
-failures (new), the base-only failures (fixed) and the shared failures
-(pre-existing), writes a JSON receipt, and exits non-zero when anything is new.
+The contract: a gate may already be red at base, but the comparison must be
+able to prove that the head added no failure and ran no less coverage. A
+same-named stage that is red on both sides is NOT proof by itself; each kind
+compares real identities and inventories, and falls back to INCOMPLETE when it
+cannot enumerate them reliably.
 
-Kinds:
-  junit   --base <dir> --head <dir>    JUnit XML trees (classname#name identity)
-  stages  --base <json> --head <json>  {"stages": {"<name>": {"rc": <int>, ...}}}
-  anchors --base <json> --head <json>  {"failures": ["<strings id>", ...]}
+Kinds and contracts:
+  junit    --base <dir> --head <dir>
+           JUnit XML trees. Compares failure ids (classname#name), test-id
+           coverage (a base test missing at head is INCOMPLETE), skipped
+           counts, parse errors and missing XML.
+  stages   --base <json> --head <json>
+           {"stages": {"<name>": {"rc": int, "inventory": {
+                "parsed": bool, "coverage": int, "failures": [str]}}}}
+           Compares per-stage failure lines and coverage; unparsed or
+           coverage-dropping stages are INCOMPLETE.
+  anchors  --base <json> --head <json> [--allow-removals <json>]
+           {"anchors": [id], "failures": [id], "invalid": [id]}
+           Compares failures plus the anchor-id inventory. A removed anchor
+           needs an entry in the removal allowlist (id/reason/evidence);
+           malformed entries are INCOMPLETE.
+
+Verdicts: NO_NEW_FAILURE (exit 0), NEW_FAILURE / INCOMPLETE (exit 1).
 
 Usage:
-    python3 scripts/ci/ci_baseline_diff.py junit --base /tmp/base --head . \
-        --json out.json
+    python3 scripts/ci/ci_baseline_diff.py junit --base ... --head ... --json out.json
 """
 from __future__ import annotations
 
@@ -26,44 +38,208 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
-def _junit_failures(root: Path) -> set[str]:
-    failures: set[str] = set()
+def _load_json(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"cannot read {path}: {error}") from error
+    if not isinstance(value, dict):
+        raise SystemExit(f"{path}: top level must be an object")
+    return value
+
+
+def _string_list(value, where: str) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise SystemExit(f"{where}: expected a list of strings")
+    return value
+
+
+def _junit_inventory(root: Path) -> dict:
     files = sorted(root.rglob("*.xml"))
+    parsed_errors = 0
+    tests = 0
+    skipped = 0
+    failures: set[str] = set()
+    ids: set[str] = set()
     if not files:
-        raise SystemExit(f"no JUnit XML under {root}")
+        return {"files": 0, "parse_errors": 1, "tests": 0, "skipped": 0,
+                "failures": set(), "ids": set()}
     for path in files:
         try:
             document = ET.parse(path).getroot()
         except ET.ParseError:
-            # A truncated XML is itself a failure of the harness; keep it
-            # visible instead of silently treating the test as passing.
-            failures.add(f"xml-parse-error:{path.name}")
+            parsed_errors += 1
             continue
         for case in document.iter("testcase"):
+            tests += 1
+            identity = f"{case.get('classname', '')}#{case.get('name', '')}"
+            ids.add(identity)
+            if case.find("skipped") is not None:
+                skipped += 1
             if case.find("failure") is not None or case.find("error") is not None:
-                failures.add(f"{case.get('classname', '')}#{case.get('name', '')}")
-    return failures
+                failures.add(identity)
+    return {"files": len(files), "parse_errors": parsed_errors, "tests": tests,
+            "skipped": skipped, "failures": failures, "ids": ids}
 
 
-def _stage_results(path: Path) -> dict[str, int]:
-    document = json.loads(path.read_text(encoding="utf-8"))
-    stages = document.get("stages")
-    if not isinstance(stages, dict) or not stages:
-        raise SystemExit(f"{path}: missing non-empty 'stages' map")
-    result: dict[str, int] = {}
-    for name, entry in stages.items():
-        if not isinstance(entry, dict) or not isinstance(entry.get("rc"), int):
-            raise SystemExit(f"{path}: stage {name!r} has no integer rc")
-        result[name] = entry["rc"]
-    return result
-
-
-def _anchor_failures(path: Path) -> set[str]:
-    document = json.loads(path.read_text(encoding="utf-8"))
-    failures = document.get("failures")
+def _stage_inventory(entry, side: str, name: str) -> tuple[int, dict | None]:
+    if not isinstance(entry, dict):
+        raise SystemExit(f"{side}.{name}: stage entry must be an object")
+    rc = entry.get("rc")
+    if not isinstance(rc, int) or isinstance(rc, bool):
+        raise SystemExit(f"{side}.{name}: rc must be an integer")
+    inventory = entry.get("inventory")
+    if not isinstance(inventory, dict):
+        return rc, None
+    parsed = inventory.get("parsed")
+    coverage = inventory.get("coverage")
+    failures = inventory.get("failures")
+    if not isinstance(parsed, bool) or not isinstance(coverage, int) or isinstance(coverage, bool):
+        return rc, None
     if not isinstance(failures, list) or not all(isinstance(item, str) for item in failures):
-        raise SystemExit(f"{path}: 'failures' must be a list of strings")
-    return set(failures)
+        return rc, None
+    return rc, {"parsed": parsed, "coverage": coverage, "failures": failures}
+
+
+def compare_junit(base_dir: str, head_dir: str) -> dict:
+    base = _junit_inventory(Path(base_dir))
+    head = _junit_inventory(Path(head_dir))
+    incomplete: list[str] = []
+    for side, inv in (("base", base), ("head", head)):
+        if inv["files"] == 0:
+            incomplete.append(f"{side}: no JUnit XML")
+        if inv["parse_errors"]:
+            incomplete.append(f"{side}: {inv['parse_errors']} unparsable JUnit file(s)")
+    new = sorted(head["failures"] - base["failures"]) if not incomplete else []
+    fixed = sorted(base["failures"] - head["failures"])
+    pre = sorted(base["failures"] & head["failures"])
+    if not incomplete:
+        missing_tests = sorted(base["ids"] - head["ids"])
+        if missing_tests:
+            incomplete.append(f"head: {len(missing_tests)} base test id(s) did not run "
+                              f"(e.g. {missing_tests[:3]})")
+        if head["tests"] < base["tests"]:
+            incomplete.append(f"coverage drop: tests {base['tests']} -> {head['tests']}")
+        if head["skipped"] > base["skipped"]:
+            incomplete.append(f"coverage drop: skipped {base['skipped']} -> {head['skipped']}")
+    return {
+        "kind": "junit",
+        "base_inventory": {k: (sorted(v) if isinstance(v, set) else v)
+                           for k, v in base.items() if k != "ids"},
+        "head_inventory": {k: (sorted(v) if isinstance(v, set) else v)
+                           for k, v in head.items() if k != "ids"},
+        "new": new, "fixed": fixed, "pre_existing": pre, "incomplete": incomplete,
+    }
+
+
+def compare_stages(base_path: Path, head_path: Path) -> dict:
+    base = _load_json(base_path).get("stages")
+    head = _load_json(head_path).get("stages")
+    if not isinstance(base, dict) or not isinstance(head, dict):
+        raise SystemExit("stages JSON must contain a 'stages' object")
+    new: list[str] = []
+    fixed: list[str] = []
+    pre: list[str] = []
+    incomplete: list[str] = []
+    if set(base) != set(head):
+        incomplete.append(f"stage sets differ: {sorted(set(base) ^ set(head))}")
+    for name in sorted(set(base) & set(head)):
+        base_rc, base_inv = _stage_inventory(base[name], "base", name)
+        head_rc, head_inv = _stage_inventory(head[name], "head", name)
+        if base_inv is None or head_inv is None:
+            incomplete.append(f"{name}: stage inventory missing/unusable")
+            continue
+        if not base_inv["parsed"] or not head_inv["parsed"]:
+            incomplete.append(f"{name}: coverage not parseable")
+            continue
+        if head_inv["coverage"] < base_inv["coverage"]:
+            incomplete.append(f"{name}: coverage drop {base_inv['coverage']} -> "
+                              f"{head_inv['coverage']}")
+            continue
+        base_fail = set(base_inv["failures"])
+        head_fail = set(head_inv["failures"])
+        newly_failing = sorted(head_fail - base_fail)
+        if head_rc == 0:
+            if base_rc != 0:
+                fixed.append(name)
+            if head_fail:
+                incomplete.append(f"{name}: rc=0 but inventory reports failures")
+            continue
+        # head is failing
+        if newly_failing:
+            new.extend(f"{name}: {item}" for item in newly_failing)
+        elif base_rc == 0:
+            new.append(f"{name}: stage failed (base passed)")
+        elif not head_fail:
+            incomplete.append(f"{name}: failing without a parsed failure line "
+                              f"(cannot prove no new failure)")
+        else:
+            pre.append(name)
+    return {
+        "kind": "stages", "new": new, "fixed": fixed, "pre_existing": pre,
+        "incomplete": incomplete,
+        "base_inventory": base, "head_inventory": head,
+    }
+
+
+def _allowed_removals(path: Path | None) -> set[str]:
+    if path is None:
+        return set()
+    document = _load_json(path)
+    removals = document.get("removals")
+    if not isinstance(removals, list):
+        raise SystemExit(f"{path}: 'removals' must be a list")
+    allowed: set[str] = set()
+    for index, item in enumerate(removals):
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            raise SystemExit(f"{path}: removals[{index}] needs an id")
+        reason = item.get("reason")
+        evidence = item.get("evidence")
+        if not isinstance(reason, str) or not reason.strip() or not isinstance(evidence, str) \
+                or not evidence.strip():
+            raise SystemExit(f"{path}: removals[{index}] needs reason and evidence")
+        allowed.add(item["id"])
+    return allowed
+
+
+def compare_anchors(base_path: Path, head_path: Path, allow_path: Path | None) -> dict:
+    base = _load_json(base_path)
+    head = _load_json(head_path)
+    incomplete: list[str] = []
+    for side, document in (("base", base), ("head", head)):
+        if "anchors" not in document:
+            incomplete.append(f"{side}: no anchor inventory")
+        if not isinstance(document.get("anchors"), list):
+            incomplete.append(f"{side}: 'anchors' must be a list")
+            continue
+        _string_list(document.get("anchors"), f"{side}.anchors")
+        _string_list(document.get("failures"), f"{side}.failures")
+        _string_list(document.get("invalid"), f"{side}.invalid")
+        if document["invalid"]:
+            incomplete.append(f"{side}: malformed source entries {document['invalid']}")
+    if incomplete:
+        return {"kind": "anchors", "new": [], "fixed": [], "pre_existing": [],
+                "removed_without_evidence": [], "incomplete": incomplete,
+                "base_inventory": base, "head_inventory": head}
+    base_anchors = set(base["anchors"])
+    head_anchors = set(head["anchors"])
+    removed = sorted(base_anchors - head_anchors)
+    allowed = _allowed_removals(allow_path)
+    unallowed = [item for item in removed if item not in allowed]
+    if unallowed:
+        incomplete.append(f"anchors removed without evidence: {unallowed}")
+    base_fail = set(base["failures"])
+    head_fail = set(head["failures"])
+    new = sorted(head_fail - base_fail)
+    fixed = sorted(base_fail - head_fail)
+    pre = sorted(base_fail & head_fail)
+    return {
+        "kind": "anchors", "new": new, "fixed": fixed, "pre_existing": pre,
+        "removed_without_evidence": unallowed,
+        "removed_with_evidence": [item for item in removed if item in allowed],
+        "incomplete": incomplete,
+        "base_inventory": base, "head_inventory": head,
+    }
 
 
 def main() -> int:
@@ -72,44 +248,36 @@ def main() -> int:
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
     parser.add_argument("--json", required=True)
+    parser.add_argument("--allow-removals")
     args = parser.parse_args()
 
     if args.kind == "junit":
-        base_fail = _junit_failures(Path(args.base))
-        head_fail = _junit_failures(Path(args.head))
-    elif args.kind == "anchors":
-        base_fail = _anchor_failures(Path(args.base))
-        head_fail = _anchor_failures(Path(args.head))
+        receipt = compare_junit(args.base, args.head)
+    elif args.kind == "stages":
+        receipt = compare_stages(Path(args.base), Path(args.head))
     else:
-        base_stages = _stage_results(Path(args.base))
-        head_stages = _stage_results(Path(args.head))
-        missing = sorted(set(base_stages) ^ set(head_stages))
-        if missing:
-            raise SystemExit(f"stage sets differ (cannot compare): {missing}")
-        base_fail = {name for name, rc in base_stages.items() if rc != 0}
-        head_fail = {name for name, rc in head_stages.items() if rc != 0}
+        receipt = compare_anchors(Path(args.base), Path(args.head),
+                                  Path(args.allow_removals) if args.allow_removals else None)
 
-    new = sorted(head_fail - base_fail)
-    fixed = sorted(base_fail - head_fail)
-    shared = sorted(base_fail & head_fail)
-    receipt = {
-        "kind": args.kind,
-        "base_failures": sorted(base_fail),
-        "head_failures": sorted(head_fail),
-        "new": new,
-        "fixed": fixed,
-        "pre_existing": shared,
-        "verdict": "NEW_FAILURE" if new else "NO_NEW_FAILURE",
-    }
+    new = receipt["new"]
+    incomplete = receipt["incomplete"]
+    if new:
+        verdict = "NEW_FAILURE"
+    elif incomplete:
+        verdict = "INCOMPLETE"
+    else:
+        verdict = "NO_NEW_FAILURE"
+    receipt["verdict"] = verdict
     Path(args.json).write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
                                encoding="utf-8")
-    print(f"{args.kind}: new={len(new)} fixed={len(fixed)} "
-          f"pre_existing={len(shared)}")
-    for name in new:
-        print(f"  NEW {name}")
-    for name in fixed:
-        print(f"  FIXED {name}")
-    return 1 if new else 0
+    print(f"{args.kind}: verdict={verdict} new={len(new)} "
+          f"fixed={len(receipt['fixed'])} pre_existing={len(receipt['pre_existing'])} "
+          f"incomplete={len(incomplete)}")
+    for item in new:
+        print(f"  NEW {item}")
+    for item in incomplete:
+        print(f"  INCOMPLETE {item}")
+    return 0 if verdict == "NO_NEW_FAILURE" else 1
 
 
 if __name__ == "__main__":
