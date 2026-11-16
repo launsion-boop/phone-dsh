@@ -311,6 +311,15 @@ targets:
       # BotUIModels' deep-link helpers resolve the roster's main pointer
       # through the production routing rule; Foundation + PhoneDSHBot only.
       - path: PhoneDSHProbe/Bot/BotAppWiringLogic.swift
+      # C-owned integration (U): source inspector, delivery selection and
+      # feedback views/models. Compiled into both hostless suites so the Bot
+      # driver/action mapping is testable without the app host.
+      - path: PhoneDSHProbe/Bot/BotProvenanceModels.swift
+      - path: PhoneDSHProbe/Bot/BotProvenanceInspector.swift
+      - path: PhoneDSHProbe/Bot/BotDeliveryModels.swift
+      - path: PhoneDSHProbe/Bot/BotDeliveryViews.swift
+      - path: PhoneDSHProbe/Bot/BotFeedbackModels.swift
+      - path: PhoneDSHProbe/Bot/BotFeedbackViews.swift
       # The scripted model upstream, the smoke evidence readers (WAL
       # replay/journal/step formats) and the kill-matrix support ship as the
       # regular SwiftPM target `PhoneDSHHarness`; this target links its
@@ -477,6 +486,15 @@ targets:
       # BotUIModels' deep-link helpers resolve the roster's main pointer
       # through the production routing rule; Foundation + PhoneDSHBot only.
       - path: PhoneDSHProbe/Bot/BotAppWiringLogic.swift
+      # C-owned integration (U): source inspector, delivery selection and
+      # feedback views/models. Compiled into both hostless suites so the Bot
+      # driver/action mapping is testable without the app host.
+      - path: PhoneDSHProbe/Bot/BotProvenanceModels.swift
+      - path: PhoneDSHProbe/Bot/BotProvenanceInspector.swift
+      - path: PhoneDSHProbe/Bot/BotDeliveryModels.swift
+      - path: PhoneDSHProbe/Bot/BotDeliveryViews.swift
+      - path: PhoneDSHProbe/Bot/BotFeedbackModels.swift
+      - path: PhoneDSHProbe/Bot/BotFeedbackViews.swift
     dependencies:
       - target: PhoneDSHProbe
       - target: ProbeKit
