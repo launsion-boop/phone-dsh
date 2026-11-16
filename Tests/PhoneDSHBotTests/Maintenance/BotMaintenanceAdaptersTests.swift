@@ -49,8 +49,11 @@ final class BotMaintenanceAdaptersTests: XCTestCase {
     }
 
     func testProvenanceAdapterMapsEveryStateAndNeverTreatsUnknownAsLive() async throws {
-        let adapter = BotProvenanceInvalidationAdapter(rawQuery: { refs in
-            XCTAssertEqual(refs.count, 6)
+        let adapter = BotProvenanceInvalidationAdapter(rawQuery: { request in
+            XCTAssertEqual(request.references.count, 6)
+            XCTAssertEqual(request.botID, "main")
+            XCTAssertEqual(request.artifact.path, "agent/a.md")
+            XCTAssertEqual(request.artifact.version, 3)
             return [
                 "record://event/1": self.status("record://event/1", .current),
                 "record://event/2": self.status(
@@ -65,10 +68,15 @@ final class BotMaintenanceAdaptersTests: XCTestCase {
                     "record://event/6", .unknown, reason: .noBaseline),
             ]
         })
-        let result = try await adapter.invalidationStatuses(for: [
-            "record://event/1", "record://event/2", "record://event/3",
-            "record://event/4", "record://event/5", "record://event/6",
-        ])
+        let result = try await adapter.invalidationStatuses(
+            for: BotMaintenanceInvalidationRequest(
+                botID: "main",
+                artifact: BotMaintenanceArtifactReference(
+                    path: "agent/a.md", version: 3, scope: "agent"),
+                references: [
+                    "record://event/1", "record://event/2", "record://event/3",
+                    "record://event/4", "record://event/5", "record://event/6",
+                ]))
         XCTAssertEqual(result["record://event/1"]?.state, .live)
         XCTAssertEqual(result["record://event/2"]?.state, .changed)
         XCTAssertEqual(result["record://event/3"]?.state, .revoked)

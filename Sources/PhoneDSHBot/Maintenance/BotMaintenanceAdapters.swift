@@ -16,6 +16,14 @@ public struct BotFeedbackDisputeAdapter: BotMaintenanceFeedbackReading {
         self.query = { paths in try await query.disputedRefs(paths: paths) }
     }
 
+    /// Production scoped injection: C supplies L r16's
+    /// `sourceStatuses(for: artifact, botID:)` (or an equivalent scoped read)
+    /// here. The request carries the real botID and artifact baseline; the
+    /// closure must not fall back to a global no-bot query.
+    public init(scopedQuery: @escaping Query) {
+        self.query = scopedQuery
+    }
+
     init(rawQuery: @escaping Query) {
         self.query = rawQuery
     }
@@ -42,21 +50,40 @@ public struct BotFeedbackDisputeAdapter: BotMaintenanceFeedbackReading {
 /// meaning (unknown and unavailable are not live).
 public struct BotProvenanceInvalidationAdapter: BotMaintenanceInvalidationReading {
     public typealias Query =
-        @Sendable ([String]) async throws -> [String: BotSourceStatus]
+        @Sendable (BotMaintenanceInvalidationRequest) async throws -> [String: BotSourceStatus]
 
     private let query: Query
 
     public init(provenance: any BotProvenanceQuerying) {
-        self.query = { refs in try await provenance.sourceStatuses(for: refs) }
+        self.query = { request in
+            // Prefer the artifact baseline (G-1 currentState/derivation view)
+            // when the caller supplied one; fall back to refs only for a
+            // legacy call that has no artifact context.
+            let artifact = request.artifact
+            let derived = BotDerivedRef(
+                kind: .memory, id: artifact.path, version: artifact.version)
+            let statuses = try await provenance.sourceStatuses(for: derived)
+            return Dictionary(uniqueKeysWithValues: statuses.map {
+                ($0.ref, $0)
+            })
+        }
+    }
+
+    /// Production scoped injection: C supplies L r16's
+    /// `sourceStatuses(for: artifact, botID:)` (or an equivalent scoped read)
+    /// here. The request carries the real botID and artifact baseline; the
+    /// closure must not fall back to a global no-bot query.
+    public init(scopedQuery: @escaping Query) {
+        self.query = scopedQuery
     }
 
     init(rawQuery: @escaping Query) {
         self.query = rawQuery
     }
 
-    public func invalidationStatuses(for references: [String]) async throws
-        -> [String: BotMaintenanceDependencyStatus] {
-        let raw = try await query(references)
+    public func invalidationStatuses(for request: BotMaintenanceInvalidationRequest)
+        async throws -> [String: BotMaintenanceDependencyStatus] {
+        let raw = try await query(request)
         var result: [String: BotMaintenanceDependencyStatus] = [:]
         for (reference, status) in raw {
             let mapped: BotMaintenanceDependencyStatus.State

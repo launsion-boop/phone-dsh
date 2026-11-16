@@ -140,9 +140,39 @@ public struct BotMaintenanceDependencyStatus: Sendable, Equatable {
     }
 }
 
-/// L's `BotProvenanceSourceReading.sourceStatuses(for:)` maps onto this.
+/// The artifact whose baseline/scope the invalidation query belongs to.
+/// A bare ref list is not enough: the same record can be valid for one Bot's
+/// memory artifact and out of scope for another.
+public struct BotMaintenanceArtifactReference: Codable, Sendable, Equatable {
+    public var path: String
+    public var version: Int?
+    public var scope: String?
+
+    public init(path: String, version: Int? = nil, scope: String? = nil) {
+        self.path = path
+        self.version = version
+        self.scope = scope
+    }
+}
+
+public struct BotMaintenanceInvalidationRequest: Codable, Sendable, Equatable {
+    public var botID: String
+    public var artifact: BotMaintenanceArtifactReference
+    public var references: [String]
+
+    public init(botID: String, artifact: BotMaintenanceArtifactReference,
+                references: [String]) {
+        self.botID = botID
+        self.artifact = artifact
+        self.references = references
+    }
+}
+
+/// L's scoped provenance read maps onto this. The caller (C's production
+/// adapter) must use `botID` + `artifact` to select the artifact baseline and
+/// query isolation; the refs alone must never be treated as a global answer.
 public protocol BotMaintenanceInvalidationReading: Sendable {
-    func invalidationStatuses(for references: [String])
+    func invalidationStatuses(for request: BotMaintenanceInvalidationRequest)
         async throws -> [String: BotMaintenanceDependencyStatus]
 }
 

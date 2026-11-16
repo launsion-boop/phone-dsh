@@ -1104,10 +1104,31 @@ public actor BotMemoryMaintenanceController {
             references.append(contentsOf: document.review?.refs ?? [])
         }
         var invalidated: [String: BotMaintenanceDependencyStatus] = [:]
-        if let invalidationReading, !references.isEmpty,
-           let value = try? await invalidationReading.invalidationStatuses(
-                for: Array(Set(references))) {
-            invalidated = value
+        if let invalidationReading, !documents.isEmpty {
+            // Query per artifact with the real Bot id and version; a bare global
+            // ref list is not enough to distinguish one Bot's baseline/scope.
+            for document in documents {
+                var refs: [String] = []
+                refs.append(contentsOf: document.evidence)
+                refs.append(contentsOf: document.review?.refs ?? [])
+                let unique = Array(Set(refs))
+                guard !unique.isEmpty else { continue }
+                let request = BotMaintenanceInvalidationRequest(
+                    botID: botID,
+                    artifact: BotMaintenanceArtifactReference(
+                        path: document.path, version: document.version,
+                        scope: document.scope.rawValue),
+                    references: unique)
+                guard let value = try? await invalidationReading
+                    .invalidationStatuses(for: request) else { continue }
+                for (reference, status) in value {
+                    if let existing = invalidated[reference] {
+                        invalidated[reference] = Self.worse(existing, status)
+                    } else {
+                        invalidated[reference] = status
+                    }
+                }
+            }
         }
         do {
             return try await verification.verify(BotMaintenanceVerificationRequest(
@@ -1123,6 +1144,22 @@ public actor BotMemoryMaintenanceController {
             // maintenance-verification-unrechecked when a verifier exists.
             return nil
         }
+    }
+
+    static func worse(
+        _ lhs: BotMaintenanceDependencyStatus,
+        _ rhs: BotMaintenanceDependencyStatus
+    ) -> BotMaintenanceDependencyStatus {
+        func rank(_ state: BotMaintenanceDependencyStatus.State) -> Int {
+            switch state {
+            case .live: return 0
+            case .unknown: return 1
+            case .changed: return 2
+            case .revoked: return 3
+            case .erased: return 4
+            }
+        }
+        return rank(rhs.state) > rank(lhs.state) ? rhs : lhs
     }
 
     static func merged(
