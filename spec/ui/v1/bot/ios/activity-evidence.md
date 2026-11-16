@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # iOS real Bot activity projection
 
-Status: normative iOS-only refinement, revision `activity-evidence-v2.2` (2026-11-16).
+Status: normative iOS-only refinement, revision `activity-evidence-v2.3` (2026-11-16).
 This revision replaces the 2026-11-14 label policy in this file. It is grounded in the
 `tool/call` and `assistant/message` events the pinned DSH already writes; it adds no wire
 field, no extra model request, no second history, and no new `BotActivity` member. Android
@@ -36,7 +36,11 @@ in order:
    streamed fragment is never treated as the whole sentence. The sentence explains *why*
    the Bot is reading or running this step and what it found, so it outranks a bare path
    label. A generic acknowledgement, a filler, a completion claim or credential text is
-   not meaningful and falls through.
+   not meaningful and falls through. Every visible work tool may use this source when it
+   has no intent/object — including unknown MCP tools, memory, recall, routine, job and
+   goal tools — not only a hard-coded list. Only card/messaging tools (send-to-user,
+   questions, next steps, content cards, approvals, teammate messages) and the hidden
+   `FishAction` never use it.
 3. **Real argument object** — the call's own argument keys:
    `read`/`write`/`edit`/`str_replace_editor`: `file_path` (then `path`, `filePath`);
    `glob`: `pattern`; `grep`: `pattern` and, when present, `path`;
@@ -47,7 +51,7 @@ in order:
    `sendtoagent`: `bot_name`; `createteammate`: `name`.
    Paths and URLs stay recognisable: no basename-only or host-only rewrite.
 4. **Concrete fallback** — the tool's short action label (see the table in
-   `activity-evidence-v2.2` below); unknown visible tools use "等待操作结果".
+   `activity-evidence-v2.3` below); unknown visible tools use "等待操作结果".
 
 When a meaningful public sentence is chosen and the call also has a real primary object
 that the sentence does not already mention, the object is appended after ` · ` so the

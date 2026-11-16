@@ -9,7 +9,7 @@ status: frozen
 breaking: false
 version_decision: No wire, event, durable-value or schema change. Existing BotActivity fields and existing DSH tool arguments only. Prompt text is packaged into the Worker image, so a prompt change still requires the supported packer and real-runtime evidence for that image.
 base: 908d582b9ee91886ba197bebd54b863c8093cced
-contract_revision: activity-evidence-v2.2
+contract_revision: activity-evidence-v2.3
 ```
 
 ## 1. Roles and trigger
@@ -77,7 +77,9 @@ option:
 The coverage fact is recorded in `plugins/bot-runtime/ACTIVITY-SOURCES.md` (runtime lane):
 for each visible tool, the existing field that carries the real object; builtins with no
 intent field rely on the same-turn/same-step public task progress first, then on their
-object argument. A public-progress candidate is cleared by `step/start`, `tool/call`,
+object argument; this default applies to every visible work tool, including unknown MCP,
+memory, routine, job and goal tools. Only card/messaging tools and hidden FishAction are
+excluded. A public-progress candidate is cleared by `step/start`, `tool/call`,
 `tool/result`, `turn/start` and `turn/end`; reasoning/analysis channels, earlier steps,
 earlier calls and earlier turns are never reused.
 
@@ -150,6 +152,7 @@ will be refreshed by the lead at integration if UI edits shift them; values do n
 | activity-evidence-v2 (this commit) | lead | Initial freeze after four lane audits; real-object projection with no new metadata field | runtime / projection / ui / review sessions |
 | activity-evidence-v2.1 | lead | Clarify that public text is accumulated from text-channel deltas and replaced by the step assistant/message; no interface or vector-shape change | runtime / projection / ui sessions |
 | activity-evidence-v2.2 | lead | User ruling: the bubble stays non-interactive; remove the tap/full-view requirement. No reducer, vector or transport change | runtime / projection / ui / review sessions |
+| activity-evidence-v2.3 | lead | Coverage ruling: public same-step progress is the default for every visible work tool, including unknown MCP and memory tools; card/messaging/hidden tools are explicit exclusions. Adds two vectors | runtime / projection / review sessions |
 
 ## 6. Protocol impact
 

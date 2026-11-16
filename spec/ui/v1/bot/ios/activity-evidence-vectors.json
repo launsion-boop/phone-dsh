@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "platform": "ios",
-  "revision": "activity-evidence-v2.1",
+  "revision": "activity-evidence-v2.3",
   "now": 1000,
   "cases": [
     {
@@ -3936,6 +3936,112 @@
         "status": "tool-running",
         "detail": "对比 #174 与 main 的 README · /dsh/workspace/README.md",
         "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "unknown-tool-public-progress",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "assistant/stream",
+          "seq": 3,
+          "time": 180,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "channel": "text",
+            "text": "测试失败在重连用例，正在定位"
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "mcp__phone__MysteryTool",
+            "arguments": {
+              "description": "伪造进度"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "测试失败在重连用例，正在定位",
+        "category": "generic",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "readmemory-public-progress",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "assistant/stream",
+          "seq": 3,
+          "time": 180,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "channel": "text",
+            "text": "翻一下上周的约定"
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "mcp__phone__ReadMemory",
+            "arguments": {
+              "path": "user/diary.md"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "翻一下上周的约定 · user/diary.md",
+        "category": "memory",
         "startedAt": 200
       }
     }
