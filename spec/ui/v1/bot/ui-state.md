@@ -825,11 +825,12 @@ bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-p0-conformance
 ### 2026-11-16 iOS-only real-projection refinement
 
 For the production iOS activity line, [ios/activity-evidence.md](ios/activity-evidence.md)
-(`activity-evidence-v2`) supersedes the legacy generic-rotation, latest-call and
+(`activity-evidence-v3`) supersedes the legacy generic-rotation, latest-call and
 category-only presentation policy. Its wire/value shape is unchanged. `BotActivityPhrases`
 and the shared vectors retain the existing vocabulary for Android, whose adaptation the user
-explicitly deferred; iOS builds the sentence from the real `tool/call` arguments and the
-main model's existing per-call intent fields, then normalizes it before the timing/display
-layer. Real file names, paths, URLs, PR numbers and person/meeting names are kept; only
-credential shapes and completion claims are rejected. No new progress tool, metadata field,
+explicitly deferred; iOS builds a short progress sentence from the main model's existing per-call intent and
+same-step public progress, with a short basename/host/#PR object only when no model
+sentence exists. The bubble stays non-interactive and one line; no long path/URL/answer,
+full-text view or expansion surface is added. Only credential shapes and completion claims
+are rejected. No new progress tool, metadata field,
 extra model request or raw reasoning display is introduced.

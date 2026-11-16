@@ -1,7 +1,7 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "platform": "ios",
-  "revision": "activity-evidence-v2.3",
+  "revision": "activity-evidence-v3",
   "now": 1000,
   "cases": [
     {
@@ -93,7 +93,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reading",
         "startedAt": 200
       }
@@ -133,7 +133,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reading",
         "startedAt": 200
       }
@@ -175,7 +175,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /workspace/PhoneDSHProbe/Bot/BotChatModel.swift",
+        "detail": "在翻文件 · BotChatModel.swift",
         "category": "reading",
         "startedAt": 200
       }
@@ -217,7 +217,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在写文件 · /dsh/workspace/notes.md",
+        "detail": "在写文件 · notes.md",
         "category": "writing",
         "startedAt": 200
       }
@@ -259,7 +259,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在改文件 · /dsh/workspace/BotChatModel.swift",
+        "detail": "在改文件 · BotChatModel.swift",
         "category": "writing",
         "startedAt": 200
       }
@@ -302,7 +302,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在改文件 · /dsh/workspace/BotChatModel.swift",
+        "detail": "在改文件 · BotChatModel.swift",
         "category": "writing",
         "startedAt": 200
       }
@@ -429,7 +429,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在搜内容 · reconnect · /dsh/workspace/Tests/ReconnectTests.swift",
+        "detail": "在搜内容 · reconnect · ReconnectTests.swift",
         "category": "searching",
         "startedAt": 200
       }
@@ -557,7 +557,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在开网页 · github.com/launsion-boop/phone-dsh/pull/174",
+        "detail": "在开网页 · github.com",
         "category": "browsing",
         "startedAt": 200
       }
@@ -599,7 +599,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在开网页 · example.com/report?view=1",
+        "detail": "在开网页 · example.com",
         "category": "browsing",
         "startedAt": 200
       }
@@ -763,7 +763,7 @@
             "callId": "a",
             "name": "bash",
             "arguments": {
-              "description": "打开 https://github.com/launsion-boop/phone-dsh/pull/174 的页面",
+              "description": "打开 #174 的 PR 页面",
               "command": "open"
             }
           }
@@ -771,7 +771,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "打开 https://github.com/launsion-boop/phone-dsh/pull/174 的页面",
+        "detail": "打开 #174 的 PR 页面",
         "category": "running",
         "startedAt": 200
       }
@@ -1028,7 +1028,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174 与 main 的冲突文件，对比 #174…",
+        "detail": "对比 #174 与 main 的冲突文件",
         "category": "running",
         "startedAt": 200
       }
@@ -1510,7 +1510,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在写文件 · /dsh/workspace/b.md",
+        "detail": "在写文件 · b.md",
         "category": "writing",
         "startedAt": 250
       }
@@ -1585,7 +1585,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/a.md",
+        "detail": "在翻文件 · a.md",
         "category": "reading",
         "startedAt": 200
       }
@@ -1660,7 +1660,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在写文件 · /dsh/workspace/b.md",
+        "detail": "在写文件 · b.md",
         "category": "writing",
         "startedAt": 250
       }
@@ -1735,7 +1735,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在写文件 · /dsh/workspace/b.md",
+        "detail": "在写文件 · b.md",
         "category": "writing",
         "startedAt": 250
       }
@@ -1810,7 +1810,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在写文件 · /dsh/workspace/b.md",
+        "detail": "在写文件 · b.md",
         "category": "writing",
         "startedAt": 250
       }
@@ -1871,7 +1871,7 @@
       ],
       "expected": {
         "status": "thinking",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reviewing",
         "startedAt": 300
       }
@@ -1932,7 +1932,7 @@
       ],
       "expected": {
         "status": "thinking",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reviewing",
         "startedAt": 300
       }
@@ -2125,7 +2125,7 @@
       ],
       "expected": {
         "status": "thinking",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reviewing",
         "startedAt": 350
       }
@@ -2250,7 +2250,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reading",
         "startedAt": 200
       }
@@ -2618,7 +2618,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reading",
         "startedAt": 200
       }
@@ -2693,7 +2693,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reading",
         "startedAt": 200
       }
@@ -2768,7 +2768,7 @@
       ],
       "expected": {
         "status": "thinking",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reviewing",
         "startedAt": 300
       }
@@ -2829,7 +2829,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reading",
         "startedAt": 200
       }
@@ -2902,7 +2902,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/new.md",
+        "detail": "在翻文件 · new.md",
         "category": "reading",
         "startedAt": 550
       }
@@ -2983,7 +2983,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/new.md",
+        "detail": "在翻文件 · new.md",
         "category": "reading",
         "startedAt": 550
       }
@@ -3110,7 +3110,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reading",
         "startedAt": 0
       }
@@ -3163,7 +3163,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "对比 #174 与 main 的 README · /dsh/workspace/README.md",
+        "detail": "对比 #174 与 main 的 README",
         "category": "reading",
         "startedAt": 200
       }
@@ -3196,7 +3196,7 @@
             "turn": 1,
             "step": 1,
             "channel": "text",
-            "text": "读取 /dsh/workspace/report.md 的结论"
+            "text": "读取 report.md 的结论"
           }
         },
         {
@@ -3216,7 +3216,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "读取 /dsh/workspace/report.md 的结论",
+        "detail": "读取 report.md 的结论",
         "category": "reading",
         "startedAt": 200
       }
@@ -3269,7 +3269,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reading",
         "startedAt": 200
       }
@@ -3331,7 +3331,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reading",
         "startedAt": 300
       }
@@ -3401,7 +3401,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reading",
         "startedAt": 600
       }
@@ -3487,7 +3487,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/b.md",
+        "detail": "在翻文件 · b.md",
         "category": "reading",
         "startedAt": 300
       }
@@ -3584,7 +3584,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "再看 B 的失败 · /dsh/workspace/b.md",
+        "detail": "再看 B 的失败",
         "category": "reading",
         "startedAt": 300
       }
@@ -3637,7 +3637,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /dsh/workspace/report.md",
+        "detail": "在翻文件 · report.md",
         "category": "reading",
         "startedAt": 200
       }
@@ -3799,7 +3799,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "定位重连失败用例 · reconnect",
+        "detail": "定位重连失败用例",
         "category": "searching",
         "startedAt": 200
       }
@@ -3863,7 +3863,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "对比 #174 与 main 的 README · /dsh/workspace/README.md",
+        "detail": "对比 #174 与 main 的 README",
         "category": "reading",
         "startedAt": 200
       }
@@ -3934,7 +3934,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "对比 #174 与 main 的 README · /dsh/workspace/README.md",
+        "detail": "对比 #174 与 main 的 README",
         "category": "reading",
         "startedAt": 200
       }
@@ -4040,8 +4040,194 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "翻一下上周的约定 · user/diary.md",
+        "detail": "翻一下上周的约定",
         "category": "memory",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "result-continuation",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "file_path": "/workspace/specs/left.conf"
+            }
+          }
+        },
+        {
+          "type": "tool/result",
+          "seq": 4,
+          "time": 300,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "message": {
+              "toolCallId": "a",
+              "isError": false
+            }
+          }
+        },
+        {
+          "type": "assistant/stream",
+          "seq": 5,
+          "time": 400,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "channel": "text",
+            "text": "冲突在 3 个文件里，在逐个看"
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 6,
+          "time": 450,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "b",
+            "name": "read",
+            "arguments": {
+              "file_path": "/workspace/specs/right.conf"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "冲突在 3 个文件里，在逐个看",
+        "category": "reading",
+        "startedAt": 450
+      }
+    },
+    {
+      "id": "long-public-answer-shortened",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "assistant/stream",
+          "seq": 3,
+          "time": 180,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "channel": "text",
+            "text": "我先检查这个问题的完整原因。后面还有很长的解释内容不应上屏。"
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "file_path": "/workspace/BotChatModel.swift"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "我先检查这个问题的完整原因",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "model-sentence-not-extended",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "assistant/stream",
+          "seq": 3,
+          "time": 180,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "channel": "text",
+            "text": "看下发送逻辑"
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 4,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "file_path": "/workspace/examples/probe-app/PhoneDSHProbe/Bot/BotChatModel.swift"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "看下发送逻辑",
+        "category": "reading",
         "startedAt": 200
       }
     }

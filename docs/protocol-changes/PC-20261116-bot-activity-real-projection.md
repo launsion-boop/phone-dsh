@@ -9,7 +9,7 @@ status: frozen
 breaking: false
 version_decision: No wire, event, durable-value or schema change. Existing BotActivity fields and existing DSH tool arguments only. Prompt text is packaged into the Worker image, so a prompt change still requires the supported packer and real-runtime evidence for that image.
 base: 908d582b9ee91886ba197bebd54b863c8093cced
-contract_revision: activity-evidence-v2.3
+contract_revision: activity-evidence-v3
 ```
 
 ## 1. Roles and trigger
@@ -30,7 +30,7 @@ contract_revision: activity-evidence-v2.3
 - Expected: the existing event stream and existing arguments produce a real sentence for
   the current visible call; model intent only fills `detail`; lifecycle stays event-driven;
   a result keeps the call's own sentence instead of a receipt; paths, URLs, PR numbers and
-  names remain recognisable; long text is truncated visually, not erased, and the bubble stays non-interactive.
+  names remain recognisable in a short form (basename, host, #PR, title); the bubble stays non-interactive and shows a 10–20 character progress sentence, up to about 28 when it carries an interim result.
 - Contract owner / coordinator: lead (`session-02a9d7bf-ed67-4db8-b773-33efb3733f24`).
 - Implementers: runtime lane (`plugins/bot-runtime/**` prompts + source-coverage doc),
   projection lane (`BotRuntimePresentation.swift`, shared vectors consumer tests), UI lane
@@ -45,7 +45,7 @@ contract_revision: activity-evidence-v2.3
 
 | Item | Before → After |
 | --- | --- |
-| fields / encoding / limits / default / null | Unchanged `{status, detail, category, startedAt}`. `detail` now carries one real task sentence (bounded at 512 characters, 511 + `…`) instead of a category phrase or receipt. Priority is per-call intent > same-turn/same-step public task progress > real argument object + action > minimal fallback. |
+| fields / encoding / limits / default / null | Unchanged `{status, detail, category, startedAt}`. `detail` carries one short real progress sentence: preferred 10–20 CJK characters, hard bound 28 CJK / 56 non-CJK, shortened at a sentence/clause boundary. Priority is per-call intent > same-turn/same-step public progress > short object fallback > label. A model sentence is never extended with a full path or URL. No 512-character/full-answer policy and no expansion surface. |
 | capability / version / unknown field / unknown method / unknown enum | No wire capability, version, event kind, tool method or enum added. Unknown visible tools still show "等待操作结果"; hidden `FishAction` still correlates only. |
 | correlation / sequence scope / ordering / terminal outcome | Unchanged: `seq` + stable arrival, latest open turn, `callId` correlation, explicit old-turn isolation, duplicate call IDs ignored, ID-less result closes only a single unambiguous outstanding call. |
 | error code / retryable / deadline / cancel / late response | No new code. A failed result shows "这步遇到问题"; a late/unknown/conflicting result closes nothing. Stop/turn-end behaviour unchanged. |
@@ -153,6 +153,7 @@ will be refreshed by the lead at integration if UI edits shift them; values do n
 | activity-evidence-v2.1 | lead | Clarify that public text is accumulated from text-channel deltas and replaced by the step assistant/message; no interface or vector-shape change | runtime / projection / ui sessions |
 | activity-evidence-v2.2 | lead | User ruling: the bubble stays non-interactive; remove the tap/full-view requirement. No reducer, vector or transport change | runtime / projection / ui / review sessions |
 | activity-evidence-v2.3 | lead | Coverage ruling: public same-step progress is the default for every visible work tool, including unknown MCP and memory tools; card/messaging/hidden tools are explicit exclusions. Adds two vectors | runtime / projection / review sessions |
+| activity-evidence-v3 | lead | User ruling: the bubble is a short real progress sentence (10–20 CJK, about 28 with a result), not a long path/URL/long-answer display. Short object fallback uses basename/host; no append to a model sentence; no 512/full view. 81 vectors | runtime / projection / ui / review sessions |
 
 ## 6. Protocol impact
 
