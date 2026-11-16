@@ -365,7 +365,62 @@ final class BotDecisionContextTests: XCTestCase {
                        BotDecisionContextService.ParsedRef(path: "user/profile.md", version: 2))
     }
 
+    func testAuthorizationChangeDuringMaterialStateDoesNotLabelStaleMaterial() async throws {
+        let gate = MaterialStateGate()
+        let memory = self.memory!
+        let revision = self.revision
+        let service = BotDecisionContextService(
+            memoryForBot: { _ in memory },
+            permissionRevision: { _, _, _ in revision.get() },
+            materialState: { _ in
+                await gate.pause()
+                return (.current, nil)
+            },
+            now: { MemoryTestFixtures.now })
+        let task = Task { try await service.materials(for: request()) }
+        await gate.waitUntilStarted()
+        revision.set("rev-2")
+        await gate.release()
+        let block = try await task.value
+        XCTAssertTrue(block.canceled)
+        XCTAssertTrue(block.materials.isEmpty)
+        XCTAssertEqual(block.authorizationRevision, "rev-2")
+    }
+}
 
+private actor MaterialStateGate {
+    private var started = false
+    private var released = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func pause() async {
+        guard !released else { return }
+        if !started {
+            started = true
+            let waiters = startWaiters
+            startWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+        }
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+        released = true
+    }
+
+    func waitUntilStarted() async {
+        if started { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func release() async {
+        released = true
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
 }
 
 private final class LockedEvidenceCapture: @unchecked Sendable {

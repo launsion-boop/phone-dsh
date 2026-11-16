@@ -443,6 +443,12 @@ public actor BotDecisionContextService {
         guard Task.isCancelled == false else { throw BotDecisionContextError.cancelled }
         let limits = request.limits.clamped
         let requestID = Self.newRequestID()
+        // Capture the authorization revision before any slow material/provider
+        // query. A revocation that lands while a query is suspended must not
+        // pair the old snapshot with the newer revision.
+        let startingAuthorization = await permissionRevision(
+            request.botID, request.sessionID, request.recipient)
+        guard Task.isCancelled == false else { throw BotDecisionContextError.cancelled }
 
         let query = Self.boundedScalars(request.query, 600)
         let goal = Self.boundedScalars(request.goal ?? "", 600)
@@ -452,10 +458,8 @@ public actor BotDecisionContextService {
             .filter { !$0.isEmpty }
             .joined(separator: " ")
         guard !search.isEmpty else {
-            let authorization = await permissionRevision(
-                request.botID, request.sessionID, request.recipient)
             return block(request: request, requestID: requestID,
-                         authorizationRevision: authorization, limits: limits,
+                         authorizationRevision: startingAuthorization, limits: limits,
                          materials: [], omitted: 0)
         }
 
@@ -532,11 +536,21 @@ public actor BotDecisionContextService {
         var omitted = max(0, candidates.count - (materials.count - workspaceCount))
         if workspaceTruncated { omitted += 1 }
         let truncated = omitted > 0 || workspaceTruncated
-        let authorization = await permissionRevision(
+        let endingAuthorization = await permissionRevision(
             request.botID, request.sessionID, request.recipient)
         guard Task.isCancelled == false else { throw BotDecisionContextError.cancelled }
+        let authorizationChanged = endingAuthorization != startingAuthorization
+        if authorizationChanged {
+            // The provider / grant changed while the snapshot was being
+            // assembled. Return a canceled, material-free block carrying the
+            // newer revision instead of labelling stale data as fresh.
+            return block(request: request, requestID: requestID,
+                         authorizationRevision: endingAuthorization, limits: limits,
+                         materials: [], omitted: max(omitted, materials.count),
+                         truncated: true, canceled: true)
+        }
         return block(request: request, requestID: requestID,
-                     authorizationRevision: authorization, limits: limits,
+                     authorizationRevision: endingAuthorization, limits: limits,
                      materials: materials, omitted: omitted, truncated: truncated)
     }
 
@@ -647,7 +661,8 @@ public actor BotDecisionContextService {
                        limits: BotDecisionLimits,
                        materials: [BotDecisionMaterial],
                        omitted: Int,
-                       truncated: Bool? = nil) -> BotDecisionMaterialBlock {
+                       truncated: Bool? = nil,
+                       canceled: Bool = false) -> BotDecisionMaterialBlock {
         let queryDigest = Self.digest(request.query)
         let goalDigest = request.goal.flatMap { goal in
             goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : Self.digest(goal)
@@ -666,7 +681,7 @@ public actor BotDecisionContextService {
             materials: materials,
             limits: limits,
             truncated: truncated ?? (omitted > 0),
-            canceled: false)
+            canceled: canceled)
     }
 
     static func validate(_ request: BotDecisionRequest) throws {
