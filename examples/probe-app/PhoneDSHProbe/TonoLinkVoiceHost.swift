@@ -7,6 +7,7 @@
 import AVFoundation
 import UIKit
 import Foundation
+import os
 import PhoneDSH
 import PhoneDSHBLE
 import ProbeKit
@@ -82,12 +83,28 @@ import ProbeKit
             if link.isConnected { disconnectedSince = nil }
             armSpeakerIfForeground()
             beat += 1
-            if beat % 20 == 1 {
+            // Every 9 s in the background (every minute in front): the last line before iOS ends the
+            // process says how much memory it held and how much the system had left for it.
+            let background = UIApplication.shared.applicationState == .background
+            if beat % (background ? 3 : 20) == 1 {
                 log("alive app=\(UIApplication.shared.applicationState.rawValue) connected=\(link.isConnected) "
-                    + "keepalive=\(SilentAudioKeepAlive.shared.isRendering) remaining=\(Int(min(UIApplication.shared.backgroundTimeRemaining, 99_999)))")
+                    + "keepalive=\(SilentAudioKeepAlive.shared.isRendering) remaining=\(Int(min(UIApplication.shared.backgroundTimeRemaining, 99_999)))"
+                    + " footprint_mb=\(Self.footprintMB()) available_mb=\(os_proc_available_memory() / 1_048_576)")
             }
             try? await Task.sleep(for: .seconds(link.isConnected ? 3 : 10))
         }
+    }
+
+    /// This process's physical footprint (what iOS weighs when it reclaims memory), in MB.
+    static func footprintMB() -> Int {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? Int(info.phys_footprint / 1_048_576) : -1
     }
 
     static let restoreIdentifier = "dev.phone-dsh.tonolink-voice"
@@ -106,6 +123,7 @@ import ProbeKit
     private func linkReady(_ link: TonoLinkCtrlBLE) {
         state = "等待「你好小智」（\(link.peripheralName ?? "board")）"
         log("connected \(link.peripheralName ?? "?") app=\(UIApplication.shared.applicationState.rawValue)")
+        if let name = link.peripheralName { DeviceBotRegistry.shared.boardConnected(name: name) }
         setKeepAlive(true)
         armSpeakerIfForeground()
         // The board is back (this link only comes up when it is present): bring its Link tools back too.
@@ -354,6 +372,15 @@ import ProbeKit
             await answerVolumeCommand(direction, credential: credential, start: start)
             return
         }
+        // tonolink-board.md §4.1: the board's own Bot takes the heard text first. A paused engine
+        // is resumed while the App may execute (host contract §10.1), so the Bot path does not
+        // wait out its start bound in the background; an unreachable Bot falls back to the
+        // durable chat path below.
+        if let botID = DeviceBotRegistry.shared.tonoLinkBotID() {
+            let chat = ChatModel.shared
+            if chat.parked, chat.executionEligible { await chat.resumeParkedHost() }
+            if await answerThroughBot(botID, text: text, credential: credential, start: start) { return }
+        }
         guard let request else {
             note("error", "请先在手机上打开一个本地对话，再使用语音")
             light(.idle)
@@ -422,6 +449,60 @@ import ProbeKit
             catch { return }
         }
         if !Task.isCancelled { note("deferred", "语音等待已结束，请在手机上查看任务"); light(.idle) }
+    }
+
+    /// tonolink-board.md §4.1: the board's own Bot takes the heard text, so every voice turn lands
+    /// in one conversation whatever page is open. False when that Bot cannot be reached (the
+    /// caller then uses the current chat).
+    private func answerThroughBot(_ botID: String, text: String, credential: String, start: Date) async -> Bool {
+        let model: BotChatModel
+        do { model = try await BotProductionHub.shared.chatModel(ensuring: botID) }
+        catch { note("bot_error", error.localizedDescription); return false }
+        note("bot", botID)
+        // A Bot's rows are read only while its page is visible: in the background, or with another
+        // Bot on screen, the answer would never arrive here. Read them for this turn, then restore.
+        let wasActive = model.isPageActive
+        if !wasActive { model.setPageActive(true) }
+        defer { if !wasActive { model.setPageActive(false) } }
+        try? await Task.sleep(for: .milliseconds(300))   // the first durable read
+        let before = Set(model.rows.map(\.id))
+        model.send(text: text)
+        // The answer row reaches the model after the turn ends, sometimes seconds later: wait for a
+        // new answer with no turn running (up to 2 min), not just for the turn to stop.
+        // The answer after this turn's own message (rows read on activation may arrive late, so
+        // "not seen before" alone could pick an older answer).
+        let asked = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        func newAnswer() -> String? {
+            let rows = model.rows
+            guard let mine = rows.lastIndex(where: { $0.role == "user" && $0.body["text"]?.string == asked }) else { return nil }
+            return rows[(mine + 1)...].last { BotChatModel.isAnswer($0) && !before.contains($0.id) }?.body["text"]?.string
+        }
+        var sawRunning = false
+        var answeredAt: ContinuousClock.Instant?
+        let deadline = ContinuousClock.now + .seconds(120)
+        while ContinuousClock.now < deadline {
+            if Task.isCancelled { return true }
+            // In the background the model's feed is paused: pull the Bot's rows ourselves.
+            await BotProductionHub.shared.pullRows(for: botID)
+            if model.runningTurnID != nil, !sawRunning { sawRunning = true; light(.taskRunning) }
+            if let text = newAnswer(), !text.isEmpty {
+                // Done when no turn runs, or the answer has stood for 2 s (a paused feed can leave
+                // a stale running turn behind).
+                if model.runningTurnID == nil { break }
+                if let at = answeredAt, ContinuousClock.now - at > .seconds(2) { break }
+                if answeredAt == nil { answeredAt = .now }
+            }
+            try? await Task.sleep(for: .seconds(1))
+        }
+        let reply = newAnswer() ?? ""
+        if !sawRunning && reply.isEmpty { note("error", "Bot 没有开始运行（引擎暂停或忙）"); light(.idle); return true }
+        note("reply", String(reply.prefix(500)))
+        note("reply_ms", Int(Date().timeIntervalSince(start) * 1000))
+        guard !reply.isEmpty else { light(.taskDone); return true }
+        light(.taskReport)
+        do { try await speak(reply, credential: credential) } catch { note("speak_error", error.localizedDescription) }
+        if !Task.isCancelled { light(.taskDone) }
+        return true
     }
 
     /// A clear one-step volume command is handled locally, without the LLM or UI-Venus screen loop.
