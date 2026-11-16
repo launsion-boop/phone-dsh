@@ -30,13 +30,15 @@ test('both persona languages mount every P0 and no P1, with all variants', () =>
 test('activity guidance teaches one short, object-bearing, result-carrying sentence', () => {
   for (const lang of ['zh', 'en'] as const) {
     const { persona } = assemblePrompt({ lang })
+    assert.ok(persona.includes(lang === 'zh' ? '最多 19 个字符' : 'at most 19'))
+    assert.equal(/10–20|最多约 28/.test(persona), false)
     assert.ok(persona.includes('`description`'), `${lang} must keep bash.description guidance`)
     assert.ok(persona.includes('`task_title`'), `${lang} must keep Task.task_title guidance`)
     assert.ok(persona.includes('等待响应'), `${lang} must use the code-aligned wait sentence`)
     assert.equal(persona.includes('等待模型响应'), false, `${lang} still uses the removed wait sentence`)
     if (lang === 'zh') {
-      for (const token of ['10–20 个中文字', '动作 + 这次任务里的对象', '文件名', '#PR', '人名', '会议名',
-        '在对比 #174 和 main 的冲突', '冲突在 3 个文件里，在逐个看', '读取相关资料', '已收到查询结果']) {
+      for (const token of ['约 10 个字', '动作 + 这次任务里的对象', '文件名', '#PR', '人名', '会议名',
+        '在对比 #174 和 main 的冲突', '3 个文件冲突，逐个核对', '读取相关资料', '已收到查询结果']) {
         assert.ok(persona.includes(token), `zh activity guidance must include ${token}`)
       }
       assert.ok(persona.includes('不要把完整路径、长 URL、整条命令、JSON、原始长回答或技术参数搬上屏'))
@@ -49,8 +51,8 @@ test('activity guidance teaches one short, object-bearing, result-carrying sente
       assert.equal(persona.includes('不要包含文件名、路径、扩展名、网址、命令、内部 ID 或代码'), false,
         'zh must not keep the generalized filename/path prohibition')
     } else {
-      for (const token of ['10–20 Chinese characters', "action + this task's object", 'file name', '#PR',
-        'person', 'meeting', 'Comparing #174 with main', 'The conflict is in 3 files; checking each one',
+      for (const token of ['about 10 characters', "action + this task's object", 'file name', '#PR',
+        'person', 'meeting', 'Compare #174/main', '3 conflicts: check',
         'Reading related material', 'Got the query result']) {
         assert.ok(persona.includes(token), `en activity guidance must include ${token}`)
       }
@@ -81,7 +83,7 @@ test('bash.description and Task.task_title are task-level and in the user langua
       assert.ok(persona.includes('没有新信息时不要编造结果'))
     } else {
       for (const token of ["user's current language", 'task object plus progress',
-        'Locating the merge materials for #174', 'List workspace', 'List directory',
+        'Check #174 merge', 'List workspace', 'List directory',
         'Inspect workspace root and git/github config']) {
         assert.ok(persona.includes(token), `en task-intent guidance must include ${token}`)
       }

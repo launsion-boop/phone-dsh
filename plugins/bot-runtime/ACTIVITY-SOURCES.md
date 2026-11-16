@@ -2,16 +2,14 @@
 # Bot activity sources (short-progress v3)
 
 Pinned DSH: `66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db` (`0.2.2-rc.1`). This document records
-where the iOS activity bubble gets its sentence. It adds no parameter, event, wire field,
-database or model request: every source below is already in the `tool/call` event
+where the iOS activity bubble gets its sentence. The Bot wrapper adds only model-facing activity to five read/search tools, stripped
+before execution. It adds no event, wire field, database or model request; sources use the existing `tool/call` event
 (`data.name`, `data.arguments`) or in the main model's public assistant text.
 
-> Frozen short-progress contract: lead `fba63d85938b8159f3e25da112374a1e27d56ef2`
-> (81 vectors). One 10–20-Chinese-character progress sentence, at most about 28 when it
-> carries a result; short object only (basename, host, `#PR`, title, person or meeting);
-> no full paths, long URLs, commands, JSON, raw long answers or technical parameters; no
-> long-detail budget and no full-text/expandable view. The four runtime prompt/test files
-> are committed against this revision; the profile persona mirror is lead-synced.
+> Current generation contract: `activity-evidence-v3.6`. Target about 10 characters;
+> maximum 19 including spaces, digits, punctuation and any result. Use a short task
+> object and meaningful progress; no full-text/expandable view.
+
 
 `BotActivity` remains `{status, detail, category, startedAt}`. Lifecycle comes only from
 `tool/call`, `tool/result`, `turn/*`, `step/*` and the existing approval/stream precedence;
@@ -126,8 +124,8 @@ sentence. No new field or handler change is involved.
 
 ## Display
 
-The visible line is one short sentence: about 10–20 Chinese characters, at most about 28
-when it carries a previous result. Objects are short: basename, host, `#PR`, title, person
+The visible line is one short sentence: about 10 characters, at most 19
+including any result, spaces, digits and punctuation. Objects are short: basename, host, `#PR`, title, person
 or meeting name. Do not paste full paths, long URLs, commands, JSON, raw long answers or
 technical parameters. There is no long-detail budget and no full-text/expandable view; the
 client normalises to one line and never replaces a real object with a category. URLs used
@@ -140,7 +138,7 @@ display object.
 The system prompts in both languages must teach the model to fill the declared required
 `activity` on `read`/`glob`/`grep`/`web_search`/`web_fetch`, and to use `bash.description`
 and `Task.task_title`, in the user's current language for one short progress sentence: about
-10–20 Chinese characters, at most about 28 when it carries a previous result, made of
+10 characters, at most 19 including any result, spaces, digits and punctuation, made of
 action + this task's short object
 (basename, host, `#PR`, title, person or meeting). The next sentence must carry the real
 result. Full paths, long URLs, whole commands, JSON, raw long answers and technical

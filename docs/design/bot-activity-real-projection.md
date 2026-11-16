@@ -2,7 +2,7 @@
 # Bot activity real projection (iOS)
 
 Status: implemented on the isolated iOS branch; real-model acceptance is recorded in the
-task handoff. Contract revision: `activity-evidence-v3.5`, change record
+task handoff. Contract revision: `activity-evidence-v3.6`, change record
 [PC-20261116-bot-activity-real-projection](../protocol-changes/PC-20261116-bot-activity-real-projection.md).
 
 ## Problem
@@ -63,8 +63,10 @@ the action prefix. There is no separate 42-character target allowance.
 ## Short display rule
 
 - One line, first line, collapsed whitespace, sentence-final punctuation trimmed.
-- Preferred progress: 10–20 Chinese characters; with an interim result up to about 28.
-- Hard bound: 28 characters when the text contains CJK, else 56.
+- Generate about 10 characters; at most 19 including spaces, digits, punctuation and
+  any interim result. The five-tool model-facing activity schema also caps length at 19.
+- Existing 28 CJK / 56 non-CJK projection bounds remain only as old-log/noncompliant-output
+  safeguards; the UI cleaner can further truncate. They are not generation allowances.
 - Longer text is shortened at the last sentence/clause punctuation within the bound,
   else `bound - 1` characters plus `…`. Long public answers and full paths/URLs never
   reach the bubble whole.
@@ -89,8 +91,7 @@ recordings, four UI tests and the final 49-test logic run (91 shared vectors).
 
 ## Prompt and Worker image
 
-The double-language system prompts teach the main model to write one natural 10–20
-character progress sentence with the task's short object and to carry the previous real
+The double-language system prompts teach the main model to write one natural roughly 10-character progress sentence (maximum 19) with the task's short object and to carry the previous real
 result into the next sentence. They explicitly forbid full paths, long URLs, whole
 commands/JSON, raw long answers, credentials and internal IDs, and forbid a dedicated
 activity tool or extra model request. The stable `personaPrefix` in

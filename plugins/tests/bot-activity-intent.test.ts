@@ -172,8 +172,10 @@ test('the shadow wraps the Bot-scope handler, not the global handler', async () 
 
     const parameters = schemaFor(ctx.tools.schemas(scope), 'read')
     assert.equal(parameters.properties?.activity?.type, 'string')
-    assert.equal(parameters.properties?.activity?.maxLength, 160)
+    assert.equal(parameters.properties?.activity?.maxLength, 19)
     assert.equal(parameters.properties?.activity?.minLength, 1)
+    assert.match(parameters.properties?.activity?.description ?? '', /约 10 个字，最多 19 个字符/)
+    assert.doesNotMatch(parameters.properties?.activity?.description ?? '', /28/)
     assert.equal(parameters.required?.includes('activity') ?? false, true)
 
     const wrapped = ctx.tools.get('read', scope)
@@ -305,6 +307,7 @@ test('bash keeps its schema/args; only the Bot model description changes', async
     const botSchema = schemaFor(ctx.tools.schemas(scope), 'bash')
     assert.equal(botSchema.properties?.activity, undefined)
     assert.match(botSchema.properties?.description?.description ?? '', /如果前面已有真实工具结果/)
+    assert.match(botSchema.properties?.description?.description ?? '', /约 10 个字，最多 19 个字符/)
     assert.deepEqual(botSchema.required, ['description', 'command'])
 
     const globalSchema = schemaFor(ctx.tools.schemas(), 'bash')

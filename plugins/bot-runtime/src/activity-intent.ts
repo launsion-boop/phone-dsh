@@ -26,14 +26,14 @@ type ScopeKey = object
 const WRAPPED = Symbol('phone-dsh.activity-intent')
 const ACTIVITY_DESCRIPTION =
   '本次调用的公开进展，一句用户当前语言的话：当前任务对象 + 当前进展'
-  + '（约 10–20 个中文字，带结果最多约 28 字）。如果前面已有真实工具结果，'
+  + '（约 10 个字，最多 19 个字符，含空格、数字和标点，带结果也不例外）。如果前面已有真实工具结果，'
   + '先简述该结果，再写当前动作；没有真实结果不要编造。不要写命令摘要、完整路径、'
   + '长 URL、凭证或内部 id。宿主执行前会删除此字段。'
 
 const BASH_DESCRIPTION =
-  '用用户当前语言写这次 bash 调用为何服务当前任务：当前任务对象 + 当前进展。'
+  '用用户当前语言写这次 bash 调用为何服务当前任务：当前任务对象 + 当前进展，约 10 个字，最多 19 个字符（含空格、数字和标点，带结果也不例外）。'
   + '如果前面已有真实工具结果，先简述该结果再写当前动作；没有真实结果不要编造。'
-  + '例如「定位 #174 的合并资料」「按 #174 的冲突结果继续核对 main」。'
+  + '例如「定位 #174 的合并资料」「3 个文件冲突，逐个核对」。'
   + '不要写 List workspace、列出目录、完整路径、URL、凭证或命令摘要。'
 
 interface SourceState {
@@ -82,7 +82,7 @@ export function withActivityParameters(parameters: RegisteredTool['parameters'])
     properties: {
       ...properties,
       activity: {
-        type: 'string', minLength: 1, maxLength: 160,
+        type: 'string', minLength: 1, maxLength: 19,
         description: ACTIVITY_DESCRIPTION,
       },
     },
