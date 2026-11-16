@@ -693,9 +693,8 @@ public struct BotSessionLogProjector: Sendable {
                        let routines = document["routines"]?.arrayValue {
                         entries.append(contentsOf: routines.compactMap(objectValue))
                     }
-                    if event.data["id"]?.stringValue != nil || event.data["routineID"]?.stringValue != nil,
-                       let root = event.data.objectValue {
-                        entries.append(root)
+                    if event.data["id"]?.stringValue != nil || event.data["routineID"]?.stringValue != nil {
+                        entries.append(event.data)
                     }
                     for routine in entries {
                         guard let automationID = nonEmpty(routine, "id") ?? nonEmpty(routine, "routineID"),
@@ -711,7 +710,7 @@ public struct BotSessionLogProjector: Sendable {
                             "status": fields["status"] ?? .string("active"),
                         ]) { _, new in new })
                         let draft = draft(
-                            id: "e-\(event.principal.botId ?? "main")-routine-\(automationID)",
+                            id: "e-\(botID)-routine-\(automationID)",
                             event: event, kind: .message, role: nil,
                             body: BotRowBody(type: .automation, additionalProperties: fields),
                             trust: BotRowProvenance.model)
