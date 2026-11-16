@@ -43,7 +43,7 @@ public struct BotEventEnvelopeCodec: Sendable {
         "memory.maintenance_rolled_back",
         "effect.enqueued", "effect.attempted", "effect.acked", "effect.failed", "effect.dead_lettered",
         "effect.reconciliation_required", "effect.cancel_requested", "effect.canceled", "runtime.started",
-        "runtime.exited", "proactive.considered", "ledger.usage_recorded", "watchdog.flagged",
+        "runtime.exited", "proactive.considered", "feedback.recorded", "ledger.usage_recorded", "watchdog.flagged",
         "verification.reported", "redaction.applied", "erasure",
     ]
 

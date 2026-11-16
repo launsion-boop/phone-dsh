@@ -239,6 +239,24 @@ public enum BotToolEffectClassifier {
                                     ? "创建一个有独立对话与记忆的 Bot；只有主 Bot 可以调用。"
                                     : "Creates a Bot with its own transcript and memory; only the main Bot may call it.",
                                  isMcp: isMcp)
+        case "RecordFeedback":
+            // G-2: one host-verified feedback action bound to an artifact.
+            // The resource never carries the user's words, an id or a path.
+            let action = clip(args["action"], max: 40)
+            let target = args["target"].map { object($0) } ?? [:]
+            let kind = clip(target["kind"], max: 40)
+            let resource = mergedResource([
+                "dshbot:record-feedback",
+                action.isEmpty ? "" : "action=\(action)",
+                kind.isEmpty ? "" : "target=\(kind)",
+            ])
+            return BotToolEffect(tool: bareName, operation: "dshbot.RecordFeedback",
+                                 resource: resource, mutability: .write, policy: .auto,
+                                 label: language == .zh ? "记录用户反馈" : "Record user feedback",
+                                 detail: language == .zh
+                                    ? "把你刚给出的采纳/撤销/纠正/不再提醒绑定到具体对象，写一条可审计反馈。"
+                                    : "Binds the feedback you just gave (adopt/undo/correct/suppress) to the exact object as an auditable record.",
+                                 isMcp: isMcp)
         case "UpdateRoutine":
             let title = clip(args["title"], max: 80)
             let action = args["action"].map { clip($0, max: 40) } ?? "update"
