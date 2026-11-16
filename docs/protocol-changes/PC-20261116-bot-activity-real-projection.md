@@ -9,7 +9,7 @@ status: frozen
 breaking: false
 version_decision: No wire, event, durable-value or schema change. Existing BotActivity fields and existing DSH tool arguments only. Prompt text is packaged into the Worker image, so a prompt change still requires the supported packer and real-runtime evidence for that image.
 base: 908d582b9ee91886ba197bebd54b863c8093cced
-contract_revision: activity-evidence-v3.3
+contract_revision: activity-evidence-v3.4
 ```
 
 ## 1. Roles and trigger
@@ -157,6 +157,7 @@ will be refreshed by the lead at integration if UI edits shift them; values do n
 | activity-evidence-v3.1 | lead | Final fallback label is shortened after action+object join; remove the old 42-character secondary threshold; add long-basename/query vectors (83) | runtime / projection / ui / review sessions |
 | activity-evidence-v3.2 | lead | Natural-quality ruling: per-call intent/Task title follow the user's language and name the current task object/progress; tool-local command summaries are rejected. Prompt-only enforcement first; no new field/DSH change | runtime / projection / ui / review sessions |
 | activity-evidence-v3.3 | lead | Add optional `activity` to the real Bot-scope schemas of read/glob/grep/web_search/web_fetch; shadow strips it before the handler and preserves the web readiness `when`; no new event/state, no identity/approval digest; bash/Task keep existing fields. Coverage is the five host-native read/search tools only | runtime / projection / ui / review sessions |
+| activity-evidence-v3.4 | lead | Make `activity` model-facing required with minLength 1 in the cloned wrapper parameters only; original definition/validator/required list unchanged; wrapper strips before original, so old calls/logs still execute and decode with fallback. Web readiness remains awaited | runtime / projection / ui / review sessions |
 
 ## 6. Protocol impact
 

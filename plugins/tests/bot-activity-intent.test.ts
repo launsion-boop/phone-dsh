@@ -8,7 +8,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import activityIntent from '../bot-runtime/src/activity-intent.ts'
+import activityIntent, { withActivityParameters } from '../bot-runtime/src/activity-intent.ts'
 import { botOwnedSessions } from '../bot-runtime/src/bot-sessions.ts'
 import { mountRuntime } from './bot-runtime-test-kit.ts'
 
@@ -39,7 +39,7 @@ function schemaFor(schemas: readonly { name: string; parameters: unknown }[], na
   const schema = schemas.find(entry => entry.name === name)
   assert.ok(schema, `${name} schema must exist`)
   return schema.parameters as {
-    properties?: Record<string, { type?: string; maxLength?: number }>
+    properties?: Record<string, { type?: string; minLength?: number; maxLength?: number }>
     required?: string[]
   }
 }
@@ -154,7 +154,8 @@ test('the shadow wraps the Bot-scope handler, not the global handler', async () 
     const parameters = schemaFor(ctx.tools.schemas(scope), 'read')
     assert.equal(parameters.properties?.activity?.type, 'string')
     assert.equal(parameters.properties?.activity?.maxLength, 160)
-    assert.equal(parameters.required?.includes('activity') ?? false, false)
+    assert.equal(parameters.properties?.activity?.minLength, 1)
+    assert.equal(parameters.required?.includes('activity') ?? false, true)
 
     const wrapped = ctx.tools.get('read', scope)
     assert.ok(wrapped)
@@ -179,6 +180,53 @@ test('the shadow wraps the Bot-scope handler, not the global handler', async () 
     await globalOnly!.execute({ pattern: 'x' }, {} as never)
     assert.deepEqual(globalOnlySeen, [{ pattern: 'x' }])
     assert.deepEqual(botSeen, [{ file_path: '/dsh/workspace/notes.md' }])
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+
+test('required activity is model-facing only; old and new calls execute', async () => {
+  const ctx = await mountRuntime()
+  const seen: unknown[] = []
+  try {
+    const original = probe('read')
+    const originalParameters = original.parameters as {
+      required?: string[]
+      properties?: Record<string, { minLength?: number }>
+    }
+    const originalRequired = [...(originalParameters.required ?? [])]
+    const wrappedParameters = withActivityParameters(original.parameters) as {
+      required?: string[]
+      properties?: Record<string, { minLength?: number }>
+    }
+    assert.deepEqual(originalParameters.required, originalRequired,
+      'the original definition required list must not be mutated')
+    assert.equal(wrappedParameters.required?.includes('activity'), true)
+    assert.equal(wrappedParameters.required?.includes('file_path'), true)
+    assert.equal(wrappedParameters.properties?.activity?.minLength, 1)
+
+    const sink: EventSink = { events: [] }
+    const { agent } = await productionAgent(ctx, 'gb-activity-required', probe('read', seen), sink)
+    const scope = scopeOf((agent as { ctx: Context }).ctx)
+    assert.ok(scope)
+    const schema = schemaFor(ctx.tools.schemas(scope), 'read')
+    assert.equal(schema.required?.includes('activity'), true)
+    assert.equal(schema.properties?.activity?.minLength, 1)
+
+    const run = async (args: Record<string, unknown>) => ctx.tools.execute({
+      calls: [{ type: 'tool-call', id: ToolCallId(`activity-${seen.length}`), name: 'read', arguments: JSON.stringify(args) }],
+      signal: new AbortController().signal,
+      agent: agent as never,
+      log: { turn: 1, step: 1 },
+    })
+
+    const legacy = await run({ file_path: '/old.md' })
+    assert.equal(legacy.results[0]?.result.isError, false,
+      `legacy call without activity must execute: ${JSON.stringify(legacy.results[0])}`)
+    const current = await run({ file_path: '/new.md', activity: '核对 #174 的合并资料' })
+    assert.equal(current.results[0]?.result.isError, false)
+    assert.deepEqual(seen, [{ file_path: '/old.md' }, { file_path: '/new.md' }])
   } finally {
     await ctx.fiber.dispose()
   }

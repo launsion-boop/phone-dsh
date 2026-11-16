@@ -23,7 +23,7 @@ type ScopeKey = object
 
 const WRAPPED = Symbol('phone-dsh.activity-intent')
 const ACTIVITY_DESCRIPTION =
-  '可选：本次调用的公开进展，一句用户当前语言的话：当前任务对象 + 当前进展'
+  '本次调用的公开进展，一句用户当前语言的话：当前任务对象 + 当前进展'
   + '（约 10–20 个中文字，带结果最多约 28 字）。不要写命令摘要、完整路径、'
   + '长 URL、凭证或内部 id。宿主执行前会删除此字段。'
 
@@ -58,15 +58,24 @@ export function stripActivity(args: unknown): unknown {
   return rest
 }
 
-function withActivityParameters(parameters: RegisteredTool['parameters']): RegisteredTool['parameters'] {
+export function withActivityParameters(parameters: RegisteredTool['parameters']): RegisteredTool['parameters'] {
   const root = isRecord(parameters) ? parameters : { type: 'object' }
   const properties = isRecord(root.properties) ? root.properties : {}
+  // Model-facing required only. Clone the array so the original definition's
+  // validator and required list stay untouched; the wrapper strips activity
+  // before the original handler, so old calls without it still execute.
+  const required = Array.isArray(root.required) ? [...root.required] : []
+  if (!required.includes('activity')) required.push('activity')
   return {
     ...root,
     type: 'object',
+    required,
     properties: {
       ...properties,
-      activity: { type: 'string', maxLength: 160, description: ACTIVITY_DESCRIPTION },
+      activity: {
+        type: 'string', minLength: 1, maxLength: 160,
+        description: ACTIVITY_DESCRIPTION,
+      },
     },
   }
 }
