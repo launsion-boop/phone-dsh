@@ -19,13 +19,13 @@ final class A05FeedbackUITests: XCTestCase {
     }
 
     func testAttachmentAdoptAndUndo() throws {
-        let adopt = app.buttons["bot.feedback.adopt"].firstMatch
+        let adopt = app.buttons["采纳"].firstMatch
         reveal(adopt)
         XCTAssertTrue(adopt.exists, "attachment adopt action missing")
         adopt.tap()
         XCTAssertTrue(app.staticTexts["已记录：采纳"].waitForExistence(timeout: 10),
                       "adopt receipt missing")
-        let undo = app.buttons["bot.feedback.undo"].firstMatch
+        let undo = app.buttons["撤销"].firstMatch
         XCTAssertTrue(undo.waitForExistence(timeout: 5), "undo action missing")
         undo.tap()
         XCTAssertTrue(app.staticTexts["已撤销反馈"].waitForExistence(timeout: 10),
@@ -33,26 +33,26 @@ final class A05FeedbackUITests: XCTestCase {
     }
 
     func testAutomationSuppressScopes() throws {
-        let suppress = app.buttons["bot.feedback.suppress"].firstMatch
+        let suppress = app.buttons["这类别推了"].firstMatch
         reveal(suppress)
         XCTAssertTrue(suppress.exists, "automation suppress action missing")
         suppress.tap()
-        XCTAssertTrue(app.buttons["bot.feedback.suppress.artifact"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["bot.feedback.suppress.routineClass"].exists)
-        XCTAssertTrue(app.buttons["bot.feedback.suppress.user"].exists)
-        app.buttons["bot.feedback.suppress.routineClass"].tap()
+        XCTAssertTrue(app.buttons["只这一条"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["这个例行任务的结果"].exists)
+        XCTAssertTrue(app.buttons["所有 Bot 的这类"].exists)
+        app.buttons["这个例行任务的结果"].tap()
         XCTAssertTrue(app.staticTexts["已记录：这类别推了"].waitForExistence(timeout: 10),
                       "suppress receipt missing")
     }
 
     func testAutomationSuppressUserScopeReceipt() throws {
-        let suppress = app.buttons["bot.feedback.suppress"].firstMatch
+        let suppress = app.buttons["这类别推了"].firstMatch
         reveal(suppress)
         XCTAssertTrue(suppress.exists, "automation suppress action missing")
         suppress.tap()
-        XCTAssertTrue(app.buttons["bot.feedback.suppress.user"].waitForExistence(timeout: 5),
+        XCTAssertTrue(app.buttons["所有 Bot 的这类"].waitForExistence(timeout: 5),
                       "user scope must be offered")
-        app.buttons["bot.feedback.suppress.user"].tap()
+        app.buttons["所有 Bot 的这类"].tap()
         XCTAssertTrue(app.staticTexts["已记录：这类别推了"].waitForExistence(timeout: 10),
                       "user-scope suppress receipt missing")
     }
