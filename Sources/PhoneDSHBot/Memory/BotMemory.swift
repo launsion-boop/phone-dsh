@@ -684,6 +684,10 @@ public actor BotMemory {
             if let resource = baseline.resource, !resource.isStructurallyValid {
                 return "derivation 的 resource 形状不合法。"
             }
+            if let grantId = baseline.grantId,
+               grantId.isEmpty || grantId.unicodeScalars.count > 128 {
+                return "derivation 的 grantId 必须是 1...128 scalar。"
+            }
             if baseline.sourceVersion != nil {
                 guard baseline.resource != nil else {
                     return "观察来源必须带 resource 身份；本次写入未执行。"
