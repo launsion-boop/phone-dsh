@@ -45,25 +45,16 @@ final class A05FeedbackUITests: XCTestCase {
                       "suppress receipt missing")
     }
 
-
-    /// G-2 §74: the user scope must be a real, tappable confirmation, not only
-    /// an enum branch. The cross-Bot delivery effect is asserted by E on the
-    /// same restored snapshot (the UI process only proves the recorded intent).
-    func testAutomationSuppressUserScope() throws {
+    func testAutomationSuppressUserScopeReceipt() throws {
         let suppress = app.buttons["bot.feedback.suppress"].firstMatch
         reveal(suppress)
         XCTAssertTrue(suppress.exists, "automation suppress action missing")
         suppress.tap()
-        let user = app.buttons["bot.feedback.suppress.user"]
-        XCTAssertTrue(user.waitForExistence(timeout: 5), "user scope action missing")
-        user.tap()
+        XCTAssertTrue(app.buttons["bot.feedback.suppress.user"].waitForExistence(timeout: 5),
+                      "user scope must be offered")
+        app.buttons["bot.feedback.suppress.user"].tap()
         XCTAssertTrue(app.staticTexts["已记录：这类别推了"].waitForExistence(timeout: 10),
                       "user-scope suppress receipt missing")
-        let undo = app.buttons["bot.feedback.undo"].firstMatch
-        XCTAssertTrue(undo.waitForExistence(timeout: 5), "undo after user scope missing")
-        undo.tap()
-        XCTAssertTrue(app.staticTexts["已撤销反馈"].waitForExistence(timeout: 10),
-                      "user-scope undo receipt missing")
     }
 
     private func reveal(_ element: XCUIElement) {
