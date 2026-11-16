@@ -50,6 +50,8 @@ final class BotRuntimeUnit {
     /// G-3 cloud scheduling client. Optional: an install without a confirmed
     /// base URL keeps the local-only behaviour instead of faking a caller.
     let cloudClient: CloudScheduleClient?
+    /// G-3 production scene/credential bridge for the same client.
+    let cloudLifecycle: BotCloudScheduleLifecycle?
     /// Governs user-authorized enable/revoke and delete-time purge.
     let cloudWiring: BotCloudScheduleWiring?
     private let routineActivity: BotRoutineActivityFlag
@@ -70,6 +72,7 @@ final class BotRuntimeUnit {
                  proactive: ProactiveEngine,
                  deviceResults: DeviceTaskResultOutbox,
                  cloudClient: CloudScheduleClient?,
+                 cloudLifecycle: BotCloudScheduleLifecycle?,
                  cloudWiring: BotCloudScheduleWiring?,
                  routineActivity: BotRoutineActivityFlag,
                  nowProvider: @escaping @Sendable () -> Int64) {
@@ -86,6 +89,7 @@ final class BotRuntimeUnit {
         self.proactive = proactive
         self.deviceResults = deviceResults
         self.cloudClient = cloudClient
+        self.cloudLifecycle = cloudLifecycle
         self.cloudWiring = cloudWiring
         self.routineActivity = routineActivity
         self.nowProvider = nowProvider
@@ -221,6 +225,7 @@ final class BotRuntimeUnit {
         } else {
             cloudClient = nil
         }
+        let cloudLifecycle = cloudClient.map { BotCloudScheduleLifecycle(client: $0) }
         let cloudWiring = cloudClient.map {
             BotCloudScheduleWiring(
                 store: store, machine: machine, client: $0,
@@ -296,7 +301,8 @@ final class BotRuntimeUnit {
             routineOutbox: routineOutbox, rows: rows, info: info,
             maintenance: maintenance,
             proactive: proactive, deviceResults: deviceResults,
-            cloudClient: cloudClient, cloudWiring: cloudWiring,
+            cloudClient: cloudClient, cloudLifecycle: cloudLifecycle,
+            cloudWiring: cloudWiring,
             routineActivity: routineActivity, nowProvider: resolvedNow)
     }
 
@@ -554,5 +560,15 @@ final class BotRuntimeUnit {
     /// A page touch resets the same 60 s sidebar clock.
     func noteInteraction() {
         liveFish.noteInteraction()
+    }
+
+    /// App scene/account lifecycle for this Bot's cloud client. The client is
+    /// the same one the scheduler wires; no second transport or token store.
+    func cloudSceneChanged(_ active: Bool) async {
+        await cloudLifecycle?.scenePhaseChanged(active: active)
+    }
+
+    func cloudCredentialsChanged(signedIn: Bool) async {
+        await cloudLifecycle?.credentialsDidChange(signedIn: signedIn)
     }
 }

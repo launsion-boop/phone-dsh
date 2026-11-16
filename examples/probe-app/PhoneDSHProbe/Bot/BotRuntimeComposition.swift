@@ -239,6 +239,8 @@ final class BotRuntimeComposition {
     /// successful bind and stopped with the composition.
     private var contextSources: BotContextSourcesAssembly?
     private var skillDirectoryObservers: [BotSkillDirectoryObserver] = []
+    /// G-3 account credential observation; cancelled with the composition.
+    private var cloudAccountTask: Task<Void, Never>?
 
     /// Read-only seam for the Bot info/settings entry and the info driver. The
     /// assembly remains the sole consent/observation authority.
@@ -549,6 +551,7 @@ final class BotRuntimeComposition {
             cloudConfiguration: productionCloud)
         composition.contextSources = contextSources
         composition.skillDirectoryObservers = skillObservers
+        composition.startCloudAccountObserver()
         composition.provenance = provenance
         composition.feedbackCenter = feedbackCenter
         await runtime.setRoutineChangeObserver { [weak composition] botID in
@@ -701,6 +704,36 @@ final class BotRuntimeComposition {
     // MARK: - Unit lifecycle
 
     func unit(for botID: String) -> BotRuntimeUnit? { units[botID] }
+
+    /// Real App scene lifecycle reaches every Bot's existing cloud client.
+    func cloudSceneChanged(_ active: Bool) async {
+        for unit in units.values {
+            await unit.cloudSceneChanged(active)
+        }
+    }
+
+    /// Account state changes (including a token refresh) reach every Bot.
+    func cloudCredentialsChanged(signedIn: Bool) async {
+        for unit in units.values {
+            await unit.cloudCredentialsChanged(signedIn: signedIn)
+        }
+    }
+
+    func startCloudAccountObserver() {
+        guard cloudAccountTask == nil else { return }
+        cloudAccountTask = Task { [weak self] in
+            for await state in TonoAccountSession.shared.states() {
+                guard let self else { return }
+                let signedIn: Bool
+                if case .signedIn = state { signedIn = true } else { signedIn = false }
+                await self.cloudCredentialsChanged(signedIn: signedIn)
+            }
+        }
+    }
+
+    deinit {
+        cloudAccountTask?.cancel()
+    }
 
     /// Any typed/poked/tapped page wakes the sidebar's 60 s idle clock for the
     /// same Bot, so the drawer and the open page never disagree.
