@@ -1972,7 +1972,7 @@ public actor BotMCPRuntime {
                 }
                 sourceBaselines = try JSONDecoder().decode(
                     [BotSourceBaseline].self,
-                    from: Data(encodedSources.encoded().utf8))
+                    from: encodedSources.encoded())
             } catch {
                 return .failure("memory-source-baseline-unavailable",
                                 "来源缺少稳定资源身份，整条写入已拒绝")
