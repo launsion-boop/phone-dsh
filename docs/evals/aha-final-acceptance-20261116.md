@@ -1,6 +1,6 @@
 # aha iOS 20261116 — 最终验收 receipt
 
-状态：**LOCAL CANDIDATE SIGNED**。产品代码 SHA 冻结为
+状态：**LOCAL CANDIDATE（repeat=2 筛查通过；repeat=3 发布级 FAIL）**。产品代码 SHA 冻结为
 `fd90d9f2deeee483b4cca79a76e1eab41d53d883`（分支 `aha/integration-20261116`）；
 本文件是 docs-only 追加，不改变产品代码。root 已独立逐 Git blob 核对
 `/private/tmp/aha-final-fd` 与 `fd90d9f2d` 的 Sources/Bot App/plugins/spec/bot-e2e-eval/Package
@@ -12,16 +12,39 @@
 | --- | --- |
 | 产品 SHA | `fd90d9f2deeee483b4cca79a76e1eab41d53d883` |
 | 分支 | `aha/integration-20261116` |
-| 完整评测 | **9/9 场景 real repeat=2 PASS**（筛查级：repeat=2 < 本仓要求的 3），engine exit 0；逐 run 见 [`aha-20261116-receipt.json`](aha-20261116-receipt.json) |
+| 完整评测（筛查） | **9/9 场景 real repeat=2 PASS**（筛查级：repeat=2 < 本仓要求的 3），engine exit 0；逐 run 见 [`aha-20261116-receipt.json`](aha-20261116-receipt.json) |
+| 发布级评测（repeat=3） | **overall FAIL**：candidate `3eb41ae1a344298e4b00475430874fac05419c3a`，9 场景 real repeat=3；6 PASS、AHA-DISCOVER 3/3 FAIL、AHA-COMPACT-REUSE scorer FAIL、AHA-CONTINUOUS r3 assertion FAIL；逐 run 见 [`aha-20261116-repeat3-receipt.json`](aha-20261116-repeat3-receipt.json)（E harness，未改 assertion） |
 | aha-report sha256 | `2f82a4111435456a434d4cf584126b5b11f43e9789e56b35a28d0e81a8fab142` |
 | summary sha256 | `962954384793d01fa183e109e4de70215aaed2550b813bcbcf8564b2a50301ea` |
 | worker image sha256 | `deafb5d3f3b9322eba15569f6d2ec3c044d870e56f6960acb6263ad3123437c7` |
 | catalog / dims | `127e5f…` / `32bc48…`（同 SHA 两侧一致） |
-| 场景 | DISCOVER、COMPACT-REUSE、FRESHNESS、SOURCE、INJECTION、BOUNDARY、ERASURE、SILENCE、CONTINUOUS 各 2/2 PASS（重复数不足，发布级需 repeat>=3 重跑） |
+| 场景（筛查） | DISCOVER、COMPACT-REUSE、FRESHNESS、SOURCE、INJECTION、BOUNDARY、ERASURE、SILENCE、CONTINUOUS 各 2/2 PASS；**不得据此关闭评论 #6**（repeat=3 已出现 DISCOVER FAIL、COMPACT-REUSE scorer FAIL、CONTINUOUS r3 FAIL） |
 | iOS App 模型测试 | `BotChatModelTests` **24/24 PASS**（专用 sim `8022E547…`，DerivedData `/tmp/aha-ios-dd`；未碰 booted 设备） |
 | H-01 评分器 | fail-closed（旧 real2 `--engine-exit 1` 现 FAIL）；50 tests PASS |
 | 受影响 Swift | 174/0；M 全量 Bot 882/0；ERASURE 保守机制 6/6；selftest 18/18 |
 | 工作树 / 范围 | 干净；65 files 全在 Bot 模块/适配层/评测设施/spec-bot/docs，无 DSH 源码/pin/官方页面/Android/HarmonyOS/Package 文件 |
+
+## 1.1 repeat=3 发布级结果（E harness，candidate `3eb41ae1a`）
+
+命令：`bash scripts/evals/bot-aha/run.sh --upstream real --repeat 3`（同 catalog/dimensions，
+assertion 未改；Bundle 为 candidate 旧 Bundle/worker，不含 R decision-context 插件，materials 不作机制结论）。
+逐 run/失败 assertion：`/tmp/e-k-aha3/E-K-REPORT.{md,json}`；脱敏机器收据见
+[`aha-20261116-repeat3-receipt.json`](aha-20261116-repeat3-receipt.json)。
+
+| 场景 | engine | aha | 逐 run | 失败 |
+| --- | --- | --- | --- | --- |
+| AHA-DISCOVER | FAIL | FAIL | FAIL/FAIL/FAIL | 三次缺 `OWNER: 林`；r1/r2 另缺 risk 标题 |
+| AHA-COMPACT-REUSE | PASS | FAIL | PASS/PASS/PASS | 独立 scorer `stored_with_provenance`：`agent/playbook/weekly.md: no evidence reference` |
+| AHA-CONTINUOUS | FAIL | FAIL | PASS/PASS/FAIL | r3 `event_count conversation.assistant_message` = 2，期望 1 |
+| FRESHNESS/SOURCE/INJECTION/BOUNDARY/ERASURE/SILENCE | PASS | PASS | 各 3/3 PASS | — |
+
+- **CONTINUOUS r3 的定性**（证据见 receipt 的 `k_analysis`）：不是重复接纳。r3 的第一个 assistant 文本在
+  首条用户消息后 +0.97s（tool 调用前的叙述），更正消息只在 +9.04s 出现一次，第二个 assistant 文本
+  +9.95s 是 steer 后的最终答复；两次 `conversation.turn_started` 与 r1/r2 相同，model request 数相同。
+  这是真实模型“先叙述再调工具”的波动撞上“统计每条 assistant 文本”的断言；不应标成 admission 重复。
+- **COMPACT-REUSE 的定性**：engine 全过、独立 scorer 判 provenance 失败，是候选的真实溯源结果，
+  不能拿 engine PASS 掩盖。
+- **DISCOVER**：repeat=3 仍失败，说明旧 repeat=2 的 9/9 不能作为机制完成或评论 #6 的关闭依据。
 
 ## 2. 本轮真正落地的通用机制
 
@@ -51,6 +74,8 @@ treatment **FAIL、PASS**，两臂 `expectation_met=false`；INJECTION treatment
 变更单 §4.1 此前写“两臂各 2/2 FAIL”，同样不符。以上面的逐 run 结果为准。
 旧 r9 A/B（r8 未进 Worker，两臂 0/2）标 invalid，不作为无增益依据。
 该 A/B 只有 repeat=2，低于本仓评测文档要求的 repeat>=3；因此它是筛查证据，不是发布级证明。
+并且同一 candidate 的 repeat=3 单臂 DISCOVER **3/3 FAIL**（§1.1），所以“r8 无增益”的撤回结论保持，
+但 DISCOVER 机制本身在发布级重复下仍未通过；两臂 repeat=3 A/B 未跑，不得据此升级任何增益结论。
 
 ## 4. 已知 FAIL / NOT_RUN（不阻塞本地候选，PR 必须记录）
 
@@ -59,9 +84,17 @@ treatment **FAIL、PASS**，两臂 `expectation_met=false`；INJECTION treatment
 - `phone-hygiene`：base 既有（`CloudVoice`/`TonoAccount`/`Tests/*`），本 diff 无新增命中。
 - `spec/ui/v1/bot/tools/check_bot_ui.py`：`header.waiting.plural` 旧 source-location drift（文件零 diff）。
 
+**本轮 repeat=3 的发布级 FAIL（E harness，candidate `3eb41ae1a`）**
+- AHA-DISCOVER 3/3 FAIL（缺 `OWNER: 林`；r1/r2 缺 risk 标题）。
+- AHA-COMPACT-REUSE：engine 3/3 PASS，独立 scorer `stored_with_provenance` FAIL（`agent/playbook/weekly.md`
+  无 evidence 引用）。
+- AHA-CONTINUOUS r3：`event_count conversation.assistant_message` = 2（期望 1）；证据表明是模型在 tool
+  调用前的叙述，不是重复接纳（详见 §1.1 与 repeat3 receipt 的 `k_analysis`）。
+以上任一未解决前，candidate 不能标“发布级通过”。
+
 **NOT_RUN**
 - 真机、掉电/重启、后台驻留、通知、弱网、`would` 两周线上指标、maintainer 真实批次、
-  Android/HarmonyOS 对齐。
+  Android/HarmonyOS 对齐、r8 两臂 repeat=3。
 - Worker 重建：最终树在 Worker 可见的 `plugins/profile` 与 `plugins/bot-runtime/prompts` 上相对 base
   零 diff，**不适用**（未把未跑写 PASS）。
 
@@ -71,6 +104,8 @@ treatment **FAIL、PASS**，两臂 `expectation_met=false`；INJECTION treatment
 
 ## 5. 签收
 
-- Q 最终签收：`q-review-delta.md` — “可发布候选（DISCOVER 修正测量下 PASS；r8 无增益已撤回；真机/后台
-  NOT_RUN）”。
+- Q 的签收（`q-review-delta.md`）只覆盖 **repeat=2 的筛查候选**（当时 DISCOVER 在修正测量下 PASS）。
+- **发布级 repeat=3 已 FAIL**（§1.1）：DISCOVER 3/3 FAIL、COMPACT-REUSE scorer FAIL、CONTINUOUS r3
+  assertion FAIL。因此本文件不再支持“可发布候选/发布级通过”的表述；是否接受剩余风险由 root 决定，
+  不能由本 receipt 或旧 9/9 自证。
 - root：从 `aha/integration-20261116` @ 产品 SHA `fd90d9f2d` 发 Draft PR；本 receipt 为 docs-only 追加。

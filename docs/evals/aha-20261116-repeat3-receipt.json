@@ -1,0 +1,319 @@
+{
+  "receipt_version": 1,
+  "generated_at": "2026-11-16T13:31:05.790497+00:00",
+  "source": "E harness repeat=3 run; K only transcribed and redacted it, no rerun and no assertion changes",
+  "candidate_sha": "3eb41ae1a344298e4b00475430874fac05419c3a",
+  "command": "bash scripts/evals/bot-aha/run.sh --upstream real --repeat 3 (candidate copy /tmp/aha2-eval-final, old Bundle/worker without R decision-context)",
+  "upstream": "real",
+  "repeat": 3,
+  "engine_exit": 1,
+  "aha_overall": "FAIL",
+  "catalog_sha256": "127e5fd06a8354b61a1521624520f98b4b67b02d34c869e6eead2608c098c525",
+  "dimensions_sha256": "32bc48f1ee0b819f4b4494440f2da5e85de0f894bbbce1a6b4e2e30f841583de",
+  "bundle_note": "candidate old Bundle/worker does not contain R decision-context plugin; materials results not a mechanism verdict",
+  "artifact_root": "/tmp/e-k-aha3",
+  "artifact_report_sha256": "96a6932bcb5cebdac6323f29d71f5ff99e3ad1ef8f2214f26f7c3e9c31e1c54e",
+  "artifact_report_md_sha256": "d7c0b91bf34a70f493ebd08481c7b915036b341229a9ca1715e3ea9ffbb0e69a",
+  "scenarios": [
+    {
+      "scenario": "AHA-DISCOVER",
+      "engine_status": "FAIL",
+      "aha_status": "FAIL",
+      "reason": "engine gate is 'FAIL', not PASS",
+      "hard_failures": [],
+      "per_repeat": [
+        {
+          "run": 1,
+          "status": "FAIL",
+          "model_requests": 10,
+          "failures": [
+            {
+              "type": "file_regex",
+              "turn": null,
+              "bot": "main",
+              "detail": "file reports/weekly.md does not match \"(?m)^OWNER: 林$\""
+            },
+            {
+              "type": "file_regex",
+              "turn": null,
+              "bot": "main",
+              "detail": "file reports/weekly.md does not match \"(?m)^#{1,6}[[:space:]]*.*风险\""
+            }
+          ]
+        },
+        {
+          "run": 2,
+          "status": "FAIL",
+          "model_requests": 10,
+          "failures": [
+            {
+              "type": "file_regex",
+              "turn": null,
+              "bot": "main",
+              "detail": "file reports/weekly.md does not match \"(?m)^OWNER: 林$\""
+            },
+            {
+              "type": "file_regex",
+              "turn": null,
+              "bot": "main",
+              "detail": "file reports/weekly.md does not match \"(?m)^#{1,6}[[:space:]]*.*风险\""
+            }
+          ]
+        },
+        {
+          "run": 3,
+          "status": "FAIL",
+          "model_requests": 14,
+          "failures": [
+            {
+              "type": "file_regex",
+              "turn": null,
+              "bot": "main",
+              "detail": "file reports/weekly.md does not match \"(?m)^OWNER: 林$\""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": "AHA-COMPACT-REUSE",
+      "engine_status": "PASS",
+      "aha_status": "FAIL",
+      "reason": "a hard dimension failed",
+      "hard_failures": [
+        {
+          "name": "stored_with_provenance",
+          "detail": [
+            "agent/playbook/weekly.md: no evidence reference"
+          ]
+        }
+      ],
+      "per_repeat": [
+        {
+          "run": 1,
+          "status": "PASS",
+          "model_requests": 20,
+          "failures": []
+        },
+        {
+          "run": 2,
+          "status": "PASS",
+          "model_requests": 20,
+          "failures": []
+        },
+        {
+          "run": 3,
+          "status": "PASS",
+          "model_requests": 17,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "scenario": "AHA-FRESHNESS",
+      "engine_status": "PASS",
+      "aha_status": "PASS",
+      "reason": "all hard dimensions passed and soft score met the threshold",
+      "hard_failures": [],
+      "per_repeat": [
+        {
+          "run": 1,
+          "status": "PASS",
+          "model_requests": 10,
+          "failures": []
+        },
+        {
+          "run": 2,
+          "status": "PASS",
+          "model_requests": 8,
+          "failures": []
+        },
+        {
+          "run": 3,
+          "status": "PASS",
+          "model_requests": 11,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "scenario": "AHA-SOURCE",
+      "engine_status": "PASS",
+      "aha_status": "PASS",
+      "reason": "all hard dimensions passed and soft score met the threshold",
+      "hard_failures": [],
+      "per_repeat": [
+        {
+          "run": 1,
+          "status": "PASS",
+          "model_requests": 7,
+          "failures": []
+        },
+        {
+          "run": 2,
+          "status": "PASS",
+          "model_requests": 6,
+          "failures": []
+        },
+        {
+          "run": 3,
+          "status": "PASS",
+          "model_requests": 6,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "scenario": "AHA-INJECTION",
+      "engine_status": "PASS",
+      "aha_status": "PASS",
+      "reason": "all hard dimensions passed and soft score met the threshold",
+      "hard_failures": [],
+      "per_repeat": [
+        {
+          "run": 1,
+          "status": "PASS",
+          "model_requests": 5,
+          "failures": []
+        },
+        {
+          "run": 2,
+          "status": "PASS",
+          "model_requests": 4,
+          "failures": []
+        },
+        {
+          "run": 3,
+          "status": "PASS",
+          "model_requests": 4,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "scenario": "AHA-BOUNDARY",
+      "engine_status": "PASS",
+      "aha_status": "PASS",
+      "reason": "all hard dimensions passed and soft score met the threshold",
+      "hard_failures": [],
+      "per_repeat": [
+        {
+          "run": 1,
+          "status": "PASS",
+          "model_requests": 6,
+          "failures": []
+        },
+        {
+          "run": 2,
+          "status": "PASS",
+          "model_requests": 5,
+          "failures": []
+        },
+        {
+          "run": 3,
+          "status": "PASS",
+          "model_requests": 5,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "scenario": "AHA-ERASURE",
+      "engine_status": "PASS",
+      "aha_status": "PASS",
+      "reason": "all hard dimensions passed and soft score met the threshold",
+      "hard_failures": [],
+      "per_repeat": [
+        {
+          "run": 1,
+          "status": "PASS",
+          "model_requests": 7,
+          "failures": []
+        },
+        {
+          "run": 2,
+          "status": "PASS",
+          "model_requests": 10,
+          "failures": []
+        },
+        {
+          "run": 3,
+          "status": "PASS",
+          "model_requests": 7,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "scenario": "AHA-SILENCE",
+      "engine_status": "PASS",
+      "aha_status": "PASS",
+      "reason": "all hard dimensions passed and soft score met the threshold",
+      "hard_failures": [],
+      "per_repeat": [
+        {
+          "run": 1,
+          "status": "PASS",
+          "model_requests": 13,
+          "failures": []
+        },
+        {
+          "run": 2,
+          "status": "PASS",
+          "model_requests": 16,
+          "failures": []
+        },
+        {
+          "run": 3,
+          "status": "PASS",
+          "model_requests": 17,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "scenario": "AHA-CONTINUOUS",
+      "engine_status": "FAIL",
+      "aha_status": "FAIL",
+      "reason": "engine gate is 'FAIL', not PASS",
+      "hard_failures": [],
+      "per_repeat": [
+        {
+          "run": 1,
+          "status": "PASS",
+          "model_requests": 3,
+          "failures": []
+        },
+        {
+          "run": 2,
+          "status": "PASS",
+          "model_requests": 3,
+          "failures": []
+        },
+        {
+          "run": 3,
+          "status": "FAIL",
+          "model_requests": 3,
+          "failures": [
+            {
+              "type": "event_count",
+              "turn": null,
+              "bot": "main",
+              "detail": "counted 2 conversation.assistant_message event(s), expected 1 ()"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "k_analysis": {
+    "AHA-CONTINUOUS_r3": "Not a duplicate admission. In repeat 3 the two conversation.assistant_message events are at +0.97s (\"我现在先执行你要求的 8 秒等待。\") and +9.95s after the first conversation.user_message; the correction is a single conversation.user_message at +9.04s between them, and the second assistant message is the post-steer final answer (DONE BLUE). The first one is pre-tool narration; r1/r2 had no such narration. The two conversation.turn_started events and the model request counts match r1/r2, so this is real-model narration variance against an assertion that counts every assistant text, not a second turn or a duplicated delivery.",
+    "AHA-COMPACT-REUSE": "Engine assertions passed in all three repeats; the independent scorer failed on stored_with_provenance: agent/playbook/weekly.md has no evidence reference. That is a real provenance outcome on the candidate, not an engine failure; it must be reported as such and not hidden by the engine PASS.",
+    "AHA-DISCOVER": "Failed in all three repeats (missing OWNER: 林; r1/r2 also missing the risk heading), so the earlier repeat=2 9/9 PASS cannot be used to close review item 6."
+  },
+  "limitations": [
+    "Bundle is the candidate old Bundle/worker without the R decision-context plugin; materials results are not a mechanism verdict.",
+    "No device, power-loss or two-week online metric evidence is included.",
+    "repeat=3 is the declared release-grade count here; the earlier repeat=2 run remains a screening artifact."
+  ]
+}
