@@ -62,6 +62,11 @@ struct PhoneDSHBotUICaptureApp: App {
                 }
             }
             .preferredColorScheme(appearance == "dark" ? .dark : .light)
+            .transformEnvironment(\.botActivityPrefersCrossFade) { value in
+                if ProcessInfo.processInfo.arguments.contains("-BotUIPreferCrossFade") {
+                    value = true
+                }
+            }
             .task { await runConformanceChecks() }
             .onReceive(NotificationCenter.default.publisher(
                 for: UIApplication.didEnterBackgroundNotification)) { _ in

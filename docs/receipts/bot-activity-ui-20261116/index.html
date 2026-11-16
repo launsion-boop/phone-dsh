@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bot 活动气泡 · 原生对比与动效</title>
+<style>
+  :root{color-scheme:light;--bg:#f6f7f9;--surface:#fff;--ink:#20252b;--muted:#626d78;--line:#dde2e8;--accent:#245b4b}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}
+  body[data-theme=dark]{color-scheme:dark;--bg:#101214;--surface:#1c1f23;--ink:#edf0f4;--muted:#b6bec8;--line:#363c43;--accent:#a0d0bc}
+  main{max-width:940px;margin:0 auto;padding:42px 22px 64px}header{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:26px}
+  h1{font-size:30px;line-height:1.25;letter-spacing:-.5px;margin:8px 0}h2{font-size:19px;margin:0 0 8px}p{margin:7px 0;color:var(--muted)}.eyebrow{font-size:13px;letter-spacing:1px;color:var(--accent)}
+  .switch{display:flex;gap:4px;padding:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;white-space:nowrap}
+  button{font:inherit;color:var(--ink);background:transparent;border:0;border-radius:8px;padding:7px 15px;cursor:pointer}button[aria-pressed=true]{background:var(--ink);color:var(--surface)}button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{background:var(--surface);border:1px solid var(--line);border-radius:18px;overflow:hidden}.caption{padding:18px 20px 12px}.tag{font-size:12px;color:var(--accent)}.caption p{font-size:14px}
+  .crop{position:relative;width:100%;aspect-ratio:402/170;overflow:hidden;background:var(--surface)}.crop img,.crop video{position:absolute;bottom:0;left:0;width:100%;height:auto;display:block}
+  .links{padding:8px 20px 16px;font-size:13px}a{color:var(--accent);text-decoration:underline;text-underline-offset:3px}.motion{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;align-items:center}.motion .copy{padding:24px}.motion .crop{border-left:1px solid var(--line)}
+  .metrics{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0}.metrics span{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:7px 13px;font-size:14px}.metrics b{font-size:17px;color:var(--ink);margin-right:5px}
+  .note{font-size:13px;margin-top:16px}.section{margin-top:34px}.examples{display:grid;grid-template-columns:1fr 1fr;gap:18px}.examples .crop{aspect-ratio:402/170}
+  details{margin-top:24px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 20px}summary{cursor:pointer;font-weight:600}ol{margin:10px 0 20px;padding-left:24px}li{padding:3px 0}.task{font-size:16px;font-weight:600;margin-top:18px}.dots{letter-spacing:4px;color:var(--muted)}.source{font-size:12px;color:var(--muted);margin-left:6px}
+  @media(max-width:650px){main{padding:26px 16px 44px}header{align-items:flex-start;flex-direction:column}h1{font-size:26px}.grid,.motion,.examples{grid-template-columns:1fr}.motion .crop{border-left:0;border-top:1px solid var(--line)}.crop{max-width:430px;margin:auto}}
+</style>
+<body data-theme="light">
+<main>
+  <header>
+    <div><div class="eyebrow">iOS 原生验收 · Bot</div><h1>看得清，也切换得自然。</h1><p>只保留简短真实进展。等待和回复，交给三个点。</p></div>
+    <div class="switch" role="group" aria-label="截图外观"><button data-theme="light" aria-pressed="true">浅色</button><button data-theme="dark" aria-pressed="false">深色</button></div>
+  </header>
+  <div class="grid">
+    <section class="card"><div class="caption"><div class="tag">之前</div><h2>13pt · 高光偏亮</h2><p>同一活动文案的原生截图。</p></div><div class="crop"><img id="before" src="before-light.png" alt="优化前的13pt活动气泡"></div><div class="links"><a id="before-link" href="before-light.png">完整截图</a></div></section>
+    <section class="card"><div class="caption"><div class="tag">现在</div><h2>16pt · 更清晰的文字</h2><p>更宽的可用空间，柔和且不冲淡文字的流光。</p></div><div class="crop"><img id="after" src="after-light.png" alt="优化后的16pt活动气泡"></div><div class="links"><a id="after-link" href="after-light.png">完整截图</a></div></section>
+  </div>
+  <div class="metrics"><span><b>16pt</b>默认字号</span><span><b>220ms</b>轻量切换</span><span><b>•••</b>等待／回复</span><span>单行 · 不可点击 · 输入框不跳动</span></div>
+  <section class="card motion"><div class="copy"><div class="tag">原生录屏</div><h2>从三点，切换到当前进展。</h2><p>真实短句按受控节奏播放，用于检查字形、气泡宽度和切换感受；不是新的模型任务。</p><button id="motion-toggle" aria-controls="motion">播放</button> <a id="movie-link" href="motion-light.mp4">完整录屏</a></div><div class="crop"><video id="motion" muted playsinline loop preload="metadata" poster="waiting.png" src="motion-light.mp4" aria-label="iOS 原生活动气泡切换录屏"></video></div></section>
+  <section class="section"><h2>等待与回复，不再显示占位文字。</h2><div class="examples"><div class="card"><div class="caption"><div class="tag">等待回应</div></div><div class="crop"><img src="waiting.png" alt="等待时只有三个点的小气泡"></div></div><div class="card"><div class="caption"><div class="tag">生成答复</div></div><div class="crop"><img src="replying.png" alt="生成答复时只有三个点的小气泡"></div></div></div></section>
+  <p class="note">另外检查了<a href="large-text.png">大字体</a>和<a href="error-dark.png">深色错误态</a>。系统“减少动态效果”时使用静态呈现；原生 UI 测试覆盖了大字体和纯淡化切换偏好。</p>
+  <details id="states"><summary>真实 DSH 模拟的完整状态清单</summary><p>三个自然任务共 17 段非空显示：11 条任务进展＋6 段三点提示。11 条中，9 条来自主模型，2 条来自真实工具参数。以下保留原样文案。</p>
+    <div class="task">① 检查 #174</div><ol><li><span class="dots">•••</span><span class="source">等待阶段</span></li><li>查看工作区与 pr 资料目录</li><li>读取 #174 的资料笔记</li><li>读取 main 侧的笔记</li><li><span class="dots">•••</span><span class="source">回复阶段</span></li></ol>
+    <div class="task">② 总结周三例会</div><ol><li><span class="dots">•••</span><span class="source">等待阶段</span></li><li>先看工作区里 notes 资料有哪些</li><li>在读周三例会纪要原文</li><li>在读 actions 清单核对待办项</li><li><span class="dots">•••</span><span class="source">回复阶段</span></li></ol>
+    <div class="task">③ 给李光浩写回复草稿</div><ol><li><span class="dots">•••</span><span class="source">等待阶段</span></li><li>查看 inbox 和 notes 目录内容</li><li>在读李光浩的来信内容</li><li>在读发布背景笔记</li><li>在写文件 · draft-reply-liguangh…<span class="source">工具参数</span></li><li>打开文档 · 给李光浩的回复草稿<span class="source">工具参数</span></li><li><span class="dots">•••</span><span class="source">回复阶段</span></li></ol>
+    <p class="note">内容证据来自 DeepSeek V4.1 Flash / max 的真实 DSH 任务及生产投影回放。截图与视频是 iOS Simulator 的 UI 验收；未声称真机或生产验收。</p>
+  </details>
+  <p class="note"><a href="README.md">验证记录与边界</a></p>
+</main>
+<script>
+const movie=document.getElementById('motion'),toggle=document.getElementById('motion-toggle');
+const reduced=matchMedia('(prefers-reduced-motion: reduce)');
+function updateButton(){toggle.textContent=movie.paused?'播放':'暂停'}
+function theme(value){
+ if(!['light','dark'].includes(value))return;
+ document.body.dataset.theme=value;
+ for(const button of document.querySelectorAll('button[data-theme]'))button.setAttribute('aria-pressed',String(button.dataset.theme===value));
+ for(const side of ['before','after']){document.getElementById(side).src=side+'-'+value+'.png';document.getElementById(side+'-link').href=side+'-'+value+'.png'}
+ movie.src='motion-'+value+'.mp4';movie.poster=value==='light'?'waiting.png':'replying.png';document.getElementById('movie-link').href=movie.src;
+ if(!reduced.matches)movie.play().catch(updateButton);else movie.pause();updateButton();
+}
+document.querySelectorAll('button[data-theme]').forEach(button=>button.addEventListener('click',()=>theme(button.dataset.theme)));
+toggle.addEventListener('click',()=>{if(movie.paused)movie.play().catch(updateButton);else movie.pause()});movie.addEventListener('play',updateButton);movie.addEventListener('pause',updateButton);
+reduced.addEventListener('change',()=>{if(reduced.matches)movie.pause()});
+theme(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+if(location.hash==='#states')document.getElementById('states').open=true;
+</script>
+</body></html>

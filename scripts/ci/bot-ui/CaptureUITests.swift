@@ -10,13 +10,17 @@ final class BotCaptureUITests: XCTestCase {
         app = XCUIApplication()
     }
 
-    private func launch(_ fixture: String, dynamicType: Bool = false) {
+    private func launch(_ fixture: String, dynamicType: Bool = false,
+                        activityMotion: Bool = false, crossFade: Bool = false,
+                        diagnostics: Bool = true) {
         app.terminate()
         app.launchArguments = [
             "-BotUIFixture", fixture,
             "-BotUIAppearance", "light",
-            "-BotUIDiagnostics",
         ]
+        if diagnostics { app.launchArguments.append("-BotUIDiagnostics") }
+        if activityMotion { app.launchArguments.append("-BotUIActivityMotion") }
+        if crossFade { app.launchArguments.append("-BotUIPreferCrossFade") }
         if dynamicType {
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         }
@@ -522,21 +526,26 @@ final class BotCaptureUITests: XCTestCase {
     }
 
     /// The bubble is the one activity surface for every phase that has a
-    /// sentence: a running tool shows its activity text, an approval after its
-    /// turn shows the static「等你确认」, and a failure shows its report. The
-    /// bubble stays inside the 30–34pt band, and no separate top line exists.
-    /// Shimmer on/off is visual (the quiet phases are unit-checked through
+    /// sentence: a running tool shows the task's real sentence (including its
+    /// `#174` object), an approval after its turn shows the static「等你确认」,
+    /// and a failure shows its report. The bubble stays inside the 38pt
+    /// band, is not a tap target, and no separate top line exists. Shimmer
+    /// on/off is visual (the quiet phases are unit-checked through
     /// `lineIsQuiet`), so this test only proves the text surface.
     func testActivityBubbleCarriesThePresenceSentence() throws {
         launch("runningToolDescribed")
         XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
         XCTAssertTrue(waitUntil(timeout: 3) {
-            activityBubble.label.contains("对比三篇日记的情绪")
+            activityBubble.label.contains("#174")
         }, "working bubble label: \(activityBubble.label)")
-        XCTAssertGreaterThanOrEqual(activityBubble.frame.height, 30,
+        XCTAssertTrue(activityBubble.label.contains("main"),
+                      "the real task object must reach the bubble label")
+        XCTAssertGreaterThanOrEqual(activityBubble.frame.height, 37,
                                     "bubble is shorter than the reserved band")
-        XCTAssertLessThanOrEqual(activityBubble.frame.height, 34,
-                                 "bubble is taller than the 30–34pt band")
+        XCTAssertLessThanOrEqual(activityBubble.frame.height, 40,
+                                 "bubble is taller than the normal 38pt band")
+        XCTAssertFalse(app.buttons["bot.activity.bubble"].exists,
+                       "the activity bubble must remain a non-interactive text surface")
         XCTAssertFalse(activityLine.exists,
                        "the removed top activity line is still mounted")
 
@@ -555,6 +564,54 @@ final class BotCaptureUITests: XCTestCase {
                       "problem bubble label: \(activityBubble.label)")
         XCTAssertFalse(activityLine.exists,
                        "the removed top activity line is still mounted")
+    }
+
+    func testActivityChangesKeepComposerAndBandStable() throws {
+        // The diagnostic footer prints changing detail strings and can wrap;
+        // it is not part of the production layout whose stability we check.
+        launch("runningToolDescribed", activityMotion: true, diagnostics: false)
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
+        let composer = app.descendants(matching: .any)
+            .matching(identifier: "bot.composer.input").firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        let composerY = composer.frame.minY
+        let bandY = activityBubble.frame.minY
+        for phrase in ["读取 #174 的资料笔记", "读取 main 侧的笔记",
+                       "#174 记录显示 3 个冲突文件，接着核对主干侧"] {
+            XCTAssertTrue(waitUntil(timeout: 7) { activityBubble.label == phrase },
+                          "activity did not change to \(phrase); current \(activityBubble.label)")
+            XCTAssertEqual(composer.frame.minY, composerY, accuracy: 1,
+                           "a text transition moved the composer")
+            XCTAssertEqual(activityBubble.frame.minY, bandY, accuracy: 1,
+                           "a text transition moved the reserved activity band")
+            XCTAssertEqual(activityBubble.frame.height, 38, accuracy: 1)
+        }
+        XCTAssertFalse(app.buttons["bot.activity.bubble"].exists)
+    }
+
+    func testActivitySupportsLargerTextAndCrossFadePreference() throws {
+        launch("runningToolDescribed", dynamicType: true,
+               activityMotion: true, crossFade: true, diagnostics: false)
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(activityBubble.frame.height, 40,
+                             "the activity line box did not scale with Dynamic Type")
+        XCTAssertTrue(waitUntil(timeout: 7) { activityBubble.label == "读取 #174 的资料笔记" })
+        XCTAssertFalse(app.buttons["bot.activity.bubble"].exists)
+        XCTAssertFalse(activityLine.exists)
+    }
+
+    func testWaitingAndReplyingUseDotsWithoutPlaceholderWords() throws {
+        launch("runningThinking", diagnostics: false)
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
+        XCTAssertEqual(activityBubble.label, "等待 Bot 回应")
+        XCTAssertFalse(app.staticTexts["等待响应"].exists)
+        XCTAssertFalse(app.buttons["bot.activity.bubble"].exists)
+
+        launch("runningStreamingWithLine", diagnostics: false)
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 3) { activityBubble.label == "Bot 正在生成答复" })
+        XCTAssertFalse(app.staticTexts["正在回复"].exists)
+        XCTAssertFalse(app.buttons["bot.activity.bubble"].exists)
     }
 
     // MARK: - Bot drawer

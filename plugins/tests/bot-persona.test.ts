@@ -27,6 +27,105 @@ test('both persona languages mount every P0 and no P1, with all variants', () =>
   assert.ok(parseMountSpec('when: unknown=value').error)
 })
 
+test('activity guidance teaches one short, object-bearing, result-carrying sentence', () => {
+  for (const lang of ['zh', 'en'] as const) {
+    const { persona } = assemblePrompt({ lang })
+    assert.ok(persona.includes(lang === 'zh' ? '最多 19 个字符' : 'at most 19'))
+    assert.equal(/10–20|最多约 28/.test(persona), false)
+    assert.ok(persona.includes('`description`'), `${lang} must keep bash.description guidance`)
+    assert.ok(persona.includes('`task_title`'), `${lang} must keep Task.task_title guidance`)
+    assert.ok(persona.includes('等待响应'), `${lang} must use the code-aligned wait sentence`)
+    assert.equal(persona.includes('等待模型响应'), false, `${lang} still uses the removed wait sentence`)
+    if (lang === 'zh') {
+      for (const token of ['约 10 个字', '动作 + 这次任务里的对象', '文件名', '#PR', '人名', '会议名',
+        '在对比 #174 和 main 的冲突', '3 个文件冲突，逐个核对', '读取相关资料', '已收到查询结果']) {
+        assert.ok(persona.includes(token), `zh activity guidance must include ${token}`)
+      }
+      assert.ok(persona.includes('不要把完整路径、长 URL、整条命令、JSON、原始长回答或技术参数搬上屏'))
+      assert.ok(persona.includes('不要写凭证或内部 id'))
+      assert.ok(persona.includes('下一句要接住上一句的真实结果'))
+      assert.ok(persona.includes('不要往未声明的字段写 intent'))
+      assert.ok(persona.includes('不另开摘要模型或请求'))
+      assert.ok(persona.includes('不调用专用活动工具'))
+      assert.ok(persona.includes('不为刷新气泡发旁白'))
+      assert.equal(persona.includes('不要包含文件名、路径、扩展名、网址、命令、内部 ID 或代码'), false,
+        'zh must not keep the generalized filename/path prohibition')
+    } else {
+      for (const token of ['about 10 characters', "action + this task's object", 'file name', '#PR',
+        'person', 'meeting', 'Compare #174/main', '3 conflicts: check',
+        'Reading related material', 'Got the query result']) {
+        assert.ok(persona.includes(token), `en activity guidance must include ${token}`)
+      }
+      assert.ok(persona.includes('never put a full path, long URL, whole command, JSON, raw long answer or technical parameters'))
+      assert.ok(persona.includes('never include credentials or internal ids'))
+      assert.ok(persona.includes('the next sentence must build on the real result'))
+      assert.ok(persona.includes('never write intent into an undeclared field'))
+      assert.ok(persona.includes('no separate summary model or request'))
+      assert.ok(persona.includes('no dedicated activity tool'))
+      assert.ok(persona.includes('no narration just to refresh the bubble'))
+      assert.equal(persona.includes('Do not include filenames, paths, extensions, URLs, commands, internal IDs or code'), false,
+        'en must not keep the generalized filename/path prohibition')
+    }
+  }
+})
+
+test('bash.description and Task.task_title are task-level and in the user language', () => {
+  for (const lang of ['zh', 'en'] as const) {
+    const { persona } = assemblePrompt({ lang })
+    assert.ok(persona.includes('`description`'), `${lang} must teach bash.description`)
+    assert.ok(persona.includes('`task_title`'), `${lang} must teach Task.task_title`)
+    if (lang === 'zh') {
+      for (const token of ['跟随用户当前语言', '任务对象 + 当前进展', '定位 #174 的合并资料',
+        'List workspace', '列出目录', 'Inspect workspace root and git/github config']) {
+        assert.ok(persona.includes(token), `zh task-intent guidance must include ${token}`)
+      }
+      assert.ok(persona.includes('首选来源'))
+      assert.ok(persona.includes('没有新信息时不要编造结果'))
+    } else {
+      for (const token of ["user's current language", 'task object plus progress',
+        'Check #174 merge', 'List workspace', 'List directory',
+        'Inspect workspace root and git/github config']) {
+        assert.ok(persona.includes(token), `en task-intent guidance must include ${token}`)
+      }
+      assert.ok(persona.includes('preferred activity source'))
+      assert.ok(persona.includes('do not invent a result when there is nothing new'))
+    }
+  }
+})
+
+test('reply length and the work step agree on meaningful public progress', () => {
+  for (const lang of ['zh', 'en'] as const) {
+    const { persona } = assemblePrompt({ lang })
+    if (lang === 'zh') {
+      assert.ok(persona.includes('这个上限针对最终答复'))
+      assert.ok(persona.includes('最终答复不叙述工具调用'))
+      assert.ok(persona.includes('有意义的进展、结果或转向节点'))
+      assert.ok(persona.includes('带这次任务对象的公开进度'))
+      assert.ok(persona.includes('不逐条命令旁白'))
+      assert.ok(persona.includes('不专门调用工具或模型来刷新气泡'))
+      assert.ok(persona.includes('为了刷新活动气泡专门调用工具或模型'))
+      assert.ok(persona.includes('最终答复保持简短；进度句只服务于真实的中间节点'))
+      assert.equal(persona.includes('- 不叙述工具调用、文件修改、命令或工作顺序；只给结果'), false,
+        'zh must not keep the absolute no-narration bullet in reply length')
+      assert.equal(persona.includes('长任务只发一条简短进度'), false,
+        'zh must not cap progress to a single long-task line')
+    } else {
+      assert.ok(persona.includes('This cap is for the final answer'))
+      assert.ok(persona.includes('The final answer never narrates tool calls'))
+      assert.ok(persona.includes('meaningful progress, result or direction change'))
+      assert.ok(persona.includes('naming the real task object'))
+      assert.ok(persona.includes('do not narrate each command'))
+      assert.ok(persona.includes('do not call a tool or model just to refresh the bubble'))
+      assert.ok(persona.includes('refresh the activity bubble'))
+      assert.ok(persona.includes('Keep the final answer brief; a progress sentence serves a real intermediate node'))
+      assert.equal(persona.includes('- Never narrate tool calls, files changed, commands, or the order of work; state the result'), false,
+        'en must not keep the absolute no-narration bullet in reply length')
+      assert.equal(persona.includes('Long work gets one short progress line'), false,
+        'en must not cap progress to a single long-task line')
+    }
+  }
+})
+
 test('the phone persona carries the upstream parity chapters adapted to iOS', () => {
   const sections = new Map<'zh' | 'en', string[]>()
   for (const lang of ['zh', 'en'] as const) {

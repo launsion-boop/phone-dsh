@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "selftest": false,
+  "description": "Natural-request control for the Bot activity bubble. Same inline seeds as catalog.json, but the user asks only the task and where the material is: no 10-20 character progress instruction, no fixed read sequence, no output-format instruction. Tools are free; the receipt verifies the real session actually read the seed with read or bash.",
+  "budget": {
+    "max_minutes": 20,
+    "max_model_requests": 40
+  },
+  "scenarios": [
+    {
+      "id": "ACT-04-NATURAL-174",
+      "title": "natural: check whether PR 174 can merge",
+      "description": "Natural user request with only the material location; no progress/length/tool guidance.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 5,
+        "max_model_requests": 12
+      },
+      "timeout_s": 300,
+      "workspace": {
+        "root": "bot",
+        "files": {
+          "pr/174-notes.md": "# PR 174\n\nconflict files: 3\nfiles: BotChatModel.swift, BotRuntimePresentation.swift, BotActivityPhrases.swift\n",
+          "pr/main-notes.md": "# main\n\nbase commit: 908d582b\nPR 174 touches three files; merge check still open.\n"
+        }
+      },
+      "network": "none",
+      "turns": [
+        {
+          "prompt": "只根据 pr/ 里的资料，检查 #174 能不能合并；不要找仓库，也不要问我。"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_regex",
+          "value": "3|冲突",
+          "turn": 1
+        }
+      ]
+    },
+    {
+      "id": "ACT-05-NATURAL-MEETING",
+      "title": "natural: summarize Wednesday meeting",
+      "description": "Natural user request with only the material location; no progress/length/tool guidance.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 5,
+        "max_model_requests": 12
+      },
+      "timeout_s": 300,
+      "workspace": {
+        "root": "bot",
+        "files": {
+          "notes/wednesday-meeting.md": "# 周三例会\n\n待办 3 项\n负责人：李光浩\n主题：发布清单\n",
+          "notes/actions.md": "# 行动项\n\n李光浩：整理发布清单并核对日期\n截止：本周五\n"
+        }
+      },
+      "network": "none",
+      "turns": [
+        {
+          "prompt": "只根据 notes/ 里的资料，总结周三例会的结论和待办。"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_regex",
+          "value": "李光浩|待办",
+          "turn": 1
+        }
+      ]
+    },
+    {
+      "id": "ACT-06-NATURAL-EMAIL",
+      "title": "natural: draft a reply to Li Guanghao",
+      "description": "Natural user request with only the material location and a no-send constraint; no progress/length/tool guidance.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 5,
+        "max_model_requests": 12
+      },
+      "timeout_s": 300,
+      "workspace": {
+        "root": "bot",
+        "files": {
+          "inbox/liguanghao-email.md": "# 邮件：李光浩\n\n发件人：李光浩\n日期：周三\n问题：本周五的发布清单是否已经定稿？请确认周五能否发布。\n",
+          "notes/release-context.md": "# 发布背景\n\n发布清单已定稿，周五可以发布。\n负责人：李光浩\n"
+        }
+      },
+      "network": "none",
+      "turns": [
+        {
+          "prompt": "只根据 inbox/ 和 notes/ 里的资料，给李光浩写回复草稿，不要发送。"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_regex",
+          "value": "李光浩|周五|发布",
+          "turn": 1
+        }
+      ]
+    }
+  ]
+}

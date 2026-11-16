@@ -1,62 +1,246 @@
 <!-- SPDX-License-Identifier: MIT -->
-# iOS evidence-based Bot activity
+# iOS real Bot activity projection
 
-Status: normative iOS-only refinement, 2026-11-14. Android adaptation is explicitly deferred
-by the user. The existing shared activity-phrases/strings/value schemas remain unchanged for
-compatibility; iOS uses `BotActivityEvidence` to normalize labels before displaying them.
-No field is added to BotActivity, DSH events, persisted rows, or the Worker stream.
+Status: normative iOS-only refinement, revision `activity-evidence-v3.6` (2026-11-16).
+This revision replaces the long-object policy of v2.3. It is grounded in the
+`tool/call` and `assistant/message` events the pinned DSH already writes; it adds no wire
+field, no extra model request, no second history, and no new `BotActivity` member. Android
+adaptation remains deferred by the user.
 
-## Sources and labels
+The bubble shows a **short, real, task-related progress sentence** for the running turn:
+targeting about 10 characters, with a hard generation maximum of 19 characters
+including spaces, digits and punctuation, even when carrying an interim result. It is not a fixed status cycle, not a full path table, not a long public answer,
+and not a transcript. The main model writes the sentence in the same turn; no summary
+model, dedicated activity tool, history, expansion surface or tap target is added.
 
-`BotActivityEvidence.action` permits only bash.description and Task.task_title/description as
-an action description. Use the first speech-compatible allowed intent and the spoken-label rules below. Reject credential-shaped assignments/Bearer text, generic thinking fillers and obvious completion assertions: an intent label is not a completion receipt. Task
-prompt and CreateTeammate.description retain their business meanings. Other description,
-summary and label fields are ignored; use the tool kind for a short fallback, without a target suffix.
-Unknown calls wait for a tool result without exposing their internal name. Missing bash
-purpose says “执行当前操作”. Normalized empty activities use one stable phase label rather than
-feeding the legacy synonym rotation pool. This does not expose raw reasoning or generate a
-new model request. First public text must actually be observed before “正在回复”.
+## Sources and priority
+
+The projection resolves one sentence for the newest unresolved *visible* call.
+
+1. **Per-call model intent** — only these existing fields:
+   - `bash.description`;
+   - phone `Task.task_title`, then `Task.description` (never `prompt`);
+   - `create_goal.objective` / `update_goal.objective`;
+   - a card/document/routine `title`, and `RequestApproval.detail`, used as the short
+     object of that tool's action label.
+   No other `description`, `summary`, `label` or business field may become activity text.
+   A per-call intent or Task title is written in the user's language and names this task's
+   current object/progress. A tool-local command summary such as "List workspace" or
+   "Inspect directory" is not a valid activity sentence; when the model runs `ls`/`cat`, it
+   still says why this step serves the task (for example "定位 #174 的合并资料"). It never
+   invents a result.
+
+### Model-required per-call activity and bash description (v3.5)
+
+The five host-native work tools `read`, `glob`, `grep`, `web_search` and `web_fetch`
+declare one model-facing required string parameter, `activity`, in the **real Bot-scope
+tool schema**. It is not a prompt-only field and it is not a new wire/event/state field.
+The value is a short, user-language, task-level progress sentence for this call, following
+the same generation bound as the public sentence (about 10 characters, at most 19
+including any interim result). It names this task's object/goal and the current step,
+not a command or a directory operation: `核对 #174 的合并资料` or `在给李光浩拟回复草稿`
+are valid; `List workspace`, `列出目录`, `定位 notes 资料目录` are not. It never
+fabricates a result.
+
+The Bot-scope shadow copies the original definition, adds `activity` to
+`parameters.properties` with `minLength: 1`, and clones `parameters.required` with
+`activity` appended; the original definition, its validator and its required list stay
+untouched. Its `execute` strips `activity` before calling the original handler, so an old
+call without the field still executes the original handler unchanged; old logs/replays
+without it decode with the documented fallback. It preserves the original step admission: `web_search` /
+`web_fetch` keep `ctx.web.searchReady` / `fetchReady(modelSelection.provider)` as their
+`when` condition, so a not-ready web tool is never exposed; `read` / `glob` / `grep` have no
+`when`. The existing `tool/call.arguments` therefore retain the
+value for projection, while the read/search handler never receives it. These five tools do
+not pass through the Bot MCP identity/approval roundtrip, so this field is not part of any
+identity or approval digest. No other tool declares it. `bash` keeps its existing
+`description` and `Task` its existing `task_title`; this revision does not change their
+schemas or their approval path. The Bot prompt teaches all three forms as task-level,
+user-language progress.
+
+The Bot-scope wrapper also replaces only the **model-facing prose of the existing
+`bash.description` parameter** with task-level, user-language guidance: current task object
+and progress, and, when a real result already exists, that result before the current action.
+It does not add `activity` to bash, does not strip or rewrite any bash argument, and leaves
+the original execute/output/schema/required and handler untouched; global/workbench bash and
+the identity/approval digest are unchanged. This is a description-only edit to an existing
+field, not a new field or schema.
+
+Only the exact raw tool names `read`, `glob`, `grep`, `web_search` and `web_fetch` consume
+`activity`; a namespaced business tool such as `mcp__other__read` does not, even though the
+legacy display rule resolves its bare name. Priority for the five tools is `activity`, then
+the normal same-step public progress, then the short object fallback. The Bot model schema
+requires `activity`; old logs, replayed calls and pre-upgrade clients may omit it and decode
+with the existing public-text/object fallback. Old sessions and clients that do not know the
+field keep working; the handler sees exactly the original arguments. Reconnect re-reads the
+same declared tool list.
+2. **Same-turn, same-step public progress** — the main model's latest meaningful public
+   `assistant/stream` (channel `text`) or `assistant/message` text. It must be in the same
+   turn and same step and must have arrived after the previous tool call/result boundary in
+   that step; `step/start`, `tool/call`, `tool/result`, `turn/start` and `turn/end` clear
+   the candidate. Text-channel deltas are accumulated; the durable `assistant/message` for
+   that step replaces the accumulation. Reasoning, analysis channels, reasoning blocks,
+   cross-turn text, earlier steps and earlier calls are never used.
+   The sentence is the model's own short progress, e.g. "对比 #174 与 main 的冲突" or
+   "冲突在 3 个文件里，在逐个看". A long public answer is shortened by the display rule
+   below; it is never copied to the bubble whole.
+3. **Short object fallback** — only when the call has no usable model sentence. Use the
+   tool's action label plus a recognisable short object:
+   `read`/`write`/`edit`: file **basename**; `glob`/`grep`: pattern (plus the path basename
+   only when the assembled sentence still fits the short bound); `web_search`: query;
+   `web_fetch`: **host**;
+   memory tools: path basename or query; `updateroutine`: title; cards: title;
+   `sendtoagent`/`createteammate`: Bot name; unknown visible tool: no object.
+   The assembled action-label + object string is shortened again after joining, so a long
+   basename/query cannot exceed the bound through the prefix; there is no separate
+   42-character target allowance.
+4. **Concrete fallback** — the tool's short action label; unknown visible tools use
+   "等待操作结果".
+
+A model sentence is never extended with a full path or URL. Only when there is no model
+sentence does the short object fallback run. A later step's model sentence replaces the
+earlier one; the model's next sentence is what carries the previous real result forward
+(e.g. "冲突在 3 个文件里，在逐个看"). The client does not invent a result sentence.
+
+## Display shortening
+
+- One line: first line, collapse whitespace, trim, strip sentence-final `。！？!?；;，,、.…`.
+- Generation: about 10 characters, at most 19 including result, spaces, digits and
+  punctuation. The five-tool model-facing activity schema uses maxLength 19; bash
+  description, Task task_title and public progress follow the same prompt guidance.
+- Legacy/rejected-model-output defense remains 28 CJK / 56 non-CJK in the projection
+  and 19 characters plus an ellipsis in the existing UI cleaner. These are compatibility
+  safeguards, never an allowance to generate a 28-character activity. The main model
+  must shorten the complete thought before emitting it, not rely on UI truncation.
+- If the text is longer than the bound, shorten at the last sentence/clause punctuation
+  within the bound, else take `bound - 1` characters plus `…`. Never show the full long
+  public answer.
+- Keep the real task object in the sentence: filename, basename, `#174`, `PR 174`, `main`,
+  a person/meeting/document name, a query, a quiet URL host. A full absolute path or a full
+  URL is not required and is not appended; the short object fallback uses the basename or
+  host.
+- Reject only: empty text; fixed generic fillers (`思考中`, `整理思绪`, `准备下一步`,
+  `马上就好`, `正在处理`, `处理中`, `等待响应`, `正在回复`, `好的`, `我来看看`,
+  `我看一下`, `稍等`, `开始`, and the former `已收到…结果` receipts); a sentence that
+  begins with a completion assertion (`已完成`, `已成功`, `已验证`, `已确认`, `已修复`,
+  `已合并`, `已发送`, `已删除`, `已通过`, `已解决`, or English `completed`, `verified`,
+  `done`, `all tests passed`); and credential shapes (`Bearer …`,
+  `api_key=`/`token=`/`password=` style assignments, `sk-…`, `ghp_…`, `xox…-…`,
+  `AKIA…`). A rejected sentence falls through to the next source; it is never cut into an
+  ellipsis as a substitute.
+- A public-progress candidate that is generic, a completion claim, credential-shaped, or
+  not on the public text channel is discarded for that call; the projection does not scan
+  another step or turn to replace it.
+
+## Action labels and short objects
+
+| tool (bare, lowercased) | category | label / short object |
+| --- | --- | --- |
+| `bash` | running | model intent as-is; fallback `正在运行命令` |
+| `read` | reading | `在翻文件 · <basename>` |
+| `write` | writing | `在写文件 · <basename>` |
+| `edit`, `str_replace_editor` | writing | `在改文件 · <basename>` |
+| `glob` | searching | `在找文件 · <pattern>` |
+| `grep` | searching | `在搜内容 · <pattern>` + ` · <basename(path)>` only when the assembled sentence fits |
+| `web_search` | searching | `在网上搜 · <query>` |
+| `web_fetch` | browsing | `在开网页 · <host>` |
+| `job_list` / `job_output` / `job_kill` | running | `看看进展` / `等待结果` / `停止任务` |
+| `todo_write` | writing | `整理待办` |
+| `create_goal` | writing | `定个目标 · <short objective>` |
+| `get_goal` | reading | `看看目标` |
+| `update_goal` | writing | `更新目标 · <short objective>` |
+| `Task` | messaging | model intent as-is; fallback `启动子任务` |
+| `AwaitTask` / `StopSubagent` | running | `等子任务结果` / `停止子任务` |
+| `UpdateMemory` / `ReadMemory` | memory | `在记笔记 · <basename>` / `在翻记忆 · <basename>` |
+| `RecallMemory` | memory | `回想一下 · <query>` |
+| `UpdateRoutine` | writing | `修改例行任务 · <title>` |
+| `ListRoutines` | reading | `看看例行任务` |
+| `SendToUser` | messaging | `整理回复` |
+| `ask_user` | messaging | `想问问你` |
+| `show_next_steps` | messaging | `给你选项` |
+| `show_attachment` | messaging | `送上附件 · <basename>` |
+| `show_document` | reading | `打开文档 · <title or basename>` |
+| `show_progress` / `show_checklist` | writing | `更新进度 · <title>` / `列个清单 · <title>` |
+| `show_link` | messaging | `放上链接 · <host>` |
+| `RequestApproval` | messaging | `请你确认 · <detail>` |
+| `SendToAgent` / `CreateTeammate` | messaging | `给其他 Bot 发消息 · <bot_name>` / `创建协作 Bot · <name>` |
+| `FishAction` | hidden | never displayed; correlation only |
+| unknown visible tool | generic | `等待操作结果` |
+
+`BotActivityPhrases` remains the legacy vocabulary for Android and for non-production
+callers. The iOS production path uses this table and the real call arguments; it does not
+call `BotActivityPhrases.toolActivity` with empty arguments and does not rotate synonyms.
+
+Every visible work tool may use the same-step public progress when it has no usable model
+intent/object — including unknown MCP tools, memory, recall, routine, job and goal tools.
+Only card/messaging tools (send-to-user, questions, next steps, content cards, approvals,
+teammate messages) and the hidden `FishAction` never use it.
 
 ## Lifecycle
 
-Order events by seq with stable arrival order on ties; determine the latest still-open turn.
-An explicit old-turn end/result cannot terminate a new turn. Missing turn IDs retain existing
-legacy compatibility, never overriding an explicit mismatched ID.
+Status, visibility and lifecycle come only from `tool/call`, `tool/result`, `turn/start`,
+`turn/end`, step boundaries and the existing approval/stream precedence. Model text only
+populates `detail`; it never starts, finishes, fails or approves a call.
 
-Track all unresolved calls, including hidden FishAction, to correlate results. Display the
-newest unresolved visible call. Duplicated known call IDs do not reopen settled work. Results
-with an ID close only that ID; without an ID they close only a single unambiguous outstanding
-call (visible or hidden). Unknown IDs, invalid/conflicting ID fields and ambiguous missing IDs close nothing. Step start and
-user steering do not cancel work. Turn end removes the activity; local stop retains existing
-suppression and cancellation behavior. Reconstruction uses the current turn history.
+Order events by `seq` with stable arrival order on ties; follow the latest open turn. An
+explicit old-turn result/end cannot terminate a new turn. Missing turn IDs keep the legacy
+compatibility rule, never overriding an explicit mismatched ID.
 
-After the last visible call returns, keep its operation kind as context, e.g. “已收到读取结果”
-or “已收到查询结果”; use “这步遇到问题” for message.isError/error-object. A subsequent step keeps this context
-until actual text or a new action arrives. Receiving a result does not assert business success.
-If a tool remains unresolved, actual text streaming does not erase that in-flight action.
-Approval/problem precedence remains in BotHeaderPresence. Reasoning-only records do not count
-as public reply text. Unknown event timestamps remain 0 (no invented elapsed-time origin).
+Track every unresolved call, including hidden `FishAction`, for correlation. Display the
+newest unresolved visible call. Duplicate known call IDs do not reopen settled work.
+Results with an ID close only that ID; without an ID they close only a single unambiguous
+outstanding call (visible or hidden). Unknown IDs, invalid/conflicting ID fields and
+ambiguous missing IDs close nothing. Step start and user steering do not cancel work.
 
-## Compatibility and validation
+After the last visible call returns, keep that call's own short sentence and its category
+as `.reviewing` with `thinking` status; do not emit "已收到…结果". A subsequent step keeps
+this context until actual public text, a new visible call, or the turn end. Receiving a
+result does not assert business success. A failed result shows "这步遇到问题". If text is
+actually streaming after the result, show "正在回复". Turn end or local stop clears the
+activity; reconstruction uses the current open-turn history. Reasoning-only records never
+count as public reply text.
 
-The existing JSON shape is unchanged; no transport or persistence migration is required.
-Android continues its previous presentation rules until its separate adaptation. Shared
-legacy phrase APIs remain available; the production iOS line calls the evidence policy.
-`activity-evidence-vectors.json` is consumed by Swift tests running the real factory. Cases
-cover encoded/object args, concurrent reverse completion, missing/unknown IDs, hidden calls,
-steering, stream/step boundaries, failure, duplicate replay, old-turn isolation, and semantic
-or sensitive-field misuse. Additional tests check stable labels and approval precedence.
+## UI consumption and compatibility
 
-## Spoken-label refinement
+`BotActivity` keeps exactly `{status, detail, category, startedAt}`. Normal progress keeps
+the 800 ms latest-wins window and `· N 分钟` suffix. Approval and failure text bypass
+pending display dwell. The bubble is non-interactive: its reserved band remains
+hit-transparent and no tap target, sheet, expanded view or control is added.
 
-Activity detail is a short natural-language sentence suitable for future TTS (TTS delivery is
-not implemented here). Prefer 8–14 Chinese characters, with a 16-character cap for Chinese intent
-labels (at most 7 words / 48 characters for non-CJK labels); reject overlong labels rather than speaking a truncated ellipsis. Do not include file
-names, paths, extensions, URLs, internal IDs, code, or technical separators in activity detail.
-Use the operation kind as a truthful fallback when the intended purpose cannot be displayed.
-Only approved semantic description fields can provide the purpose; the actual tool/result
-lifecycle remains authoritative. Result labels say a result was received, not that the task was
-verified successful. Generic fillers and completion assertions remain rejected.
+The `activity-ui-v2` refinement uses 16 pt medium text in a 22 pt line box, scaling both
+with Dynamic Type (callout). The band is `max(38, scaledLineBox + 16)` pt in both visible
+and hidden states. Width hugs the current sentence up to 94% of the content column;
+long text truncates at the tail while the accessibility label retains the short sentence.
+Changes crossfade with at most 3 pt vertical movement over about 220 ms; outgoing text
+does not contribute to layout width. Reduce Motion removes motion; Prefer Cross-Fade
+removes translation. The subdued highlight cannot wash out the readable base text.
+See [the frozen visual contract](../../../../../docs/protocol-changes/PC-20261116-bot-activity-legibility-motion.md).
+The UI does not re-sanitise, rewrite or lengthen `detail`.
 
-Future speech should consume this stable detail, not UI animation frames or the UI-only elapsed
-time suffix. Do not create extra model calls or status narration merely to keep speech active.
+Waiting for the first response (`thinking` category) and replying (`replying` category)
+render as three dots in the same bubble, with no visible `等待响应` / `正在回复` text
+or duration suffix. Real operation progress (including reviewing a returned result),
+approval and error sentences remain text. This is presentation only: no empty/typing
+transcript row, new event or model output is created. Dots are static under Reduce Motion
+or on an inactive page; their accessibility label describes the phase.
+
+No transport, persistence, schema or Android change is required. Old persisted rows and
+old clients keep the existing value shape. The shared `activity.schema.json`,
+`activity-phrases.json` and `strings.json` values are unchanged by this revision; iOS
+normalises before the display layer.
+
+## Validation
+
+`activity-evidence-vectors.json` is the shared oracle and is consumed by Swift tests that
+run the real `BotRuntimePresentationFactory` and `BotActivityReducer` over
+`BotDSHSessionEvent` values, plus real `BotLiveFishProjection.receive` frames. Cases cover:
+short file basenames, long paths reduced to a basename, a model sentence that is not
+extended with a path, a long public answer shortened to the short bound, a result
+continuation ("冲突在 3 个文件里，在逐个看"), `#174` / person / meeting names, bash
+descriptions, Task titles, completion assertions, generic fillers, credential intents,
+public-text fallback (and its exclusion for card tools), concurrent reverse completion,
+missing / unknown / conflicting IDs, hidden FishAction, duplicate replay, old-turn
+isolation, failure, result-to-next-call continuity (no receipt), unknown MCP and memory
+tools with public progress, live-vs-durable equality, and unknown-start-time. Passing
+these tests is not a device, Worker, model or App claim; the real model-to-bubble chain is
+recorded separately.

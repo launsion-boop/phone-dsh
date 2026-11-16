@@ -832,11 +832,15 @@ python3 spec/ui/v1/tools/extract_ios_pages.py --root . --check
 bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-p0-conformance
 ```
 
-### 2026-11-14 iOS-only evidence refinement
+### 2026-11-16 iOS-only real-projection refinement
 
 For the production iOS activity line, [ios/activity-evidence.md](ios/activity-evidence.md)
-supersedes the legacy generic-rotation and latest-call presentation policy. Its wire/value
-shape is unchanged. `BotActivityPhrases` and the shared vectors retain the existing vocabulary
-for Android, whose adaptation the user explicitly deferred; iOS normalizes its activity
-through `BotActivityEvidence` before the timing/display layer. No new progress tool or raw
-reasoning display is introduced.
+(`activity-evidence-v3`) supersedes the legacy generic-rotation, latest-call and
+category-only presentation policy. Its wire/value shape is unchanged. `BotActivityPhrases`
+and the shared vectors retain the existing vocabulary for Android, whose adaptation the user
+explicitly deferred; iOS builds a short progress sentence from the main model's existing per-call intent and
+same-step public progress, with a short basename/host/#PR object only when no model
+sentence exists. The bubble stays non-interactive and one line; no long path/URL/answer,
+full-text view or expansion surface is added. Only credential shapes and completion claims
+are rejected. No new progress tool, metadata field,
+extra model request or raw reasoning display is introduced.
