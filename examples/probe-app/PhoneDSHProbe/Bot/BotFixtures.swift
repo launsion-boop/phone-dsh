@@ -1202,7 +1202,7 @@ struct BotUIFixtureRootView: View {
             chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
                 "callId": .string("fixture-described"),
                 "name": .string("bash"),
-                "arguments": .string("{\"command\":\"cat diary/*.md\",\"description\":\"对比三篇日记的情绪\"}"),
+                "arguments": .string("{\"command\":\"cat diary/*.md\",\"description\":\"对比 #174 与 main 的三个冲突文件\"}"),
             ])))
         case .runningToolReviewing:
             chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
