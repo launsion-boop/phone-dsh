@@ -1923,6 +1923,61 @@ public actor BotMCPRuntime {
         } else {
             restoreVersion = nil
         }
+        // G-1 Plan A: the write front-end asks L for the derivation baseline,
+        // so an observation either carries a real resource identity or the
+        // whole write is refused. P only validates and persists the result.
+        var sourceBaselines: [BotSourceBaseline]?
+        let sourceRefs = evidence.refs + (review?.refs ?? [])
+        if !sourceRefs.isEmpty {
+            guard let resolver = recordEvidence as? any BotSourceStateResolving else {
+                return .failure("memory-source-baseline-unavailable", "来源状态解析器未接入")
+            }
+            let states: [BotSourceState]
+            do {
+                states = try await resolver.sourceStates(
+                    for: sourceRefs,
+                    callerBotID: call.principal.botId,
+                    callerSessionID: call.principal.sessionId)
+            } catch {
+                return .failure("memory-source-baseline-unavailable", "来源状态不可用")
+            }
+            var byRef: [String: BotSourceState] = [:]
+            for state in states where byRef[state.ref] == nil { byRef[state.ref] = state }
+            var baselines: [BotSourceBaseline] = []
+            for raw in evidence.refs {
+                let ref = BotRecordReference.canonicalize(raw) ?? raw
+                guard let state = byRef[ref] else {
+                    return .failure("memory-source-baseline-unavailable", "来源缺少基线：\(ref)")
+                }
+                baselines.append(BotSourceBaseline(
+                    record: state.ref, role: .evidence, sourceVersion: state.version, resource: nil))
+            }
+            for raw in review?.refs ?? [] {
+                let ref = BotRecordReference.canonicalize(raw) ?? raw
+                guard let state = byRef[ref] else {
+                    return .failure("memory-source-baseline-unavailable", "复核来源缺少基线：\(ref)")
+                }
+                baselines.append(BotSourceBaseline(
+                    record: state.ref, role: .review, sourceVersion: state.version, resource: nil))
+            }
+            guard let provenance else {
+                return .failure("memory-source-baseline-unavailable", "溯源服务未接入")
+            }
+            do {
+                let prepared = try await provenance.prepareDerivation(
+                    artifact: BotDerivedRef(kind: .memory, id: path, version: nil),
+                    sources: baselines.map { $0.provenanceSource() })
+                guard let encodedSources = prepared["sources"] else {
+                    return .failure("memory-source-baseline-unavailable", "溯源结果缺少 sources")
+                }
+                sourceBaselines = try JSONDecoder().decode(
+                    [BotSourceBaseline].self,
+                    from: Data(encodedSources.encoded().utf8))
+            } catch {
+                return .failure("memory-source-baseline-unavailable",
+                                "来源缺少稳定资源身份，整条写入已拒绝")
+            }
+        }
         let request = BotMemoryWriteRequest(
             action: action,
             path: path,
@@ -1933,7 +1988,8 @@ public actor BotMCPRuntime {
             expectedVersion: expectedVersion,
             restoreVersion: restoreVersion,
             evidence: evidence.refs,
-            review: review)
+            review: review,
+            sourceBaselines: sourceBaselines)
         let context = BotMemoryWriteContext(
             botID: call.principal.botId,
             sessionID: call.principal.sessionId,
