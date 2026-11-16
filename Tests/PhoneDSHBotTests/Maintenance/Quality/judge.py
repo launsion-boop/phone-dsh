@@ -181,7 +181,35 @@ def documents_before_maintenance(events, started_seq):
     return reconstruct_documents(prior)
 
 
-def contradiction_sample(repeat, events, start_seq, committed):
+def _sample_status(content_result, committed, expected_kind):
+    verdict, detail = content_result
+    passed = verdict in ("corrected", "preserved")
+    if not committed:
+        return {
+            "status": "fail",
+            "corrected": False,
+            "preserved_both_sides": False,
+            "stale_detected": False,
+            "detail": "%s; batch not committed" % detail,
+        }
+    if verdict == "preserved":
+        return {
+            "status": "pass",
+            "corrected": True,
+            "preserved_both_sides": True,
+            "stale_detected": expected_kind.startswith("stale"),
+            "detail": detail,
+        }
+    return {
+        "status": "pass" if passed else "fail",
+        "corrected": passed,
+        "preserved_both_sides": False,
+        "stale_detected": passed and expected_kind.startswith("stale"),
+        "detail": detail,
+    }
+
+
+def contradiction_sample(repeat, events, batch, committed):
     path = CONTRADICTION_PATH
     documents = reconstruct_documents(events)
     document = documents.get(path)
