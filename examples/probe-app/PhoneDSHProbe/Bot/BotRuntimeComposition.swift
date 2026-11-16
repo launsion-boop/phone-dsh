@@ -414,6 +414,20 @@ final class BotRuntimeComposition {
         await runtime.setRoutineChangeObserver { [weak composition] botID in
             await composition?.noteRoutineChanged(botID: botID)
         }
+        // G-2 feedback: one center for the process. An unreadable Application
+        // Support directory leaves the feature unavailable (the Bot still
+        // starts); the store never overwrites a damaged file.
+        let feedbackCenter: BotFeedbackCenter?
+        do {
+            feedbackCenter = try BotFeedbackCenter.live(
+                eventLog: store,
+                memory: { botID in await runtime.memory(for: botID) })
+        } catch {
+            feedbackCenter = nil
+        }
+        if let feedbackCenter {
+            await runtime.registerTeamTools(BotFeedbackTools(center: feedbackCenter))
+        }
 
         let handler = BotMCPHandler(runtime: runtime)
         let server = BotMCPHTTPServer(handler: handler)
@@ -605,7 +619,7 @@ final class BotRuntimeComposition {
             isMainBot: { [mainBotPointer] in mainBotPointer.isMain(botID) },
             workspaceRoot: workspaceRoot,
             now: schedulerNow, sleep: schedulerSleep,
-            cloud: cloudConfiguration)
+            cloud: cloudConfiguration, feedback: feedbackCenter)
         units[botID] = unit
         let eraser = BotSessionEpochEraser(
             remote: unit.remote,

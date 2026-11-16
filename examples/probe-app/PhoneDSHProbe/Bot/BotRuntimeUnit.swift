@@ -96,7 +96,8 @@ final class BotRuntimeUnit {
                      workspaceRoot: URL = BotProductionPaths.workspaceRoot(),
                      now: (@Sendable () -> Int64)? = nil,
                      sleep: RoutineScheduler.Sleeper? = nil,
-                     cloud: BotCloudConfiguration? = nil) async throws -> BotRuntimeUnit {
+                     cloud: BotCloudConfiguration? = nil,
+                     feedback: BotFeedbackCenter? = nil) async throws -> BotRuntimeUnit {
         let memory = await runtime.memory(for: botID)
         let machine = await runtime.routineMachine
         let grants = await runtime.grants
@@ -128,6 +129,7 @@ final class BotRuntimeUnit {
             now: resolvedNow,
             deliverer: BotRuntimeUnit.proactiveDelivery(),
             eventLog: store,
+            feedback: feedback,
             deliveryKinds: [.routineResult])
         let notificationScheduling = BotRuntimeUnit.notificationScheduling()
         let scheduler = RoutineScheduler(

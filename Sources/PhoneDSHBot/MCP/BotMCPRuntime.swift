@@ -1539,17 +1539,26 @@ public actor BotMCPRuntime {
                                 call: BotResolvedToolCall) async -> BotMCPCallResult? {
         guard let service = decisionContext, Self.preDeliveryToolNames.contains(name) else { return nil }
         let sessionID = call.sessionId
-        let turnID = currentTurnID(sessionId: sessionID) ?? "\(sessionID)#0"
-        let recipient = Self.deliveryRecipient(name: name, arguments: arguments)
-        let revision = await permissionRevisionEvaluator?(call.principal.botId, sessionID, recipient) ?? ""
         let active = activeMaterialBlocks[sessionID]
+        // The DSH turn id is a bare number; the frozen block/turn_id is
+        // "<session>#<turn>". Normalize before comparing so the same turn does
+        // not look changed, while a new turn still invalidates the block.
+        let turnNumber = currentTurnID(sessionId: sessionID)
+        let turnID = turnNumber.map { "\(sessionID)#\($0)" } ?? "\(sessionID)#0"
+        let recipient = Self.deliveryRecipient(name: name, arguments: arguments)
         let refs = Self.materialRefs(in: arguments)
+        // `permissionRevision` is the revision the active block was retrieved
+        // under; the service compares it with the current provider value. Do
+        // not pass the current value here or `authorization-revision-changed`
+        // can never fire.
         let request = BotDecisionRequest(
             stage: .preDelivery, botID: call.principal.botId, sessionID: sessionID,
             turnID: turnID, step: 1, tool: name, recipient: recipient,
             query: Self.boundedQuery(arguments), origin: "delivery",
-            permissionRevision: revision,
-            activeMaterialRefs: active?.materials.map(\.ref) ?? [])
+            permissionRevision: active?.authorizationRevision ?? "",
+            activeMaterialRefs: active?.materials.map(\.ref) ?? [],
+            activeTurnID: turnNumber == nil ? nil : active?.turnID,
+            activeGoalDigest: active?.goalDigest)
         let digest = (try? BotArgumentsDigest.string(for: arguments)) ?? ""
         let proposal = BotDeliveryProposal(request: request, tool: name, recipient: recipient,
                                            materialRefs: refs, argumentDigest: digest)
@@ -1602,20 +1611,15 @@ public actor BotMCPRuntime {
 
     private static func decisionChangedResult(block: BotDecisionMaterialBlock,
                                               reason: BotRegenerationReason) -> BotMCPCallResult {
-        let reasonValue: String
-        switch reason {
-        case .permissionRevisionChanged: reasonValue = "authorization-revision-changed"
-        case .materialStatusChanged, .newMaterials: reasonValue = "material-changed"
-        case .recipientChanged: reasonValue = "recipient-changed"
+        // R's frozen G-2 r2 type is the single encoder of the refused-delivery
+        // tool result; the runtime must not hand-assemble a second shape.
+        let result = BotDecisionToolResult(
+            reason: reason, materials: block,
+            message: "决策材料已变化，这次交付没有执行。请基于新材料重新生成，再按既有授权重试。")
+        guard let data = try? JSONEncoder().encode(result),
+              let value = try? BotJSONValue.parse(data) else {
+            return .failure("decision_context_changed", "决策材料已变化，请重新生成")
         }
-        let materials = (try? BotJSONValue.parse(JSONEncoder().encode(block))) ?? .object([:])
-        let value = BotJSONValue.object([
-            "ok": .bool(false),
-            "code": .string("decision_context_changed"),
-            "reason": .string(reasonValue),
-            "materials": materials,
-            "message": .string("决策材料已变化，这次交付没有执行。请基于新材料重新生成，再按既有授权重试。"),
-        ])
         return resultEnvelope(value)
     }
 

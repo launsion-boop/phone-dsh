@@ -251,7 +251,7 @@ public enum BotToolEffectClassifier {
                 kind.isEmpty ? "" : "target=\(kind)",
             ])
             return BotToolEffect(tool: bareName, operation: "dshbot.RecordFeedback",
-                                 resource: resource, mutability: .write, policy: .auto,
+                                 resource: resource, mutability: .write, policy: .ask,
                                  label: language == .zh ? "记录用户反馈" : "Record user feedback",
                                  detail: language == .zh
                                     ? "把你刚给出的采纳/撤销/纠正/不再提醒绑定到具体对象，写一条可审计反馈。"
