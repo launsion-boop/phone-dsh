@@ -324,7 +324,12 @@ public actor CloudScheduleClient {
             } else {
                 guard force || synced == nil || synced?.seq != cloud.seq
                     || synced?.enabled != false else { continue }
-                removed.append(CloudScheduleRemoval(routineID: routine.id, revision: cloud.seq))
+                // DELETE must name the revision the cloud currently has, not
+                // the newly bumped local revision: disabling the routine
+                // advances seq locally while the server still holds the last
+                // accepted revision.
+                let expected = synced?.seq ?? cloud.seq
+                removed.append(CloudScheduleRemoval(routineID: routine.id, revision: expected))
             }
         }
         for (routineID, last) in lastKnownCloud where current[routineID] == nil {
@@ -349,8 +354,10 @@ public actor CloudScheduleClient {
         }
         for routineID in response.removedAccepted {
             pendingDeletions.removeValue(forKey: routineID)
-            if let revision = removed.first(where: { $0.routineID == routineID })?.revision {
+            if let revision = response.removedRevisions[routineID] {
                 syncedState[routineID] = SyncedState(seq: revision, enabled: false)
+            } else if let request = removed.first(where: { $0.routineID == routineID }) {
+                syncedState[routineID] = SyncedState(seq: request.revision, enabled: false)
             }
         }
         if !response.rejected.isEmpty {

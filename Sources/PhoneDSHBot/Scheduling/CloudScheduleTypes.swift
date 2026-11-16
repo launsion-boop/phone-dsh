@@ -149,14 +149,17 @@ public struct CloudScheduleSyncResponse: Codable, Sendable, Equatable {
     public var serverTimeMS: Int64
     public var accepted: [CloudScheduleRegistration]
     public var removedAccepted: [String]
+    /// Server revision after a DELETE (the frozen schedule-response echoes it).
+    public var removedRevisions: [String: Int64]
     public var rejected: [CloudScheduleSyncRejection]
 
     public init(serverTimeMS: Int64, accepted: [CloudScheduleRegistration] = [],
-                removedAccepted: [String] = [],
+                removedAccepted: [String] = [], removedRevisions: [String: Int64] = [:],
                 rejected: [CloudScheduleSyncRejection] = []) {
         self.serverTimeMS = serverTimeMS
         self.accepted = accepted
         self.removedAccepted = removedAccepted
+        self.removedRevisions = removedRevisions
         self.rejected = rejected
     }
 }

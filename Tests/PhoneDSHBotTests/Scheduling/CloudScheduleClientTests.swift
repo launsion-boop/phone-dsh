@@ -504,7 +504,10 @@ actor CloudScheduleProbeTransport: CloudScheduleTransport {
         return CloudScheduleSyncResponse(
             serverTimeMS: clock(),
             accepted: request.registrations,
-            removedAccepted: request.removed.map(\.routineID))
+            removedAccepted: request.removed.map(\.routineID),
+            removedRevisions: Dictionary(uniqueKeysWithValues: request.removed.map {
+                ($0.routineID, $0.revision + 1)
+            }))
     }
 
     func poll(_ request: CloudSchedulePollRequest) async throws -> CloudSchedulePollResponse {

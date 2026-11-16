@@ -44,6 +44,7 @@ public final class CloudScheduleHTTPTransport: CloudScheduleTransport, @unchecke
     public func sync(_ request: CloudScheduleSyncRequest) async throws -> CloudScheduleSyncResponse {
         var accepted: [CloudScheduleRegistration] = []
         var removedAccepted: [String] = []
+        var removedRevisions: [String: Int64] = [:]
         var rejected: [CloudScheduleSyncRejection] = []
         var serverTimeMS: Int64 = 0
         for registration in request.registrations {
@@ -83,9 +84,10 @@ public final class CloudScheduleHTTPTransport: CloudScheduleTransport, @unchecke
                     path: "/v1/bot/wake/schedule",
                     method: "DELETE", query: query, body: nil,
                     timeout: configuration.requestTimeoutSeconds)
-                _ = try decode(CloudScheduleWire.ScheduleResponse.self, data)
+                let response = try decode(CloudScheduleWire.ScheduleResponse.self, data)
                 serverTimeMS = max(serverTimeMS, responseDateMS)
                 removedAccepted.append(removal.routineID)
+                removedRevisions[removal.routineID] = response.revision
             } catch let error as CloudScheduleTransportError {
                 if isRevisionConflict(error) {
                     rejected.append(CloudScheduleSyncRejection(
@@ -98,7 +100,8 @@ public final class CloudScheduleHTTPTransport: CloudScheduleTransport, @unchecke
         }
         return CloudScheduleSyncResponse(
             serverTimeMS: serverTimeMS, accepted: accepted,
-            removedAccepted: removedAccepted, rejected: rejected)
+            removedAccepted: removedAccepted, removedRevisions: removedRevisions,
+            rejected: rejected)
     }
 
     public func poll(_ request: CloudSchedulePollRequest) async throws -> CloudSchedulePollResponse {

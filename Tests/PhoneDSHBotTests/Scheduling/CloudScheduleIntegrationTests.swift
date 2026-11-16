@@ -84,7 +84,8 @@ final class CloudScheduleIntegrationTests: XCTestCase {
         _ = try await machine.setCloudSchedule(
             botId: "bot-integration", routineId: "integration-routine", enabled: false,
             now: Int64(Date().timeIntervalSince1970 * 1000))
-        _ = await client.synchronizeNow()
+        let cleanup = await client.synchronizeNow()
+        XCTAssertEqual(cleanup, .synced(1))
         XCTAssertEqual(runs.count, 0, "a future-scheduled routine must not run during this test")
     }
 }
