@@ -364,8 +364,9 @@ final class BotDeliveryUITests: XCTestCase {
         }
         XCTAssertEqual(artifact.label, "建议周三前提交报销。")
         XCTAssertTrue(artifact.offers(.adopt))
-        XCTAssertTrue(artifact.offers(.suppress))
         XCTAssertTrue(artifact.offers(.undo))
+        XCTAssertFalse(artifact.offers(.correct), "correct binds a memory version, not a message row")
+        XCTAssertFalse(artifact.offers(.suppress), "suppress needs a proactive/routine artifact")
     }
 
     func testChoiceCardIsNotAFeedbackTarget() {
@@ -378,6 +379,22 @@ final class BotDeliveryUITests: XCTestCase {
         if case .eligible = BotFeedbackArtifactRule.availability(for: row) {
             XCTFail("a choice card has its own answer action, not a delivery feedback bar")
         }
+    }
+
+    func testRoutineResultOffersSuppressButNotCorrectOrAdopt() {
+        let body = BotUIBody(type: "automation", values: [
+            "title": .string("晨间简报"),
+            "status": .string("sent"),
+            "automation": .object(["name": .string("晨间简报")]),
+        ])
+        let row = BotUIRow.fixture(id: "routine-result-1", seq: 1, body: body)
+        guard case .eligible(let artifact) = BotFeedbackArtifactRule.availability(for: row) else {
+            return XCTFail("a routine result row is a suppress target")
+        }
+        XCTAssertTrue(artifact.offers(.suppress))
+        XCTAssertFalse(artifact.offers(.adopt))
+        XCTAssertFalse(artifact.offers(.correct))
+        XCTAssertTrue(artifact.offers(.undo))
     }
 
     func testFeedbackRecordAndUndoBindToAcceptedEvent() throws {
@@ -415,14 +432,14 @@ final class BotDeliveryUITests: XCTestCase {
             return XCTFail("assistant output is a real artifact")
         }
         var state = BotFeedbackState()
-        XCTAssertTrue(state.begin(rowID: artifact.rowID, verdict: .correct))
-        state.fail(rowID: artifact.rowID, verdict: .correct, reason: "transport_timeout")
+        XCTAssertTrue(state.begin(rowID: artifact.rowID, verdict: .adopt))
+        state.fail(rowID: artifact.rowID, verdict: .adopt, reason: "transport_timeout")
         XCTAssertEqual(state.failure(for: artifact.rowID), "transport_timeout")
         XCTAssertEqual(state.display(for: artifact.rowID), .none)
-        XCTAssertTrue(state.begin(rowID: artifact.rowID, verdict: .correct))
-        state.accept(rowID: artifact.rowID, verdict: .correct,
+        XCTAssertTrue(state.begin(rowID: artifact.rowID, verdict: .adopt))
+        state.accept(rowID: artifact.rowID, verdict: .adopt,
                      feedbackID: "feedback-evt-3", atMS: now)
-        XCTAssertEqual(state.display(for: artifact.rowID), .recorded(.correct))
+        XCTAssertEqual(state.display(for: artifact.rowID), .recorded(.adopt))
     }
 
     func testDuplicateVerdictIsRecordedNotResent() throws {
@@ -432,11 +449,11 @@ final class BotDeliveryUITests: XCTestCase {
             return XCTFail("assistant output is a real artifact")
         }
         var state = BotFeedbackState()
-        state.accept(rowID: artifact.rowID, verdict: .suppress,
+        state.accept(rowID: artifact.rowID, verdict: .adopt,
                      feedbackID: "feedback-evt-4", atMS: now)
-        XCTAssertEqual(state.availability(for: artifact, verdict: .suppress),
-                       .recorded("这类别推了"))
-        XCTAssertFalse(state.begin(rowID: artifact.rowID, verdict: .suppress))
+        XCTAssertEqual(state.availability(for: artifact, verdict: .adopt),
+                       .recorded("采纳"))
+        XCTAssertFalse(state.begin(rowID: artifact.rowID, verdict: .adopt))
     }
 
 
@@ -515,28 +532,6 @@ final class BotDeliveryUITests: XCTestCase {
         XCTAssertEqual(intents.count, 2)
         XCTAssertEqual(intents[1].verdict, .undo)
         XCTAssertEqual(intents[1].feedbackID, "evt-feedback-1")
-    }
-
-    func testSuppressCarriesExplicitUserScope() async throws {
-        var intents: [BotFeedbackIntent] = []
-        let row = BotUIRow.text(id: "answer-suppress", seq: 1, role: "assistant",
-                                text: "以后这类周报不用再推。")
-        let driver = BotChatDriver(
-            history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
-            watch: { _ in BotUIRowBatch(rows: [], deletes: [], cursor: 0, reset: false) },
-            perform: { _ in .rejected(reason: "unused") },
-            stopCurrentTurn: { _ in },
-            selectDeliveryResources: { _ in .rejected(reason: "unused") },
-            recordFeedback: { intent in
-                intents.append(intent)
-                return .accepted(eventID: "evt-suppress-1")
-            })
-        let model = BotChatModel(rows: [row], context: BotRuntimeContext(botID: "main", botName: "大肥鱼"),
-                                 driver: driver)
-        model.sendFeedback(row: row, verdict: .suppress, scope: .user)
-        try await waitFor { intents.count == 1 }
-        XCTAssertEqual(intents[0].scope, .user)
-        XCTAssertEqual(intents[0].verdict, .suppress)
     }
 
     func testSendWhileApprovalPendingKeepsApprovalAndLocalEcho() async throws {

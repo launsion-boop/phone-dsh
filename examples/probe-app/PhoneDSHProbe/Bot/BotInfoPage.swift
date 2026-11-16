@@ -102,6 +102,9 @@ struct BotRoutineInfo: Identifiable, Equatable {
     var creatorDetail: String?
     /// Raw error behind `lastResult`; display-only, never in the main row.
     var lastResultDetail: String?
+    /// The routine's local cloud-scheduling permission. Enabling requires a
+    /// durable user authorization record; the UI only reflects the host value.
+    var cloudScheduleEnabled: Bool = false
 }
 
 struct BotGrantInfo: Identifiable, Equatable {
@@ -175,6 +178,12 @@ struct BotInfoDriver {
     /// Erases the shared user scope for every Bot; a separate confirmed entry.
     var eraseShared: () async throws -> Void = {}
     var setRoutineEnabled: (String, Bool) async throws -> Void
+    /// Enables/disables cloud scheduling for one routine. The production
+    /// adapter writes the user's authorization event and passes its
+    /// `record://` ref to RoutineMachine before enabling.
+    var setRoutineCloudSchedule: (String, Bool) async throws -> Void = { _, _ in
+        throw BotInfoActionError.cloudScheduleUnavailable
+    }
     var revokeGrant: (String) async throws -> Void = { _ in }
     var cancelRoutine: (String) async throws -> Void = { _ in }
     var resolveReconciliation: (String, String) async throws -> Void = { _, _ in }
@@ -182,6 +191,16 @@ struct BotInfoDriver {
     var saveProactiveSettings: (ProactiveSettings) async throws -> ProactiveSettings = { $0 }
     var setMaintenanceEnabled: (Bool) async throws -> Void = { _ in }
     var rollbackMaintenance: (String) async throws -> Void = { _ in }
+}
+
+enum BotInfoActionError: LocalizedError {
+    case cloudScheduleUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .cloudScheduleUnavailable: return "云端调度接口未连接。"
+        }
+    }
 }
 
 enum BotInfoLoadState: Equatable {
@@ -516,6 +535,16 @@ final class BotInfoModel: ObservableObject {
             routines[index].enabled = enabled
         } catch {
             actionError = "例行任务更新失败：\(error.localizedDescription)"
+        }
+    }
+
+    func setRoutineCloudSchedule(_ routine: BotRoutineInfo, enabled: Bool) async {
+        do {
+            try await driver?.setRoutineCloudSchedule(routine.id, enabled)
+            guard let index = routines.firstIndex(where: { $0.id == routine.id }) else { return }
+            routines[index].cloudScheduleEnabled = enabled
+        } catch {
+            actionError = "云端调度设置失败：\(error.localizedDescription)"
         }
     }
 
@@ -1481,6 +1510,8 @@ private struct BotRoutinesPage: View {
                 }
             }
 
+            cloudScheduleBlock(routine)
+
             if routine.urgent {
                 Label("紧急：\(routine.urgentReason ?? "未说明")", systemImage: "exclamationmark")
                     .botCaptionFont()
@@ -1515,6 +1546,35 @@ private struct BotRoutinesPage: View {
             routineDetailDisclosure(routine, reconciliation: reconciliation)
         }
         .padding(.vertical, 4)
+    }
+
+    /// One explicit user choice. The switch is the approval: enabling writes a
+    /// durable authorization event in the host before the routine's cloud
+    /// schedule is turned on. There is no model-initiated self-enable path.
+    @ViewBuilder
+    private func cloudScheduleBlock(_ routine: BotRoutineInfo) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(isOn: Binding(
+                get: { routine.cloudScheduleEnabled },
+                set: { newValue in
+                    Task { await model.setRoutineCloudSchedule(routine, enabled: newValue) }
+                }
+            )) {
+                Text("允许云端调度")
+                    .botSecondaryFont(weight: .medium)
+                    .foregroundStyle(HomeSpec.textPrimary)
+            }
+            .toggleStyle(.switch)
+            .disabled(!routine.enabled)
+            .accessibilityIdentifier("bot.routine.cloud.\(routine.id)")
+            Text(routine.enabled
+                 ? "设备离线时由云端按时唤醒；开启会留下一条可回查的用户同意记录。"
+                 : "先恢复例行任务，才能开启云端调度。")
+                .font(.system(size: 12))
+                .foregroundStyle(HomeSpec.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 2)
     }
 
     private var routineFreeTextSummary: String {

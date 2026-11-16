@@ -70,14 +70,14 @@ enum BotFeedbackArtifactRule {
             return .unavailable("这条内容没有可反馈的产物")
         }
         let kindLabel: String
-        var verdicts: [BotFeedbackVerdict] = [.correct, .suppress]
+        let verdicts: [BotFeedbackVerdict]
         if row.body.type == "text" {
             let text = (row.body["text"]?.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard row.role == "assistant", !text.isEmpty else {
                 return .unavailable("这条内容没有可反馈的产物")
             }
             kindLabel = "回复"
-            verdicts.insert(.adopt, at: 0)
+            verdicts = [.adopt, .undo]
         } else if let card = BotUICardContent.parse(row: row) {
             switch card.kind {
             // This inline bar records feedback on a delivered message or
@@ -88,11 +88,17 @@ enum BotFeedbackArtifactRule {
             // worse than not showing it.
             case .attachment:
                 kindLabel = "附件"
-                verdicts.insert(.adopt, at: 0)
+                verdicts = [.adopt, .undo]
             case .document:
                 kindLabel = "文档"
-                verdicts.insert(.adopt, at: 0)
-            case .notice, .question, .steps, .approval, .automation,
+                verdicts = [.adopt, .undo]
+            case .automation:
+                // A routine result row is the one proactive artifact this
+                // transcript can resolve. Suppress is scoped explicitly by
+                // the confirmation dialog; correct still needs a memory doc.
+                kindLabel = "例行结果"
+                verdicts = [.suppress, .undo]
+            case .notice, .question, .steps, .approval,
                  .task, .progress, .checklist, .link:
                 return .unavailable("这类内容不通过消息反馈")
             }
@@ -103,7 +109,7 @@ enum BotFeedbackArtifactRule {
             rowID: row.id, botID: row.botID,
             label: displayLabel(for: row),
             kindLabel: kindLabel,
-            verdicts: verdicts + [.undo]))
+            verdicts: verdicts))
     }
 
     static func displayLabel(for row: BotUIRow) -> String {
