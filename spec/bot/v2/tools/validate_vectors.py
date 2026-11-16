@@ -1924,6 +1924,33 @@ def validate_routine_notification() -> tuple[int, int]:
     return len(fixture["valid"]), len(fixture["invalid"])
 
 
+def validate_memory_evidence_overlay() -> int:
+    """Validate the next-unenabled Swift-only memory guard cases.
+
+    They stay out of the shared base golden so Android's base write path can
+    keep consuming that file until both implementations land.
+    """
+    p = Path(__file__).resolve().parent.parent / "golden" / "memory-write.next.json"
+    if not p.exists():
+        return 0
+    fixture = json.loads(p.read_text())
+    if fixture.get("status") != "next-unenabled":
+        raise AssertionError("memory-write.next must stay next-unenabled")
+    cases = fixture["cases"]
+    for index, case in enumerate(cases):
+        check(case["request"], "memory-write-request.schema.json",
+              f"memory-next[{index}].request")
+        actual = result_for_case(case)
+        check(actual, "memory-write-result.schema.json",
+              f"memory-next[{index}].result")
+        for key, value in case["expect"].items():
+            if actual.get(key) != value:
+                raise AssertionError(
+                    f"memory-next[{index}] {case['name']}.{key} "
+                    f"{actual.get(key)!r} != {value!r}")
+    return len(cases)
+
+
 def main() -> int:
     check_overlays()
     documents = validate_document_vectors()
@@ -1940,6 +1967,7 @@ def main() -> int:
      proactive_valid, proactive_steps, proactive_invalid,
      proactive_routine, proactive_mutations) = validate_proactive_vectors()
     maintenance_valid, maintenance_invalid, maintenance_checks = validate_maintenance_vectors()
+    memory_next = validate_memory_evidence_overlay()
     maintenance_mutations = mutation_count_for_maintenance()
     mutations = mutation_count_for_evidence()
     print("bot v2 vectors: PASS (memory documents, write/version/index/single-author, "
@@ -1957,7 +1985,8 @@ def main() -> int:
           f"{proactive_invalid} invalid / {proactive_routine} routine-due / "
           f"{proactive_mutations} mutations; "
           f"maintenance {maintenance_valid} batches / {maintenance_invalid} invalid / "
-          f"{maintenance_checks} checks / {maintenance_mutations} mutations)")
+          f"{maintenance_checks} checks / {maintenance_mutations} mutations; "
+          f"memory-next {memory_next} cases)")
     return 0
 
 

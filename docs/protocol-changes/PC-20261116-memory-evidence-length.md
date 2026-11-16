@@ -31,3 +31,16 @@
 - P: `MemoryEvidenceLengthGuardTests` 4/4; full `swift test --filter Memory` 156/0.
 - G: v2 vectors PASS (writes 20, guard valid/invalid), schemas/registry/cross_check PASS.
 - Not done: C integration/App composition, M two batches, real model/device; A04/A05 etc. not opened.
+
+
+## Android compatibility correction（CI run43903927538）
+
+- The two maintenance evidence-length cases were incorrectly placed in the shared base
+  `golden/memory-write.json`, which Android's `MemoryWriteGoldenTest` consumes; Android has no
+  `BotMemoryMaintenance` guard yet, so `cases[18]` failed (`ok=false` vs actual true).
+- Corrected: base golden restored to the original 18 cases; the two cases moved to
+  `golden/memory-write.next.json` (`status: next-unenabled`), validated by
+  `tools/validate_memory_evidence_length.py` and the v2 vector runner. Schema/README/negative coverage
+  remain; no test deleted, no Android behavior implemented, no decoder loosened.
+- Only these two iOS/Swift-only maintenance cases were added by this change; no other shared base
+  memory case was added. Android base reader sees the same old cases. CI rerun is C/root's step.
