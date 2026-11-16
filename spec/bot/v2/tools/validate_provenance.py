@@ -50,6 +50,11 @@ STATUS_REASONS = {
         "no-baseline",
         "source-version-unknown",
         "scan-limit-exceeded",
+        "resource-identity-unavailable",
+        "resource-scope-mismatch",
+        "refresh-not-performed",
+        "refresh-unavailable",
+        "refresh-denied",
     },
 }
 VIEW_REASONS = set().union(*STATUS_REASONS.values()) | {
@@ -136,10 +141,46 @@ def sort_key(ref: str) -> tuple:
     return (0, int(seq), session)
 
 
-def observation_index(records: dict) -> dict[tuple[str, str], list[tuple[int, tuple, str]]]:
-    index: dict[tuple[str, str], list[tuple[int, tuple, str]]] = {}
+def canonical_url(origin: str) -> str:
+    from urllib.parse import urlsplit, urlunsplit
+    parts = urlsplit(origin)
+    scheme = parts.scheme.lower()
+    host = (parts.hostname or "").lower()
+    port = parts.port
+    netloc = host
+    if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
+        netloc = f"{host}:{port}"
+    return urlunsplit((scheme, netloc, parts.path or "/", parts.query, ""))
+
+
+def record_resource(record: dict) -> dict | None:
+    explicit = record.get("resource")
+    if isinstance(explicit, dict):
+        return explicit
+    observation = record.get("observation")
+    if not isinstance(observation, dict):
+        return None
+    origin = observation.get("origin", "")
+    owner = observation.get("owner") or record.get("botId")
+    if observation.get("source") == "web" and origin.startswith(("http://", "https://")):
+        return {"kind": "web-url", "key": canonical_url(origin), "owner": owner}
+    if observation.get("source") == "attachment":
+        return {"kind": "file", "key": origin, "owner": owner}
+    return None
+
+
+def resource_tuple(resource: dict | None) -> tuple | None:
+    if resource is None:
+        return None
+    return (resource["kind"], resource["key"], resource.get("owner"), resource.get("scope"))
+
+
+def observation_index(records: dict) -> dict[tuple, list[tuple[int, tuple, str]]]:
+    index: dict[tuple, list[tuple[int, tuple, str]]] = {}
     for ref, record in records.items():
-        identity = observation_identity(record)
+        if observation_identity(record) is None:
+            continue
+        identity = resource_tuple(record_resource(record))
         if identity is None:
             continue
         at = record.get("at_ms") or 0
@@ -167,6 +208,12 @@ def carrier_seq(carrier: str) -> int | None:
     if carrier.startswith("record://event/"):
         return int(carrier.rsplit("/", 1)[1])
     return None
+
+
+def resource_identity(record: dict, explicit: dict | None) -> dict | None:
+    if explicit is not None:
+        return explicit
+    return record_resource(record)
 
 
 def source_status(ref: str, role: list[str], baseline: dict | None, context: dict) -> dict:
@@ -238,8 +285,21 @@ def source_status(ref: str, role: list[str], baseline: dict | None, context: dic
         else:
             status.update(state="unknown", reasons=["source-version-unknown"])
         return status
-    if is_observation and identity is not None:
-        entries = context["observations"].get(identity, [])
+    if is_observation:
+        resource = resource_identity(record, status.get("resource"))
+        if resource is not None:
+            status["resource"] = resource
+        if resource is None:
+            status.update(state="unknown", reasons=["resource-identity-unavailable"])
+            return status
+        key = resource_tuple(resource)
+        entries = context["observations"].get(key, [])
+        same_key = [ref2 for ref2, rec in records.items()
+                    if observation_identity(rec) is not None
+                    and (record_resource(rec) or {}).get("kind") == resource["kind"]
+                    and (record_resource(rec) or {}).get("key") == resource["key"]
+                    and resource_tuple(record_resource(rec)) != key
+                    and (records[ref2].get("at_ms") or 0) >= (record.get("at_ms") or 0)]
         latest = entries[-1] if entries else None
         if latest is not None:
             latest_ref = latest[2]
@@ -261,7 +321,21 @@ def source_status(ref: str, role: list[str], baseline: dict | None, context: dic
                     return status
                 status.update(state="unknown", reasons=["newer-observation-unversioned"])
                 return status
-        status.update(state="current", reasons=[])
+        if same_key:
+            status.update(state="unknown", reasons=["resource-scope-mismatch"])
+            return status
+        recheck = context.get("recheck") or (baseline or {}).get("recheck")
+        if recheck == "ok":
+            status["rechecked_at_ms"] = context.get("checked_at_ms") or record.get("at_ms")
+            status.update(state="current", reasons=[])
+            return status
+        if recheck == "denied":
+            status.update(state="unknown", reasons=["refresh-denied"])
+            return status
+        if recheck == "unavailable":
+            status.update(state="unknown", reasons=["refresh-unavailable"])
+            return status
+        status.update(state="unknown", reasons=["refresh-not-performed"])
         return status
     if baseline is not None and "basis" in baseline:
         status.update(state="current", reasons=[])
@@ -334,6 +408,8 @@ def resolve_case(case: dict) -> dict:
         "grant_by_ref": grant_by_ref,
         "carrier": artifacts[subject].get("carrier") if artifacts else None,
         "scan_exceeded": case.get("scan_exceeded", False),
+        "recheck": case.get("recheck"),
+        "checked_at_ms": case.get("checked_at_ms"),
     }
 
     def artifact_state(index: int, stack: tuple[int, ...], memo: dict[int, dict]) -> dict:
