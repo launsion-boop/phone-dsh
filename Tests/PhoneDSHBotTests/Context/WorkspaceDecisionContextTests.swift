@@ -73,6 +73,21 @@ private final class StubCatalog: BotWorkspaceCataloging, @unchecked Sendable {
     }
 }
 
+private final class StubEligibility: BotWorkspaceFileEligibility, @unchecked Sendable {
+    private let lock = NSLock()
+    private var statuses: [String: BotProvenanceStatus]
+    private(set) var queried: [String] = []
+
+    init(_ statuses: [String: BotProvenanceStatus]) { self.statuses = statuses }
+
+    func status(forWorkspacePath path: String, botID: String) async -> BotProvenanceStatus? {
+        lock.withLock {
+            queried.append(path)
+            return statuses[path]
+        }
+    }
+}
+
 final class WorkspaceDecisionContextTests: XCTestCase {
     private func limits(maxMaterials: Int = 4, maxCharacters: Int = 1_600,
                         maxSnippetCharacters: Int = 240) -> BotDecisionLimits {
@@ -501,6 +516,61 @@ final class WorkspaceDecisionContextTests: XCTestCase {
         let ai = await service.selection(
             query: "AI", botID: "main", materialPrefix: "reqai", limits: limits())
         XCTAssertFalse(ai.materials.contains { $0.path == "src/await.ts" })
+    }
+
+    func testErasedRevokedAndUnknownTrackedFilesAreNotMaterials() async {
+        let catalog = StubCatalog([
+            "docs/current.md": .init(text: "# 当前规范\n- 客户代号 ERASED_FACT_9C1"),
+            "docs/guide.md": .init(text: "# 当前规范\n- 只读指南"),
+            "docs/other.md": .init(text: "# 当前规范\n- 无关文件"),
+        ])
+        let eligibility = StubEligibility([
+            "docs/current.md": .erased,
+            "docs/guide.md": .revoked,
+            "docs/other.md": .unknown,
+        ])
+        let service = WorkspaceDecisionContextService(
+            catalog: catalog, eligibility: eligibility, now: { 1_000_000 })
+        let selection = await service.selection(
+            query: "当前规范", botID: "main", materialPrefix: "reqelig", limits: limits())
+        XCTAssertTrue(selection.materials.isEmpty)
+        XCTAssertEqual(Set(eligibility.queried),
+                       ["docs/current.md", "docs/guide.md", "docs/other.md"])
+    }
+
+    func testCurrentTrackedFileIsKeptButUntrackedFileIsNotInjected() async {
+        let catalog = StubCatalog([
+            "docs/guide.md": .init(text: "# 当前规范\n- 只读指南"),
+            "docs/other.md": .init(text: "# 历史手册\n- 无关文件"),
+        ])
+        let eligibility = StubEligibility(["docs/guide.md": .current])
+        let service = WorkspaceDecisionContextService(
+            catalog: catalog, eligibility: eligibility, now: { 1_000_000 })
+        let selection = await service.selection(
+            query: "当前规范", botID: "main", materialPrefix: "reqcur", limits: limits())
+        XCTAssertEqual(selection.materials.map(\.path), ["docs/guide.md"])
+        // The provider is wired; an untracked file returns nil and must not be
+        // passed off as a current fact just because its bytes are readable.
+        let untracked = await service.selection(
+            query: "历史手册", botID: "main", materialPrefix: "reqhist", limits: limits())
+        XCTAssertTrue(untracked.materials.isEmpty)
+    }
+
+    func testWiredProviderWithoutADerivationDoesNotInject() async {
+        let catalog = StubCatalog(["docs/other.md": .init(text: "# 历史手册")])
+        let service = WorkspaceDecisionContextService(
+            catalog: catalog, eligibility: StubEligibility([:]), now: { 1_000_000 })
+        let selection = await service.selection(
+            query: "历史手册", botID: "main", materialPrefix: "requntracked", limits: limits())
+        XCTAssertTrue(selection.materials.isEmpty)
+    }
+
+    func testNilEligibilityPreservesTheByteOnlyWorkspaceMaterial() async {
+        let catalog = StubCatalog(["docs/guide.md": .init(text: "# 规范\n- 当前")])
+        let service = WorkspaceDecisionContextService(catalog: catalog)
+        let selection = await service.selection(
+            query: "规范", botID: "main", materialPrefix: "reqnil", limits: limits())
+        XCTAssertEqual(selection.materials.map(\.path), ["docs/guide.md"])
     }
 
     func testEncodedTraversalMalformedAndNonCanonicalRefsAreRejected() {

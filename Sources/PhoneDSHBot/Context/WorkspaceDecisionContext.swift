@@ -229,6 +229,16 @@ public struct BotWorkspaceDirectoryCatalog: BotWorkspaceCataloging {
 
 // MARK: - Selection
 
+/// L's authoritative eligibility for a workspace file that is itself a tracked
+/// derived artifact (G-1 r18 `workspaceFile`). When a provider is wired, only
+/// `.current` may become a current workspace material; `nil` (untracked) and
+/// erased/revoked/unavailable/changed/unknown are omitted rather than
+/// relabelled, because G-2 fixes workspace material `state` to `current`.
+/// Passing no provider at all preserves the pre-r18 byte-only behaviour.
+public protocol BotWorkspaceFileEligibility: Sendable {
+    func status(forWorkspacePath path: String, botID: String) async -> BotProvenanceStatus?
+}
+
 public struct BotWorkspaceSelection: Sendable, Equatable {
     public var materials: [BotDecisionMaterial]
     /// True when at least one matching candidate did not fit the budget.
@@ -287,13 +297,16 @@ public struct WorkspaceDecisionContextService: Sendable {
     public static let maximumMaterials = 2
 
     private let catalog: any BotWorkspaceCataloging
+    private let eligibility: (any BotWorkspaceFileEligibility)?
     private let now: @Sendable () -> Int64
 
     public init(catalog: any BotWorkspaceCataloging,
+                eligibility: (any BotWorkspaceFileEligibility)? = nil,
                 now: @escaping @Sendable () -> Int64 = {
                     Int64(Date().timeIntervalSince1970 * 1_000)
                 }) {
         self.catalog = catalog
+        self.eligibility = eligibility
         self.now = now
     }
 
@@ -392,6 +405,16 @@ public struct WorkspaceDecisionContextService: Sendable {
                 tokens: tokenList, in: content.text.lowercased())
             let score = pathScore * 3 + contentMatches * 2
             guard score > 0 else { continue }
+            if let eligibility {
+                // G-1 r18 / G-2 r8: once the App wires L's authority, only a
+                // tracked `current` derivation may become a material. An
+                // untracked file (nil) is not injected either; the legacy
+                // byte-only behaviour exists only when no provider is wired.
+                let status = await eligibility.status(
+                    forWorkspacePath: entry.path, botID: botID)
+                guard !cancelled() else { return BotWorkspaceSelection() }
+                guard status == .current else { continue }
+            }
             guard let encodedPath = Self.encodedWorkspacePath(entry.path),
                   encodedPath.unicodeScalars.count <= Self.maximumRefPathScalars
             else { continue }
