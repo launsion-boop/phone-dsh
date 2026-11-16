@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: MIT
 /**
- * Derive the Worker profile's Bot persona prefixes from the Bot-owned prompt
+ * Derive the Worker profile's Bot persona prefix from the Bot-owned prompt
  * sources. Source of truth:
- *   plugins/bot-runtime/prompts/system-prompt.md / system-prompt.zh-CN.md
- *   plugins/bot-runtime/prompts/bot-only-increment.md
+ *   plugins/bot-runtime/prompts/system-prompt.md
+ *   plugins/bot-runtime/prompts/system-prompt.zh-CN.md
  *
- * The global `system-prompt.personaPrefix` is the base Bot prompt (shared
- * baseline; no r8 increment). `preset-phone-bot` shadows it with a scope-only
- * persona row whose prefix is base + the Bot-only increment. `--check` fails on
- * drift; without it both profile blocks are rewritten.
+ * `personaPrefix` in plugins/profile/phone.worker.cordis.patch.yml is generated
+ * from assemblePrompt().persona; a hand-edited copy is fail-closed. `--check`
+ * only validates; without it the profile is rewritten.
  *
  * Usage:
  *   node scripts/sync-bot-persona.mjs --check
@@ -23,99 +22,49 @@ import { assemblePrompt } from '../bot-runtime/src/prompt/assemble.ts'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPOSITORY = resolve(HERE, '..', '..')
 const PROFILE = join(REPOSITORY, 'plugins/profile/phone.worker.cordis.patch.yml')
-const INCREMENT_FILE = join(REPOSITORY, 'plugins/bot-runtime/prompts/bot-only-increment.md')
-const GLOBAL_PREFIX = '    personaPrefix: |\n'
-const GLOBAL_END = '\n# WP12 default context profile'
-const GLOBAL_INDENT = '      '
-const BOT_MARKER = '    - id: preset-phone-bot\n'
-const BOT_PREFIX = "          - id: persona\n            name: '@deepseek-ai/dsh-persona'\n            config:\n              prefix: |\n"
-const BOT_END = '\n          - id: agent-instructions'
-const BOT_INDENT = '                '
+const PREFIX = '    personaPrefix: |\n'
+const END = '\n# WP12 default context profile'
+const INDENT = '      '
 
 function readProfile() {
   return readFileSync(PROFILE, 'utf8')
 }
 
-function stripIncrementComments(text) {
-  return text.split('\n').filter(line => !line.trimStart().startsWith('<!--')).join('\n').trim()
+function actualPersona(profile) {
+  const start = profile.indexOf(PREFIX)
+  if (start < 0) throw new Error(`sync-bot-persona: ${PREFIX.trim()} missing from ${PROFILE}`)
+  const bodyStart = start + PREFIX.length
+  const end = profile.indexOf(END, bodyStart)
+  if (end < 0) throw new Error('sync-bot-persona: persona end marker missing from the profile')
+  const block = profile.slice(bodyStart, end)
+  return block.split('\n').map(line => line.startsWith(INDENT) ? line.slice(INDENT.length) : line).join('\n').trim()
 }
 
-export function expectedBasePersona() {
+export function expectedPersona() {
   return assemblePrompt({ lang: 'zh' }).persona
 }
 
-export function expectedBotPersona() {
-  const increment = stripIncrementComments(readFileSync(INCREMENT_FILE, 'utf8'))
-  if (increment === '') throw new Error('sync-bot-persona: bot-only increment is empty')
-  return `${expectedBasePersona()}\n\n${increment}`
-}
-
-function personaAt(profile, prefix, end) {
-  const start = profile.indexOf(prefix)
-  if (start < 0) throw new Error(`sync-bot-persona: missing marker ${JSON.stringify(prefix.trim())}`)
-  const bodyStart = start + prefix.length
-  const stop = profile.indexOf(end, bodyStart)
-  if (stop < 0) throw new Error(`sync-bot-persona: missing end marker ${JSON.stringify(end.trim())}`)
-  return {
-    bodyStart,
-    stop,
-    text: profile.slice(bodyStart, stop)
-      .split('\n')
-      .map(line => line.startsWith('      ') ? line.slice(6) : line)
-      .join('\n')
-      .trim(),
-  }
-}
-
-function globalBlock(profile) {
-  return personaAt(profile, GLOBAL_PREFIX, GLOBAL_END)
-}
-
-function botBlock(profile) {
-  const marker = profile.indexOf(BOT_MARKER)
-  if (marker < 0) throw new Error('sync-bot-persona: preset-phone-bot missing')
-  const slice = profile.slice(marker)
-  const prefixAt = slice.indexOf(BOT_PREFIX)
-  if (prefixAt < 0) throw new Error('sync-bot-persona: preset-phone-bot persona row missing')
-  const bodyStart = marker + prefixAt + BOT_PREFIX.length
-  const stop = profile.indexOf(BOT_END, bodyStart)
-  if (stop < 0) throw new Error('sync-bot-persona: preset-phone-bot persona end marker missing')
-  return {
-    bodyStart,
-    stop,
-    text: profile.slice(bodyStart, stop)
-      .split('\n')
-      .map(line => line.startsWith(BOT_INDENT) ? line.slice(BOT_INDENT.length) : line)
-      .join('\n')
-      .trim(),
-  }
-}
-
 export function checkBotPersonaProfile() {
-  const profile = readProfile()
-  const base = expectedBasePersona()
-  const bot = expectedBotPersona()
-  if (globalBlock(profile).text !== base) {
-    throw new Error('sync-bot-persona: global personaPrefix is not the base Bot prompt; run sync-bot-persona.mjs')
-  }
-  if (botBlock(profile).text !== bot) {
-    throw new Error('sync-bot-persona: preset-phone-bot persona is not base + Bot-only increment; run sync-bot-persona.mjs')
+  const expected = expectedPersona()
+  const actual = actualPersona(readProfile())
+  if (actual !== expected) {
+    throw new Error(
+      'sync-bot-persona: profile personaPrefix does not match the Bot prompt sources; '
+      + 'run `node plugins/scripts/sync-bot-persona.mjs`')
   }
   return true
 }
 
-function writeBlock(profile, block, text, indent) {
-  const generated = text.split('\n').map(line => line ? indent + line : '').join('\n') + '\n'
-  return profile.slice(0, block.bodyStart) + generated + profile.slice(block.stop)
-}
-
 export function writeBotPersonaProfile() {
   const profile = readProfile()
-  const base = expectedBasePersona()
-  const bot = expectedBotPersona()
-  // Replace the bot block first: its offsets are after the global block.
-  let next = writeBlock(profile, botBlock(profile), bot, BOT_INDENT)
-  next = writeBlock(next, globalBlock(next), base, GLOBAL_INDENT)
+  const expected = expectedPersona()
+  const start = profile.indexOf(PREFIX)
+  if (start < 0) throw new Error('sync-bot-persona: personaPrefix marker missing')
+  const bodyStart = start + PREFIX.length
+  const end = profile.indexOf(END, bodyStart)
+  if (end < 0) throw new Error('sync-bot-persona: persona end marker missing')
+  const generated = expected.split('\n').map(line => line ? INDENT + line : '').join('\n') + '\n'
+  const next = profile.slice(0, bodyStart) + generated + profile.slice(end)
   if (next === profile) return false
   writeFileSync(PROFILE, next)
   return true
@@ -127,10 +76,11 @@ function invokedByCli() {
 }
 
 if (invokedByCli()) {
+  const check = process.argv.includes('--check')
   try {
-    if (process.argv.includes('--check')) {
+    if (check) {
       checkBotPersonaProfile()
-      console.log('sync-bot-persona: OK (global base + phone-bot increment)')
+      console.log('sync-bot-persona: OK (profile persona matches the Bot prompt sources)')
     } else {
       const changed = writeBotPersonaProfile()
       console.log(changed

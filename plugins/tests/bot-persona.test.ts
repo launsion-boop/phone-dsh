@@ -77,30 +77,17 @@ test('the routine variant forbids cards and matches the Swift default text', () 
   assert.ok(swift.includes(enBody.replace(/\n/g, '\\n')), 'Swift en routine variant must be byte-identical to assemble.ts')
 })
 
-test('profile persona scoping: global base and phone-bot base+increment', () => {
+test('Bot name comes from runtime context and profile persona matches the checked assembly', () => {
   assert.ok(runtimePersonaBlock().includes('大肥鱼'))
   const custom = runtimePersonaBlock({ botName: 'Custom Fish' })
   assert.ok(custom.includes('Custom Fish'))
   assert.equal(custom.includes('大肥鱼'), false)
   const profile = readFileSync(join(repository, 'plugins/profile/phone.worker.cordis.patch.yml'), 'utf8')
-  const base = assemblePrompt().persona
-  const increment = readFileSync(join(repository, 'plugins/bot-runtime/prompts/bot-only-increment.md'), 'utf8')
-    .split('\n').filter(line => !line.trimStart().startsWith('<!--')).join('\n').trim()
-  assert.ok(increment.length > 0)
-
+  const expected = assemblePrompt().persona
   const personaBlock = profile.split('personaPrefix: |\n')[1]?.split('\n# WP12 default context profile')[0]
   assert.ok(personaBlock)
-  const globalPersona = personaBlock.split('\n').map(line => line.startsWith('      ') ? line.slice(6) : line).join('\n').trim()
-  assert.equal(globalPersona, base, 'global personaPrefix must be the base Bot prompt, not the r8 increment')
-  assert.equal(globalPersona.includes(increment), false, 'r8 must not leak into the global prefix')
-
-  const botMatch = profile.match(/    - id: preset-phone-bot\n[\s\S]*?          - id: persona\n            name: '@deepseek-ai\/dsh-persona'\n            config:\n              prefix: \|\n([\s\S]*?)\n          - id: agent-instructions/)
-  assert.ok(botMatch, 'preset-phone-bot must carry a scope-only persona row')
-  const botPersona = botMatch[1].split('\n').map(line => line.startsWith('                ') ? line.slice(16) : line).join('\n').trim()
-  assert.equal(botPersona, `${base}\n\n${increment}`, 'phone-bot persona must be base + Bot-only increment')
-  assert.equal(profile.split(increment).length - 1, 1, 'the r8 increment must appear only in the phone-bot preset')
-  const phonePreset = profile.split('    - id: preset-phone\n')[1]?.split('    - id: preset-')[0] ?? ''
-  assert.equal(phonePreset.includes(increment), false, 'legacy phone preset must not inherit r8')
+  const actual = personaBlock.split('\n').map(line => line.startsWith('      ') ? line.slice(6) : line).join('\n').trim()
+  assert.equal(actual, expected)
   assert.equal(profile.includes('plugins/profile/bot-context.cordis.patch.yml'), false)
   assert.match(profile, /thresholdRatio: 0\.8/)
   assert.match(profile, /maxInlineTokens: 12500/)
