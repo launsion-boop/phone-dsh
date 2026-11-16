@@ -8,16 +8,26 @@ import Foundation
 /// `/dsh/home/skills`); this adapter only hashes raw UTF-8 bytes and never
 /// writes a skill. Missing/unreadable files are `unavailable`, never current.
 public struct BotSkillFileRechecker: BotSkillRechecking {
-    public let root: URL
+    private let resolveRoot: @Sendable (BotSkillIdentity) -> URL?
     private let fileManager: FileManager
 
+    /// Legacy host-only resolver kept for existing tests/callers.
     public init(root: URL, fileManager: FileManager = .default) {
-        self.root = root
+        self.resolveRoot = { _ in root }
         self.fileManager = fileManager
     }
 
-    public func recheckSkill(name: String, file: String,
+    public init(roots: any BotSkillRootResolving,
+                fileManager: FileManager = .default) {
+        self.resolveRoot = { identity in
+            roots.root(for: identity.source, ownerBotID: identity.ownerBotID)
+        }
+        self.fileManager = fileManager
+    }
+
+    public func recheckSkill(identity: BotSkillIdentity, file: String,
                              expectedSHA256: String) async -> BotSkillRecheckOutcome {
+        guard let root = resolveRoot(identity) else { return .notPerformed }
         guard !file.isEmpty, !file.hasPrefix("/"), !file.contains(".."),
               !file.contains("\u{0}") else {
             return .notPerformed

@@ -30,6 +30,8 @@ public struct BotSkillWriteRequest: Sendable, Equatable {
     public var file: String
     public var revision: Int
     public var action: BotSkillChangeAction
+    public var source: BotSkillSource
+    public var ownerBotID: String?
     /// Raw UTF-8 file bytes hash for write; nil for delete.
     public var contentSHA256: String?
     public var bytes: Int?
@@ -41,11 +43,14 @@ public struct BotSkillWriteRequest: Sendable, Equatable {
     public init(name: String, file: String, revision: Int,
                 action: BotSkillChangeAction, contentSHA256: String?,
                 bytes: Int?, previousSHA256: String?, author: BotSkillChangeAuthor,
-                atMS: Int64, sources: [BotDerivationSource]) {
+                atMS: Int64, sources: [BotDerivationSource],
+                source: BotSkillSource = .userDsh, ownerBotID: String? = nil) {
         self.name = name
         self.file = file
         self.revision = revision
         self.action = action
+        self.source = source
+        self.ownerBotID = ownerBotID
         self.contentSHA256 = contentSHA256
         self.bytes = bytes
         self.previousSHA256 = previousSHA256
@@ -101,6 +106,12 @@ public protocol BotProvenanceQuerying: Sendable {
         -> [String: BotSourceStatus]
     func generation() async throws -> BotProvenanceGeneration
     func latestSkillChange(name: String) async throws -> BotSkillChangeSnapshot?
+    func latestSkillChange(identity: BotSkillIdentity) async throws
+        -> BotSkillChangeSnapshot?
+    func currentState(forSkill identity: BotSkillIdentity, botID: String?) async throws
+        -> BotDerivationView
+    func sourceStatuses(forSkill identity: BotSkillIdentity, botID: String?) async throws
+        -> [BotSourceStatus]
     func routineDerivationSources(botID: String, sessionID: String) async throws
         -> [BotDerivationSource]
     func derivedRefs(forEventID eventID: String) async throws -> [BotDerivedRef]
@@ -181,6 +192,16 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         guard write.revision >= 1 else {
             throw BotProvenanceError.invalidDerivation("skill revision must be >= 1")
         }
+        if write.source == .projectDsh || write.source == .projectAgents {
+            guard let owner = write.ownerBotID, !owner.isEmpty,
+                  owner == write.author.botID else {
+                throw BotProvenanceError.invalidDerivation(
+                    "project skill needs owner_bot_id matching the author Bot")
+            }
+        } else if write.ownerBotID != nil {
+            throw BotProvenanceError.invalidDerivation(
+                "global skill must not carry owner_bot_id")
+        }
         func validSHA(_ value: String?) -> Bool {
             guard let value, value.hasPrefix("sha256:") else { return false }
             let hex = value.dropFirst(7)
@@ -203,14 +224,23 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
                     "skill delete requires previous_sha256 and no content")
             }
         }
-        let eventId = "skill-changed:\(name):\(write.revision):\(write.action.rawValue)"
+        let source = write.source
+        let identity = "\(source.rawValue):\(write.ownerBotID ?? "-"):\(name)"
+        let eventId = "skill-changed:\(identity):\(write.revision):\(write.action.rawValue)"
         let snapshot = try await refresh()
         if cachedEventIDs[eventId] != nil {
             return BotDerivedRef(kind: .skill, id: name, version: write.revision)
         }
-        let latest = snapshot.assertions.keys
-            .filter { $0.kind == .skill && $0.id == name }
-            .compactMap(\.version).max()
+        let latest = snapshot.assertions.compactMap { artifact, list -> Int? in
+            guard artifact.kind == .skill, artifact.id == name,
+                  let last = list.last else { return nil }
+            let lastSource = last.skillSource ?? BotSkillSource.userDsh.rawValue
+            let lastOwner = last.skillOwnerBotID
+            guard lastSource == source.rawValue, lastOwner == write.ownerBotID else {
+                return nil
+            }
+            return artifact.version
+        }.max()
         let expected = (latest ?? 0) + 1
         guard write.revision == expected else {
             throw BotProvenanceError.invalidDerivation(
@@ -237,6 +267,7 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
             "name": .string(name),
             "file": .string(write.file),
             "revision": .number(Double(write.revision)),
+            "source": .string(source.rawValue),
         ]
         if write.action == .write {
             skill["content_sha256"] = .string(write.contentSHA256 ?? "")
@@ -246,6 +277,9 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
             }
         } else {
             skill["previous_sha256"] = .string(write.previousSHA256 ?? "")
+        }
+        if let owner = write.ownerBotID {
+            skill["owner_bot_id"] = .string(owner)
         }
         data["skill"] = .object(skill)
         if !write.sources.isEmpty {
@@ -276,13 +310,30 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
 
     public func latestSkillChange(name: String) async throws
         -> BotSkillChangeSnapshot? {
+        try await latestSkillChange(
+            identity: BotSkillIdentity(name: name))
+    }
+
+    public func latestSkillChange(identity: BotSkillIdentity) async throws
+        -> BotSkillChangeSnapshot? {
         let snapshot = try await refresh()
-        let latest = snapshot.assertions.keys
-            .filter { $0.kind == .skill && $0.id == name }
-            .compactMap(\.version).max()
+        let latest = snapshot.assertions.compactMap { artifact, list -> Int? in
+            guard artifact.kind == .skill, artifact.id == identity.name,
+                  list.contains(where: {
+                      ($0.skillSource ?? BotSkillSource.userDsh.rawValue)
+                          == identity.source.rawValue
+                          && $0.skillOwnerBotID == identity.ownerBotID
+                  }) else { return nil }
+            return artifact.version
+        }.max()
         guard let latest,
               let assertion = snapshot.assertions[
-                BotDerivedRef(kind: .skill, id: name, version: latest)]?.last,
+                BotDerivedRef(kind: .skill, id: identity.name, version: latest)]?
+                .last(where: {
+                    ($0.skillSource ?? BotSkillSource.userDsh.rawValue)
+                        == identity.source.rawValue
+                        && $0.skillOwnerBotID == identity.ownerBotID
+                }),
               let seq = Int(assertion.carrierRecord
                 .replacingOccurrences(of: "record://event/", with: "")),
               let data = try await eventData(forCommitSeq: seq),
@@ -290,8 +341,9 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
               let file = skill["file"]?.stringValue else { return nil }
         let at = Int64(data["at_ms"]?.intValue ?? 0)
         return BotSkillChangeSnapshot(
-            name: name, file: file, revision: latest,
+            name: identity.name, file: file, revision: latest,
             action: data["action"]?.stringValue ?? "write",
+            source: identity.source, ownerBotID: identity.ownerBotID,
             contentSHA256: skill["content_sha256"]?.stringValue,
             previousSHA256: skill["previous_sha256"]?.stringValue,
             bytes: skill["bytes"]?.intValue,
@@ -518,6 +570,28 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
             return nil
         }
         return components.joined(separator: "/")
+    }
+
+    public func currentState(forSkill identity: BotSkillIdentity,
+                             botID: String?) async throws -> BotDerivationView {
+        let (scoped, facts) = try await settledScopedSnapshotAndFacts(botID: botID)
+        let skillScoped = scoped.skillScoped(identity, botID: botID)
+        let artifact = skillScoped.assertions.keys
+            .filter { $0.kind == .skill && $0.id == identity.name }
+            .max(by: { ($0.version ?? 0) < ($1.version ?? 0) })
+            ?? BotDerivedRef(kind: .skill, id: identity.name)
+        return skillScoped.view(for: artifact, facts: facts)
+    }
+
+    public func sourceStatuses(forSkill identity: BotSkillIdentity,
+                               botID: String?) async throws -> [BotSourceStatus] {
+        let (scoped, facts) = try await settledScopedSnapshotAndFacts(botID: botID)
+        let skillScoped = scoped.skillScoped(identity, botID: botID)
+        let artifact = skillScoped.assertions.keys
+            .filter { $0.kind == .skill && $0.id == identity.name }
+            .max(by: { ($0.version ?? 0) < ($1.version ?? 0) })
+            ?? BotDerivedRef(kind: .skill, id: identity.name)
+        return skillScoped.sourceStatuses(for: artifact, facts: facts)
     }
 
     public func generation() async throws -> BotProvenanceGeneration {
@@ -759,8 +833,14 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
                       let name = skill["name"]?.stringValue,
                       let file = skill["file"]?.stringValue,
                       let digest = skill["content_sha256"]?.stringValue else { continue }
+                let identity = BotSkillIdentity(
+                    source: BotSkillSource(
+                        rawValue: assertion.skillSource ?? BotSkillSource.userDsh.rawValue)
+                        ?? .userDsh,
+                    ownerBotID: assertion.skillOwnerBotID,
+                    name: name)
                 fact.skillRecheckOutcome = await skillRechecker.recheckSkill(
-                    name: name, file: file, expectedSHA256: digest)
+                    identity: identity, file: file, expectedSHA256: digest)
                 facts[assertion.carrierRecord] = fact
             }
         }

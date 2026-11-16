@@ -26,7 +26,7 @@ private actor CountingSkillRechecker: BotSkillRechecking {
 
     init(outcome: BotSkillRecheckOutcome) { self.outcome = outcome }
 
-    func recheckSkill(name: String, file: String,
+    func recheckSkill(identity: BotSkillIdentity, file: String,
                       expectedSHA256: String) async -> BotSkillRecheckOutcome {
         calls += 1
         return outcome

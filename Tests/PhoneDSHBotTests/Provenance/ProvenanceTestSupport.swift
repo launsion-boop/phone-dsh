@@ -234,7 +234,7 @@ actor BotProvenanceRecordingResolver: BotProvenanceEvidenceResolving {
 struct BotProvenanceTestSkillRechecker: BotSkillRechecking {
     var outcome: BotSkillRecheckOutcome
 
-    func recheckSkill(name: String, file: String,
+    func recheckSkill(identity: BotSkillIdentity, file: String,
                       expectedSHA256: String) async -> BotSkillRecheckOutcome {
         outcome
     }

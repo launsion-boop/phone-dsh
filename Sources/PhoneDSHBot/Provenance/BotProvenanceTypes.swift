@@ -83,6 +83,34 @@ public enum BotProvenanceRecheckOutcome: Sendable, Equatable {
     case notPerformed
 }
 
+/// G-1 skill identity: (source, owner?, name). Legacy events without source are
+/// host/global. Project roots are per-Bot and must never merge by name.
+public enum BotSkillSource: String, Codable, Sendable, CaseIterable {
+    case projectDsh = "project-dsh"
+    case projectAgents = "project-agents"
+    case userDsh = "user-dsh"
+    case userAgents = "user-agents"
+    case custom
+    case bundled
+}
+
+public struct BotSkillIdentity: Codable, Sendable, Equatable, Hashable {
+    public var source: BotSkillSource
+    public var ownerBotID: String?
+    public var name: String
+
+    public init(source: BotSkillSource = .userDsh,
+                ownerBotID: String? = nil, name: String) {
+        self.source = source
+        self.ownerBotID = ownerBotID
+        self.name = name
+    }
+
+    public var isProject: Bool {
+        source == .projectDsh || source == .projectAgents
+    }
+}
+
 /// Last durable `skill.changed` for one skill. Host reconciliation uses this to
 /// decide whether a file hash already has a carrier and what the next revision is.
 public struct BotSkillChangeSnapshot: Sendable, Equatable {
@@ -90,6 +118,8 @@ public struct BotSkillChangeSnapshot: Sendable, Equatable {
     public var file: String
     public var revision: Int
     public var action: String
+    public var source: BotSkillSource
+    public var ownerBotID: String?
     public var contentSHA256: String?
     public var previousSHA256: String?
     public var bytes: Int?
@@ -97,12 +127,15 @@ public struct BotSkillChangeSnapshot: Sendable, Equatable {
     public var atMS: Int64
 
     public init(name: String, file: String, revision: Int, action: String,
+                source: BotSkillSource = .userDsh, ownerBotID: String? = nil,
                 contentSHA256: String?, previousSHA256: String?, bytes: Int?,
                 carrier: String, atMS: Int64) {
         self.name = name
         self.file = file
         self.revision = revision
         self.action = action
+        self.source = source
+        self.ownerBotID = ownerBotID
         self.contentSHA256 = contentSHA256
         self.previousSHA256 = previousSHA256
         self.bytes = bytes
@@ -121,8 +154,12 @@ public enum BotSkillRecheckOutcome: Sendable, Equatable {
     case skipped
 }
 
+public protocol BotSkillRootResolving: Sendable {
+    func root(for source: BotSkillSource, ownerBotID: String?) -> URL?
+}
+
 public protocol BotSkillRechecking: Sendable {
-    func recheckSkill(name: String, file: String,
+    func recheckSkill(identity: BotSkillIdentity, file: String,
                       expectedSHA256: String) async -> BotSkillRecheckOutcome
 }
 

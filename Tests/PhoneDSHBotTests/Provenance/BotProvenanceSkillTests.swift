@@ -143,3 +143,57 @@ final class BotProvenanceSkillTests: XCTestCase {
         } catch {}
     }
 }
+
+extension BotProvenanceSkillTests {
+    /// G-1 skill identity: two Bots may have the same project-dsh skill name.
+    func testProjectSkillIdentityIsPerBotNotNameOnly() async throws {
+        let log = BotProvenanceTestLog()
+        let service = BotProvenanceService(
+            eventLog: log,
+            skillRechecker: BotProvenanceTestSkillRechecker(
+                outcome: .same(atMS: 2_000)))
+        let digest = "sha256:" + String(repeating: "d", count: 64)
+        for owner in ["bot-a", "bot-b"] {
+            _ = try await service.recordSkillWrite(BotSkillWriteRequest(
+                name: "weekly-report", file: "weekly-report.md", revision: 1,
+                action: .write, contentSHA256: digest, bytes: 18,
+                previousSHA256: nil,
+                author: BotSkillChangeAuthor(kind: "bot", botID: owner),
+                atMS: 1_500, sources: [],
+                source: .projectDsh, ownerBotID: owner))
+        }
+        let written = await log.all()
+        XCTAssertEqual(written.count, 2)
+        XCTAssertEqual(
+            written.first?.data["skill"]?["source"]?.stringValue, "project-dsh")
+        let snapshot = BotProvenanceSnapshot.build(events: written)
+        let first = try XCTUnwrap(snapshot.assertions.values.first?.first)
+        XCTAssertEqual(first.skillSource, "project-dsh")
+        XCTAssertEqual(first.skillOwnerBotID, "bot-a")
+        let aScoped = snapshot.scoped(botID: "bot-a")
+        XCTAssertEqual(aScoped.assertions.values.first?.count, 1)
+        XCTAssertEqual(
+            aScoped.assertions.values.first?.first?.skillOwnerBotID, "bot-a")
+        let aIdentity = BotSkillIdentity(
+            source: .projectDsh, ownerBotID: "bot-a", name: "weekly-report")
+        let aSkillScoped = aScoped.skillScoped(aIdentity, botID: "bot-a")
+        XCTAssertEqual(aSkillScoped.assertions.values.first?.count, 1)
+        for owner in ["bot-a", "bot-b"] {
+            let identity = BotSkillIdentity(
+                source: .projectDsh, ownerBotID: owner, name: "weekly-report")
+            let state = try await service.currentState(
+                forSkill: identity, botID: owner)
+            XCTAssertEqual(state.state, .current)
+            XCTAssertEqual(state.carrier,
+                           owner == "bot-a"
+                               ? "record://event/1" : "record://event/2")
+            let latest = try await service.latestSkillChange(identity: identity)
+            XCTAssertEqual(latest?.ownerBotID, owner)
+            XCTAssertEqual(latest?.source, .projectDsh)
+        }
+        let legacy = BotSkillIdentity(name: "weekly-report")
+        let style = try await service.currentState(forSkill: legacy, botID: "bot-a")
+        XCTAssertEqual(style.state, .unknown)
+        XCTAssertEqual(style.reasons, [.noSkillWriteEvent])
+    }
+}

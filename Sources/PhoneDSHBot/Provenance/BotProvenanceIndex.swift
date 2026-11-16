@@ -18,6 +18,8 @@ struct BotProvenanceAssertion: Sendable, Equatable {
     var sessionID: String?
     var review: Review?
     var isDeleted: Bool = false
+    var skillSource: String?
+    var skillOwnerBotID: String?
 }
 
 struct BotProvenanceObservation: Sendable, Equatable {
@@ -84,6 +86,17 @@ public struct BotProvenanceSnapshot: Sendable {
     /// A grant id remains revoked even for a carrier written after the
     /// revocation. Re-authorization must use a new grant/generation; the same
     /// id must not resurrect a later artifact.
+    static func skillVisible(_ assertion: BotProvenanceAssertion, to botID: String?) -> Bool {
+        let source = assertion.skillSource ?? BotSkillSource.userDsh.rawValue
+        if source == BotSkillSource.projectDsh.rawValue
+            || source == BotSkillSource.projectAgents.rawValue {
+            guard let owner = assertion.skillOwnerBotID,
+                  let botID, !botID.isEmpty else { return false }
+            return owner == botID
+        }
+        return true
+    }
+
     func isGrantKnownRevoked(_ grantId: String?) -> Bool {
         guard let grantId else { return false }
         return revokedGrants[Self.normalizedGrant(grantId)] != nil
@@ -109,11 +122,36 @@ public struct BotProvenanceSnapshot: Sendable {
         for (artifact, list) in assertions {
             let wanted = Self.scopeKey(artifact: artifact, botID: botID)
             let kept = list.filter { assertion in
-                Self.scopeKey(artifact: assertion.artifact, botID: assertion.botID)
+                if assertion.artifact.kind == .skill {
+                    return Self.skillVisible(assertion, to: botID)
+                }
+                return Self.scopeKey(artifact: assertion.artifact, botID: assertion.botID)
                     == wanted
             }
             if !kept.isEmpty { filtered[artifact] = kept }
         }
+        return makeFilteredSnapshot(filtered)
+    }
+
+    /// G-1 skill identity filter: only assertions for (source, owner?, name).
+    func skillScoped(_ identity: BotSkillIdentity, botID: String?) -> BotProvenanceSnapshot {
+        let base = scoped(botID: botID)
+        var filtered: [BotDerivedRef: [BotProvenanceAssertion]] = [:]
+        for (artifact, list) in base.assertions
+        where artifact.kind == .skill && artifact.id == identity.name {
+            let kept = list.filter { assertion in
+                (assertion.skillSource ?? BotSkillSource.userDsh.rawValue)
+                    == identity.source.rawValue
+                    && assertion.skillOwnerBotID == identity.ownerBotID
+            }
+            if !kept.isEmpty { filtered[artifact] = kept }
+        }
+        return makeFilteredSnapshot(filtered)
+    }
+
+    private func makeFilteredSnapshot(
+        _ filtered: [BotDerivedRef: [BotProvenanceAssertion]]
+    ) -> BotProvenanceSnapshot {
         var bySource: [String: Set<BotDerivedRef>] = [:]
         var artifactByCarrier: [String: BotDerivedRef] = [:]
         for (artifact, list) in filtered {
@@ -148,11 +186,10 @@ public struct BotProvenanceSnapshot: Sendable {
             artifactByCarrier: artifactByCarrier, generation: generation)
     }
 
-    public var referencedRecords: [String] { bySource.keys.sorted() }
-
     public func artifacts() -> [BotDerivedRef] { assertions.keys.sorted() }
 
-    public func derivedRefs(forEventID eventID: String, eventIDToSeq: [String: Int]) -> [BotDerivedRef] {
+    public func derivedRefs(forEventID eventID: String,
+                            eventIDToSeq: [String: Int]) -> [BotDerivedRef] {
         guard let seq = eventIDToSeq[eventID] else { return [] }
         let record = "record://event/\(seq)"
         return assertions.values.compactMap { list in
@@ -298,6 +335,7 @@ public struct BotProvenanceSnapshot: Sendable {
                           facts: facts[canonical] ?? eventFacts[canonical])
         }
     }
+
 
     /// The single current-state decision (provenance.md §4.3 order, r6).
     private func status(ref: String, roles: [String],
@@ -817,7 +855,13 @@ extension BotProvenanceSnapshot {
                     basis: derivation.basis, carrierSeq: seq, carrierRecord: record,
                     eventType: event.type, botID: event.principal.botId,
                     sessionID: event.principal.sessionId,
-                    review: review)
+                    review: review,
+                    isDeleted: event.type == "skill.changed"
+                        && event.data["action"]?.stringValue == "delete",
+                    skillSource: event.type == "skill.changed"
+                        ? event.data["skill"]?["source"]?.stringValue : nil,
+                    skillOwnerBotID: event.type == "skill.changed"
+                        ? event.data["skill"]?["owner_bot_id"]?.stringValue : nil)
                 assertionMap[derivation.artifact, default: []].append(assertion)
                 continue
             }
@@ -943,7 +987,9 @@ extension BotProvenanceSnapshot {
                 sources: dedupe(sources), basis: nil, carrierSeq: event.commitSeq ?? 0,
                 carrierRecord: record, eventType: event.type,
                 botID: event.principal.botId, sessionID: event.principal.sessionId,
-                review: nil, isDeleted: action == "delete")]
+                review: nil, isDeleted: action == "delete",
+                skillSource: skill["source"]?.stringValue,
+                skillOwnerBotID: skill["owner_bot_id"]?.stringValue)]
         case "routine.defined", "routine.updated", "routine.deleted":
             guard let document = event.data["document"],
                   let routines = document["routines"]?.arrayValue else { return [] }

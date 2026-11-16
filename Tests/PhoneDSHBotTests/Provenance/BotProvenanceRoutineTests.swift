@@ -92,18 +92,22 @@ final class BotProvenanceRoutineTests: XCTestCase {
             .map { String(format: "%02x", $0) }.joined()
         let rechecker = BotSkillFileRechecker(root: root)
         let same = await rechecker.recheckSkill(
-            name: "weekly-report", file: file, expectedSHA256: hash)
+            identity: BotSkillIdentity(name: "weekly-report"),
+            file: file, expectedSHA256: hash)
         guard case .same = same else { return XCTFail("expected same, got \(same)") }
         try Data("changed body".utf8).write(to: root.appendingPathComponent(file))
         let changed = await rechecker.recheckSkill(
-            name: "weekly-report", file: file, expectedSHA256: hash)
+            identity: BotSkillIdentity(name: "weekly-report"),
+            file: file, expectedSHA256: hash)
         guard case .changed = changed else { return XCTFail("expected changed") }
         try FileManager.default.removeItem(at: root.appendingPathComponent(file))
         let missing = await rechecker.recheckSkill(
-            name: "weekly-report", file: file, expectedSHA256: hash)
+            identity: BotSkillIdentity(name: "weekly-report"),
+            file: file, expectedSHA256: hash)
         guard case .unavailable = missing else { return XCTFail("expected unavailable") }
         let escaped = await rechecker.recheckSkill(
-            name: "weekly-report", file: "../escape.md", expectedSHA256: hash)
+            identity: BotSkillIdentity(name: "weekly-report"),
+            file: "../escape.md", expectedSHA256: hash)
         guard case .notPerformed = escaped else { return XCTFail("expected notPerformed") }
 
         // Latest carrier info for host reconciliation.
