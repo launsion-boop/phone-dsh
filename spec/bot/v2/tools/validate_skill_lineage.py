@@ -77,8 +77,6 @@ def validate_sequence(events):
     return events
 
 
-<<<<<<< HEAD
-=======
 WORST = ("erased", "revoked", "changed", "unavailable", "unknown", "current")
 
 
@@ -89,7 +87,6 @@ def worst(states):
     return "current"
 
 
->>>>>>> 527d148f1 (feat(bot): G-4 skill.changed lineage + G-1 r14 roles + r2 priority)
 def evaluate(case):
     events = case.get("events", [])
     if not events:
@@ -97,14 +94,6 @@ def evaluate(case):
     latest = events[-1]
     if latest["action"] == "delete":
         return {"state": "unavailable", "reasons": ["skill-deleted"]}
-<<<<<<< HEAD
-    recheck = case.get("recheck")
-    if recheck is None:
-        return {"state": "unknown", "reasons": ["refresh-not-performed"]}
-    if recheck != latest["skill"]["content_sha256"]:
-        return {"state": "changed", "reasons": ["source-changed"]}
-    return {"state": "current", "reasons": []}
-=======
     content_roles = ("evidence", "basis", "creator")
     sources = latest.get("derivation", {}).get("sources", [])
     source_states = case.get("source_states", {})
@@ -134,7 +123,6 @@ def evaluate(case):
     if state == "current":
         reasons = set()
     return {"state": state, "reasons": sorted(reasons)}
->>>>>>> 527d148f1 (feat(bot): G-4 skill.changed lineage + G-1 r14 roles + r2 priority)
 
 
 def main():
