@@ -964,11 +964,6 @@
               search: !!js (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-official' || (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api'
               fetch: !!js ((process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER) === 'phone-host-fetch') || ((process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api' && (process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER) === 'deepseek-fetch-api')
               searchTimeoutMs: 60000
-          # Bot-only scoped shadows add the optional `activity` field to the
-          # read/search/web tools; bash keeps `description` and Task keeps
-          # `task_title`. The shadow is installed in this agent scope only.
-          - id: activity-intent
-            name: '@phone-dsh/dsh-bot-runtime/activity-intent'
           - id: compaction
             name: cordis:group
             group: true
@@ -1065,6 +1060,12 @@
     - id: dshbot-identity-bridge
       name: '@phone-dsh/dsh-bot-runtime/identity-bridge'
       disabled: !!js "!process.env.PDSH_PHONE_MCP_URL"
+    # Bot-only scoped shadows add the optional `activity` field to the
+    # read/search/web tools. Mounted globally so `agent/created` runs before
+    # the first prompt tool-schema collection; the plugin filters to
+    # App-owned Bot sessions, so the workbench surface is unchanged.
+    - id: dshbot-activity-intent
+      name: '@phone-dsh/dsh-bot-runtime/activity-intent'
     - id: dshbot-approval-gate
       name: '@phone-dsh/dsh-bot-runtime/approval-gate'
       disabled: !!js "!process.env.PDSH_PHONE_MCP_URL"

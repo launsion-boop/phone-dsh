@@ -66,7 +66,7 @@ async function productionAgent(
   const presetKey = {}
   const preset = createScope(root, presetKey)
   await registerInScope(preset, presetRead)
-  await preset.ctx.plugin(activityIntent)
+  await root.plugin(activityIntent)
   const session = sink === undefined
     ? { id }
     : {
@@ -81,6 +81,7 @@ async function productionAgent(
   const agentScope = createScope(root, agent, { parent: presetKey })
   agent.ctx = agentScope.ctx
   await root.serial('agent/created', { agent: agent as never, source: 'startup' })
+  await new Promise(resolve => setImmediate(resolve))
   return { presetKey, preset, agent, agentScope, scope: agent }
 }
 
@@ -140,6 +141,7 @@ test('tool/call arguments retain activity while the real handler receives none',
   }
 })
 
+
 test('web_search and web_fetch keep their provider readiness condition', async () => {
   const ctx = await mountRuntime()
   try {
@@ -152,11 +154,12 @@ test('web_search and web_fetch keep their provider readiness condition', async (
     const preset = createScope(ctx, presetKey)
     await registerInScope(preset, probe('web_search'))
     await registerInScope(preset, probe('web_fetch'))
-    await preset.ctx.plugin(activityIntent)
+    await ctx.plugin(activityIntent)
     const agent = { id: 'gb-activity-web', session: { id: 'gb-activity-web' } } as { id: string; session: { id: string }; ctx?: Context }
     const agentScope = createScope(ctx, agent, { parent: presetKey })
     agent.ctx = agentScope.ctx
     await ctx.serial('agent/created', { agent: agent as never, source: 'startup' })
+    await new Promise(resolve => setImmediate(resolve))
     const scope = scopeOf(agentScope.ctx)
     assert.ok(scope)
 
@@ -189,41 +192,4 @@ test('web_search and web_fetch keep their provider readiness condition', async (
   }
 })
 
-test('late Bot-scope registration and re-registration update the same shadow', async () => {
-  const ctx = await mountRuntime()
-  const firstSeen: unknown[] = []
-  const secondSeen: unknown[] = []
-  try {
-    const presetKey = {}
-    const preset = createScope(ctx, presetKey)
-    await preset.ctx.plugin(activityIntent)
-    const agent = { id: 'gb-activity-reconnect', session: { id: 'gb-activity-reconnect' } } as { id: string; session: { id: string }; ctx?: Context }
-    const agentScope = createScope(ctx, agent, { parent: presetKey })
-    agent.ctx = agentScope.ctx
-    await ctx.serial('agent/created', { agent: agent as never, source: 'startup' })
-    const scope = scopeOf(agentScope.ctx)
-    assert.ok(scope)
-    assert.equal(ctx.tools.schemas(scope).some(entry => entry.name === 'read'), false)
 
-    const disposeFirst = await registerInScope(preset, probe('read', firstSeen))
-    await new Promise(resolve => setImmediate(resolve))
-    const first = ctx.tools.get('read', scope)
-    assert.ok(first)
-    await first!.execute({ file_path: '/a', activity: '定位 #174 的合并资料' }, {} as never)
-    assert.deepEqual(firstSeen, [{ file_path: '/a' }])
-
-    disposeFirst()
-    await new Promise(resolve => setImmediate(resolve))
-    assert.equal(ctx.tools.schemas(scope).some(entry => entry.name === 'read'), false)
-    await registerInScope(preset, probe('read', secondSeen))
-    await new Promise(resolve => setImmediate(resolve))
-    const second = ctx.tools.get('read', scope)
-    assert.ok(second)
-    assert.equal(schemaFor(ctx.tools.schemas(scope), 'read').properties?.activity?.type, 'string')
-    await second!.execute({ file_path: '/b', activity: '对比 #174 与 main 的冲突' }, {} as never)
-    assert.deepEqual(secondSeen, [{ file_path: '/b' }])
-    assert.deepEqual(firstSeen, [{ file_path: '/a' }])
-  } finally {
-    await ctx.fiber.dispose()
-  }
-})

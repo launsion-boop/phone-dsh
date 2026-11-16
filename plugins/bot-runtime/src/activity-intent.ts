@@ -2,6 +2,7 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
 import { scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
+import { botOwnedSessions } from './bot-sessions.ts'
 
 /**
  * Bot-only activity metadata for the read/search tools. The phone-bot preset
@@ -168,17 +169,20 @@ export default function activityIntent(ctx: Context): void {
       : name === 'web_fetch'
         ? ({ modelSelection }: { modelSelection: { provider: string } }) => webReady(name, modelSelection.provider)
         : undefined
-    let dispose: (() => void) | undefined
     try {
-      const fiber = await state.context.plugin({
-        inject: ['tools'],
-        apply(scoped: Context) {
-          dispose = scoped.tools.register(activityWrapper(name, sourceState),
-            when === undefined ? undefined : { when })
+      let disposeRegistration: (() => void) | undefined
+      const fiber = state.context.inject(['tools'], (scoped: Context) => {
+        disposeRegistration = scoped.tools.register(activityWrapper(name, sourceState),
+          when === undefined ? undefined : { when })
+      })
+      if (disposeRegistration === undefined) return
+      state.installed.set(name, {
+        state: sourceState,
+        dispose: () => {
+          disposeRegistration?.()
+          void fiber.dispose()
         },
       })
-      if (dispose === undefined) return
-      state.installed.set(name, { state: sourceState, dispose: () => { void fiber.dispose() } })
     } catch {
       // The Agent scope is unwinding or another definition owns this layer;
       // the next tools/change or assembly retries.
@@ -194,7 +198,14 @@ export default function activityIntent(ctx: Context): void {
     return state.queue
   }
 
+  const owned = botOwnedSessions(ctx)
+  const ownedAgent = (agent: Agent | undefined): boolean => {
+    const sessionId = String(agent?.id || agent?.session?.id || '')
+    return sessionId !== '' && owned.has(sessionId)
+  }
+
   const stateFor = (agent: Agent | undefined): AgentState | undefined => {
+    if (!ownedAgent(agent)) return undefined
     const context = contextOfAgent(agent)
     const scope = context === undefined ? undefined : scopeOf(context)
     if (context === undefined || scope === undefined) return undefined
