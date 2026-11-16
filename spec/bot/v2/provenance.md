@@ -264,6 +264,20 @@
   同一 key（或显式 owner）；缺省 owner 只能由宿主从已认领 session 的 botId 填，**不能**默认 shared/
   全局。所有 assertion 查找、latest 索引、baseline 查找、erasure/grant/invalidation、upstream 边、
   source_statuses 合并都用同一 key；不能只修一个查询。
+- **nil/empty 不是 unscoped 许可（G-1 r16）**：带 `botID` 的 scoped API 在 nil/empty 时**不得**回退到
+  未过滤 snapshot；必须返回 unknown/空结果或拒绝，不能把 cross-Bot latest 当成调用者自己的。只有
+  明确命名、并记录调用者身份的 legacy unscoped API 可以读全量；生产调用点必须传宿主已认领的
+  botID（MCP material/status、UI inspect、maintenance invalidation、R material adapter 同）。
+  refs-only overload 若无法表达 artifact key，必须改为 artifact-scoped 或显式 unscoped；invalidation
+  也必须带 scope，不能声称“同 key 贯穿”而生产接口无 botID。
+- **查询隔离 ≠ 失效传播（G-1 r17）**：`invalidation` 由原始 source 的抹除/撤权触发时，传播是
+  **全局**的：所有 Bot 中依赖该 source 的派生对象都必须失效/标 erased，不能只更新某个 Bot 而让其它
+  Bot 的派生泄漏旧结论。查询/可见性仍按 §3.5 的 artifact key 隔离：调用者只能读自己有权看的
+  artifact/trace，不能因全局传播而看到别的 Bot 的对象。两者必须同时成立：传播用 source/derived
+  关系（跨 owner），查询用 owner scope；不得把 query 隔离误当“只擦一个 Bot”，也不得把全局传播
+  误当“跨 Bot 可读”。
+- 回归必须包含 nil/empty → 非 shared 的负例、trigger-only→unknown、evidence 有效/失效；只跑正例
+  scope 不算完成。
 - 基线按 `(artifact key, ref, role)` 存/查，不按全局 `ref` 覆盖：同一 ref 被两个 artifact/两个 Bot
   引用时各自保留 baseline；缺失 baseline → `unknown` + `no-baseline`，不借用其他 key 的 baseline。
 - `user/` 共享：所有 Bot 看到同一 key；写入者证据仍按记录 owner 解析，跨 Bot 解析不到 →
