@@ -220,6 +220,15 @@
                 "additionalProperties": false
               }
             ]
+          },
+          "review_state": {
+            "enum": [
+              "verified",
+              "unverified",
+              "disputed",
+              "unknown"
+            ],
+            "description": "Optional review status of this material. disputed means an active correction; R must not present it as current. Suppress/adopt preferences stay in the delivery gate and are not material state."
           }
         },
         "additionalProperties": false

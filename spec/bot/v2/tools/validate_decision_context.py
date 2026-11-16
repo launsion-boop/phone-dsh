@@ -168,9 +168,14 @@ def check_feedback(data: dict, seen: dict, where: str) -> dict:
             result = {"accepted": False, "reason": "target-unresolved"}
     elif action == "correct":
         applied = (data.get("applied") or {}).get("memory")
-        if target["kind"] != "memory" or not applied \
-                or applied.get("path") != target["id"] \
-                or applied.get("version") != target.get("version"):
+        disputed = data.get("subjects") or []
+        if target["kind"] != "memory":
+            result = {"accepted": False, "reason": "correction-not-applied"}
+        elif applied is not None:
+            if applied.get("path") != target["id"] \
+                    or applied.get("version") != target.get("version"):
+                result = {"accepted": False, "reason": "correction-not-applied"}
+        elif not disputed:
             result = {"accepted": False, "reason": "correction-not-applied"}
     elif action == "suppress":
         class_key = data.get("class_key")

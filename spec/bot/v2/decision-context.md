@@ -178,9 +178,16 @@ DSH 没有官方“非 tools/list 的 host→Worker 通道”。因此“完全 
     `scope-requires-confirmation`。routine/reminder 级 class 请求 `user` → `scope-not-shareable`。
   - 同一 Bot 的不同目标（task-1 vs task-2、routine r1 vs r2）互不影响；只有 `user` + UI 明确选择
     才跨 Bot 共用。禁止业务关键词黑名单/把正文当 scope。
-- `correct` 必须绑定 memory 已应用版本（`target.version == applied.memory.version`），否则
-  `correction-not-applied`；它同时追加既有 `memory.review_requested`（disputed），交 M；
-  不改写历史版本、不伪造 verified。
+- `correct` 有两种合法形态：
+  1. **applied correction**：`applied.memory` 存在，`target.version == applied.memory.version`；
+  2. **disputed-only**：`applied` 省略，`target.kind=memory`，`target.version` 是已有版本，
+     `disputed_refs`（写入 event `subjects`）非空且为真实规范 ref；不改 memory 正文/版本，只追加既有
+     `memory.review_requested`（disputed）并写 `feedback.recorded`；否则 `correction-not-applied`。
+  - `undo` 引用原 feedback id；disputed-only 的 undo 只清除 disputed 状态（反向事件 +
+    既有 `memory.review_resolved` outcome=`dropped`），不改正文/历史版本、不伪造 verified。
+  - R material 消费：存在 active disputed feedback 的 memory artifact 标 `state=unknown` +
+    `review_state:"disputed"`，不得 current；undo/expiry 后恢复，只有新 grant/review 才可改变。
+    `suppress`/`adopt` 偏好仍只在 F delivery gate，不进入 material，不建第二偏好系统。
 - `undo` 引用原 `feedback_id`（`reverses`），写反向事件并回滚状态；撤销抑制后 gate 立即不再 hold。
 - `suppress` 只 hold 下一次主动判定（`feedback-held`），不删 routine、不停全部目标、不消耗保险丝；
   记录保留审计，`expires_at_ms` 只影响 gate。

@@ -1702,6 +1702,36 @@
         "expected": {
           "accepted": true
         }
+      },
+      {
+        "name": "correct-disputed-only",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:15",
+          "action": "correct",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-15",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "memory",
+            "id": "agent/notes/profile.md",
+            "version": 2
+          },
+          "scope": {
+            "kind": "artifact",
+            "key": "artifact:agent/notes/profile.md"
+          },
+          "accepted": true,
+          "subjects": [
+            "record://event/7"
+          ]
+        },
+        "expected": {
+          "accepted": true
+        }
       }
     ],
     "isolation": [
