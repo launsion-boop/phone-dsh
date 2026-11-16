@@ -114,9 +114,12 @@ final class WorkspaceDecisionContextTests: XCTestCase {
         let archived = selection.materials.first { $0.path == "docs/archive/report-guide-v1.md" }
         XCTAssertNotNil(current)
         XCTAssertNotNil(archived)
-        // The model can tell current from archived from the material text.
+        // The model can tell current from archived from the material text and
+        // can see the actionable rule itself (not just a match marker).
         XCTAssertTrue(current?.snippet.contains("当前") == true)
+        XCTAssertTrue(current?.snippet.contains("OWNER: 林") == true)
         XCTAssertTrue(archived?.snippet.contains("废弃") == true)
+        XCTAssertTrue(archived?.snippet.contains("OLD_GUIDE_9C1") == true)
     }
 
     func testGeneralizesToAnotherDomainWithoutPathSpecialCases() async {

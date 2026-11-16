@@ -548,6 +548,18 @@ public struct WorkspaceDecisionContextService: Sendable {
     static func snippet(_ text: String, tokens: [String], limit: Int) -> String? {
         let limit = max(1, limit)
         guard !text.isEmpty else { return nil }
+        let scalars = text.unicodeScalars.count
+        if scalars <= limit {
+            return sanitized(text, limit: limit)
+        }
+        // A short guideline is more useful as its beginning (title + rules)
+        // than as one line around a query word: the model must be able to see
+        // the actual requirement, not just that the file matched. A long file
+        // keeps the matching window instead.
+        if scalars <= limit * 3 {
+            let prefix = sanitized(text, limit: limit)
+            if !prefix.isEmpty { return prefix }
+        }
         var firstRange: Range<String.Index>?
         for token in tokens {
             guard let range = text.range(of: token, options: [.caseInsensitive, .diacriticInsensitive])
@@ -569,11 +581,7 @@ public struct WorkspaceDecisionContextService: Sendable {
             }
             return sanitized(value, limit: limit)
         }
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        guard !lines.isEmpty else { return nil }
-        return sanitized(lines.prefix(3).joined(separator: " "), limit: limit)
+        return sanitized(text, limit: limit)
     }
 
     static func sanitized(_ value: String, limit: Int) -> String {
