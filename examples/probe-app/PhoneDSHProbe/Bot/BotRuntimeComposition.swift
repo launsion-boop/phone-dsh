@@ -349,10 +349,19 @@ final class BotRuntimeComposition {
         // `advance_clock` had moved the scenario clock only two minutes past
         // noon. Production passes nil and keeps the wall clock.
         let runtimeClock = now ?? { Int64(Date().timeIntervalSince1970 * 1_000) }
+        // The image bridge is App-side iOS code. The macOS eval host compiles the
+        // same production composition without the App target, so vision is
+        // absent there and the existing optional reader stays nil; text/path
+        // attachments are unaffected. iOS behavior is unchanged.
+        #if canImport(UIKit)
+        let modelImageReader: BotModelImageReader? = BotWorkspaceModelImage.image(for:)
+        #else
+        let modelImageReader: BotModelImageReader? = nil
+        #endif
         let runtime = BotMCPRuntime(store: store, gateway: gateway,
                                     volatileProvider: deferred,
                                     recordEvidence: recordService,
-                                    modelImageReader: BotWorkspaceModelImage.image(for:),
+                                    modelImageReader: modelImageReader,
                                     now: runtimeClock)
         let machine = await runtime.routineMachine
         let baseMemory = await runtime.memory(for: selectedCandidate)
