@@ -283,6 +283,11 @@ public actor BotDeliverySelectionHost {
         guard let latest = latestScan.drafts.first(where: {
             $0.draft.rowID == submission.rowID
         }), latest.draft.revision == draft.revision else {
+            if let duplicate = try await duplicateIfCommitted(
+                eventID: eventID, botID: submission.botID,
+                rowID: submission.rowID) {
+                return duplicate
+            }
             return .stale("concurrent_selection")
         }
         if let corrupt = latestScan.malformed.first(where: { $0.rowID == submission.rowID }) {
@@ -305,6 +310,11 @@ public actor BotDeliverySelectionHost {
             let rebound = await bridge.rebindDigest(
                 draft.approvalID, latest.draft.digest, digest, draft.deliveryJSON)
             guard rebound else {
+                if let duplicate = try await duplicateIfCommitted(
+                    eventID: eventID, botID: submission.botID,
+                    rowID: submission.rowID) {
+                    return duplicate
+                }
                 return .stale("concurrent_selection")
             }
         }
@@ -354,6 +364,27 @@ public actor BotDeliverySelectionHost {
         }
         draft.requestSeq = seq
         return .accepted(eventID: eventID, draft: draft)
+    }
+
+    /// A concurrent call with the same nonce may have won the append after
+    /// this call lost the CAS. If the committed event is exactly the current
+    /// durable revision, the idempotent answer is duplicate, not stale.
+    private func duplicateIfCommitted(eventID: String, botID: String,
+                                      rowID: String) async throws
+        -> BotDeliverySelectionApplyResult? {
+        let events = try await allEvents()
+        guard let existing = events.first(where: { $0.eventId == eventID }),
+              case .object(let data) = existing.data,
+              let current = try await scan(botID: botID).drafts.first(where: {
+                  $0.draft.rowID == rowID
+              }),
+              let existingDraft = BotDeliverySelectionDraft.parse(
+                botID: current.draft.botID, sessionID: current.draft.sessionID,
+                approvalID: current.draft.approvalID, data: data,
+                requestSeq: existing.commitSeq ?? 0),
+              existingDraft.revision == current.draft.revision,
+              existingDraft.digest == current.draft.digest else { return nil }
+        return .duplicate(eventID: eventID, draft: current.draft)
     }
 
     // MARK: - Execution-point confirmation
@@ -419,37 +450,14 @@ public actor BotDeliverySelectionHost {
                     draft: chosen.draft, path: path, turnID: turnID,
                     goalDigest: goalDigest, nowMS: timestamp)
             }
-            return try await confirmLatest(applicable, turnID: turnID,
-                                           goalDigest: goalDigest, nowMS: timestamp)
+            // Inline document content has no path to compare with a selected
+            // resource; it is not an attachment and is not gated by the
+            // attachment selection.
+            return .ok(nil)
         }
-        if name == "SendToUser" {
-            return try await confirmLatest(applicable, turnID: turnID,
-                                           goalDigest: goalDigest, nowMS: timestamp)
-        }
-        return .ok(nil)
-    }
-
-    private func confirmLatest(_ applicable: [LoadedDraft], turnID: String?,
-                               goalDigest: String?, nowMS: Int64) async throws
-        -> BotDeliveryConfirmation {
-        let approved = applicable.filter {
-            $0.draft.status == "allowed" && !$0.draft.selectedResources.isEmpty
-        }
-        if approved.count > 1 {
-            return .rejected(code: "delivery_selection_ambiguous",
-                             message: "同一回合有多个已确认的交付选择，无法确定该用哪一个。")
-        }
-        if let latest = approved.first {
-            return try await confirmAllSelected(
-                draft: latest.draft, turnID: turnID, goalDigest: goalDigest,
-                nowMS: nowMS)
-        }
-        // No approved selection with resources: a pending one with resources
-        // must not silently pass, but an empty selection is not a restriction.
-        if let pending = applicable.first(where: { !$0.draft.selectedResources.isEmpty }) {
-            return .rejected(code: "delivery_selection_not_approved",
-                             message: "这次交付的选择还没有确认，不能继续发送。")
-        }
+        // Text has no resource set. Do not let an old attachment selection
+        // gate an unrelated text delivery.
+        if name == "SendToUser" { return .ok(nil) }
         return .ok(nil)
     }
 
@@ -489,41 +497,6 @@ public actor BotDeliverySelectionHost {
         // provider was pending. Confirm the exact revision we validated is
         // still the latest and still approved; do not return `ok` for a draft
         // that was replaced after the check started.
-        guard try await unchanged(draft: draft, turnID: turnID,
-                                  goalDigest: goalDigest) else {
-            return .rejected(code: "delivery_selection_changed",
-                             message: "交付选择在核对期间发生了变化，需要重新确认。")
-        }
-        return .ok(draft)
-    }
-
-    private func confirmAllSelected(draft: BotDeliverySelectionDraft,
-                                    turnID: String?, goalDigest: String?,
-                                    nowMS: Int64) async throws
-        -> BotDeliveryConfirmation {
-        if draft.status != "allowed" {
-            guard !draft.selectedResources.isEmpty else { return .ok(draft) }
-            return .rejected(code: "delivery_selection_not_approved",
-                             message: "用户还没有确认这次交付选择，不能继续发送。")
-        }
-        if let expiresAt = draft.expiresAtMS, expiresAt > 0, nowMS >= expiresAt {
-            return .rejected(code: "approval_expired",
-                             message: "这次审批已经过期，需要重新确认后再发。")
-        }
-        let expected = BotDeliverySelectionDigest.approvalDigest(
-            draftID: draft.draftID, revision: draft.revision,
-            selectedResourceIDs: draft.selectedIDs, parameters: draft.parameters)
-        guard expected == draft.digest else {
-            return .rejected(code: "digest_mismatch",
-                             message: "交付绑定已经变化，需要重新确认。")
-        }
-        for resource in draft.selectedResources {
-            let state = await recheck(resource.source.ref, botID: draft.botID)
-            guard state.matchesSelectedVersion else {
-                return .rejected(code: Self.recheckCode(state.state),
-                                 message: Self.recheckMessage(resource: resource, state: state))
-            }
-        }
         guard try await unchanged(draft: draft, turnID: turnID,
                                   goalDigest: goalDigest) else {
             return .rejected(code: "delivery_selection_changed",

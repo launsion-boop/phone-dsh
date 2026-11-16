@@ -611,6 +611,15 @@ final class BotDeliverySelectionHostTests: XCTestCase {
             botID: "main", sessionID: "gb-main", turnID: "gb-main#2",
             goalDigest: "goal-a", nowMS: now)
         XCTAssertTrue(newFile.isAllowed, "unrelated new file: \(newFile)")
+
+        // Text has no resource set; an old attachment draft must not gate an
+        // unrelated SendToUser in the next turn.
+        let text = try await fixture.host.confirm(
+            name: "SendToUser",
+            arguments: .object(["message": .string("另一件事的说明")]),
+            botID: "main", sessionID: "gb-main", turnID: "gb-main#2",
+            goalDigest: "goal-a", nowMS: now)
+        XCTAssertTrue(text.isAllowed, "unrelated text: \(text)")
     }
 
     // MARK: - Concurrent submit while the provider is paused
@@ -656,6 +665,43 @@ final class BotDeliverySelectionHostTests: XCTestCase {
         XCTAssertEqual(rejected.count, 1, "the loser must be stale: \(results)")
         let rebinds = await fixture.bridge.rebinds
         XCTAssertEqual(rebinds.count, 1, "only one CAS rebind may succeed")
+    }
+
+    func testConcurrentSameNonceReturnsDuplicate() async throws {
+        let fixture = try await makeFixture()
+        defer { fixture.cleanup() }
+        let offer = try requireValue(await fixture.offer(
+            botID: "main", approvalID: "approval-same-nonce",
+            sessionID: "gb-main"))
+        try await fixture.appendApproval(offer, action: "发送资料", detail: "",
+                                         botID: "main", sessionID: "gb-main")
+        let rowID = "e-main-approval-approval-same-nonce"
+        let guide = try requireValue(offer.draft.resources.first {
+            $0.workspacePath == "docs/guide.md"
+        })
+        await fixture.gate.pause()
+        async let first = fixture.apply(
+            nonce: "same-nonce", botID: "main", rowID: rowID,
+            draftID: offer.draft.draftID, expectedRevision: 1,
+            selected: [guide.id])
+        async let second = fixture.apply(
+            nonce: "same-nonce", botID: "main", rowID: rowID,
+            draftID: offer.draft.draftID, expectedRevision: 1,
+            selected: [guide.id])
+        try await waitForGateWaiters(fixture.gate, 2)
+        await fixture.gate.release()
+        let firstResult = await first
+        let secondResult = await second
+        let accepted = [firstResult, secondResult].filter {
+            if case .accepted = $0 { return true }
+            return false
+        }
+        let duplicates = [firstResult, secondResult].filter {
+            if case .duplicate = $0 { return true }
+            return false
+        }
+        XCTAssertEqual(accepted.count, 1, "one append: \(firstResult) / \(secondResult)")
+        XCTAssertEqual(duplicates.count, 1, "same nonce duplicate: \(firstResult) / \(secondResult)")
     }
 
     func testRevocationWhileProviderIsPausedIsNotAccepted() async throws {
