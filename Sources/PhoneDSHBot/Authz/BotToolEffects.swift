@@ -256,7 +256,7 @@ public enum BotToolEffectClassifier {
                                  detail: language == .zh
                                     ? "把你刚给出的采纳/撤销/纠正/不再提醒绑定到具体对象，写一条可审计反馈。"
                                     : "Binds the feedback you just gave (adopt/undo/correct/suppress) to the exact object as an auditable record.",
-                                 isMcp: isMcp)
+                                 execution: "feedback", known: true, isMcp: isMcp)
         case "UpdateRoutine":
             let title = clip(args["title"], max: 80)
             let action = args["action"].map { clip($0, max: 40) } ?? "update"
