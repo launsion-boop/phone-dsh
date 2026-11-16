@@ -126,6 +126,14 @@
   `derivation` 一起放进承载该派生物的事件 `data`；只读时计算不构成基线，E2/E3 的真实版本变化
   将无法成立。P 的 `sourceStates` 负责提供事实，L 的 `derivation` 负责形状，写入端（Memory/
   Routine/Proactive/Delivery 服务）负责持久化；三者不得互相代写。
+- **resource 的归属（方案 A，2026-11-16）**：`derivation.sources[].resource` 由**写入端**在写前
+  调 L 的 `prepareBaseline(artifact:sources:)`（或等价的 provenance 预构造）得到，连同
+  `sourceVersion` 一起作为完整 derivation 交给 P；P 的 `BotMemoryWriteRequest` 接受已构造好的
+  `sourceBaselines`/derivation override，只校验与持久化，**不得自行推导/猜测 resource**（P 的
+  record fact 没有 owner/scope/resource key）。写入端拿不到 resource 时整个写入 fail-closed：
+  `memory-source-baseline-unavailable`（或该 artifact 自己的等价失败码），不写无身份基线。
+  方案 B（P 的 `BotSourceBaseline` 增加 resource 字段）不作为本轮契约；若未来采用需另开 revision，
+  不允许 A/B 并存。
 - 观察来源同时 MUST 带 `resource`（或按 §2.3 注册规则可确定）；取不到稳定资源身份时写
   `unknown` 语义并在读视图给 `no-resource-identity`，不得用 origin 当身份。
 - 读时用基线与**同一资源身份**的最新观察比较（§4.3）。没有基线（旧数据、非观察来源）时不得
@@ -246,12 +254,22 @@
 | 来源类 | producer | 失败/无权限表达 |
 | --- | --- | --- |
 | web / connector | R/C 的 egress provider 真实重新抓取（ETag/Last-Modified/条件请求或内容摘要） | `refresh-denied` / `refresh-unavailable` |
-| file / attachment | P 重新 stat + 内容摘要（同一资源身份） | `refresh-unavailable` / `no-resource-identity` |
+| file / attachment | P 重新 stat + **原始文件字节**的流式 SHA-256（同一资源身份） | `refresh-denied`（越权/越界）/ `refresh-unavailable`（stat/read 失败）/ `no-resource-identity`（无 file key/owner） |
 | context（G-3） | N 重新查询 OS/事件源（按 consent generation） | `refresh-denied` / `refresh-not-performed` |
 | 无 provider | 不得假定新鲜 | `refresh-not-performed` |
 
 - E3 验收必须**真实修改文件/HTTP 服务内容**（不改测试 seed、不手插 newer observation），再让下一次
   真实决策走同一 producer 观察；只塞一条 newer event 不算。
+- **文件来源的版本必须是原始字节摘要**：观察/导入时的 `sourceVersion` 必须由 App/Worker import
+  metadata 对**原始文件字节**计算（`sha256:`），并用 `resource{kind:"file",key:<规范化路径或
+  文件 id>,owner:<bot/workspace>}` 固定身份。记录里若是抽取文本的摘要（PDF/图片文本等），**不得**
+  当作文件字节版本与 re-stat 比较；缺原始字节摘要/resource → `source-version-unknown` /
+  `no-resource-identity`，不得 current。
+  - producer 边界：**C（App/Worker import 与 VFS→host URL resolver）** 负责写入/注入原始字节
+    摘要与可解析的文件定位；**N** 提供用户选定媒体/分享的真实字节与来源；**P** 只实现
+    `BotFileSourceRechecking`（bounded streaming SHA-256 + stat，注入 locator，不硬编码 VFS 映射）
+    并返回 `refresh-*`/`no-resource-identity`，不自称 current。P 的 `BotRecordService` 现有文本
+    `content-sha256` 不是文件版本，不得冒充。
 - producer 不可用/失败时，材料块/来源面板必须显示“未能验证/可能过时”，不得显示 current 或 verified。
 - `skill` 当前无写事件：`unknown` + `no-skill-write-event` 是阶段未覆盖，C 登记后续契约/接线，
   不因本文件自动缩小 A04 范围。
