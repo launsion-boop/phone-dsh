@@ -128,7 +128,6 @@ final class BotChatModel: ObservableObject {
     /// Approvals this local send declined automatically ("发消息时自动拒绝").
     /// They still went through the existing approval `deny` action; the set
     /// only changes the settled summary.
-    @Published private(set) var autoDeclinedApprovalIDs: Set<String> = []
     @Published private(set) var checklistProgress: [String: BotChecklistProgress] = [:]
     @Published private(set) var actionLog: [String] = []
     /// The option picked on a choice card, kept locally so an accepted answer
@@ -545,17 +544,7 @@ final class BotChatModel: ObservableObject {
         let action = card.body.string("action", "title", "text") ?? ask["action"]?.string ?? "操作"
         let command = card.body.string("command", "target") ?? ask["target"]?.string ?? ""
         let detail = command.isEmpty ? action : command
-        let autoDeclined = autoDeclinedApprovalIDs.contains(row.id)
-
-        if status == "pending" {
-            guard autoDeclined else { return nil }
-            return BotCardSettlement(glyph: "xmark.circle", title: "已略过，视为拒绝",
-                                     detail: detail, monospacedDetail: !command.isEmpty)
-        }
-        if autoDeclined {
-            return BotCardSettlement(glyph: "xmark.circle", title: "已略过，视为拒绝",
-                                     detail: detail, monospacedDetail: !command.isEmpty)
-        }
+        if status == "pending" { return nil }
         // The durable projection may carry `allowed-session` for a session
         // grant; the shared receipt mapping is the single source of truth for
         // matching the label to the button the user actually pressed (P26
@@ -803,20 +792,6 @@ final class BotChatModel: ObservableObject {
         let resolved = BotUIApprovalDecision(rawValue: effective) ?? decision
         return BotUIUserAction.approval(nonce: UUID().uuidString, botID: row.botID,
                                         approvalID: approvalID, decision: resolved, digest: digest)
-    }
-
-    /// Runs the existing deny action for an approval the user implicitly
-    /// rejected by sending the next message. The caller marked it `.pending`
-    /// synchronously; the marker for the settled text is only recorded after
-    /// the driver accepted the action.
-    private func autoDeclineApproval(_ row: BotUIRow) async {
-        let key = "approval:\(row.id)"
-        guard actionStates[key] == .pending,
-              let action = approvalAction(row: row, decision: .deny) else { return }
-        await perform(action, key: key, localRowID: nil)
-        if actionStates[key] == .accepted {
-            autoDeclinedApprovalIDs.insert(row.id)
-        }
     }
 
     func stop() {

@@ -557,7 +557,7 @@
     {
       "id": "chat.deeplink.unavailable",
       "value": "这条消息不可用或已过期。",
-      "source": "BotChatModel.swift:1511",
+      "source": "BotChatModel.swift:1503",
       "expect": "这条消息不可用或已过期"
     },
     {
@@ -569,20 +569,20 @@
     {
       "id": "realtime.degraded",
       "value": "实时更新中断，正在重连",
-      "source": "BotChatModel.swift:1603",
+      "source": "BotChatModel.swift:1604",
       "expect": "实时更新中断，正在重连",
       "note": "watch/live supervision degraded banner; cleared when the feed recovers"
     },
     {
       "id": "error.historyFailed",
       "value": "历史加载失败：{error}",
-      "source": "BotChatModel.swift:1497",
+      "source": "BotChatModel.swift:1489",
       "expect": "历史加载失败"
     },
     {
       "id": "error.attachmentFailed",
       "value": "附件「{name}」未附加：{reason}",
-      "source": "BotChatModel.swift:675",
+      "source": "BotChatModel.swift:664",
       "expect": "未附加"
     },
     {

@@ -258,8 +258,10 @@ final class BotChatModelTests: XCTestCase {
         model.send(text: "先继续，这个审批不用了。")
         XCTAssertEqual(model.pendingApprovalCount, 1,
                        "a normal send must not decide a pending approval")
-        XCTAssertTrue(model.autoDeclinedApprovalIDs.isEmpty,
-                      "r4 removes implicit deny on send")
+        // The implicit-deny marker set is gone: no send path may record an
+        // implicit decision, and the composer hint is the only feedback.
+        XCTAssertEqual(model.pendingApprovalCount, 1,
+                       "r4 removes implicit deny on send")
 
         try await waitFor { performed == ["chat"] }
         XCTAssertEqual(performed, ["chat"])
@@ -271,7 +273,6 @@ final class BotChatModelTests: XCTestCase {
         try await waitFor { performed == ["chat", "approval:deny"] }
         XCTAssertEqual(performed, ["chat", "approval:deny"],
                        "only the explicit decision emits the approval action")
-        XCTAssertFalse(model.autoDeclinedApprovalIDs.contains("approval-auto"))
     }
 
     func testSendDoesNotClearPendingApprovalCount() async throws {

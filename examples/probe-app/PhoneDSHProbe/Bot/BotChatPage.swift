@@ -819,8 +819,9 @@ private struct BotComposerDock: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            approvalHint
             // Failures are reported once, in the activity bubble above this
-            // dock; the composer carries no notice of its own.
+            // dock; the composer carries no failure notice of its own.
             attachmentTray
             // Grok-style composer: one white r26 rounded card with the 36pt
             // attach button leading, the growing text field in the middle,
@@ -1062,6 +1063,30 @@ private struct BotComposerDock: View {
     /// Exactly one round button with three states: send (idle, disabled when
     /// empty), stop (running with an empty draft), send (running with text). The send id is stable so the capture tests can drive it.
     @ViewBuilder
+    /// PR #187 review item 9: sending text is no longer an implicit answer to
+    /// a pending approval, so the page must say out loud that the card still
+    /// needs an explicit decision. It never guesses from the text (for example
+    /// "不用了") and never cancels work on its behalf.
+    @ViewBuilder
+    private var approvalHint: some View {
+        if model.pendingApprovalCount > 0 {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.circle")
+                    .font(.system(size: HomeSpec.listItemSize))
+                Text(model.pendingApprovalCount == 1
+                     ? "还有 1 项等你确认：发送文字不会替你处理，请在卡片上选择。"
+                     : "还有 \(model.pendingApprovalCount) 项等你确认：发送文字不会替你处理，请在卡片上选择。")
+                    .font(.system(size: HomeSpec.listItemSize))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(NativeParityTokens.warning)
+            .padding(.horizontal, 4)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("bot.composer.approvalHint")
+        }
+    }
+
     private var composerActionButton: some View {
         if model.runningTurnID != nil && !canSend {
             Button { model.stop() } label: {
