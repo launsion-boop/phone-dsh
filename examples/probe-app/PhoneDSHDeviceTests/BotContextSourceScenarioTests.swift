@@ -116,6 +116,52 @@ final class BotContextSourceScenarioTests: XCTestCase {
 #endif
     }
 
+    // A07-01b: with the OS already granted, requestConsent must write App
+    // consent without calling the full-access prompt again (4f194 fix). This is
+    // the product path the settings switch invokes; it does not replace the
+    // interactive full-access toggle (still WAITING_DEVICE on simulator).
+    func testPreGrantedCalendarConsentPathWritesLedger() async throws {
+#if canImport(EventKit)
+        let source = EventKitCalendarSource(now: now)
+        let status = await source.authorization()
+        guard status.allowsReading else {
+            throw XCTSkip("SKIP pre-granted consent: real OS status=\(status.rawValue); pre-grant first")
+        }
+        // The old code re-requested full access while already authorized and
+        // could hang on the simulator's invalid staged prompt. Bound it.
+        let requested = await withTaskGroup(of: BotSourceAuthorization?.self) { group in
+            group.addTask { await source.requestAuthorization() }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        let resolved = try XCTUnwrap(requested, "requestAuthorization hung/timed out")
+        XCTAssertTrue(resolved.allowsReading)
+
+        let ledger = BotContextConsentLedger(
+            store: InMemoryBotContextSourceConsentStore(), now: now)
+        let registry = BotContextSourceRegistry(
+            ledger: ledger, audit: BotContextAuditLog(), now: now)
+        _ = await ledger.load()
+        try await registry.register(source)
+        let state = try await registry.requestConsent(
+            source: .calendar, botID: "a07-pregrant-bot")
+        XCTAssertTrue(state.authorization.allowsReading)
+        XCTAssertEqual(state.authorization, .authorized)
+        XCTAssertEqual(state.permissionRevision, 1)
+        let subscribed = await ledger.isSubscribed(
+            botID: "a07-pregrant-bot", source: .calendar)
+        XCTAssertTrue(subscribed, "requestConsent must also subscribe")
+        await registry.revoke(source: .calendar, reason: "a07-cleanup")
+#else
+        throw XCTSkip("EventKit not available")
+#endif
+    }
+
     // A07-02 contacts: a dedicated fixture contact is created, queried by a
     // unique name through the real Contacts adapter, and deleted by ID.
     func testContactsFixtureQueriedAndCleanedUp() async throws {
