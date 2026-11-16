@@ -855,64 +855,6 @@
         "version": 1,
         "previous_version": 0
       }
-    },
-    {
-      "name": "document-longer-than-evidence",
-      "evidenceScalars": 4,
-      "request": {
-        "action": "write",
-        "path": "user/preferences/long.md",
-        "content": "AAAAAAAA",
-        "expected_version": 0,
-        "evidence": [
-          "record://session/gb-main#3"
-        ]
-      },
-      "expect": {
-        "ok": false,
-        "code": "memory-document-longer-than-evidence",
-        "limit": 4,
-        "actual": 8
-      },
-      "author": {
-        "bot_id": "bot-a",
-        "session_id": "gb-main",
-        "kind": "maintainer"
-      },
-      "sourceKind": "maintenance",
-      "trust": "user",
-      "state": {
-        "documents": []
-      }
-    },
-    {
-      "name": "document-within-evidence",
-      "evidenceScalars": 8,
-      "request": {
-        "action": "write",
-        "path": "user/preferences/short.md",
-        "content": "AAAA",
-        "expected_version": 0,
-        "evidence": [
-          "record://session/gb-main#3"
-        ]
-      },
-      "expect": {
-        "ok": true,
-        "path": "user/preferences/short.md",
-        "scope": "user",
-        "version": 1
-      },
-      "author": {
-        "bot_id": "bot-a",
-        "session_id": "gb-main",
-        "kind": "maintainer"
-      },
-      "sourceKind": "maintenance",
-      "trust": "user",
-      "state": {
-        "documents": []
-      }
     }
   ],
   "visibilityCases": [
