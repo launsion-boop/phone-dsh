@@ -1887,18 +1887,16 @@ public actor BotMCPRuntime {
             return .failure("memory-evidence-invalid",
                             "每条依据都必须指向这个 Bot 已有的一条 record:// 记录，或者是真实用户回合里的 current-user-turn。")
         }
-        // COMPACT stored_with_provenance: every non-index document must carry
-        // a record reference. A chat write that omitted evidence entirely is
-        // still anchored to the host-observed current user turn; the host does
-        // not invent a source and does not attach it to explicit evidence.
-        // Other turn kinds keep their existing evidence rules.
-        if evidence.refs.isEmpty, call.principal.kind == .chat,
-           [.write, .append, .replace].contains(action),
-           BotMemoryAuthorizer.scope(of: path) == .agent,
-           !BotMemoryAuthorizer.isIndex(path),
-           let currentRef = currentUserMessageRefs[call.sessionId] {
-            evidence = BotRecordEvidence(trust: .user, refs: [currentRef])
-        }
+        // G-1 role separation: the user's request that triggered a write is a
+        // TRIGGER, not proof of the written content. Record it only as a
+        // trigger source; evidence stays exactly what the caller supplied.
+        let triggerRef: String? = {
+            guard evidence.refs.isEmpty, call.principal.kind == .chat,
+                  [.write, .append, .replace].contains(action),
+                  BotMemoryAuthorizer.scope(of: path) == .agent,
+                  !BotMemoryAuthorizer.isIndex(path) else { return nil }
+            return currentUserMessageRefs[call.sessionId]
+        }()
         let review: BotMemoryReview?
         if action == .restore {
             // `restore` inherits the restored version's metadata; a review
@@ -1954,7 +1952,7 @@ public actor BotMCPRuntime {
         // so an observation either carries a real resource identity or the
         // whole write is refused. P only validates and persists the result.
         var sourceBaselines: [BotSourceBaseline]?
-        let sourceRefs = evidence.refs + (review?.refs ?? [])
+        let sourceRefs = evidence.refs + (review?.refs ?? []) + (triggerRef.map { [$0] } ?? [])
         if !sourceRefs.isEmpty {
             guard let resolver = recordEvidence as? any BotSourceStateResolving else {
                 return .failure("memory-source-baseline-unavailable", "来源状态解析器未接入")
@@ -1986,6 +1984,10 @@ public actor BotMCPRuntime {
                 }
                 baselines.append(BotSourceBaseline(
                     record: state.ref, role: .review, sourceVersion: state.version, resource: nil))
+            }
+            if let triggerRef {
+                baselines.append(BotSourceBaseline(
+                    record: triggerRef, role: .trigger, sourceVersion: nil, resource: nil))
             }
             guard let provenance else {
                 return .failure("memory-source-baseline-unavailable", "溯源服务未接入")
