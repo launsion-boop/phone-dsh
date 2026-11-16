@@ -782,7 +782,7 @@ final class BotEvalRunnerTests: XCTestCase {
             let decision = Self.decision(from: action.decision ?? "allow_once")
             context.concurrentTasks.append(Task { @MainActor in
                 try? await Task.sleep(nanoseconds: UInt64(max(0, delay)) * 1_000_000)
-                for _ in 0..<100 {
+                for _ in 0..<600 {
                     let outcome = await unit.rows.applyDeliverySelectionHarness(
                         BotDeliverySelectionHarnessAction(
                             nonce: context.nonce("delivery", action: action, repeat: index),
