@@ -33,10 +33,9 @@ final class A05FeedbackUITests: XCTestCase {
     }
 
     func testAutomationSuppressScopes() throws {
-        let suppress = app.buttons["这类别推了"].firstMatch
-        reveal(suppress)
-        XCTAssertTrue(suppress.exists, "automation suppress action missing")
-        suppress.tap()
+        let suppress = automationSuppress()
+        XCTAssertNotNil(suppress, "automation suppress action missing")
+        suppress?.tap()
         // A routine definition has no single delivery: artifact scope is not
         // offered, only this routine's class and the kind-level user scope.
         XCTAssertFalse(app.buttons["只这一条"].exists)
@@ -48,15 +47,27 @@ final class A05FeedbackUITests: XCTestCase {
     }
 
     func testAutomationSuppressUserScopeReceipt() throws {
-        let suppress = app.buttons["这类别推了"].firstMatch
-        reveal(suppress)
-        XCTAssertTrue(suppress.exists, "automation suppress action missing")
-        suppress.tap()
-        XCTAssertTrue(app.buttons["所有 Bot 的这类"].waitForExistence(timeout: 5),
+        let suppress = automationSuppress()
+        XCTAssertNotNil(suppress, "automation suppress action missing")
+        suppress?.tap()
+        XCTAssertTrue(app.buttons["所有 Bot 的这类"].firstMatch.waitForExistence(timeout: 5),
                       "user scope must be offered")
         app.buttons["所有 Bot 的这类"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["已记录：这类别推了"].waitForExistence(timeout: 10),
                       "user-scope suppress receipt missing")
+    }
+
+    /// The transcript has both an attachment card and the routine definition
+    /// card. Pick the topmost (automation) suppress bar, not the first match.
+    private func automationSuppress() -> XCUIElement? {
+        var buttons = app.buttons.matching(NSPredicate(format: "label == %@", "这类别推了"))
+            .allElementsBoundByIndex
+        if buttons.isEmpty {
+            app.swipeUp()
+            buttons = app.buttons.matching(NSPredicate(format: "label == %@", "这类别推了"))
+                .allElementsBoundByIndex
+        }
+        return buttons.min { $0.frame.minY < $1.frame.minY }
     }
 
     private func reveal(_ element: XCUIElement) {
