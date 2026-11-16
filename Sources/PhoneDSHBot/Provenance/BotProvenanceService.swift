@@ -549,6 +549,17 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
     /// One batched resolve per query. Event records come from the snapshot;
     /// session records come from the injected P adapter. The result is the
     /// single fact set L uses to decide state.
+    private func sourceProviderMustNotRun(
+        _ source: BotDerivationSource,
+        facts: [String: BotProvenanceResolvedFacts],
+        snapshot: BotProvenanceSnapshot
+    ) -> Bool {
+        let ref = BotRecordReference.canonicalize(source.record) ?? source.record
+        guard let fact = facts[ref] else { return true }
+        if !fact.resolved || fact.erased { return true }
+        return snapshot.isGrantKnownRevoked(source.grantId)
+    }
+
     private func facts(for snapshot: BotProvenanceSnapshot,
                        extraRefs: [String] = []) async
         -> [String: BotProvenanceResolvedFacts] {
@@ -665,8 +676,17 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
                       var fact = facts[assertion.carrierRecord] else { continue }
                 // Recheck the file bytes for the latest skill revision only.
                 let latest = snapshot.assertions[assertion.artifact]?.last
-                guard latest?.carrierSeq == assertion.carrierSeq,
-                      let data = try? await eventData(forCommitSeq: seq),
+                guard latest?.carrierSeq == assertion.carrierSeq else { continue }
+                // Known-invalid lineage: do not read the file at all. The
+                // invalid source/upstream stays the deciding state.
+                if assertion.sources.contains(where: {
+                    sourceProviderMustNotRun($0, facts: facts, snapshot: snapshot)
+                }) {
+                    fact.skillRecheckOutcome = .skipped
+                    facts[assertion.carrierRecord] = fact
+                    continue
+                }
+                guard let data = try? await eventData(forCommitSeq: seq),
                       let skill = data["skill"]?.objectValue,
                       let name = skill["name"]?.stringValue,
                       let file = skill["file"]?.stringValue,
@@ -682,8 +702,17 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
                 for source in assertion.sources {
                     guard let baseline = source.sourceVersion else { continue }
                     let ref = BotRecordReference.canonicalize(source.record) ?? source.record
-                    guard var fact = facts[ref], fact.isObservation,
-                          let resource = source.resource ?? fact.resource else { continue }
+                    // Do not read the provider for a source already known to be
+                    // unresolved/erased/revoked. The view must say so from
+                    // durable facts, not from a fresh read of invalid data.
+                    guard let storedFact = facts[ref],
+                          !sourceProviderMustNotRun(
+                            source, facts: facts, snapshot: snapshot),
+                          storedFact.isObservation,
+                          let resource = source.resource ?? storedFact.resource else {
+                        continue
+                    }
+                    var fact = storedFact
                     let key = ref + "\u{1F}" + String(describing: baseline)
                     guard recheckedKeys.insert(key).inserted else { continue }
                     let outcome = await rechecker.recheck(

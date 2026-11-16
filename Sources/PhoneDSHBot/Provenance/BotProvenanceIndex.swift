@@ -78,6 +78,14 @@ public struct BotProvenanceSnapshot: Sendable {
     /// A read-only view with assertions of other Bots removed. The same
     /// `BotDerivedRef` can then only resolve its scoped assertion. Nested
     /// views/upstreams use the filtered indexes too.
+    /// A grant id remains revoked even for a carrier written after the
+    /// revocation. Re-authorization must use a new grant/generation; the same
+    /// id must not resurrect a later artifact.
+    func isGrantKnownRevoked(_ grantId: String?) -> Bool {
+        guard let grantId else { return false }
+        return revokedGrants[Self.normalizedGrant(grantId)] != nil
+    }
+
     func scoped(botID: String?) -> BotProvenanceSnapshot {
         guard let botID, !botID.isEmpty else {
             // A scoped query without a principal is unknown, never the
@@ -320,8 +328,7 @@ public struct BotProvenanceSnapshot: Sendable {
             status.reasons = [.scanLimitExceeded]
             return status
         }
-        if let grantId, let revoked = revokedGrants[Self.normalizedGrant(grantId)],
-           revoked > carrierSeq {
+        if isGrantKnownRevoked(grantId) {
             status.state = .revoked
             status.reasons = [.grantRevoked]
             return status
@@ -558,6 +565,10 @@ public struct BotProvenanceSnapshot: Sendable {
                 case .notPerformed:
                     recheckState = .unknown
                     reasonSet.insert(.refreshNotPerformed)
+                case .skipped:
+                    // Known-invalid lineage: do not add a refresh reason that
+                    // would imply a failed attempt.
+                    recheckState = .current
                 }
                 if contentViews.isEmpty {
                     // A skill.changed event without derivation is allowed by

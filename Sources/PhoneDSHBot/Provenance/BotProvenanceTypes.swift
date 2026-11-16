@@ -115,6 +115,8 @@ public enum BotSkillRecheckOutcome: Sendable, Equatable {
     case denied(detail: String?)
     case unavailable(detail: String?)
     case notPerformed
+    /// Known-invalid lineage: the host deliberately did not read the file.
+    case skipped
 }
 
 public protocol BotSkillRechecking: Sendable {
