@@ -264,6 +264,25 @@ public actor BotContextSourceRegistry: BotContextSourceRegistrying {
         }
     }
 
+    /// Removes only this Bot's subscription. The OS adapter is stopped only
+    /// when no Bot remains subscribed; another Bot's observations stay live.
+    /// This is not a global revoke: consent, generation and other Bots remain.
+    public func unsubscribe(botID: String, sources: [BotContextSourceKind]) async throws {
+        let trimmed = botID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw BotContextSourceError.invalidRequest("botID must be non-empty")
+        }
+        for source in Set(sources).sorted(by: { $0.rawValue < $1.rawValue }) {
+            let wasSubscribed = await ledger.isSubscribed(botID: trimmed, source: source)
+            guard wasSubscribed else { continue }
+            try await ledger.unsubscribe(botID: trimmed, source: source)
+            if await ledger.subscribedBots(for: source).isEmpty {
+                await stopAdapter(source)
+                clearDeliveryState(for: source)
+            }
+        }
+    }
+
     public func revoke(source: BotContextSourceKind,
                        by actor: BotSourceAuthorizationActor = .user,
                        reason: String) async {

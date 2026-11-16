@@ -279,6 +279,23 @@ public final class BotContextSourcesAssembly {
         try await registry.requestConsent(source: source, botID: botID)
     }
 
+    /// Per-Bot subscription state for the settings switch. It never means the
+    /// OS/App source consent alone.
+    public func isSubscribed(botID: String, source: BotContextSourceKind) async -> Bool {
+        await registry.isSubscribed(botID: botID, source: source)
+    }
+
+    /// Turn off only this Bot's subscription; other Bots and the global
+    /// consent/generation are untouched. Use `revoke(source:)` for a global
+    /// permission revoke.
+    public func unsubscribe(botID: String, source: BotContextSourceKind) async {
+        do {
+            try await registry.unsubscribe(botID: botID, sources: [source])
+        } catch {
+            // A settings switch is best-effort; `load()` re-reads the truth.
+        }
+    }
+
     public func revoke(source: BotContextSourceKind, reason: String = "user-revoked") async {
         await registry.revoke(source: source, by: .user, reason: reason)
     }
