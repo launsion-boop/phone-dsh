@@ -21,6 +21,10 @@ final class A07ContextSettingsUITests: XCTestCase {
         app.launchEnvironment["PDSH_SEED_PROVIDER_KEY"] = "a07-dummy-key"
         app.launchEnvironment["PDSH_SEED_PROVIDER_MODEL"] = "deepseek-chat"
         app.launch()
+        // BotProductionHub.connect waits up to 10s for chat.botRuntime. The
+        // info sheet must be opened after that composition exists, otherwise
+        // the contextSources parameter is nil and the section is hidden.
+        Thread.sleep(forTimeInterval: 12)
     }
 
     func testContextSettingsLinkOpensProductionPage() throws {
