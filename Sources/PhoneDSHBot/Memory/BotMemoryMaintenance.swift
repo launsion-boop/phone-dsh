@@ -1056,13 +1056,19 @@ public actor BotMemoryMaintenanceController {
             add(path, .mostChanged)
         }
 
-        // Least verified: evidence-bearing documents whose persisted `review`
-        // is not `verified` (absent counts as no recorded judgment), oldest
-        // first. §1.5.1 lets this candidate use the review state without
-        // changing any write boundary.
+        // Least verified: every evidence-bearing document, oldest first, with
+        // a writer-recorded `verified` only ranking it *after* the unverified
+        // ones. `review` is the writer's assertion, not an independent check
+        // (§1.5.1), so it must never exempt a document from maintenance
+        // forever; the candidate cap still bounds how many are examined.
         let leastVerified = documents
-            .filter { !$0.evidence.isEmpty && $0.review?.state != .verified }
-            .sorted { $0.updatedAtMS < $1.updatedAtMS }
+            .filter { !$0.evidence.isEmpty }
+            .sorted { lhs, rhs in
+                let lhsVerified = lhs.review?.state == .verified
+                let rhsVerified = rhs.review?.state == .verified
+                if lhsVerified != rhsVerified { return !lhsVerified }
+                return lhs.updatedAtMS < rhs.updatedAtMS
+            }
         for document in leastVerified { add(document.path, .leastVerified) }
 
         // Overlong.

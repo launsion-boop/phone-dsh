@@ -250,7 +250,10 @@ final class MemoryMaintenanceTests: XCTestCase {
         XCTAssertTrue(ok, "an unknown extra member decodes by old Codable compatibility")
     }
 
-    /// Q-10: `least-verified` now keys off the persisted review state.
+    /// Q-10 + PR #187 review item 8: `least-verified` keys off the persisted
+    /// review state for ordering, but a writer-recorded `verified` never
+    /// removes the document from the candidate pool — the model cannot opt out
+    /// of maintenance by asserting its own work.
     func testLeastVerifiedCandidateUsesReviewState() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
@@ -282,8 +285,13 @@ final class MemoryMaintenanceTests: XCTestCase {
         XCTAssertTrue(old?.reasons.contains(.leastVerified) == true,
                       "an evidence-bearing document without a review stays a candidate")
         let verifiedCandidate = candidates.first { $0.path == "agent/notes/verified.md" }
-        XCTAssertFalse(verifiedCandidate?.reasons.contains(.leastVerified) == true,
-                       "a verified review must not be a least-verified candidate")
+        XCTAssertTrue(verifiedCandidate?.reasons.contains(.leastVerified) == true,
+                      "a self-recorded verified review must stay reviewable")
+        let oldIndex = try XCTUnwrap(candidates.firstIndex { $0.path == "agent/notes/old.md" })
+        let verifiedIndex = try XCTUnwrap(
+            candidates.firstIndex { $0.path == "agent/notes/verified.md" })
+        XCTAssertLessThan(oldIndex, verifiedIndex,
+                          "unverified documents are still examined first")
     }
 
     func testDisabledByDefaultAndCommittedBatchIsVisibleAndRollbackable() async throws {

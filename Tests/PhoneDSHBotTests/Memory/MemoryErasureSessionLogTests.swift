@@ -308,6 +308,57 @@ final class MemoryErasureSessionLogTests: XCTestCase {
         XCTAssertTrue(seam.contains("meeting client B"))
     }
 
+    /// PR #187 review item 7: a Han date is prose, not an identifier. The
+    /// digit-only token rule made "2026年11月16日" a substring needle, so
+    /// erasing a document could delete another conversation that merely
+    /// mentioned the same date. The fix is the general predicate (a needle
+    /// needs a letter plus '_' or an ASCII letter), not a date special case.
+    func testChineseDateStaysOutOfTheErasureNeedles() async throws {
+        let date = "2026年11月16日"
+        let content = "会议记录：\(date) 上午评审，地点 A 座。"
+        let needles = SQLiteBotMemoryDocumentStore.erasureNeedles(in: content)
+        XCTAssertFalse(needles.contains(date),
+                       "a date is not a distinctive identifier")
+        XCTAssertFalse(needles.contains("\(date) 上午评审，地点"),
+                       "an author phrase is not a needle fragment")
+
+        var lines = standardSessionLines()
+        lines.append([
+            "type": "user/message", "seq": 7, "time": MemoryTestFixtures.now,
+            "data": ["message": ["role": "user", "content": [[
+                "type": "text", "text": "\(date) 是项目里程碑。",
+            ]]]],
+        ])
+        try writeSessionLog(lines: lines)
+        let context = BotMemoryWriteContext(
+            botID: "main", sessionID: "gb-main", authorKind: .chat,
+            source: BotMemorySource(kind: .userTurn, sessionID: "gb-main"),
+            trust: .user)
+        let written = try await memory.write(
+            BotMemoryWriteRequest(
+                action: .write, path: "agent/notes/meeting.md",
+                content: content, expectedVersion: 0),
+            context: context)
+        XCTAssertTrue(written.ok, "\(String(describing: written.code))")
+
+        let eraser: BotSessionEraser = { request in
+            XCTAssertFalse(request.needles.contains(date),
+                           "the date must not travel as an erasure needle")
+            let planner = BotSessionErasurePlanner(workspaceRoot: self.root)
+            let scan = planner.scan(
+                botID: request.botID, ownedSessionIDs: ["gb-main"],
+                needles: request.needles, records: request.records)
+            XCTAssertTrue(scan.targets.isEmpty,
+                          "another conversation's date line must stay out of the erasure set")
+            return BotSessionErasureReport()
+        }
+        let outcome = try await memory.erase(scope: .agent, sessionEraser: eraser)
+        XCTAssertTrue(outcome.ok, outcome.error ?? "")
+        let text = try String(contentsOf: sessionLogURL, encoding: .utf8)
+        XCTAssertTrue(text.contains("\(date) 是项目里程碑"),
+                      "the unrelated conversation line must survive")
+    }
+
     // MARK: - Helpers
 
     private func standardSessionLines() -> [[String: Any]] {

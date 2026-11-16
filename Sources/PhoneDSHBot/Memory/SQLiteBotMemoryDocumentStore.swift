@@ -665,9 +665,11 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
     /// keeping the identifier characters `_`, `.` and `-` inside the token, and
     /// adds a generic ASCII-identifier <-> non-ASCII-letter boundary so a Latin
     /// identifier embedded in CJK/Kana/Hangul prose is isolated without any
-    /// script table. A token is a candidate only when it has >= 8 scalars and
-    /// contains '_' or a digit, so unadorned natural-language words never
-    /// become erasure targets.
+    /// script table. A token is a candidate only when it has >= 8 scalars,
+    /// contains a letter, and carries an identifier marker ('_' or an ASCII
+    /// letter); digits alone are not distinctive, so a Han date such as
+    /// "2026年11月16日" and unadorned natural-language words never become
+    /// erasure targets.
     static func identifierCandidates(in content: String) -> Set<String> {
         enum TokenKind { case ascii, nonASCII }
         func isNumber(_ scalar: Unicode.Scalar) -> Bool {
@@ -690,9 +692,14 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             guard token.count >= 8 else { return }
             guard token.contains(where: { $0.properties.isAlphabetic }) else { return }
             let text = String(String.UnicodeScalarView(token))
-            guard text.contains("_") || token.contains(where: isNumber) else {
-                return
-            }
+            // Distinctiveness needs an identifier marker, not just digits. A
+            // Han/Kana/Hangul run with digits is prose (for example the date
+            // "2026年11月16日"); treating it as an identifier would make it a
+            // substring needle that erases unrelated records mentioning it.
+            guard text.contains("_")
+                || (token.contains(where: isNumber)
+                    && token.contains(where: { $0.value < 0x80 && $0.properties.isAlphabetic }))
+            else { return }
             result.insert(text)
         }
 
