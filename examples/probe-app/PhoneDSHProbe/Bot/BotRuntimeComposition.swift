@@ -361,22 +361,31 @@ final class BotRuntimeComposition {
             throw BotTeamHostError.botNotFound("empty roster")
         }
         let deferred = BotDeferredVolatileContextProvider()
-        let gateway = BotGateway()
+        // The eval seam must govern every clock in the composition: the
+        // gateway (identity/attribution expiry), `BotMCPRuntime`, the record
+        // service and the scheduler must read the same injected clock. A
+        // gateway on the wall clock while the runtime runs on a deterministic
+        // baseline makes a registration look expired immediately and rejects
+        // real tool calls as unattributed. Production passes nil and keeps the
+        // wall clock for both.
+        let runtimeClock = now ?? { Int64(Date().timeIntervalSince1970 * 1_000) }
+        let gateway = BotGateway(now: runtimeClock)
         let recordService = BotRecordService(
             store: store, gateway: gateway,
             workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot())
-        // The eval seam must govern routine timestamps too: `UpdateRoutine`
-        // computes `nextRunAt` from `BotMCPRuntime.now`, while the scheduler
-        // compares it against the injected clock. Using the wall clock here
-        // while the scheduler ran at the deterministic noon baseline made a
-        // routine created at 13:00 look due only after 13:01 even though
-        // `advance_clock` had moved the scenario clock only two minutes past
-        // noon. Production passes nil and keeps the wall clock.
-        let runtimeClock = now ?? { Int64(Date().timeIntervalSince1970 * 1_000) }
+        // The image bridge is App-side iOS code. The macOS eval host compiles the
+        // same production composition without the App target, so vision is
+        // absent there and the existing optional reader stays nil; text/path
+        // attachments are unaffected. iOS behavior is unchanged.
+        #if canImport(UIKit)
+        let modelImageReader: BotMCPRuntime.BotModelImageReader? = BotWorkspaceModelImage.image(for:)
+        #else
+        let modelImageReader: BotMCPRuntime.BotModelImageReader? = nil
+        #endif
         let runtime = BotMCPRuntime(store: store, gateway: gateway,
                                     volatileProvider: deferred,
                                     recordEvidence: recordService,
-                                    modelImageReader: BotWorkspaceModelImage.image(for:),
+                                    modelImageReader: modelImageReader,
                                     now: runtimeClock)
         let machine = await runtime.routineMachine
         let baseMemory = await runtime.memory(for: selectedCandidate)
@@ -549,7 +558,7 @@ final class BotRuntimeComposition {
         // credential map. On the first rejected registration the App
         // re-claims that exact session's current token and the Worker retries
         // once; the body sessionId alone never authenticates.
-        await runtime.installSessionReclaimer { [weak composition] sessionId, suppliedToken in
+        await runtime.installSessionReclaimer { [weak composition] (sessionId: String, suppliedToken: String) async -> Bool in
             guard let composition else { return false }
             return await composition.reclaimSessionForIdentity(
                 sessionId, suppliedToken: suppliedToken)
@@ -562,7 +571,7 @@ final class BotRuntimeComposition {
         // its MCP client open until the 130 s client deadline while this
         // composition is still reattaching the transport. The probe resolves
         // on the first `.ready` or gives up with a retryable human error.
-        await runtime.setRuntimeReadinessProbe { [weak composition] timeout in
+        await runtime.setRuntimeReadinessProbe { [weak composition] (timeout: Int) async -> Bool in
             guard let composition else { return false }
             return await composition.waitUntilRuntimeReady(
                 timeoutMilliseconds: timeout)

@@ -13,6 +13,7 @@
  * @module @phone-dsh/dsh-wasi-toolbox/vfs-server
  */
 import { VfsCapabilityError, VfsProxyError, toVfsProxyError } from './errors.ts'
+import { checkFileSize } from './vfs-backends.ts'
 import { DEFAULT_PREOPENS, DEFAULT_VFS_FRAME_BYTES } from './limits.ts'
 import type { MessageEndpoint } from './message-endpoint.ts'
 import { decodeRequests, encodeResponses } from './vfs-protocol.ts'
@@ -52,6 +53,58 @@ export interface VfsProxyServerOptions {
    * DSH session state (G2-D01).
    */
   readonly namespace?: VfsNamespace
+  /**
+   * Byte budget of the read cache (see {@link VfsProxyServer.resetReadCache}).
+   * `0` disables it; the default is {@link DEFAULT_READ_CACHE_BYTES}.
+   */
+  readonly readCacheBytes?: number
+  /**
+   * Byte budget of the positional-write buffer (see
+   * {@link VfsProxyServer.flushWrites}). `0` disables it; the default is
+   * {@link DEFAULT_WRITE_BUFFER_BYTES}.
+   */
+  readonly writeBufferBytes?: number
+}
+
+/**
+ * Default byte budget of the positional-write buffer: 64 MiB.
+ *
+ * The backend can replace or append a file but not patch it, so a write that
+ * is not at EOF used to rewrite the whole file. A program that back-patches
+ * its output (a linker) paid output size times write count. For a file under
+ * a volatile root the server now applies such writes to an in-memory copy and
+ * stores the file once, when it is flushed.
+ */
+export const DEFAULT_WRITE_BUFFER_BYTES = 64 * 1024 * 1024
+
+/** A volatile file whose latest bytes exist only in this server. */
+interface WriteBuffer {
+  /** Backing store; `length` bytes of it are the file. */
+  data: Uint8Array
+  length: number
+}
+
+/**
+ * Default byte budget of the proxy's read cache: 128 MiB.
+ *
+ * The backend has no ranged read, so without the cache every `read` request
+ * loads the whole file to return one slice. A program that reads a large file
+ * in small pieces (a linker walking archives) then costs file size times read
+ * count. The cache keeps the bytes of recently read files for the duration of
+ * one dispatch; files larger than the budget are never cached. The budget has
+ * to hold the whole set a program re-reads: at 32 MiB a firmware link over
+ * about 53 MB of archives evicted and reloaded them (40 s), at 128 MiB each
+ * file is loaded once (6.4 s) and a larger budget changes nothing. It is an
+ * upper bound on what one dispatch may keep, not memory reserved up front.
+ */
+export const DEFAULT_READ_CACHE_BYTES = 128 * 1024 * 1024
+
+/** One cached file: the bytes and the stat they were read under. */
+interface ReadCacheEntry {
+  readonly data: Uint8Array
+  readonly size: number
+  readonly mtimeMs: number
+  readonly ino: number
 }
 
 /** Server half of the VFS proxy, one instance per tool worker. */
@@ -79,12 +132,178 @@ export class VfsProxyServer {
    * waiting guest, so this chain only orders the async control channel.
    */
   private requestTail: Promise<unknown> = Promise.resolve()
+  /** Budget of {@link readCache} in bytes; `0` disables the cache. */
+  readonly readCacheBytes: number
+  /** Recently read files in least-recently-used order (Map insertion order). */
+  private readonly readCache = new Map<string, ReadCacheEntry>()
+  private readCacheUsed = 0
+  /** Budget of {@link writeBuffers} in bytes; `0` disables buffering. */
+  readonly writeBufferBytes: number
+  private readonly writeBuffers = new Map<string, WriteBuffer>()
 
   constructor(options: VfsProxyServerOptions) {
     this.backend = options.backend
     this.preopens = options.preopens ?? DEFAULT_PREOPENS
     this.maxFrameBytes = options.maxFrameBytes ?? DEFAULT_VFS_FRAME_BYTES
     this.namespace = options.namespace ?? WORKER_VFS_NAMESPACE
+    const budget = options.readCacheBytes ?? DEFAULT_READ_CACHE_BYTES
+    this.readCacheBytes = Number.isFinite(budget) && budget > 0 ? Math.floor(budget) : 0
+    const writeBudget = options.writeBufferBytes ?? DEFAULT_WRITE_BUFFER_BYTES
+    this.writeBufferBytes = Number.isFinite(writeBudget) && writeBudget > 0 ? Math.floor(writeBudget) : 0
+  }
+
+  /** Number of files whose latest bytes are still only in this server. */
+  get pendingWrites(): number {
+    return this.writeBuffers.size
+  }
+
+  /**
+   * Store every buffered file on the backend.
+   *
+   * Buffering applies only to files under a volatile root (`/tmp`,
+   * `/dsh/tmp`): they have no sink, no WAL frame and no per-write host
+   * outcome, so deferring the store changes no durability answer. What does
+   * change is when a backend refusal of the *store* (the `tmp` quota) is
+   * reported: at the flush, not at the positional write. The single-file
+   * limit is still checked on every write. Flush points are a guest `fsync`,
+   * a `truncate`, `rename` or directory removal through the proxy, and the
+   * command boundary, where the owner calls this before it reports the exit.
+   * Until then a reader outside the proxy sees the file as it was before the
+   * first positional write.
+   * @throws the first backend failure, after every file was attempted.
+   */
+  async flushWrites(): Promise<void> {
+    let first: unknown
+    for (const path of [...this.writeBuffers.keys()]) {
+      try {
+        await this.flushWrite(path)
+      } catch (error) {
+        first ??= error
+      }
+    }
+    if (first !== undefined) throw first
+  }
+
+  /**
+   * Drop every buffered file without storing it. The owner calls this when a
+   * dispatch is hard-stopped: the backend keeps the pre-buffer bytes and the
+   * partial-write marker records that the file is incomplete.
+   */
+  discardWrites(): void {
+    this.writeBuffers.clear()
+  }
+
+  private async flushWrite(path: string): Promise<void> {
+    const buffer = this.writeBuffers.get(path)
+    if (buffer === undefined) return
+    // Remove first: a failed store must not be retried on every later call.
+    this.writeBuffers.delete(path)
+    this.dropCached(path)
+    await this.backend.writeFile(path, buffer.data.slice(0, buffer.length), { create: true })
+  }
+
+  private writeBuffersUsed(): number {
+    let used = 0
+    for (const buffer of this.writeBuffers.values()) used += buffer.data.byteLength
+    return used
+  }
+
+  /** True when positional writes to this canonical path may be buffered. */
+  private bufferable(path: string): boolean {
+    return this.writeBufferBytes > 0 && this.namespace.classify(path).root?.kind === 'volatile'
+  }
+
+  /**
+   * Apply one write to a buffered file. Returns false when the file would no
+   * longer fit the budget; the caller then flushes it and writes directly.
+   */
+  private writeBuffered(path: string, buffer: WriteBuffer, offset: number, data: Uint8Array): boolean {
+    const end = Math.max(buffer.length, offset + data.byteLength)
+    checkFileSize(path, end)
+    if (end > buffer.data.byteLength) {
+      const capacity = Math.max(end, Math.min(buffer.data.byteLength * 2, end + 16 * 1024 * 1024))
+      if (this.writeBuffersUsed() - buffer.data.byteLength + capacity > this.writeBufferBytes) return false
+      const grown = new Uint8Array(capacity)
+      grown.set(buffer.data.subarray(0, buffer.length), 0)
+      buffer.data = grown
+    }
+    // Bytes between the old length and a later offset are a hole: zero.
+    if (offset > buffer.length) buffer.data.fill(0, buffer.length, offset)
+    buffer.data.set(data, offset)
+    buffer.length = end
+    return true
+  }
+
+  /** The backend stat with a buffered file's current size. */
+  private overlaySize(path: string, stat: VfsStat): VfsStat {
+    const buffer = this.writeBuffers.get(path)
+    return buffer === undefined || stat.kind !== 'file' ? stat : { ...stat, size: buffer.length }
+  }
+
+  /**
+   * Drop every cached file.
+   *
+   * The owner calls this at each dispatch boundary. Inside one dispatch an
+   * entry is revalidated by `stat` (size, mtime, inode) on every read and
+   * dropped by every mutation that goes through this proxy. A writer outside
+   * the proxy that keeps all three stat fields unchanged cannot be seen by
+   * that check, so cached bytes must not outlive the command that read them.
+   */
+  resetReadCache(): void {
+    this.readCache.clear()
+    this.readCacheUsed = 0
+  }
+
+  private dropCached(path: string): void {
+    const entry = this.readCache.get(path)
+    if (entry === undefined) return
+    this.readCache.delete(path)
+    this.readCacheUsed -= entry.data.byteLength
+  }
+
+  private storeCached(path: string, stat: VfsStat, data: Uint8Array): void {
+    this.dropCached(path)
+    if (stat.kind !== 'file' || stat.size !== data.byteLength) return
+    if (data.byteLength > this.readCacheBytes) return
+    while (this.readCacheUsed + data.byteLength > this.readCacheBytes) {
+      const oldest = this.readCache.keys().next()
+      if (oldest.done === true) break
+      this.dropCached(oldest.value)
+    }
+    this.readCache.set(path, { data, size: stat.size, mtimeMs: stat.mtimeMs, ino: stat.ino })
+    this.readCacheUsed += data.byteLength
+  }
+
+  /**
+   * Whole-file bytes for a ranged `read`, served from the cache when the
+   * backend's current stat still matches the one the bytes were read under.
+   * Returns undefined when the cache is disabled or the stat fails, so the
+   * caller takes the uncached path and reports the backend's own error.
+   */
+  private async cachedFile(path: string): Promise<Uint8Array | undefined> {
+    if (this.readCacheBytes === 0) return undefined
+    let stat: VfsStat
+    try {
+      stat = await this.backend.stat(path)
+    } catch {
+      this.dropCached(path)
+      return undefined
+    }
+    if (stat.kind !== 'file') {
+      this.dropCached(path)
+      return undefined
+    }
+    const entry = this.readCache.get(path)
+    if (entry !== undefined && entry.size === stat.size && entry.mtimeMs === stat.mtimeMs && entry.ino === stat.ino) {
+      this.readCache.delete(path)
+      this.readCache.set(path, entry)
+      return entry.data
+    }
+    this.dropCached(path)
+    if (stat.size > this.readCacheBytes) return undefined
+    const data = await this.backend.readFile(path)
+    this.storeCached(path, stat, data)
+    return data
   }
 
   /** The synchronous endpoint, when one was created for this server. */
@@ -192,7 +411,7 @@ export class VfsProxyServer {
     switch (request.op) {
       case 'stat': {
         const path = this.guardPath(request.path, 'read')
-        return { kind: 'stat', stat: await this.backend.stat(path) }
+        return { kind: 'stat', stat: this.overlaySize(path, await this.backend.stat(path)) }
       }
       case 'readdir': {
         const path = this.guardPath(request.path, 'read')
@@ -214,7 +433,12 @@ export class VfsProxyServer {
         }
         // Opening for creation/truncation mutates the file even before the
         // first write; a dispatch cut off after this open must know.
-        if (request.create || request.truncate) this.noteWrite(path)
+        if (request.create || request.truncate) {
+          this.noteWrite(path)
+          this.dropCached(path)
+        }
+        // A truncating open empties the file: the buffered bytes are gone too.
+        if (request.truncate) this.writeBuffers.delete(path)
         if (stat === undefined) {
           if (!request.create) throw new VfsProxyError('ENOENT', 'no such file or directory', path)
           await this.backend.writeFile(path, new Uint8Array(0), {
@@ -228,13 +452,19 @@ export class VfsProxyServer {
           if (request.truncate) await this.backend.writeFile(path, new Uint8Array(0), { create: false })
           stat = await this.backend.stat(path)
         }
-        return { kind: 'stat', stat }
+        return { kind: 'stat', stat: this.overlaySize(path, stat) }
       }
       case 'read': {
         const path = this.guardPath(request.path, 'read')
+        const pending = this.writeBuffers.get(path)
+        if (pending !== undefined) {
+          const start = Math.min(pending.length, Math.max(0, request.offset))
+          const stop = Math.min(pending.length, start + Math.max(0, request.length))
+          return { kind: 'data', data: pending.data.slice(start, stop) }
+        }
         let data: Uint8Array
         try {
-          data = await this.backend.readFile(path)
+          data = await this.cachedFile(path) ?? await this.backend.readFile(path)
         } catch (error) {
           const failure = toVfsProxyError(error, 'EIO', path)
           let stat: VfsStat | undefined
@@ -252,7 +482,40 @@ export class VfsProxyServer {
       case 'write': {
         const path = this.guardPath(request.path)
         const data = request.data
+        const pending = this.writeBuffers.get(path)
+        if (pending !== undefined) {
+          // Once a file is buffered every write goes to the buffer, appends
+          // included, so the stored file is the writes in the order made.
+          const at = request.append ? pending.length : Math.max(0, request.offset)
+          if (this.writeBuffered(path, pending, at, data)) {
+            this.noteWrite(path)
+            return { kind: 'written', written: data.byteLength }
+          }
+          await this.flushWrite(path)
+        }
         if (request.append) {
+          this.dropCached(path)
+          await this.backend.writeFile(path, data, {
+            append: true,
+            create: request.create,
+            ...(request.mode === undefined ? {} : { mode: request.mode }),
+          })
+          this.noteWrite(path)
+          return { kind: 'written', written: data.byteLength }
+        }
+        // A sequential writer always lands exactly at EOF, and that case needs
+        // only the file's size, not its bytes: ask `stat` first. Anything the
+        // stat cannot settle (a missing file, a directory, a real positional
+        // write) takes the whole-file path below and keeps its error codes.
+        let sizeAtStart: number | undefined
+        try {
+          const current = await this.backend.stat(path)
+          if (current.kind === 'file') sizeAtStart = current.size
+        } catch {
+          sizeAtStart = undefined
+        }
+        if (sizeAtStart !== undefined && Math.max(0, request.offset) === sizeAtStart) {
+          this.dropCached(path)
           await this.backend.writeFile(path, data, {
             append: true,
             create: request.create,
@@ -263,11 +526,12 @@ export class VfsProxyServer {
         }
         let existing: Uint8Array = new Uint8Array(0)
         try {
-          existing = await this.backend.readFile(path)
+          existing = await this.cachedFile(path) ?? await this.backend.readFile(path)
         } catch (error) {
           if (toVfsProxyError(error, 'ENOENT', path).code !== 'ENOENT' || !request.create) throw error
         }
         const offset = Math.max(0, request.offset)
+        this.dropCached(path)
         if (offset === existing.byteLength) {
           // A write that starts exactly at EOF is an append. Marking it as
           // such lets the production backend publish only the new suffix to
@@ -286,15 +550,34 @@ export class VfsProxyServer {
         const next = new Uint8Array(Math.max(existing.byteLength, end))
         next.set(existing, 0)
         next.set(data, offset)
+        if (this.bufferable(path) && this.writeBuffersUsed() + next.byteLength <= this.writeBufferBytes) {
+          // A real positional write to a volatile file: keep the patched
+          // copy here instead of storing the whole file for every patch.
+          checkFileSize(path, next.byteLength)
+          this.writeBuffers.set(path, { data: next, length: next.byteLength })
+          this.noteWrite(path)
+          return { kind: 'written', written: data.byteLength }
+        }
         await this.backend.writeFile(path, next, {
           create: request.create,
           ...(request.mode === undefined ? {} : { mode: request.mode }),
         })
+        // The backend now holds exactly `next`; keeping it saves the whole-file
+        // read the following positional write or read would otherwise repeat.
+        if (this.readCacheBytes > 0) {
+          try {
+            this.storeCached(path, await this.backend.stat(path), next)
+          } catch {
+            // The write succeeded; a failed stat only costs the cache entry.
+          }
+        }
         this.noteWrite(path)
         return { kind: 'written', written: data.byteLength }
       }
       case 'truncate': {
         const path = this.guardPath(request.path)
+        await this.flushWrite(path)
+        this.dropCached(path)
         await this.backend.truncate(path, Math.max(0, request.length))
         this.noteWrite(path)
         return { kind: 'void' }
@@ -306,6 +589,12 @@ export class VfsProxyServer {
       }
       case 'unlink': {
         const path = this.guardPath(request.path)
+        // A removed directory can sit above cached files; drop everything.
+        this.resetReadCache()
+        // A removed file takes its buffered bytes with it; a removed directory
+        // must see the files below it as the guest left them.
+        if (request.directory) await this.flushWrites()
+        else this.writeBuffers.delete(path)
         await this.backend.unlink(path, { directory: request.directory, recursive: false })
         return { kind: 'void' }
       }
@@ -313,10 +602,14 @@ export class VfsProxyServer {
         // A move out of the session store exposes the same bytes as a read.
         const from = this.guardPath(request.from, 'read')
         const to = this.guardPath(request.to)
+        // Either side may be a directory above cached files; drop everything.
+        this.resetReadCache()
+        await this.flushWrites()
         await this.backend.rename(from, to)
         return { kind: 'void' }
       }
       case 'sync': {
+        await this.flushWrites()
         await this.backend.sync?.()
         return { kind: 'void' }
       }

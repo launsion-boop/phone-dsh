@@ -622,6 +622,38 @@ class BotUiStateRulesTest {
         ),
     )
 
+    // ---- live transcript position ------------------------------------------
+
+    /**
+     * The closing `show_next_steps`/`ask_user` card is created after the
+     * answer text. It must render below the live text, not above it; the iOS
+     * page uses the same split (`BotChatModel.transcriptSections`).
+     */
+    @Test
+    fun liveTextSplitsRowsAtTheFirstAnswerTimestamp() {
+        val approval = row("approval-before-text", BotJson.objectOf(
+            "type" to JsonString("approval"),
+            "approvalID" to JsonString("approval-1"),
+            "digest" to JsonString("sha256:x"),
+            "status" to JsonString("pending"),
+            "action" to JsonString("删除旧报告"),
+        )).copy(createdAt = 1_000)
+        val steps = row("closing-steps", BotJson.objectOf(
+            "type" to JsonString("widget"),
+            "cardType" to JsonString("steps"),
+            "steps" to JsonArray(listOf(
+                BotJson.objectOf("id" to JsonString("review"), "label" to JsonString("查看结果")),
+                BotJson.objectOf("id" to JsonString("later"), "label" to JsonString("稍后再说")),
+            )),
+        )).copy(createdAt = 3_000)
+
+        assertEquals(1, BotUiStateDerivation.liveInsertIndex(listOf(approval, steps), 2_000))
+        assertEquals(0, BotUiStateDerivation.liveInsertIndex(listOf(approval, steps), 500))
+        assertEquals(2, BotUiStateDerivation.liveInsertIndex(listOf(approval, steps), 4_000))
+        assertEquals("without an answer the live text stays at the tail", 2,
+            BotUiStateDerivation.liveInsertIndex(listOf(approval, steps), null))
+    }
+
     private fun row(id: String, body: JsonObject): BotRow =
         BotUiStateFixtures.rowForBody(body, id)
 

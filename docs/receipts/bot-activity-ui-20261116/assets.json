@@ -1,0 +1,42 @@
+{
+  "before-light.png": {
+    "bytes": 296535,
+    "sha256": "3701f914a7c2caf13b8f2bf503c0c6500062bbf6c500ca77fd627ae542aff9d0"
+  },
+  "before-dark.png": {
+    "bytes": 189746,
+    "sha256": "ed0ee571bacd6066f77d8a4c3ea27d9b16fe4a13fa9dff05eecbc71f3fd73f01"
+  },
+  "after-light.png": {
+    "bytes": 294341,
+    "sha256": "e1af4cf5b1dc0626d850f1e99f5d0ea1cc53fcd479bdc02226db7a6bac2930d6"
+  },
+  "after-dark.png": {
+    "bytes": 185269,
+    "sha256": "8298c22d44447d7ea4d0166da88ffb10ed531424348c3f1510d37f91f5fe8d27"
+  },
+  "waiting.png": {
+    "bytes": 281696,
+    "sha256": "b9042f6fe24de56a6dec467f84cd62d46233fdae1c04e8a33eedf2633a2841a7"
+  },
+  "replying.png": {
+    "bytes": 202650,
+    "sha256": "c007cb1562ec565bd36ca5008a2fefe436bc2ff5178328fdfdf51138c4e721df"
+  },
+  "error-dark.png": {
+    "bytes": 163754,
+    "sha256": "bf9a2eff4951d3a41f467e3fcf74e685bd761c62690c9a63fbbdc2be11f1d841"
+  },
+  "large-text.png": {
+    "bytes": 300266,
+    "sha256": "ed7343e6524801244a49692797df88af26ada946963728b704ec81cdeae177a6"
+  },
+  "motion-light.mp4": {
+    "bytes": 142270,
+    "sha256": "ebe51095f417d209387033595f757f20cbe51ae2851a822daab15dbf90004ec1"
+  },
+  "motion-dark.mp4": {
+    "bytes": 138579,
+    "sha256": "572a1ea4354c038c996f920cd613683c51f7f66ffc2e7f54737d3fef52218c10"
+  }
+}

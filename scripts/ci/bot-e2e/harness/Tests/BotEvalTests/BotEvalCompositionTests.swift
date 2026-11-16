@@ -75,6 +75,41 @@ final class BotEvalCompositionTests: XCTestCase {
         try await store.close()
     }
 
+    /// Regression: the composition's gateway and BotMCPRuntime must use the
+    /// same injected clock. The eval baseline can be hours ahead of the wall
+    /// clock; a wall-clock gateway then stores an identity whose expiry is
+    /// already past for the runtime, so the next real tool call is rejected as
+    /// unattributed. With the shared clock the registration stays valid.
+    @MainActor
+    func testCompositionSharesInjectedClockWithIdentityGateway() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bot-clock-regression-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let wall = Int64(Date().timeIntervalSince1970 * 1_000)
+        let deterministicNoon = wall + 8 * 60 * 60 * 1_000
+        let store = try SQLiteDomainStore(
+            fileURL: root.appendingPathComponent("domain.sqlite"),
+            now: { deterministicNoon })
+        let profileStore = BotProfileStore(directory: root.appendingPathComponent("profiles"))
+        let launch = try await BotRuntimeComposition.prepare(
+            store: store, profileStore: profileStore, now: { deterministicNoon })
+        let runtime = launch.composition.runtime
+        let session = "clock-regression"
+        let issued = try await runtime.issueSessionToken(
+            botId: "main", sessionId: session, kind: .chat)
+        _ = try await runtime.registerIdentity(
+            runtimeId: BotMCPRuntime.defaultRuntimeID, sessionId: session,
+            callId: "clock-regression", name: "bash",
+            arguments: .object(["command": .string("printf clock")]), sessionToken: issued.token)
+        let identity = await runtime.identityForApproval(
+            runtimeId: BotMCPRuntime.defaultRuntimeID, callId: "clock-regression")
+        XCTAssertNotNil(identity,
+                        "gateway/runtime clocks diverged: an identity registered on the eval clock was pruned as expired")
+        XCTAssertEqual(identity?.callId, "clock-regression")
+        try await store.close()
+    }
+
     /// The scheduler clock is an eval input, not the wall clock. Starting a
     /// scenario in the production quiet window (23:00–08:00) defers a
     /// non-urgent routine to 08:00 and makes `advance_clock` wait forever on a

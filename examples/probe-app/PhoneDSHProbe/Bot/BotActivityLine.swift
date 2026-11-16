@@ -1,7 +1,21 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import UIKit
 import PhoneDSHBot
+
+/// Capture previews can force crossfade without changing a device setting.
+/// Production leaves this nil and follows UIKit's iOS 14+ preference.
+private struct BotActivityCrossFadeKey: EnvironmentKey {
+    static let defaultValue: Bool? = nil
+}
+
+extension EnvironmentValues {
+    var botActivityPrefersCrossFade: Bool? {
+        get { self[BotActivityCrossFadeKey.self] }
+        set { self[BotActivityCrossFadeKey.self] = newValue }
+    }
+}
 
 /// The legacy centered live-status line. The Bot chat page no longer mounts
 /// it — the one activity surface there is `BotActivityBubble` — but the view
@@ -20,16 +34,16 @@ struct BotActivityLine: View {
         // remaining box. No string measurement enters layout, so a rotation,
         // minute-suffix or activity tick can never resize or re-center the
         // line (and nothing it floats over is asked to lay out again).
-        BotActivityText(activity: activity) { text in
+        BotActivityText(activity: activity, urgent: quiet || problem) { text, _ in
             HStack(spacing: 8) {
                 Circle()
-                    .fill(problem ? BotUIPalette.danger : BotActivityShimmerText.silver)
+                    .fill(problem ? BotActivityShimmerText.failureInk : BotActivityShimmerText.silver)
                     .frame(width: 5, height: 5)
                     .accessibilityHidden(true)
                 BotActivityShimmerText(
                     text: text,
                     quiet: quiet || problem,
-                    ink: problem ? BotUIPalette.danger : BotActivityShimmerText.silver)
+                    ink: problem ? BotActivityShimmerText.failureInk : BotActivityShimmerText.silver)
                     .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity)
@@ -37,6 +51,7 @@ struct BotActivityLine: View {
             .padding(.horizontal, 24)
             .frame(maxWidth: .infinity)
             .allowsHitTesting(false)
+            .accessibilityHidden(false)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(text)
             .accessibilityIdentifier("bot.activity.line")
@@ -52,14 +67,17 @@ struct BotActivityLine: View {
 /// per-frame work or string measurement enters layout.
 struct BotActivityText<Content: View>: View {
     private let activity: BotActivity
-    private let content: (String) -> Content
+    private let urgent: Bool
+    private let content: (String, BotActivity?) -> Content
 
     @Environment(\.botPageActive) private var pageActive
     @State private var line: BotActivityLineState
     @State private var clockTask: Task<Void, Never>?
 
-    init(activity: BotActivity, @ViewBuilder content: @escaping (String) -> Content) {
+    init(activity: BotActivity, urgent: Bool = false,
+         @ViewBuilder content: @escaping (String, BotActivity?) -> Content) {
         self.activity = activity
+        self.urgent = urgent
         self.content = content
         // Resolve the first sentence before the first body pass: the bubble's
         // accessibility label (and its visible words) must not flash the
@@ -70,13 +88,15 @@ struct BotActivityText<Content: View>: View {
     }
 
     var body: some View {
-        content(line.text)
+        let presented = presentedLine
+        content(presented.text, presented.activity)
             .onAppear { receive(activity) }
             .onDisappear {
                 clockTask?.cancel()
                 clockTask = nil
             }
             .onChange(of: activity) { _, next in receive(next) }
+            .onChange(of: urgent) { _, _ in receive(activity) }
             .onChange(of: pageActive) { _, _ in
                 clockTask?.cancel()
                 clockTask = nil
@@ -84,10 +104,21 @@ struct BotActivityText<Content: View>: View {
             }
     }
 
+    /// Make an urgent sentence visible in the same render that changes its
+    /// tone, before the onChange callback updates the stored timing state.
+    private var presentedLine: BotActivityLineState {
+        guard urgent, line.activity != activity else { return line }
+        var current = line
+        current.receive(activity, at: BotActivityLineState.now, immediately: true)
+        return current
+    }
+
     /// Hand the factory's activity to the timing machine, then keep one clock
     /// task parked at the next rotation/pending/minute boundary.
     private func receive(_ next: BotActivity) {
-        line.receive(next, at: BotActivityLineState.now)
+        // An error or a request for the user must not recolor an old pending
+        // sentence for the remainder of the normal 800ms dwell window.
+        line.receive(next, at: BotActivityLineState.now, immediately: urgent)
         scheduleClock()
     }
 
@@ -107,15 +138,10 @@ struct BotActivityText<Content: View>: View {
     }
 }
 
-/// 13/18 activity text. A change moves the old words up and out and the new
-/// ones up and in, with a short fade. Both lines are centered in the same box,
-/// so a width change never shifts the line sideways. While the words stay the
-/// same, a separate silver highlight sweeps over fully readable base text.
-///
-/// `fillsWidth` is true for the legacy centered line and false for the bubble,
-/// which sizes to its sentence. `animatesSwap` is false in the bubble so a new
-/// sentence changes width only once instead of holding the max of the old and
-/// new strings for the duration of a transition.
+/// Stable text measurement with an overlay-only, short vertical crossfade.
+/// Outgoing words never hold the old width, so a content-hugging bubble does
+/// not resize a second time when its transition completes. The base text is
+/// always readable; the sweep is a subtle accent, not an opacity pulse.
 struct BotActivityShimmerText: View {
     let text: String
     let quiet: Bool
@@ -123,52 +149,83 @@ struct BotActivityShimmerText: View {
     var fillsWidth = true
     var animatesSwap = true
     var height: CGFloat = 18
+    var fontSize: CGFloat = 13
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.botActivityPrefersCrossFade) private var crossFadeOverride
+    @Environment(\.legibilityWeight) private var legibilityWeight
     @Environment(\.botPageActive) private var pageActive
+    @State private var systemPrefersCrossFade = false
 
     static let silver = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 184/255, green: 190/255, blue: 199/255, alpha: 1)
-            : UIColor(red: 105/255, green: 113/255, blue: 124/255, alpha: 1)
+            ? UIColor(red: 195/255, green: 202/255, blue: 212/255, alpha: 1)
+            : UIColor(red: 83/255, green: 96/255, blue: 109/255, alpha: 1)
     })
 
+    static let failureInk = NativeParityTokens.color(light: 0xC0392B, dark: 0xF25A5A)
+
     private static let highlight = NativeParityTokens.rgba(
-        light: 0xFFFFFF, lightAlpha: 0.78,
-        dark: 0xFFFFFF, darkAlpha: 0.68)
+        light: 0xFFFFFF, lightAlpha: 0.12,
+        dark: 0xFFFFFF, darkAlpha: 0.30)
 
     private var animated: Bool { !reduceMotion && pageActive && !quiet }
     /// Shimmer and breathing only while the Bot is doing something.
     private var ambient: Bool { animated && !quiet }
     private var swaps: Bool { animated && animatesSwap }
 
+    private var font: Font {
+        .system(size: fontSize, weight: legibilityWeight == .bold ? .bold : .medium)
+    }
+
+    private var swapTransition: AnyTransition {
+        guard swaps else { return .identity }
+        if crossFadeOverride ?? systemPrefersCrossFade { return .opacity }
+        return .asymmetric(
+            insertion: .modifier(active: BotStatusSwap(offset: 3, opacity: 0),
+                                 identity: BotStatusSwap.identity),
+            removal: .modifier(active: BotStatusSwap(offset: -3, opacity: 0),
+                               identity: BotStatusSwap.identity))
+    }
+
     var body: some View {
-        ZStack {
-            line(text)
-                .id(text)
-                .transition(swaps ? .asymmetric(
-                    insertion: .modifier(active: BotStatusSwap(offset: 3, blur: 0, opacity: 0),
-                                         identity: BotStatusSwap.identity),
-                    removal: .modifier(active: BotStatusSwap(offset: -3, blur: 0, opacity: 0),
-                                       identity: BotStatusSwap.identity))
-                    : .identity)
-        }
+        Text(text)
+        .font(font)
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .hidden()
+        .accessibilityHidden(true)
         .frame(maxWidth: fillsWidth ? .infinity : nil,
                minHeight: height, maxHeight: height)
+        .overlay(alignment: fillsWidth ? .center : .leading) {
+            ZStack(alignment: fillsWidth ? .center : .leading) {
+                line(text).id(text).transition(swapTransition)
+            }
+            .frame(maxWidth: .infinity, alignment: fillsWidth ? .center : .leading)
+        }
         .clipped()
-        .animation(swaps ? .easeOut(duration: 0.25) : nil, value: text)
+        .animation(swaps ? .easeOut(duration: 0.22) : nil, value: text)
+        .onAppear { systemPrefersCrossFade = UIAccessibility.prefersCrossFadeTransitions }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIAccessibility.prefersCrossFadeTransitionsStatusDidChange)) { _ in
+            systemPrefersCrossFade = UIAccessibility.prefersCrossFadeTransitions
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIApplication.didBecomeActiveNotification)) { _ in
+            systemPrefersCrossFade = UIAccessibility.prefersCrossFadeTransitions
+        }
     }
 
     private func line(_ value: String) -> some View {
         Text(value)
-            .font(.system(size: 13, weight: .medium))
+            .font(font)
             .lineLimit(1)
             .truncationMode(.tail)
             .foregroundStyle(ink)
             .overlay {
                 if ambient {
                     Text(value)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(font)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .foregroundStyle(Self.highlight)
@@ -205,18 +262,16 @@ struct BotActivityShimmerText: View {
     }
 }
 
-/// Offset + blur + opacity for one status swap.
+/// Small, clipped movement and opacity for one status swap; never blur text.
 private struct BotStatusSwap: ViewModifier {
     let offset: CGFloat
-    let blur: CGFloat
     let opacity: Double
 
-    static let identity = BotStatusSwap(offset: 0, blur: 0, opacity: 1)
+    static let identity = BotStatusSwap(offset: 0, opacity: 1)
 
     func body(content: Content) -> some View {
         content
             .offset(y: offset)
-            .blur(radius: blur)
             .opacity(opacity)
     }
 }

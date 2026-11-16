@@ -442,6 +442,7 @@ struct BotActivityLineState: Equatable {
     /// (turn end); a different activity arriving inside the 800 ms window is
     /// remembered as the latest pending one.
     mutating func receive(_ next: BotActivity?, at now: Int64,
+                          immediately: Bool = false,
                           randomStart: (Int) -> Int = { count in
                               count <= 1 ? 0 : Int.random(in: 0..<count)
                           }) {
@@ -462,7 +463,7 @@ struct BotActivityLineState: Equatable {
             refresh(at: now)
             return
         }
-        if activity == nil || now - displayedAt >= Self.minimumVisibleMillis {
+        if immediately || activity == nil || now - displayedAt >= Self.minimumVisibleMillis {
             show(next, at: now, startIndex: Self.startIndex(for: next, randomStart: randomStart))
         } else {
             pending = next

@@ -45,11 +45,11 @@ struct PhoneDSHProbeApp: App {
         #if DEBUG
         // USB OTA diagnostics need exclusive ownership of the board's BLE ctrl connection.
         // The normal voice listener is restarted on the next ordinary app launch.
-        if ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] == nil {
-            Task { @MainActor in TonoLinkVoiceHost.shared.start() }
+        if !Self.boardDiagnosticRequested {
+            Task { @MainActor in TonoLinkVoiceHost.shared.start(); DeviceBotRegistry.shared.start() }
         }
         #else
-        Task { @MainActor in TonoLinkVoiceHost.shared.start() }
+        Task { @MainActor in TonoLinkVoiceHost.shared.start(); DeviceBotRegistry.shared.start() }
         #endif
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment["PDSH_APPEARANCE"],
@@ -112,7 +112,7 @@ struct PhoneDSHProbeApp: App {
                     model.refreshLockdown()
                     // The user's own boards: connected once means trusted, and they reconnect by themselves.
                     #if DEBUG
-                    let runningBoardDiagnostic = ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] != nil
+                    let runningBoardDiagnostic = Self.boardDiagnosticRequested
                     #else
                     let runningBoardDiagnostic = false
                     #endif
@@ -133,11 +133,14 @@ struct PhoneDSHProbeApp: App {
                 }
                 #if DEBUG
                 .task {
-                    guard ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] == nil else { return }
+                    guard !Self.boardDiagnosticRequested else { return }
                     await Self.bleAutoconnect()
                 }
                 .task {
                     if let mode = ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] { await TonoLinkUSBOTADiagnostics.run(mode) }
+                }
+                .task {
+                    if let mode = ProcessInfo.processInfo.environment[FirmwareBuilderDiagnostics.environmentKey] { await FirmwareBuilderDiagnostics.run(mode) }
                 }
                 #endif
         }
@@ -182,6 +185,14 @@ extension PhoneDSHProbeApp {
             try VenusSettings.shared.save(VenusConfiguration(baseURL: value.baseURL, model: value.model), key: value.key)
         } catch { /* Never log credential material. Settings supports correction. */ }
     }
+
+    #if DEBUG
+    /// A headless board diagnostic owns the board's BLE ctrl connection for its whole run.
+    static var boardDiagnosticRequested: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["PDSH_TONOLINK_USB_OTA"] != nil || environment[FirmwareBuilderDiagnostics.environmentKey] != nil
+    }
+    #endif
 
     /// `PDSH_BLE_AUTOCONNECT=<name substring>` scans in-app and connects the first match through the
     /// ordinary BLE device store (Link tools such as light.set, and the board's HID bond).

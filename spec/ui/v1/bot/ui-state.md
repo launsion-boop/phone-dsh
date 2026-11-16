@@ -354,6 +354,16 @@ Input: `rows`, `live: {turn: int|null, ended: bool}|null`, `lineSuppressed`, `di
   automation → `automation-row`; notice → `notice`; unrenderable → `hidden`.
 - `displayRows` = `visibleRows`, except that while a live turn `t` is non-nil it removes assistant
   **text** rows whose `body.turn == t` (the live frames already show that answer; `:257-261`).
+- **Live text position**: while the live turn is non-nil, the view draws its answer text between
+  the durable rows created before the turn's first answer text and the rows created after it
+  (`createdAt` vs `BotLiveTurn.textStartedAt`). A closing `show_next_steps`/`ask_user` card is
+  created after the answer, so it stays below the live text; an approval that prompted the
+  explanation was created before it, so it stays above. The cutoff is stamped once per turn, so a
+  later delta cannot move an already placed card. The page draws the leading rows, the live
+  text, then the trailing rows (`transcriptSections` is the single split rule); when the durable
+  answer row arrives it is inserted before the card in the leading block, so the card's relative
+  order does not change. A card presented after the answer must not mount above it and jump below
+  it on settle.
 - `copyText` = first non-empty `body.text`, else `title|question|prompt|name|fileName|path|summary`,
   else the row id (`:752-755`).
 
@@ -824,11 +834,15 @@ python3 spec/ui/v1/tools/extract_ios_pages.py --root . --check
 bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-p0-conformance
 ```
 
-### 2026-11-14 iOS-only evidence refinement
+### 2026-11-16 iOS-only real-projection refinement
 
 For the production iOS activity line, [ios/activity-evidence.md](ios/activity-evidence.md)
-supersedes the legacy generic-rotation and latest-call presentation policy. Its wire/value
-shape is unchanged. `BotActivityPhrases` and the shared vectors retain the existing vocabulary
-for Android, whose adaptation the user explicitly deferred; iOS normalizes its activity
-through `BotActivityEvidence` before the timing/display layer. No new progress tool or raw
-reasoning display is introduced.
+(`activity-evidence-v3`) supersedes the legacy generic-rotation, latest-call and
+category-only presentation policy. Its wire/value shape is unchanged. `BotActivityPhrases`
+and the shared vectors retain the existing vocabulary for Android, whose adaptation the user
+explicitly deferred; iOS builds a short progress sentence from the main model's existing per-call intent and
+same-step public progress, with a short basename/host/#PR object only when no model
+sentence exists. The bubble stays non-interactive and one line; no long path/URL/answer,
+full-text view or expansion surface is added. Only credential shapes and completion claims
+are rejected. No new progress tool, metadata field,
+extra model request or raw reasoning display is introduced.

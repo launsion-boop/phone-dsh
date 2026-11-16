@@ -1,0 +1,312 @@
+{
+  "schemaVersion": 1,
+  "contractRevision": "activity-evidence-v3.5",
+  "model": {
+    "provider": "deepseek-official",
+    "model": "deepseek-flash",
+    "reasoningEffort": "max",
+    "source": "request/header seq 11 in every accepted scenario"
+  },
+  "scenarios": [
+    {
+      "id": "ACT-01-PR-174",
+      "gate": "PASS",
+      "modelRequests": 5,
+      "finalReply": "#174 现在不能合并；pr/ 笔记显示与 main 在 3 个文件冲突。",
+      "activity": [
+        {
+          "seq": 17,
+          "event": "tool/call",
+          "tool": "read",
+          "rawModelText": "在查 #174 的合并笔记，先读分支侧记录。",
+          "detail": "在查 #174 的合并笔记，先读分支侧记录",
+          "chars": 21,
+          "cjk": 17,
+          "object": "#174 / 合并笔记",
+          "resultContinuation": false
+        },
+        {
+          "seq": 22,
+          "event": "tool/call",
+          "tool": "read",
+          "rawModelText": "#174 记录显示 3 个冲突文件，接着核对主干侧。",
+          "detail": "#174 记录显示 3 个冲突文件，接着核对主干侧",
+          "chars": 25,
+          "cjk": 19,
+          "object": "#174 / 3 个冲突文件",
+          "resultContinuation": true,
+          "previousResultSeq": 18
+        }
+      ]
+    },
+    {
+      "id": "ACT-02-WEDNESDAY-MEETING",
+      "gate": "PASS",
+      "modelRequests": 5,
+      "finalReply": "李光浩",
+      "activity": [
+        {
+          "seq": 17,
+          "event": "tool/call",
+          "tool": "read",
+          "rawModelText": "我会先读周三例会的纪要。",
+          "detail": "我会先读周三例会的纪要",
+          "chars": 11,
+          "cjk": 11,
+          "object": "周三例会",
+          "resultContinuation": false
+        },
+        {
+          "seq": 22,
+          "event": "tool/call",
+          "tool": "read",
+          "rawModelText": "这次会上登记了 3 项待办，负责人是李光浩。",
+          "detail": "这次会上登记了 3 项待办，负责人是李光浩",
+          "chars": 21,
+          "cjk": 19,
+          "object": "3 项待办 / 李光浩",
+          "resultContinuation": true,
+          "previousResultSeq": 18
+        }
+      ]
+    },
+    {
+      "id": "ACT-03-EMAIL-DRAFT",
+      "gate": "PASS",
+      "modelRequests": 5,
+      "finalReply": "给李光浩的回复草稿。",
+      "activity": [
+        {
+          "seq": 16,
+          "event": "tool/call",
+          "tool": "read",
+          "rawModelText": "我先读李光浩那封邮件的内容。",
+          "detail": "我先读李光浩那封邮件的内容",
+          "chars": 13,
+          "cjk": 13,
+          "object": "李光浩 / 邮件",
+          "resultContinuation": false
+        },
+        {
+          "seq": 22,
+          "event": "tool/call",
+          "tool": "read",
+          "rawModelText": "李光浩问周五发布能不能按清单走。",
+          "detail": "李光浩问周五发布能不能按清单走",
+          "chars": 15,
+          "cjk": 15,
+          "object": "李光浩 / 周五发布",
+          "resultContinuation": true,
+          "previousResultSeq": 18
+        }
+      ]
+    }
+  ],
+  "acceptance": {
+    "short": "all displayed details are 9-27 characters; the object fallback is 27 and the model sentences are 9-20",
+    "changesWithStep": "each scenario shows different text before and after the first tool result",
+    "continuation": "ACT-01/02/03 each replace the pre-call sentence with a real post-result sentence that starts from the result",
+    "notPreset": "no 读取相关资料/已收到结果/处理中 rotation appears",
+    "noExtraSummaryModel": "5 model requests per scenario; the activity sentences come from the same main-model turn, not a summarizer",
+    "bubble": "the production reducer output is the non-interactive one-line bubble text"
+  },
+  "failedAttempts": [
+    {
+      "head": "8e7725db4 / 3d599abf3",
+      "status": "not accepted as full assembly",
+      "reason": "the review used a temporary macOS image shim to compile the harness; ACT-01 produced real text but the assembly was not the production composition, and ACT-02 hit an identity-registration failure before reading."
+    },
+    {
+      "head": "3d599abf3",
+      "status": "rejected model config",
+      "reason": "the real request/header showed reasoningEffort=high; the coding-session max was not evidence for the product request."
+    },
+    {
+      "head": "66a650894 / 14a9781e2",
+      "status": "compile-boundary failures",
+      "reason": "the production composition was not macOS-portable: the iOS image bridge, the nested BotModelImageReader type and two inferred closure types failed to compile. Fixed in cff5dd149 without changing iOS behavior."
+    },
+    {
+      "head": "3d599abf3",
+      "status": "empty replay",
+      "reason": "the first probe copied an empty ACT-01-session.jsonl and produced zero events. The real session is under runs/<scenario>-1/host/materialized/<dsh-home>/sessions/...; the replay entry now fails hard on an empty log."
+    }
+  ],
+  "reviewedCodeHead": "7ef72269b67641650100df531c09c2cd13450d21",
+  "scenarioAssetsCommit": "eba3569511f7a43bd989c012ade8885ae018e579",
+  "reviewedCodeHeadTree": "74f61a6f6f40b9601b7906c652bb113a5b1e04c8",
+  "scenarioAssetsTree": "6d8affc14fc3886171e7cfe8800c5ddab0bdb8b1",
+  "naturalControl": {
+    "status": "PASS",
+    "head": "7ef72269b67641650100df531c09c2cd13450d21",
+    "bundle": "/tmp/pdsh-lead-build-v35/www/image.tar.gz",
+    "bundleSha256": "4c69a6e1ae2edf3ff6fadc2ebeeeb09ab0deb1daff75e6e1e52b41ba60108d79",
+    "catalog": "scripts/ci/bot-e2e/activity/catalog-natural.json",
+    "model": {
+      "provider": "deepseek-official",
+      "model": "deepseek-flash",
+      "reasoningEffort": "max"
+    },
+    "header": {
+      "read": {
+        "activity": true,
+        "required": [
+          "file_path",
+          "activity"
+        ],
+        "minLength": 1
+      },
+      "glob": {
+        "activity": true,
+        "required": [
+          "pattern",
+          "activity"
+        ],
+        "minLength": 1
+      },
+      "grep": {
+        "activity": true,
+        "required": [
+          "pattern",
+          "activity"
+        ],
+        "minLength": 1
+      },
+      "web_search": "absent in this scenario",
+      "web_fetch": "absent in this scenario",
+      "bash": {
+        "activity": false,
+        "description": "Bot model prose only",
+        "required": [
+          "description",
+          "command"
+        ]
+      },
+      "mcp__phone__Task": {
+        "activity": false
+      }
+    },
+    "scenarios": [
+      {
+        "id": "ACT-04-NATURAL-174",
+        "gate": "PASS",
+        "modelRequests": 5,
+        "activity": [
+          {
+            "seq": 17,
+            "detail": "查看工作区与 pr 资料目录",
+            "chars": 14,
+            "source": "bash.description"
+          },
+          {
+            "seq": 24,
+            "detail": "读取 #174 的资料笔记",
+            "chars": 13,
+            "source": "activity"
+          },
+          {
+            "seq": 25,
+            "detail": "读取 main 侧的笔记",
+            "chars": 12,
+            "source": "activity"
+          }
+        ],
+        "note": "first bash is a real directory-stage description; both reads use the declared activity; final answer gives 3 conflicts."
+      },
+      {
+        "id": "ACT-05-NATURAL-MEETING",
+        "gate": "PASS",
+        "modelRequests": 6,
+        "activity": [
+          {
+            "seq": 17,
+            "detail": "先看工作区里 notes 资料有哪些",
+            "chars": 18,
+            "source": "bash.description"
+          },
+          {
+            "seq": 24,
+            "detail": "在读周三例会纪要原文",
+            "chars": 10,
+            "source": "activity"
+          },
+          {
+            "seq": 29,
+            "detail": "在读 actions 清单核对待办项",
+            "chars": 18,
+            "source": "activity"
+          }
+        ],
+        "note": "read bubbles use activity; the second read visibly names the todo check, a partial known-result reference."
+      },
+      {
+        "id": "ACT-06-NATURAL-EMAIL",
+        "gate": "PASS",
+        "modelRequests": 7,
+        "activity": [
+          {
+            "seq": 17,
+            "detail": "查看 inbox 和 notes 目录内容",
+            "chars": 21,
+            "source": "bash.description"
+          },
+          {
+            "seq": 24,
+            "detail": "在读李光浩的来信内容",
+            "chars": 10,
+            "source": "activity"
+          },
+          {
+            "seq": 25,
+            "detail": "在读发布背景笔记",
+            "chars": 8,
+            "source": "activity"
+          },
+          {
+            "seq": 31,
+            "detail": "在写文件 · draft-reply-liguangh…",
+            "chars": 28,
+            "source": "short object fallback (write has no activity)"
+          },
+          {
+            "seq": 36,
+            "detail": "打开文档 · 给李光浩的回复草稿",
+            "chars": 16,
+            "source": "show_document label"
+          }
+        ],
+        "note": "reads use activity; write falls back to the short file object because write is outside the five-tool activity coverage; draft is produced in text and not sent."
+      }
+    ],
+    "fallbackRatio": {
+      "uniqueActivityDetails": 11,
+      "shortObjectFallbacks": 1,
+      "ratio": 0.091,
+      "sampleNote": "Only the ACT-06 write object is a short-object fallback; read activity has no filename fallback. The first bash descriptions are real directory-stage prose, not fallback."
+    },
+    "qualityObservation": "Reads use the declared required activity on every run and there is no read filename fallback. The first bash descriptions remain directory-level (“查看工作区与 pr 资料目录”, “先看工作区里 notes 资料有哪些”, “查看 inbox 和 notes 目录内容”); not every sentence explicitly carries the previous result (ACT-05’s “核对待办项” is only a partial reference). The ACT-06 write uses a short object fallback because write is outside the five-tool activity coverage. These are recorded quality observations, not claimed as perfect or as zero fallback for all tools. Root replayed the three v35 sessions through the production bubble timer: the outputs include 读取 #174 的资料笔记 / 在读周三例会纪要原文 / 在读李光浩的来信内容, all short and event-driven. The directory-stage first bash is an honest stage description, not a preset cycle; the write short-object fallback is a recorded boundary. No code blocker remains.",
+    "previousAttempts": "Historical invalid probe required-in-original and optional/preset attempts are retained only as history; v3.4 wrapper-only required and v3.5 bash-description are current."
+  },
+  "previousGuidedRun": {
+    "head": "cff5dd1492f1224cb23b223871049692cd538b10",
+    "note": "Earlier guided run; the final head cefff6a2 rerun below has different live model wording and is the accepted final evidence.",
+    "sequences": [
+      "先看 #174 的改动记录 (13) -> #174 这个分支自报改了 3 个文件 (19)",
+      "在翻文件 · wednesday-meeting.md (27) -> 已读到负责人是李光浩，接着查看待办明细 (19)",
+      "我先看李光浩的邮件 (9) -> 邮件在问周五清单是否定稿，接着看发布背景 (20)"
+    ]
+  },
+  "qualityObservation": "The final guided rerun on cefff6a2 kept a short real sequence. ACT-01’s first call selected the English bash.description 'List workspace and pr directory' over the Chinese public sentence; the later result sentence is Chinese. This is the documented per-call-intent priority, not a hidden failure. The natural control shows the same English/fallback share; the short/real/result-continuation criteria are met, while a future prompt-language refinement could reduce the English share.",
+  "adjacentChecks": {
+    "at": "7ef72269b67641650100df531c09c2cd13450d21",
+    "result": "44/44 PASS",
+    "suites": [
+      "bot-runtime-mounts",
+      "bot-preset-narrowing",
+      "bot-tool-surface",
+      "bot-identity-approval"
+    ],
+    "log": "lead/.activity-work/final-adjacent-checks.log",
+    "note": "Root ran the adjacent Bot regressions at the final code head; this receipt remains the activity-specific evidence."
+  }
+}

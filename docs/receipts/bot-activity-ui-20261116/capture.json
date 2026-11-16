@@ -1,0 +1,23 @@
+{
+  "platform": "iOS Simulator 26.5",
+  "device": "iPhone 17",
+  "xcode": "26.5",
+  "before_code_base": "2b167fc99980bee430ea6d90f1ef46b852de30b3",
+  "ui_contract": "activity-ui-v2",
+  "ui_tests": {
+    "passed": 4,
+    "failed": 0
+  },
+  "logic_tests": {
+    "passed": 49,
+    "failed": 0
+  },
+  "source_sha256": {
+    "examples/probe-app/PhoneDSHProbe/Bot/BotActivityBubble.swift": "0c999c9711df9189b427b84d66a3b66c6adfec070bf64e8a364ada8f4094085d",
+    "examples/probe-app/PhoneDSHProbe/Bot/BotActivityLine.swift": "16c2eb7ec685753b1e5bb93c4b7fd9c80ed0f53f269b024f0f2532a12d2743c4",
+    "examples/probe-app/PhoneDSHProbe/Bot/BotActivityPhrases.swift": "a2187cab801c40794b82cd55870772403282bea5af2d762fb224ed6bb6a17c12",
+    "examples/probe-app/PhoneDSHProbe/Bot/BotChatPage.swift": "832a9497bc3c10b244e4210c7abd30bf9dee5ac168432d390bb9efd9ce629b59",
+    "examples/probe-app/PhoneDSHProbe/Bot/BotFixtures.swift": "0b3a9bae89e2532fd51551253a836b19afc4a024c56e8be73b3576c62b453dc3"
+  },
+  "note": "Native captures; UI fixture playback is separate from real-model content evidence. No physical-device claim."
+}

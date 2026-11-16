@@ -198,6 +198,38 @@ backend sees it. Requests are whole-envelope frames (JSON + binary,
   selected automatically when `crossOriginIsolated` is true and
   `SharedArrayBuffer` exists.
 
+**Read cache.** The backend face has no ranged read (`MemoryVfs.promises`
+offers `readFile`, not `open`), so a `read` request used to load the whole file
+to return one slice, and a positional `write` loaded and rewrote it. A program
+that reads large files in small pieces paid file size times call count: linking
+a 27 MB set of archives moved about 39 GiB through `readFile`. `VfsProxyServer`
+now keeps the bytes of recently read files (`readCacheBytes`, 128 MiB by
+default, least-recently-used, files over the budget are never cached; `0`
+disables it). Every read revalidates the entry with one `stat` (size, mtime,
+inode), every mutation through the proxy drops it, and the toolbox clears the
+cache at the start and end of each dispatch, because a writer outside the proxy
+that leaves all three stat fields unchanged cannot be detected. The wire frames
+and every errno are unchanged. A positional write is still one whole-file
+`writeFile` on the backend; only its preceding whole-file read is saved.
+
+**Write buffer.** A write that is not at EOF cannot be expressed on the
+backend face, so it used to store the whole file again; a linker back-filling
+a 9 MB output did that about 6000 times. For a file under a volatile root
+(`/tmp`, `/dsh/tmp`) the server now applies such writes to an in-memory copy
+(`writeBufferBytes`, 64 MiB by default; `0` disables it) and stores the file
+once. Reads and `stat` through the proxy see the buffered bytes. The file is
+stored at a guest `fsync`, at a `truncate`, `rename` or directory removal
+through the proxy, and at the command boundary: `WasiToolbox.run()` flushes
+before the durability fence and reports a refused store as `E_VFS_FLUSH`
+(exit 134), like an unacknowledged sink. A hard stop discards the buffers; the
+file keeps its pre-buffer bytes and gets the usual `*.pdsh-partial` marker.
+Durable roots are never buffered: every write there still reaches the backend,
+its sink and its per-write host outcome before the write returns. Two things
+do change for volatile files: the single-file limit is still refused at the
+write, but a backend refusal of the store itself (the `tmp` quota) is reported
+at the flush; and until the flush a reader outside the proxy sees the file as
+it was before the first positional write.
+
 Without COOP/COEP (`crossOriginIsolated === false`) the async channel still
 works for the control plane, but WASI file syscalls have no synchronous
 transport. A toolbox that opts into `snapshotFallback` (the python wiring does)
@@ -410,6 +442,8 @@ See `src/testdata/README.md`.
 |---|---|
 | `vfs-proxy.test.ts` | stat/read/write/append/truncate/open/readdir/mkdir/rename/unlink, batched frames, capability rejection |
 | `vfs-sab.test.ts` | blocking `Atomics.wait` client in a second thread |
+| `vfs-write-buffer.test.ts` | write buffer: one store per patched volatile file, buffered reads and sizes, flush points, discard, single-file limit at the write, budget fallback, durable roots untouched, a real back-patching guest (`testdata/fd-patch.wasm`) through the toolbox |
+| `vfs-read-cache.test.ts` | read cache: one backend load for many ranged reads, invalidation by every proxy mutation, stat revalidation, dispatch reset, byte budget and eviction, unchanged error codes |
 | `module-cache.test.ts` | one compile per URL, retry, structured-clone sharing |
 | `hot-instance.test.ts` | fd_read/fd_write/path_open, reset, trap, memory ceiling |
 | `toolbox.test.ts` | real tool workers, streaming, module sharing, cancel, ceiling, no-COI path, routing |

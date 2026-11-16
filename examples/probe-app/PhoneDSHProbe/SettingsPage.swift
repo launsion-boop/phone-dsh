@@ -176,6 +176,7 @@ struct SettingsPage: View {
             link(NativeText("视觉模型", "Vision models"), icon: "eye") { VisionSettingsPage() }
             #if DEBUG
             link(NativeText("板子固件（USB）", "Board firmware (USB)"), icon: "cable.connector") { TonoLinkUSBOTAPage() }
+            link(NativeText("固件构建", "Firmware builder"), icon: "hammer") { FirmwareBuilderPage() }
             #endif
         }
     }

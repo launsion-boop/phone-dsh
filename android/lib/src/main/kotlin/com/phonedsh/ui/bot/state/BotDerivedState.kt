@@ -672,6 +672,21 @@ public object BotUiStateDerivation {
         }
     }
 
+    /**
+     * The split point for the running turn's text (`BotChatPage.swift`
+     * `transcriptSections`). Rows created before the turn's first answer text
+     * (an approval that prompted the explanation) stay above it; rows created
+     * after it (the closing `show_next_steps`/`ask_user` card) stay below. The
+     * split is stable for the rest of the turn because the cutoff is stamped
+     * once, so the card cannot jump across the answer when the durable text
+     * lands.
+     */
+    public fun liveInsertIndex(rows: List<BotRow>, textStartedAt: Long?): Int {
+        if (textStartedAt == null || textStartedAt <= 0) return rows.size
+        val split = rows.indexOfFirst { it.createdAt >= textStartedAt }
+        return if (split < 0) rows.size else split
+    }
+
     public fun showsActivityLine(input: BotUiStateInput): Boolean {
         if (input.awaitingTurn) return true
         if (input.runningTurnID != null) return true

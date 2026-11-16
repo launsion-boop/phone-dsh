@@ -74,6 +74,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | TonoAccountPage | Tono 账号短信登录、当前账号（尾号、需重新验证日期）与退出登录；不显示任何令牌（[tono-account.md](../../v1/tono-account.md) §3） | 设置 › 模型与智能体 › Tono 账号 | push；登录、续期与退出立即作用于之后的云端请求 | must |
 | VisionSettingsPage | UI-Venus 视觉模型：HTTPS OpenAI 兼容接口、模型名与密钥（Keychain），列出服务端模型；`iphone_agent_run` 读取此配置，见 [TonoLink 板子](../../device/v1/tonolink-board.md) | 设置 › 权限与隐私 › 视觉模型 | push；保存立即生效，换接口必须重填密钥 | later |
 | TonoLinkUSBOTAPage | **仅 DEBUG**：TonoLink 板子 USB/BLE 固件更新与开发者 Wi-Fi relay（无认证，见 [TonoLink 板子 §5](../../device/v1/tonolink-board.md)）；Release 不编译 | 设置 › 权限与隐私 › 板子固件（USB）（仅 DEBUG） | push；relay 只在打开开关期间监听 | later |
+| FirmwareBuilderPage | **仅 DEBUG**：在本机把 TonoLink 工程源码编译、链接成 ESP32-S3 固件（WebAssembly 版 GCC／binutils 跑在隐藏 WebView 中，离线）；工具链与 SDK 包是未入库的应用资源（`examples/probe-app/Bundle/firmware-builder/README.md`），缺包时只显示原因；产物可交给 TonoLinkUSBOTAPage 刷写；Release 不编译 | 设置 › 权限与隐私 › 固件构建（仅 DEBUG） | push；构建期间需保持前台，离开页面不取消构建 | later |
 | SessionArtifactsPage | 本会话产物、未归属产物与预览 | 页头 `⋯` →「产物」 | sheet；预览子页 SessionArtifactPreviewPage | must |
 | SessionArtifactPreviewPage | 单个产物的内容预览 | SessionArtifactsPage 的行点击 | 内嵌 sheet，不单独成页 | must |
 | NativeDeviceConnectionPage | 已配对的真机连接与传输能力 | 页头设备按钮 →「设备连接」 | sheet；行打开 NativeDeviceSessionPage | must |

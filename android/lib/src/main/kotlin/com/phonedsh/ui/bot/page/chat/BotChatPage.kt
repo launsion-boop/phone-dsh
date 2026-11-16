@@ -137,6 +137,35 @@ public fun BotChatPage(
     val transcriptState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
+    // One row slot shared by the two sides of the live text. Keeping the row
+    // composable and its key identical across the split is what keeps a
+    // closing card's state (tap pending, expanded detail) while the live turn
+    // hands over to its durable answer.
+    val transcriptRow: @Composable (BotRow) -> Unit = { row ->
+        BotTranscriptRow(
+            row = row,
+            state = state,
+            fish = fish,
+            pageActive = pageActive,
+            onAnswer = onAnswer,
+            onDismiss = onDismiss,
+            onApproval = onApproval,
+            onChecklistProgress = onChecklistProgress,
+            onChecklistSend = onChecklistSend,
+            onOpenDocument = { target ->
+                if (onOpenDocument != null) onOpenDocument(target) else documentRow = target
+            },
+            onOpenPath = onOpenPath,
+            onOpenUrl = onOpenUrl,
+            onSelectBot = onSelectBot,
+            peerAppearance = peerAppearance,
+            peerIsMainBot = peerIsMainBot,
+            peerReaction = peerReaction,
+            onInteraction = onInteraction,
+            onViewSource = { sourceRow = it },
+        )
+    }
+
     // The activity-line clock parks at the model's next deadline instead of
     // polling: one wake per rotation, pending swap or minute boundary.
     LaunchedEffect(state.activityLine.nextDeadline) {
@@ -145,6 +174,13 @@ public fun BotChatPage(
         delay(wait)
         onTick()
     }
+    // The live turn can be inserted before the closing card, so the last row
+    // is no longer necessarily at `rows.lastIndex` in the LazyColumn. Count
+    // the optional history/empty items and the live items explicitly.
+    val leadingItems = (if (state.hasMoreHistory) 1 else 0) +
+        (if (state.isEmpty) 1 else 0)
+    val liveItems = (if (state.live != null) 1 else 0) +
+        (if (state.streamingText?.isNotBlank() == true) 1 else 0)
     LaunchedEffect(
         state.rows.size,
         state.rows.lastOrNull()?.id,
@@ -152,9 +188,16 @@ public fun BotChatPage(
         state.live?.buffer,
         state.streamingText,
         state.settlements.keys,
+        state.liveInsertIndex,
+        state.hasMoreHistory,
+        state.isEmpty,
     ) {
         if (state.rows.isNotEmpty()) {
-            scope.launch { transcriptState.scrollToItem(state.rows.lastIndex) }
+            val liveSplit = state.liveInsertIndex.coerceIn(0, state.rows.size)
+            val lastRowIndex = leadingItems +
+                (if (liveSplit < state.rows.size) liveItems else 0) +
+                state.rows.lastIndex
+            scope.launch { transcriptState.scrollToItem(lastRowIndex) }
         }
     }
 
@@ -217,29 +260,9 @@ public fun BotChatPage(
                         }
                     }
                 }
-                items(state.rows, key = { it.id }) { row ->
-                    BotTranscriptRow(
-                        row = row,
-                        state = state,
-                        fish = fish,
-                        pageActive = pageActive,
-                        onAnswer = onAnswer,
-                        onDismiss = onDismiss,
-                        onApproval = onApproval,
-                        onChecklistProgress = onChecklistProgress,
-                        onChecklistSend = onChecklistSend,
-                        onOpenDocument = { target ->
-                            if (onOpenDocument != null) onOpenDocument(target) else documentRow = target
-                        },
-                        onOpenPath = onOpenPath,
-                        onOpenUrl = onOpenUrl,
-                        onSelectBot = onSelectBot,
-                        peerAppearance = peerAppearance,
-                        peerIsMainBot = peerIsMainBot,
-                        peerReaction = peerReaction,
-                        onInteraction = onInteraction,
-                        onViewSource = { sourceRow = it },
-                    )
+                val liveSplit = state.liveInsertIndex.coerceIn(0, state.rows.size)
+                items(state.rows.take(liveSplit), key = { it.id }) { row ->
+                    transcriptRow(row)
                 }
                 state.live?.let { live ->
                     item(key = "live-turn") {
@@ -257,6 +280,9 @@ public fun BotChatPage(
                                 .testTag(BotChatTags.STREAMING_TEXT),
                         )
                     }
+                }
+                items(state.rows.drop(liveSplit), key = { it.id }) { row ->
+                    transcriptRow(row)
                 }
                 item(key = "transcript-bottom") { Spacer(Modifier.height(BotChatMetrics.GAP_1_PT.dp)) }
             }

@@ -78,6 +78,7 @@ struct BotChatPage: View {
     /// focused after the responder resigned and not reopen on the next tap.
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .callout) private var activityLineHeight = BotActivityBubble.lineHeight
 
     init(model: BotChatModel, isMainBot: Bool = false,
          cardActions: BotCardActions = BotCardActions(),
@@ -245,7 +246,7 @@ struct BotChatPage: View {
     }
 
     /// The only activity surface: the bottom-leading bubble carries the
-    /// lifecycle's sentence (three dots + resolved activity text + glint)
+    /// lifecycle's short sentence with a restrained transition and glint
     /// immediately above the composer. It replaced the floating line under
     /// the header, so the page draws no separate status line.
     ///
@@ -253,10 +254,10 @@ struct BotChatPage: View {
     /// transcript's ScrollView and `BotComposerDock` — it is not in the scroll
     /// content, not inside `BotComposerDockHeightKey`, and not observed by
     /// `BotTranscriptViewportReader` or the tail preference. Its height is
-    /// pinned to `BotActivityBubble.height` in both states, so a bubble
+    /// pinned to the scaled activity line box in both states, so a bubble
     /// appearing, disappearing or swapping to a longer sentence performs no
     /// vertical layout pass, moves no message and cannot re-trigger autoscroll.
-    /// The cap is 86% of the transcript column; the bubble itself hugs its
+    /// The cap is 94% of the transcript column; the bubble itself hugs its
     /// text. `allowsHitTesting(false)` keeps the reserved band from stealing a
     /// tap from the transcript or the composer.
     private var activityBubbleBand: some View {
@@ -276,7 +277,7 @@ struct BotChatPage: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .frame(height: BotActivityBubble.height)
+        .frame(height: BotActivityBubble.bandHeight(forLineHeight: activityLineHeight))
         .padding(.horizontal, HomeSpec.contentInset)
         .padding(.top, 4)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2),
@@ -535,7 +536,13 @@ struct BotChatPage: View {
         // #126: the transcript only shows user messages, answers, cards and
         // agent-comm rows. Finished process rows and live tool rows are gone;
         // the activity bubble above the composer carries the running phase.
-        ForEach(window.rows) { row in
+        //
+        // The live turn's text sits between the rows that existed before it
+        // and the rows it created after the text (a closing question/steps
+        // card). Keeping the live view in its own block preserves the scroll
+        // and identity behavior the dense-card fixtures pin.
+        let sections = model.transcriptSections(from: window.rows)
+        ForEach(sections.leading) { row in
             transcriptRow(row)
                 .id(row.id)
         }
@@ -546,6 +553,10 @@ struct BotChatPage: View {
         if let streaming = model.streamingText {
             BotStreamingRow(text: streaming)
                 .id("bot-live-stream")
+        }
+        ForEach(sections.trailing) { row in
+            transcriptRow(row)
+                .id(row.id)
         }
         // One-point tail probe: its minY in the scroll container's coordinate
         // space tells the page whether the reader is still at the tail. It
@@ -598,10 +609,11 @@ struct BotChatPage: View {
     }
 
     /// Bring the newest *actionable* row (a pending approval or a question
-    /// card) above the keyboard. The same turn's streamed text is mounted after
-    /// the durable rows, so a plain tail scroll would cover the card with text
-    /// that arrived before it. Only when there is no such card does the tail
-    /// win.
+    /// card) above the keyboard. In the ordered transcript a closing
+    /// steps/question card sits below the answer, and an approval that
+    /// prompted the explanation sits above it; in both cases a plain tail
+    /// scroll can cover the card, so it wins over the tail. Only when there is
+    /// no such card does the tail win.
     private func followNewestContent(proxy: ScrollViewProxy,
                                      delay: UInt64 = 120_000_000) {
         if let card = model.newestActionableCard {
@@ -1432,6 +1444,7 @@ private struct BotLiveTurnView: View {
                     BotAnswerBubbleContent(text: text, streaming: false)
                         .padding(.horizontal, HomeSpec.contentInset)
                         .padding(.vertical, HomeSpec.blockGap / 2)
+                        .accessibilityIdentifier("bot.live.answer.text")
                 }
             }
             if BotAnswerBubbleContent.hasContent(live.buffer) {

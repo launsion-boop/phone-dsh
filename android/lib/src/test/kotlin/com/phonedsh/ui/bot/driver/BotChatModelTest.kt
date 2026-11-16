@@ -253,6 +253,21 @@ class BotChatModelTest {
     }
 
     @Test
+    fun `live text keeps the first committed answer timestamp`() {
+        fun message(time: Long, text: String): JsonObject = JsonValue.parse(
+            """{"type":"assistant/message","time":$time,"data":{"message":{"content":[{"type":"text","text":"$text"}]}}}""",
+        ) as JsonObject
+
+        val first = BotLiveChatTurn().apply(message(2_000, "答案"))
+        assertEquals(2_000L, first.textStartedAt)
+
+        // A later answer segment must not move a card already placed against
+        // the first one.
+        val second = first.apply(message(3_000, "补充"))
+        assertEquals(2_000L, second.textStartedAt)
+    }
+
+    @Test
     fun `an error notice in a live batch becomes the header problem, never a row`() {
         val notice = BotFixtureData.rows(fixtures, "error").single()
         val harness = model("chat", beforeStart = { driver ->
