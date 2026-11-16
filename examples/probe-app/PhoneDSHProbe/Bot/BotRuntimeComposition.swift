@@ -238,6 +238,8 @@ final class BotRuntimeComposition {
     /// G-3 iOS context sources. Created in `prepare`; started after the first
     /// successful bind and stopped with the composition.
     private var contextSources: BotContextSourcesAssembly?
+    /// G-1 provenance read model (process-wide, one event log).
+    private(set) var provenance: BotProvenanceService?
     /// Bounded wake-signal log. A context observation may request a wake; the
     /// related/开口 policy is F/S work, so the host records the signal instead
     /// of opening an empty visible turn.
@@ -439,6 +441,18 @@ final class BotRuntimeComposition {
         let contextSources = BotContextSourcesAssembly(
             dependencies: .init(eventLog: store))
         composition.contextSources = contextSources
+        // G-1 provenance: one read model for records/derivations/current status.
+        // The file rechecker is the only producer wired this round; web/context
+        // producers remain explicit NOT_RUN.
+        let fileRechecker = BotFileSourceRechecker(
+            locator: BotWorkspaceFileURLResolver(
+                workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot()))
+        let provenance = BotProvenanceService(
+            eventLog: store,
+            resolver: recordService,
+            rechecker: BotProvenanceFileRecheckAdapter(rechecker: fileRechecker))
+        composition.provenance = provenance
+        await runtime.installProvenance(provenance)
 
         let handler = BotMCPHandler(runtime: runtime)
         let server = BotMCPHTTPServer(handler: handler)
@@ -630,7 +644,8 @@ final class BotRuntimeComposition {
             isMainBot: { [mainBotPointer] in mainBotPointer.isMain(botID) },
             workspaceRoot: workspaceRoot,
             now: schedulerNow, sleep: schedulerSleep,
-            cloud: cloudConfiguration, feedback: feedbackCenter)
+            cloud: cloudConfiguration, feedback: feedbackCenter,
+            provenance: provenance)
         units[botID] = unit
         let eraser = BotSessionEpochEraser(
             remote: unit.remote,

@@ -2242,9 +2242,12 @@ public actor BotMCPRuntime {
                 output["evidence_status"] = try evidenceStatusValue(
                     statuses, for: document.evidence)
             }
+            // G-1 §4.4: the view covers evidence ∪ review.refs, in first-seen
+            // order, with roles carried by the provenance status itself.
+            let sourceRefs = document.evidence + (document.review?.refs ?? [])
             if let sourceStatuses = await sourceStatusValues(
-                for: document.evidence, call: call) {
-                output["source_statuses"] = .array(document.evidence.compactMap {
+                for: sourceRefs, call: call) {
+                output["source_statuses"] = .array(sourceRefs.compactMap {
                     sourceStatuses[BotRecordReference.canonicalize($0) ?? $0]
                 })
             }

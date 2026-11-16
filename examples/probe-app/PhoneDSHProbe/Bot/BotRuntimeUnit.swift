@@ -97,7 +97,8 @@ final class BotRuntimeUnit {
                      now: (@Sendable () -> Int64)? = nil,
                      sleep: RoutineScheduler.Sleeper? = nil,
                      cloud: BotCloudConfiguration? = nil,
-                     feedback: BotFeedbackCenter? = nil) async throws -> BotRuntimeUnit {
+                     feedback: BotFeedbackCenter? = nil,
+                     provenance: BotProvenanceService? = nil) async throws -> BotRuntimeUnit {
         let memory = await runtime.memory(for: botID)
         let machine = await runtime.routineMachine
         let grants = await runtime.grants
@@ -121,7 +122,9 @@ final class BotRuntimeUnit {
         let rows = BotProductionRowService(
             environment: environment, remote: remote,
             cardAnswerPromptResumer: remote,
-            feedbackCenter: feedback)
+            feedbackCenter: feedback,
+            provenance: provenance,
+            clock: now ?? { Int64(Date().timeIntervalSince1970 * 1000) })
         let routineActivity = BotRoutineActivityFlag()
         let resolvedNow = now ?? { Int64(Date().timeIntervalSince1970 * 1000) }
         let settingsStore = ProactiveSettingsStore.shared

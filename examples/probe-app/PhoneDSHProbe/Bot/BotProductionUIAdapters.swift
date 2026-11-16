@@ -49,6 +49,38 @@ extension BotProductionRowService {
             presentation: { [self] in
                 try await self.presentation()
             },
+            inspectSources: { [self] request in
+                guard let provenance, !request.eventIDs.isEmpty else {
+                    return .unavailable(reason: "来源服务未连接")
+                }
+                do {
+                    var refs: [String] = []
+                    for eventID in request.eventIDs {
+                        let derived = (try? await provenance.derivedRefs(forEventID: eventID)) ?? []
+                        for artifact in derived {
+                            guard let chain = try? await provenance.reverseTrace(derivedRef: artifact)
+                            else { continue }
+                            for derivation in chain {
+                                for source in derivation.sources
+                                where !refs.contains(source.record) {
+                                    refs.append(source.record)
+                                }
+                            }
+                        }
+                    }
+                    guard !refs.isEmpty else {
+                        return .available(BotSourceInspection(sources: [], checkedAtMS: clock()))
+                    }
+                    let statuses = try await provenance.sourceStatuses(for: refs)
+                    let views = refs.compactMap { ref -> BotProvenanceSource? in
+                        guard let status = statuses[ref] else { return nil }
+                        return Self.provenanceView(status)
+                    }
+                    return .available(BotSourceInspection(sources: views, checkedAtMS: clock()))
+                } catch {
+                    return .unavailable(reason: "来源暂时读不出来")
+                }
+            },
             recordFeedback: { [self] intent in
                 guard let center = feedbackCenter else {
                     return .rejected(reason: "反馈服务未连接")
@@ -69,7 +101,7 @@ extension BotProductionRowService {
                         let feedback = BotFeedback(
                             botID: intent.botID, action: action,
                             target: BotFeedbackArtifactRef(kind: .delivery, id: intent.rowID),
-                            scope: .artifact,
+                            scope: intent.scope == .user ? .user : .artifact,
                             origin: BotFeedbackOrigin(kind: .uiAction, nonce: intent.nonce))
                         let outcome = try await center.record(feedback)
                         return Self.feedbackActionResult(outcome)
@@ -405,4 +437,71 @@ private extension BotProductionRowService {
             return .rejected(reason: outcome.message ?? outcome.code ?? "反馈被拒绝")
         }
     }
+}
+
+private extension BotProductionRowService {
+    /// Maps one G-1 source status to the Bot page's human view. Internal ids
+    /// stay in `id` (never displayed); reasons become short human details.
+    static func provenanceView(_ status: BotSourceStatus) -> BotProvenanceSource {
+        let kind = provenanceKind(status)
+        return BotProvenanceSource(
+            id: status.ref,
+            label: kind.label,
+            kind: kind,
+            trust: BotProvenanceTrust(raw: status.trust),
+            reason: nil,
+            observedAtMS: status.observedAtMS,
+            verification: .unknown,
+            state: provenanceState(status.state),
+            stateReason: provenanceReason(status.reasons.first),
+            versionLabel: nil,
+            isFallback: false,
+            hasUnsafeLabel: false)
+    }
+
+    static func provenanceKind(_ status: BotSourceStatus) -> BotProvenanceKind {
+        if let raw = status.resource?.kind.rawValue {
+            switch raw {
+            case "file": return .file
+            case "web-url": return .web
+            case "context-source": return .other
+            default: break
+            }
+        }
+        return BotProvenanceKind(raw: status.recordType)
+    }
+
+    static func provenanceState(_ state: BotProvenanceStatus) -> BotProvenanceState {
+        switch state {
+        case .current: return .current
+        case .changed: return .changed
+        case .unavailable: return .unavailable
+        case .revoked: return .revoked
+        case .erased: return .erased
+        case .unknown: return .unknown
+        }
+    }
+
+    static func provenanceReason(_ reason: BotProvenanceReason?) -> String? {
+        guard let reason else { return nil }
+        switch reason {
+        case .sourceChanged: return "来源已更新，这里是历史版本"
+        case .noBaseline, .noDerivation: return "没有可比较的来源版本"
+        case .sourceVersionUnknown, .newerObservationUnversioned:
+            return "来源版本未知"
+        case .refreshDenied: return "没有权限重新核对"
+        case .refreshUnavailable: return "暂时无法重新核对"
+        case .refreshNotPerformed: return "尚未重新核对"
+        case .noResourceIdentity: return "来源身份不足，无法核对"
+        case .resourceScopeMismatch: return "授权域不一致，未合并"
+        case .recordErased: return "原始记录已抹除"
+        case .recordUnresolved: return "原始记录已不可读"
+        case .grantRevoked: return "授权已撤销"
+        case .cycleDetected: return "引用关系成环"
+        case .scanLimitExceeded: return "核对范围超限"
+        case .upstreamInvalidated: return "上游依据已失效"
+        case .revisionBasisMismatch: return "版本依据不一致"
+        case .noSkillWriteEvent: return "该对象没有写入事件"
+        case .reviewModelBasis: return "核对依据来自模型判断"
+        }
 }
