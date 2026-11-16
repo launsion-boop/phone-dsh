@@ -27,7 +27,7 @@
       "network": "none",
       "turns": [
         {
-          "prompt": "检查 #174 能不能合并；资料在 pr/。"
+          "prompt": "只根据 pr/ 里的资料，检查 #174 能不能合并；不要找仓库，也不要问我。"
         }
       ],
       "assertions": [
@@ -58,7 +58,7 @@
       "network": "none",
       "turns": [
         {
-          "prompt": "总结周三例会的结论和待办；资料在 notes/。"
+          "prompt": "只根据 notes/ 里的资料，总结周三例会的结论和待办。"
         }
       ],
       "assertions": [
@@ -89,7 +89,7 @@
       "network": "none",
       "turns": [
         {
-          "prompt": "给李光浩写一封邮件回复草稿；资料在 inbox/ 和 notes/；不要发送。"
+          "prompt": "只根据 inbox/ 和 notes/ 里的资料，给李光浩写回复草稿，不要发送。"
         }
       ],
       "assertions": [

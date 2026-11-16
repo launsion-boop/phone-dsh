@@ -132,20 +132,18 @@ The three controlled tasks in `scripts/ci/bot-e2e/activity/catalog.json` (inline
 seeds for #174, the Wednesday meeting and a local email draft; no network, mail account or
 send tool) passed on the production Bot composition with the packed Worker:
 
-- `cefff6a288a3a2a2a40c14f86aa37ac7619d026b` — final code head / tree
-  `5ec4a847f67f519f73856b440e99464ff7aaf2ff`; the earlier `cff5dd149` run is retained as
-  `previousGuidedRun` in the receipt.
-- Each scenario `PASS`; 6/5/5 model requests; every session's
+- `abf3d3c5a1c1777b1d9f596262b015750e5de19e` — final code head / tree
+  `9bad81f77ebb1ff4dff30871d0a13905ad9a8af6`; the earlier `cff5dd149` and `cefff6a2`
+  runs are retained as `previousGuidedRun` in the receipt.
+- Each scenario `PASS`; 5/5/5 model requests; every session's
   `request/header.data.header.config` is `deepseek-official` / `deepseek-flash` /
   `reasoningEffort=max`.
-- ACT-01 `#174`: `List workspace and pr directory` (31, English `bash.description`; the
-  Chinese public sentence `正在读 #174 的笔记。` was not selected because per-call intent
-  ranks first) → `在翻文件 · 174-notes.md` (19, short object fallback) →
-  `#174 显示冲突 3 个文件，接着看 main 侧笔记` (28, after the read result).
-- ACT-02 meeting: `我先读周三例会的笔记` (10) →
-  `例会里 3 项待办已经看到，接下来核对责任人清单` (24, after the first result).
-- ACT-03 email: `我先看看李光浩那封邮件的原文` (14) →
-  `李光浩在问周五能否发布，接着看发布背景` (19, after the first result).
+- ACT-01 `#174`: `在查 #174 的合并笔记，先读分支侧记录` (21) →
+  `#174 记录显示 3 个冲突文件，接着核对主干侧` (25, after the read result).
+- ACT-02 meeting: `我会先读周三例会的纪要` (11) →
+  `这次会上登记了 3 项待办，负责人是李光浩` (21, after the first result).
+- ACT-03 email: `我先读李光浩那封邮件的内容` (13) →
+  `李光浩问周五发布能不能按清单走` (15, after the first result).
 - `BotActivityReplayTests` (in the existing Bot eval harness) replayed the real ACT-01
   session through the production decoder + reducer and passed, printing the max header and
   the same short details.
@@ -161,15 +159,16 @@ failure in the replay entry.
 ### Natural-request control: PASS on the clock-fixed head
 
 `scripts/ci/bot-e2e/activity/catalog-natural.json` removes all progress/read/output
-guidance from the user prompt. On head `cefff6a2` all three natural scenarios passed; each
-session read its seeds with `bash`/`read` and every `request/header` is Flash/max. The
-observed sequence has 16 unique activity details: 6 short basename fallbacks (37.5%),
-8 model/tool-description details and 2 card labels. ACT-06 shows a real post-result
-Chinese continuation (`资料很少，就只有他的来信和一条发布背景；我现在来拟草稿` after the
-two seeds). The default prompt still produced several English `bash.description` lines
-and object fallbacks because the per-call description ranks first; the final guided rerun
-shows the same effect on ACT-01. This is recorded as a quality observation, not a hidden
-failure; short/real/result-continuation criteria are met.
+guidance from the user prompt; the only extra constraint is a normal task scope (use only
+the provided material; do not search for a repo or ask the user). On head `abf3d3c5a` all
+three natural scenarios passed; each session read its seeds with `bash`/`read` and every
+`request/header` is Flash/max. The observed sequence has 13 unique activity details:
+6 short basename fallbacks (46.2%), 5 Chinese task-level model/tool descriptions and 2
+card/label details. Every scenario starts with a Chinese task-level sentence; the read
+steps still fall back to filenames because read has no description field and no public
+sentence preceded them. No natural post-result sentence was available, so natural does not
+itself prove continuation; the guided control does. This is recorded as a quality
+observation, not a hidden failure.
 
 Earlier natural attempts on head `91a26c50c` were blocked by the wall-clock gateway/expiry
 bug (bash identity registration). The meeting run was temporarily a weak-regex false PASS

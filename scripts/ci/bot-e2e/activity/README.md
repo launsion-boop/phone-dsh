@@ -14,16 +14,19 @@ framework is introduced.
   gives only the task and the material location. It contains no 10–20 character progress
   instruction, no fixed read count and no output-format instruction. Tools are free; the
   receipt verifies that the real session actually read the seed (read or bash).
-  **Current status: PASS on head `cefff6a2`.** All 3 natural scenarios passed; every
-  session read its seeds with `bash`/`read` (no identity rejection), and every
-  `request/header` says Flash/max. The small observed sequence has 16 unique activity
-  details, 6 short basename fallbacks (37.5%), 8 model/tool-description details and 2 card
-  labels; ACT-06 shows a real post-result Chinese continuation. The default prompt still
-  produced several English `bash.description` lines and object fallbacks because the
-  per-call description ranks first; that is recorded as a quality observation, not hidden.
+  **Current status: PASS on head `abf3d3c5a`.** All 3 natural scenarios passed; every
+  session read its seeds with `bash`/`read`, and every `request/header` says Flash/max.
+  The prompts contain only the task, the material location and a normal scope constraint
+  (use only the provided material; do not search for a repo or ask the user); there is no
+  progress-length, read-count or output-format instruction. The observed sequence has 13
+  unique activity details: 6 short basename fallbacks (46.2%), 5 Chinese task-level
+  model/tool descriptions and 2 card/label details. Every scenario starts with a Chinese
+  task-level sentence; the read steps still fall back to filenames because read has no
+  description field and no public sentence preceded them. No natural post-result sentence
+  was available, so natural does not itself prove continuation; the guided control does.
   Earlier blocked attempts on head `91a26c50c` (wall-clock gateway expiry, the meeting
   false weak-regex PASS and the NOT_RUN email) are retained in
-  `receipt.json.failedAttempts`; the clock fix is `cefff6a2`.
+  `receipt.json.failedAttempts`; the clock fix is `cefff6a2` and the prompt fix is `abf3d3c5a`.
 - `receipt.json`: the accepted actual activity sequence, with source seq/tool, raw model
   sentence, displayed detail, length/CJK count, object and result-continuation judgment,
   plus the model configuration read from `request/header`.
