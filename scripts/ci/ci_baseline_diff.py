@@ -108,7 +108,8 @@ def _stage_inventory(entry, side: str, name: str) -> tuple[int, dict | None]:
             isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool)
             for k, v in failures.items()):
         return rc, None
-    return rc, {"parsed": parsed, "coverage": coverage, "failure_counts": failures}
+    return rc, {"parsed": parsed, "coverage": coverage,
+                "failure_counts": failures, "timed_out": bool(entry.get("timed_out"))}
 
 
 def compare_junit(base_dir: str, head_dir: str) -> dict:
@@ -161,6 +162,9 @@ def compare_stages(base_path: Path, head_path: Path) -> dict:
                 # A pass-only stage (license) has no countable inventory.
                 continue
             incomplete.append(f"{name}: stage inventory missing/unusable")
+            continue
+        if base_inv.get("timed_out") or head_inv.get("timed_out"):
+            incomplete.append(f"{name}: stage timed out (rc={head_rc})")
             continue
         if not base_inv["parsed"] or not head_inv["parsed"]:
             if base_rc == 0 and head_rc == 0:

@@ -130,7 +130,7 @@ jobs:
           set -uo pipefail
           mkdir -p artifacts/stages
           python3 - <<'PY'
-          import json, subprocess, sys
+          import json, os, signal, subprocess, sys, time
           from pathlib import Path
 
           HEAD = Path(".").resolve()
@@ -144,15 +144,49 @@ jobs:
               "phone-android-structure",
               "phone-bot-eval-catalog",
           ]
+          # Evidence-based deadlines: phone-spec took 659 s in run 43903927538;
+          # phone-android-structure normally takes ~29 s but run 43919510006
+          # sat in its Gradle TestKit suite for over an hour. A timed-out stage
+          # is rc=124 and INCOMPLETE, never a pass; the truncated log stays in
+          # the artifact for diagnosis.
+          STAGE_TIMEOUTS = {
+              "phone-spec": 900,
+              "phone-gate-contracts": 300,
+              "phone-hygiene": 120,
+              "phone-license": 60,
+              "phone-modules": 120,
+              "phone-android-structure": 300,
+              "phone-bot-eval-catalog": 120,
+          }
           out = {"stages": {}}
           for root_name, root in (("base", BASE), ("head", HEAD)):
               for stage in STAGES:
+                  timeout = STAGE_TIMEOUTS[stage]
                   log = HEAD / "artifacts" / "stages" / f"{root_name}-{stage}.log"
+                  print(f"[stage] {root_name} {stage} START timeout={timeout}s",
+                        flush=True)
+                  started = time.monotonic()
+                  timed_out = False
                   with open(log, "w", encoding="utf-8") as handle:
-                      proc = subprocess.run(
+                      proc = subprocess.Popen(
                           ["bash", "scripts/ci/check.sh", "--only", stage],
                           cwd=root, stdout=handle, stderr=subprocess.STDOUT,
-                          text=True)
+                          text=True, start_new_session=True)
+                      try:
+                          rc = proc.wait(timeout=timeout)
+                      except subprocess.TimeoutExpired:
+                          timed_out = True
+                          rc = 124
+                          # Kill the whole stage (Gradle/sdkmanager children too).
+                          try:
+                              os.killpg(proc.pid, signal.SIGKILL)
+                          except ProcessLookupError:
+                              pass
+                          proc.wait()
+                  duration = round(time.monotonic() - started, 1)
+                  print(f"[stage] {root_name} {stage} END rc={rc} "
+                        f"duration={duration}s"
+                        f"{' TIMEOUT' if timed_out else ''}", flush=True)
                   # The stage exit code alone is not evidence: a stage that is
                   # red at base can hide a second, new failing sub-check. Parse
                   # the log into an inventory (failures, checks, coverage) and
@@ -167,7 +201,9 @@ jobs:
                   if inv.returncode == 0 and inventory_path.exists():
                       inventory = json.loads(inventory_path.read_text())
                   key = f"{root_name}/{stage}"
-                  out["stages"][key] = {"rc": proc.returncode, "log": str(log),
+                  out["stages"][key] = {"rc": rc, "log": str(log),
+                                        "timed_out": timed_out,
+                                        "duration_seconds": duration,
                                         "inventory": inventory}
           # The comparator works per side; write one JSON per side.
           for side in ("base", "head"):
@@ -176,7 +212,7 @@ jobs:
                                      if k.startswith(side + "/")}}
               (HEAD / "artifacts" / "stages" / f"{side}.json").write_text(
                   json.dumps(side_out, ensure_ascii=False, indent=2) + "\n")
-          print("stage results written")
+          print("stage results written", flush=True)
           PY
       - name: Compare base and head stages (new failure = job failure)
         run: |

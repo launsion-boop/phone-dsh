@@ -139,6 +139,13 @@ class StageCases(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("INCOMPLETE", (self.dir / "diff.json").read_text())
 
+    def test_timed_out_stage_is_incomplete(self) -> None:
+        timed = stage(124, [], 5)
+        timed["timed_out"] = True
+        proc = self.compare({"s": stage(0, [], 5)}, {"s": timed})
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("timed out", (self.dir / "diff.json").read_text())
+
     def test_failing_stage_without_failure_lines_never_passes(self) -> None:
         # Base passed and head failed without a parsed failure line: that is a
         # new stage-level failure (or at best INCOMPLETE), never a pass.
