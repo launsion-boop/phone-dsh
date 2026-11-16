@@ -1,8 +1,6 @@
 {
   "schemaVersion": 1,
   "contractRevision": "activity-evidence-v3.1",
-  "codeHead": "cff5dd1492f1224cb23b223871049692cd538b10",
-  "tree": "b9231d5e1a3d61700a31de3f0101cd3347e12232",
   "model": {
     "provider": "deepseek-official",
     "model": "deepseek-flash",
@@ -134,5 +132,8 @@
       "status": "empty replay",
       "reason": "the first probe copied an empty ACT-01-session.jsonl and produced zero events. The real session is under runs/<scenario>-1/host/materialized/<dsh-home>/sessions/...; the replay entry now fails hard on an empty log."
     }
-  ]
+  ],
+  "reviewedCodeHead": "cff5dd1492f1224cb23b223871049692cd538b10",
+  "scenarioAssetsCommit": "eba3569511f7a43bd989c012ade8885ae018e579",
+  "scenarioAssetsTree": "b9231d5e1a3d61700a31de3f0101cd3347e12232"
 }
