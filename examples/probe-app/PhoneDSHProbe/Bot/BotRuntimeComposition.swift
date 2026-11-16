@@ -429,10 +429,13 @@ final class BotRuntimeComposition {
                 workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot()))
         // G-1/E7: file + web recheck share one provenance read model; the web
         // arm reuses the existing cloud /v1/web/fetch endpoint.
-        let webRechecker = BotProvenanceWebRecheckAdapter(
-            transport: CloudWebRecheckTransport(
-                configuration: .init(baseURL: cloudConfiguration.baseURL),
-                tokenProvider: { try await TonoAccountSession.shared.accessToken() }))
+        let productionCloud = BotCloudConfiguration.production()
+        let webRechecker: BotProvenanceRechecking? = productionCloud.map { cloud in
+            BotProvenanceWebRecheckAdapter(
+                transport: CloudWebRecheckTransport(
+                    configuration: .init(baseURL: cloud.baseURL),
+                    tokenProvider: { try await TonoAccountSession.shared.accessToken() }))
+        }
         let provenance = BotProvenanceService(
             eventLog: store,
             resolver: recordService,
@@ -480,7 +483,7 @@ final class BotRuntimeComposition {
             selectionStore: selectionStore,
             workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot(),
             schedulerNow: now, schedulerSleep: sleep,
-            cloudConfiguration: BotCloudConfiguration.production())
+            cloudConfiguration: productionCloud)
         composition.contextSources = contextSources
         composition.provenance = provenance
         composition.feedbackCenter = feedbackCenter
