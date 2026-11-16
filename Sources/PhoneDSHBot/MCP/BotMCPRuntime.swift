@@ -1981,7 +1981,8 @@ public actor BotMCPRuntime {
                     return .failure("memory-source-baseline-unavailable", "来源缺少基线：\(ref)")
                 }
                 baselines.append(BotSourceBaseline(
-                    record: state.ref, role: .evidence, sourceVersion: state.version, resource: nil))
+                    record: state.ref, role: .evidence, sourceVersion: state.version,
+                    resource: nil, grantId: state.grantId))
             }
             for raw in review?.refs ?? [] {
                 let ref = BotRecordReference.canonicalize(raw) ?? raw
@@ -1989,7 +1990,8 @@ public actor BotMCPRuntime {
                     return .failure("memory-source-baseline-unavailable", "复核来源缺少基线：\(ref)")
                 }
                 baselines.append(BotSourceBaseline(
-                    record: state.ref, role: .review, sourceVersion: state.version, resource: nil))
+                    record: state.ref, role: .review, sourceVersion: state.version,
+                    resource: nil, grantId: state.grantId))
             }
             if let triggerRef {
                 baselines.append(BotSourceBaseline(
