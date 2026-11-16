@@ -336,6 +336,7 @@ public actor BotMCPRuntime {
     /// runtime only merges its `source_statuses` projection into read/recall
     /// results; it never re-implements the state machine.
     private var provenance: BotProvenanceService?
+    private var injectedTraceKeys: Set<String> = []
     /// Delivery-class tools whose side effect must revalidate the decision
     /// context first (G-2 frozen list).
     private static let preDeliveryToolNames: Set<String> = [
@@ -362,6 +363,20 @@ public actor BotMCPRuntime {
     /// attribution, catalog and effect checks.
     public func installFeedbackTools(_ tools: BotFeedbackTools) {
         feedbackTools = tools
+    }
+
+    /// Records the real `runtime-context` row the host observed in the DSH
+    /// session. This is the only `.injected` source; the Worker plugin
+    /// observer is not trusted for that stage. Deduplicated per (session, block).
+    public func noteInjectedDecisionMaterial(_ injected: BotDecisionInjectedMaterial) async {
+        guard let materialTrace else { return }
+        let key = "\(injected.sessionID)#\(injected.blockID)"
+        if injectedTraceKeys.contains(key) { return }
+        injectedTraceKeys.insert(key)
+        await materialTrace.note(BotMaterialTraceEvent(
+            stage: .injected, blockID: injected.blockID, turnID: injected.turnID,
+            sessionID: injected.sessionID, botID: injected.botID,
+            materialRefs: injected.materialIDs, atMS: injected.observedAtMS))
     }
 
     /// Installs the G-1 provenance read model. It provides the single

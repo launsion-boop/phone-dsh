@@ -3567,6 +3567,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             case "user/message":
                 await runtime.observeUserMessage(
                     sessionId: sessionId, seq: seq, source: data["source"]?.objectValue)
+                if let injected = BotDecisionContextInjectionDetector.detect(
+                    eventData: data, sessionID: sessionId, botID: botId,
+                    turnID: currentTurn.map { "\(sessionId)#\($0)" }) {
+                    await runtime.noteInjectedDecisionMaterial(injected)
+                }
                 if !hidden {
                     _ = try await appendConversation(
                         type: "conversation.user_message", sessionId: sessionId, seq: seq,
