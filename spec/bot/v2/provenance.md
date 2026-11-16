@@ -246,6 +246,8 @@
   最新 assertion 为 delete 时删除状态优先（unavailable + skill-deleted），但这不抹掉历史来源审计。
 - 文件“当前字节未变”与“来源仍可用”是两件事：文件 recheck 只回答前者，不能重置 source/upstream
   的失效状态；任何实现不得在 skill 分支无条件 `current/reasons=[]`。
+- 已知 `skill-deleted`/erased/revoked/`refresh-denied` 的 skill source **不得**再调用文件 recheck
+  provider；直接返回对应状态；只有新授权/新 source identity 才重新尝试。
 - 兼容：旧 reader 忽略未知 type；旧数据无事件 → unknown；回滚旧 App 不写/不读新事件，skill 文件
   仍可用；新 App 读到旧数据不伪造 revision。
 
@@ -351,8 +353,12 @@
 
 1. **记录不存在**（含不属于本 Bot、已物理消失）→ `unavailable` + `record-unresolved`。
 2. **记录已抹除**（`erasure` 覆盖，或 `record_erased`）→ `erased` + `record-erased`。
-3. **授权撤权**：该 source 带 `grantId`，且 `grant.revoked` 的 `commitSeq` 晚于承载断言的
-   `carrier` → `revoked` + `grant-revoked`。没有 `grantId` 时不做撤权推断（不猜）。
+3. **授权撤权（终态）**：该 source 带 `grantId`，且该 grant 已有 `revoked_at_seq` → `revoked` +
+   `grant-revoked`，**与 carrier 的先后无关**。撤权后新建的派生物若仍引用同一 grant，不能因
+   `revokedSeq` 早于新 carrier 而复活 current；carrier 时间只用于审计顺序，不是重新授权。
+   合法重新授权必须是**新的 grant id 或新的 generation**（旧 id 不得复用）；旧 grant 上的历史/新
+   断言都保持 revoked。写时应拒绝引用已撤 grant；若已写入，读视图仍 revoked。没有 `grantId` 时
+   不做撤权推断（不猜）。
 4. **无基线**：来源是观察 → `unknown` + `no-baseline`；来源不是观察（用户消息、Bot 自身输出）
    → `current`（记录不可变，存在即当前）。
 5. **基线 unknown**：`unknown` + `source-version-unknown`；旧数据没有基线时用
@@ -427,6 +433,11 @@ allow-list/超时/大小约束），不新增端点、不新增存储、不新�
 - 比较：同 digest → current/unchanged；不同 → changed；401/403/私网/目标拒绝 → refresh-denied；
   5xx/超时/空正文/不可得 → refresh-unavailable/refresh-not-performed；这些情况不得 current，也不得
   用旧正文冒充新鲜。
+- **已知拒绝不再调 provider（recheck gate）**：source 已处于 `refresh-denied`/`grant-revoked`/
+  `record-erased`/`skill-deleted` 或 scope mismatch 时，后续 recheck 必须直接返回对应状态，**不得**
+  再调用网络/文件/技能 provider 试探；只有出现新的显式授权（新 grant/generation）或新的 source
+  identity 才可重新尝试。skill 的 source recheck 同此规则（见 §3.4），已知删除/撤权时不做文件
+  recheck。
 - 云侧不落正文/URL/凭据到 DB/log；手机只在内存 hash/比较，写时基线仍按 G-1 持久化。
 - 若现有响应未来不足以表达版本/时间，再以最小 additive delta 变更；本 revision 不需要。
 

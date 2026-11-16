@@ -7847,6 +7847,437 @@
           }
         ]
       }
+    },
+    {
+      "name": "post-revocation-reuses-grant",
+      "records": {
+        "record://session/gb-main#3": {
+          "kind": "session",
+          "type": "user/message",
+          "botId": "bot-a",
+          "at_ms": 900,
+          "rpcId": "bot-1"
+        },
+        "record://session/gb-main#5": {
+          "kind": "session",
+          "type": "tool/result",
+          "botId": "bot-a",
+          "at_ms": 1000,
+          "observation": {
+            "source": "web",
+            "origin": "https://example.com/a"
+          },
+          "text": "Example Domain v1",
+          "version": {
+            "basis": "provider-version",
+            "value": "rev:v1",
+            "observed_at_ms": 1000
+          }
+        },
+        "record://session/gb-main#7": {
+          "kind": "session",
+          "type": "tool/result",
+          "botId": "bot-a",
+          "at_ms": 1050,
+          "observation": {
+            "source": "web",
+            "origin": "https://other.example/x"
+          },
+          "text": "Other",
+          "version": {
+            "basis": "provider-version",
+            "value": "rev:x1",
+            "observed_at_ms": 1050
+          }
+        },
+        "record://session/gb-main#15": {
+          "kind": "session",
+          "type": "tool/result",
+          "botId": "bot-a",
+          "at_ms": 1500,
+          "observation": {
+            "source": "web",
+            "origin": "https://digest.example/d"
+          },
+          "text": "Digest Only"
+        },
+        "record://session/gb-main#9": {
+          "kind": "session",
+          "type": "tool/result",
+          "botId": "bot-a",
+          "at_ms": 1100,
+          "observation": {
+            "source": "web",
+            "origin": "https://example.com/a"
+          },
+          "text": "Example Domain v2",
+          "version": {
+            "basis": "provider-version",
+            "value": "rev:v2",
+            "observed_at_ms": 1100
+          }
+        },
+        "record://session/gb-main#12": {
+          "kind": "session",
+          "type": "tool/result",
+          "botId": "bot-a",
+          "at_ms": 1200,
+          "observation": {
+            "source": "web",
+            "origin": "https://etag.example/e"
+          },
+          "text": "Etag v1",
+          "version": {
+            "basis": "etag",
+            "value": "etag:e1",
+            "observed_at_ms": 1200
+          }
+        },
+        "record://session/gb-main#13": {
+          "kind": "session",
+          "type": "tool/result",
+          "botId": "bot-a",
+          "at_ms": 1300,
+          "observation": {
+            "source": "web",
+            "origin": "https://etag.example/e"
+          },
+          "text": "Etag v2",
+          "version": {
+            "basis": "etag",
+            "value": "etag:e2",
+            "observed_at_ms": 1300
+          }
+        },
+        "record://session/gb-main#14": {
+          "kind": "session",
+          "type": "tool/result",
+          "botId": "bot-a",
+          "at_ms": 1400,
+          "observation": {
+            "source": "connector",
+            "origin": "mcp://calendar/events"
+          },
+          "text": "Event A",
+          "version": {
+            "reason": "source-unversioned"
+          }
+        },
+        "record://event/41": {
+          "kind": "event",
+          "type": "memory.document_written",
+          "botId": "bot-a",
+          "at_ms": 1100
+        },
+        "record://event/60": {
+          "kind": "event",
+          "type": "memory.document_written",
+          "botId": "bot-a",
+          "at_ms": 1600
+        },
+        "record://event/70": {
+          "kind": "event",
+          "type": "memory.document_written",
+          "botId": "bot-a",
+          "at_ms": 1700
+        }
+      },
+      "artifacts": [
+        {
+          "carrier": "record://event/62",
+          "derivation": {
+            "artifact": {
+              "kind": "routine",
+              "id": "routine-1",
+              "version": 1
+            },
+            "sources": [
+              {
+                "record": "record://session/gb-main#7",
+                "role": "trigger",
+                "sourceVersion": {
+                  "basis": "provider-version",
+                  "value": "rev:x1",
+                  "observed_at_ms": 1050,
+                  "basis_ref": "record://session/gb-main#7"
+                },
+                "grantId": "g1"
+              }
+            ]
+          }
+        }
+      ],
+      "subject": 0,
+      "grants": [
+        {
+          "id": "g1",
+          "revoked_at_seq": 55
+        },
+        {
+          "id": "g2",
+          "granted_at_seq": 60
+        }
+      ],
+      "expected": {
+        "artifact": {
+          "kind": "routine",
+          "id": "routine-1",
+          "version": 1
+        },
+        "state": "unknown",
+        "reasons": [
+          "no-derivation"
+        ],
+        "review_effective": {
+          "state": "unknown",
+          "reasons": []
+        },
+        "upstream": [],
+        "sources": [
+          {
+            "ref": "record://session/gb-main#7",
+            "resolved": true,
+            "erased": false,
+            "state": "revoked",
+            "reasons": [
+              "grant-revoked"
+            ],
+            "observed_at_ms": 1050,
+            "record_type": "tool/result",
+            "trust": "observation",
+            "source_version": {
+              "basis": "provider-version",
+              "value": "rev:x1",
+              "observed_at_ms": 1050,
+              "basis_ref": "record://session/gb-main#7"
+            },
+            "baseline": {
+              "basis": "provider-version",
+              "value": "rev:x1",
+              "observed_at_ms": 1050,
+              "basis_ref": "record://session/gb-main#7"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "new-grant-generation-after-revocation",
+      "records": {
+        "record://session/gb-main#3": {
+          "kind": "session",
+          "type": "user/message",
+          "botId": "bot-a",
+          "at_ms": 900,
+          "rpcId": "bot-1"
+        },
+        "record://session/gb-main#5": {
+          "kind": "session",
+          "type": "tool/result",
+          "botId": "bot-a",
+          "at_ms": 1000,
+          "observation": {
+            "source": "web",
+            "origin": "https://example.com/a"
+          },
+          "text": "Example Domain v1",
+          "version": {
+            "basis": "provider-version",
+            "value": "rev:v1",
+            "observed_at_ms": 1000
+          }
+        },
+        "record://session/gb-main#7": {
+          "kind": "session",
+          "type": "tool/result",
+          "botId": "bot-a",
+          "at_ms": 1050,
+          "observation": {
+            "source": "web",
+            "origin": "https://other.example/x"
+          },
+          "text": "Other",
+          "version": {
+            "basis": "provider-version",
+            "value": "rev:x1",
+            "observed_at_ms": 1050
+          }
+        },
+        "record://session/gb-main#15": {
+          "kind": "session",
+          "type": "tool/result",
+          "botId": "bot-a",
+          "at_ms": 1500,
+          "observation": {
+            "source": "web",
+            "origin": "https://digest.example/d"
+          },
+          "text": "Digest Only"
+        },
+        "record://session/gb-main#9": {
+          "kind": "session",
+          "type": "tool/result",
+          "botId": "bot-a",
+          "at_ms": 1100,
+          "observation": {
+            "source": "web",
+            "origin": "https://example.com/a"
+          },
+          "text": "Example Domain v2",
+          "version": {
+            "basis": "provider-version",
+            "value": "rev:v2",
+            "observed_at_ms": 1100
+          }
+        },
+        "record://session/gb-main#12": {
+          "kind": "session",
+          "type": "tool/result",
+          "botId": "bot-a",
+          "at_ms": 1200,
+          "observation": {
+            "source": "web",
+            "origin": "https://etag.example/e"
+          },
+          "text": "Etag v1",
+          "version": {
+            "basis": "etag",
+            "value": "etag:e1",
+            "observed_at_ms": 1200
+          }
+        },
+        "record://session/gb-main#13": {
+          "kind": "session",
+          "type": "tool/result",
+          "botId": "bot-a",
+          "at_ms": 1300,
+          "observation": {
+            "source": "web",
+            "origin": "https://etag.example/e"
+          },
+          "text": "Etag v2",
+          "version": {
+            "basis": "etag",
+            "value": "etag:e2",
+            "observed_at_ms": 1300
+          }
+        },
+        "record://session/gb-main#14": {
+          "kind": "session",
+          "type": "tool/result",
+          "botId": "bot-a",
+          "at_ms": 1400,
+          "observation": {
+            "source": "connector",
+            "origin": "mcp://calendar/events"
+          },
+          "text": "Event A",
+          "version": {
+            "reason": "source-unversioned"
+          }
+        },
+        "record://event/41": {
+          "kind": "event",
+          "type": "memory.document_written",
+          "botId": "bot-a",
+          "at_ms": 1100
+        },
+        "record://event/60": {
+          "kind": "event",
+          "type": "memory.document_written",
+          "botId": "bot-a",
+          "at_ms": 1600
+        },
+        "record://event/70": {
+          "kind": "event",
+          "type": "memory.document_written",
+          "botId": "bot-a",
+          "at_ms": 1700
+        }
+      },
+      "artifacts": [
+        {
+          "carrier": "record://event/62",
+          "derivation": {
+            "artifact": {
+              "kind": "routine",
+              "id": "routine-1",
+              "version": 1
+            },
+            "sources": [
+              {
+                "record": "record://session/gb-main#7",
+                "role": "trigger",
+                "sourceVersion": {
+                  "basis": "provider-version",
+                  "value": "rev:x1",
+                  "observed_at_ms": 1050,
+                  "basis_ref": "record://session/gb-main#7"
+                },
+                "grantId": "g2"
+              }
+            ]
+          }
+        }
+      ],
+      "subject": 0,
+      "grants": [
+        {
+          "id": "g1",
+          "revoked_at_seq": 55
+        },
+        {
+          "id": "g2",
+          "granted_at_seq": 60
+        }
+      ],
+      "expected": {
+        "artifact": {
+          "kind": "routine",
+          "id": "routine-1",
+          "version": 1
+        },
+        "state": "unknown",
+        "reasons": [
+          "no-derivation"
+        ],
+        "review_effective": {
+          "state": "unknown",
+          "reasons": []
+        },
+        "upstream": [],
+        "sources": [
+          {
+            "ref": "record://session/gb-main#7",
+            "resolved": true,
+            "erased": false,
+            "state": "unknown",
+            "reasons": [
+              "refresh-not-performed"
+            ],
+            "observed_at_ms": 1050,
+            "record_type": "tool/result",
+            "trust": "observation",
+            "source_version": {
+              "basis": "provider-version",
+              "value": "rev:x1",
+              "observed_at_ms": 1050,
+              "basis_ref": "record://session/gb-main#7"
+            },
+            "baseline": {
+              "basis": "provider-version",
+              "value": "rev:x1",
+              "observed_at_ms": 1050,
+              "basis_ref": "record://session/gb-main#7"
+            },
+            "resource": {
+              "kind": "web-url",
+              "key": "https://other.example/x",
+              "owner": "bot-a"
+            }
+          }
+        ]
+      }
     }
   ],
   "read_results": [

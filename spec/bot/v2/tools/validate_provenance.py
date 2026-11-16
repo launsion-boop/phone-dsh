@@ -251,9 +251,11 @@ def source_status(ref: str, role: list[str], baseline: dict | None, context: dic
     grant_id = context["grant_by_ref"].get(ref)
     carrier = context.get("carrier")
     if grant_id:
+        # A revoked grant is terminal: a later carrier cannot revive it by
+        # citing the same grant. Re-authorization needs a new grant id or a
+        # new generation, which is a different grant entry.
         revoked = grant_revoked_seq(context["grants"], grant_id)
-        sequence = carrier_seq(carrier or "")
-        if revoked is not None and (sequence is None or revoked > sequence):
+        if revoked is not None:
             status.update(state="revoked", reasons=["grant-revoked"])
             return status
     identity = observation_identity(record)
