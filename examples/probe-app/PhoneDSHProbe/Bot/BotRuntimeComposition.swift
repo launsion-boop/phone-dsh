@@ -409,7 +409,7 @@ final class BotRuntimeComposition {
         // credential map. On the first rejected registration the App
         // re-claims that exact session's current token and the Worker retries
         // once; the body sessionId alone never authenticates.
-        await runtime.installSessionReclaimer { [weak composition] sessionId, suppliedToken in
+        await runtime.installSessionReclaimer { [weak composition] (sessionId: String, suppliedToken: String) async -> Bool in
             guard let composition else { return false }
             return await composition.reclaimSessionForIdentity(
                 sessionId, suppliedToken: suppliedToken)
@@ -422,7 +422,7 @@ final class BotRuntimeComposition {
         // its MCP client open until the 130 s client deadline while this
         // composition is still reattaching the transport. The probe resolves
         // on the first `.ready` or gives up with a retryable human error.
-        await runtime.setRuntimeReadinessProbe { [weak composition] timeout in
+        await runtime.setRuntimeReadinessProbe { [weak composition] (timeout: Int) async -> Bool in
             guard let composition else { return false }
             return await composition.waitUntilRuntimeReady(
                 timeoutMilliseconds: timeout)
