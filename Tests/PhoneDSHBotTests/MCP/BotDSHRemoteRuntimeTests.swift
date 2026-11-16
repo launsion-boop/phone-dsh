@@ -102,6 +102,45 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         }
     }
 
+    /// Per-lane admission: a main-chat prompt stuck in its pre-accept window
+    /// must not block a Task turn on another session.
+    func testBlockedMainAdmissionDoesNotBlockATaskSession() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [[.turn()]],
+            "gb-created-1": [[.turn(), .assistant("task done"), .end()]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(
+            transport: transport, runtime: fixture.runtime, now: { 1_000 })
+        transport.pausePrompts("gb-main")
+        transport.pause("gb-main")
+        let blocked = Task { try await remote.sendUserMessage("blocked main") }
+        for _ in 0..<200 where transport.promptAttempts == 0 {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertEqual(transport.promptAttempts, 1)
+
+        let parent = try await makeParent(fixture.runtime)
+        let task = try await remote.start(request: BotTaskRequest(
+            parent: parent, title: "independent task", prompt: "do it",
+            asynchronous: false, timeoutMs: 2_000))
+        XCTAssertEqual(task.status, "completed")
+        XCTAssertEqual(
+            transport.promptHistory.filter { $0.sessionId == "gb-created-1" }.map(\.mode),
+            ["queue"],
+            "the Task session must be admitted without waiting for the main lane")
+
+        transport.resumePrompts("gb-main")
+        transport.closeMuxes()
+        do {
+            _ = try await withAdmissionTimeout(2) { try await blocked.value }
+        } catch {
+            blocked.cancel()
+            XCTFail("blocked main turn did not settle: \(error)")
+        }
+    }
+
     /// A message cancelled while it waits for the active turn must not open a
     /// second turn or be reported as delivered.
     func testCancelledAdmissionDoesNotStartASecondTurn() async throws {

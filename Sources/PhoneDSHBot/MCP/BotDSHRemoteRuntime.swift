@@ -236,14 +236,18 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// Global admission order for the main chat. The order is assigned inside
     /// the actor before the first `await`, so concurrent `sendUserMessage`
     /// calls cannot reverse just because they resume from different awaits.
-    private var nextAdmissionOrder: UInt64 = 0
+    /// Admission lanes are isolated per Bot chat thread. The main chat uses
+    /// `mainAdmissionLane`; hidden/routine/task sessions do not take part, so
+    /// one blocked chat turn can never block another session.
+    private static let mainAdmissionLane = "main"
+    private var nextAdmissionOrder: [String: UInt64] = [:]
     /// Orders whose message has reached a real admission point (steer sent,
-    /// turn created, or queued). Out-of-order settlement is kept in the set so
-    /// a cancelled/overflowed earlier order cannot strand every later order.
-    private var settledAdmissionOrders: Set<UInt64> = []
-    private var servedAdmissionOrder: UInt64 = 0
-    private var admissionWaiters: [(id: UUID, order: UInt64,
-                                    continuation: CheckedContinuation<Void, Never>)] = []
+    /// turn created, or queued). Out-of-order settlement is kept per lane so a
+    /// cancelled/overflowed earlier order cannot strand every later order.
+    private var settledAdmissionOrders: [String: Set<UInt64>] = [:]
+    private var servedAdmissionOrder: [String: UInt64] = [:]
+    private var admissionWaiters: [String: [(id: UUID, order: UInt64,
+                                             continuation: CheckedContinuation<Void, Never>)]] = [:]
     /// A cancellation can land before the waiter registers. Record the id so
     /// the registration closure resumes it immediately instead of leaking a
     /// continuation that only a later order would release.
@@ -689,12 +693,13 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         // would be cancelled when the rebind swaps the transport. Wait for the
         // same bounded readiness seam the tool gate uses, then open the turn
         // against the replacement Worker.
-        let admissionOrder = assignAdmissionOrder()
-        defer { advanceAdmissionOrder(admissionOrder) }
+        let admissionLane = Self.mainAdmissionLane
+        let admissionOrder = assignAdmissionOrder(lane: admissionLane)
+        defer { advanceAdmissionOrder(lane: admissionLane, order: admissionOrder) }
         do {
             try await awaitRuntimeReadiness()
         } catch {
-            advanceAdmissionOrder(admissionOrder)
+            advanceAdmissionOrder(lane: admissionLane, order: admissionOrder)
             throw error
         }
         await onUserTurnStarted?()
@@ -702,7 +707,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         do {
             sessionId = try await ensureMainSession()
         } catch {
-            advanceAdmissionOrder(admissionOrder)
+            advanceAdmissionOrder(lane: admissionLane, order: admissionOrder)
             throw error
         }
         // A message arriving in the pre-accept window is still a steer target:
@@ -758,7 +763,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         do {
             var result = try await runTurn(sessionId: sessionId, kind: .chat, prompt: prompt,
                                            requestId: promptRequestId,
-                                           admissionOrder: admissionOrder)
+                                           admissionLane: admissionLane, admissionOrder: admissionOrder)
             if result.status != "completed", result.error == "turn_not_started",
                rebuiltTurnNotStartedGeneration != transportGeneration {
                 // The host accepted the prompt but never opened a turn. A
@@ -775,7 +780,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 mainSessionTask = nil
                 result = try await runTurn(
                     sessionId: rebuilt, kind: .chat, prompt: prompt,
-                    requestId: promptRequestId, admissionOrder: admissionOrder)
+                    requestId: promptRequestId,
+                    admissionLane: admissionLane, admissionOrder: admissionOrder)
             }
             if result.status == "completed" {
                 rebuiltTurnNotStartedGeneration = nil
@@ -2808,30 +2814,37 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// reported as a completed turn.
     private struct AdmissionAborted: Error {}
 
-    private func assignAdmissionOrder() -> UInt64 {
-        let order = nextAdmissionOrder
-        nextAdmissionOrder &+= 1
+    private func assignAdmissionOrder(lane: String) -> UInt64 {
+        let order = nextAdmissionOrder[lane] ?? 0
+        nextAdmissionOrder[lane] = order &+ 1
         return order
     }
 
-    private func advanceAdmissionOrder(_ order: UInt64) {
-        guard order >= servedAdmissionOrder else { return }
-        settledAdmissionOrders.insert(order)
-        while settledAdmissionOrders.contains(servedAdmissionOrder) {
-            settledAdmissionOrders.remove(servedAdmissionOrder)
-            servedAdmissionOrder &+= 1
+    private func advanceAdmissionOrder(lane: String, order: UInt64) {
+        var served = servedAdmissionOrder[lane] ?? 0
+        guard order >= served else { return }
+        var settled = settledAdmissionOrders[lane] ?? []
+        settled.insert(order)
+        while settled.contains(served) {
+            settled.remove(served)
+            served &+= 1
         }
-        let ready = admissionWaiters.filter { $0.order <= servedAdmissionOrder }
-        admissionWaiters.removeAll { $0.order <= servedAdmissionOrder }
+        settledAdmissionOrders[lane] = settled
+        servedAdmissionOrder[lane] = served
+        var waiters = admissionWaiters[lane] ?? []
+        let ready = waiters.filter { $0.order <= served }
+        waiters.removeAll { $0.order <= served }
+        admissionWaiters[lane] = waiters
         for waiter in ready { waiter.continuation.resume() }
     }
 
-    /// Wait until the global admission order reaches `order`. Every waiter is
+    /// Wait until this lane's admission order reaches `order`. Every waiter is
     /// registered with an id and a cancellation handler; cancelling a waiter
     /// removes and resumes exactly that continuation (or records the
-    /// pre-registration cancellation).
-    private func waitForAdmissionOrder(_ order: UInt64) async {
-        while servedAdmissionOrder < order {
+    /// pre-registration cancellation). The wait is scoped to one lane, so a
+    /// blocked chat never blocks any other session.
+    private func waitForAdmissionOrder(lane: String, order: UInt64) async {
+        while (servedAdmissionOrder[lane] ?? 0) < order {
             if Task.isCancelled { return }
             let id = UUID()
             await withTaskCancellationHandler {
@@ -2839,7 +2852,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     if Task.isCancelled || cancelledAdmissionWaiters.remove(id) != nil {
                         continuation.resume()
                     } else {
-                        admissionWaiters.append((id, order, continuation))
+                        admissionWaiters[lane, default: []].append((id, order, continuation))
                     }
                 }
             } onCancel: {
@@ -2849,12 +2862,15 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     }
 
     private func cancelAdmissionWaiter(id: UUID) {
-        guard let index = admissionWaiters.firstIndex(where: { $0.id == id }) else {
-            cancelledAdmissionWaiters.insert(id)
+        for lane in admissionWaiters.keys {
+            guard var waiters = admissionWaiters[lane],
+                  let index = waiters.firstIndex(where: { $0.id == id }) else { continue }
+            let waiter = waiters.remove(at: index)
+            admissionWaiters[lane] = waiters
+            waiter.continuation.resume()
             return
         }
-        let waiter = admissionWaiters.remove(at: index)
-        waiter.continuation.resume()
+        cancelledAdmissionWaiters.insert(id)
     }
 
     /// Admit one supplemental message into the active chat turn. The per
@@ -2866,7 +2882,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// steer into a turn that no longer exists.
     private func enqueueSteer(sessionId: String, coordinator: TurnCoordinator,
                               prompt: String, requestId: String,
-                              admissionOrder: UInt64?) async throws {
+                              admissionLane: String?, admissionOrder: UInt64?) async throws {
         let held = (waitingAdmissions[sessionId] ?? 0) + 1
         guard held <= 16 else {
             throw BotMCPError.invalidRequest("too_many_pending_messages")
@@ -2877,8 +2893,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             do {
                 if let previous { _ = try? await previous.value }
                 guard let self else { throw AdmissionAborted() }
-                if let admissionOrder {
-                    await self.waitForAdmissionOrder(admissionOrder)
+                if let admissionLane, let admissionOrder {
+                    await self.waitForAdmissionOrder(lane: admissionLane, order: admissionOrder)
                     if Task.isCancelled { throw AdmissionAborted() }
                 }
                 guard await coordinator.admission.wait() else {
@@ -2902,7 +2918,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         // the (possibly blocked) send, so a later message may enter the gate
         // while the first prompt is still pending; `steerTails` still sends in
         // this order. A later cancel/abort cannot strand the next order.
-        if let admissionOrder { advanceAdmissionOrder(admissionOrder) }
+        if let admissionLane, let admissionOrder {
+            advanceAdmissionOrder(lane: admissionLane, order: admissionOrder)
+        }
         do {
             // Cancelling the caller must cancel the chained send too; a
             // detached `Task.value` does not propagate cancellation on its own.
@@ -2999,8 +3017,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private func runTurn(sessionId: String, kind: BotSessionKind,
                          prompt: String, requestId: String,
                          allowSteer: Bool = true,
+                         admissionLane: String? = nil,
                          admissionOrder: UInt64? = nil) async throws -> BotRemoteTurnResult {
-        if let admissionOrder { await waitForAdmissionOrder(admissionOrder) }
+        if let admissionLane, let admissionOrder {
+            await waitForAdmissionOrder(lane: admissionLane, order: admissionOrder)
+        }
         if Task.isCancelled { throw CancellationError() }
         _ = try await ensureSession(sessionId: sessionId, kind: kind)
         let origin = BotTurnOrigin(rpcId: requestId)
@@ -3019,7 +3040,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 try await enqueueSteer(
                     sessionId: sessionId, coordinator: active,
                     prompt: prompt, requestId: requestId,
-                    admissionOrder: admissionOrder)
+                    admissionLane: admissionLane, admissionOrder: admissionOrder)
                 // The steer prompt is accepted by the same active turn. Even
                 // if that turn ends immediately afterwards, its collector is
                 // the right result; never open a second turn for a message the
@@ -3066,7 +3087,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 await settlement.finish()
                 return result
             }
-            if let admissionOrder { advanceAdmissionOrder(admissionOrder) }
+            if let admissionLane, let admissionOrder {
+                advanceAdmissionOrder(lane: admissionLane, order: admissionOrder)
+            }
             queuedTurns[sessionId] = QueuedTurn(
                 attemptId: attemptId, generation: queuedGeneration,
                 settlement: settlement, work: work, cancelled: false)
@@ -3075,7 +3098,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         return try await startCoordinatedTurn(
             sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
             attemptId: UUID().uuidString.lowercased(), requestId: requestId, origin: origin,
-            admissionOrder: admissionOrder)
+            admissionLane: admissionLane, admissionOrder: admissionOrder)
     }
 
     private func performQueuedTurn(
@@ -3121,6 +3144,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                                       prompt: String, hidden: Bool, held: Bool,
                                       attemptId: String, requestId: String,
                                       origin: BotTurnOrigin,
+                                      admissionLane: String? = nil,
                                       admissionOrder: UInt64? = nil) async throws -> BotRemoteTurnResult {
         let generation = transportGeneration
         let settlement = BotTurnSettlement()
@@ -3143,7 +3167,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             cancelRequested: false, promptAccepted: false, interruption: nil)
         // The turn now exists. Later messages may observe it and steer; the
         // admission order advances here, not when the long turn finishes.
-        if let admissionOrder { advanceAdmissionOrder(admissionOrder) }
+        if let admissionLane, let admissionOrder {
+            advanceAdmissionOrder(lane: admissionLane, order: admissionOrder)
+        }
         return try await work.value
     }
 
