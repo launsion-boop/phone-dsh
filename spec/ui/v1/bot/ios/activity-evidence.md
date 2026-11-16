@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # iOS real Bot activity projection
 
-Status: normative iOS-only refinement, revision `activity-evidence-v3` (2026-11-16).
+Status: normative iOS-only refinement, revision `activity-evidence-v3.1` (2026-11-16).
 This revision replaces the long-object policy of v2.3. It is grounded in the
 `tool/call` and `assistant/message` events the pinned DSH already writes; it adds no wire
 field, no extra model request, no second history, and no new `BotActivity` member. Android
@@ -37,9 +37,13 @@ The projection resolves one sentence for the newest unresolved *visible* call.
 3. **Short object fallback** — only when the call has no usable model sentence. Use the
    tool's action label plus a recognisable short object:
    `read`/`write`/`edit`: file **basename**; `glob`/`grep`: pattern (plus the path basename
-   only when it fits); `web_search`: query; `web_fetch`: **host**;
+   only when the assembled sentence still fits the short bound); `web_search`: query;
+   `web_fetch`: **host**;
    memory tools: path basename or query; `updateroutine`: title; cards: title;
    `sendtoagent`/`createteammate`: Bot name; unknown visible tool: no object.
+   The assembled action-label + object string is shortened again after joining, so a long
+   basename/query cannot exceed the bound through the prefix; there is no separate
+   42-character target allowance.
 4. **Concrete fallback** — the tool's short action label; unknown visible tools use
    "等待操作结果".
 
@@ -83,7 +87,7 @@ earlier one; the model's next sentence is what carries the previous real result 
 | `write` | writing | `在写文件 · <basename>` |
 | `edit`, `str_replace_editor` | writing | `在改文件 · <basename>` |
 | `glob` | searching | `在找文件 · <pattern>` |
-| `grep` | searching | `在搜内容 · <pattern>` + ` · <basename(path)>` when it fits |
+| `grep` | searching | `在搜内容 · <pattern>` + ` · <basename(path)>` only when the assembled sentence fits |
 | `web_search` | searching | `在网上搜 · <query>` |
 | `web_fetch` | browsing | `在开网页 · <host>` |
 | `job_list` / `job_output` / `job_kill` | running | `看看进展` / `等待结果` / `停止任务` |

@@ -9,7 +9,7 @@ status: frozen
 breaking: false
 version_decision: No wire, event, durable-value or schema change. Existing BotActivity fields and existing DSH tool arguments only. Prompt text is packaged into the Worker image, so a prompt change still requires the supported packer and real-runtime evidence for that image.
 base: 908d582b9ee91886ba197bebd54b863c8093cced
-contract_revision: activity-evidence-v3
+contract_revision: activity-evidence-v3.1
 ```
 
 ## 1. Roles and trigger
@@ -154,6 +154,7 @@ will be refreshed by the lead at integration if UI edits shift them; values do n
 | activity-evidence-v2.2 | lead | User ruling: the bubble stays non-interactive; remove the tap/full-view requirement. No reducer, vector or transport change | runtime / projection / ui / review sessions |
 | activity-evidence-v2.3 | lead | Coverage ruling: public same-step progress is the default for every visible work tool, including unknown MCP and memory tools; card/messaging/hidden tools are explicit exclusions. Adds two vectors | runtime / projection / review sessions |
 | activity-evidence-v3 | lead | User ruling: the bubble is a short real progress sentence (10–20 CJK, about 28 with a result), not a long path/URL/long-answer display. Short object fallback uses basename/host; no append to a model sentence; no 512/full view. 81 vectors | runtime / projection / ui / review sessions |
+| activity-evidence-v3.1 | lead | Final fallback label is shortened after action+object join; remove the old 42-character secondary threshold; add long-basename/query vectors (83) | runtime / projection / ui / review sessions |
 
 ## 6. Protocol impact
 

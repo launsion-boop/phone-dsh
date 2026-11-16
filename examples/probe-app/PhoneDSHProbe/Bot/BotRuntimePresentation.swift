@@ -451,6 +451,12 @@ enum BotActivityEvidence {
         return shortened(text)
     }
 
+    /// Whether an assembled fallback sentence still fits the short bound.
+    static func fitsShortBound(_ raw: String) -> Bool {
+        let hasCJK = raw.unicodeScalars.contains { (0x3400...0x9FFF).contains($0.value) }
+        return raw.count <= (hasCJK ? cjkBound : nonCJKBound)
+    }
+
     /// Short progress bound: 28 characters with CJK, else 56. Longer text is
     /// shortened at the last sentence/clause punctuation within the bound,
     /// else `bound - 1` characters plus `…` — a long public answer never
@@ -783,14 +789,15 @@ enum BotActivityReducer {
         }
         if let secondary = secondaryText(rule, arguments: arguments) {
             let candidate = label + " · " + secondary
-            if candidate.count <= secondaryFitCharacters { label = candidate }
+            if BotActivityEvidence.fitsShortBound(candidate) { label = candidate }
         }
-        return Resolution(text: label, category: rule.category)
+        // The action label and object were shortened individually; the joined
+        // fallback must be shortened again so a long basename/query cannot
+        // exceed the short bound through the prefix. There is no separate
+        // legacy target allowance.
+        return Resolution(text: BotActivityEvidence.shortened(label),
+                          category: rule.category)
     }
-
-    /// `grep` adds the searched file's basename only when the assembled label
-    /// still fits the legacy 42-character target bound.
-    private static let secondaryFitCharacters = 42
 
     /// The durable `assistant/message` text: only real text blocks count, so a
     /// reasoning-only message yields no candidate.

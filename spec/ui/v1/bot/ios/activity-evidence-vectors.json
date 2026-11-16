@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "platform": "ios",
-  "revision": "activity-evidence-v3",
+  "revision": "activity-evidence-v3.1",
   "now": 1000,
   "cases": [
     {
@@ -429,7 +429,7 @@
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在搜内容 · reconnect · ReconnectTests.swift",
+        "detail": "在搜内容 · reconnect",
         "category": "searching",
         "startedAt": 200
       }
@@ -4228,6 +4228,90 @@
         "status": "tool-running",
         "detail": "看下发送逻辑",
         "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "long-filename-object",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "read",
+            "arguments": {
+              "file_path": "/workspace/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.swift"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "在翻文件 · aaaaaaaaaaaaaaaaaaaa…",
+        "category": "reading",
+        "startedAt": 200
+      }
+    },
+    {
+      "id": "long-query-object",
+      "events": [
+        {
+          "type": "turn/start",
+          "seq": 1,
+          "time": 100,
+          "data": {
+            "turn": 1
+          }
+        },
+        {
+          "type": "step/start",
+          "seq": 2,
+          "time": 150,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        },
+        {
+          "type": "tool/call",
+          "seq": 3,
+          "time": 200,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "callId": "a",
+            "name": "web_search",
+            "arguments": {
+              "query": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "tool-running",
+        "detail": "在网上搜 · qqqqqqqqqqqqqqqqqqqq…",
+        "category": "searching",
         "startedAt": 200
       }
     }
