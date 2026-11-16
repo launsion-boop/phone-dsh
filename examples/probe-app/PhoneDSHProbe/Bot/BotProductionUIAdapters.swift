@@ -58,7 +58,7 @@ extension BotProductionRowService {
                     for eventID in request.eventIDs {
                         let derived = (try? await provenance.derivedRefs(forEventID: eventID)) ?? []
                         for artifact in derived {
-                            guard let chain = try? await provenance.reverseTrace(derivedRef: artifact)
+                            guard let chain = try? await provenance.reverseTrace(derivedRef: artifact, botID: request.botID)
                             else { continue }
                             for derivation in chain {
                                 for source in derivation.sources
@@ -71,7 +71,7 @@ extension BotProductionRowService {
                     guard !refs.isEmpty else {
                         return .available(BotSourceInspection(sources: [], checkedAtMS: clock()))
                     }
-                    let statuses = try await provenance.sourceStatuses(for: refs)
+                    let statuses = try await provenance.sourceStatuses(for: refs, botID: request.botID)
                     let views = refs.compactMap { ref -> BotProvenanceSource? in
                         guard let status = statuses[ref] else { return nil }
                         return Self.provenanceView(status)

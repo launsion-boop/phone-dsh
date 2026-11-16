@@ -2270,12 +2270,12 @@ public actor BotMCPRuntime {
     /// memory document's derivation, ordered by the caller's evidence ∪
     /// review.refs. The arbitrary-ref view is only for M's mechanical checks.
     private func artifactSourceStatuses(kind: BotDerivedKind, id: String, version: Int?,
-                                        orderedRefs: [String],
+                                        orderedRefs: [String], botID: String,
                                         call: BotResolvedToolCall) async -> [BotSourceStatus]? {
         guard let provenance else { return nil }
         do {
             let artifact = BotDerivedRef(kind: kind, id: id, version: version)
-            let statuses = try await provenance.sourceStatuses(for: artifact)
+            let statuses = try await provenance.sourceStatuses(for: artifact, botID: botID)
             let byRef = Dictionary(statuses.map { ($0.ref, $0) }, uniquingKeysWith: { first, _ in first })
             var ordered: [BotSourceStatus] = []
             var seen = Set<String>()
@@ -2303,7 +2303,8 @@ public actor BotMCPRuntime {
         guard let provenance, !references.isEmpty else { return nil }
         let canonical = references.map { BotRecordReference.canonicalize($0) ?? $0 }
         do {
-            let statuses = try await provenance.sourceStatuses(for: canonical)
+            let statuses = try await provenance.sourceStatuses(
+                for: canonical, botID: call.principal.botId)
             var values: [String: BotJSONValue] = [:]
             for ref in canonical {
                 guard let status = statuses[ref] else { continue }
@@ -2360,7 +2361,7 @@ public actor BotMCPRuntime {
             let sourceRefs = document.evidence + (document.review?.refs ?? [])
             if let statuses = await artifactSourceStatuses(
                 kind: .memory, id: document.path, version: document.version,
-                orderedRefs: sourceRefs, call: call) {
+                orderedRefs: sourceRefs, botID: call.principal.botId, call: call) {
                 output["source_statuses"] = .array(try statuses.map { try encode($0) })
             }
             if document.deleted {
@@ -2434,7 +2435,7 @@ public actor BotMCPRuntime {
             let sourceRefs = hit.evidence + (hit.review?.refs ?? [])
             if let artifactStatuses = await artifactSourceStatuses(
                 kind: .memory, id: hit.path, version: hit.version,
-                orderedRefs: sourceRefs, call: call) {
+                orderedRefs: sourceRefs, botID: call.principal.botId, call: call) {
                 object["source_statuses"] = .array(try artifactStatuses.map { try encode($0) })
             }
             encodedHits.append(.object(object))
