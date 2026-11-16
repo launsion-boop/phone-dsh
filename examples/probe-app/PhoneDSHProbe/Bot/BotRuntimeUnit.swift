@@ -112,10 +112,18 @@ final class BotRuntimeUnit {
             workspaceRoot: workspaceRoot,
             fallbackName: displayName)
         let inbox = WakeInbox(store: SQLiteWakeInboxStore(domainStore: store, botId: botID))
+        let skillRoots = BotSkillRoots(workspaceRoot: workspaceRoot)
+        let botData = BotSessionRegistry.botDataDirectory
+        let skillProducer = BotSkillProvenanceProducer(
+            botRoot: BotWorkspaceLayout.botRoot(botId: botID, dataDirectory: botData),
+            roots: skillRoots,
+            recorder: { request in try await runtime.recordSkillWrite(request) },
+            latest: { identity in try await runtime.latestSkillChange(identity: identity) })
         let remote = try await BotDSHRemoteRuntime(
             transport: UnstartedBotTransport(), runtime: runtime,
             botId: botID, wakeInbox: inbox,
-            botDataDirectory: BotSessionRegistry.botDataDirectory,
+            botDataDirectory: botData,
+            skillProducer: skillProducer,
             onSessionRegistered: { sessionID in
                 Task { @MainActor in BotSessionRegistry.shared.register(sessionID) }
             })

@@ -197,6 +197,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private let model: String
     private let providerName: String
     private let botDataDirectory: String
+    private let skillProducer: BotSkillProvenanceProducer?
     private let onSessionRegistered: (@Sendable (String) -> Void)?
     private let now: @Sendable () -> Int64
     private let ledger: BotLLMLedger
@@ -306,6 +307,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         provider: String = "deepseek-official",
         wakeInbox: WakeInbox? = nil,
         botDataDirectory: String = BotWorkspaceLayout.defaultBotDataDirectory,
+        skillProducer: BotSkillProvenanceProducer? = nil,
         onSessionRegistered: (@Sendable (String) -> Void)? = nil,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }
     ) async throws {
@@ -316,6 +318,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         providerName = provider
         self.wakeInbox = wakeInbox
         self.botDataDirectory = botDataDirectory
+        self.skillProducer = skillProducer
         self.onSessionRegistered = onSessionRegistered
         self.now = now
         ledger = BotLLMLedger(eventLog: runtime.store)
@@ -3443,6 +3446,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         var toolNames: [String: String] = [:]
         var toolFinals: [String: Bool] = [:]
         var toolWritePaths: [String: String] = [:]
+        var toolWriteVfsPaths: [String: String] = [:]
         var currentUserSourceRef: String?
         var recordRefs: [String] = []
         var suppressWrapUp = false
@@ -3627,6 +3631,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                    let path = Self.toolWritePath(from: data),
                    let relative = Self.workspaceRelativePath(path, root: botRoot()) {
                     toolWritePaths[callId] = relative
+                    toolWriteVfsPaths[callId] = path
                 }
                 if isContentCardTool(name), let final = contentCardFinal(in: data["arguments"]) {
                     toolFinals[callId] = final
@@ -3654,6 +3659,12 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     kind: watchdogKind(kind), id: "\(sessionId):\(currentTurn ?? "unknown")",
                     name: name, status: failed ? "error" : "ok", callId: callId, at: eventTime)
                 var resultData = data
+                if !failed, let vfsPath = toolWriteVfsPaths.removeValue(forKey: callId) {
+                    // G-4 A04: record the real skill bytes after a successful
+                    // write/edit; the producer classifies only the frozen roots.
+                    _ = try? await skillProducer?.recordBotWrite(
+                        vfsPath: vfsPath, botID: botId, sessionID: sessionId, sources: [])
+                }
                 if !failed, let path = toolWritePaths[callId],
                    let userRef = currentUserSourceRef,
                    case var .object(object) = data {
