@@ -81,6 +81,45 @@ final class BotRecordSearchV4ReplayTests: XCTestCase {
                       "JSON text that starts with { is ordinary user text: \(hits)")
     }
 
+
+    func testStructuredContextAndDevicePayloadRemainSearchable() async throws {
+        let context = try await store.append(BotEvent(
+            type: "context.observed", eventId: "v4-context:test", time: 1_000,
+            origin: .local(source: "runtime"), traceId: "trace-v4-context",
+            principal: BotPrincipal(botId: "main", sessionId: "gb-main", kind: "chat"),
+            causationId: nil, correlationId: "gb-main", ignorable: true,
+            data: .object([
+                "schema": .string("bot-context-observation/v1"),
+                "source": .string("location"),
+                "observed_at_ms": .number(1_000),
+                "owner_bot_id": .string("main"),
+                "payload": .object([
+                    "regionId": .string("office-42"),
+                    "note": .string("CONTEXT_PAYLOAD_NOTE from the OS source"),
+                ]),
+            ])))
+        let device = try await store.append(BotEvent(
+            type: DeviceTaskResultOutbox.recordEventType,
+            eventId: "v4-device:test", time: 1_100,
+            origin: .local(source: "runtime"), traceId: "trace-v4-device",
+            principal: BotPrincipal(botId: "main", sessionId: "gb-main", kind: "chat"),
+            causationId: nil, correlationId: "device-task",
+            data: .object([
+                "deviceTaskResult": .object([
+                    "deviceID": .string("device-1"),
+                    "result": .string("DEVICE_RESULT_NOTE page opened"),
+                ]),
+            ])))
+        let contextResult = try await search("CONTEXT_PAYLOAD_NOTE")
+        let contextHits = try XCTUnwrap(
+            (contextResult["data"] as? [String: Any])?["hits"] as? [[String: Any]])
+        XCTAssertTrue(contextHits.contains { $0["ref"] as? String == "record://event/\(context)" })
+        let deviceResult = try await search("DEVICE_RESULT_NOTE")
+        let deviceHits = try XCTUnwrap(
+            (deviceResult["data"] as? [String: Any])?["hits"] as? [[String: Any]])
+        XCTAssertTrue(deviceHits.contains { $0["ref"] as? String == "record://event/\(device)" })
+    }
+
     private var sessionURL: URL {
         root.appendingPathComponent("materialized/home/sessions/gb-main/session.v4.jsonl")
     }

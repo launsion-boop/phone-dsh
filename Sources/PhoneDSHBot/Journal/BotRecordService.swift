@@ -495,6 +495,37 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                 break
             }
         }
+        // Other carriers (context.observed payload, device results, ordinary
+        // tool output) used to be searchable. Keep a bounded structured
+        // projection, but never walk the record bridge's raw lines/hits and
+        // never treat a reasoning/thinking object as final text.
+        let skippedStructuredKeys: Set<String> = [
+            "raw", "rawOutput", "raw_output", "lines", "hits", "snippet",
+            "stream", "usage", "derivation", "source_version", "reasoning",
+            "thinking", "arguments",
+        ]
+        func appendStructured(_ value: BotJSONValue, depth: Int) {
+            guard depth < 6, total < 8_000 else { return }
+            switch value {
+            case let .string(text):
+                append(text)
+            case let .number(number):
+                append(String(number))
+            case let .bool(flag):
+                append(flag ? "true" : "false")
+            case let .array(values):
+                values.forEach { appendStructured($0, depth: depth + 1) }
+            case let .object(object):
+                if let kind = object["type"]?.stringValue,
+                   kind == "reasoning" || kind == "thinking" { return }
+                for (key, item) in object
+                where !skippedStructuredKeys.contains(key) {
+                    appendStructured(item, depth: depth + 1)
+                }
+            case .null:
+                break
+            }
+        }
         // DSH v4 top-level user/message and conversation.user_message data:
         // `data.content` is a canonical block array. Legacy fixtures may use
         // `data.message.content`; accept both, but never walk arbitrary nested
@@ -506,6 +537,16 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         appendTextBlocks(data["content"])
         append(data["text"]?.stringValue)
         append(data["title"]?.stringValue)
+        let explicitTextTypes: Set<String> = [
+            "user/message", "conversation.user_message",
+            "assistant/message", "conversation.assistant_message",
+            "memory.document_written", "memory.document_deleted",
+            "session/title", "session/title-llm-request",
+            "agent/inbox/spliced",
+        ]
+        if !explicitTextTypes.contains(type) {
+            appendStructured(data, depth: 0)
+        }
         if type.hasPrefix("memory.document") {
             append(data["path"]?.stringValue)
             for ref in data["evidence"]?.arrayValue ?? [] { append(ref.stringValue) }
