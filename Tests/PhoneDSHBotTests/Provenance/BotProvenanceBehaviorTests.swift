@@ -560,4 +560,48 @@ final class BotProvenanceBehaviorTests: XCTestCase {
         XCTAssertEqual(state.state, .current)
     }
 
+    /// Q1 P0-2 / Plan A: prepareDerivation fills resource from the real carrier
+    /// and fails closed for an observation with no stable identity.
+    func testProductionPrepareDerivationFillsResource() async throws {
+        let log = BotProvenanceTestLog()
+        let web = try await log.append(ProvenanceTest.toolResultEvent(
+            eventId: "prepare-web", source: "web",
+            origin: "https://prepare.example/doc", owner: "bot-a", at: 1_000))
+        let artifact = BotDerivedRef(kind: .memory, id: "user/prepare.md", version: 1)
+        let service = service(log)
+        let prepared = try await service.prepareDerivation(
+            artifact: artifact,
+            sources: [BotDerivationSource(
+                record: "record://event/\(web)", role: .evidence,
+                sourceVersion: .known(basis: .etag, value: "etag:w1"))])
+        let source = try XCTUnwrap(prepared["sources"]?.arrayValue?.first)
+        XCTAssertEqual(source["resource"]?["kind"]?.stringValue, "web-url")
+        XCTAssertEqual(source["resource"]?["key"]?.stringValue,
+                       "https://prepare.example/doc")
+        XCTAssertEqual(source["resource"]?["owner"]?.stringValue, "bot-a")
+
+        // tool/channel has no resource id -> fail closed, not a baseline.
+        let tool = try await log.append(ProvenanceTest.toolResultEvent(
+            eventId: "prepare-tool", source: "tool", origin: "web_search",
+            owner: "bot-a", at: 1_001))
+        do {
+            _ = try await service.prepareDerivation(
+                artifact: artifact,
+                sources: [BotDerivationSource(
+                    record: "record://event/\(tool)", role: .evidence,
+                    sourceVersion: .known(basis: .providerVersion, value: "rev:t1"))])
+            XCTFail("tool/channel observation without resource must fail closed")
+        } catch {}
+
+        // A non-observation user message legally has no resource.
+        let user = try await log.append(ProvenanceTest.event(
+            type: "conversation.user_message", eventId: "prepare-user",
+            data: .object(["text": .string("user")])))
+        let nonObservation = try await service.prepareDerivation(
+            artifact: artifact,
+            sources: [BotDerivationSource(
+                record: "record://event/\(user)", role: .evidence)])
+        XCTAssertNil(nonObservation["sources"]?.arrayValue?.first?["resource"])
+    }
+
 }

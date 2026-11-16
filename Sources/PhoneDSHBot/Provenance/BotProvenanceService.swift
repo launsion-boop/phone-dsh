@@ -61,6 +61,34 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         return try Self.jsonValue(canonical)
     }
 
+    public func prepareDerivation(artifact: BotDerivedRef,
+                                  sources: [BotDerivationSource]) async throws
+        -> BotJSONValue {
+        let canonical = try Self.validated(
+            BotDerivation(artifact: artifact, sources: sources))
+        let snapshot = try await refresh()
+        var filled: [BotDerivationSource] = []
+        for source in canonical.sources {
+            guard let canonicalRef = BotRecordReference.canonicalize(source.record) else {
+                throw BotProvenanceError.invalidDerivation("invalid source reference")
+            }
+            let resource = source.resource
+                ?? snapshot.observationResourceByRef[canonicalRef]
+            let isObservation = source.sourceVersion != nil
+                || snapshot.observationResourceByRef[canonicalRef] != nil
+                || snapshot.eventFacts[canonicalRef]?.isObservation == true
+            if isObservation, resource == nil {
+                throw BotProvenanceError.invalidDerivation(
+                    "observation source \(canonicalRef) has no stable resource identity")
+            }
+            filled.append(BotDerivationSource(
+                record: canonicalRef, role: source.role, resource: resource,
+                sourceVersion: source.sourceVersion, grantId: source.grantId))
+        }
+        return try Self.jsonValue(BotDerivation(
+            artifact: canonical.artifact, sources: filled, basis: canonical.basis))
+    }
+
     public func invalidate(sourceRef: String,
                            reason: BotInvalidationReason) async throws -> BotInvalidationResult {
         try await invalidate(sourceRefs: [sourceRef], reason: reason)
