@@ -219,7 +219,8 @@ public enum BotToolCatalog {
     public static func allDefinitions(roster: BotRoster,
                                       callerBotID: String?) -> [BotMCPToolDefinition] {
         definitions + [fishActionDefinition, volatileContextDefinition,
-                       attachToModelDefinition, decisionContextDefinition]
+                       attachToModelDefinition, decisionContextDefinition,
+                       BotFeedbackTools.definition]
             + teamDefinitions(roster: roster, callerBotID: callerBotID)
     }
 
