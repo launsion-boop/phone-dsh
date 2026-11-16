@@ -43,6 +43,9 @@ public final class ContactsSource: BotContextSource, BotContextSourceStreaming,
 
     public func requestAuthorization() async -> BotSourceAuthorization {
         let current = await authorization()
+        #if DEBUG
+        print("A07_CONTACTS_CN_RAW_BEFORE=\(CNContactStore.authorizationStatus(for: .contacts).rawValue) current=\(current)")
+        #endif
         // An existing OS decision needs no second TCC prompt. Re-requesting a
         // granted service is invalid on some simulator builds and left App
         // consent unset; only notDetermined may request.
