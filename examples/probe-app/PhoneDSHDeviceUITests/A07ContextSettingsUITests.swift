@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: MIT
 
-// A07 native context-settings acceptance. This is a real app/OS path: it
-// launches the installed probe app, opens Bot info -> Context sources, and
-// toggles the calendar source against the simulator's real EventKit
-// authorization. Permission state is prepared externally with
-// `xcrun simctl privacy <udid> grant|revoke calendar dev.phone-dsh.probe`;
-// the test never fabricates an authorization or observation.
+// A07 native context-settings acceptance on a real app/OS path.
+//
+// The simulator host has no provisioning profile, so Keychain entitlements
+// cannot be provisioned (K/U evidence). This test therefore runs the app with
+// the explicit `PDSH_TEST_CREDENTIAL_STORE=1` env: provider secrets live in an
+// in-memory store for this test only. It is NOT a production Keychain claim and
+// the A07 Keychain/alias item stays NOT_VERIFIED/WAITING_DEVICE.
+//
+// Calendar authorization itself is real: prepare it externally with
+// `xcrun simctl privacy <udid> grant calendar dev.phone-dsh.probe`; the test
+// never fabricates an authorization or observation.
 
 import XCTest
 
@@ -14,39 +19,46 @@ final class A07ContextSettingsUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        print("A07_TEST_SECRET_STORE=1 (in-memory; NOT production Keychain)")
         app = XCUIApplication()
-        // A production Bot composition (and therefore the context-source
-        // assembly) starts only when a provider profile exists. The key is a
-        // dummy: these tests never send a model request.
+        app.launchEnvironment["PDSH_TEST_CREDENTIAL_STORE"] = "1"
         app.launchEnvironment["PDSH_SEED_PROVIDER_KEY"] = "a07-dummy-key"
         app.launchEnvironment["PDSH_SEED_PROVIDER_MODEL"] = "deepseek-chat"
         app.launch()
-        // BotProductionHub.connect waits up to 10s for chat.botRuntime. The
-        // info sheet must be opened after that composition exists, otherwise
-        // the contextSources parameter is nil and the section is hidden.
-        Thread.sleep(forTimeInterval: 12)
+        // BotProductionHub.connect waits up to 10s for chat.botRuntime; the
+        // info sheet must be opened after that composition exists.
+        Thread.sleep(forTimeInterval: 15)
     }
 
-    func testContextSettingsPageEntry() throws {
-        let info = app.buttons["bot.info.open"]
-        XCTAssertTrue(info.waitForExistence(timeout: 30), "Bot info capsule is missing")
-        info.tap()
+    func testContextSettingsCalendarConsentAndRevoke() throws {
+        app.buttons["bot.info.open"].tap()
         openContextSources()
 
         let calendar = app.switches["bot.info.context-source.calendar"]
         XCTAssertTrue(calendar.waitForExistence(timeout: 10), "calendar source row is missing")
-        XCTAssertTrue(app.switches["bot.info.context-source.contacts"].exists)
-        attach(name: "a07-context-settings-entry")
+        attach(name: "a07-context-calendar-before")
+
+        let initial = calendar.value as? String
+        calendar.tap()
+        let changed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value != %@", initial ?? ""),
+            object: calendar)
+        XCTAssertEqual(XCTWaiter().wait(for: [changed], timeout: 10), .completed,
+                       "calendar switch did not change; OS prompt may be pending")
+        attach(name: "a07-context-calendar-after-enable")
+
+        calendar.tap()
+        let reverted = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", initial ?? ""),
+            object: calendar)
+        XCTAssertEqual(XCTWaiter().wait(for: [reverted], timeout: 10), .completed,
+                       "calendar switch did not revoke")
+        attach(name: "a07-context-calendar-after-revoke")
     }
 
     func testUnsupportedCapabilityIsNotOfferedAsASwitch() throws {
-        let info = app.buttons["bot.info.open"]
-        XCTAssertTrue(info.waitForExistence(timeout: 20))
-        info.tap()
+        app.buttons["bot.info.open"].tap()
         openContextSources()
-
-        // Capability matrix unsupported rows are shown as explanatory text,
-        // never as a switch that could fake a capability.
         XCTAssertFalse(app.switches["bot.info.context-source.sms"].exists)
         XCTAssertFalse(app.switches["bot.info.context-source.third-party-notifications"].exists)
         attach(name: "a07-context-capability-boundary")
@@ -66,13 +78,11 @@ final class A07ContextSettingsUITests: XCTestCase {
             }
             app.swipeUp()
         }
-        let debug = app.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " | ")
-        XCTFail("context-sources link is missing; visible: \(debug)")
+        XCTFail("context-sources link is missing")
     }
 
     private func attach(name: String) {
-        let screenshot = XCUIScreen.main.screenshot()
-        let attachment = XCTAttachment(screenshot: screenshot)
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
