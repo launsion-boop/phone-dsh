@@ -1478,6 +1478,7 @@ final class BotRuntimeComposition {
             },
             BotDeletionStep(name: "clear-routines") { [weak self] in
                 guard let self else { return }
+                await self.units[botID]?.cloudWiring?.purgeCloudSchedules()
                 let machine = await self.runtime.routineMachine
                 let routines = (try? await machine.list(botId: botID)) ?? []
                 for routine in routines {

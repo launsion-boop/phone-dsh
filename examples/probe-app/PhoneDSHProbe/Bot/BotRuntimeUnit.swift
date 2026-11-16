@@ -50,6 +50,8 @@ final class BotRuntimeUnit {
     /// G-3 cloud scheduling client. Optional: an install without a confirmed
     /// base URL keeps the local-only behaviour instead of faking a caller.
     let cloudClient: CloudScheduleClient?
+    /// Governs user-authorized enable/revoke and delete-time purge.
+    let cloudWiring: BotCloudScheduleWiring?
     private let routineActivity: BotRoutineActivityFlag
     private let nowProvider: @Sendable () -> Int64
 
@@ -68,6 +70,7 @@ final class BotRuntimeUnit {
                  proactive: ProactiveEngine,
                  deviceResults: DeviceTaskResultOutbox,
                  cloudClient: CloudScheduleClient?,
+                 cloudWiring: BotCloudScheduleWiring?,
                  routineActivity: BotRoutineActivityFlag,
                  nowProvider: @escaping @Sendable () -> Int64) {
         self.botID = botID
@@ -188,6 +191,11 @@ final class BotRuntimeUnit {
         } else {
             cloudClient = nil
         }
+        let cloudWiring = cloudClient.map {
+            BotCloudScheduleWiring(
+                store: store, machine: machine, client: $0,
+                botID: botID, now: resolvedNow)
+        }
         let maintenance = BotMemoryMaintenanceController(
             store: store, botID: botID, memory: memory, runtime: runtime,
             remote: remote, recordReading: recordService,
@@ -227,7 +235,7 @@ final class BotRuntimeUnit {
             finished: { [weak maintenance] in
                 await maintenance?.noteUserTurnFinished()
             })
-        let info = BotProductionInfoService(
+        var info = BotProductionInfoService(
             environment: environment, scheduler: scheduler, settingsStore: settingsStore,
             maintenance: maintenance,
             bridgeDiagnostic: { [runtime, remote] in
@@ -235,6 +243,7 @@ final class BotRuntimeUnit {
                       await remote.ownsSession(diagnostic.sessionId) else { return nil }
                 return diagnostic
             })
+        info.cloudWiring = cloudWiring
         let deviceResults = DeviceTaskResultOutbox(domain: store, now: resolvedNow)
         await environment.setRoutineCanceller { [scheduler] routineID in
             await scheduler.cancelRunning(routineId: routineID)
@@ -245,7 +254,7 @@ final class BotRuntimeUnit {
             routineOutbox: routineOutbox, rows: rows, info: info,
             maintenance: maintenance,
             proactive: proactive, deviceResults: deviceResults,
-            cloudClient: cloudClient,
+            cloudClient: cloudClient, cloudWiring: cloudWiring,
             routineActivity: routineActivity, nowProvider: resolvedNow)
     }
 

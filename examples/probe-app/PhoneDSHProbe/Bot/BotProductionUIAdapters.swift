@@ -144,6 +144,12 @@ extension BotProductionInfoService {
             setRoutineEnabled: { [self] id, enabled in
                 try await self.setRoutineEnabled(id, enabled: enabled)
             },
+            setRoutineCloudSchedule: { [self] id, enabled in
+                guard let wiring = self.cloudWiring else {
+                    throw BotInfoActionError.cloudScheduleUnavailable
+                }
+                try await wiring.setRoutineCloudSchedule(routineID: id, enabled: enabled)
+            },
             revokeGrant: { [self] id in try await self.revokeGrant(id) },
             cancelRoutine: { [self] id in try await self.cancelRoutine(id) },
             resolveReconciliation: { [self] routineID, decision in
