@@ -42,6 +42,9 @@ struct BotFeedbackArtifact: Equatable {
     var label: String
     var kindLabel: String
     var verdicts: [BotFeedbackVerdict]
+    /// The scopes this row may offer for `suppress`. The dialog lists exactly
+    /// these; it never silently widens a routine class to a cross-Bot `user`.
+    var suppressScopes: [BotFeedbackScope] = []
 
     func offers(_ verdict: BotFeedbackVerdict) -> Bool {
         verdicts.contains(verdict)
@@ -71,6 +74,7 @@ enum BotFeedbackArtifactRule {
         }
         let kindLabel: String
         let verdicts: [BotFeedbackVerdict]
+        let suppressScopes: [BotFeedbackScope]
         if row.body.type == "text" {
             let text = (row.body["text"]?.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard row.role == "assistant", !text.isEmpty else {
@@ -78,6 +82,7 @@ enum BotFeedbackArtifactRule {
             }
             kindLabel = "回复"
             verdicts = [.adopt, .undo]
+            suppressScopes = []
         } else if let card = BotUICardContent.parse(row: row) {
             switch card.kind {
             // This inline bar records feedback on a delivered message or
@@ -89,15 +94,18 @@ enum BotFeedbackArtifactRule {
             case .attachment:
                 kindLabel = "附件"
                 verdicts = [.adopt, .undo]
+                suppressScopes = []
             case .document:
                 kindLabel = "文档"
                 verdicts = [.adopt, .undo]
+                suppressScopes = []
             case .automation:
                 // A routine result row is the one proactive artifact this
                 // transcript can resolve. Suppress is scoped explicitly by
                 // the confirmation dialog; correct still needs a memory doc.
                 kindLabel = "例行结果"
                 verdicts = [.suppress, .undo]
+                suppressScopes = [.artifact, .routineClass, .user]
             case .notice, .question, .steps, .approval,
                  .task, .progress, .checklist, .link:
                 return .unavailable("这类内容不通过消息反馈")
@@ -109,7 +117,8 @@ enum BotFeedbackArtifactRule {
             rowID: row.id, botID: row.botID,
             label: displayLabel(for: row),
             kindLabel: kindLabel,
-            verdicts: verdicts))
+            verdicts: verdicts,
+            suppressScopes: suppressScopes))
     }
 
     static func displayLabel(for row: BotUIRow) -> String {
@@ -145,8 +154,11 @@ enum BotFeedbackAvailability: Equatable {
 enum BotFeedbackScope: String, Equatable {
     /// Only this artifact.
     case artifact
+    /// This routine's future results. Wire `.class`; G-2 r5 accepts only a
+    /// narrow routine/reminder class here, never `user`.
+    case routineClass
     /// This kind of proactive output, across Bots. Only a UI action may create
-    /// it (G-2 r5); the host derives the concrete class from the artifact.
+    /// it (G-2 r5); the host derives the concrete kind-level class.
     case user
 }
 

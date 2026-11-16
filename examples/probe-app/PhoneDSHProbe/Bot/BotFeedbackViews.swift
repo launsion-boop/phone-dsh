@@ -31,6 +31,22 @@ struct BotFeedbackBar: View {
             }
         }
         .accessibilityIdentifier("bot.feedback.bar")
+        .confirmationDialog("不再提醒这一类？", isPresented: $confirmingSuppress,
+                            titleVisibility: .visible) {
+            Button("只这一条") { onFeedback(.suppress, .artifact) }
+                .accessibilityIdentifier("bot.feedback.suppress.artifact")
+            if artifact.suppressScopes.contains(.routineClass) {
+                Button("这个例行任务的结果") { onFeedback(.suppress, .routineClass) }
+                    .accessibilityIdentifier("bot.feedback.suppress.routineClass")
+            }
+            if artifact.suppressScopes.contains(.user) {
+                Button("所有 Bot 的这类") { onFeedback(.suppress, .user) }
+                    .accessibilityIdentifier("bot.feedback.suppress.user")
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("选择范围。这个例行任务只影响同一 routine 的后续结果；跨 Bot 只适用于可共享的类别。")
+        }
     }
 
     private var choices: some View {

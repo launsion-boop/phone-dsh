@@ -4,6 +4,7 @@
 // delivery/approval row. The durable draft revision and approval digest are
 // the authority; local toggles never make an old approval reusable.
 
+import CryptoKit
 import Foundation
 import PhoneDSHBot
 
@@ -200,6 +201,132 @@ enum BotDeliveryApprovalGate {
             }
             return .usable
         }
+    }
+}
+
+// MARK: - Host-side resolution (C adapter calls this)
+
+/// The durable result of one selection submission. The host stores this on the
+/// same row (revision + approval digest), then projects it back; nothing here
+/// is a second source of truth.
+struct BotDeliveryResolvedSelection: Equatable {
+    var draftID: String
+    var revision: Int
+    var digest: String
+    var selectedResourceIDs: [String]
+    var parameters: [BotDeliveryParameter]
+    var resources: [BotDeliveryResource]
+
+    var selectedResources: [BotDeliveryResource] {
+        let ids = Set(selectedResourceIDs)
+        return resources.filter { ids.contains($0.id) }
+    }
+}
+
+enum BotDeliverySelectionFailure: Error, Equatable {
+    case staleDraft
+    case staleRevision
+    case unknownResource(String)
+    case resourceUnavailable(String)
+    case digestMismatch
+    case invalidSelection
+
+    /// Stable planner/service code; the UI maps it to human copy.
+    var reasonCode: String {
+        switch self {
+        case .staleDraft: return "draft_changed"
+        case .staleRevision: return "draft_revision_mismatch"
+        case .unknownResource: return "unknown_resource"
+        case .resourceUnavailable: return "resource_unavailable"
+        case .digestMismatch: return "digest_mismatch"
+        case .invalidSelection: return "invalid_selection"
+        }
+    }
+}
+
+/// Pure host-side resolution for G-2 delivery selection. The C adapter loads
+/// the durable draft, resolves each resource's *current* source state, calls
+/// `resolve`, then persists the returned revision/digest. Before the actual
+/// delivery it calls `confirm` with fresh states; a resource revoked between
+/// UI selection and send makes the send fail instead of delivering the old
+/// attachment list.
+enum BotDeliverySelectionResolver {
+    static func resolve(intent: BotDeliverySelectionIntent,
+                        draft: BotDeliveryDraft,
+                        currentStates: [String: BotProvenanceState] = [:]) throws
+        -> BotDeliveryResolvedSelection {
+        guard intent.draftID == draft.draftID else { throw BotDeliverySelectionFailure.staleDraft }
+        guard intent.expectedRevision == draft.revision else {
+            throw BotDeliverySelectionFailure.staleRevision
+        }
+        let selected = Array(Set(intent.selectedResourceIDs)).sorted()
+        guard selected.count == intent.selectedResourceIDs.count else {
+            throw BotDeliverySelectionFailure.invalidSelection
+        }
+        var revalidated: [BotDeliveryResource] = []
+        let selectedSet = Set(selected)
+        for resource in draft.resources {
+            var next = resource
+            if let state = currentStates[resource.id] { next.state = state }
+            next.selected = selectedSet.contains(resource.id)
+            revalidated.append(next)
+        }
+        for id in selected {
+            guard let resource = revalidated.first(where: { $0.id == id }) else {
+                throw BotDeliverySelectionFailure.unknownResource(id)
+            }
+            guard resource.isSelectable else {
+                throw BotDeliverySelectionFailure.resourceUnavailable(id)
+            }
+        }
+        let revision = draft.revision + 1
+        let digest = approvalDigest(draftID: draft.draftID, revision: revision,
+                                    selectedResourceIDs: selected,
+                                    parameters: draft.parameters)
+        return BotDeliveryResolvedSelection(
+            draftID: draft.draftID, revision: revision, digest: digest,
+            selectedResourceIDs: selected, parameters: draft.parameters,
+            resources: revalidated)
+    }
+
+    /// Rechecks the already-resolved selection immediately before the side
+    /// effect. Any unreadable/revoked/erased resource blocks the delivery.
+    static func confirm(_ selection: BotDeliveryResolvedSelection,
+                        currentStates: [String: BotProvenanceState]) throws {
+        let expected = approvalDigest(draftID: selection.draftID,
+                                      revision: selection.revision,
+                                      selectedResourceIDs: selection.selectedResourceIDs,
+                                      parameters: selection.parameters)
+        guard expected == selection.digest else {
+            throw BotDeliverySelectionFailure.digestMismatch
+        }
+        for id in selection.selectedResourceIDs {
+            guard let resource = selection.resources.first(where: { $0.id == id }) else {
+                throw BotDeliverySelectionFailure.unknownResource(id)
+            }
+            let state = currentStates[id] ?? resource.state
+            switch state {
+            case .current, .changed, .unknown: continue
+            case .unavailable, .revoked, .erased:
+                throw BotDeliverySelectionFailure.resourceUnavailable(id)
+            }
+        }
+    }
+
+    /// G-2 formula: sha256 of the compact UTF-8 JSON array
+    /// `[draft_id, revision, sorted(selected ids), parameters sorted by label]`.
+    static func approvalDigest(draftID: String, revision: Int,
+                               selectedResourceIDs: [String],
+                               parameters: [BotDeliveryParameter]) -> String {
+        let sortedParameters = parameters
+            .sorted { $0.label < $1.label }
+            .map { ["label": $0.label, "value": $0.value] }
+        let object: [Any] = [draftID, revision, selectedResourceIDs.sorted(), sortedParameters]
+        let data = (try? JSONSerialization.data(
+            withJSONObject: object,
+            options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data()
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return "sha256:" + digest
     }
 }
 

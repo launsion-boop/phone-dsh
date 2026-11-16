@@ -394,6 +394,7 @@ final class BotDeliveryUITests: XCTestCase {
         XCTAssertFalse(artifact.offers(.adopt))
         XCTAssertFalse(artifact.offers(.correct))
         XCTAssertTrue(artifact.offers(.undo))
+        XCTAssertEqual(artifact.suppressScopes, [.artifact, .routineClass, .user])
     }
 
     func testFeedbackRecordAndUndoBindToAcceptedEvent() throws {
@@ -602,6 +603,109 @@ final class BotDeliveryUITests: XCTestCase {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
         XCTFail("condition not met within \(timeout)s")
+    }
+
+    // MARK: - Host-side delivery selection
+
+    func testApprovalDigestMatchesG2GoldenVector() {
+        let parameters = [
+            BotDeliveryParameter(label: "收件人", value: "张三"),
+            BotDeliveryParameter(label: "主题", value: "周报"),
+        ]
+        XCTAssertEqual(
+            BotDeliverySelectionResolver.approvalDigest(
+                draftID: "draft-1", revision: 3,
+                selectedResourceIDs: ["r1"], parameters: parameters),
+            "sha256:34bb49134465e38e88ba891e590e0fa01692431bbb559fae031274fa97c1f856")
+    }
+
+    func testResolverProducesNextRevisionAndDigest() throws {
+        let row = approvalRow(selected: ["r1"], resources: [
+            resource(id: "r1", name: "纪要.md", selected: true, state: "current"),
+            resource(id: "r2", name: "报价.pdf", selected: false, state: "current"),
+        ], revision: 2, digest: "sha256:" + String(repeating: "a", count: 64))
+        guard case .ready(let draft) = BotDeliveryDraft.parse(row: row) else {
+            return XCTFail("draft should parse")
+        }
+        let intent = BotDeliverySelectionIntent(
+            nonce: "n1", rowID: row.id, botID: row.botID, draftID: "draft-1",
+            expectedRevision: 2, selectedResourceIDs: ["r2", "r1"])
+        let resolved = try BotDeliverySelectionResolver.resolve(intent: intent, draft: draft)
+        XCTAssertEqual(resolved.revision, 3)
+        XCTAssertEqual(resolved.selectedResourceIDs, ["r1", "r2"])
+        XCTAssertTrue(resolved.digest.hasPrefix("sha256:"))
+        XCTAssertEqual(resolved.digest.count, 71)
+        try BotDeliverySelectionResolver.confirm(resolved, currentStates: [
+            "r1": .current, "r2": .current,
+        ])
+    }
+
+    func testResolverDeselectAllClearsFlagsAndProducesNewDigest() throws {
+        let row = approvalRow(selected: ["r1"], resources: [
+            resource(id: "r1", name: "纪要.md", selected: true, state: "current"),
+        ], revision: 2, digest: "sha256:" + String(repeating: "e", count: 64))
+        guard case .ready(let draft) = BotDeliveryDraft.parse(row: row) else {
+            return XCTFail("draft should parse")
+        }
+        let intent = BotDeliverySelectionIntent(
+            nonce: "n0", rowID: row.id, botID: row.botID, draftID: "draft-1",
+            expectedRevision: 2, selectedResourceIDs: [])
+        let resolved = try BotDeliverySelectionResolver.resolve(intent: intent, draft: draft)
+        XCTAssertEqual(resolved.revision, 3)
+        XCTAssertTrue(resolved.selectedResourceIDs.isEmpty)
+        XCTAssertFalse(resolved.resources[0].selected)
+        try BotDeliverySelectionResolver.confirm(resolved, currentStates: ["r1": .current])
+    }
+
+    func testResolverRejectsUnreadableSelectedResource() throws {
+        let row = approvalRow(selected: ["r1"], resources: [
+            resource(id: "r1", name: "已撤权.pdf", selected: true, state: "revoked"),
+        ], revision: 1, digest: "sha256:" + String(repeating: "b", count: 64))
+        guard case .ready(let draft) = BotDeliveryDraft.parse(row: row) else {
+            return XCTFail("draft should parse")
+        }
+        let intent = BotDeliverySelectionIntent(
+            nonce: "n2", rowID: row.id, botID: row.botID, draftID: "draft-1",
+            expectedRevision: 1, selectedResourceIDs: ["r1"])
+        XCTAssertThrowsError(try BotDeliverySelectionResolver.resolve(intent: intent, draft: draft)) {
+            XCTAssertEqual($0 as? BotDeliverySelectionFailure, .resourceUnavailable("r1"))
+        }
+    }
+
+    func testResolverAllowsHistoricalButRejectsRevokedAtConfirmation() throws {
+        let row = approvalRow(selected: [], resources: [
+            resource(id: "r1", name: "旧版规范.md", selected: false, state: "changed"),
+        ], revision: 1, digest: "sha256:" + String(repeating: "c", count: 64))
+        guard case .ready(let draft) = BotDeliveryDraft.parse(row: row) else {
+            return XCTFail("draft should parse")
+        }
+        let intent = BotDeliverySelectionIntent(
+            nonce: "n3", rowID: row.id, botID: row.botID, draftID: "draft-1",
+            expectedRevision: 1, selectedResourceIDs: ["r1"])
+        let resolved = try BotDeliverySelectionResolver.resolve(
+            intent: intent, draft: draft,
+            currentStates: ["r1": .changed])
+        XCTAssertEqual(resolved.resources[0].state, .changed)
+        try BotDeliverySelectionResolver.confirm(resolved, currentStates: ["r1": .changed])
+        XCTAssertThrowsError(try BotDeliverySelectionResolver.confirm(
+            resolved, currentStates: ["r1": .revoked])) {
+            XCTAssertEqual($0 as? BotDeliverySelectionFailure, .resourceUnavailable("r1"))
+        }
+    }
+
+    func testResolverRejectsStaleExpectedRevision() throws {
+        let row = approvalRow(selected: [], resources: [
+            resource(id: "r1", name: "纪要.md", selected: false, state: "current"),
+        ], revision: 4, digest: "sha256:" + String(repeating: "d", count: 64))
+        guard case .ready(let draft) = BotDeliveryDraft.parse(row: row) else {
+            return XCTFail("draft should parse")
+        }
+        let intent = BotDeliverySelectionIntent(
+            nonce: "n4", rowID: row.id, botID: row.botID, draftID: "draft-1",
+            expectedRevision: 3, selectedResourceIDs: ["r1"])
+        XCTAssertThrowsError(try BotDeliverySelectionResolver.resolve(intent: intent, draft: draft)) {
+            XCTAssertEqual($0 as? BotDeliverySelectionFailure, .staleRevision)
+        }
     }
 
     // MARK: - Helpers
