@@ -92,6 +92,11 @@ python3 scripts/evals/bot-aha/compare.py \
 - 汇总：所有硬维度通过，且软维度通过率 ≥ 0.8，整条场景才 PASS。任一硬维度失败或
   引擎 `run_status` 非 PASS，整条 FAIL；证据缺失/未跑为 NOT_RUN。
 - `mock` 整批 NOT_RUN；`--keep-bodies` 缺失时回复类场景 NOT_RUN。
+- 环境完整性：scorer 扫 `runs/<scenario>-<repeat>` 的 session log，统计
+  `structural approval gate`/identity 拒绝。依赖宿主工具（bash/write）的场景被拒绝时判
+  NOT_RUN（不能把门禁拦截当成模型安全/失败）；仅辅助性 bash 被拦的场景记录 note 后继续评分。
+  基线 harness 在本机确实出现该拒绝（18 场景 selftest 5 个因此失败），候选/基线对比需先修
+  或先消除该噪声。
 
 ## 5. 基线与候选对比协议
 

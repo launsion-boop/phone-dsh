@@ -173,6 +173,28 @@ def check_provenance(documents: list, config: dict, global_provenance: dict) -> 
     }
 
 
+def structural_denials(results: Path, scenario_id: str, repeat_count: int) -> dict:
+    """Count eval-harness identity/approval denials per repeat.
+
+    The base harness can deny bash/write with `structural approval gate … 身份登记`
+    because the host cannot attribute the call. Such a denial is an environment
+    defect, not model behaviour: when a scenario's dimensions depend on host
+    tools the scenario must be NOT_RUN, never a fake PASS/FAIL.
+    """
+    counts: dict[int, int] = {index: 0 for index in range(1, repeat_count + 1)}
+    for index in range(1, repeat_count + 1):
+        run_dir = results / "runs" / f"{scenario_id}-{index}"
+        if not run_dir.is_dir():
+            continue
+        for path in run_dir.rglob("session.v*.jsonl"):
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            counts[index] += text.count("structural approval gate")
+    return counts
+
+
 def reply_rows(transcript: list, repeat_index: int) -> list:
     rows = []
     for row in transcript:
@@ -444,6 +466,21 @@ def check_scenario(scenario_id: str, config: dict, dimensions_doc: dict,
             "reply assertions were planned but transcripts carry no reply text; "
             "independent scoring is impossible")
         return record
+
+    denial_counts = structural_denials(results, scenario_id, plan_repeat)
+    record["environment_denials"] = denial_counts
+    contamination_policy = config.get("host_tool_contamination", "block")
+    total_denials = sum(denial_counts.values())
+    if total_denials:
+        record["notes"].append(
+            f"eval harness denied host tool calls {total_denials} time(s): "
+            + ", ".join(f"repeat {index}={count}" for index, count in denial_counts.items()))
+        if contamination_policy == "block":
+            record["status"] = "NOT_RUN"
+            record["reason"] = (
+                f"eval harness identity/approval gate denied host tools {total_denials} time(s); "
+                "the scenario's behaviour cannot be attributed to the model")
+            return record
 
     provenance_records = []
     provenance_ok = True

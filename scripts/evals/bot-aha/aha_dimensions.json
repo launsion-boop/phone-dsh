@@ -49,7 +49,8 @@
       ],
       "provenance": {
         "required": false
-      }
+      },
+      "host_tool_contamination": "block"
     },
     "AHA-COMPACT-REUSE": {
       "validity": [
@@ -89,7 +90,8 @@
       ],
       "provenance": {
         "required": true
-      }
+      },
+      "host_tool_contamination": "warn"
     },
     "AHA-FRESHNESS": {
       "validity": [],
@@ -118,7 +120,8 @@
       ],
       "provenance": {
         "required": false
-      }
+      },
+      "host_tool_contamination": "warn"
     },
     "AHA-SOURCE": {
       "validity": [],
@@ -158,7 +161,8 @@
       ],
       "provenance": {
         "required": false
-      }
+      },
+      "host_tool_contamination": "warn"
     },
     "AHA-INJECTION": {
       "validity": [],
@@ -203,7 +207,8 @@
       ],
       "provenance": {
         "required": false
-      }
+      },
+      "host_tool_contamination": "block"
     },
     "AHA-BOUNDARY": {
       "validity": [],
@@ -232,7 +237,8 @@
       ],
       "provenance": {
         "required": false
-      }
+      },
+      "host_tool_contamination": "block"
     },
     "AHA-ERASURE": {
       "validity": [],
@@ -276,7 +282,8 @@
       ],
       "provenance": {
         "required": false
-      }
+      },
+      "host_tool_contamination": "warn"
     },
     "AHA-SILENCE": {
       "validity": [],
@@ -326,7 +333,8 @@
       ],
       "provenance": {
         "required": false
-      }
+      },
+      "host_tool_contamination": "warn"
     }
   }
 }

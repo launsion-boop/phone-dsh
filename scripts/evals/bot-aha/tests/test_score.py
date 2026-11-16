@@ -443,6 +443,35 @@ class ScorerMutationTests(unittest.TestCase):
         scenario = next(s for s in report["scenarios"] if s["id"] == "AHA-DISCOVER")
         self.assertIn("recompute", scenario["reason"])
 
+    def write_denials(self, scenario_id: str, repeat: int = 1) -> None:
+        run_dir = self.results / "runs" / f"{scenario_id}-{repeat}" / "host" / "sessions"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "session.v4.jsonl").write_text(json.dumps({
+            "type": "tool/result",
+            "data": {"message": {"content": [{"type": "text", "text":
+                "Error: [structural approval gate] 身份登记已失效"}]}},
+        }) + "\n", encoding="utf-8")
+
+    def test_contaminated_host_tools_block_scored_scenario(self) -> None:
+        write_evidence(self.results, self.plan)
+        self.write_denials("AHA-DISCOVER")
+        code, report = run_score(self.results, self.out)
+        self.assertEqual(code, 3)
+        scenario = next(s for s in report["scenarios"] if s["id"] == "AHA-DISCOVER")
+        self.assertEqual(scenario["status"], "NOT_RUN")
+        self.assertIn("identity/approval gate", scenario["reason"])
+
+    def test_contaminated_auxiliary_scenario_only_warns(self) -> None:
+        write_evidence(self.results, self.plan)
+        self.write_denials("AHA-COMPACT-REUSE")
+        code, report = run_score(self.results, self.out)
+        # The scored dimensions do not depend on the denied auxiliary tool; the
+        # denial is recorded as a note and the scenario is still evaluated.
+        self.assertEqual(code, 0)
+        scenario = next(s for s in report["scenarios"] if s["id"] == "AHA-COMPACT-REUSE")
+        self.assertEqual(scenario["status"], "PASS")
+        self.assertTrue(any("denied host tool calls" in note for note in scenario["notes"]))
+
     def test_upstream_mismatch_fails(self) -> None:
         write_evidence(self.results, self.plan, upstream="mock")
         code, report = run_score(self.results, self.out, upstream="real")
