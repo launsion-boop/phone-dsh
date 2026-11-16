@@ -81,7 +81,8 @@ enum ProvenanceTest {
         resource: BotResourceIdentity? = nil,
         at: Int64 = now,
         sessionID: String = "gb-main",
-        seq: Int = 1
+        seq: Int = 1,
+        grantId: String? = nil
     ) -> BotEvent {
         let envelope = BotObservationEnvelope(
             source: source, origin: origin, at: isoInstant(at), owner: owner,
@@ -96,6 +97,7 @@ enum ProvenanceTest {
         if let resource, let encoded = try? ProvenanceTest.encoded(resource) {
             data["resource"] = encoded
         }
+        if let grantId { data["grant_id"] = .string(grantId) }
         return .init(
             type: "conversation.tool_result",
             eventId: eventId,
@@ -117,6 +119,7 @@ enum ProvenanceTest {
         at: Int64 = now,
         resource: BotResourceIdentity? = nil,
         version: BotProvenanceSourceVersion? = nil,
+        grantId: String? = nil,
         payload: BotJSONValue = .object(["id": .string("event-1")])
     ) -> BotEvent {
         var data: [String: BotJSONValue] = [
@@ -139,6 +142,7 @@ enum ProvenanceTest {
         if let resource, let encoded = try? ProvenanceTest.encoded(resource) {
             data["resource"] = encoded
         }
+        if let grantId { data["grant_id"] = .string(grantId) }
         return .init(
             type: "context.observed",
             eventId: eventId,

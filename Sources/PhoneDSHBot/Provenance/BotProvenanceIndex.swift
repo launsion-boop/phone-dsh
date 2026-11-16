@@ -49,6 +49,8 @@ public struct BotProvenanceSnapshot: Sendable {
     /// Source ref -> resource identity, built from durable observation carriers
     /// only (including session refs named by a DSH origin).
     let observationResourceByRef: [String: BotResourceIdentity]
+    /// G-1 r20: optional real BotGrant id from the observation carrier.
+    let observationGrantByRef: [String: String]
     let scanLimitExceeded: Bool
     let cyclicArtifacts: Set<BotDerivedRef>
     let artifactByCarrier: [String: BotDerivedRef]
@@ -97,6 +99,7 @@ public struct BotProvenanceSnapshot: Sendable {
                 revokedGrants: revokedGrants, observations: observations,
                 observationsByKindKey: observationsByKindKey,
                 observationResourceByRef: observationResourceByRef,
+                observationGrantByRef: observationGrantByRef,
                 scanLimitExceeded: scanLimitExceeded,
                 cyclicArtifacts: [], artifactByCarrier: [:],
                 generation: generation)
@@ -138,6 +141,7 @@ public struct BotProvenanceSnapshot: Sendable {
             revokedGrants: revokedGrants, observations: observations,
             observationsByKindKey: observationsByKindKey,
             observationResourceByRef: observationResourceByRef,
+            observationGrantByRef: observationGrantByRef,
             scanLimitExceeded: scanLimitExceeded,
             cyclicArtifacts: Self.stronglyConnectedCycles(dependencies),
             artifactByCarrier: artifactByCarrier, generation: generation)
@@ -286,7 +290,8 @@ public struct BotProvenanceSnapshot: Sendable {
             let canonical = BotRecordReference.canonicalize(source.record) ?? source.record
             return status(ref: canonical,
                           roles: [source.role?.rawValue ?? "basis"],
-                          baseline: source.sourceVersion, grantId: source.grantId,
+                          baseline: source.sourceVersion,
+                          grantId: source.grantId ?? observationGrantByRef[canonical],
                           carrierSeq: assertion.carrierSeq,
                           explicitResource: source.resource,
                           facts: facts[canonical] ?? eventFacts[canonical])
@@ -498,7 +503,8 @@ public struct BotProvenanceSnapshot: Sendable {
             let ref = BotRecordReference.canonicalize(source.record) ?? source.record
             let sourceStatus = status(
                 ref: ref, roles: [source.role?.rawValue ?? "basis"],
-                baseline: source.sourceVersion, grantId: source.grantId,
+                baseline: source.sourceVersion,
+                grantId: source.grantId ?? observationGrantByRef[ref],
                 carrierSeq: assertion.carrierSeq,
                 explicitResource: source.resource,
                 facts: facts[ref] ?? eventFacts[ref])
@@ -726,6 +732,7 @@ extension BotProvenanceSnapshot {
         var lastErasureSeq = 0
         var lastGrantSeq = 0
         var observations: [String: [BotProvenanceObservation]] = [:]
+        var observationGrants: [String: String] = [:]
         var observationsByKindKey: [String: [BotProvenanceObservation]] = [:]
         var observationResourceByRef: [String: BotResourceIdentity] = [:]
         var observationEvents = 0
@@ -767,6 +774,11 @@ extension BotProvenanceSnapshot {
                     facts.currentVersion = observation.version
                     facts.observedAtMS = observation.observedAtMS
                     facts.resource = observation.resource
+                }
+                if let grant = observation.grantId {
+                    for alias in Set(observation.aliases) {
+                        observationGrants[alias] = grant
+                    }
                 }
                 if let resource = observation.resource {
                     let entry = BotProvenanceObservation(
@@ -861,6 +873,7 @@ extension BotProvenanceSnapshot {
             observations: observationIndex,
             observationsByKindKey: kindKeyIndex,
             observationResourceByRef: observationResourceByRef,
+            observationGrantByRef: observationGrants,
             scanLimitExceeded: scanExceeded,
             cyclicArtifacts: cyclic,
             artifactByCarrier: artifactByCarrier,
@@ -1128,6 +1141,7 @@ extension BotProvenanceSnapshot {
         var observedAtMS: Int64
         var version: BotProvenanceSourceVersion?
         var resource: BotResourceIdentity?
+        var grantId: String?
         /// The one record that represents this observation in the latest
         /// index (the original source record when the carrier names one).
         var sourceRef: String
@@ -1154,7 +1168,7 @@ extension BotProvenanceSnapshot {
                 source: envelope.source, origin: envelope.origin, owner: owner,
                 observedAtMS: event.time > 0 ? event.time : 0,
                 version: parseVersion(event.data["source_version"]),
-                resource: resource,
+                resource: resource, grantId: parseGrantId(event.data["grant_id"]),
                 sourceRef: original ?? eventRef,
                 aliases: [eventRef, original].compactMap { $0 })
         case "context.observed":
@@ -1174,12 +1188,18 @@ extension BotProvenanceSnapshot {
                 source: source, origin: nil, owner: owner,
                 observedAtMS: Int64(observedAt),
                 version: parseVersion(event.data["source_version"]),
-                resource: resource,
+                resource: resource, grantId: parseGrantId(event.data["grant_id"]),
                 sourceRef: recordRef ?? carrierRef,
                 aliases: [carrierRef, recordRef].compactMap { $0 })
         default:
             return nil
         }
+    }
+
+    private static func parseGrantId(_ value: BotJSONValue?) -> String? {
+        guard let text = value?.stringValue,
+              !text.isEmpty, text.unicodeScalars.count <= 128 else { return nil }
+        return text
     }
 
     private static func observationEnvelopeText(_ event: BotEvent) -> String? {

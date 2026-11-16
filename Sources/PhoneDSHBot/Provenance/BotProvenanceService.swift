@@ -156,7 +156,9 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
             }
             filled.append(BotDerivationSource(
                 record: canonicalRef, role: source.role, resource: resource,
-                sourceVersion: source.sourceVersion, grantId: source.grantId))
+                sourceVersion: source.sourceVersion,
+                grantId: source.grantId
+                    ?? snapshot.observationGrantByRef[canonicalRef]))
         }
         return try Self.jsonValue(BotDerivation(
             artifact: canonical.artifact, sources: filled, basis: canonical.basis))
@@ -387,8 +389,7 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
     // MARK: - read side
 
     public func forwardTrace(sourceRef: String) async throws -> [BotDerivedRef] {
-        let snapshot = try await refresh()
-        let facts = await facts(for: snapshot)
+        let (snapshot, facts) = try await settledSnapshotAndFacts()
         return snapshot.trace(sourceRef, facts: facts).map(\.artifact)
     }
 
@@ -397,15 +398,13 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
     }
 
     public func currentState(for derivedRef: BotDerivedRef) async throws -> BotDerivationView {
-        let snapshot = try await refresh()
-        let facts = await facts(for: snapshot)
+        let (snapshot, facts) = try await settledSnapshotAndFacts()
         return snapshot.view(for: derivedRef, facts: facts)
     }
 
     public func currentStates(for derivedRefs: [BotDerivedRef]) async throws
         -> [BotDerivedRef: BotDerivationView] {
-        let snapshot = try await refresh()
-        let facts = await facts(for: snapshot)
+        let (snapshot, facts) = try await settledSnapshotAndFacts()
         var result: [BotDerivedRef: BotDerivationView] = [:]
         for ref in derivedRefs {
             result[ref] = snapshot.view(for: ref, facts: facts)
@@ -414,30 +413,24 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
     }
 
     public func trace(_ record: String) async throws -> [BotDerivationView] {
-        let snapshot = try await refresh()
-        let facts = await facts(for: snapshot)
+        let (snapshot, facts) = try await settledSnapshotAndFacts()
         return snapshot.trace(record, facts: facts)
     }
 
     public func sourceStatuses(for artifact: BotDerivedRef) async throws -> [BotSourceStatus] {
-        let snapshot = try await refresh()
-        let facts = await facts(for: snapshot)
+        let (snapshot, facts) = try await settledSnapshotAndFacts()
         return snapshot.sourceStatuses(for: artifact, facts: facts)
     }
 
     public func sourceStatuses(for artifact: BotDerivedRef,
                                botID: String?) async throws -> [BotSourceStatus] {
-        let snapshot = try await refresh()
-        let scoped = snapshot.scoped(botID: botID)
-        let facts = await facts(for: scoped)
+        let (scoped, facts) = try await settledScopedSnapshotAndFacts(botID: botID)
         return scoped.sourceStatuses(for: artifact, facts: facts)
     }
 
     public func forwardTrace(sourceRef: String,
                              botID: String?) async throws -> [BotDerivedRef] {
-        let snapshot = try await refresh()
-        let scoped = snapshot.scoped(botID: botID)
-        let facts = await facts(for: scoped)
+        let (scoped, facts) = try await settledScopedSnapshotAndFacts(botID: botID)
         return scoped.trace(sourceRef, facts: facts).map(\.artifact)
     }
 
@@ -450,31 +443,26 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
 
     public func trace(_ record: String,
                       botID: String?) async throws -> [BotDerivationView] {
-        let snapshot = try await refresh()
-        let scoped = snapshot.scoped(botID: botID)
-        let facts = await facts(for: scoped)
+        let (scoped, facts) = try await settledScopedSnapshotAndFacts(botID: botID)
         return scoped.trace(record, facts: facts)
     }
 
     public func currentState(for artifact: BotDerivedRef,
                              botID: String?) async throws -> BotDerivationView {
-        let snapshot = try await refresh()
-        let scoped = snapshot.scoped(botID: botID)
-        let facts = await facts(for: scoped)
+        let (scoped, facts) = try await settledScopedSnapshotAndFacts(botID: botID)
         return scoped.view(for: artifact, facts: facts)
     }
 
     public func sourceStatuses(for refs: [String]) async throws -> [String: BotSourceStatus] {
-        let snapshot = try await refresh()
-        let facts = await facts(for: snapshot, extraRefs: refs)
+        let (snapshot, facts) = try await settledSnapshotAndFacts(extraRefs: refs)
         return snapshot.sourceStatuses(for: refs, facts: facts)
     }
 
     public func sourceStatuses(for refs: [String],
                                botID: String?) async throws -> [String: BotSourceStatus] {
         guard let botID, !botID.isEmpty else { return [:] }
-        let snapshot = try await refresh()
-        let scoped = snapshot.scoped(botID: botID)
+        let (scoped, facts) = try await settledScopedSnapshotAndFacts(
+            botID: botID, extraRefs: refs)
         // Arbitrary refs have no artifact baseline. Only serve refs that the
         // scoped assertions actually reference; an unrelated/foreign ref must
         // not become a current source merely because the legacy eventFacts map
@@ -482,7 +470,6 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         let allowed = Set(scoped.bySource.keys)
         let scopedRefs = refs.filter { allowed.contains(
             BotRecordReference.canonicalize($0) ?? $0) }
-        let facts = await facts(for: scoped, extraRefs: scopedRefs)
         return scoped.sourceStatuses(for: scopedRefs, facts: facts)
     }
 
@@ -557,11 +544,45 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         let ref = BotRecordReference.canonicalize(source.record) ?? source.record
         guard let fact = facts[ref] else { return true }
         if !fact.resolved || fact.erased { return true }
-        return snapshot.isGrantKnownRevoked(source.grantId)
+        let grantId = source.grantId ?? snapshot.observationGrantByRef[ref]
+        return snapshot.isGrantKnownRevoked(grantId)
+    }
+
+    /// Read-side queries may await a provider. If a durable revoke/erasure
+    /// arrives during that await, discard the provider result by rebuilding
+    /// facts from the settled snapshot with rechecks disabled; the invalid
+    /// state then wins. The provider is called at most once per query.
+    private func settledSnapshotAndFacts(extraRefs: [String] = []) async throws
+        -> (BotProvenanceSnapshot, [String: BotProvenanceResolvedFacts]) {
+        var snapshot = try await refresh()
+        var resolvedFacts = await facts(for: snapshot, extraRefs: extraRefs)
+        let latest = try await refresh()
+        if latest.generation != snapshot.generation {
+            snapshot = latest
+            resolvedFacts = await facts(
+                for: latest, extraRefs: extraRefs, performRecheck: false)
+        }
+        return (snapshot, resolvedFacts)
+    }
+
+    private func settledScopedSnapshotAndFacts(
+        botID: String?, extraRefs: [String] = []
+    ) async throws -> (BotProvenanceSnapshot,
+                       [String: BotProvenanceResolvedFacts]) {
+        var scoped = try await refresh().scoped(botID: botID)
+        var resolvedFacts = await facts(for: scoped, extraRefs: extraRefs)
+        let latest = try await refresh().scoped(botID: botID)
+        if latest.generation != scoped.generation {
+            scoped = latest
+            resolvedFacts = await facts(
+                for: latest, extraRefs: extraRefs, performRecheck: false)
+        }
+        return (scoped, resolvedFacts)
     }
 
     private func facts(for snapshot: BotProvenanceSnapshot,
-                       extraRefs: [String] = []) async
+                       extraRefs: [String] = [],
+                       performRecheck: Bool = true) async
         -> [String: BotProvenanceResolvedFacts] {
         var facts = snapshot.eventFacts
         // G-1 r11/r12: event refs must reach P too. Session refs are not the
@@ -668,7 +689,7 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
             }
             facts[ref] = fact
         }
-        if let skillRechecker {
+        if performRecheck, let skillRechecker {
             for assertion in snapshot.assertions.values.joined()
             where assertion.artifact.kind == .skill && !assertion.isDeleted {
                 guard let seq = Int(assertion.carrierRecord
@@ -696,7 +717,7 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
                 facts[assertion.carrierRecord] = fact
             }
         }
-        if let rechecker {
+        if performRecheck, let rechecker {
             var recheckedKeys = Set<String>()
             for assertion in snapshot.assertions.values.joined() {
                 for source in assertion.sources {
@@ -757,7 +778,7 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
                     "duplicate (record, role) \(parsed.canonical)/\(role.rawValue)")
             }
             if let grantId = source.grantId,
-               grantId.isEmpty || grantId.unicodeScalars.count > 64 {
+               grantId.isEmpty || grantId.unicodeScalars.count > 128 {
                 throw BotProvenanceError.invalidDerivation("grantId must be 1...64 scalars")
             }
             if let error = source.sourceVersion?.validationError() {

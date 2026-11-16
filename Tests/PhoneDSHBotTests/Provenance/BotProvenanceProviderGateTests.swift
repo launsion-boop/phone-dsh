@@ -164,4 +164,132 @@ final class BotProvenanceProviderGateTests: XCTestCase {
                 grantId: "g1")])
         XCTAssertEqual(prepared["sources"]?.arrayValue?.first?["grantId"]?.stringValue, "g1")
     }
+    /// G-1 r20: the carrier names the real grant, even when the derivation
+    /// source itself omitted grantId. L must resolve it from the carrier and
+    /// still refuse the provider after revocation.
+    func testCarrierGrantIsResolvedWithoutProviderResurrection() async throws {
+        let log = BotProvenanceTestLog()
+        let grant = BotResourceIdentity(
+            kind: .contextSource, key: "calendar:g", owner: "bot-a")
+        let source = try await log.append(ProvenanceTest.contextObservedEvent(
+            eventId: "gate-carrier-grant", owner: "bot-a", at: 1_000,
+            resource: grant, version: .known(basis: .etag, value: "etag:g"),
+            grantId: "g-carrier"))
+        _ = try await log.append(memoryEvent(
+            path: "agent/carrier-grant.md",
+            source: "record://event/\(source)", baseline: "etag:g",
+            grantId: nil, eventId: "gate-carrier-memory"))
+        let service = BotProvenanceService(eventLog: log)
+        let prepared = try await service.prepareDerivation(
+            artifact: BotDerivedRef(kind: .memory, id: "agent/carrier-grant.md", version: 1),
+            sources: [BotDerivationSource(
+                record: "record://event/\(source)", role: .evidence,
+                sourceVersion: .known(basis: .etag, value: "etag:g"))])
+        XCTAssertEqual(
+            prepared["sources"]?.arrayValue?.first?["grantId"]?.stringValue,
+            "g-carrier")
+        _ = try await log.append(ProvenanceTest.event(
+            type: "grant.revoked", eventId: "revoke-carrier-grant",
+            data: .object(["grantId": .string("g-carrier")])))
+        let rechecker = CountingRechecker(outcome: .same(atMS: 2_000))
+        let revoked = BotProvenanceService(eventLog: log, rechecker: rechecker)
+        let status = try await revoked.currentState(
+            for: BotDerivedRef(kind: .memory, id: "agent/carrier-grant.md", version: 1))
+        XCTAssertEqual(status.state, .revoked)
+        let calls = await rechecker.callCount()
+        XCTAssertEqual(calls, 0)
+    }
+
+}
+
+private actor AwaitGate {
+    private var entered = false
+    private var enteredContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func waitUntilEntered() async {
+        if entered { return }
+        await withCheckedContinuation { enteredContinuation = $0 }
+    }
+
+    func enter() async {
+        entered = true
+        enteredContinuation?.resume()
+        enteredContinuation = nil
+        await withCheckedContinuation { releaseContinuation = $0 }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+}
+
+private actor GatedRechecker: BotProvenanceRechecking {
+    let gate: AwaitGate
+    private(set) var calls = 0
+
+    init(gate: AwaitGate) { self.gate = gate }
+
+    func recheck(resource: BotResourceIdentity,
+                 baseline: BotProvenanceSourceVersion,
+                 botID: String?) async -> BotProvenanceRecheckOutcome {
+        calls += 1
+        await gate.enter()
+        return .same(atMS: 2_000)
+    }
+
+    func callCount() -> Int { calls }
+}
+
+extension BotProvenanceProviderGateTests {
+    /// G-1 r21: a revoke/erasure that lands while the provider is awaited must
+    /// discard the stale same result. The provider is called once; the settled
+    /// state is revoked/erased, never current.
+    func testRevokeDuringProviderAwaitDoesNotBecomeCurrent() async throws {
+        let log = BotProvenanceTestLog()
+        let source = try await sourceEvent(log, id: "await-revoke")
+        _ = try await log.append(memoryEvent(
+            path: "agent/await-revoke.md", source: "record://event/\(source)",
+            baseline: "etag:a", grantId: "g1", eventId: "await-revoke-memory"))
+        let gate = AwaitGate()
+        let rechecker = GatedRechecker(gate: gate)
+        let service = BotProvenanceService(eventLog: log, rechecker: rechecker)
+        let task = Task {
+            try await service.currentState(
+                for: BotDerivedRef(kind: .memory, id: "agent/await-revoke.md", version: 1))
+        }
+        await gate.waitUntilEntered()
+        _ = try await log.append(ProvenanceTest.event(
+            type: "grant.revoked", eventId: "await-revoke-grant",
+            data: .object(["grantId": .string("g1")])))
+        await gate.release()
+        let state = try await task.value
+        XCTAssertEqual(state.state, .revoked)
+        let calls = await rechecker.callCount()
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testEraseDuringProviderAwaitDoesNotBecomeCurrent() async throws {
+        let log = BotProvenanceTestLog()
+        let source = try await sourceEvent(log, id: "await-erase")
+        _ = try await log.append(memoryEvent(
+            path: "agent/await-erase.md", source: "record://event/\(source)",
+            baseline: "etag:a", grantId: nil, eventId: "await-erase-memory"))
+        let gate = AwaitGate()
+        let rechecker = GatedRechecker(gate: gate)
+        let service = BotProvenanceService(eventLog: log, rechecker: rechecker)
+        let task = Task {
+            try await service.currentState(
+                for: BotDerivedRef(kind: .memory, id: "agent/await-erase.md", version: 1))
+        }
+        await gate.waitUntilEntered()
+        _ = try await log.append(ProvenanceTest.erasureEvent(
+            erasureId: "await-erase", eventRecords: ["record://event/\(source)"]))
+        await gate.release()
+        let state = try await task.value
+        XCTAssertEqual(state.state, .erased)
+        let calls = await rechecker.callCount()
+        XCTAssertEqual(calls, 1)
+    }
 }
