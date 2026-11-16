@@ -62,6 +62,11 @@ public struct BotMemoryWriteRequest: Sendable {
     /// Optional writer-recorded check state (spec/bot/v2 §1.5.1). `restore`
     /// ignores it and inherits the restored version's review instead.
     public var review: BotMemoryReview?
+    /// G-1 r8 Plan A: a fully-constructed derivation source list from the
+    /// provenance owner (L's `prepareBaseline`). P only validates/persists it;
+    /// it never derives `resource` itself. When supplied, the resolver fallback
+    /// is not used.
+    public var sourceBaselines: [BotSourceBaseline]?
 
     public init(
         action: BotMemoryAction = .write,
@@ -73,7 +78,8 @@ public struct BotMemoryWriteRequest: Sendable {
         expectedVersion: Int,
         restoreVersion: Int? = nil,
         evidence: [String] = [],
-        review: BotMemoryReview? = nil
+        review: BotMemoryReview? = nil,
+        sourceBaselines: [BotSourceBaseline]? = nil
     ) {
         self.action = action
         self.path = path
@@ -85,6 +91,7 @@ public struct BotMemoryWriteRequest: Sendable {
         self.restoreVersion = restoreVersion
         self.evidence = evidence
         self.review = review
+        self.sourceBaselines = sourceBaselines
     }
 }
 
@@ -285,40 +292,43 @@ public actor BotMemory {
                            error: "这条件记忆的 review 不成立：verified 需要非 model-inference 的依据和至少一条可解析引用，disputed 需要给出冲突双方，引用必须规范且不超过 8 条。")
         }
         let evidence = request.evidence.isEmpty ? nil : Array(request.evidence.prefix(8))
-        let sourceBaselines: [BotSourceBaseline]?
-        if let resolver = sourceStates {
-            var evidenceRefs: [String] = []
-            var reviewRefs: [String] = []
-            if request.action == .restore, let restoreVersion = request.restoreVersion {
-                // `restore` inherits the restored version's metadata, so the
-                // baseline must describe that version's sources, not the
-                // restore request's (which cannot inject or clear them).
-                let versions = (try? await store.versions(path: request.path)) ?? []
-                if let restored = versions.first(where: { $0.version == restoreVersion }) {
-                    evidenceRefs = restored.evidence
-                    reviewRefs = restored.review?.refs ?? []
-                }
-            } else if request.action != .delete && request.action != .move {
-                evidenceRefs = evidence ?? []
-                reviewRefs = request.review?.refs ?? []
+        var evidenceRefs: [String] = []
+        var reviewRefs: [String] = []
+        if request.action == .restore, let restoreVersion = request.restoreVersion {
+            // `restore` inherits the restored version's metadata, so the
+            // baseline must describe that version's sources, not the
+            // restore request's (which cannot inject or clear them).
+            let versions = (try? await store.versions(path: request.path)) ?? []
+            if let restored = versions.first(where: { $0.version == restoreVersion }) {
+                evidenceRefs = restored.evidence
+                reviewRefs = restored.review?.refs ?? []
             }
-            if evidenceRefs.isEmpty && reviewRefs.isEmpty {
-                sourceBaselines = nil
-            } else {
-                do {
-                    let states = try await resolver.sourceStates(
-                        for: evidenceRefs + reviewRefs,
-                        callerBotID: botID,
-                        callerSessionID: context.sessionID ?? "")
-                    sourceBaselines = try BotSourceBaselineBuilder.baselines(
-                        evidence: evidenceRefs, reviewRefs: reviewRefs, states: states)
-                } catch {
-                    // Fail closed: a derived object written without its source
-                    // baseline can never prove whether the source changed.
-                    return failure(
-                        request, code: "memory-source-baseline-unavailable",
-                        error: "写入前无法核对来源版本；为避免产生无基线的记忆版本，本次写入未执行。")
-                }
+        } else if request.action != .delete && request.action != .move {
+            evidenceRefs = evidence ?? []
+            reviewRefs = request.review?.refs ?? []
+        }
+        let sourceBaselines: [BotSourceBaseline]?
+        if let supplied = request.sourceBaselines {
+            if let error = Self.sourceBaselineValidationError(
+                supplied, evidenceRefs: evidenceRefs, reviewRefs: reviewRefs) {
+                return failure(request, code: "memory-source-baseline-unavailable", error: error)
+            }
+            sourceBaselines = supplied.isEmpty ? nil : supplied
+        } else if let resolver = sourceStates,
+                  !evidenceRefs.isEmpty || !reviewRefs.isEmpty {
+            do {
+                let states = try await resolver.sourceStates(
+                    for: evidenceRefs + reviewRefs,
+                    callerBotID: botID,
+                    callerSessionID: context.sessionID ?? "")
+                sourceBaselines = try BotSourceBaselineBuilder.baselines(
+                    evidence: evidenceRefs, reviewRefs: reviewRefs, states: states)
+            } catch {
+                // Fail closed: a derived object written without its source
+                // baseline can never prove whether the source changed.
+                return failure(
+                    request, code: "memory-source-baseline-unavailable",
+                    error: "写入前无法核对来源版本；为避免产生无基线的记忆版本，本次写入未执行。")
             }
         } else {
             sourceBaselines = nil
@@ -628,6 +638,42 @@ public actor BotMemory {
                 atMS: now())
             _ = try await store.write(request)
         }
+    }
+
+    /// Validates a derivation supplied by the provenance owner (G-1 r8 Plan A).
+    /// P does not invent `resource`; an observation baseline without one is
+    /// rejected, and every effective evidence/review ref must be covered.
+    static func sourceBaselineValidationError(_ baselines: [BotSourceBaseline],
+                                              evidenceRefs: [String],
+                                              reviewRefs: [String]) -> String? {
+        guard baselines.count <= 16 else { return "derivation sources 不能超过 16 条。" }
+        var seen = Set<String>()
+        var records = Set<String>()
+        for baseline in baselines {
+            guard let canonical = BotRecordReference.canonicalize(baseline.record) else {
+                return "derivation 里有非法的 record:// 引用。"
+            }
+            let key = "\(baseline.role?.rawValue ?? "-")|\(canonical)"
+            guard seen.insert(key).inserted else {
+                return "derivation 的 (record, role) 不能重复。"
+            }
+            records.insert(canonical)
+            if let resource = baseline.resource, !resource.isStructurallyValid {
+                return "derivation 的 resource 形状不合法。"
+            }
+            if baseline.sourceVersion != nil {
+                guard baseline.resource != nil else {
+                    return "观察来源必须带 resource 身份；本次写入未执行。"
+                }
+            }
+        }
+        let effective = Set((evidenceRefs + reviewRefs).compactMap {
+            BotRecordReference.canonicalize($0) ?? $0
+        })
+        guard effective.isSubset(of: records) else {
+            return "derivation 没有覆盖全部 evidence/review 来源；本次写入未执行。"
+        }
+        return nil
     }
 
     private func failure(_ request: BotMemoryWriteRequest, code: String, error: String) -> BotMemoryWriteResult {

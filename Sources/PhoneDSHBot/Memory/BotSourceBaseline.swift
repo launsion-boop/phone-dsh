@@ -12,6 +12,32 @@ import Foundation
 /// A source that genuinely has no version still gets an explicit
 /// `sourceVersion` of `.unknown(<reason>)`; omitting the entry is not allowed,
 /// because that is indistinguishable from "the host never looked".
+/// Frozen G-1 r5/r8 `resource` identity. The provenance read model owns the
+/// value; this struct is only the transport P persists after L's
+/// `prepareBaseline` supplies it. P never derives owner/scope/key.
+public struct BotMemoryResource: Codable, Sendable, Equatable {
+    public let kind: String
+    public let key: String
+    public let owner: String?
+    public let scope: String?
+
+    public init(kind: String, key: String, owner: String? = nil, scope: String? = nil) {
+        self.kind = kind
+        self.key = key
+        self.owner = owner
+        self.scope = scope
+    }
+
+    public var isStructurallyValid: Bool {
+        let kinds: Set<String> = ["web-url", "connector-resource", "file", "context-source", "provider"]
+        guard kinds.contains(kind), !key.isEmpty,
+              key.unicodeScalars.count <= 512 else { return false }
+        if let owner, owner.isEmpty || owner.unicodeScalars.count > 128 { return false }
+        if let scope, scope.isEmpty || scope.unicodeScalars.count > 128 { return false }
+        return true
+    }
+}
+
 public enum BotSourceRole: String, Codable, Sendable, CaseIterable {
     case evidence
     case review
@@ -28,12 +54,17 @@ public struct BotSourceBaseline: Sendable, Equatable {
     /// Required for observations (known or explicit unknown), absent for
     /// non-observation records (G-1 §2.2).
     public let sourceVersion: BotSourceVersion?
+    /// Required for observations under G-1 r5/r8. Supplied by L's
+    /// `prepareBaseline`; nil means P must not claim a comparable resource.
+    public let resource: BotMemoryResource?
 
     public init(record: String, role: BotSourceRole? = nil,
-                sourceVersion: BotSourceVersion?) {
+                sourceVersion: BotSourceVersion?,
+                resource: BotMemoryResource? = nil) {
         self.record = record
         self.role = role
         self.sourceVersion = sourceVersion
+        self.resource = resource
     }
 }
 
@@ -150,6 +181,7 @@ extension BotSourceBaseline: Codable {
         case record
         case role
         case sourceVersion
+        case resource
     }
 
     public init(from decoder: Decoder) throws {
@@ -162,6 +194,7 @@ extension BotSourceBaseline: Codable {
         }
         role = try container.decodeIfPresent(BotSourceRole.self, forKey: .role)
         sourceVersion = try container.decodeIfPresent(BotSourceVersion.self, forKey: .sourceVersion)
+        resource = try container.decodeIfPresent(BotMemoryResource.self, forKey: .resource)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -170,6 +203,9 @@ extension BotSourceBaseline: Codable {
         if let role { try container.encode(role, forKey: .role) }
         if let sourceVersion {
             try container.encode(sourceVersion, forKey: .sourceVersion)
+        }
+        if let resource {
+            try container.encode(resource, forKey: .resource)
         }
     }
 }
