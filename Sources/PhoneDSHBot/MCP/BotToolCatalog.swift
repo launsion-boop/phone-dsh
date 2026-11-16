@@ -219,7 +219,7 @@ public enum BotToolCatalog {
     public static func allDefinitions(roster: BotRoster,
                                       callerBotID: String?) -> [BotMCPToolDefinition] {
         definitions + [fishActionDefinition, volatileContextDefinition,
-                       attachToModelDefinition, decisionContextDefinition,
+                       attachToModelDefinition, decisionContextDefinition, skillStatusDefinition,
                        BotFeedbackTools.definition]
             + teamDefinitions(roster: roster, callerBotID: callerBotID)
     }
@@ -277,6 +277,25 @@ public enum BotToolCatalog {
     /// frozen P26 `definitions`/golden. It is read-only, host-validated and
     /// returns only the current session's bounded block; it grants nothing.
     public static let decisionContextName = BotDecisionTool.name
+
+    /// Bot-only skill gate lookup for R's `tools/pre-execute`. Exposed through
+    /// `tools/list` for the Worker, absent from the frozen P26 model catalog.
+    public static let skillStatusName = "BotSkillUseStatus"
+
+    public static let skillStatusDefinition = BotMCPToolDefinition(
+        name: skillStatusName,
+        description: "Return the caller Bot's L provenance status for one skill name. A nil status is returned as null (untracked), never as current.",
+        inputSchema: .object([
+            "type": .string("object"),
+            "required": .array([.string("schema"), .string("name")]),
+            "properties": .object([
+                "schema": .object(["const": .string("bot-skill-use-status/v1")]),
+                "name": .object([
+                    "type": .string("string"), "minLength": .number(1), "maxLength": .number(128),
+                ]),
+            ]),
+            "additionalProperties": .bool(false),
+        ]))
 
     public static let decisionContextDefinition = BotMCPToolDefinition(
         name: decisionContextName,
@@ -344,13 +363,14 @@ public enum BotToolCatalog {
 
     public static var allDefinitions: [BotMCPToolDefinition] {
         definitions + [fishActionDefinition, volatileContextDefinition,
-                       attachToModelDefinition, decisionContextDefinition,
+                       attachToModelDefinition, decisionContextDefinition, skillStatusDefinition,
                        BotFeedbackTools.definition] + baseTeamDefinitions
     }
 
     public static func isRegistered(_ name: String) -> Bool {
         name == volatileContextName || name == attachToModelName
-            || name == decisionContextName || name == BotFeedbackTools.definition.name
+            || name == decisionContextName || name == skillStatusName
+            || name == BotFeedbackTools.definition.name
             || p0Names.contains(name)
     }
 

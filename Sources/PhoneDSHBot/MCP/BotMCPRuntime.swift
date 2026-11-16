@@ -1419,6 +1419,7 @@ public actor BotMCPRuntime {
         let bareName = bareToolName(name)
         let catalogTool = BotToolCatalog.isRegistered(bareName)
         let decisionTool = bareName == BotDecisionTool.name
+        let skillStatusTool = bareName == BotToolCatalog.skillStatusName
         let teamHandler = catalogTool ? nil : teamToolHandler(for: bareName)
         guard catalogTool || teamHandler != nil || decisionTool else {
             return .failure("unknown_tool", "未知工具：\(name)")
