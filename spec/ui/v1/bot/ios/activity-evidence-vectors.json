@@ -168,14 +168,14 @@
             "callId": "a",
             "name": "read",
             "arguments": {
-              "file_path": "/Users/leilangsheng/Desktop/Phone DSH public/examples/probe-app/PhoneDSHProbe/Bot/BotChatModel.swift"
+              "file_path": "/workspace/PhoneDSHProbe/Bot/BotChatModel.swift"
             }
           }
         }
       ],
       "expected": {
         "status": "tool-running",
-        "detail": "在翻文件 · /Users/leilangsheng/Desktop/Phone DSH public/examples/probe-app/PhoneDSHProbe/Bot/BotChatModel.swift",
+        "detail": "在翻文件 · /workspace/PhoneDSHProbe/Bot/BotChatModel.swift",
         "category": "reading",
         "startedAt": 200
       }
