@@ -6,7 +6,7 @@ import XCTest
 @testable import PhoneDSHProbe
 
 @MainActor
-final class BotDeliveryUITests: XCTestCase {
+final class BotDeliveryDeviceUITests: XCTestCase {
     private let now: Int64 = 1_794_801_600_000 // 2026-11-16 12:00 Asia/Shanghai
 
     private var calendar: Calendar {
