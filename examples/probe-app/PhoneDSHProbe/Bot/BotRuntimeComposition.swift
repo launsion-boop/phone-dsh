@@ -238,7 +238,7 @@ final class BotRuntimeComposition {
     /// G-3 iOS context sources. Created in `prepare`; started after the first
     /// successful bind and stopped with the composition.
     private var contextSources: BotContextSourcesAssembly?
-    private var skillAdminObserver: BotSkillAdminObserver?
+    private var skillDirectoryObservers: [BotSkillDirectoryObserver] = []
 
     /// Read-only seam for the Bot info/settings entry and the info driver. The
     /// assembly remains the sole consent/observation authority.
@@ -458,12 +458,34 @@ final class BotRuntimeComposition {
             roots: skillRoots,
             recorder: { request in try await runtime.recordSkillWrite(request) },
             latest: { identity in try await runtime.latestSkillChange(identity: identity) })
-        let skillAdminObserver = BotSkillAdminObserver(
-            root: skillRoots.skillsRoot(source: "user-dsh", ownerBotID: nil)
-                ?? (workspaceRoot ?? BotProductionPaths.workspaceRoot())
-                    .appendingPathComponent("materialized/home/skills", isDirectory: true),
-            producer: skillProducer)
-        skillAdminObserver.start()
+        let userRoot = skillRoots.skillsRoot(source: "user-dsh", ownerBotID: nil)
+            ?? (workspaceRoot ?? BotProductionPaths.workspaceRoot())
+                .appendingPathComponent("materialized/home/skills", isDirectory: true)
+        let userObserver = BotSkillDirectoryObserver(
+            root: userRoot, label: "bot.skill.user-dsh", createRoot: true,
+            onWritten: { name in
+                Task { _ = try? await skillProducer.recordUserDshWrite(fileName: name) }
+            },
+            onDeleted: { name in
+                Task { _ = try? await skillProducer.recordUserDshDelete(fileName: name) }
+            })
+        skillDirectoryObservers = [userObserver]
+        userObserver.start()
+        let botRoot = BotWorkspaceLayout.botRoot(
+            botId: selectedCandidate, dataDirectory: BotSessionRegistry.botDataDirectory)
+        for (suffix, source) in [(".dsh/skills", "project-dsh"),
+                                 (".agents/skills", "project-agents")] {
+            guard let root = skillRoots.skillsRoot(source: source, ownerBotID: selectedCandidate) else { continue }
+            let observer = BotSkillDirectoryObserver(
+                root: root, label: "bot.skill.\(source)", createRoot: true,
+                onDeleted: { name in
+                    let vfs = botRoot + "/" + suffix + "/" + name
+                    Task { _ = try? await skillProducer.recordBotDelete(
+                        vfsPath: vfs, botID: selectedCandidate, sessionID: nil) }
+                })
+            skillDirectoryObservers.append(observer)
+            observer.start()
+        }
         let materialState = BotDecisionMaterialStateAdapter(provenance: provenance)
         let workspaceCatalog = BotWorkspaceDirectoryCatalog(
             workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot())
