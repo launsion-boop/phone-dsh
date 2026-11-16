@@ -243,9 +243,9 @@ struct BotChatPage: View {
     }
 
     /// The only activity surface: the bottom-leading bubble carries the
-    /// lifecycle's resolved activity sentence and glint immediately above the
-    /// composer. It replaced the floating line under the header, so the page
-    /// draws no separate status line.
+    /// lifecycle's sentence (three dots + resolved activity text + glint)
+    /// immediately above the composer. It replaced the floating line under
+    /// the header, so the page draws no separate status line.
     ///
     /// Layout is deliberately inert. The band is a sibling between the
     /// transcript's ScrollView and `BotComposerDock` — it is not in the scroll
@@ -254,9 +254,9 @@ struct BotChatPage: View {
     /// pinned to `BotActivityBubble.height` in both states, so a bubble
     /// appearing, disappearing or swapping to a longer sentence performs no
     /// vertical layout pass, moves no message and cannot re-trigger autoscroll.
-    /// The cap is 86% of the transcript column; the bubble hugs its text and
-    /// is the only tappable part of this band (it opens the full sentence).
-    /// The rest of the reserved band stays hit-transparent to transcript/input.
+    /// The cap is 86% of the transcript column; the bubble itself hugs its
+    /// text. `allowsHitTesting(false)` keeps the reserved band from stealing a
+    /// tap from the transcript or the composer.
     private var activityBubbleBand: some View {
         GeometryReader { proxy in
             let contentWidth = max(0, proxy.size.width)
@@ -279,7 +279,7 @@ struct BotChatPage: View {
         .padding(.top, 4)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2),
                    value: presence.showsActivityBubble)
-        // Only the bubble's surface takes hits; the band itself stays inert.
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 
-import CoreGraphics
 import XCTest
 
 final class BotCaptureUITests: XCTestCase {
@@ -511,11 +510,9 @@ final class BotCaptureUITests: XCTestCase {
     /// sentence: a running tool shows the task's real sentence (including its
     /// `#174` object), an approval after its turn shows the static「等你确认」,
     /// and a failure shows its report. The bubble stays inside the 30–34pt
-    /// band, its accessibility label keeps the untruncated sentence, and a tap
-    /// opens that sentence in a readable sheet without making the whole
-    /// reserved band tappable. Shimmer on/off is visual (the quiet phases are
-    /// unit-checked through `lineIsQuiet`), so this test only proves the text
-    /// surface and the hit target.
+    /// band, is not a tap target, and no separate top line exists. Shimmer
+    /// on/off is visual (the quiet phases are unit-checked through
+    /// `lineIsQuiet`), so this test only proves the text surface.
     func testActivityBubbleCarriesThePresenceSentence() throws {
         launch("runningToolDescribed")
         XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
@@ -530,30 +527,6 @@ final class BotCaptureUITests: XCTestCase {
                                  "bubble is taller than the 30–34pt band")
         XCTAssertFalse(activityLine.exists,
                        "the removed top activity line is still mounted")
-
-        let fullText = app.descendants(matching: .any)
-            .matching(identifier: "bot.activity.fullText").firstMatch
-        // Only the bubble's own frame is tappable: a tap on the rest of the
-        // reserved band must fall through, not open the full-sentence sheet.
-        let outsideX = min(app.frame.width - 4, activityBubble.frame.maxX + 8)
-        let outside = app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: outsideX, dy: activityBubble.frame.midY))
-        outside.tap()
-        usleep(600_000)
-        XCTAssertFalse(fullText.exists,
-                       "the activity band intercepted a tap outside the bubble")
-
-        // Truncation is visual only; tapping the bubble opens the whole
-        // resolved sentence, still containing the real object.
-        activityBubble.tap()
-        XCTAssertTrue(fullText.waitForExistence(timeout: 3),
-                      "the full activity sentence did not open")
-        let fullSentence = readableText(fullText)
-        XCTAssertTrue(fullSentence.contains("#174"), "full text: \(fullSentence)")
-        XCTAssertTrue(fullSentence.contains("main"), "full text: \(fullSentence)")
-        app.buttons["bot.activity.fullText.close"].tap()
-        XCTAssertTrue(waitUntil(timeout: 3) { !fullText.exists },
-                      "the full-sentence sheet did not close")
 
         // No running turn, one approval still pending: the waitingForYou
         // phase keeps the bubble on the static「等你确认」sentence.
@@ -602,12 +575,6 @@ final class BotCaptureUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         return condition()
-    }
-
-    /// Selectable SwiftUI text can surface its characters through `value`
-    /// instead of `label`; either way it is the same sentence here.
-    private func readableText(_ element: XCUIElement) -> String {
-        element.label.isEmpty ? (element.value as? String ?? "") : element.label
     }
 
     func testBotDrawerOpenSelectAndClose() throws {
