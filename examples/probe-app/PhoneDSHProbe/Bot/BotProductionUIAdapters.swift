@@ -509,6 +509,8 @@ private extension BotProductionRowService {
         case .revisionBasisMismatch: return "版本依据不一致"
         case .noSkillWriteEvent: return "该对象没有写入事件"
         case .reviewModelBasis: return "核对依据来自模型判断"
+        case .skillDeleted: return "该技能已被删除"
+        case .crossBotUnresolved: return "无法解析被引用的用户原话"
         }
     }
 }
