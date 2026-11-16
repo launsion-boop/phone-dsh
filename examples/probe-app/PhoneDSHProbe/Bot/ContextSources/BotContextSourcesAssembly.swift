@@ -235,6 +235,14 @@ public final class BotContextSourcesAssembly {
 
     public func isStarted() -> Bool { started }
 
+    /// Real G-1 r5 recheck for the requested sources. Used by the decision-time
+    /// material/source panel; a revoked source returns refresh-denied without
+    /// an adapter call.
+    public func recheck(botID: String,
+                        sources: [BotContextSourceKind] = []) async -> [BotContextRecheck] {
+        await registry.recheck(botID: botID, sources: sources)
+    }
+
     /// Frozen read view for the source panel/decision material. It never
     /// returns a payload; active items carry a record ref instead.
     public func observationView(for botID: String, since: Int64? = nil,

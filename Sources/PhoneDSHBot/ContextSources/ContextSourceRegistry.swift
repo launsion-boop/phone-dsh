@@ -51,6 +51,7 @@ public protocol BotContextSourceRegistrying: Sendable {
     func revoke(source: BotContextSourceKind, by actor: BotSourceAuthorizationActor, reason: String) async
     func observations(for botID: String, since: Int64?,
                       sources: [BotContextSourceKind]) async throws -> [BotContextObservation]
+    func recheck(botID: String, sources: [BotContextSourceKind]) async -> [BotContextRecheck]
     func stopAll() async
     func setWakeHandler(_ handler: (@Sendable (BotContextWake) -> Void)?) async
 }
@@ -523,6 +524,78 @@ public actor BotContextSourceRegistry: BotContextSourceRegistrying {
             kind: .wakeEmitted, source: observation.source, ownerBotID: botID,
             at: now(), permissionRevision: revision, detail: wake.reason,
             uncertainty: observation.uncertainty, observationID: observation.id))
+    }
+
+    // MARK: - Real G-1 r5 recheck
+
+    /// Re-queries each requested source through its real adapter at the current
+    /// consent generation and compares the returned revision with the latest
+    /// observation. A revoked/unauthorized/unsubscribed source is answered from
+    /// the ledger without touching the adapter (`refresh-denied`, zero OS read).
+    /// A source without a queryable producer is `refresh-not-performed`, never
+    /// `current`.
+    public func recheck(botID: String,
+                        sources: [BotContextSourceKind] = []) async -> [BotContextRecheck] {
+        let trimmed = botID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let snapshot = await ledger.snapshot()
+        let requested = sources.isEmpty
+            ? snapshot.subscriptions[trimmed].map { Array($0).sorted { $0.rawValue < $1.rawValue } } ?? []
+            : Array(Set(sources)).sorted { $0.rawValue < $1.rawValue }
+        var results: [BotContextRecheck] = []
+        for source in requested {
+            guard let state = snapshot.states[source] else { continue }
+            let latest = (registered[source]?.buffer ?? [])
+                .filter { $0.permissionRevision == state.permissionRevision }
+                .max { ($0.observedAt, $0.id) < ($1.observedAt, $1.id) }
+            let baseline = latest?.sourceVersion
+            let observedAt = latest?.observedAt
+            let latestRef = latest.flatMap { recordRefs[trimmed]?[$0.id] }
+            let stamp = now()
+            if state.authorization == .revoked {
+                results.append(BotContextRecheck(
+                    source: source, state: .revoked,
+                    reasons: [.grantRevoked, .refreshDenied],
+                    baseline: baseline, observedAtMS: observedAt,
+                    recheckedAtMS: stamp, latestRef: latestRef))
+                continue
+            }
+            guard state.authorization.allowsReading,
+                  snapshot.subscriptions[trimmed]?.contains(source) == true,
+                  snapshot.subscriptionRevisions[trimmed]?[source] == state.permissionRevision
+            else {
+                results.append(BotContextRecheck(
+                    source: source, state: .unknown, reasons: [.refreshDenied],
+                    baseline: baseline, observedAtMS: observedAt,
+                    recheckedAtMS: stamp, latestRef: latestRef))
+                continue
+            }
+            guard let rechecker = registered[source]?.source as? any BotContextSourceRechecking else {
+                results.append(BotContextRecheck(
+                    source: source, state: .unknown, reasons: [.refreshNotPerformed],
+                    baseline: baseline, observedAtMS: observedAt,
+                    recheckedAtMS: stamp, latestRef: latestRef))
+                continue
+            }
+            let probe = await rechecker.recheck(
+                permissionRevision: state.permissionRevision,
+                baseline: baseline, latestKind: latest?.kind)
+            // A revoke racing the query still yields denied and no result is
+            // reported as current.
+            let after = await ledger.state(for: source)
+            if after.authorization == .revoked || after.authorization == .denied {
+                results.append(BotContextRecheck(
+                    source: source, state: .revoked, reasons: [.grantRevoked, .refreshDenied],
+                    baseline: baseline, observedAtMS: observedAt,
+                    recheckedAtMS: stamp, latestRef: latestRef))
+                continue
+            }
+            results.append(BotContextRecheckEvaluator.evaluate(
+                source: source, probe: probe, baseline: baseline,
+                observedAtMS: observedAt, latestRef: latestRef,
+                recheckedAtMS: stamp))
+        }
+        return results.sorted { $0.source.rawValue < $1.source.rawValue }
     }
 
     // MARK: - Read view

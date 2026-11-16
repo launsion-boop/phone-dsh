@@ -9,7 +9,8 @@ import Foundation
 /// query (or a user-supplied identifier) that returns masked contact fields.
 public final class ContactsSource: BotContextSource, BotContextSourceStreaming,
                                    BotContextSourceRequesting, BotContextSourceDiagnosing,
-                                   BotContextContactsQuerying, @unchecked Sendable {
+                                   BotContextContactsQuerying, BotContextSourceRechecking,
+                                   @unchecked Sendable {
     public let kind: BotContextSourceKind = .contacts
     private let lock = NSLock()
     private let buffer = BotContextSourceBuffer()
@@ -143,6 +144,20 @@ public final class ContactsSource: BotContextSource, BotContextSourceStreaming,
             ]),
             dedupeKey: "contacts:query:\(Self.fingerprint(normalized))",
             wakeRequested: false)
+    }
+
+    /// Real r5 recheck of the OS permission. Contacts has no per-contact
+    /// version and a query is only run on explicit request, so the producer
+    /// reports `refresh-not-performed` rather than inventing a version.
+    public func recheck(permissionRevision: Int,
+                        baseline: BotContextSourceVersion?,
+                        latestKind: BotContextObservationKind?) async -> BotContextRecheckProbe {
+        lock.lock()
+        let revision = activeRevision
+        lock.unlock()
+        guard revision == permissionRevision else { return .denied("revoked-generation") }
+        guard (await authorization()).allowsReading else { return .denied("contacts-not-authorized") }
+        return .notPerformed("contacts-requires-explicit-query")
     }
 
     private func handleStoreChanged() {

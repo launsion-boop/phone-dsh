@@ -177,6 +177,26 @@ public enum BotContextSourceVersion: Codable, Sendable, Equatable {
 
     public var isKnown: Bool { if case .known = self { return true }; return false }
 
+    /// G-1 r5 §2.3: a known version's value carries the basis prefix
+    /// (`sha256:`, `etag:`, `last-modified:`, `rev:`).
+    public var isCanonical: Bool {
+        switch self {
+        case .unknown:
+            return true
+        case .known(let basis, let value, _, _):
+            switch basis {
+            case .contentSHA256:
+                return value.range(of: #"^sha256:[0-9a-f]{64}$"#, options: .regularExpression) != nil
+            case .etag:
+                return value.hasPrefix("etag:") && value.count > "etag:".count
+            case .lastModified:
+                return value.hasPrefix("last-modified:") && value.count > "last-modified:".count
+            case .providerVersion:
+                return value.hasPrefix("rev:") && value.count > "rev:".count
+            }
+        }
+    }
+
     public static func known(_ basis: BotContextSourceVersionBasis, value: String,
                              observedAt: Int64? = nil) -> BotContextSourceVersion {
         .known(basis: basis, value: value, observedAt: observedAt, basisRef: nil)
@@ -377,6 +397,9 @@ public struct BotContextObservation: Codable, Sendable, Equatable, Identifiable 
         }
         guard case .object(let object) = payload, object.count <= 32 else {
             throw BotContextSourceError.invalidObservation("payload must be an object with at most 32 members")
+        }
+        guard sourceVersion.isCanonical else {
+            throw BotContextSourceError.invalidObservation("sourceVersion value is not canonical for its basis")
         }
         guard BotContextSecretScanner.readsSecret(payload) == false else {
             throw BotContextSourceError.credentialShapeRejected

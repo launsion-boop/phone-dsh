@@ -105,8 +105,10 @@ final class ContextSourceUserEntryTests: XCTestCase {
         guard case .object(let payload) = observation.payload else {
             return XCTFail("payload is not an object")
         }
-        XCTAssertEqual(payload["fingerprint"], .string(hash))
+        XCTAssertNil(payload["fingerprint"], "the digest is metadata, not model-visible payload")
         XCTAssertEqual(payload["byteCount"], .number(13))
+        XCTAssertEqual(observation.sourceVersion,
+                       .known(.contentSHA256, value: "sha256:\(hash)", observedAt: 1_000_000))
         XCTAssertFalse(String(describing: payload).contains("receipt-bytes"))
         XCTAssertEqual(emitted.all().count, 1)
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #if canImport(EventKit)
+import CryptoKit
 import EventKit
 import Foundation
 
@@ -9,7 +10,7 @@ import Foundation
 /// calendar (calendar creation remains a separate, approval-gated tool).
 public final class EventKitCalendarSource: BotContextSource, BotContextSourceStreaming,
                                            BotContextSourceRequesting, BotContextSourceDiagnosing,
-                                           @unchecked Sendable {
+                                           BotContextSourceRechecking, @unchecked Sendable {
     public let kind: BotContextSourceKind = .calendar
     private let lock = NSLock()
     private let buffer = BotContextSourceBuffer()
@@ -129,32 +130,9 @@ public final class EventKitCalendarSource: BotContextSource, BotContextSourceStr
         lock.unlock()
 
         let page = events.prefix(maximumEvents)
-        var items: [BotJSONValue] = []
-        for event in page {
-            var entry: [String: BotJSONValue] = [
-                "id": .string(String(event.eventIdentifier.prefix(200))),
-                "title": .string(String((event.title ?? "").prefix(200))),
-                "start": .string(Self.iso8601(event.startDate)),
-                "end": .string(Self.iso8601(event.endDate)),
-                "allDay": .bool(event.isAllDay),
-                "calendar": .string(String(event.calendar.title.prefix(120))),
-            ]
-            if let modified = event.lastModifiedDate {
-                entry["version"] = .object([
-                    "basis": .string("last-modified"),
-                    "value": .string(String(Int64(modified.timeIntervalSince1970 * 1_000))),
-                ])
-            } else {
-                entry["version"] = .object([
-                    "reason": .string("source-unversioned"),
-                ])
-            }
-            if let location = event.location, !location.isEmpty {
-                entry["location"] = .string(String(location.prefix(200)))
-            }
-            items.append(.object(entry))
-        }
+        let items = page.map(Self.eventPayload)
         let stamp = now()
+        let digest = Self.digest(items)
         let completeness: BotContextCompleteness = events.count > maximumEvents ? .partial : .complete
         guard let observation = try? BotContextObservation(
             id: "calendar:upcoming:\(stamp):\(items.count)",
@@ -162,7 +140,7 @@ public final class EventKitCalendarSource: BotContextSource, BotContextSourceStr
             kind: .calendarUpcoming,
             observedAt: stamp,
             permissionRevision: revision,
-            sourceVersion: .unversioned(),
+            sourceVersion: .known(.contentSHA256, value: "sha256:\(digest)", observedAt: stamp),
             uncertainty: BotContextUncertainty(
                 level: .low,
                 reason: "eventkit-sync-recurrence-and-window",
@@ -197,6 +175,59 @@ public final class EventKitCalendarSource: BotContextSource, BotContextSourceStr
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
+    }
+
+    /// Real r5 recheck: query EventKit again and hash the same bounded event
+    /// fields. No new observation is emitted here; the caller gets the current
+    /// revision and decides current/changed/unknown.
+    public func recheck(permissionRevision: Int,
+                        baseline: BotContextSourceVersion?,
+                        latestKind: BotContextObservationKind?) async -> BotContextRecheckProbe {
+        lock.lock()
+        let revision = activeRevision
+        let store = store
+        lock.unlock()
+        guard revision == permissionRevision else { return .denied("revoked-generation") }
+        guard EKEventStore.authorizationStatus(for: .event).allowsEvents else {
+            return .denied("calendar-not-authorized")
+        }
+        guard let store else { return .notPerformed("calendar-adapter-not-started") }
+        let start = Date()
+        let end = start.addingTimeInterval(lookahead)
+        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
+        let events = store.events(matching: predicate).sorted { $0.startDate < $1.startDate }
+        let items = events.prefix(maximumEvents).map(Self.eventPayload)
+        let digest = Self.digest(items)
+        return .version(.known(.contentSHA256, value: "sha256:\(digest)", observedAt: now()))
+    }
+
+    private static func eventPayload(_ event: EKEvent) -> BotJSONValue {
+        var entry: [String: BotJSONValue] = [
+            "id": .string(String(event.eventIdentifier.prefix(200))),
+            "title": .string(String((event.title ?? "").prefix(200))),
+            "start": .string(iso8601(event.startDate)),
+            "end": .string(iso8601(event.endDate)),
+            "allDay": .bool(event.isAllDay),
+            "calendar": .string(String(event.calendar.title.prefix(120))),
+        ]
+        if let modified = event.lastModifiedDate {
+            entry["version"] = .object([
+                "basis": .string("last-modified"),
+                "value": .string("last-modified:\(Int64(modified.timeIntervalSince1970 * 1_000))"),
+            ])
+        } else {
+            entry["version"] = .object(["reason": .string("source-unversioned")])
+        }
+        if let location = event.location, !location.isEmpty {
+            entry["location"] = .string(String(location.prefix(200)))
+        }
+        return .object(entry)
+    }
+
+    private static func digest(_ items: [BotJSONValue]) -> String {
+        let value = BotJSONValue.object(["events": .array(items)])
+        guard let data = try? value.encoded() else { return "" }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
 

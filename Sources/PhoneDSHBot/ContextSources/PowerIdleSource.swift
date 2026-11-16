@@ -11,7 +11,7 @@ import UIKit
 /// that. `app.foreground`/`app.background` describe this App only; BGTask remains
 /// best-effort and is not turned into an idle fact here.
 public final class PowerIdleSource: BotContextSource, BotContextSourceStreaming,
-                                     @unchecked Sendable {
+                                     BotContextSourceRechecking, @unchecked Sendable {
     public let kind: BotContextSourceKind = .power
     private let lock = NSLock()
     private let buffer = BotContextSourceBuffer()
@@ -87,6 +87,43 @@ public final class PowerIdleSource: BotContextSource, BotContextSourceStreaming,
         lock.unlock()
     }
 
+    /// Real r5 recheck for the state the latest observation described. The
+    /// App-lifecycle facts are not queryable after the fact and report
+    /// refresh-not-performed.
+    public func recheck(permissionRevision: Int,
+                        baseline: BotContextSourceVersion?,
+                        latestKind: BotContextObservationKind?) async -> BotContextRecheckProbe {
+        lock.lock()
+        let revision = activeRevision
+        lock.unlock()
+        guard revision == permissionRevision else { return .denied("revoked-generation") }
+        switch latestKind {
+        case .some(.powerChargingStarted), .some(.powerChargingStopped):
+#if canImport(UIKit)
+            let state = await MainActor.run { UIDevice.current.batteryState }
+            switch state {
+            case .charging, .full:
+                return .version(.known(.providerVersion, value: "rev:charging", observedAt: now()))
+            case .unplugged:
+                return .version(.known(.providerVersion, value: "rev:unplugged", observedAt: now()))
+            case .unknown:
+                return .notPerformed("battery-state-unknown")
+            @unknown default:
+                return .notPerformed("battery-state-unknown")
+            }
+#else
+            return .notPerformed("battery-state-not-queryable")
+#endif
+        case .some(.powerLowPowerEnabled), .some(.powerLowPowerDisabled):
+            let enabled = ProcessInfo.processInfo.isLowPowerModeEnabled
+            return .version(.known(.providerVersion,
+                                   value: enabled ? "rev:enabled" : "rev:disabled",
+                                   observedAt: now()))
+        default:
+            return .notPerformed("app-lifecycle-not-queryable")
+        }
+    }
+
     private func handleBatteryChanged() {
 #if canImport(UIKit)
         let state = UIDevice.current.batteryState
@@ -111,7 +148,7 @@ public final class PowerIdleSource: BotContextSource, BotContextSourceStreaming,
                 "batteryLevel": .number(Double(UIDevice.current.batteryLevel)),
             ]),
             versionBasis: .providerVersion,
-            versionValue: "\(state.rawValue):\(UIDevice.current.batteryLevel)",
+            versionValue: charging ? "charging" : "unplugged",
             uncertainty: BotContextUncertainty(
                 level: .low, reason: "battery-state-is-sampled-by-the-os", completeness: .complete),
             wakeRequested: true)
@@ -166,7 +203,7 @@ public final class PowerIdleSource: BotContextSource, BotContextSourceStreaming,
             kind: observationKind,
             observedAt: stamp,
             permissionRevision: revision,
-            sourceVersion: .known(versionBasis, value: versionValue, observedAt: stamp),
+            sourceVersion: .known(versionBasis, value: "rev:\(versionValue)", observedAt: stamp),
             uncertainty: uncertainty,
             delivery: .os,
             payload: payload,

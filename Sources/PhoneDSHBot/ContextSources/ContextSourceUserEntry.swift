@@ -87,6 +87,19 @@ public final class SelectedMediaSource: BotContextSource, BotContextSourceStream
         buffer.observations(since: since)
     }
 
+    /// Real r5 recheck: selected media is an immutable user entry; there is no
+    /// later provider query for the same selection. The digest itself is in
+    /// `sourceVersion` (sha256:...), never in a model-visible body.
+    public func recheck(permissionRevision: Int,
+                        baseline: BotContextSourceVersion?,
+                        latestKind: BotContextObservationKind?) async -> BotContextRecheckProbe {
+        lock.lock()
+        let revision = activeRevision
+        lock.unlock()
+        guard revision == permissionRevision else { return .denied("revoked-generation") }
+        return .notPerformed("user-selected-item-is-immutable")
+    }
+
     /// Called only after the user picked/shared one item. The returned value has
     /// no owner; the registry binds it. `delivery` is `.os` because the user
     /// acted through a real native picker, not a test driver.
@@ -105,7 +118,7 @@ public final class SelectedMediaSource: BotContextSource, BotContextSourceStream
             kind: .mediaSelected,
             observedAt: now(),
             permissionRevision: revision,
-            sourceVersion: .known(.contentSHA256, value: selection.sha256, observedAt: now()),
+            sourceVersion: .known(.contentSHA256, value: "sha256:\(selection.sha256)", observedAt: now()),
             uncertainty: BotContextUncertainty(level: .low, completeness: .complete),
             delivery: .os,
             payload: .object([
@@ -113,7 +126,6 @@ public final class SelectedMediaSource: BotContextSource, BotContextSourceStream
                 "name": .string(selection.name),
                 "mimeType": .string(selection.mimeType),
                 "byteCount": .number(Double(selection.byteCount)),
-                "fingerprint": .string(selection.sha256),
             ]),
             dedupeKey: "selected-media:\(selection.sha256)",
             wakeRequested: true)
@@ -128,7 +140,7 @@ public final class SelectedMediaSource: BotContextSource, BotContextSourceStream
 /// this App scheduled.
 public final class OwnNotificationSource: BotContextSource, BotContextSourceStreaming,
                                           BotContextSourceRequesting, BotContextSourceDiagnosing,
-                                          @unchecked Sendable {
+                                          BotContextSourceRechecking, @unchecked Sendable {
     public let kind: BotContextSourceKind = .ownNotification
     private let lock = NSLock()
     private let buffer = BotContextSourceBuffer()
@@ -209,7 +221,7 @@ public final class OwnNotificationSource: BotContextSource, BotContextSourceStre
             observedAt: now(),
             permissionRevision: try currentRevision(),
             sourceVersion: .known(.providerVersion,
-                                  value: String(request.identifier.prefix(200)), observedAt: now()),
+                                  value: "rev:\(String(request.identifier.prefix(200)))", observedAt: now()),
             uncertainty: BotContextUncertainty(
                 level: .low, reason: "notification-response-time-is-not-the-original-event-time"),
             delivery: .os,
@@ -235,7 +247,7 @@ public final class OwnNotificationSource: BotContextSource, BotContextSourceStre
                 observedAt: now(),
                 permissionRevision: try currentRevision(),
                 sourceVersion: .known(.providerVersion,
-                                      value: String(request.identifier.prefix(200)), observedAt: now()),
+                                      value: "rev:\(String(request.identifier.prefix(200)))", observedAt: now()),
                 uncertainty: BotContextUncertainty(
                     level: .low, reason: "delivered-notification-list-is-a-current-snapshot"),
                 delivery: .os,
@@ -248,6 +260,21 @@ public final class OwnNotificationSource: BotContextSource, BotContextSourceStre
             result.append(observation)
         }
         return result
+    }
+
+    /// Real r5 recheck of the notification permission. A past response is
+    /// immutable, so the producer cannot reconstruct a newer version; it says
+    /// refresh-not-performed instead of current.
+    public func recheck(permissionRevision: Int,
+                        baseline: BotContextSourceVersion?,
+                        latestKind: BotContextObservationKind?) async -> BotContextRecheckProbe {
+        guard (try? currentRevision()) == permissionRevision else {
+            return .denied("revoked-generation")
+        }
+        guard (await authorization()).allowsReading else {
+            return .denied("notifications-not-authorized")
+        }
+        return .notPerformed("notification-response-is-immutable")
     }
 
     private func currentRevision() throws -> Int {

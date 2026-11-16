@@ -9,7 +9,7 @@ import Foundation
 /// dropped from the observation, and paste is read only when the UI calls the
 /// paste entry after a user action.
 public final class ExternalEntrySource: BotContextSource, BotContextSourceStreaming,
-                                        @unchecked Sendable {
+                                        BotContextSourceRechecking, @unchecked Sendable {
     public let kind: BotContextSourceKind = .externalEntry
     private let lock = NSLock()
     private let buffer = BotContextSourceBuffer()
@@ -68,7 +68,7 @@ public final class ExternalEntrySource: BotContextSource, BotContextSourceStream
             kind: .externalURL,
             observedAt: now(),
             permissionRevision: try currentRevision(),
-            sourceVersion: .known(.contentSHA256, value: fingerprint, observedAt: now()),
+            sourceVersion: .known(.contentSHA256, value: "sha256:\(fingerprint)", observedAt: now()),
             uncertainty: BotContextUncertainty(
                 level: .low, reason: "url-query-and-fragment-dropped"),
             delivery: .os,
@@ -102,7 +102,7 @@ public final class ExternalEntrySource: BotContextSource, BotContextSourceStream
             kind: .externalUserActivity,
             observedAt: now(),
             permissionRevision: try currentRevision(),
-            sourceVersion: .known(.contentSHA256, value: fingerprint, observedAt: now()),
+            sourceVersion: .known(.contentSHA256, value: "sha256:\(fingerprint)", observedAt: now()),
             uncertainty: BotContextUncertainty(
                 level: .low, reason: "user-activity-userInfo-not-copied"),
             delivery: .os,
@@ -120,7 +120,7 @@ public final class ExternalEntrySource: BotContextSource, BotContextSourceStream
             kind: .externalShareItem,
             observedAt: now(),
             permissionRevision: try currentRevision(),
-            sourceVersion: .known(.contentSHA256, value: selection.sha256, observedAt: now()),
+            sourceVersion: .known(.contentSHA256, value: "sha256:\(selection.sha256)", observedAt: now()),
             uncertainty: BotContextUncertainty(level: .low, completeness: .complete),
             delivery: .os,
             payload: .object([
@@ -128,7 +128,6 @@ public final class ExternalEntrySource: BotContextSource, BotContextSourceStream
                 "name": .string(selection.name),
                 "mimeType": .string(selection.mimeType),
                 "byteCount": .number(Double(selection.byteCount)),
-                "fingerprint": .string(selection.sha256),
             ]),
             dedupeKey: "external-share:\(selection.sha256)",
             wakeRequested: true)
@@ -158,6 +157,18 @@ public final class ExternalEntrySource: BotContextSource, BotContextSourceStream
             dedupeKey: "external-paste:\(fingerprint):\(bucket(now()))",
             wakeRequested: true)
         return try deliver(observation)
+    }
+
+    /// Real r5 recheck: an external entry is an immutable user action; there is
+    /// no later provider for the same event. The file digest lives in
+    /// `sourceVersion`, not in a model-visible body.
+    public func recheck(permissionRevision: Int,
+                        baseline: BotContextSourceVersion?,
+                        latestKind: BotContextObservationKind?) async -> BotContextRecheckProbe {
+        guard (try? currentRevision()) == permissionRevision else {
+            return .denied("revoked-generation")
+        }
+        return .notPerformed("external-entry-is-immutable")
     }
 
     private func currentRevision() throws -> Int {
@@ -194,13 +205,14 @@ public final class ExternalEntrySource: BotContextSource, BotContextSourceStream
 /// `.os`. The registry registers it with `.injected` provenance and rejects any
 /// observation that claims otherwise.
 public final class BotContextInjectionDriver: BotContextSource, BotContextSourceStreaming,
-                                              @unchecked Sendable {
+                                              BotContextSourceRechecking, @unchecked Sendable {
     public let kind: BotContextSourceKind
     private let lock = NSLock()
     private let buffer = BotContextSourceBuffer()
     private let now: @Sendable () -> Int64
     private var activeRevision: Int?
     private var emit: (@Sendable (BotContextObservation) -> Void)?
+    private var recheckProbe: BotContextRecheckProbe = .notPerformed("injected-source")
 
     public init(kind: BotContextSourceKind,
                 now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }) {
@@ -228,6 +240,25 @@ public final class BotContextInjectionDriver: BotContextSource, BotContextSource
 
     public func observations(since: Int64?) async throws -> [BotContextObservation] {
         buffer.observations(since: since)
+    }
+
+    /// Test/simulator control for the r5 state machine. The probe is explicit;
+    /// the driver never pretends it queried a real OS source.
+    public func setRecheckProbe(_ probe: BotContextRecheckProbe) {
+        lock.lock()
+        recheckProbe = probe
+        lock.unlock()
+    }
+
+    public func recheck(permissionRevision: Int,
+                        baseline: BotContextSourceVersion?,
+                        latestKind: BotContextObservationKind?) async -> BotContextRecheckProbe {
+        lock.lock()
+        let revision = activeRevision
+        let probe = recheckProbe
+        lock.unlock()
+        guard revision == permissionRevision else { return .denied("revoked-generation") }
+        return probe
     }
 
     /// Injects one event. The kind is chosen by the simulator script, never by a

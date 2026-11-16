@@ -7,7 +7,8 @@ import XCTest
 /// mutate it without racing the registry; no real framework, permission prompt
 /// or personal datum is touched.
 actor FakeContextSource: BotContextSource, BotContextSourceStreaming,
-                         BotContextSourceRequesting, BotContextContactsQuerying {
+                         BotContextSourceRequesting, BotContextContactsQuerying,
+                         BotContextSourceRechecking {
     nonisolated let kind: BotContextSourceKind
     private var osStatus: BotSourceAuthorization
     private var requestResult: BotSourceAuthorization
@@ -18,6 +19,8 @@ actor FakeContextSource: BotContextSource, BotContextSourceStreaming,
     private(set) var stopCount = 0
     private(set) var requestCount = 0
     private(set) var observationsReadCount = 0
+    private(set) var recheckCount = 0
+    private var recheckProbe: BotContextRecheckProbe = .notPerformed("fake")
 
     init(kind: BotContextSourceKind, osStatus: BotSourceAuthorization = .authorized) {
         self.kind = kind
@@ -27,6 +30,15 @@ actor FakeContextSource: BotContextSource, BotContextSourceStreaming,
 
     func setOSStatus(_ status: BotSourceAuthorization) { osStatus = status }
     func setRequestResult(_ status: BotSourceAuthorization) { requestResult = status }
+    func setRecheckProbe(_ probe: BotContextRecheckProbe) { recheckProbe = probe }
+
+    func recheck(permissionRevision: Int,
+                 baseline: BotContextSourceVersion?,
+                 latestKind: BotContextObservationKind?) async -> BotContextRecheckProbe {
+        recheckCount += 1
+        guard revision == permissionRevision else { return .denied("revoked-generation") }
+        return recheckProbe
+    }
 
     func authorization() async -> BotSourceAuthorization { osStatus }
 
@@ -68,11 +80,12 @@ actor FakeContextSource: BotContextSource, BotContextSourceStreaming,
                      delivery: BotContextObservationDelivery = .os,
                      payload: BotJSONValue = .object(["changed": .bool(true)]),
                      dedupeKey: String = "fake:changed",
-                     wakeRequested: Bool = false) throws -> BotContextObservation {
+                     wakeRequested: Bool = false,
+                     sourceVersion: BotContextSourceVersion = .unversioned()) throws -> BotContextObservation {
         try BotContextObservation(
             id: id, source: kind, kind: observationKind, observedAt: observedAt,
             permissionRevision: requestedRevision ?? revision ?? 1,
-            sourceVersion: .unversioned(),
+            sourceVersion: sourceVersion,
             uncertainty: BotContextUncertainty(level: .medium, reason: "fake"),
             delivery: delivery, payload: payload, dedupeKey: dedupeKey,
             wakeRequested: wakeRequested)
@@ -92,8 +105,8 @@ actor FakeContextSource: BotContextSource, BotContextSourceStreaming,
             dedupeKey: "contacts:test", wakeRequested: false)
     }
 
-    func counts() -> (start: Int, stop: Int, request: Int, reads: Int) {
-        (startCount, stopCount, requestCount, observationsReadCount)
+    func counts() -> (start: Int, stop: Int, request: Int, reads: Int, rechecks: Int) {
+        (startCount, stopCount, requestCount, observationsReadCount, recheckCount)
     }
 }
 
@@ -395,5 +408,129 @@ final class ContextSourceRegistryTests: XCTestCase {
         let received = try await readUntil(registry, botID: "bot-a", count: 1)
         XCTAssertEqual(received.first?.sourceVersion,
                        .unversioned())
+    }
+}
+
+final class ContextSourceRecheckTests: XCTestCase {
+    private let now: @Sendable () -> Int64 = { 2_000_000 }
+    private let digest = "sha256:" + String(repeating: "a", count: 64)
+
+    private func makeRegistry(_ fake: FakeContextSource) async throws
+        -> (BotContextSourceRegistry, BotContextConsentLedger) {
+        let ledger = BotContextConsentLedger(
+            store: InMemoryBotContextSourceConsentStore(), now: now)
+        let registry = BotContextSourceRegistry(
+            ledger: ledger, audit: BotContextAuditLog(), now: now)
+        _ = await ledger.load()
+        try await registry.register(fake)
+        _ = try await registry.requestConsent(source: fake.kind, botID: "bot-a")
+        return (registry, ledger)
+    }
+
+    func testRecheckStateMachineUsesBaselineAndProviderProbe() async throws {
+        let fake = FakeContextSource(kind: .calendar, osStatus: .authorized)
+        let (registry, _) = try await makeRegistry(fake)
+        let version = BotContextSourceVersion.known(.contentSHA256, value: digest)
+        await fake.emit(try await fake.observation(
+            observedAt: 2_000_001, sourceVersion: version))
+        _ = try await registry.observations(for: "bot-a")
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        await fake.setRecheckProbe(.version(version))
+        let currentResult = await registry.recheck(botID: "bot-a", sources: [.calendar])
+        let current = try XCTUnwrap(currentResult.first)
+        XCTAssertEqual(current.state, .current)
+        XCTAssertTrue(current.reasons.isEmpty)
+        XCTAssertEqual(current.sourceVersion, version)
+        XCTAssertEqual(current.baseline, version)
+        XCTAssertNotNil(current.recheckedAtMS)
+
+        let changedVersion = BotContextSourceVersion.known(
+            .contentSHA256, value: "sha256:" + String(repeating: "b", count: 64))
+        await fake.setRecheckProbe(.version(changedVersion))
+        let changedResult = await registry.recheck(botID: "bot-a", sources: [.calendar])
+        let changed = try XCTUnwrap(changedResult.first)
+        XCTAssertEqual(changed.state, .changed)
+        XCTAssertEqual(changed.reasons, [.sourceChanged])
+
+        await fake.setRecheckProbe(.version(.known(.providerVersion, value: "rev:7")))
+        let mismatchResult = await registry.recheck(botID: "bot-a", sources: [.calendar])
+        let mismatch = try XCTUnwrap(mismatchResult.first)
+        XCTAssertEqual(mismatch.state, .unknown)
+        XCTAssertEqual(mismatch.reasons, [.revisionBasisMismatch])
+
+        await fake.setRecheckProbe(.denied("user-denied"))
+        let deniedResult = await registry.recheck(botID: "bot-a", sources: [.calendar])
+        let denied = try XCTUnwrap(deniedResult.first)
+        XCTAssertEqual(denied.state, .unknown)
+        XCTAssertEqual(denied.reasons, [.refreshDenied])
+
+        await fake.setRecheckProbe(.notPerformed("no-provider"))
+        let notPerformedResult = await registry.recheck(botID: "bot-a", sources: [.calendar])
+        let notPerformed = try XCTUnwrap(notPerformedResult.first)
+        XCTAssertEqual(notPerformed.state, .unknown)
+        XCTAssertEqual(notPerformed.reasons, [.refreshNotPerformed])
+    }
+
+    func testRecheckWithoutBaselineNeverReportsCurrent() async throws {
+        let fake = FakeContextSource(kind: .calendar, osStatus: .authorized)
+        let (registry, _) = try await makeRegistry(fake)
+        let version = BotContextSourceVersion.known(.contentSHA256, value: digest)
+        await fake.setRecheckProbe(.version(version))
+        let resultResult = await registry.recheck(botID: "bot-a", sources: [.calendar])
+        let result = try XCTUnwrap(resultResult.first)
+        XCTAssertEqual(result.state, .unknown)
+        XCTAssertEqual(result.reasons, [.noBaseline])
+        XCTAssertNil(result.baseline)
+        XCTAssertNotNil(result.sourceVersion)
+    }
+
+    func testRecheckAfterRevokeIsDeniedWithZeroAdapterReads() async throws {
+        let fake = FakeContextSource(kind: .calendar, osStatus: .authorized)
+        let (registry, _) = try await makeRegistry(fake)
+        await registry.revoke(source: .calendar, reason: "user-revoked")
+        let before = await fake.counts()
+        let resultResult = await registry.recheck(botID: "bot-a", sources: [.calendar])
+        let result = try XCTUnwrap(resultResult.first)
+        let after = await fake.counts()
+        XCTAssertEqual(result.state, .revoked)
+        XCTAssertTrue(result.reasons.contains(.refreshDenied))
+        XCTAssertTrue(result.reasons.contains(.grantRevoked))
+        XCTAssertEqual(after.rechecks, before.rechecks, "a revoked source must perform zero adapter reads")
+    }
+
+    func testRecheckAfterOSDenialIsDeniedWithZeroAdapterReads() async throws {
+        let fake = FakeContextSource(kind: .calendar, osStatus: .authorized)
+        let (registry, _) = try await makeRegistry(fake)
+        await registry.noteOSAuthorizationChange(source: .calendar, status: .denied)
+        let before = await fake.counts()
+        let rechecked = await registry.recheck(botID: "bot-a", sources: [.calendar])
+        let result = try XCTUnwrap(rechecked.first)
+        let after = await fake.counts()
+        XCTAssertEqual(result.state, .unknown)
+        XCTAssertEqual(result.reasons, [.refreshDenied])
+        XCTAssertEqual(after.rechecks, before.rechecks)
+    }
+
+    func testInjectedDriverRecheckStateMachine() async throws {
+        let driver = BotContextInjectionDriver(kind: .locationFence, now: now)
+        let ledger = BotContextConsentLedger(
+            store: InMemoryBotContextSourceConsentStore(), now: now)
+        let registry = BotContextSourceRegistry(
+            ledger: ledger, audit: BotContextAuditLog(), now: now)
+        _ = await ledger.load()
+        try await registry.register(driver, provenance: .injected)
+        _ = try await registry.requestConsent(source: .locationFence, botID: "bot-a")
+        let version = BotContextSourceVersion.known(.providerVersion, value: "rev:office")
+        await driver.setRecheckProbe(.version(version))
+        _ = try await driver.inject(
+            kind: .locationEntered, payload: .object(["regionId": .string("office")]),
+            sourceVersion: version)
+        _ = try await registry.observations(for: "bot-a")
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let resultResult = await registry.recheck(botID: "bot-a", sources: [.locationFence])
+        let result = try XCTUnwrap(resultResult.first)
+        XCTAssertEqual(result.state, .current)
+        XCTAssertEqual(result.sourceVersion, version)
     }
 }

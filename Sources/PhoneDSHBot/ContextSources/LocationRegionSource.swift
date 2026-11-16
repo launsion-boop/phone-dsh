@@ -44,7 +44,7 @@ public struct BotContextGeofenceSpec: Codable, Sendable, Equatable, Identifiable
 /// Always authorization and the user must confirm each fence before it is added.
 public final class LocationRegionSource: BotContextSource, BotContextSourceStreaming,
                                          BotContextSourceRequesting, BotContextSourceDiagnosing,
-                                         @unchecked Sendable {
+                                         BotContextSourceRechecking, @unchecked Sendable {
     public let kind: BotContextSourceKind = .locationFence
     private let lock = NSLock()
     private let buffer = BotContextSourceBuffer()
@@ -191,6 +191,28 @@ public final class LocationRegionSource: BotContextSource, BotContextSourceStrea
             }
         }
         _ = revision
+    }
+
+    /// Real r5 recheck: a past geofence callback is not queryable, but the OS
+    /// authorization and our registration set are. No Always authorization means
+    /// the producer cannot observe, so the caller must show unknown.
+    public func recheck(permissionRevision: Int,
+                        baseline: BotContextSourceVersion?,
+                        latestKind: BotContextObservationKind?) async -> BotContextRecheckProbe {
+        lock.lock()
+        let revision = activeRevision
+        let manager = self.manager
+        lock.unlock()
+        guard revision == permissionRevision else { return .denied("revoked-generation") }
+        guard CLLocationManager.authorizationStatus() == .authorizedAlways else {
+            return .denied("location-always-not-authorized")
+        }
+        guard let manager else { return .notPerformed("location-adapter-not-started") }
+        let registered = await MainActor.run {
+            manager.monitoredRegions.contains { $0.identifier.hasPrefix("pdsh.context.") }
+        }
+        guard registered else { return .notPerformed("geofence-not-registered") }
+        return .notPerformed("geofence-event-stream-not-queryable")
     }
 
     private func handleRegion(identifier: String, entered: Bool) {
