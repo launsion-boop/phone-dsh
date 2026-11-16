@@ -38,20 +38,22 @@ phase to `.reviewing`; it never emits a receipt. Turn end/stop clears the activi
 
 ## Sentence sources
 
-1. Per-call model intent: `bash.description`, phone `Task.task_title` then
+1. Declared required `activity` for the exact five read/search tools (`read`, `glob`,
+   `grep`, `web_search`, `web_fetch`).
+2. Per-call model intent: `bash.description`, phone `Task.task_title` then
    `Task.description`, goal `objective`, card/document/routine `title`,
    `RequestApproval.detail` as the object of that tool's action label. `prompt`,
    `summary`, `label` and other business fields are not activity text.
-2. Same-turn, same-step public progress: the latest meaningful public assistant text
+3. Same-turn, same-step public progress: the latest meaningful public assistant text
    before the call, after the previous tool boundary. Text-channel deltas accumulate;
    the durable `assistant/message` replaces the accumulation. Reasoning/analysis
    channels, earlier steps, earlier calls and earlier turns are excluded.
-3. Short object fallback only when no model sentence exists: file basename for
+4. Short object fallback only when no model sentence exists: file basename for
    read/write/edit, pattern for glob/grep (path basename only when the assembled sentence
    still fits), query for web search, host for web fetch, basename/query for memory,
    title/name for cards and team tools. Unknown visible work tools may use the same-step
    public progress; only card/messaging tools and hidden `FishAction` opt out.
-4. Concrete label (`在翻文件`, `正在运行命令`, …), then `等待操作结果` for an unknown tool.
+5. Concrete label (`在翻文件`, `正在运行命令`, …), then `等待操作结果` for an unknown tool.
 
 A model sentence is never extended with a full path or URL. The final assembled fallback
 is shortened after joining, so a long basename or query cannot exceed the bound through
@@ -166,8 +168,8 @@ All three natural scenarios pass (5/6/6 requests, every header Flash/max). ACT-0
 `在读待办清单文件` (8), `确认 notes 目录是否还有其他文件` (19). ACT-06:
 `查看 inbox 与 notes 目录结构` (21), `读李光浩的来信` (7), `读发布背景笔记` (7), then a
 next-step card; it drafts in public text and sends nothing. Across 11 unique details there
-are 10 activity/model sentences and 1 card label; the optional version's two read filename
-fallbacks are gone. The wrapper-only required field clones the required array; the original
+are 10 activity/model sentences and 1 card label; there is no filename fallback in the
+accepted natural run. The wrapper-only required field clones the required array; the original
 definition/validator/required list are unchanged, and old calls without activity still
 execute (real ToolRuntime regression).
 

@@ -45,7 +45,7 @@ contract_revision: activity-evidence-v3.4
 
 | Item | Before → After |
 | --- | --- |
-| fields / encoding / limits / default / null | Unchanged `{status, detail, category, startedAt}`. `detail` carries one short real progress sentence: preferred 10–20 CJK characters, hard bound 28 CJK / 56 non-CJK, shortened at a sentence/clause boundary. Priority is per-call intent > same-turn/same-step public progress > short object fallback > label. A model sentence is never extended with a full path or URL. No 512-character/full-answer policy and no expansion surface. |
+| fields / encoding / limits / default / null | Unchanged `{status, detail, category, startedAt}`. `detail` carries one short real progress sentence: preferred 10–20 CJK characters, hard bound 28 CJK / 56 non-CJK, shortened at a sentence/clause boundary. Priority is the five tools' model-facing required `activity` > `bash.description`/`Task.task_title` > same-turn/same-step public progress > short object fallback > label. A model sentence is never extended with a full path or URL. No 512-character/full-answer policy and no expansion surface. |
 | capability / version / unknown field / unknown method / unknown enum | No wire capability, version, event kind, tool method or enum added. Unknown visible tools still show "等待操作结果"; hidden `FishAction` still correlates only. |
 | correlation / sequence scope / ordering / terminal outcome | Unchanged: `seq` + stable arrival, latest open turn, `callId` correlation, explicit old-turn isolation, duplicate call IDs ignored, ID-less result closes only a single unambiguous outstanding call. |
 | error code / retryable / deadline / cancel / late response | No new code. A failed result shows "这步遇到问题"; a late/unknown/conflicting result closes nothing. Stop/turn-end behaviour unchanged. |
@@ -54,34 +54,23 @@ contract_revision: activity-evidence-v3.4
 | clause status change | `activity-evidence.md` moves from the 2026-11-14 category-only refinement to `activity-evidence-v2`; no target/draft clause is promoted. |
 | structural plan / steps | Not added. No `stepIndex/stepCount`, no free-text "n/m" parsing, no extra model request, no activity tool. |
 
-### 2.1 Why no new metadata field (decision)
+### 2.1 Why a model-facing activity field (decision, v3.4)
 
-The runtime audit proposed an optional `activity` argument on every tool, shadowed through
-a phone-owned wrapper and stripped before the handler. This revision **rejects** that
-option:
+The original v2.0 freeze rejected a new field because existing `bash.description`,
+`Task.task_title` and public progress were expected to suffice. The v3.2 natural control
+showed that they do not: the main model wrote file/search calls without a task-level
+sentence and the bubble fell back to English command descriptions or filenames.
 
-- Pinned DSH `tool/call` arguments are the model's original JSON; the pinned `bash`
-  `description` is already required and carries a real per-call sentence, and every
-  native file/search/web tool already carries its real object argument
-  (`file_path`, `pattern`, `url`, `queries[]`). The pinned agent loop appends the
-  `assistant/message` for a step before that step's `tool/call`, so the same-turn,
-  same-step public progress sentence is available without a new field. Live text
-  deltas in the step are accumulated and the durable message replaces the
-  accumulation; a single delta is not a sentence.
-- Phone MCP `Task` already carries `task_title` / `description`, and card/memory tools
-  already carry `title` / `path` / `query` / `detail`.
-- Adding a field would create a second protocol surface, change argument digests in the
-  identity/approval path, and require stripping in every handler. The user explicitly
-  asked not to add metadata for form when real fields suffice.
-
-The coverage fact is recorded in `plugins/bot-runtime/ACTIVITY-SOURCES.md` (runtime lane):
-for each visible tool, the existing field that carries the real object; builtins with no
-intent field rely on the same-turn/same-step public task progress first, then on their
-object argument; this default applies to every visible work tool, including unknown MCP,
-memory, routine, job and goal tools. Only card/messaging tools and hidden FishAction are
-excluded. A public-progress candidate is cleared by `step/start`, `tool/call`,
-`tool/result`, `turn/start` and `turn/end`; reasoning/analysis channels, earlier steps,
-earlier calls and earlier turns are never reused.
+v3.4 therefore adds one **model-facing required** `activity` parameter to the real
+Bot-scope schemas of `read`, `glob`, `grep`, `web_search` and `web_fetch`. It exists only
+in a cloned wrapper `parameters`; `required` is cloned and `activity` appended with
+`minLength: 1`. The original definition, validator and required array are untouched, and
+the wrapper strips `activity` before the original handler. Thus old calls and replayed
+logs without it still execute and decode with the public-text/object fallback. This is a
+tool-argument presentation field, not a new `BotActivity` member, event, state, wire
+capability, status tool, summary model or extra request. `bash` keeps `description` and
+`Task` keeps `task_title`; no other tool declares `activity`. The five host-native tools
+do not enter the Bot MCP identity/approval digest.
 
 ## 3. Compatibility and release
 
@@ -108,14 +97,14 @@ contract commit before implementing.
   `plugins/bot-runtime/prompts/system-prompt.md`, `plugins/bot-runtime/ACTIVITY-SOURCES.md`,
   `plugins/tests/bot-persona.test.ts`. Scope: remove the "no file names/paths/URLs"
   prohibition, keep `bash.description` / `Task.task_title` guidance, align "等待响应",
-  state that no extra status tool/metadata field is added, and record the real tool-source
-  coverage from pinned DSH. Commands: `cd plugins && node scripts/run-tests.mjs
+  state that the declared five-tool `activity` field is model-facing required while the
+  original handler stays unchanged, record the real tool-source coverage from pinned DSH. Commands: `cd plugins && node scripts/run-tests.mjs
   tests/bot-persona.test.ts` (NOT_RUN if deps absent).
 - projection: `examples/probe-app/PhoneDSHProbe/Bot/BotRuntimePresentation.swift`,
   `scripts/ci/bot-e2e/app/TestsChatModel/BotActivityLineTests.swift`,
   `scripts/ci/bot-e2e/app/TestsChatModel/BotChatModelTests.swift` and any existing
   projection test in that target. Scope: real-object reducer, per-call sentence memory,
-  public-text fallback, no receipt, no new `BotActivity` field. Commands:
+  public-text fallback, no receipt, no new `BotActivity` field; consume the declared `activity` first for the exact five tools. Commands:
   `xcodegen generate --spec scripts/ci/bot-activity-evidence/project.yml` → `xcodebuild
   -project scripts/ci/bot-activity-evidence/BotActivityEvidence.xcodeproj -scheme
   BotActivityEvidenceTests -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test`.
@@ -147,16 +136,20 @@ will be refreshed by the lead at integration if UI edits shift them; values do n
 
 ## 5. Revision history
 
+This table is historical. **The current revision is `activity-evidence-v3.4`**; the earlier
+“no metadata field” decision was superseded by the model-facing required `activity` field
+in v3.4.
+
 | revision | owner | reason | notified |
 | --- | --- | --- | --- |
-| activity-evidence-v2 (this commit) | lead | Initial freeze after four lane audits; real-object projection with no new metadata field | runtime / projection / ui / review sessions |
+| activity-evidence-v2 (historical) | lead | Initial freeze after four lane audits; real-object projection, no new metadata field (superseded by v3.4) | runtime / projection / ui / review sessions |
 | activity-evidence-v2.1 | lead | Clarify that public text is accumulated from text-channel deltas and replaced by the step assistant/message; no interface or vector-shape change | runtime / projection / ui sessions |
 | activity-evidence-v2.2 | lead | User ruling: the bubble stays non-interactive; remove the tap/full-view requirement. No reducer, vector or transport change | runtime / projection / ui / review sessions |
 | activity-evidence-v2.3 | lead | Coverage ruling: public same-step progress is the default for every visible work tool, including unknown MCP and memory tools; card/messaging/hidden tools are explicit exclusions. Adds two vectors | runtime / projection / review sessions |
 | activity-evidence-v3 | lead | User ruling: the bubble is a short real progress sentence (10–20 CJK, about 28 with a result), not a long path/URL/long-answer display. Short object fallback uses basename/host; no append to a model sentence; no 512/full view. 81 vectors | runtime / projection / ui / review sessions |
 | activity-evidence-v3.1 | lead | Final fallback label is shortened after action+object join; remove the old 42-character secondary threshold; add long-basename/query vectors (83) | runtime / projection / ui / review sessions |
 | activity-evidence-v3.2 | lead | Natural-quality ruling: per-call intent/Task title follow the user's language and name the current task object/progress; tool-local command summaries are rejected. Prompt-only enforcement first; no new field/DSH change | runtime / projection / ui / review sessions |
-| activity-evidence-v3.3 | lead | Add optional `activity` to the real Bot-scope schemas of read/glob/grep/web_search/web_fetch; shadow strips it before the handler and preserves the web readiness `when`; no new event/state, no identity/approval digest; bash/Task keep existing fields. Coverage is the five host-native read/search tools only | runtime / projection / ui / review sessions |
+| activity-evidence-v3.3 (superseded) | lead | Add optional `activity` to the real Bot-scope schemas of read/glob/grep/web_search/web_fetch; shadow strips it before the handler and preserves the web readiness `when`; no new event/state, no identity/approval digest; bash/Task keep existing fields. Coverage is the five host-native read/search tools only | runtime / projection / ui / review sessions |
 | activity-evidence-v3.4 | lead | Make `activity` model-facing required with minLength 1 in the cloned wrapper parameters only; original definition/validator/required list unchanged; wrapper strips before original, so old calls/logs still execute and decode with fallback. Web readiness remains awaited | runtime / projection / ui / review sessions |
 
 ## 6. Protocol impact

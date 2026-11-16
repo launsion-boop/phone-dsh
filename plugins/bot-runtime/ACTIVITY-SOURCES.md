@@ -49,20 +49,21 @@ sentence from an earlier source.
 
 The native schemas are in the pinned DSH checkout under `packages/`; the phone MCP schemas
 are in `Sources/PhoneDSHBot/MCP/BotToolCatalog.swift`. `bash` and `Task` carry required or
-recommended free text; file/search tools carry their real object argument; job and todo
+recommended free text; the five read/search tools carry a model-facing required `activity`
+field in the Bot-scope wrapper, then their real object argument as fallback; job and todo
 have no useful object and use a label only.
 
 | Visible tool | Activity source (existing field) | Action label / notes |
 | --- | --- | --- |
 | `bash` | `description` (required) | intent as-is; fallback `正在运行命令`; never the command text |
-| `read` | `file_path` | `在翻文件 · <basename>` (`packages/fs/tool-fs/src/read.ts:78-87`) |
+| `read` | required `activity`; then `file_path` | `activity` as-is; fallback `在翻文件 · <basename>` (`packages/fs/tool-fs/src/read.ts:78-87`) |
 | `write` | `file_path` | `在写文件 · <basename>` (`packages/fs/tool-fs/src/write.ts:74-86`) |
 | `edit` | `file_path` | `在改文件 · <basename>` (`packages/fs/tool-fs/src/edit.ts:86-97`) |
 | `str_replace_editor` | `path` | `在改文件 · <basename>`; `command` is not the object and must not create a second verb mapping (`packages/fs/tool-str-replace-editor/src/index.ts:430-470`) |
-| `glob` | `pattern`, optional `path` | `在找文件 · <pattern>` (`packages/fs/tool-fs-search/src/glob.ts:322-334`) |
-| `grep` | `pattern`, optional `path`/`include` | `在搜内容 · <pattern>` + ` · <basename>` when present (`packages/fs/tool-fs-search/src/grep.ts:287-300`) |
-| `web_search` | `queries[0]` (schema key is `queries`) | `在网上搜 · <query>` (`packages/web/tool-web/src/search.ts:363-373`) |
-| `web_fetch` | `url` | `在开网页 · <host>` (`packages/web/tool-web/src/fetch.ts:459-467`) |
+| `glob` | required `activity`; then `pattern`, optional `path` | `activity` as-is; fallback `在找文件 · <pattern>` (`packages/fs/tool-fs-search/src/glob.ts:322-334`) |
+| `grep` | required `activity`; then `pattern`, optional `path`/`include` | `activity` as-is; fallback `在搜内容 · <pattern>` + ` · <basename>` when present (`packages/fs/tool-fs-search/src/grep.ts:287-300`) |
+| `web_search` | required `activity`; then `queries[0]` (schema key is `queries`) | `activity` as-is; fallback `在网上搜 · <query>` (`packages/web/tool-web/src/search.ts:363-373`) |
+| `web_fetch` | required `activity`; then `url` | `activity` as-is; fallback `在开网页 · <host>` (`packages/web/tool-web/src/fetch.ts:459-467`) |
 | `job_list` | none | `看看进展` (`packages/jobs/tool-jobs/src/index.ts:541-545`) |
 | `job_output` | none (the `job_id` is an internal handle) | `等待结果` |
 | `job_kill` | none | `停止任务` |
@@ -136,15 +137,18 @@ display object.
 
 ## What the prompt must say
 
-The system prompts in both languages must teach the model to use `bash.description` and
-`Task.task_title` in the user's current language for one short progress sentence: about
+The system prompts in both languages must teach the model to fill the declared required
+`activity` on `read`/`glob`/`grep`/`web_search`/`web_fetch`, and to use `bash.description`
+and `Task.task_title`, in the user's current language for one short progress sentence: about
 10–20 Chinese characters, at most about 28 when it carries a previous result, made of
 action + this task's short object
 (basename, host, `#PR`, title, person or meeting). The next sentence must carry the real
 result. Full paths, long URLs, whole commands, JSON, raw long answers and technical
 parameters stay off the line; credentials and internal ids are not allowed. Keep
 `等待响应` as the no-evidence state, and state that the client uses real events and that no
-extra status tool, summary model, extra request or metadata field exists. The final answer
+extra status tool, summary model or extra request exists; the only added model-facing field
+is the five-tool `activity` declared by the wrapper, which is stripped before the handler.
+The final answer
 stays brief; at a meaningful progress, result or direction-change node the same main model
 may write the one short progress sentence, without command-by-command narration or a
 tool/model call made only to refresh the bubble.

@@ -46,7 +46,8 @@ The Bot-scope shadow copies the original definition, adds `activity` to
 `parameters.properties` with `minLength: 1`, and clones `parameters.required` with
 `activity` appended; the original definition, its validator and its required list stay
 untouched. Its `execute` strips `activity` before calling the original handler, so an old
-call or replay without the field still executes the original handler unchanged. It preserves the original step admission: `web_search` /
+call without the field still executes the original handler unchanged; old logs/replays
+without it decode with the documented fallback. It preserves the original step admission: `web_search` /
 `web_fetch` keep `ctx.web.searchReady` / `fetchReady(modelSelection.provider)` as their
 `when` condition, so a not-ready web tool is never exposed; `read` / `glob` / `grep` have no
 `when`. The existing `tool/call.arguments` therefore retain the
@@ -60,10 +61,11 @@ user-language progress.
 Only the exact raw tool names `read`, `glob`, `grep`, `web_search` and `web_fetch` consume
 `activity`; a namespaced business tool such as `mcp__other__read` does not, even though the
 legacy display rule resolves its bare name. Priority for the five tools is `activity`, then
-the normal same-step public progress, then the short object fallback. A model call must supply `activity`; old logs, replayed calls and pre-upgrade clients may
-still omit it, and the decoder then falls back to the existing public-text/object behavior. Old sessions and clients that do not know the field keep
-working; the handler sees exactly the original arguments. Reconnect re-reads the same
-declared tool list; the field is optional in every schema exchange.
+the normal same-step public progress, then the short object fallback. The Bot model schema
+requires `activity`; old logs, replayed calls and pre-upgrade clients may omit it and decode
+with the existing public-text/object fallback. Old sessions and clients that do not know the
+field keep working; the handler sees exactly the original arguments. Reconnect re-reads the
+same declared tool list.
 2. **Same-turn, same-step public progress** — the main model's latest meaningful public
    `assistant/stream` (channel `text`) or `assistant/message` text. It must be in the same
    turn and same step and must have arrived after the previous tool call/result boundary in
