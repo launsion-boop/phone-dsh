@@ -179,10 +179,19 @@ final class BotRuntimeUnit {
             let transport = CloudScheduleHTTPTransport(
                 configuration: .init(baseURL: cloud.baseURL),
                 tokenProvider: { try await TonoAccountSession.shared.accessToken() })
+            // G-3 A09: re-check the routine's own opt-in and the still-live
+            // authorization_ref before every execution. N source dependency
+            // is not wired in the unit yet; nil means "N not connected", not
+            // "verified no dependency".
+            let refResolver = BotCloudAuthorizationResolver(store: store)
+            let cloudAuthorizer = BotCloudScheduleConsentAuthorizer(
+                base: cloud.authorizer,
+                refCheck: { await refResolver.state(of: $0) == .valid },
+                sourceDependency: nil)
             cloudClient = CloudScheduleClient(
                 botID: botID, deviceID: cloud.deviceID, transport: transport,
                 machine: machine, scheduler: scheduler,
-                authorizer: cloud.authorizer,
+                authorizer: cloudAuthorizer,
                 readiness: { [remote] in await remote.isAvailable() },
                 now: resolvedNow,
                 sleep: sleep ?? { milliseconds in
