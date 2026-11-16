@@ -118,7 +118,7 @@ public struct BotProvenanceInvalidationAdapter: BotMaintenanceInvalidationReadin
         return result
     }
 
-    private static func severity(_ state: BotSourceStatus.State) -> Int {
+    private static func severity(_ state: BotProvenanceStatus) -> Int {
         switch state {
         case .current: return 0
         case .changed: return 1
