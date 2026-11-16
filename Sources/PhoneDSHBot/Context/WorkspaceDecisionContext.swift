@@ -536,7 +536,10 @@ public struct WorkspaceDecisionContextService: Sendable {
             let ascii = run.allSatisfy { $0.isASCII }
             if ascii {
                 let text = String(run.map { Character($0) }).lowercased()
-                if text.count >= 2 { tokens.append(text) }
+                // Two-letter ASCII runs are dominated by file extensions
+                // ("md", "ts", "py"), which would make every Markdown path a
+                // false candidate; three letters keeps real words like "api".
+                if text.count >= 3 { tokens.append(text) }
             } else {
                 let characters = run.map(Character.init)
                 if characters.count == 1 {

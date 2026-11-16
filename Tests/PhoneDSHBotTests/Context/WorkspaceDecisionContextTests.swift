@@ -127,8 +127,8 @@ final class WorkspaceDecisionContextTests: XCTestCase {
             "handbook/api/error-codes.md": .init(
                 text: "# 错误码规范（当前）\n- E1001 参数错误\n- 禁止直接返回内部堆栈",
                 modifiedAtMS: 1_760_000_000_500),
-            "handbook/api/ownership.md": .init(
-                text: "# 服务归属\n- 支付服务由结算组维护", modifiedAtMS: 1_760_000_000_400),
+            "handbook/ownership.md": .init(
+                text: "Settlement team owns payments", modifiedAtMS: 1_760_000_000_400),
             "notes/meeting.md": .init(text: "# 会议记录\n- 咖啡", modifiedAtMS: 1_760_000_000_300),
         ])
         let selection = await service(catalog).selection(
