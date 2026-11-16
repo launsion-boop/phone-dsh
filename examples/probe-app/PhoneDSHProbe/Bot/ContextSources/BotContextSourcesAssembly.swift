@@ -144,13 +144,13 @@ public final class BotContextSourcesAssembly {
         self.calendar = calendar
         self.location = location
         self.registrations = [
-            (.calendar, calendar as (any BotContextSource)?, .os),
-            (.contacts, contacts as (any BotContextSource)?, .os),
-            (.selectedMedia, selectedMedia as (any BotContextSource)?, .os),
-            (.locationFence, location as (any BotContextSource)?, .os),
-            (.power, power as (any BotContextSource)?, .os),
-            (.ownNotification, ownNotifications as (any BotContextSource)?, .os),
-            (.externalEntry, external as (any BotContextSource)?, .os),
+            (.calendar, calendar.map { $0 as any BotContextSource }, .os),
+            (.contacts, contacts.map { $0 as any BotContextSource }, .os),
+            (.selectedMedia, selectedMedia.map { $0 as any BotContextSource }, .os),
+            (.locationFence, location.map { $0 as any BotContextSource }, .os),
+            (.power, power.map { $0 as any BotContextSource }, .os),
+            (.ownNotification, ownNotifications.map { $0 as any BotContextSource }, .os),
+            (.externalEntry, external.map { $0 as any BotContextSource }, .os),
         ]
     }
 
