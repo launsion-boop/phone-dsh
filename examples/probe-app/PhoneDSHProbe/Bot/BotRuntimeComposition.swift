@@ -453,16 +453,8 @@ final class BotRuntimeComposition {
         let workspaceMaterials = WorkspaceDecisionContextService(
             catalog: workspaceCatalog,
             eligibility: provenance)
-        let decisionContext = BotDecisionContextService(
-            memoryForBot: { botID in await runtime.memory(for: botID) },
-            permissionRevision: permissionRevision,
-            materialState: { lookup in await materialState.state(for: lookup) },
-            workspaceMaterials: workspaceMaterials)
-        await runtime.installDecisionContext(
-            decisionContext, trace: materialTrace, permissionRevision: permissionRevision)
-        // G-2 feedback: one center for the process. An unreadable Application
-        // Support directory leaves the feature unavailable (the Bot still
-        // starts); the store never overwrites a damaged file.
+        // G-2 feedback: one center for the process, created before the
+        // decision context so its read views feed material construction.
         let feedbackCenter: BotFeedbackCenter?
         do {
             feedbackCenter = try BotFeedbackCenter.live(
@@ -475,6 +467,24 @@ final class BotRuntimeComposition {
         if let feedbackCenter {
             await runtime.installFeedbackTools(BotFeedbackTools(center: feedbackCenter))
         }
+        let decisionContext = BotDecisionContextService(
+            memoryForBot: { botID in await runtime.memory(for: botID) },
+            permissionRevision: permissionRevision,
+            materialState: { lookup in await materialState.state(for: lookup) },
+            disputedRefs: { paths in
+                guard let feedbackCenter else { return [:] }
+                return try await feedbackCenter.disputedRefs(paths: paths)
+            },
+            preferences: { botID in
+                guard let feedbackCenter else {
+                    return BotFeedbackPreferences(
+                        botID: botID, generatedAtMS: 0, active: [], recentlyRevoked: [])
+                }
+                return try await feedbackCenter.preferences(botID: botID)
+            },
+            workspaceMaterials: workspaceMaterials)
+        await runtime.installDecisionContext(
+            decisionContext, trace: materialTrace, permissionRevision: permissionRevision)
         let handler = BotMCPHandler(runtime: runtime)
         let server = BotMCPHTTPServer(handler: handler)
         let url = try await server.start()
