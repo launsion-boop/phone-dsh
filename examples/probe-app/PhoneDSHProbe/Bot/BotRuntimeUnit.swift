@@ -200,6 +200,10 @@ final class BotRuntimeUnit {
         let maintenance = BotMemoryMaintenanceController(
             store: store, botID: botID, memory: memory, runtime: runtime,
             remote: remote, recordReading: recordService,
+            feedbackReading: feedback.map { BotFeedbackDisputeAdapter(query: $0) },
+            invalidationReading: provenance.map {
+                BotProvenanceInvalidationAdapter(provenance: $0)
+            },
             isMainBot: isMainBot,
             isAppActive: {
 #if canImport(UIKit)

@@ -603,6 +603,13 @@ public struct BotMaintenanceEvidenceVerifier: Sendable {
             request.disputedReferences[document.path] ?? [])
         let cited = canonicalUnique(evidence + reviewRefs)
         let considered = canonicalUnique(cited + disputedRefs)
+        // F can report an active correction whose refs were not replayed from
+        // the compact index. That is a disputed document with unknown sides,
+        // not "no dispute"; fail closed rather than host-verifying it.
+        if let entry = request.disputedReferences[document.path], entry.isEmpty {
+            reasons.append(.conflictNotPreserved)
+            disputed = true
+        }
 
         // Q1 P1-4: a missing F/L dependency is not "no dispute/no
         // invalidation". Any evidence-bearing document is unverifiable until

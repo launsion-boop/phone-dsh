@@ -144,11 +144,15 @@ public struct BotMaintenanceQualitySampleResult: Codable, Sendable, Equatable {
     /// A newer external observation replaced or flagged the stale claim.
     public var staleDetected: Bool
     public var detail: String
+    /// False when the batch for this sample rolled back (or never committed);
+    /// the final document cannot count as a maintained correction.
+    public var committed: Bool?
 
     public init(id: String, kind: BotMaintenanceQualitySampleKind,
                 status: BotMaintenanceQualitySampleStatus,
                 corrected: Bool, preservedBothSides: Bool,
-                staleDetected: Bool, detail: String = "") {
+                staleDetected: Bool, detail: String = "",
+                committed: Bool? = nil) {
         self.id = id
         self.kind = kind
         self.status = status
@@ -156,10 +160,11 @@ public struct BotMaintenanceQualitySampleResult: Codable, Sendable, Equatable {
         self.preservedBothSides = preservedBothSides
         self.staleDetected = staleDetected
         self.detail = detail
+        self.committed = committed
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, status, corrected, detail
+        case id, kind, status, corrected, detail, committed
         case preservedBothSides = "preserved_both_sides"
         case staleDetected = "stale_detected"
     }
@@ -175,16 +180,25 @@ public struct BotMaintenanceQualityBatchEvidence: Codable, Sendable, Equatable {
     /// Host mechanical-check failures (any of the five checks).
     public var mechanicalViolations: Int
     public var tokensUsed: Int
+    /// Model requests and tool calls in the real maintainer turn; captured per
+    /// batch so the resource cost is reported next to the correction rate.
+    public var modelRequests: Int?
+    public var toolCalls: Int?
+    public var maxToolResultChars: Int?
 
     public init(batchID: String, status: String, checksPassed: Bool,
                 falseVerifiedDocuments: Int, mechanicalViolations: Int,
-                tokensUsed: Int) {
+                tokensUsed: Int, modelRequests: Int? = nil,
+                toolCalls: Int? = nil, maxToolResultChars: Int? = nil) {
         self.batchID = batchID
         self.status = status
         self.checksPassed = checksPassed
         self.falseVerifiedDocuments = falseVerifiedDocuments
         self.mechanicalViolations = mechanicalViolations
         self.tokensUsed = tokensUsed
+        self.modelRequests = modelRequests
+        self.toolCalls = toolCalls
+        self.maxToolResultChars = maxToolResultChars
     }
 
     enum CodingKeys: String, CodingKey {
@@ -194,6 +208,9 @@ public struct BotMaintenanceQualityBatchEvidence: Codable, Sendable, Equatable {
         case falseVerifiedDocuments = "false_verified_documents"
         case mechanicalViolations = "mechanical_violations"
         case tokensUsed = "tokens_used"
+        case modelRequests = "model_requests"
+        case toolCalls = "tool_calls"
+        case maxToolResultChars = "max_tool_result_chars"
     }
 }
 
@@ -228,6 +245,11 @@ public struct BotMaintenanceQualityMetrics: Codable, Sendable, Equatable {
     public var mechanicalViolations: Int
     public var falseVerifiedDocuments: Int
     public var memorySuiteRegressions: Int
+    public var committedBatches: Int
+    public var rolledBackBatches: Int
+    public var modelRequests: Int
+    public var toolCalls: Int
+    public var maxToolResultChars: Int
 
     enum CodingKeys: String, CodingKey {
         case contradictionSamples = "contradiction_samples"
@@ -240,6 +262,11 @@ public struct BotMaintenanceQualityMetrics: Codable, Sendable, Equatable {
         case mechanicalViolations = "mechanical_violations"
         case falseVerifiedDocuments = "false_verified_documents"
         case memorySuiteRegressions = "memory_suite_regressions"
+        case committedBatches = "committed_batches"
+        case rolledBackBatches = "rolled_back_batches"
+        case modelRequests = "model_requests"
+        case toolCalls = "tool_calls"
+        case maxToolResultChars = "max_tool_result_chars"
     }
 }
 
@@ -374,8 +401,15 @@ public enum BotMaintenanceQualityGate {
             reasons.append("catalog-sha-unpinned")
         }
         let realBatches = batches.count
+        let committedBatches = batches.filter { $0.status == "committed" }.count
+        let rolledBackBatches = batches.filter {
+            $0.status == "rolled_back" || $0.status == "rollback_failed"
+        }.count
         if realBatches < spec.thresholds.minRealBatches {
             reasons.append("too-few-real-batches")
+        }
+        if committedBatches == 0 {
+            reasons.append("no-committed-batches")
         }
         for batch in batches where batch.status == "committed" && !batch.checksPassed {
             reasons.append("committed-batch-with-failed-checks")
@@ -406,8 +440,9 @@ public enum BotMaintenanceQualityGate {
             reasons.append("missing-samples:contradiction")
         }
         let contradictionPassed = contradictionMatching.filter {
-            $0.status == .pass && ($0.corrected
-                || ($0.preservedBothSides && $0.corrected == false))
+            $0.status == .pass && ($0.committed ?? true)
+                && ($0.corrected
+                    || ($0.preservedBothSides && $0.corrected == false))
         }.count
         let staleTotal = spec.samples.staleExternal
         let staleMatching = samples.filter { $0.kind == .staleExternal }
@@ -415,7 +450,7 @@ public enum BotMaintenanceQualityGate {
             reasons.append("missing-samples:stale-external")
         }
         let stalePassed = staleMatching.filter {
-            $0.status == .pass && $0.staleDetected
+            $0.status == .pass && ($0.committed ?? true) && $0.staleDetected
         }.count
 
         let correctionRate = contradictionTotal == 0 ? 0
@@ -443,7 +478,12 @@ public enum BotMaintenanceQualityGate {
             realBatches: realBatches,
             mechanicalViolations: mechanicalViolations,
             falseVerifiedDocuments: falseVerified,
-            memorySuiteRegressions: regressions)
+            memorySuiteRegressions: regressions,
+            committedBatches: committedBatches,
+            rolledBackBatches: rolledBackBatches,
+            modelRequests: batches.compactMap(\.modelRequests).reduce(0, +),
+            toolCalls: batches.compactMap(\.toolCalls).reduce(0, +),
+            maxToolResultChars: batches.compactMap(\.maxToolResultChars).max() ?? 0)
         let notRunReasons = reasons.contains(where: {
             $0.hasPrefix("missing-samples")
                 || $0 == "too-few-real-batches"

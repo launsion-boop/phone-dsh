@@ -145,6 +145,19 @@ def batch_facts(events):
                 violation = 1
             if status in ("rolled_back", "rollback_failed", "failed") and failure in MECHANICAL_FAILURES:
                 violation = 1
+            start_seq = started.get(data.get("batch_id")) or 0
+            window = [item for item in events if event_seq(item) >= start_seq]
+            model_requests = sum(
+                1 for item in window
+                if item.get("type") == "ledger.usage_recorded"
+                and (item.get("data") or {}).get("purpose") == "memory-maintenance")
+            tool_calls = sum(
+                1 for item in window
+                if item.get("type") == "conversation.tool_call")
+            max_result = max(
+                [len(json.dumps(item.get("data") or {}, ensure_ascii=False))
+                 for item in window
+                 if item.get("type") == "conversation.tool_result"] or [0])
             batches.append({
                 "batch_id": data.get("batch_id"),
                 "status": status,
@@ -153,6 +166,9 @@ def batch_facts(events):
                     verification.get("blocking") or 0) if status == "committed" else 0,
                 "mechanical_violations": violation,
                 "tokens_used": int((data.get("budget") or {}).get("tokens_used") or 0),
+                "model_requests": model_requests,
+                "tool_calls": tool_calls,
+                "max_tool_result_chars": max_result,
                 "started_at_ms": data.get("started_at_ms"),
                 "failure_code": failure,
             })
@@ -165,7 +181,7 @@ def documents_before_maintenance(events, started_seq):
     return reconstruct_documents(prior)
 
 
-def contradiction_sample(repeat, events, started):
+def contradiction_sample(repeat, events, start_seq, committed):
     path = CONTRADICTION_PATH
     documents = reconstruct_documents(events)
     document = documents.get(path)
@@ -179,13 +195,14 @@ def contradiction_sample(repeat, events, started):
             "preserved_both_sides": False,
             "stale_detected": False,
             "detail": "no final document at %s" % path,
+            "committed": committed,
         }
     content = document["content"]
     old_claim = "七点起床"
     new_claim = "八点起床"
     has_old = old_claim in content
     has_new = new_claim in content
-    before = documents_before_maintenance(events, started.get("batch_id"))
+    before = documents_before_maintenance(events, start_seq)
     before_document = before.get(path)
     if before_document and new_claim in before_document.get("content", "") and old_claim not in before_document.get("content", ""):
         details.append("main turn already corrected before maintenance")
@@ -197,6 +214,7 @@ def contradiction_sample(repeat, events, started):
             "preserved_both_sides": False,
             "stale_detected": False,
             "detail": "; ".join(details),
+            "committed": committed,
         }
     retired_old = has_old and any(marker in content for marker in RETIRED_MARKERS)
     corrected = has_new and (not has_old or retired_old)
@@ -216,10 +234,11 @@ def contradiction_sample(repeat, events, started):
         "preserved_both_sides": bool(preserved),
         "stale_detected": False,
         "detail": "; ".join(details),
+            "committed": committed,
     }
 
 
-def stale_sample(repeat, events, started):
+def stale_sample(repeat, events, start_seq, committed):
     path = STALE_PATH
     documents = reconstruct_documents(events)
     document = documents.get(path)
@@ -232,13 +251,14 @@ def stale_sample(repeat, events, started):
             "preserved_both_sides": False,
             "stale_detected": False,
             "detail": "no final document at %s" % path,
+            "committed": committed,
         }
     content = document["content"]
     old_claim = "11 月 18 日"
     new_claim = "11 月 20 日"
     has_old = old_claim in content
     has_new = new_claim in content
-    before = documents_before_maintenance(events, started.get("batch_id"))
+    before = documents_before_maintenance(events, start_seq)
     before_document = before.get(path)
     if before_document and new_claim in before_document.get("content", "") and old_claim not in before_document.get("content", ""):
         return {
@@ -249,6 +269,7 @@ def stale_sample(repeat, events, started):
             "preserved_both_sides": False,
             "stale_detected": False,
             "detail": "main turn already updated the memory before maintenance",
+            "committed": committed,
         }
     retired_old = has_old and any(marker in content for marker in RETIRED_MARKERS)
     updated = has_new and (not has_old or retired_old)
@@ -262,6 +283,7 @@ def stale_sample(repeat, events, started):
         "stale_detected": bool(updated or preserved),
         "detail": "final content has_old=%s has_new=%s disputed=%s refs=%d"
                   % (has_old, has_new, disputed(document), len(refs_of(document))),
+        "committed": committed,
     }
 
 
@@ -306,10 +328,16 @@ def judge(args):
                     "detail": "no memory.maintenance_finished event",
                 })
                 continue
+            committed = any(
+                item.get("status") in ("committed", "cancelled")
+                for item in repeat_batches)
+            first_batch = repeat_batches[0].get("batch_id")
+            start_seq = started.get(first_batch)
             if "CONTRADICTION" in scenario_id:
-                samples.append(contradiction_sample(repeat, events, started))
+                samples.append(contradiction_sample(
+                    repeat, events, start_seq, committed))
             else:
-                samples.append(stale_sample(repeat, events, started))
+                samples.append(stale_sample(repeat, events, start_seq, committed))
 
     memory_suites = []
     if args.memory_suite:
