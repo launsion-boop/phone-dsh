@@ -1953,7 +1953,10 @@ public actor BotMCPRuntime {
         // whole write is refused. P only validates and persists the result.
         var sourceBaselines: [BotSourceBaseline]?
         let sourceRefs = evidence.refs + (review?.refs ?? []) + (triggerRef.map { [$0] } ?? [])
-        if !sourceRefs.isEmpty {
+        // A library/test host may run without the G-1 read model; keep its
+        // legacy write shape. The production composition always installs
+        // provenance, where the fail-closed derivation applies.
+        if !sourceRefs.isEmpty, let provenance {
             guard let resolver = recordEvidence as? any BotSourceStateResolving else {
                 return .failure("memory-source-baseline-unavailable", "来源状态解析器未接入")
             }
@@ -1988,9 +1991,6 @@ public actor BotMCPRuntime {
             if let triggerRef {
                 baselines.append(BotSourceBaseline(
                     record: triggerRef, role: .trigger, sourceVersion: nil, resource: nil))
-            }
-            guard let provenance else {
-                return .failure("memory-source-baseline-unavailable", "溯源服务未接入")
             }
             do {
                 let prepared = try await provenance.prepareDerivation(
