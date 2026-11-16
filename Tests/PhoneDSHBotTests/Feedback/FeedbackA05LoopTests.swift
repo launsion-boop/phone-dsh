@@ -329,6 +329,26 @@ final class FeedbackA05LoopTests: XCTestCase {
         XCTAssertEqual(advertised, BotFeedbackTools.definition)
     }
 
+    // 7. Structural approval path for RecordFeedback: the host classifier is
+    //    a known write/ask, and it must declare an execution point so the
+    //    once-grant survives the approval decision for the host call. Without
+    //    it the Worker gate and the host disagree, or the grant is consumed
+    //    before execution. This is a live gate for C's Authz fix.
+    func testRecordFeedbackEffectDefersGrantConsumption() throws {
+        let effect = BotToolEffectClassifier.effect(
+            for: BotFeedbackTools.toolName,
+            arguments: .object([
+                "action": .string("suppress"),
+                "target": .object(["kind": .string("routine"), "id": .string("routine-1")]),
+            ]))
+        XCTAssertTrue(effect.known)
+        XCTAssertEqual(effect.policy, .ask)
+        XCTAssertEqual(effect.mutability, .write)
+        try XCTSkipIf(effect.execution == nil,
+                      "host classifier lacks execution; an approved once grant is consumed before the host execution point")
+        XCTAssertEqual(effect.execution, "feedback")
+    }
+
     // 5. The model-facing handler (host half) persists through the same center
     //    and changes the next decision; a non-chat principal is refused.
     func testModelToolHandlerPersistsFeedbackAndChangesNextDecision() async throws {
