@@ -1771,6 +1771,94 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         for task in pending { _ = try? await task.value }
         _ = try? await head.value
     }
+    /// PR #187 review item 4: when a main turn dies with `turn_not_started`
+    /// and gets rebuilt, a supplemental message that lost that turn must be
+    /// re-admitted against the single replacement session — not left on the
+    /// sealed id it captured at entry. Drives the real runtime: one rebuild,
+    /// both requestIds delivered once on the new session, nothing after the
+    /// steer goes back into the old session.
+    func testSupplementalMessageReAdmitsOnTheRebuiltMainSession() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [[.toolCall("noop")]],
+            "gb-created-1": [
+                [.turn(1), .assistant("rebuilt first"), .end(turn: 1)],
+                [.turn(2), .assistant("rebuilt second"), .end(turn: 2)],
+            ],
+        ])
+        let remote = try await BotDSHRemoteRuntime(
+            transport: transport, runtime: fixture.runtime, now: { 1_000 })
+        // Shorten only the turn-start handshake so the sealed-session timeout
+        // is fast; a running turn is still unbounded.
+        await remote.setTurnStartDeadlineMilliseconds(150)
+        transport.pause("gb-main")
+        let first = Task { try await remote.sendUserMessage("first") }
+        for _ in 0..<400 where transport.promptHistory.isEmpty {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        let second = Task { try await remote.sendUserMessage("second") }
+        for _ in 0..<400 where transport.steerPromptAttempts == 0 {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertEqual(transport.steerPromptAttempts, 1,
+                       "the supplemental message steers before the turn dies")
+
+        let firstResult = try await withAdmissionTimeout(6) { try await first.value }
+        let secondResult = try await withAdmissionTimeout(6) { try await second.value }
+        XCTAssertEqual(firstResult.status, "completed")
+        XCTAssertEqual(secondResult.status, "completed",
+                       "the supplemental message must not keep the dead-turn failure")
+        XCTAssertEqual(transport.createdIDs.filter { $0.hasPrefix("gb-created") },
+                       ["gb-created-1"],
+                       "exactly one replacement session")
+        XCTAssertEqual(secondResult.sessionId, "gb-created-1",
+                       "the supplemental message runs on the rebuilt session")
+        let oldSession = transport.promptHistory.filter { $0.sessionId == "gb-main" }
+        XCTAssertEqual(oldSession.map(\.mode), ["queue", "steer"],
+                       "nothing else is sent into the sealed session")
+        let newSession = transport.promptHistory.filter { $0.sessionId == "gb-created-1" }
+        XCTAssertEqual(newSession.count, 2,
+                       "both messages are re-admitted exactly once on the replacement")
+        let newIDs = transport.promptRequestIds
+            .filter { $0.sessionId == "gb-created-1" }.map(\.requestId)
+        XCTAssertEqual(newIDs.count, Set(newIDs).count,
+                       "a requestId is never delivered twice on the new session")
+    }
+    /// PR #187 review item 10: admission bookkeeping must not grow. After the
+    /// sends settle, no steer tail and no cancelled-waiter entry may remain.
+    func testAdmissionBookkeepingReturnsToZeroAfterSettledSends() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [[.turn(1), .assistant("ok"), .end(turn: 1)]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(
+            transport: transport, runtime: fixture.runtime, now: { 1_000 })
+        transport.pause("gb-main")
+        let first = Task { try await remote.sendUserMessage("first") }
+        for _ in 0..<400 where transport.promptHistory.isEmpty {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        let second = Task { try await remote.sendUserMessage("second") }
+        for _ in 0..<400 where transport.steerPromptAttempts == 0 {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        transport.resume("gb-main")
+        _ = try await withAdmissionTimeout(3) { try await first.value }
+        _ = try await withAdmissionTimeout(3) { try await second.value }
+        for _ in 0..<100 {
+            let snapshot = await remote.admissionBookkeepingSnapshot()
+            if snapshot.steerTails == 0, snapshot.waiting == 0, snapshot.cancelledWaiters == 0 {
+                break
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let after = await remote.admissionBookkeepingSnapshot()
+        XCTAssertEqual(after.waiting, 0, "no admission may stay pending")
+        XCTAssertEqual(after.steerTails, 0, "the steer tail must not stay registered")
+        XCTAssertEqual(after.cancelledWaiters, 0, "no cancelled waiter may be left behind")
+    }
 }
 
 /// One transport whose first call never returns, modelling an API request the

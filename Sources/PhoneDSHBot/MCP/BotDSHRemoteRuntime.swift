@@ -222,6 +222,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// Bounds for a single await on the live transport. Only set by the test
     /// seam; nil means the per-operation defaults in `BotTransportDeadline`.
     private var transportDeadlineOverrideMilliseconds: Int?
+    private var turnStartDeadlineOverrideMilliseconds: Int?
     private var collectIdleOverrideMilliseconds: Int?
     /// The App's rebind hook. Fired at most once per failing transport
     /// generation, after `transportIsAttached` has already become false.
@@ -272,6 +273,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private var routineSessions: [String: String] = [:]
     private var maintainerSessionId: String?
     private var mainSessionTask: Task<String, Error>?
+    /// Single-flight handle for the mid-turn main-session rebuild. A second
+    /// message that hits `turn_not_started` joins this instead of creating a
+    /// second replacement session.
+    private var mainRebuildTask: Task<String, Error>?
     private var liveObservers: [BotLiveFrameSubscription: @Sendable (BotLiveTurnFrame) -> Void] = [:]
     /// The one compatibility observer installed by `setLiveObserver`.
     private var legacyLiveSubscription: BotLiveFrameSubscription?
@@ -353,6 +358,15 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     }
 
     /// Test/App seam: how long `collectTurn` tolerates an idle
+    /// `session/follow` stream between frames. Defaults to
+    /// Test seam: how long a submitted prompt may take to produce its first
+    /// `turn/start`. Defaults to `BotTransportDeadline.turnStartMilliseconds`
+    /// (20 s). Only the turn-start handshake is bounded; a running turn is not.
+    public func setTurnStartDeadlineMilliseconds(_ value: Int?) {
+        turnStartDeadlineOverrideMilliseconds = value.map { max(1, $0) }
+    }
+
+    /// Test seam: how long `collectTurn` tolerates an idle
     /// `session/follow` stream between frames. Defaults to
     /// `BotTransportDeadline.defaultIdleMilliseconds` (300 s). This is the only
     /// bound that sees a live model turn, so it must stay well above a normal
@@ -767,24 +781,27 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             var result = try await runTurn(sessionId: sessionId, kind: .chat, prompt: prompt,
                                            requestId: promptRequestId,
                                            admissionLane: admissionLane, admissionOrder: admissionOrder)
-            if result.status != "completed", result.error == "turn_not_started",
-               rebuiltTurnNotStartedGeneration != transportGeneration {
+            if result.status != "completed", result.error == "turn_not_started" {
                 // The host accepted the prompt but never opened a turn. A
                 // sealed/forked or otherwise dead main session cannot run
-                // another turn; start a fresh epoch and retry the same prompt
-                // once. Adopt the new id as THE main session, otherwise the
-                // next send recovers the old id and starts a second turn on a
-                // different session (which the host fails as a turn conflict).
-                // Once per transport generation; a completed turn clears it.
-                rebuiltTurnNotStartedGeneration = transportGeneration
-                let rebuilt = try await rebuildMainSession(
-                    from: sessionId, cwd: botRoot())
-                mainSessionId = rebuilt
-                mainSessionTask = nil
-                result = try await runTurn(
-                    sessionId: rebuilt, kind: .chat, prompt: prompt,
-                    requestId: promptRequestId,
-                    admissionLane: admissionLane, admissionOrder: admissionOrder)
+                // another turn; adopt the replacement (the turn layer already
+                // rebuilt it) and retry the same prompt once. Once per
+                // transport generation; a completed turn clears it.
+                let rebuilt: String
+                if let current = mainSessionId, current != sessionId {
+                    rebuilt = current
+                } else if rebuiltTurnNotStartedGeneration != transportGeneration {
+                    rebuiltTurnNotStartedGeneration = transportGeneration
+                    rebuilt = try await rebuildMainSessionOnce(from: sessionId)
+                } else {
+                    rebuilt = sessionId
+                }
+                if rebuilt != sessionId {
+                    result = try await runTurn(
+                        sessionId: rebuilt, kind: .chat, prompt: prompt,
+                        requestId: promptRequestId,
+                        admissionLane: admissionLane, admissionOrder: admissionOrder)
+                }
             }
             if result.status == "completed" {
                 rebuiltTurnNotStartedGeneration = nil
@@ -2432,6 +2449,37 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         }
     }
 
+    /// One rebuild per dying main session. Both the sender that saw
+    /// `turn_not_started` and any supplemental message that lost the same turn
+    /// join it, so exactly one replacement session is created and every
+    /// waiting message re-admits against the same new id.
+    private func rebuildMainSessionOnce(from oldSessionId: String) async throws -> String {
+        if let inFlight = mainRebuildTask { return try await inFlight.value }
+        let task = Task { try await self.rebuildMainSession(from: oldSessionId, cwd: self.botRoot()) }
+        mainRebuildTask = task
+        do {
+            let rebuilt = try await task.value
+            mainSessionId = rebuilt
+            mainSessionTask = nil
+            mainRebuildTask = nil
+            return rebuilt
+        } catch {
+            mainRebuildTask = nil
+            throw error
+        }
+    }
+
+    /// The live main chat session for a message that captured its id before a
+    /// mid-turn rebuild. Non-chat kinds and hidden interactions keep their own
+    /// session; only the visible main chat adopts the replacement.
+    private func liveMainChatSession(for sessionId: String, kind: BotSessionKind,
+                                     hidden: Bool) async -> String {
+        guard kind == .chat, !hidden else { return sessionId }
+        if let inFlight = mainRebuildTask { _ = try? await inFlight.value }
+        guard let current = mainSessionId, current != sessionId else { return sessionId }
+        return current
+    }
+
     private func archiveRemoteSession(_ sessionId: String) async -> Bool {
         do {
             _ = try await boundedTransportCall("workspace/archiveSession", args: .object(["request": .object([
@@ -2800,6 +2848,14 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         waitingAdmissions[sessionId] ?? 0
     }
 
+    /// Test seam: internal admission bookkeeping sizes. A settled send must
+    /// leave no steer tail and no cancelled-waiter entry behind; these are the
+    /// two collections the review flagged as append-only. Not a wire/UI
+    /// contract.
+    func admissionBookkeepingSnapshot() -> (waiting: Int, cancelledWaiters: Int, steerTails: Int) {
+        (waitingAdmissions.values.reduce(0, +), cancelledAdmissionWaiters.count, steerTails.count)
+    }
+
     private func canSteer(sessionId: String) -> Bool {
         // A queued turn is no reason to refuse steering: once the active turn
         // accepted its first prompt, every later user message belongs to that
@@ -3031,6 +3087,18 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// P26 §2.9 ledger mapping: a verifier's model spend is a
     /// `completion-check`, never a `worker-turn`. Maintainer keeps its own
     /// purpose; chat is the user-facing front turn.
+    /// Bounded wait for a dying attempt to publish its outcome (including the
+    /// single-flight rebuild). Only used after an admission abort, where the
+    /// turn is already ending; a running turn is not awaited indefinitely.
+    private static func settleDyingAttempt(_ work: Task<BotRemoteTurnResult, Error>) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { _ = try? await work.value }
+            group.addTask { try? await Task.sleep(nanoseconds: 1_000_000_000) }
+            await group.next()
+            group.cancelAll()
+        }
+    }
+
     static func ledgerPurpose(for kind: BotSessionKind) -> BotModelPurpose {
         switch kind {
         case .chat: return .frontTurn
@@ -3067,15 +3135,35 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     sessionId: sessionId, coordinator: active,
                     prompt: prompt, requestId: requestId,
                     admissionLane: admissionLane, admissionOrder: admissionOrder)
-                // The steer prompt is accepted by the same active turn. Even
-                // if that turn ends immediately afterwards, its collector is
-                // the right result; never open a second turn for a message the
-                // Worker already accepted.
-                return try await active.work.value
+                let result = try await active.work.value
+                // The turn never opened (sealed/dead session). The sender
+                // rebuilds it; this message must not be left with the old
+                // session's failure — re-admit it against the replacement with
+                // the same requestId.
+                if result.status != "completed", result.error == "turn_not_started",
+                   kind == .chat, !hidden {
+                    // The sender may already have rebuilt; only the first
+                    // observer creates the replacement.
+                    if mainSessionId == sessionId || mainSessionId == nil {
+                        _ = try? await rebuildMainSessionOnce(from: sessionId)
+                    }
+                    let target = await liveMainChatSession(
+                        for: sessionId, kind: kind, hidden: hidden)
+                    if target != sessionId {
+                        return try await runTurn(
+                            sessionId: target, kind: kind, prompt: prompt,
+                            requestId: requestId)
+                    }
+                }
+                return result
             } catch is AdmissionAborted {
                 // A cancelled send must not start a second turn behind the
                 // user's back.
                 if Task.isCancelled { throw CancellationError() }
+                // The turn may be finishing (and rebuilding) right now. Wait
+                // for that bounded decision so this message does not open a
+                // turn on the session that is being sealed.
+                await Self.settleDyingAttempt(active.work)
                 // The turn ended/stopped/was replaced while this message
                 // waited. Fall through to the normal/queued path, preserving
                 // the same requestId; never report an undelivered message as
@@ -3121,6 +3209,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 settlement: settlement, work: work, cancelled: false)
             return try await work.value
         }
+        let liveMain = await liveMainChatSession(for: sessionId, kind: kind, hidden: hidden)
+        if liveMain != sessionId {
+            return try await runTurn(
+                sessionId: liveMain, kind: kind, prompt: prompt, requestId: requestId)
+        }
         return try await startCoordinatedTurn(
             sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
             attemptId: UUID().uuidString.lowercased(), requestId: requestId, origin: origin,
@@ -3149,6 +3242,12 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         if callerCancelled { return Self.cancelledTurnResult(sessionId: sessionId) }
         switch outcome {
         case .settled:
+            let target = await liveMainChatSession(
+                for: sessionId, kind: kind, hidden: hidden)
+            if target != sessionId {
+                return try await runTurn(
+                    sessionId: target, kind: kind, prompt: prompt, requestId: requestId)
+            }
             return try await startCoordinatedTurn(
                 sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
                 attemptId: attemptId, requestId: requestId, origin: origin)
@@ -3236,6 +3335,16 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             await coordinators[sessionId]?.admission.open()
             let result = try await collectTurn(
                 mux: opened, sessionId: sessionId, kind: kind, hidden: hidden, attemptId: attemptId)
+            // The visible main turn never opened: the session is sealed or
+            // dead. Rebuild it here, before the result reaches anyone waiting
+            // on this attempt, so every supplemental message observes the one
+            // replacement id instead of racing the sender into the old one.
+            if result.status != "completed", result.error == "turn_not_started",
+               kind == .chat, !hidden,
+               rebuiltTurnNotStartedGeneration != transportGeneration {
+                rebuiltTurnNotStartedGeneration = transportGeneration
+                _ = try? await rebuildMainSessionOnce(from: sessionId)
+            }
             await opened.close()
             if result.status == "interrupted" {
                 await recordInterruptedTurnNoticeIfNeeded(
@@ -3363,7 +3472,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 frame = try await BotTransportDeadline.run(
                     milliseconds: sawTurnStart
                         ? BotTransportDeadline.defaultIdleMilliseconds
-                        : BotTransportDeadline.turnStartMilliseconds
+                        : (turnStartDeadlineOverrideMilliseconds
+                            ?? BotTransportDeadline.turnStartMilliseconds)
                 ) {
                     try await mux.receive()
                 }
