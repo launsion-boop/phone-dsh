@@ -210,8 +210,16 @@ final class BotRuntimeUnit {
             store: store, botID: botID, memory: memory, runtime: runtime,
             remote: remote, recordReading: recordService,
             feedbackReading: feedback.map { BotFeedbackDisputeAdapter(query: $0) },
-            invalidationReading: provenance.map {
-                BotProvenanceInvalidationAdapter(provenance: $0)
+            invalidationReading: provenance.map { service in
+                BotProvenanceInvalidationAdapter(scopedQuery: { request in
+                    let artifact = BotDerivedRef(
+                        kind: .memory, id: request.artifact.path,
+                        version: request.artifact.version)
+                    let statuses = try await service.sourceStatuses(
+                        for: artifact, botID: request.botID)
+                    return Dictionary(statuses.map { ($0.ref, $0) },
+                                      uniquingKeysWith: { first, _ in first })
+                })
             },
             isMainBot: isMainBot,
             isAppActive: {
