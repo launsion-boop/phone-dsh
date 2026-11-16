@@ -197,6 +197,14 @@ def write_evidence(results: Path, plan: dict, upstream: str = "real",
         (directory / "bot-events.jsonl").write_text(
             "\n".join(json.dumps(row, ensure_ascii=False) for row in lines) + "\n",
             encoding="utf-8")
+    summary_entries = [
+        {"id": scenario["id"], "gate": "FAIL" if scenario["id"] in skip or status == "FAIL" else "PASS"}
+        for scenario in plan["scenarios"]
+    ]
+    (results / "summary.json").write_text(json.dumps({
+        "version": 1, "gate": "FAIL" if any(e["gate"] != "PASS" for e in summary_entries) else "PASS",
+        "upstream": upstream, "repeat": repeat_count, "scenarios": summary_entries,
+    }), encoding="utf-8")
 
 
 def run_score(results: Path, out: Path, upstream: str = "real",
@@ -533,6 +541,37 @@ class ScorerMutationTests(unittest.TestCase):
         scenario = next(s for s in report["scenarios"] if s["id"] == "AHA-COMPACT-REUSE")
         self.assertEqual(scenario["status"], "PASS")
         self.assertTrue(any("denied host tool calls" in note for note in scenario["notes"]))
+
+    def test_engine_exit_3_is_not_run(self) -> None:
+        write_evidence(self.results, self.plan)
+        code, report = run_score(self.results, self.out, engine_exit=3)
+        self.assertEqual(code, 3)
+        self.assertEqual(report["overall"], "NOT_RUN")
+
+    def test_summary_gate_fail_prevents_pass(self) -> None:
+        write_evidence(self.results, self.plan)
+        summary_path = self.results / "summary.json"
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["gate"] = "FAIL"
+        summary["scenarios"][0]["gate"] = "FAIL"
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+        code, report = run_score(self.results, self.out)
+        self.assertEqual(code, 1)
+        scenario = report["scenarios"][0]
+        self.assertEqual(scenario["status"], "FAIL")
+        self.assertIn("engine gate", scenario["reason"])
+
+    def test_scheduled_action_fails_closed(self) -> None:
+        write_evidence(self.results, self.plan)
+        path = self.results / "AHA-CONTINUOUS" / "report.json"
+        report = json.loads(path.read_text(encoding="utf-8"))
+        report["repeats"][0]["actions"][0]["status"] = "scheduled"
+        path.write_text(json.dumps(report), encoding="utf-8")
+        code, report = run_score(self.results, self.out)
+        self.assertEqual(code, 1)
+        scenario = next(s for s in report["scenarios"] if s["id"] == "AHA-CONTINUOUS")
+        self.assertEqual(scenario["status"], "FAIL")
+        self.assertIn("scheduled", scenario["reason"])
 
     def test_upstream_mismatch_fails(self) -> None:
         write_evidence(self.results, self.plan, upstream="mock")

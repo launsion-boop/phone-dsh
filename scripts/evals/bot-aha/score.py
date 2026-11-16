@@ -356,7 +356,8 @@ def verify_transcripts(transcript: list, report_repeats: list,
 
 def check_scenario(scenario_id: str, config: dict, dimensions_doc: dict,
                    results: Path, upstream: str, marker: dict,
-                   planned: dict, engine_exit: int | None) -> dict:
+                   planned: dict, engine_exit: int | None,
+                   summary_gates: dict) -> dict:
     directory = results / scenario_id
     report_path = directory / "report.json"
     transcript_path = directory / "transcript.jsonl"
@@ -406,6 +407,25 @@ def check_scenario(scenario_id: str, config: dict, dimensions_doc: dict,
         record["reason"] = (
             f"report upstream {report.get('upstream')!r} does not match requested {upstream!r}")
         return record
+
+    if engine_exit not in (0, 1):
+        record["status"] = "NOT_RUN"
+        record["reason"] = (
+            f"engine exit {engine_exit!r} means missing prerequisites or infrastructure failure")
+        return record
+    gate = summary_gates.get(scenario_id)
+    if gate != "PASS":
+        record["status"] = "FAIL"
+        record["reason"] = f"engine gate is {gate!r}, not PASS"
+        return record
+    for repeat in report.get("repeats") or []:
+        for action in repeat.get("actions") or []:
+            if action.get("status") != "ok":
+                record["status"] = "FAIL"
+                record["reason"] = (
+                    f"repeat {repeat.get('index')} action {action.get('index')} "
+                    f"({action.get('type')}) status {action.get('status')!r} is not completed")
+                return record
 
     plan_repeat = planned.get("repeat", marker.get("repeat", 1))
     if not isinstance(report.get("repeat"), int) or report["repeat"] != plan_repeat:
@@ -721,6 +741,20 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, json.JSONDecodeError) as error:
         print(f"aha-score: NOT_RUN: cannot read plan/run marker: {error}", file=sys.stderr)
         return 3
+    summary_path = args.results / "summary.json"
+    if not summary_path.is_file():
+        print("aha-score: NOT_RUN: summary.json is missing; the engine gate is unknown",
+              file=sys.stderr)
+        return 3
+    try:
+        summary = load_json(summary_path)
+    except (OSError, json.JSONDecodeError) as error:
+        print(f"aha-score: NOT_RUN: cannot read summary.json: {error}", file=sys.stderr)
+        return 3
+    summary_gates = {}
+    for entry in summary.get("scenarios") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str):
+            summary_gates[entry["id"]] = entry.get("gate")
 
     configured = dimensions_doc.get("scenarios", {})
     planned_by_id = {scenario.get("id"): scenario for scenario in plan.get("scenarios", [])}
@@ -787,7 +821,7 @@ def main(argv: list[str] | None = None) -> int:
         scenarios.append(check_scenario(
             scenario_id, configured[scenario_id], dimensions_doc,
             args.results, args.upstream, marker, planned_by_id[scenario_id],
-            args.engine_exit))
+            args.engine_exit, summary_gates))
 
     statuses = {scenario["status"] for scenario in scenarios}
     if "FAIL" in statuses:
