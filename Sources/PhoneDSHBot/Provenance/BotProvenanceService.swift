@@ -475,8 +475,15 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         guard let botID, !botID.isEmpty else { return [:] }
         let snapshot = try await refresh()
         let scoped = snapshot.scoped(botID: botID)
-        let facts = await facts(for: scoped, extraRefs: refs)
-        return scoped.sourceStatuses(for: refs, facts: facts)
+        // Arbitrary refs have no artifact baseline. Only serve refs that the
+        // scoped assertions actually reference; an unrelated/foreign ref must
+        // not become a current source merely because the legacy eventFacts map
+        // contains it.
+        let allowed = Set(scoped.bySource.keys)
+        let scopedRefs = refs.filter { allowed.contains(
+            BotRecordReference.canonicalize($0) ?? $0) }
+        let facts = await facts(for: scoped, extraRefs: scopedRefs)
+        return scoped.sourceStatuses(for: scopedRefs, facts: facts)
     }
 
     public func generation() async throws -> BotProvenanceGeneration {
