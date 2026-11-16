@@ -49,6 +49,20 @@ struct BotCardView: View {
                     .padding(.top, 2)
                     .padding(.horizontal, 4)
                 }
+                if settlement == nil, card.kind != .approval,
+                   let session = model.deliverySession(for: row),
+                   !session.draft.resources.isEmpty || !session.draft.parameters.isEmpty {
+                    BotCardSurface(category: .work) {
+                        BotSuggestedResourcesSection(
+                            session: session,
+                            onToggle: { resourceID in
+                                model.toggleDeliveryResource(row: row, resourceID: resourceID)
+                            },
+                            onSubmit: { model.submitDeliverySelection(row: row) },
+                            onReset: { model.resetDeliverySelection(row: row) })
+                    }
+                    .padding(.top, 6)
+                }
             }
         }
     }
