@@ -184,10 +184,15 @@ public actor RoutineMachine {
             }
             var routine = document.routines[index]
             let previous = routine.cloudSchedule
+            let reference = authorizationRef ?? previous?.authorizationRef
+            guard !enabled || reference != nil else {
+                throw RoutineError.invalidRoutine(
+                    "enabling cloud scheduling requires the user's authorization record")
+            }
             let next = try RoutineCloudSchedule(
                 enabled: enabled,
                 seq: (previous?.seq ?? 0) + 1,
-                authorizationRef: authorizationRef ?? previous?.authorizationRef
+                authorizationRef: reference
             ).validated()
             routine.cloudSchedule = next
             document.routines[index] = routine

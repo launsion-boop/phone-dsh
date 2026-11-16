@@ -89,6 +89,7 @@ public actor CloudScheduleClient {
     private var needsReconcile = true
     private var reconcileCursorMS: Int64 = 0
     private var backoffMS: Int64 = 0
+    private var requiresReauthentication = false
     private var serverOffsetMS: Int64 = 0
     private struct SyncedState: Sendable, Equatable {
         var seq: Int64
@@ -146,6 +147,7 @@ public actor CloudScheduleClient {
     /// is suspended the cloud event log simply keeps pending events.
     public func activate() async {
         active = true
+        requiresReauthentication = false
         needsFullSync = true
         if started { startLoop() }
         _ = await runCycle()
@@ -159,7 +161,14 @@ public actor CloudScheduleClient {
     /// (opaque ids + timing only) and heals a server that lost its schedule
     /// rows; only changed routines produce a routine snapshot write.
     public func noteSchedulesChanged() {
+        requiresReauthentication = false
         needsFullSync = true
+    }
+
+    /// The host calls this after a successful token refresh. Until then the
+    /// client makes no cloud request on a 401/403.
+    public func noteAuthenticationRefreshed() {
+        requiresReauthentication = false
     }
 
     public func currentDiagnostic() -> String? { lastDiagnostic }
@@ -220,7 +229,22 @@ public actor CloudScheduleClient {
         guard !cycleInFlight else { return .idle }
         cycleInFlight = true
         defer { cycleInFlight = false }
+        if requiresReauthentication { return .failed("unauthenticated") }
         do {
+            let routines = (try? await machine.list(botId: botID)) ?? []
+            // No user opt-in means no cloud traffic at all. A disabled routine
+            // may still need one DELETE (removal), so that case keeps the cycle
+            // alive until the cloud confirms it.
+            let enabled = routines.filter {
+                $0.enabled && $0.cloudSchedule?.enabled == true
+            }
+            let removalsPending = !pendingDeletions.isEmpty || syncedState.values.contains {
+                $0.enabled
+            } && routines.contains { routine in
+                guard let cloud = routine.cloudSchedule else { return true }
+                return !(routine.enabled && cloud.enabled)
+            }
+            if enabled.isEmpty && !removalsPending { return .idle }
             if needsReconcile {
                 let reconciled = try await reconcilePending()
                 if reconciled > 0 { return .processed(reconciled) }
@@ -247,6 +271,15 @@ public actor CloudScheduleClient {
             }
         } catch let error as CloudScheduleTransportError {
             if case .cancelled = error { return .idle }
+            if case .unauthenticated = error { requiresReauthentication = true }
+            if case .forbidden = error { requiresReauthentication = true }
+            if requiresReauthentication {
+                // A rejected credential must not be retried on a schedule;
+                // only a token refresh / user action re-arms the client.
+                lastDiagnostic = error.diagnosticCode
+                backoffMS = 0
+                return .failed(error.diagnosticCode)
+            }
             // A failed cycle may have left a leased cloud event behind (the
             // ACK never reached the server, or a poll response was lost). The
             // next cycle reconciles before polling so the event is resolved
@@ -310,6 +343,16 @@ public actor CloudScheduleClient {
             current[routine.id] = cloud
             let enabled = cloud.enabled && routine.enabled
             let synced = syncedState[routine.id]
+            if enabled, (await authorizer.refusal(for: routine)) != nil {
+                // A revoked source / suppressed scope must stop cloud
+                // registration before the next call, not only when a wake
+                // arrives.
+                if let synced, synced.enabled {
+                    removed.append(CloudScheduleRemoval(
+                        routineID: routine.id, revision: synced.seq))
+                }
+                continue
+            }
             if enabled {
                 // A phased interval is not representable in the frozen wire
                 // (local phase is an arbitrary interval offset, wire phase is
@@ -348,7 +391,8 @@ public actor CloudScheduleClient {
             removed.append(CloudScheduleRemoval(routineID: routineID, revision: revision))
         }
         lastKnownCloud = current
-        guard force || !registrations.isEmpty || !removed.isEmpty else { return 0 }
+        _ = force
+        guard !registrations.isEmpty || !removed.isEmpty else { return 0 }
         let response = try await transport.sync(CloudScheduleSyncRequest(
             deviceID: deviceID, botID: botID,
             registrations: registrations, removed: removed))
@@ -388,6 +432,33 @@ public actor CloudScheduleClient {
             }
         }
         return response.accepted.count + response.removedAccepted.count
+    }
+
+    /// Removes every cloud schedule this bot owns. The App calls this before
+    /// deleting a Bot (its routines are erased locally, so no later client
+    /// could clean the server rows). Best effort per routine; returns how many
+    /// DELETE calls were accepted.
+    @discardableResult
+    public func purgeCloudSchedules() async -> Int {
+        let routines = (try? await machine.list(botId: botID)) ?? []
+        var removed = 0
+        for routine in routines where routine.cloudSchedule != nil {
+            let expected = syncedState[routine.id]?.seq
+                ?? routine.cloudSchedule?.seq ?? 1
+            do {
+                try await transport.cancelRoutine(CloudScheduleCancelRequest(
+                    deviceID: deviceID, routineID: routine.id,
+                    expectedRevision: expected))
+                syncedState[routine.id] = SyncedState(seq: expected, enabled: false)
+                removed += 1
+            } catch let error as CloudScheduleTransportError {
+                lastDiagnostic = "purge:\(routine.id):\(error.diagnosticCode)"
+            } catch {
+                lastDiagnostic = "purge:\(routine.id):transport"
+            }
+        }
+        pendingDeletions.removeAll()
+        return removed
     }
 
     // MARK: - Reconcile (unknown outcome first, never blind replay)

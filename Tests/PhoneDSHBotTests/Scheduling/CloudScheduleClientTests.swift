@@ -409,6 +409,9 @@ final class CloudScheduleClientTests: XCTestCase {
     func testUnknownRoutineEventIsRefusedAndCancelled() async throws {
         let now = wp6Date(2026, 5, 12, 12)
         let f = try fixture(at: now)
+        // One opted-in routine keeps the client polling; the event below is
+        // for a routine the local store no longer has.
+        try await makeRoutine(f, at: now)
         await f.transport.enqueuePoll(.init(
             serverTimeMS: f.clock.now,
             events: [cloudEvent(f, routineID: "deleted-routine", occurrenceKey: occurrenceA,
@@ -481,13 +484,93 @@ final class CloudScheduleClientTests: XCTestCase {
                 authorizationRef: "not-a-record", now: now)
             XCTFail("expected invalid authorization reference")
         } catch let error as RoutineError {
-            guard case .invalidRoutine = error else {
+            guard case .invalidRoutine(_) = error else {
                 return XCTFail("unexpected error: \(error)")
             }
         }
         let fetched_routine = try await f.machine.get(botId: "bot-a", routineId: "digest")
         let routine = try XCTUnwrap(fetched_routine)
         XCTAssertNil(routine.cloudSchedule)
+    }
+
+    func testNoOptInMakesNoCloudRequests() async throws {
+        let now = wp6Date(2026, 5, 12, 12)
+        let f = try fixture(at: now)
+        let result = await f.client.pollOnce()
+        XCTAssertEqual(result, .idle)
+        let requests = await f.transport.requestCount
+        XCTAssertEqual(requests, 0, "a bot with no cloud-authorized routine must not poll the cloud")
+    }
+
+    func testUnauthenticatedStopsFurtherRequestsUntilReauthenticated() async throws {
+        let now = wp6Date(2026, 5, 12, 12)
+        let f = try fixture(at: now)
+        try await makeRoutine(f, at: now)
+        await f.transport.failRequests(with: .unauthenticated)
+        let first = await f.client.pollOnce()
+        XCTAssertEqual(first, .failed("unauthenticated"))
+        let afterFirst = await f.transport.requestCount
+        XCTAssertGreaterThan(afterFirst, 0)
+        let second = await f.client.pollOnce()
+        XCTAssertEqual(second, .failed("unauthenticated"))
+        let afterSecond = await f.transport.requestCount
+        XCTAssertEqual(afterSecond, afterFirst, "401/403 must not retry on a timer")
+        await f.transport.clearForcedError()
+        await f.client.noteAuthenticationRefreshed()
+        await f.client.noteSchedulesChanged()
+        _ = await f.client.pollOnce()
+        let afterRefresh = await f.transport.requestCount
+        XCTAssertGreaterThan(afterRefresh, afterSecond)
+    }
+
+    func testRevokedSourceRemovesTheCloudScheduleBeforeNextSync() async throws {
+        let now = wp6Date(2026, 5, 12, 12)
+        let refused = WP6Flag(false)
+        let f = try fixture(authorizer: ToggleCloudAuthorizer(refused: refused), at: now)
+        try await makeRoutine(f, at: now)
+        _ = await f.client.synchronizeNow()
+        let first = await f.transport.syncRequests
+        XCTAssertEqual(first.flatMap(\.registrations).count, 1)
+        let fetched = try await f.machine.get(botId: "bot-a", routineId: "digest")
+        let synced = try XCTUnwrap(fetched)
+        let revision = try XCTUnwrap(synced.cloudSchedule?.seq)
+
+        refused.set(true)
+        _ = await f.client.synchronizeNow()
+        let second = await f.transport.syncRequests
+        XCTAssertEqual(second.last?.removed.map(\.routineID) ?? [], ["digest"])
+        XCTAssertEqual(second.last?.removed.first?.revision, revision)
+        XCTAssertTrue(second.last?.registrations.isEmpty ?? false)
+    }
+
+    func testPurgeCloudSchedulesDeletesEveryOwnedRow() async throws {
+        let now = wp6Date(2026, 5, 12, 12)
+        let f = try fixture(at: now)
+        try await makeRoutine(f, id: "one", at: now)
+        try await makeRoutine(f, id: "two", at: now)
+        _ = await f.client.synchronizeNow()
+        let purged = await f.client.purgeCloudSchedules()
+        XCTAssertEqual(purged, 2)
+        let cancels = await f.transport.cancelRoutineRequests
+        XCTAssertEqual(Set(cancels.map(\.routineID)), ["one", "two"])
+    }
+
+    func testEnablingCloudScheduleRequiresTheUserAuthorizationRecord() async throws {
+        let now = wp6Date(2026, 5, 12, 12)
+        let f = try fixture(at: now)
+        _ = try await f.machine.create(
+            botId: "bot-a", title: "Digest", prompt: "summarize",
+            schedule: .interval(everyMinutes: 30, timezone: "UTC"),
+            now: now - 3_600_000, id: "digest")
+        do {
+            _ = try await f.machine.setCloudSchedule(
+                botId: "bot-a", routineId: "digest", enabled: true, now: now)
+            XCTFail("expected cloud scheduling to require an authorization record")
+        } catch let error as RoutineError {
+            guard case .invalidRoutine(_) = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
     }
 
     func testReceiptIDIsStableAndOccurrenceScoped() {
@@ -505,6 +588,13 @@ private struct StaticCloudAuthorizer: CloudScheduleAuthorizing {
     func refusal(for routine: Routine) async -> CloudScheduleReason? { reason }
 }
 
+private struct ToggleCloudAuthorizer: CloudScheduleAuthorizing {
+    let refused: WP6Flag
+    func refusal(for routine: Routine) async -> CloudScheduleReason? {
+        refused.current ? .revoked : nil
+    }
+}
+
 /// Scripted transport: returns queued responses and records every request so a
 /// test can assert exactly what crossed the client/cloud boundary.
 actor CloudScheduleProbeTransport: CloudScheduleTransport {
@@ -518,6 +608,8 @@ actor CloudScheduleProbeTransport: CloudScheduleTransport {
     private var pollResponses: [CloudSchedulePollResponse] = []
     private var reconcileResponses: [CloudScheduleReconcileResponse] = []
     private var ackFailuresRemaining = 0
+    private var forcedError: CloudScheduleTransportError?
+    private(set) var requestCount = 0
 
     init(clock: @escaping @Sendable () -> Int64) {
         self.clock = clock
@@ -528,9 +620,15 @@ actor CloudScheduleProbeTransport: CloudScheduleTransport {
         reconcileResponses.append(response)
     }
     func failNextAcks(_ count: Int) { ackFailuresRemaining += max(0, count) }
+    func failRequests(with error: CloudScheduleTransportError) { forcedError = error }
+    func clearForcedError() { forcedError = nil }
+    private func maybeThrow() throws {
+        if let forcedError { throw forcedError }
+    }
 
     func sync(_ request: CloudScheduleSyncRequest) async throws -> CloudScheduleSyncResponse {
-        syncRequests.append(request)
+        syncRequests.append(request); requestCount += 1
+        try maybeThrow()
         return CloudScheduleSyncResponse(
             serverTimeMS: clock(),
             accepted: request.registrations,
@@ -541,7 +639,8 @@ actor CloudScheduleProbeTransport: CloudScheduleTransport {
     }
 
     func poll(_ request: CloudSchedulePollRequest) async throws -> CloudSchedulePollResponse {
-        pollRequests.append(request)
+        pollRequests.append(request); requestCount += 1
+        try maybeThrow()
         if pollResponses.isEmpty {
             return CloudSchedulePollResponse(serverTimeMS: clock())
         }
@@ -549,7 +648,8 @@ actor CloudScheduleProbeTransport: CloudScheduleTransport {
     }
 
     func acknowledge(_ request: CloudScheduleReceiptRequest) async throws -> CloudScheduleReceiptResponse {
-        receiptRequests.append(request)
+        receiptRequests.append(request); requestCount += 1
+        try maybeThrow()
         if ackFailuresRemaining > 0 {
             ackFailuresRemaining -= 1
             throw CloudScheduleTransportError.transport("ack lost")
@@ -558,7 +658,8 @@ actor CloudScheduleProbeTransport: CloudScheduleTransport {
     }
 
     func reconcile(_ request: CloudScheduleReconcileRequest) async throws -> CloudScheduleReconcileResponse {
-        reconcileRequests.append(request)
+        reconcileRequests.append(request); requestCount += 1
+        try maybeThrow()
         if reconcileResponses.isEmpty {
             return CloudScheduleReconcileResponse(serverTimeMS: clock())
         }
@@ -566,7 +667,7 @@ actor CloudScheduleProbeTransport: CloudScheduleTransport {
     }
 
     func cancelRoutine(_ request: CloudScheduleCancelRequest) async throws {
-        cancelRoutineRequests.append(request)
+        cancelRoutineRequests.append(request); requestCount += 1
     }
 
     func cancelEvent(_ request: CloudScheduleEventCancelRequest) async throws {
