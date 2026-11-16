@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: MIT
+#
+# PR checks for the Bot contract surface. This workflow exists because PR #187
+# had no CI at all: its test numbers were self-reported, and the review could
+# not see a single check run.
+#
+# Offline only. No real-model credentials are used here; the real-model eval
+# needs its dedicated entry point and is never run from a pull_request context.
+name: bot-pr-checks
+
+on:
+  pull_request:
+    paths:
+      - "Sources/PhoneDSHBot/**"
+      - "Tests/PhoneDSHBotTests/**"
+      - "spec/bot/**"
+      - "spec/ui/v1/bot/**"
+      - "android/bot/**"
+      - "scripts/ci/**"
+      - "scripts/evals/bot-aha/**"
+      - "plugins/bot-runtime/**"
+      - "examples/probe-app/PhoneDSHProbe/Bot/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bot-pr-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Gating: stages that are deterministic and green on the PR base commit.
+  spec-and-contract-gates:
+    name: spec + contract gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: check.sh offline stages
+        run: |
+          bash scripts/ci/check.sh --only \
+            phone-spec,phone-gate-contracts,phone-hygiene,phone-license,phone-modules,phone-android-structure,phone-bot-eval-catalog
+      - name: Bot v2 overlay merge is the contract, not a copy
+        run: python3 spec/bot/v2/tools/validate_vectors.py
+
+  # Evidence-only (baseline red): the JVM `:bot` suite has three failures on the
+  # PR base commit itself (BotIdentityApprovalGoldenTest, BotToolCatalogGoldenTest,
+  # BotTeamCasesTest). This job runs the whole suite so a NEW failure is visible
+  # in the log; it is not a merge gate until the Android lane fixes the baseline
+  # drift. It must not be narrowed to the tests that happen to pass.
+  android-bot-jvm-evidence:
+    name: "android :bot JVM tests (baseline-red evidence)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: ":bot:test"
+        working-directory: android
+        run: ./gradlew :bot:test --console=plain --max-workers=4
+      - name: Publish JUnit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-bot-test-results
+          path: android/bot/build/test-results/test/*.xml
+          if-no-files-found: warn
+
+  # Evidence-only (baseline red): spec/ui/v1/bot/strings.json has 61 stale
+  # source anchors on the PR base commit (the probe Bot refactor moved the
+  # lines without updating the pins). PR #187 fixed the 4 anchors it broke;
+  # this job keeps the full picture visible instead of stopping at the first
+  # failure, and uploads the report. Promote it to a gate once the 61 are
+  # re-anchored in their own change.
+  bot-ui-locator-evidence:
+    name: "Bot UI text locator (baseline-red evidence)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: check_bot_ui.py
+        run: python3 spec/ui/v1/bot/tools/check_bot_ui.py 2>&1 | tee bot-ui-locator.log
+      - name: Upload locator log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-ui-locator-log
+          path: bot-ui-locator.log
+          if-no-files-found: warn
