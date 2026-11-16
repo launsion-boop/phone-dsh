@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 
+import CryptoKit
 import Foundation
 
 /// How one memory claim was learned. The value is derived from record
 /// references, never from the session kind or the model's own wording.
-public enum BotRecordTrust: String, Sendable, Equatable {
+public enum BotRecordTrust: String, Codable, Sendable, Equatable {
     case user
     case observation
     case assistant
@@ -31,15 +32,21 @@ public struct BotRecordEvidencePoint: Sendable, Equatable {
     public let trust: BotRecordTrust?
     public let resolved: Bool
     public let erased: Bool
+    /// The version derivable from the record itself (P lane). Kept optional so
+    /// existing test doubles and callers that only know existence/time keep
+    /// compiling; `BotRecordService` always fills it for real records.
+    public let version: BotSourceVersion?
 
     public init(ref: String, observedAtMS: Int64?, recordType: String?,
-                trust: BotRecordTrust?, resolved: Bool, erased: Bool = false) {
+                trust: BotRecordTrust?, resolved: Bool, erased: Bool = false,
+                version: BotSourceVersion? = nil) {
         self.ref = ref
         self.observedAtMS = observedAtMS
         self.recordType = recordType
         self.trust = trust
         self.resolved = resolved
         self.erased = erased
+        self.version = version
     }
 }
 
@@ -122,7 +129,7 @@ public struct BotRecordCommandOutput: Sendable, Equatable {
 /// Read-only search/read over the host's materialized DSH session logs and
 /// the SQLite `bot_events` store. Every entry point resolves the caller from a
 /// claimed session; no argument can name another Bot.
-public actor BotRecordService: BotRecordEvidenceResolving {
+public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolving {
     public static let maximumHits = 20
     public static let maximumAround = 20
     public static let maximumQueryScalars = 200
@@ -535,13 +542,70 @@ public actor BotRecordService: BotRecordEvidenceResolving {
     /// points instead of throwing, because `evidence_status` is a display view.
     public func evidenceSnapshot(for references: [String], callerBotID: String,
                                  callerSessionID: String) async throws -> BotRecordEvidenceSnapshot {
+        let records = try await resolveRecords(
+            references, callerBotID: callerBotID, callerSessionID: callerSessionID)
+        var points: [String: BotRecordEvidencePoint] = [:]
+        for record in records {
+            // Invalid input is reported by `sourceStates`; the display view has
+            // always skipped it, and that shape stays unchanged.
+            guard BotRecordReference.parse(record.ref) != nil else { continue }
+            guard points[record.ref] == nil else { continue }
+            points[record.ref] = BotRecordEvidencePoint(
+                ref: record.ref,
+                observedAtMS: record.observedAtMS,
+                recordType: record.recordType,
+                trust: record.trust,
+                resolved: record.resolved,
+                erased: record.erased,
+                version: record.version)
+        }
+        return BotRecordEvidenceSnapshot(points: points)
+    }
+
+    /// Per-reference facts and the version derivable from the record itself
+    /// (P lane). This is the resolver L/M/R can reuse; it does not decide live
+    /// vs stale — that is the provenance read model's single authority.
+    public func sourceStates(for references: [String], callerBotID: String,
+                             callerSessionID: String) async throws -> [BotSourceState] {
+        let records = try await resolveRecords(
+            references, callerBotID: callerBotID, callerSessionID: callerSessionID)
+        return records.map { record in
+            BotSourceState(
+                ref: record.ref,
+                resolved: record.resolved,
+                erased: record.erased,
+                observedAtMS: record.observedAtMS,
+                recordType: record.recordType,
+                trust: record.trust,
+                version: record.version)
+        }
+    }
+
+    /// One batched resolve shared by `evidenceSnapshot` and `sourceStates`:
+    /// a single event-log scan and at most one session-log read per session.
+    /// Distinct references are capped at the frozen recall batch bound.
+    private struct ResolvedRecord {
+        var ref: String
+        var resolved: Bool
+        var erased: Bool
+        var observedAtMS: Int64?
+        var recordType: String?
+        var trust: BotRecordTrust?
+        /// Version for observations only; non-observation records legally have
+        /// no source version (G-1 §2.2) and unresolved/erased records are
+        /// explained by the provenance state, not by an invented digest.
+        var version: BotSourceVersion?
+    }
+
+    private func resolveRecords(_ references: [String], callerBotID: String,
+                                callerSessionID: String) async throws -> [ResolvedRecord] {
         // The read/recall batch can legitimately carry 50 hits × 8 evidence
         // refs (the frozen RecallMemory upper bound), so the cap is on distinct
         // canonical references and comfortably covers that ceiling.
         var unique: [String] = []
         var seen = Set<String>()
         for raw in references {
-            guard let canonical = BotRecordReference.canonicalize(raw) else { continue }
+            let canonical = BotRecordReference.canonicalize(raw) ?? raw
             guard seen.insert(canonical).inserted else { continue }
             unique.append(canonical)
         }
@@ -558,57 +622,137 @@ public actor BotRecordService: BotRecordEvidenceResolving {
             if eventsByCommit[commitSeq] == nil { eventsByCommit[commitSeq] = record }
         }
         var linesBySession: [String: [BotSessionLogLine]] = [:]
-        var points: [String: BotRecordEvidencePoint] = [:]
-        func unresolved(_ ref: String, erased: Bool = false) -> BotRecordEvidencePoint {
-            BotRecordEvidencePoint(ref: ref, observedAtMS: nil, recordType: nil,
-                                   trust: nil, resolved: false, erased: erased)
-        }
-        for raw in unique {
-            guard let reference = BotRecordReference.parse(raw) else { continue }
-            let canonical = reference.canonical
-            guard points[canonical] == nil else { continue }
+        var result: [ResolvedRecord] = []
+        for canonical in unique {
+            guard let reference = BotRecordReference.parse(canonical) else {
+                result.append(ResolvedRecord(
+                    ref: canonical, resolved: false, erased: false,
+                    observedAtMS: nil, recordType: nil, trust: nil))
+                continue
+            }
             switch reference {
             case let .session(sessionID, seq):
                 guard owned.contains(sessionID) else {
-                    points[canonical] = unresolved(canonical)
+                    result.append(ResolvedRecord(
+                        ref: canonical, resolved: false, erased: false,
+                        observedAtMS: nil, recordType: nil, trust: nil))
                     continue
                 }
                 if linesBySession[sessionID] == nil {
                     linesBySession[sessionID] = (try? sessionLines(sessionID: sessionID)) ?? []
                 }
                 guard let line = linesBySession[sessionID]?.first(where: { $0.seq == seq }) else {
-                    points[canonical] = unresolved(canonical)
+                    result.append(ResolvedRecord(
+                        ref: canonical, resolved: false, erased: false,
+                        observedAtMS: nil, recordType: nil, trust: nil))
                     continue
                 }
                 if line.erased {
-                    points[canonical] = unresolved(canonical, erased: true)
+                    result.append(ResolvedRecord(
+                        ref: canonical, resolved: false, erased: true,
+                        observedAtMS: nil, recordType: nil, trust: nil))
                     continue
                 }
-                points[canonical] = BotRecordEvidencePoint(
-                    ref: canonical,
-                    observedAtMS: Self.usableTime(line.time),
+                let observed = Self.usableTime(line.time)
+                let trust = inferredTrust(for: line, sessionID: sessionID, calls: calls)
+                result.append(ResolvedRecord(
+                    ref: canonical, resolved: true, erased: false,
+                    observedAtMS: observed,
                     recordType: line.type,
-                    trust: inferredTrust(for: line, sessionID: sessionID, calls: calls),
-                    resolved: true)
+                    trust: trust,
+                    version: Self.observationVersion(
+                        ref: canonical, trust: trust,
+                        text: Self.observationText(inSessionLine: line.raw),
+                        observedAtMS: observed)))
             case let .event(commitSeq):
                 guard let record = eventsByCommit[commitSeq],
                       record.event.principal.botId == caller.botId else {
-                    points[canonical] = unresolved(canonical)
+                    result.append(ResolvedRecord(
+                        ref: canonical, resolved: false, erased: false,
+                        observedAtMS: nil, recordType: nil, trust: nil))
                     continue
                 }
                 if record.event.isErasedPayload {
-                    points[canonical] = unresolved(canonical, erased: true)
+                    result.append(ResolvedRecord(
+                        ref: canonical, resolved: false, erased: true,
+                        observedAtMS: nil, recordType: nil, trust: nil))
                     continue
                 }
-                points[canonical] = BotRecordEvidencePoint(
-                    ref: canonical,
-                    observedAtMS: Self.usableTime(record.event.time),
+                let observed = Self.usableTime(record.event.time)
+                let trust = inferredTrust(for: record.event, calls: calls)
+                result.append(ResolvedRecord(
+                    ref: canonical, resolved: true, erased: false,
+                    observedAtMS: observed,
                     recordType: record.event.type,
-                    trust: inferredTrust(for: record.event, calls: calls),
-                    resolved: true)
+                    trust: trust,
+                    version: Self.observationVersion(
+                        ref: canonical, trust: trust,
+                        text: Self.observationText(in: record.event),
+                        observedAtMS: observed)))
             }
         }
-        return BotRecordEvidenceSnapshot(points: points)
+        return result
+    }
+
+    /// G-1 §2.1: `content-sha256` is computed over the source's readable text,
+    /// UTF-8 bytes. It is only attached to observations; user messages, Bot
+    /// output and review assertions legally carry no source version.
+    static func observationVersion(ref: String, trust: BotRecordTrust?,
+                                   text: String?, observedAtMS: Int64?) -> BotSourceVersion? {
+        guard trust == .observation else { return nil }
+        guard let text, !text.isEmpty else {
+            return .unknown(.recordWithoutContent)
+        }
+        let digest = SHA256.hash(data: Data(text.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        return .known(BotKnownSourceVersion(
+            kind: .contentSHA256,
+            value: "sha256:" + digest,
+            observedAtMS: observedAtMS,
+            basisRef: ref))
+    }
+
+    /// One text block per `data.message.content` entry, joined with newlines.
+    /// A Worker-generated observation envelope wraps the source text; the
+    /// digest is over the envelope body, not the XML header.
+    static func observationText(inSessionLine raw: String) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(
+                with: Data(raw.utf8)) as? [String: Any],
+              let data = object["data"] as? [String: Any],
+              let message = data["message"] as? [String: Any],
+              let content = message["content"] as? [[String: Any]] else { return nil }
+        let text = content.compactMap { block -> String? in
+            guard (block["type"] as? String) == "text" else { return nil }
+            return block["text"] as? String
+        }.joined(separator: "\n")
+        return normalizedObservationText(text)
+    }
+
+    static func observationText(in event: BotEvent) -> String? {
+        if event.type == "conversation.tool_result" {
+            let content = event.data["message"]?["content"]?.arrayValue ?? []
+            let text = content.compactMap { block -> String? in
+                guard block["type"]?.stringValue == "text" else { return nil }
+                return block["text"]?.stringValue
+            }.joined(separator: "\n")
+            return normalizedObservationText(text)
+        }
+        if event.type == "comm.inbound" {
+            return normalizedObservationText(event.data["text"]?.stringValue ?? "")
+        }
+        if event.type == DeviceTaskResultOutbox.recordEventType,
+           let result = event.data["deviceTaskResult"]?.stringValue {
+            return normalizedObservationText(result)
+        }
+        return nil
+    }
+
+    private static func normalizedObservationText(_ text: String) -> String? {
+        guard !text.isEmpty else { return nil }
+        if let envelope = BotObservationEnvelope.decode(text) {
+            return envelope.text.isEmpty ? nil : envelope.text
+        }
+        return text
     }
 
     /// A record timestamp is only an observation time when it is positive; 0

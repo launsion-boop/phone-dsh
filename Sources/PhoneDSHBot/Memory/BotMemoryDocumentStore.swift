@@ -16,6 +16,11 @@ public struct BotMemoryStoreWriteRequest: Sendable, Equatable {
     public var trust: BotRecordTrust?
     public var source: BotMemorySource?
     public var review: BotMemoryReview?
+    /// Write-time baselines for `evidence` and `review.refs`. The store puts
+    /// them into the durable `memory.document_written` event data under
+    /// `derivation`; they are never copied into the memory document body.
+    /// `nil` means the caller did not observe this write (old data/tests).
+    public var sourceBaselines: [BotSourceBaseline]?
     public var atMS: Int64
     /// Non-nil only for a maintenance batch: all writes of one run share
     /// `memory-maintenance:<batch_id>` so the host can collect and roll back
@@ -36,6 +41,7 @@ public struct BotMemoryStoreWriteRequest: Sendable, Equatable {
         trust: BotRecordTrust? = nil,
         source: BotMemorySource? = nil,
         review: BotMemoryReview? = nil,
+        sourceBaselines: [BotSourceBaseline]? = nil,
         atMS: Int64,
         correlationID: String? = nil
     ) {
@@ -52,6 +58,7 @@ public struct BotMemoryStoreWriteRequest: Sendable, Equatable {
         self.trust = trust
         self.source = source
         self.review = review
+        self.sourceBaselines = sourceBaselines
         self.atMS = atMS
         self.correlationID = correlationID
     }

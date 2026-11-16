@@ -193,6 +193,11 @@ public actor BotMemory {
     private let botID: String
     private let language: BotMemoryPromptLanguage
     private let now: @Sendable () -> Int64
+    /// Optional source-fact resolver. When present, every write captures the
+    /// write-time source baseline for `evidence ∪ review.refs` in the same
+    /// batch and persists it in the `memory.document_written` event data
+    /// (G-1 §3.2). It never decides current status; L owns that.
+    private let sourceStates: (any BotSourceStateResolving)?
     private let prepareMutex = BotMemoryAsyncMutex()
     private var prepared = false
     private var recallIndex = BotMemoryDocumentRecallIndex()
@@ -201,12 +206,14 @@ public actor BotMemory {
         store: any BotMemoryDocumentStore,
         botID: String,
         language: BotMemoryPromptLanguage = .zh,
-        now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }
+        now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) },
+        sourceStates: (any BotSourceStateResolving)? = nil
     ) {
         self.store = store
         self.botID = botID
         self.language = language
         self.now = now
+        self.sourceStates = sourceStates
     }
 
     public func documents(scope: BotMemoryScope? = nil) async throws -> [BotMemoryDocument] {
@@ -278,6 +285,44 @@ public actor BotMemory {
                            error: "这条件记忆的 review 不成立：verified 需要非 model-inference 的依据和至少一条可解析引用，disputed 需要给出冲突双方，引用必须规范且不超过 8 条。")
         }
         let evidence = request.evidence.isEmpty ? nil : Array(request.evidence.prefix(8))
+        let sourceBaselines: [BotSourceBaseline]?
+        if let resolver = sourceStates {
+            var evidenceRefs: [String] = []
+            var reviewRefs: [String] = []
+            if request.action == .restore, let restoreVersion = request.restoreVersion {
+                // `restore` inherits the restored version's metadata, so the
+                // baseline must describe that version's sources, not the
+                // restore request's (which cannot inject or clear them).
+                let versions = (try? await store.versions(path: request.path)) ?? []
+                if let restored = versions.first(where: { $0.version == restoreVersion }) {
+                    evidenceRefs = restored.evidence
+                    reviewRefs = restored.review?.refs ?? []
+                }
+            } else if request.action != .delete && request.action != .move {
+                evidenceRefs = evidence ?? []
+                reviewRefs = request.review?.refs ?? []
+            }
+            if evidenceRefs.isEmpty && reviewRefs.isEmpty {
+                sourceBaselines = nil
+            } else {
+                do {
+                    let states = try await resolver.sourceStates(
+                        for: evidenceRefs + reviewRefs,
+                        callerBotID: botID,
+                        callerSessionID: context.sessionID ?? "")
+                    sourceBaselines = try BotSourceBaselineBuilder.baselines(
+                        evidence: evidenceRefs, reviewRefs: reviewRefs, states: states)
+                } catch {
+                    // Fail closed: a derived object written without its source
+                    // baseline can never prove whether the source changed.
+                    return failure(
+                        request, code: "memory-source-baseline-unavailable",
+                        error: "写入前无法核对来源版本；为避免产生无基线的记忆版本，本次写入未执行。")
+                }
+            }
+        } else {
+            sourceBaselines = nil
+        }
         let storeRequest = BotMemoryStoreWriteRequest(
             action: request.action,
             path: request.path,
@@ -293,6 +338,7 @@ public actor BotMemory {
             source: context.source,
             // `restore` inherits from the restored version inside the store.
             review: request.action == .restore ? nil : request.review,
+            sourceBaselines: sourceBaselines,
             atMS: now(),
             correlationID: context.batchID.map { "memory-maintenance:\($0)" })
         let outcome = try await store.write(storeRequest)

@@ -38,9 +38,14 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
         let trust: String?
         let source: BotMemorySource?
         let review: BotMemoryReview?
+        /// Write-time source baseline for this version (G-1 §3.3). Optional so
+        /// events written before the freeze still replay; it is never copied
+        /// into `BotMemoryDocument`.
+        let derivation: BotMemoryDerivation?
 
         enum CodingKeys: String, CodingKey {
             case path, scope, content, version, author, evidence, trust, source, review
+            case derivation
             case expectedVersion = "expected_version"
             case updatedAtMS = "updated_at_ms"
         }
@@ -260,8 +265,13 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 source: source,
                 review: review)
             let targetExpected = snapshot.live[targetPath]?.version ?? 0
+            let derivation = request.sourceBaselines.map {
+                BotMemoryDerivation.memory(
+                    path: document.path, version: document.version, sources: $0)
+            }
             let writeEvent = try writtenEvent(
                 document, expectedVersion: targetExpected,
+                derivation: derivation,
                 correlationID: request.correlationID)
 
             if request.action == .move {
@@ -931,6 +941,7 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
     private func writtenEvent(
         _ document: BotMemoryDocument,
         expectedVersion: Int,
+        derivation: BotMemoryDerivation? = nil,
         correlationID: String? = nil
     ) throws -> BotEvent {
         let data = WrittenData(
@@ -944,7 +955,8 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             evidence: document.evidence,
             trust: document.trust,
             source: document.source,
-            review: document.review)
+            review: document.review,
+            derivation: derivation)
         return try makeEvent(
             type: "memory.document_written",
             eventID: Self.stableEventID(Self.writtenEventPrefix, [
