@@ -280,13 +280,16 @@ final class WorkspaceDecisionContextTests: XCTestCase {
         XCTAssertNotEqual(current, observed)
         XCTAssertEqual(current, sha256(Data("# 规范\n- 第二版（已改）".utf8)))
 
-        XCTAssertNil(await service.currentContentSHA256(
-            forWorkspaceRef: "memory:user/a.md@v1", botID: "main"))
-        XCTAssertNil(await service.currentContentSHA256(
+        let memoryRef = await service.currentContentSHA256(
+            forWorkspaceRef: "memory:user/a.md@v1", botID: "main")
+        XCTAssertNil(memoryRef)
+        let escapeRef = await service.currentContentSHA256(
             forWorkspaceRef: "workspace:../escape.md@sha256:" + String(repeating: "0", count: 64),
-            botID: "main"))
-        XCTAssertNil(await service.currentContentSHA256(
-            forWorkspaceRef: "workspace:docs/guide.md@sha256:short", botID: "main"))
+            botID: "main")
+        XCTAssertNil(escapeRef)
+        let shortRef = await service.currentContentSHA256(
+            forWorkspaceRef: "workspace:docs/guide.md@sha256:short", botID: "main")
+        XCTAssertNil(shortRef)
     }
 
     func testInvalidWorkspacePathsAreRejectedByTheService() {
@@ -356,10 +359,12 @@ final class WorkspaceDecisionContextTests: XCTestCase {
         _ = try write("docs/binary.md", data: Data([0xFF, 0xFE, 0x00, 0x41]), root: root)
         _ = try write("docs/large.md", data: Data(repeating: 0x61, count: 70_000), root: root)
         let catalog = BotWorkspaceDirectoryCatalog(workspaceRoot: root)
-        XCTAssertNil(try await catalog.readText(botID: "main", path: "docs/binary.md",
-                                                maximumBytes: 64 * 1024))
-        XCTAssertNil(try await catalog.readText(botID: "main", path: "docs/large.md",
-                                                maximumBytes: 64 * 1024))
+        let binary = try await catalog.readText(botID: "main", path: "docs/binary.md",
+                                                maximumBytes: 64 * 1024)
+        XCTAssertNil(binary)
+        let large = try await catalog.readText(botID: "main", path: "docs/large.md",
+                                               maximumBytes: 64 * 1024)
+        XCTAssertNil(large)
         XCTAssertNil(try await catalog.readText(botID: "main", path: "docs/missing.md",
                                                 maximumBytes: 64 * 1024))
     }
@@ -395,6 +400,8 @@ final class WorkspaceDecisionContextTests: XCTestCase {
             XCTFail("symlink escape must be refused")
         } catch let error as BotWorkspaceCatalogError {
             XCTAssertEqual(error, .pathOutsideWorkspace)
+        } catch {
+            XCTFail("unexpected error: \(error)")
         }
     }
 
