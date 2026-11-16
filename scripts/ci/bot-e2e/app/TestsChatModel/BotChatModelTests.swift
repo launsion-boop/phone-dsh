@@ -92,8 +92,8 @@ final class BotChatModelTests: XCTestCase {
 
         var decided = approval
         decided.body.values["status"] = .string("allowed")
-        decided.updatedSeq = 2
-        model.apply(BotUIRowBatch(rows: [decided], deletes: [], cursor: 2, reset: false))
+        decided.updatedSeq = 4
+        model.apply(BotUIRowBatch(rows: [decided], deletes: [], cursor: 4, reset: false))
         XCTAssertNil(model.newestActionableCard,
                      "a decided approval is no longer an actionable scroll target")
     }
@@ -268,7 +268,7 @@ final class BotChatModelTests: XCTestCase {
 
         let row = try XCTUnwrap(model.rows.first(where: { $0.id == "approval-auto" }))
         model.decide(row: row, decision: .deny)
-        try await waitFor { model.pendingApprovalCount == 0 }
+        try await waitFor { performed == ["chat", "approval:deny"] }
         XCTAssertEqual(performed, ["chat", "approval:deny"],
                        "only the explicit decision emits the approval action")
         XCTAssertFalse(model.autoDeclinedApprovalIDs.contains("approval-auto"))
@@ -283,7 +283,8 @@ final class BotChatModelTests: XCTestCase {
         XCTAssertEqual(model.pendingApprovalCount, 1)
         let row = try XCTUnwrap(model.rows.first(where: { $0.id == "approval-immediate" }))
         model.decide(row: row, decision: .deny)
-        try await waitFor { model.pendingApprovalCount == 0 }
+        try await waitFor { model.actionLog.contains("approval:deny") }
+        XCTAssertEqual(model.pendingApprovalCount, 0)
     }
 
     func testAnswerSettlesIntoSelectedOptionLine() async throws {

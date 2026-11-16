@@ -140,3 +140,8 @@ python3 scripts/evals/bot-aha/compare.py \
 - **一次 repeat**：单次模型结果有方差；发布级结论需要 `--repeat 3` 或多次独立运行，
   报告必须写清 repeat 数。
 - **Android 不在本轮**：仅 iOS。
+- **Q-D07 诊断单槽**：`latestBridgeError` 是既有单一诊断槽，只表示“最近一次 bridge 错误”，
+  不是逐事件历史；评测不把它当历史证据，也不新增协议层。需要历史时读 durable 事件/日志。
+- **Q-D06 解码边界**：对已知 enum/shape 的解码失败按 M 收窄后的语义处理（失败即拒绝/报告），
+  不借此重写旧数据兼容；fixtures 只覆盖当前冻结 shape，旧记录兼容由 M 的迁移测试负责，
+  本评测不以新 shape 反向改写旧数据。

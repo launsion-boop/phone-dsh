@@ -94,6 +94,7 @@ targets:
       - path: TestsChatModel/BotChatModelTests.swift
       - path: TestsChatModel/BotChatModelTestShims.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotChatModel.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotApprovalOffer.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotUIModels.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotLiveTurn.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimePresentation.swift
