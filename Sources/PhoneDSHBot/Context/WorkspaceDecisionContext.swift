@@ -230,11 +230,12 @@ public struct BotWorkspaceDirectoryCatalog: BotWorkspaceCataloging {
 // MARK: - Selection
 
 /// L's authoritative eligibility for a workspace file that is itself a tracked
-/// derived artifact (G-1 r18 `workspaceFile`). When a provider is wired, only
-/// `.current` may become a current workspace material; `nil` (untracked) and
-/// erased/revoked/unavailable/changed/unknown are omitted rather than
-/// relabelled, because G-2 fixes workspace material `state` to `current`.
-/// Passing no provider at all preserves the pre-r18 byte-only behaviour.
+/// derived artifact (G-1 r18 `workspaceFile`). G-2 r10: `nil` means no tracked
+/// derivation (legacy/eval seed) and keeps the byte-observed behavior; only a
+/// tracked non-current state is withheld. Erased/revoked/unavailable/changed/
+/// unknown are omitted rather than relabelled, because G-2 fixes workspace
+/// material `state` to `current`. Passing no provider at all also preserves
+/// the pre-r18 byte-only behavior.
 public protocol BotWorkspaceFileEligibility: Sendable {
     func status(forWorkspacePath path: String, botID: String) async -> BotProvenanceStatus?
 }
@@ -406,16 +407,13 @@ public struct WorkspaceDecisionContextService: Sendable {
             let score = pathScore * 3 + contentMatches * 2
             guard score > 0 else { continue }
             if let eligibility {
-                // G-1 r18 / G-2 r8: once the App wires L's authority, only a
-                // tracked `current` derivation may become a material. An
-                // untracked file (nil) is not injected either; the legacy
-                // byte-only behaviour exists only when no provider is wired.
+                // G-2 r10: nil means "no tracked derivation" (legacy/eval
+                // seed) and keeps the byte-observed behavior. Only a tracked
+                // non-current state (erased/revoked/unavailable/changed/
+                // unknown) withholds the material.
                 let status = await eligibility.status(
                     forWorkspacePath: entry.path, botID: botID)
                 guard !cancelled() else { return BotWorkspaceSelection() }
-                // G-2 r10: nil means "no tracked derivation" (legacy/eval
-                // seed) and keeps the old byte-only behaviour; only a tracked
-                // non-current artifact is withheld.
                 if let status, status != .current { continue }
             }
             guard let encodedPath = Self.encodedWorkspacePath(entry.path),

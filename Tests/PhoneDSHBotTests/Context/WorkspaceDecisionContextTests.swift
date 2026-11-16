@@ -538,7 +538,7 @@ final class WorkspaceDecisionContextTests: XCTestCase {
                        ["docs/current.md", "docs/guide.md", "docs/other.md"])
     }
 
-    func testCurrentTrackedFileIsKeptButUntrackedFileIsNotInjected() async {
+    func testTrackedCurrentFileAndUntrackedSeedAreKept() async {
         let catalog = StubCatalog([
             "docs/guide.md": .init(text: "# 当前规范\n- 只读指南"),
             "docs/other.md": .init(text: "# 历史手册\n- 无关文件"),
@@ -549,20 +549,20 @@ final class WorkspaceDecisionContextTests: XCTestCase {
         let selection = await service.selection(
             query: "当前规范", botID: "main", materialPrefix: "reqcur", limits: limits())
         XCTAssertEqual(selection.materials.map(\.path), ["docs/guide.md"])
-        // The provider is wired; an untracked file returns nil and must not be
-        // passed off as a current fact just because its bytes are readable.
+        // G-2 r10: an untracked file (nil) is a legacy seed and keeps the
+        // byte-observed behavior, not an erased-source current fact.
         let untracked = await service.selection(
             query: "历史手册", botID: "main", materialPrefix: "reqhist", limits: limits())
-        XCTAssertTrue(untracked.materials.isEmpty)
+        XCTAssertEqual(untracked.materials.map(\.path), ["docs/other.md"])
     }
 
-    func testWiredProviderWithoutADerivationDoesNotInject() async {
+    func testWiredProviderWithoutADerivationKeepsLegacySeed() async {
         let catalog = StubCatalog(["docs/other.md": .init(text: "# 历史手册")])
         let service = WorkspaceDecisionContextService(
             catalog: catalog, eligibility: StubEligibility([:]), now: { 1_000_000 })
         let selection = await service.selection(
             query: "历史手册", botID: "main", materialPrefix: "requntracked", limits: limits())
-        XCTAssertTrue(selection.materials.isEmpty)
+        XCTAssertEqual(selection.materials.map(\.path), ["docs/other.md"])
     }
 
     func testNilEligibilityPreservesTheByteOnlyWorkspaceMaterial() async {
