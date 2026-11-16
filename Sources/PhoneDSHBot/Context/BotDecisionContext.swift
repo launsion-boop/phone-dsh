@@ -46,6 +46,9 @@ public enum BotDecisionMaterialReason: String, Codable, Sendable, Equatable {
     case sourceVersionUnknown = "source-version-unknown"
     case cycleDetected = "cycle-detected"
     case scanLimitExceeded = "scan-limit-exceeded"
+    /// F reports an active correction for this exact memory path/version.
+    /// Only valid with state = unknown.
+    case feedbackDisputed = "feedback-disputed"
 }
 
 public struct BotDecisionLimits: Codable, Sendable, Equatable {
@@ -414,10 +417,21 @@ public actor BotDecisionContextService {
     /// fabricate a state.
     public typealias MaterialStateProvider =
         @Sendable (BotMaterialStateRequest) async -> (BotDecisionMaterialState, BotDecisionMaterialReason?)
+    /// F's correction read view. Optional so old composition still compiles;
+    /// when present, an active correction for the exact path/version overrides
+    /// a provenance `current`.
+    public typealias DisputedRefsProvider =
+        @Sendable ([String]) async throws -> [String: [BotFeedbackDisputedRef]]
+    /// F's active preference view. Only user-scope active preferences enter
+    /// the material block; F's delivery hold remains the suppression authority.
+    public typealias PreferencesProvider =
+        @Sendable (String) async throws -> BotFeedbackPreferences
 
     private let memoryForBot: MemoryResolver
     private let permissionRevision: PermissionRevisionProvider
     private let materialState: MaterialStateProvider
+    private let disputedRefs: DisputedRefsProvider?
+    private let preferences: PreferencesProvider?
     private let workspaceMaterials: WorkspaceDecisionContextService?
     private let now: @Sendable () -> Int64
     private var revisionsByTurn: [String: Int] = [:]
@@ -426,12 +440,16 @@ public actor BotDecisionContextService {
         memoryForBot: @escaping MemoryResolver,
         permissionRevision: @escaping PermissionRevisionProvider,
         materialState: @escaping MaterialStateProvider,
+        disputedRefs: DisputedRefsProvider? = nil,
+        preferences: PreferencesProvider? = nil,
         workspaceMaterials: WorkspaceDecisionContextService? = nil,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }
     ) {
         self.memoryForBot = memoryForBot
         self.permissionRevision = permissionRevision
         self.materialState = materialState
+        self.disputedRefs = disputedRefs
+        self.preferences = preferences
         self.workspaceMaterials = workspaceMaterials
         self.now = now
     }
@@ -482,6 +500,12 @@ public actor BotDecisionContextService {
         }
         let wantedScopes = Set(request.scopes)
         let candidates = page.hits.filter { wantedScopes.contains($0.scope) }
+        var disputedByPath: [String: [BotFeedbackDisputedRef]] = [:]
+        if let disputedRefs, !candidates.isEmpty {
+            // F owns the correction state. A failure here must not turn a
+            // disputed material into current; it only leaves provenance as-is.
+            disputedByPath = (try? await disputedRefs(candidates.map(\.path))) ?? [:]
+        }
 
         var materials: [BotDecisionMaterial] = []
         var usedCharacters = 0
@@ -502,24 +526,72 @@ public actor BotDecisionContextService {
             usedCharacters += selection.consumedCharacters
             workspaceTruncated = selection.truncated
         }
-        let workspaceCount = materials.count
+        var preferenceTruncated = false
+        if let preferences, materials.count < limits.maxMaterials {
+            let active = ((try? await preferences(request.botID))?.active ?? [])
+                .filter { $0.scopeKind == .user && $0.isActive(at: now()) }
+            for (index, preference) in active.enumerated() {
+                if index >= 2 {
+                    preferenceTruncated = true
+                    break
+                }
+                guard materials.count < limits.maxMaterials else {
+                    preferenceTruncated = true
+                    break
+                }
+                let classKey = Self.boundedScalars(preference.classKey, 160)
+                let snippet = Self.sanitizedSnippet(
+                    "User preference: suppress \(classKey).",
+                    limit: limits.maxSnippetCharacters)
+                guard !snippet.isEmpty else { continue }
+                let ref = "feedback:preference:\(preference.id)"
+                let path = "feedback/preference/\(preference.id)"
+                guard path.unicodeScalars.count <= 200,
+                      ref.unicodeScalars.count <= 256 else { continue }
+                let cost = snippet.unicodeScalars.count
+                    + ref.unicodeScalars.count + path.unicodeScalars.count + 64
+                if usedCharacters + cost > limits.maxCharacters { continue }
+                usedCharacters += cost
+                materials.append(BotDecisionMaterial(
+                    materialID: "mat:\(requestID):p\(index + 1)",
+                    ref: ref, path: path, scope: .user, version: 1,
+                    updatedAtMS: preference.createdAtMS, snippet: snippet,
+                    evidence: [], selectionReason: .match,
+                    state: .current, reason: nil))
+            }
+        }
+        let nonMemoryCount = materials.count
         for hit in candidates where materials.count < limits.maxMaterials {
             guard Task.isCancelled == false else { throw BotDecisionContextError.cancelled }
             let snippet = Self.sanitizedSnippet(hit.snippet,
                                                 limit: limits.maxSnippetCharacters)
             guard !snippet.isEmpty else { continue }
-            let evidence = hit.evidence
+            let disputed = disputedByPath[hit.path]?.first {
+                $0.state == "active" && $0.correctedVersion == hit.version
+            }
+            let disputedEvidence = disputed?.refs
                 .filter { $0.hasPrefix("record://") && $0.unicodeScalars.count <= 128 }
-                .prefix(2)
+                .prefix(2) ?? []
+            let evidence = disputedEvidence.isEmpty
+                ? hit.evidence
+                    .filter { $0.hasPrefix("record://") && $0.unicodeScalars.count <= 128 }
+                    .prefix(2)
+                : disputedEvidence
             let ref = Self.ref(path: hit.path, version: hit.version)
             let cost = snippet.unicodeScalars.count
                 + ref.unicodeScalars.count + hit.path.unicodeScalars.count
                 + evidence.reduce(0) { $0 + $1.unicodeScalars.count } + 64
             if usedCharacters + cost > limits.maxCharacters { continue }
             usedCharacters += cost
-            let state = await materialState(BotMaterialStateRequest(
+            let provenanceState = await materialState(BotMaterialStateRequest(
                 botID: request.botID, sessionID: request.sessionID,
                 path: hit.path, version: hit.version, evidence: hit.evidence))
+            // G-2 r? (§61): an active disputed correction wins over
+            // sourceStatuses current and is expressed as unknown +
+            // feedback-disputed, never current.
+            let state: BotDecisionMaterialState = disputed == nil ? provenanceState.0 : .unknown
+            let reason: BotDecisionMaterialReason? = disputed == nil
+                ? provenanceState.1 : .feedbackDisputed
             materials.append(BotDecisionMaterial(
                 materialID: "mat:\(requestID):\(materials.count + 1)",
                 ref: ref,
@@ -530,12 +602,13 @@ public actor BotDecisionContextService {
                 snippet: snippet,
                 evidence: Array(evidence),
                 selectionReason: Self.selectionReason(hit: hit, goal: goal, recipient: recipientHint),
-                state: state.0,
-                reason: state.1))
+                state: state,
+                reason: reason))
         }
-        var omitted = max(0, candidates.count - (materials.count - workspaceCount))
+        var omitted = max(0, candidates.count - (materials.count - nonMemoryCount))
         if workspaceTruncated { omitted += 1 }
-        let truncated = omitted > 0 || workspaceTruncated
+        if preferenceTruncated { omitted += 1 }
+        let truncated = omitted > 0 || workspaceTruncated || preferenceTruncated
         let endingAuthorization = await permissionRevision(
             request.botID, request.sessionID, request.recipient)
         guard Task.isCancelled == false else { throw BotDecisionContextError.cancelled }

@@ -365,6 +365,76 @@ final class BotDecisionContextTests: XCTestCase {
                        BotDecisionContextService.ParsedRef(path: "user/profile.md", version: 2))
     }
 
+    func testActiveDisputedCorrectionIsNotCurrent() async throws {
+        let memory = self.memory!
+        let revision = self.revision
+        let service = BotDecisionContextService(
+            memoryForBot: { _ in memory },
+            permissionRevision: { _, _, _ in revision.get() },
+            materialState: { _ in (.current, nil) },
+            disputedRefs: { paths in
+                guard paths.contains("user/travel.md") else { return [:] }
+                return ["user/travel.md": [BotFeedbackDisputedRef(
+                    path: "user/travel.md", refs: ["record://event/9"],
+                    feedbackID: "feedback:main:test", correctedVersion: 1,
+                    supersededVersion: 0, atMS: 1_760_000_000_000, state: "active")]]
+            },
+            now: { MemoryTestFixtures.now })
+        let block = try await service.materials(for: request(query: "护照 出行"))
+        let material = try XCTUnwrap(block.materials.first { $0.path == "user/travel.md" })
+        XCTAssertEqual(material.state, .unknown)
+        XCTAssertEqual(material.reason, .feedbackDisputed)
+        XCTAssertEqual(material.evidence, ["record://event/9"])
+    }
+
+    func testRetractedDisputedCorrectionDoesNotOverrideCurrent() async throws {
+        let memory = self.memory!
+        let revision = self.revision
+        let service = BotDecisionContextService(
+            memoryForBot: { _ in memory },
+            permissionRevision: { _, _, _ in revision.get() },
+            materialState: { _ in (.current, nil) },
+            disputedRefs: { _ in
+                ["user/travel.md": [BotFeedbackDisputedRef(
+                    path: "user/travel.md", refs: ["record://event/9"],
+                    feedbackID: "feedback:main:test", correctedVersion: 1,
+                    supersededVersion: 0, atMS: 1_760_000_000_000, state: "retracted")]]
+            },
+            now: { MemoryTestFixtures.now })
+        let block = try await service.materials(for: request(query: "护照 出行"))
+        let material = try XCTUnwrap(block.materials.first { $0.path == "user/travel.md" })
+        XCTAssertEqual(material.state, .current)
+    }
+
+    func testActiveUserPreferenceEntersMaterialBudget() async throws {
+        let memory = self.memory!
+        let revision = self.revision
+        let preference = BotFeedbackPreference(
+            id: "feedback:main:pref-1", botID: "main", scopeKind: .user,
+            scopeKey: "proactive:routine-result", classKey: "proactive:routine-result",
+            createdAtMS: 1_760_000_000_000)
+        let service = BotDecisionContextService(
+            memoryForBot: { _ in memory },
+            permissionRevision: { _, _, _ in revision.get() },
+            materialState: { _ in (.current, nil) },
+            preferences: { botID in
+                BotFeedbackPreferences(
+                    botID: botID, generatedAtMS: 1_760_000_000_001,
+                    active: [preference], recentlyRevoked: [])
+            },
+            now: { MemoryTestFixtures.now })
+        let block = try await service.materials(for: request(query: "护照 出行"))
+        let material = try XCTUnwrap(block.materials.first {
+            $0.ref == "feedback:preference:feedback:main:pref-1"
+        })
+        XCTAssertEqual(material.path, "feedback/preference/feedback:main:pref-1")
+        XCTAssertEqual(material.scope, .user)
+        XCTAssertEqual(material.version, 1)
+        XCTAssertEqual(material.state, .current)
+        XCTAssertTrue(material.evidence.isEmpty)
+        XCTAssertTrue(material.snippet.contains("proactive:routine-result"))
+    }
+
     func testAuthorizationChangeDuringMaterialStateDoesNotLabelStaleMaterial() async throws {
         let gate = MaterialStateGate()
         let memory = self.memory!

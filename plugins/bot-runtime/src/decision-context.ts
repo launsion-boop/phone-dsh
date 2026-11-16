@@ -54,6 +54,7 @@ export type DecisionMaterialReason =
   | 'record-unresolved' | 'record-erased' | 'grant-revoked' | 'source-changed'
   | 'newer-observation-unversioned' | 'revision-basis-mismatch' | 'no-baseline'
   | 'source-version-unknown' | 'cycle-detected' | 'scan-limit-exceeded'
+  | 'feedback-disputed'
 export type DecisionSelectionReason = 'match' | 'recipient' | 'goal' | 'recency'
 
 export interface DecisionMaterial {
@@ -150,10 +151,12 @@ const REASONS = new Set<DecisionMaterialReason>([
   'record-unresolved', 'record-erased', 'grant-revoked', 'source-changed',
   'newer-observation-unversioned', 'revision-basis-mismatch', 'no-baseline',
   'source-version-unknown', 'cycle-detected', 'scan-limit-exceeded',
+  'feedback-disputed',
 ])
 const SELECTION_REASONS = new Set<DecisionSelectionReason>(['match', 'recipient', 'goal', 'recency'])
 const RECORD_REF = /^record:\/\/(session\/[A-Za-z0-9._-]{1,64}#(?:0|[1-9][0-9]*)|event\/[1-9][0-9]*)$/u
 const MEMORY_REF = /^memory:(?:user|agent)\/[^\s]{1,190}@v[1-9][0-9]*$/u
+const PREFERENCE_REF = /^feedback:preference:[A-Za-z0-9._:-]{1,128}$/u
 const WORKSPACE_REF = /^workspace:((?:[A-Za-z0-9\-._~!$&'()*+,;=:]|%[0-9A-Fa-f]{2}|\/)+)@sha256:[0-9a-f]{64}$/u
 const SHA256 = /^sha256:[0-9a-f]{64}$/u
 
@@ -342,9 +345,16 @@ function validMaterial(value: unknown): DecisionMaterial | undefined {
   if (typeof materialID !== 'string' || !/^mat:[A-Za-z0-9._:-]{1,128}$/u.test(materialID)) return undefined
   if (typeof ref !== 'string' || scalarLength(ref) > 2048) return undefined
   const workspaceRef = WORKSPACE_REF.test(ref)
-  if (!MEMORY_REF.test(ref) && !RECORD_REF.test(ref) && !workspaceRef) return undefined
+  const preferenceRef = PREFERENCE_REF.test(ref)
+  if (!MEMORY_REF.test(ref) && !RECORD_REF.test(ref) && !workspaceRef && !preferenceRef) return undefined
   if (typeof path !== 'string') return undefined
-  if (workspaceRef ? !validWorkspacePath(path) : !validMemoryPath(path)) return undefined
+  if (workspaceRef) {
+    if (!validWorkspacePath(path)) return undefined
+  } else if (preferenceRef) {
+    if (!path.startsWith('feedback/preference/')) return undefined
+  } else if (!validMemoryPath(path)) {
+    return undefined
+  }
   if (workspaceRef) {
     const marker = ref.lastIndexOf('@sha256:')
     if (marker <= 0) return undefined
@@ -371,6 +381,15 @@ function validMaterial(value: unknown): DecisionMaterial | undefined {
   if (reason !== undefined && (typeof reason !== 'string'
       || !REASONS.has(reason as DecisionMaterialReason))) return undefined
   if (material.state === 'unknown' && reason === undefined) return undefined
+  if (reason === 'feedback-disputed' && material.state !== 'unknown') return undefined
+  if (preferenceRef) {
+    const id = ref.slice('feedback:preference:'.length)
+    if (path !== `feedback/preference/${id}`) return undefined
+    if (material.scope !== 'user' || material.version !== 1) return undefined
+    if (evidence.length !== 0) return undefined
+    if (material.state !== 'current' || reason !== undefined) return undefined
+    if (material.selection_reason !== 'match') return undefined
+  }
   const sourceVersion = material.source_version
   if (sourceVersion !== undefined && (sourceVersion === null
       || typeof sourceVersion !== 'object' || Array.isArray(sourceVersion))) return undefined

@@ -414,6 +414,32 @@ test('the consumer drops malformed, cross-session, canceled or oversized blocks'
   assert.equal(validateDecisionContextResponse(
     decisionResponse('gb-main', 3, 'abc12345', { materials: [material({ state: 'unknown', reason: undefined })] }),
     expected), undefined)
+  assert.ok(validateDecisionContextResponse(
+    decisionResponse('gb-main', 3, 'abc12345', {
+      materials: [material({ state: 'unknown', reason: 'feedback-disputed' })],
+    }), expected))
+  assert.equal(validateDecisionContextResponse(
+    decisionResponse('gb-main', 3, 'abc12345', {
+      materials: [material({ state: 'current', reason: 'feedback-disputed' })],
+    }), expected), undefined)
+  const prefID = 'feedback:main:pref-1'
+  const preference = material({
+    material_id: 'mat:abc12345:p1',
+    ref: `feedback:preference:${prefID}`,
+    path: `feedback/preference/${prefID}`,
+    scope: 'user', version: 1, snippet: 'User preference: suppress proactive:routine-result.',
+    evidence: [], selection_reason: 'match', state: 'current', reason: undefined,
+  })
+  assert.ok(validateDecisionContextResponse(
+    decisionResponse('gb-main', 3, 'abc12345', { materials: [preference] }), expected))
+  assert.equal(validateDecisionContextResponse(
+    decisionResponse('gb-main', 3, 'abc12345', {
+      materials: [{ ...preference, scope: 'agent' }],
+    }), expected), undefined)
+  assert.equal(validateDecisionContextResponse(
+    decisionResponse('gb-main', 3, 'abc12345', {
+      materials: [{ ...preference, evidence: ['record://event/1'] }],
+    }), expected), undefined)
   assert.equal(validateDecisionContextResponse(
     decisionResponse('gb-main', 3, 'abc12345', { canceled: true }), expected), undefined)
   assert.equal(validateDecisionContextResponse(
