@@ -565,7 +565,7 @@ final class BotRuntimeUnit {
     /// App scene/account lifecycle for this Bot's cloud client. The client is
     /// the same one the scheduler wires; no second transport or token store.
     func cloudSceneChanged(_ active: Bool) async {
-        await cloudLifecycle?.scenePhaseChanged(active: active)
+        await cloudLifecycle?.scenePhaseChanged(active)
     }
 
     func cloudCredentialsChanged(signedIn: Bool) async {

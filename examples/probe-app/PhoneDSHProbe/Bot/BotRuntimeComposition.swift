@@ -721,8 +721,8 @@ final class BotRuntimeComposition {
 
     func startCloudAccountObserver() {
         guard cloudAccountTask == nil else { return }
-        cloudAccountTask = Task { [weak self] in
-            for await state in TonoAccountSession.shared.states() {
+        cloudAccountTask = Task { @MainActor [weak self] in
+            for await state in await TonoAccountSession.shared.states() {
                 guard let self else { return }
                 let signedIn: Bool
                 if case .signedIn = state { signedIn = true } else { signedIn = false }
