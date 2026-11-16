@@ -52,6 +52,36 @@
 - 模型收到后按新材料重新生成参数，再走既有授权；宿主不得在发送后偷偷补附件，也不得把旧审批
   当作新参数的授权。`materials` 必须通过 §1 的材料块规则（limits/state/无指令字段）。
 
+### 1.7 `BotDecisionContext` internal additive tool（G-2 r3，方案 a）
+
+R/C 的源码事实：DSH 的 Worker 插件只能通过 `ctx.tools.execute` 调 `mcp__phone__<tool>`，而
+`BotMCPRuntime.execute` 要求该名字出现在 `toolDefinitions(callerBotID:)`（即 MCP `tools/list`）；
+DSH 没有官方“非 tools/list 的 host→Worker 通道”。因此“完全 hidden”在生产不可实现。
+
+冻结决定（a）：`BotDecisionContext` 是 **internal additive tool**：
+
+- 注册在 `BotToolCatalog.allDefinitions`（与 `BotVolatileContext` 同路径），因此出现在 `tools/list`，
+  模型理论上可调；**不**写进冻结的 `BotToolCatalog.definitions` / `tool-catalog.phone.json` golden，
+  不新增模型可见工具契约。
+- 输入/结果形状由 `decision-internal-tool.schema.json` 冻结：
+  request `{schema:"bot-decision-context-request/v1", session_id, turn_id, step, stage, query,
+  origin?, scopes, limits}`；result `{schema:"bot-decision-context-result/v1", ok:true, block}` 或
+  `{ok:false, code:"permission-denied|invalid-request|material-unavailable", message}`。
+- 宿主安全边界：`session_id` 必须等于已认领会话；`turn_id`/`step` 必须是当前 turn；principal 必须是
+  真实 `.chat`/宿主签发的会话，模型不能自报 botID；不匹配 → `permission-denied` 或空材料。
+  调用只读、无副作用、不授予工具、不扩大授权、只返回本 session 的有界材料块（§1 的 limits）。
+- 模型主动调用它只会“多拿一次本 session 材料”（类似 `RecallMemory`），不构成越权；材料仍受
+  freshness/authorization revision/recipient/goal 约束。
+- **owner 转交**：K 的 L3 已 release，但 G worktree 的 `BotToolCatalog.swift` 仍是 release 前版本；
+  G 若在该文件写入会把旧版本带回 cherry-pick。故 `BotToolCatalog.swift` 的这一处 additive 编辑
+  **转交 C**（C 在 OWNERS 记录），G 只冻结本文件/schema/golden/validator。C 加：
+  `static let decisionContextName = "BotDecisionContext"`；`allDefinitions` 增加一条 read-only
+  definition（参数逐字按 `decision-internal-tool.schema.json` 的 request；description 按 §1 材料块，
+  不提评分/不教流程/不含用户正文）；`isRegistered(name)` 对它在当前会话返回 true。
+  **不写**冻结的 `BotToolCatalog.definitions` / `tool-catalog.phone.json` golden。
+- R 的插件名/参数保持 `mcp__phone__BotDecisionContext` + 上述 request，不需要改 wire。
+- 不是 P25 事件、不是 P27 行/card/user-action、不是 cloud wire；不落库、不写第二套 trace。
+
 ## 2. 交付来源、建议附件与重绑定
 
 ### 2.1 行/交付展示（U 的 `sources` / `delivery` 投影）

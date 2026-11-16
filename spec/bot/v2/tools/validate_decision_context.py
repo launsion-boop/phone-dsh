@@ -227,6 +227,16 @@ def main() -> int:
             if key in expected and result.get(key) != expected[key]:
                 raise AssertionError(
                     f"feedback.{case['name']}: {key} {result.get(key)!r} != {expected[key]!r}")
+    for index, message in enumerate(golden.get("internal_tool", {}).get("valid", [])):
+        check(message, "decision-internal-tool.schema.json", f"internal_tool.valid[{index}]")
+        if message.get("ok") is True:
+            check_material(message["block"], f"internal_tool.valid[{index}].block")
+    for case in golden.get("internal_tool", {}).get("invalid", []):
+        try:
+            check(case["instance"], "decision-internal-tool.schema.json", case["name"])
+        except SpecError:
+            continue
+        raise AssertionError(f"internal_tool.invalid[{case['name']}]: unexpectedly accepted")
     for index, result in enumerate(golden.get("tool_results", {}).get("valid", [])):
         check(result, "decision-tool-result.schema.json", f"tool_results.valid[{index}]")
         check_material(result["materials"], f"tool_results.valid[{index}].materials")
@@ -284,7 +294,9 @@ def main() -> int:
             mutations += 1
     if mutations < 12:
         raise AssertionError(f"mutation coverage too low: {mutations}")
-    print(f"decision-context vectors: PASS (tool results "
+    print(f"decision-context vectors: PASS (internal tool "
+          f"{len(golden.get('internal_tool', {}).get('valid', []))}/"
+          f"{len(golden.get('internal_tool', {}).get('invalid', []))}, tool results "
           f"{len(golden.get('tool_results', {}).get('valid', []))}/"
           f"{len(golden.get('tool_results', {}).get('invalid', []))}, material {len(golden['material']['valid'])}/"
           f"{len(golden['material']['invalid'])}, suggestions {len(golden['suggestion']['valid'])}/"
