@@ -383,7 +383,7 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
             return .search(query: query, since: since, session: session)
         case "read":
             var reference: String?
-            var around = 2
+            var around = 0
             var index = 1
             while index < arguments.count {
                 let word = arguments[index]
@@ -460,12 +460,40 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
     /// Default search indexes the readable projection, not a nested tool
     /// result that merely echoed another record. The raw record remains
     /// available through an explicit `read` by ref.
+    /// Default search indexes only the outer readable text. Nested
+    /// `conversation.tool_result` payloads are never walked recursively: a
+    /// record bridge echo is reduced to a short marker, and other payloads
+    /// contribute their top-level message text only.
     static func searchProjection(type: String, data: BotJSONValue) -> String {
         if ["conversation.tool_result", "tool/result"].contains(type),
            recordToolOutput(data) != nil {
             return "phone record search output (nested body omitted from default search)"
         }
-        return searchable(data)
+        var parts: [String] = []
+        func append(_ value: BotJSONValue?) {
+            guard parts.reduce(0, { $0 + $1.count }) < 8_000 else { return }
+            if let text = value?.stringValue, !text.isEmpty, !text.hasPrefix("{") {
+                parts.append(text)
+            }
+        }
+        if let message = data["message"]?.objectValue {
+            append(message["text"])
+            for block in message["content"]?.arrayValue ?? [] {
+                append(block["text"])
+            }
+        }
+        append(data["text"])
+        append(data["content"])
+        append(data["title"])
+        if type.hasPrefix("memory.document") {
+            append(data["path"])
+            for ref in data["evidence"]?.arrayValue ?? [] { append(ref) }
+        }
+        if parts.isEmpty {
+            append(data["data"]?.objectValue?["content"])
+            append(data["data"]?.objectValue?["text"])
+        }
+        return parts.joined(separator: " ")
     }
 
     private static func recordToolOutput(_ data: BotJSONValue) -> String? {
@@ -524,6 +552,28 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         return "\(normalized)|\(time)|\(primaryText(type: normalized, data: data))"
     }
 
+    private static func excerpt(_ text: String, needle: String) -> String {
+        let value = snippet(text, needle: needle)
+        if value.unicodeScalars.count <= 240 { return value }
+        let end = value.unicodeScalars.index(value.unicodeScalars.startIndex, offsetBy: 240)
+        return String(String.UnicodeScalarView(value.unicodeScalars[..<end]))
+    }
+
+    private static func trustLabel(type: String, data: BotJSONValue) -> String? {
+        switch type {
+        case "conversation.user_message", "user/message":
+            return "user"
+        case "conversation.assistant_message", "assistant/message":
+            return "assistant"
+        case "conversation.tool_result", "tool/result", "context.observed":
+            return "observation"
+        case "memory.document_written", "memory.document_deleted":
+            return data["trust"]?.stringValue
+        default:
+            return nil
+        }
+    }
+
     /// A tool result is an argument to the next model call. Keep every single
     /// search/read bounded so one wide query or a large record cannot grow the
     /// next step without limit; the model gets explicit total/first/next hints.
@@ -565,6 +615,10 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                         "type": .string(line.type),
                         "time": .number(Double(line.time)),
                         "snippet": .string(Self.snippet(projected, needle: needle)),
+                        "excerpt": .string(Self.excerpt(projected, needle: needle)),
+                        "trust": data.flatMap { Self.trustLabel(type: line.type, data: $0) }
+                            .map(BotJSONValue.string) ?? .null,
+                        "hitTruncated": .bool(projected.unicodeScalars.count > 240),
                     ]),
                     ref: ref, key: key, time: line.time))
             }
@@ -583,6 +637,11 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
                 "type": .string(record.event.type),
                 "time": .number(Double(record.event.time)),
                 "snippet": .string(Self.snippet(record.searchable, needle: needle)),
+                "excerpt": .string(Self.excerpt(record.searchable, needle: needle)),
+                "trust": Self.trustLabel(
+                    type: record.event.type, data: record.event.data)
+                    .map(BotJSONValue.string) ?? .null,
+                "hitTruncated": .bool(record.searchable.unicodeScalars.count > 240),
             ]
             if let sessionID = record.event.principal.sessionId {
                 fields["sessionId"] = .string(sessionID)
@@ -958,7 +1017,8 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
             version = Self.observationVersion(
                 ref: ref, trust: trust,
                 text: Self.observationText(in: event),
-                observedAtMS: observed)
+                observedAtMS: observed,
+                normalizeWebText: Self.isWebObservationEvent(event))
         }
         return ResolvedRecord(
             ref: ref, resolved: true, erased: false,
@@ -1009,10 +1069,18 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
     /// UTF-8 bytes. It is only attached to observations; user messages, Bot
     /// output and review assertions legally carry no source version.
     static func observationVersion(ref: String, trust: BotRecordTrust?,
-                                   text: String?, observedAtMS: Int64?) -> BotSourceVersion? {
+                                   text: String?, observedAtMS: Int64?,
+                                   normalizeWebText: Bool = false) -> BotSourceVersion? {
         guard trust == .observation else { return nil }
-        guard let text, !text.isEmpty else {
+        guard var text, !text.isEmpty else {
             return .unknown(.recordWithoutContent)
+        }
+        if normalizeWebText {
+            text = text
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return .unknown(.recordWithoutContent) }
         }
         let digest = SHA256.hash(data: Data(text.utf8))
             .map { String(format: "%02x", $0) }.joined()
@@ -1057,6 +1125,25 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
             return normalizedObservationText(result)
         }
         return nil
+    }
+
+    /// G-1 §4.5.1 web/connector text normalization. Only web/connector
+    /// observations use it; file bytes and other record-text hashes stay
+    /// unchanged.
+    static func isWebObservationEvent(_ event: BotEvent) -> Bool {
+        if event.type == Self.contextObservedType,
+           let kind = event.data["resource"]?["kind"]?.stringValue {
+            return kind == "web-url" || kind == "connector-resource"
+        }
+        guard event.type == "conversation.tool_result" else { return false }
+        let content = event.data["message"]?["content"]?.arrayValue ?? []
+        for block in content where block["type"]?.stringValue == "text" {
+            if let text = block["text"]?.stringValue,
+               let envelope = BotObservationEnvelope.decode(text) {
+                return envelope.source == "web" || envelope.source == "connector"
+            }
+        }
+        return false
     }
 
     /// True when a tool result carries a complete Worker observation envelope
