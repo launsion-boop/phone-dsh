@@ -2748,10 +2748,22 @@ public actor BotMCPRuntime {
         if let scope = outcome.scope {
             result["scope"] = .string(scope)
         }
-        if outcome.allowed, let deliverySelection,
-           let approved = try? await deliverySelection.approvedSelectionJSON(
-               approvalID: approvalID, botID: call.principal.botId) {
-            result["delivery"] = approved
+        if outcome.allowed, let deliverySelection {
+            do {
+                guard let approved = try await deliverySelection.approvedSelectionJSON(
+                    approvalID: approvalID,
+                    botID: call.principal.botId) else {
+                    return .failure(
+                        "delivery_selection_unavailable",
+                        "审批已允许，但交付选择读取失败，动作没有继续。")
+                }
+                result["delivery"] = approved
+            } catch {
+                return .failure(
+                    "delivery_selection_unavailable",
+                    "审批已允许，但交付选择读取失败，动作没有继续。")
+            }
+
         }
         // The model sees this text as the tool result and tends to repeat it
         // verbatim. Lead with the human outcome and keep the structured fields
