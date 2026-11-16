@@ -703,7 +703,7 @@ public struct BotSessionLogProjector: Sendable {
                         var fields = fieldsFrom(routine)
                         fields["routineID"] = .string(automationID)
                         fields["title"] = .string(name)
-                        fields["status"] = .string((routine["enabled"]?.bool ?? true) ? "active" : "paused")
+                        fields["status"] = .string((routine["enabled"]?.boolValue ?? true) ? "active" : "paused")
                         fields["automationStatus"] = fields["status"]
                         fields["automation"] = .object(routine.merging([
                             "automationId": .string(automationID),
@@ -786,7 +786,7 @@ public struct BotSessionLogProjector: Sendable {
                     var fields = fieldsFrom(routine)
                     fields["routineID"] = .string(routineID)
                     fields["title"] = .string(title)
-                    let status = (routine["enabled"]?.bool ?? true) ? "active" : "paused"
+                    let status = (routine["enabled"]?.boolValue ?? true) ? "active" : "paused"
                     fields["status"] = .string(status)
                     fields["automationStatus"] = .string(status)
                     fields["automation"] = .object(routine.merging([
