@@ -27,6 +27,43 @@ test('both persona languages mount every P0 and no P1, with all variants', () =>
   assert.ok(parseMountSpec('when: unknown=value').error)
 })
 
+test('activity guidance uses real task objects with the code-aligned wait sentence', () => {
+  for (const lang of ['zh', 'en'] as const) {
+    const { persona } = assemblePrompt({ lang })
+    assert.ok(persona.includes('`description`'), `${lang} must keep bash.description guidance`)
+    assert.ok(persona.includes('`task_title`'), `${lang} must keep Task.task_title guidance`)
+    assert.ok(persona.includes('等待响应'), `${lang} must use the code-aligned wait sentence`)
+    assert.equal(persona.includes('等待模型响应'), false, `${lang} still uses the removed wait sentence`)
+    if (lang === 'zh') {
+      for (const token of ['文件名', '路径', 'URL', '#PR', '人名', '会议名']) {
+        assert.ok(persona.includes(token), `zh activity guidance must allow ${token}`)
+      }
+      assert.ok(persona.includes('不要复制整条命令或 JSON'))
+      assert.ok(persona.includes('不要写凭证'))
+      assert.ok(persona.includes('不要写内部 id'))
+      assert.equal(persona.includes('不要包含文件名、路径、扩展名、网址、命令、内部 ID 或代码'), false,
+        'zh must not keep the generalized filename/path prohibition')
+      assert.ok(persona.includes('同一回合同一步'))
+      assert.ok(persona.includes('不要为活动栏额外发状态旁白'))
+      assert.ok(persona.includes('不要仅为刷新提示而调用工具'))
+      assert.ok(persona.includes('不要编造进度'))
+    } else {
+      for (const token of ['file name', 'path', 'URL', '#PR', 'person', 'meeting name']) {
+        assert.ok(persona.includes(token), `en activity guidance must allow ${token}`)
+      }
+      assert.ok(persona.includes('Never paste the whole command or JSON'))
+      assert.ok(persona.includes('credentials'))
+      assert.ok(persona.includes('internal ids'))
+      assert.equal(persona.includes('Do not include filenames, paths, extensions, URLs, commands, internal IDs or code'), false,
+        'en must not keep the generalized filename/path prohibition')
+      assert.ok(persona.includes('same turn and step'))
+      assert.ok(persona.includes('status narration'))
+      assert.ok(persona.includes('refresh this indicator'))
+      assert.ok(persona.includes('Do not invent progress'))
+    }
+  }
+})
+
 test('the phone persona carries the upstream parity chapters adapted to iOS', () => {
   const sections = new Map<'zh' | 'en', string[]>()
   for (const lang of ['zh', 'en'] as const) {
