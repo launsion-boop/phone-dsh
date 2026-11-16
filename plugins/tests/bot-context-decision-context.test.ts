@@ -438,7 +438,7 @@ test('workspace refs use canonical percent-encoded paths and keep raw path', () 
   const valid = [
     ['docs/Meeting Notes.md', 'docs/Meeting%20Notes.md'],
     ['docs/照片 1.txt', 'docs/%E7%85%A7%E7%89%87%201.txt'],
-    ['docs/a@b.md', 'docs/a%40b.md'],
+    ['docs/a@b', 'docs/a%40b'],
     ['docs/100% done.md', 'docs/100%25%20done.md'],
     ['docs/a#b.md', 'docs/a%23b.md'],
     ['docs/%2E%2E.md', 'docs/%252E%252E.md'],
