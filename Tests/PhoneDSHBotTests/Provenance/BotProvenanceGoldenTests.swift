@@ -139,59 +139,31 @@ final class BotProvenanceGoldenTests: XCTestCase {
         for (ref, record) in testCase.records where record.kind == "session" {
             guard let observation = record.observation,
                   let seq = sessionSeq(ref) else { continue }
-            var observationPayload: [String: BotJSONValue] = [
-                "source": .string(observation.source),
-                "origin": .string(observation.origin),
-            ]
-            if let owner = observation.owner {
-                observationPayload["owner"] = .string(owner)
-            }
-            var observationData: [String: BotJSONValue] = [
-                "observation": .object(observationPayload),
-            ]
-            if let resource = record.resource {
-                observationData["resource"] = try ProvenanceTest.encoded(resource)
-            }
-            if let version = record.version {
-                observationData["version"] = try ProvenanceTest.encoded(version)
-            }
-            if let at = record.atMs {
-                observationData["observed_at_ms"] = .number(Double(at))
-            }
-            let event = BotEvent(
-                type: "conversation.tool_result",
+            // Real G-1 r11 carrier: the observation envelope is the message
+            // text of conversation.tool_result, not `data.observation`.
+            let event = ProvenanceTest.toolResultEvent(
                 eventId: "observation-\(ref)",
-                commitSeq: syntheticSeq,
-                time: record.atMs ?? 1_000,
-                origin: .dsh(sessionId: "gb-main", seq: seq),
-                traceId: "trace-observation-\(ref)",
-                principal: BotPrincipal(botId: record.botId ?? "bot-a",
-                                        sessionId: "gb-main", kind: "chat"),
-                causationId: nil,
-                correlationId: nil,
-                data: .object(observationData))
+                source: observation.source,
+                origin: observation.origin,
+                owner: observation.owner ?? record.botId ?? "bot-a",
+                text: record.text ?? "observation body",
+                resource: record.resource,
+                at: record.atMs ?? 1_000,
+                sessionID: "gb-main",
+                seq: seq)
             await log.append(event, at: syntheticSeq)
             syntheticSeq += 1
         }
         if testCase.scanExceeded == true {
-            // More than 32 observation identities trips the G-1 scan window.
+            // More than 32 distinct resources trips the G-1 scan window.
             for index in 0..<40 {
-                let event = BotEvent(
-                    type: "conversation.tool_result",
+                let event = ProvenanceTest.toolResultEvent(
                     eventId: "scan-filler-\(index)",
-                    commitSeq: syntheticSeq,
-                    time: 2_000 + Int64(index),
-                    origin: .local(source: "ipc"),
-                    traceId: "trace-scan-\(index)",
-                    principal: BotPrincipal(botId: "bot-a", sessionId: nil, kind: "chat"),
-                    causationId: nil,
-                    correlationId: nil,
-                    data: .object([
-                        "observation": .object([
-                            "source": .string("web"),
-                            "origin": .string("https://scan.example/\(index)"),
-                        ]),
-                    ]))
+                    source: "web",
+                    origin: "https://scan.example/\(index)",
+                    owner: "bot-a",
+                    at: 2_000 + Int64(index),
+                    sessionID: "gb-main", seq: 100 + index)
                 await log.append(event, at: syntheticSeq)
                 syntheticSeq += 1
             }
@@ -231,9 +203,11 @@ final class BotProvenanceGoldenTests: XCTestCase {
         guard record.observation != nil else { return record.version }
         if let version = record.version {
             switch version {
-            case let .known(basis, value, observed, basisRef):
-                return .known(basis: basis, value: value, observedAtMS: observed,
-                              basisRef: basisRef ?? ref)
+            case let .known(known):
+                return .known(basis: known.basis, value: known.value,
+                              observedAtMS: known.observedAtMS,
+                              basisRef: known.basisRef ?? ref,
+                              subject: known.subject)
             case let .unknown(reason, observed, basisRef):
                 return .unknown(reason: reason, observedAtMS: observed,
                                 basisRef: basisRef ?? ref)

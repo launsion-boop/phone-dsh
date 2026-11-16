@@ -282,8 +282,9 @@ public struct BotProvenanceSnapshot: Sendable {
             .filter { $0.ref != ref }
         if let latest = sameResource.last,
            isNewer(latest, thanAt: observedAt, ref: ref) {
-            status.latestRef = latest.ref
-            guard let latestVersion = latest.version else {
+            let latestRef = facts.latestRef ?? latest.ref
+            status.latestRef = latestRef
+            guard let latestVersion = facts.latestVersion ?? latest.version else {
                 status.state = .unknown
                 status.reasons = [.newerObservationUnversioned]
                 return status
@@ -293,12 +294,12 @@ public struct BotProvenanceSnapshot: Sendable {
                 status.reasons = [.noBaseline]
                 return status
             }
-            if case let .known(baseBasis, baseValue, _, _) = baseline,
-               case let .known(latestBasis, latestValue, _, _) = latestVersion {
-                if baseBasis != latestBasis {
+            if case let .known(base) = baseline,
+               case let .known(latestKnown) = latestVersion {
+                if base.basis != latestKnown.basis {
                     status.state = .unknown
                     status.reasons = [.revisionBasisMismatch]
-                } else if baseValue != latestValue {
+                } else if base.value != latestKnown.value {
                     status.state = .changed
                     status.reasons = [.sourceChanged]
                 } else {
@@ -317,12 +318,12 @@ public struct BotProvenanceSnapshot: Sendable {
             status.state = .current
             status.recheckedAtMS = atMS
         case let .changed(version, _):
-            if case let .known(baseBasis, baseValue, _, _) = baseline,
-               case let .known(newBasis, newValue, _, _) = version {
-                if baseBasis != newBasis {
+            if case let .known(base) = baseline,
+               case let .known(newKnown) = version {
+                if base.basis != newKnown.basis {
                     status.state = .unknown
                     status.reasons = [.revisionBasisMismatch]
-                } else if baseValue != newValue {
+                } else if base.value != newKnown.value {
                     status.state = .changed
                     status.reasons = [.sourceChanged]
                 } else {
@@ -579,40 +580,24 @@ extension BotProvenanceSnapshot {
                 currentVersion: nil, identity: nil, latestRef: nil,
                 latestObservedAtMS: nil, latestVersion: nil,
                 resource: nil, recheckOutcome: nil, scanLimitExceeded: false)
-            if isObservationCarrier(event.type),
-               let observation = event.data["observation"],
-               let source = observation["source"]?.stringValue,
-               let origin = observation["origin"]?.stringValue {
-                // A carrier without a stable resource identity is still an
-                // observation; it just cannot be merged with another one.
+            if let observation = carrierObservation(for: event) {
                 facts.isObservation = true
-                let at = event.data["observed_at_ms"]?.intValue.map(Int64.init) ?? event.time
-                let version = parseVersion(event.data["version"] ?? event.data["sourceVersion"])
-                let owner = observation["owner"]?.stringValue ?? event.principal.botId
-                let explicit = parseResource(event.data["resource"])
-                let resource = explicit ?? derivedResource(
-                    source: source, origin: origin, owner: owner)
-                let observedRef: String
-                switch event.origin {
-                case let .dsh(sessionID, lineSeq):
-                    observedRef = "record://session/\(sessionID)#\(lineSeq)"
-                case .local:
-                    observedRef = record
+                if observation.aliases.contains(record) {
+                    facts.currentVersion = observation.version
+                    facts.observedAtMS = observation.observedAtMS
+                    facts.resource = observation.resource
                 }
-                if observedRef == record {
-                    facts.currentVersion = version
-                    facts.observedAtMS = at
-                    facts.resource = resource
-                }
-                if let resource {
+                if let resource = observation.resource {
                     let entry = BotProvenanceObservation(
-                        ref: observedRef, observedAtMS: at, version: version,
-                        resource: resource)
+                        ref: observation.sourceRef,
+                        observedAtMS: observation.observedAtMS,
+                        version: observation.version, resource: resource)
                     observations[resource.canonical, default: []].append(entry)
                     observationsByKindKey[resource.kindKey, default: []].append(entry)
-                    observationResourceByRef[observedRef] = resource
+                    for alias in Set(observation.aliases) {
+                        observationResourceByRef[alias] = resource
+                    }
                     observationEvents += 1
-                    if observedRef == record { facts.resource = resource }
                 }
             }
             facts.erased = erased.contains(record)
@@ -931,6 +916,95 @@ extension BotProvenanceSnapshot {
         case "conversation.tool_result": return "assistant"
         default: return nil
         }
+    }
+
+    struct CarrierObservation: Sendable, Equatable {
+        var source: String
+        var origin: String?
+        var owner: String?
+        var observedAtMS: Int64
+        var version: BotProvenanceSourceVersion?
+        var resource: BotResourceIdentity?
+        /// The one record that represents this observation in the latest
+        /// index (the original source record when the carrier names one).
+        var sourceRef: String
+        /// Event/carrier refs that resolve to the same observation for facts
+        /// and resource lookup, but must not become second index entries.
+        var aliases: [String]
+    }
+
+    /// G-1 r11 §2.4: real carriers only. `conversation.tool_result` carries the
+    /// v1 observation envelope in its message text; `context.observed` is flat
+    /// data. `data.observation` is not a contract and is not read here.
+    static func carrierObservation(for event: BotEvent) -> CarrierObservation? {
+        switch event.type {
+        case "conversation.tool_result", "comm.inbound":
+            guard let text = observationEnvelopeText(event),
+                  let envelope = BotObservationEnvelope.decode(text) else { return nil }
+            let owner = envelope.owner.isEmpty ? event.principal.botId : envelope.owner
+            let resource = parseResource(event.data["resource"])
+                ?? derivedResource(source: envelope.source, origin: envelope.origin,
+                                   owner: owner)
+            let eventRef = "record://event/\(event.commitSeq ?? 0)"
+            let original = BotRecordReference.canonicalize(envelope.ref)
+            return CarrierObservation(
+                source: envelope.source, origin: envelope.origin, owner: owner,
+                observedAtMS: event.time > 0 ? event.time : 0,
+                version: parseVersion(event.data["source_version"]),
+                resource: resource,
+                sourceRef: original ?? eventRef,
+                aliases: [eventRef, original].compactMap { $0 })
+        case "context.observed":
+            guard event.data["schema"]?.stringValue == "bot-context-observation/v1",
+                  let source = event.data["source"]?.stringValue,
+                  let observedAt = event.data["observed_at_ms"]?.intValue,
+                  let owner = event.data["owner_bot_id"]?.stringValue
+                    ?? event.principal.botId else { return nil }
+            let payload = event.data["payload"] ?? .object([:])
+            let resource = parseResource(event.data["resource"])
+                ?? derivedContextResource(source: source, payload: payload, owner: owner)
+            let recordRef = event.data["record_ref"]?.stringValue.flatMap {
+                BotRecordReference.canonicalize($0)
+            }
+            let carrierRef = "record://event/\(event.commitSeq ?? 0)"
+            return CarrierObservation(
+                source: source, origin: nil, owner: owner,
+                observedAtMS: Int64(observedAt),
+                version: parseVersion(event.data["source_version"]),
+                resource: resource,
+                sourceRef: recordRef ?? carrierRef,
+                aliases: [carrierRef, recordRef].compactMap { $0 })
+        default:
+            return nil
+        }
+    }
+
+    private static func observationEnvelopeText(_ event: BotEvent) -> String? {
+        let content = event.data["message"]?["content"]?.arrayValue ?? []
+        var text = content.compactMap { block -> String? in
+            guard block["type"]?.stringValue == "text" else { return nil }
+            return block["text"]?.stringValue
+        }.joined(separator: "\n")
+        if text.isEmpty { text = event.data["text"]?.stringValue ?? "" }
+        guard !text.isEmpty else { return nil }
+        return text
+    }
+
+    /// G-3 context sources have no URL; the resource id is the OS object id in
+    /// the minimal payload. Known payload keys are checked generically; no
+    /// tool/channel name is ever used as a resource key.
+    static func derivedContextResource(source: String, payload: BotJSONValue,
+                                       owner: String) -> BotResourceIdentity? {
+        let keys = ["eventIdentifier", "contactId", "contactIdentifier", "regionId",
+                    "assetIdentifier", "localIdentifier", "identifier", "id", "url", "path"]
+        for key in keys {
+            if let value = payload[key]?.stringValue,
+               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return BotResourceIdentity(
+                    kind: .contextSource, key: "\(source):\(value)", owner: owner)
+            }
+        }
+        return nil
     }
 
     static func sortedObservations(_ entries: [BotProvenanceObservation])

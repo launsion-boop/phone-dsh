@@ -106,11 +106,35 @@ public enum BotDerivationRole: String, Codable, Sendable, CaseIterable {
     }
 }
 
-/// Closed source-revision shape. Exactly one of known(basis,value) or
-/// unknown(reason) is encoded; known values must carry their basis prefix.
+/// G-1 r13 subject of a content-sha256 version.
+public enum BotProvenanceSourceVersionSubject: String, Codable, Sendable, CaseIterable {
+    case fileBytes = "file-bytes"
+    case recordText = "record-text"
+}
+
+public struct BotKnownProvenanceSourceVersion: Codable, Sendable, Equatable, Hashable {
+    public var basis: BotProvenanceSourceVersion.BotSourceBasis
+    public var value: String
+    public var observedAtMS: Int64?
+    public var basisRef: String?
+    /// Only meaningful for content-sha256; nil is conservatively record-text.
+    public var subject: BotProvenanceSourceVersionSubject?
+
+    public init(basis: BotProvenanceSourceVersion.BotSourceBasis, value: String,
+                observedAtMS: Int64? = nil, basisRef: String? = nil,
+                subject: BotProvenanceSourceVersionSubject? = nil) {
+        self.basis = basis
+        self.value = value
+        self.observedAtMS = observedAtMS
+        self.basisRef = basisRef
+        self.subject = subject
+    }
+}
+
+/// Closed source-revision shape. Exactly one of known or unknown is encoded;
+/// known values must carry their basis prefix.
 public enum BotProvenanceSourceVersion: Codable, Sendable, Equatable, Hashable {
-    case known(basis: BotSourceBasis, value: String,
-               observedAtMS: Int64? = nil, basisRef: String? = nil)
+    case known(BotKnownProvenanceSourceVersion)
     case unknown(reason: BotSourceUnknownReason,
                  observedAtMS: Int64? = nil, basisRef: String? = nil)
 
@@ -129,14 +153,28 @@ public enum BotProvenanceSourceVersion: Codable, Sendable, Equatable, Hashable {
         case invalidReference = "invalid-reference"
     }
 
+    public static func known(
+        basis: BotSourceBasis, value: String, observedAtMS: Int64? = nil,
+        basisRef: String? = nil, subject: BotProvenanceSourceVersionSubject? = nil
+    ) -> Self {
+        .known(BotKnownProvenanceSourceVersion(
+            basis: basis, value: value, observedAtMS: observedAtMS,
+            basisRef: basisRef, subject: subject))
+    }
+
     public var knownValue: String? {
-        guard case let .known(_, value, _, _) = self else { return nil }
-        return value
+        guard case let .known(known) = self else { return nil }
+        return known.value
     }
 
     public var knownBasis: BotSourceBasis? {
-        guard case let .known(basis, _, _, _) = self else { return nil }
-        return basis
+        guard case let .known(known) = self else { return nil }
+        return known.basis
+    }
+
+    public var subject: BotProvenanceSourceVersionSubject? {
+        guard case let .known(known) = self else { return nil }
+        return known.subject ?? (known.basis == .contentSHA256 ? .recordText : nil)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -145,6 +183,7 @@ public enum BotProvenanceSourceVersion: Codable, Sendable, Equatable, Hashable {
         case observedAtMS = "observed_at_ms"
         case basisRef = "basis_ref"
         case reason
+        case subject
     }
 
     public init(from decoder: Decoder) throws {
@@ -170,17 +209,28 @@ public enum BotProvenanceSourceVersion: Codable, Sendable, Equatable, Hashable {
                 forKey: .basis, in: container,
                 debugDescription: "known source revision needs a valid basis and value")
         }
-        self = .known(basis: basis, value: value, observedAtMS: observed, basisRef: basisRef)
+        let subject = try container.decodeIfPresent(
+            BotProvenanceSourceVersionSubject.self, forKey: .subject)
+        self = .known(BotKnownProvenanceSourceVersion(
+            basis: basis, value: value, observedAtMS: observed,
+            basisRef: basisRef, subject: subject))
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case let .known(basis, value, observed, basisRef):
-            try container.encode(basis, forKey: .basis)
-            try container.encode(value, forKey: .value)
-            if let observed { try container.encode(observed, forKey: .observedAtMS) }
-            if let basisRef { try container.encode(basisRef, forKey: .basisRef) }
+        case let .known(known):
+            try container.encode(known.basis, forKey: .basis)
+            try container.encode(known.value, forKey: .value)
+            if let observed = known.observedAtMS {
+                try container.encode(observed, forKey: .observedAtMS)
+            }
+            if let basisRef = known.basisRef {
+                try container.encode(basisRef, forKey: .basisRef)
+            }
+            if let subject = known.subject {
+                try container.encode(subject, forKey: .subject)
+            }
         case let .unknown(reason, observed, basisRef):
             try container.encode(reason, forKey: .reason)
             if let observed { try container.encode(observed, forKey: .observedAtMS) }
@@ -192,7 +242,10 @@ public enum BotProvenanceSourceVersion: Codable, Sendable, Equatable, Hashable {
     /// nil when the value is valid for its basis.
     public func validationError() -> String? {
         switch self {
-        case let .known(basis, value, _, basisRef):
+        case let .known(known):
+            let basis = known.basis
+            let value = known.value
+            let basisRef = known.basisRef
             switch basis {
             case .contentSHA256:
                 let hex = value.hasPrefix("sha256:") ? value.dropFirst(7) : ""
@@ -213,11 +266,14 @@ public enum BotProvenanceSourceVersion: Codable, Sendable, Equatable, Hashable {
                     return "provider-version value must be rev:<opaque>"
                 }
             }
-            if let basisRef = basisRef, BotRecordReference.parse(basisRef) == nil {
+            if let basisRef, BotRecordReference.parse(basisRef) == nil {
                 return "basis_ref is not a canonical record reference"
             }
+            if known.subject != nil, basis != .contentSHA256 {
+                return "subject is only valid for content-sha256"
+            }
         case let .unknown(_, _, basisRef):
-            if let basisRef = basisRef, BotRecordReference.parse(basisRef) == nil {
+            if let basisRef, BotRecordReference.parse(basisRef) == nil {
                 return "basis_ref is not a canonical record reference"
             }
         }

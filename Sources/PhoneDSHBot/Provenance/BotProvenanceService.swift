@@ -210,37 +210,51 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
                        extraRefs: [String] = []) async
         -> [String: BotProvenanceResolvedFacts] {
         var facts = snapshot.eventFacts
-        var sessionRefs = Set<String>()
+        // G-1 r11/r12: event refs must reach P too. Session refs are not the
+        // only facts source; P returns trust/version for event carriers.
+        var referenced = Set<String>()
         for raw in extraRefs {
-            if let parsed = BotRecordReference.parse(raw), case .session = parsed {
-                sessionRefs.insert(parsed.canonical)
+            if let parsed = BotRecordReference.parse(raw) {
+                referenced.insert(parsed.canonical)
             }
         }
         for assertion in snapshot.assertions.values.joined() {
             for source in assertion.sources {
-                if let parsed = BotRecordReference.parse(source.record),
-                   case .session = parsed {
-                    sessionRefs.insert(parsed.canonical)
+                if let parsed = BotRecordReference.parse(source.record) {
+                    referenced.insert(parsed.canonical)
+                }
+                let resource = source.resource
+                    ?? snapshot.observationResourceByRef[
+                        BotRecordReference.canonicalize(source.record) ?? source.record]
+                if let resource,
+                   let latest = snapshot.observations[resource.canonical]?.last {
+                    referenced.insert(latest.ref)
                 }
             }
         }
-        if let evidenceResolver, !sessionRefs.isEmpty {
+        if let evidenceResolver, !referenced.isEmpty {
             var byOwner: [String: (botID: String?, sessionID: String?, refs: [String])] = [:]
             for assertion in snapshot.assertions.values.joined() {
                 let key = "\(assertion.botID ?? "")\u{1F}\(assertion.sessionID ?? "")"
                 var group = byOwner[key] ?? (assertion.botID, assertion.sessionID, [])
                 for source in assertion.sources {
-                    guard let parsed = BotRecordReference.parse(source.record),
-                          case .session = parsed else { continue }
+                    guard let parsed = BotRecordReference.parse(source.record) else { continue }
                     let canonical = parsed.canonical
-                    if sessionRefs.contains(canonical), !group.refs.contains(canonical) {
+                    if referenced.contains(canonical), !group.refs.contains(canonical) {
                         group.refs.append(canonical)
+                    }
+                    let resource = source.resource
+                        ?? snapshot.observationResourceByRef[canonical]
+                    if let resource,
+                       let latest = snapshot.observations[resource.canonical]?.last,
+                       !group.refs.contains(latest.ref) {
+                        group.refs.append(latest.ref)
                     }
                 }
                 byOwner[key] = group
             }
             let attributed = Set(byOwner.values.flatMap(\.refs))
-            let extras = sessionRefs.filter { !attributed.contains($0) }.sorted()
+            let extras = referenced.filter { !attributed.contains($0) }.sorted()
             if !extras.isEmpty {
                 byOwner["\u{1F}"] = (nil, nil, extras)
             }
@@ -294,7 +308,8 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
                 if fact.latestRef == nil, let latest = entries.last, latest.ref != ref {
                     fact.latestRef = latest.ref
                     fact.latestObservedAtMS = latest.observedAtMS
-                    fact.latestVersion = latest.version
+                    fact.latestVersion = facts[latest.ref]?.currentVersion
+                        ?? latest.version
                 }
             }
             facts[ref] = fact
@@ -377,7 +392,9 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
 private extension BotProvenanceSourceVersion {
     var basisRefValue: String? {
         switch self {
-        case let .known(_, _, _, basisRef), let .unknown(_, _, basisRef):
+        case let .known(known):
+            return known.basisRef
+        case let .unknown(_, _, basisRef):
             return basisRef
         }
     }

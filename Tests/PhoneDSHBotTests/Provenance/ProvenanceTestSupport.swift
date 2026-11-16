@@ -64,6 +64,94 @@ enum ProvenanceTest {
         try BotJSONValue.parse(JSONEncoder().encode(value))
     }
 
+    static func isoInstant(_ atMS: Int64) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: Date(timeIntervalSince1970: Double(atMS) / 1_000))
+    }
+
+    /// Real `conversation.tool_result` carrier: the v1 observation envelope is
+    /// in the message text, not in an invented `data.observation` member.
+    static func toolResultEvent(
+        eventId: String,
+        source: String,
+        origin: String,
+        owner: String,
+        text: String = "observation body",
+        resource: BotResourceIdentity? = nil,
+        at: Int64 = now,
+        sessionID: String = "gb-main",
+        seq: Int = 1
+    ) -> BotEvent {
+        let envelope = BotObservationEnvelope(
+            source: source, origin: origin, at: isoInstant(at), owner: owner,
+            reference: .session(sessionID: sessionID, seq: seq), text: text)!
+        var data: [String: BotJSONValue] = [
+            "message": .object([
+                "content": .array([
+                    .object(["type": .string("text"), "text": .string(envelope.encoded())]),
+                ]),
+            ]),
+        ]
+        if let resource, let encoded = try? ProvenanceTest.encoded(resource) {
+            data["resource"] = encoded
+        }
+        return .init(
+            type: "conversation.tool_result",
+            eventId: eventId,
+            time: at,
+            origin: .dsh(sessionId: sessionID, seq: seq),
+            traceId: "trace-\(eventId)",
+            principal: BotPrincipal(botId: owner, sessionId: sessionID, kind: "chat"),
+            causationId: nil,
+            correlationId: nil,
+            data: .object(data))
+    }
+
+    /// Real G-3 `context.observed` flat carrier.
+    static func contextObservedEvent(
+        eventId: String,
+        source: String = "calendar",
+        kind: String = "calendar.upcoming",
+        owner: String = "bot-a",
+        at: Int64 = now,
+        resource: BotResourceIdentity? = nil,
+        version: BotProvenanceSourceVersion? = nil,
+        payload: BotJSONValue = .object(["id": .string("event-1")])
+    ) -> BotEvent {
+        var data: [String: BotJSONValue] = [
+            "schema": .string("bot-context-observation/v1"),
+            "source": .string(source),
+            "kind": .string(kind),
+            "observed_at_ms": .number(Double(at)),
+            "owner_bot_id": .string(owner),
+            "consent_generation": .number(1),
+            "source_version": (try? ProvenanceTest.encoded(
+                version ?? .unknown(reason: .sourceUnversioned))) ?? .object([:]),
+            "uncertainty": .object([
+                "level": .string("low"), "completeness": .string("complete"),
+            ]),
+            "delivery": .string("os"),
+            "payload": payload,
+            "dedupe_key": .string("\(source):\(kind):\(eventId)"),
+            "wake_requested": .bool(false),
+        ]
+        if let resource, let encoded = try? ProvenanceTest.encoded(resource) {
+            data["resource"] = encoded
+        }
+        return .init(
+            type: "context.observed",
+            eventId: eventId,
+            time: at,
+            origin: .local(source: "runtime"),
+            traceId: "trace-\(eventId)",
+            principal: BotPrincipal(botId: owner, sessionId: nil, kind: "proactive"),
+            causationId: nil,
+            correlationId: nil,
+            ignorable: true,
+            data: .object(data))
+    }
+
     static func erasureEvent(erasureId: String, at: Int64 = now,
                              eventRecords: [String]) -> BotEvent {
         .init(
@@ -117,6 +205,25 @@ struct BotProvenanceTestRechecker: BotProvenanceRechecking {
         default:
             return .notPerformed
         }
+    }
+}
+
+actor BotProvenanceRecordingResolver: BotProvenanceEvidenceResolving {
+    private(set) var seenRefs: [String] = []
+    var facts: [String: BotProvenanceSourceFact]
+
+    init(facts: [String: BotProvenanceSourceFact] = [:]) {
+        self.facts = facts
+    }
+
+    func sourceFacts(for refs: [String], botID: String?, sessionID: String?)
+        async -> [String: BotProvenanceSourceFact] {
+        seenRefs.append(contentsOf: refs)
+        var result: [String: BotProvenanceSourceFact] = [:]
+        for ref in refs {
+            if let fact = facts[ref] { result[ref] = fact }
+        }
+        return result
     }
 }
 

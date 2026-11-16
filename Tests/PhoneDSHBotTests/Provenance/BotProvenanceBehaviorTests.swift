@@ -60,66 +60,43 @@ final class BotProvenanceBehaviorTests: XCTestCase {
         XCTAssertEqual(again.reasons, [.recordErased])
     }
 
-    /// A newer observation of the same source identity marks the old baseline
-    /// changed and points at the latest record.
+    /// A newer observation of the same resource identity marks the old
+    /// baseline changed. Uses the real G-3 `context.observed` flat carrier.
     func testNewerObservationMarksChanged() async throws {
         let log = BotProvenanceTestLog()
-        let first = try await log.append(ProvenanceTest.event(
-            type: "conversation.tool_result", eventId: "obs-1",
-            at: 1_000,
-            data: .object([
-                "observation": .object([
-                    "source": .string("web"),
-                    "origin": .string("https://example.test/x"),
-                ]),
-                "version": .object([
-                    "basis": .string("etag"), "value": .string("etag:e1"),
-                    "observed_at_ms": .number(1_000),
-                ]),
-            ])))
-        let baseline = BotProvenanceSourceVersion.known(
-            basis: .etag, value: "etag:e1", observedAtMS: 1_000,
-            basisRef: "record://event/\(first)")
+        let resource = BotResourceIdentity(
+            kind: .contextSource, key: "calendar:event-1", owner: "bot-a")
+        let first = try await log.append(ProvenanceTest.contextObservedEvent(
+            eventId: "obs-1", owner: "bot-a", at: 1_000, resource: resource,
+            version: .known(basis: .etag, value: "etag:e1")))
         let artifact = BotDerivedRef(kind: .memory, id: "user/m.md", version: 1)
         _ = try await log.append(ProvenanceTest.event(
-            type: "memory.document_written", eventId: "carrier-newer",
-            at: 1_100,
+            type: "memory.document_written", eventId: "carrier-newer", at: 1_100,
             data: .object(["derivation": derivation(artifact, [
-                BotDerivationSource(record: "record://event/\(first)",
-                                    role: .evidence, sourceVersion: baseline),
+                BotDerivationSource(
+                    record: "record://event/\(first)", role: .evidence,
+                    resource: resource,
+                    sourceVersion: .known(basis: .etag, value: "etag:e1")),
             ])])))
-        let second = try await log.append(ProvenanceTest.event(
-            type: "conversation.tool_result", eventId: "obs-2",
-            at: 1_200,
-            data: .object([
-                "observation": .object([
-                    "source": .string("web"),
-                    "origin": .string("https://example.test/x"),
-                ]),
-                "version": .object([
-                    "basis": .string("etag"), "value": .string("etag:e2"),
-                    "observed_at_ms": .number(1_200),
-                ]),
-            ])))
+        let second = try await log.append(ProvenanceTest.contextObservedEvent(
+            eventId: "obs-2", owner: "bot-a", at: 1_200, resource: resource,
+            version: .known(basis: .etag, value: "etag:e2")))
 
         let state = try await service(log).currentState(for: artifact)
         XCTAssertEqual(state.state, .changed)
         XCTAssertEqual(state.reasons, [.sourceChanged])
         XCTAssertEqual(state.sources.first?.status.latestRef, "record://event/\(second)")
+        XCTAssertEqual(state.sources.first?.status.resource, resource)
     }
 
     func testGrantRevocationInvalidatesOnlyThatBaseline() async throws {
         let log = BotProvenanceTestLog()
-        let source = try await log.append(ProvenanceTest.event(
-            type: "conversation.tool_result", eventId: "obs-grant",
-            at: 1_000,
-            data: .object([
-                "observation": .object([
-                    "source": .string("connector"),
-                    "origin": .string("mcp://calendar"),
-                ]),
-                "version": .object(["reason": .string("source-unversioned")]),
-            ])))
+        let grantResource = BotResourceIdentity(
+            kind: .contextSource, key: "calendar:event-g", owner: "bot-a")
+        let source = try await log.append(ProvenanceTest.contextObservedEvent(
+            eventId: "obs-grant", owner: "bot-a", at: 1_000,
+            resource: grantResource,
+            version: .unknown(reason: .sourceUnversioned)))
         let revoked = BotDerivedRef(kind: .routine, id: "g-revoked", version: 1)
         let kept = BotDerivedRef(kind: .routine, id: "g-kept", version: 1)
         let version = BotProvenanceSourceVersion.unknown(reason: .sourceUnversioned,
@@ -128,15 +105,15 @@ final class BotProvenanceBehaviorTests: XCTestCase {
             type: "routine.defined", eventId: "carrier-g1",
             data: .object(["derivation": derivation(revoked, [
                 BotDerivationSource(record: "record://event/\(source)",
-                                    role: .trigger, sourceVersion: version,
-                                    grantId: "g1"),
+                                    role: .trigger, resource: grantResource,
+                                    sourceVersion: version, grantId: "g1"),
             ])])))
         _ = try await log.append(ProvenanceTest.event(
             type: "routine.defined", eventId: "carrier-g2",
             data: .object(["derivation": derivation(kept, [
                 BotDerivationSource(record: "record://event/\(source)",
-                                    role: .trigger, sourceVersion: version,
-                                    grantId: "g2"),
+                                    role: .trigger, resource: grantResource,
+                                    sourceVersion: version, grantId: "g2"),
             ])])))
         _ = try await log.append(ProvenanceTest.event(
             type: "grant.revoked", eventId: "revoke-g1",
@@ -156,18 +133,12 @@ final class BotProvenanceBehaviorTests: XCTestCase {
     /// historical review claim itself is not rewritten by the read model.
     func testVerifiedReviewIsDowngradedByErasedBasis() async throws {
         let log = BotProvenanceTestLog()
-        let source = try await log.append(ProvenanceTest.event(
-            type: "conversation.tool_result", eventId: "obs-review",
-            at: 1_000,
-            data: .object([
-                "observation": .object([
-                    "source": .string("web"),
-                    "origin": .string("https://example.test/r"),
-                ]),
-                "version": .object([
-                    "basis": .string("etag"), "value": .string("etag:r1"),
-                ]),
-            ])))
+        let reviewResource = BotResourceIdentity(
+            kind: .webURL, key: "https://example.test/r", owner: "bot-a")
+        let source = try await log.append(ProvenanceTest.contextObservedEvent(
+            eventId: "obs-review", owner: "bot-a", at: 1_000,
+            resource: reviewResource,
+            version: .known(basis: .etag, value: "etag:r1")))
         let artifact = BotDerivedRef(kind: .memory, id: "user/review.md", version: 1)
         let baseline = BotProvenanceSourceVersion.known(
             basis: .etag, value: "etag:r1", basisRef: "record://event/\(source)")
@@ -411,21 +382,13 @@ final class BotProvenanceBehaviorTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(generation.headCommitSeq, 200)
         try? await store.close()
     }
-    /// R1: a tool/channel name is not a resource identity. Two observations
-    /// with source=tool are never merged into a freshness claim.
+    /// R1: a tool/channel name is not a resource identity. Uses the real
+    /// conversation.tool_result envelope carrier.
     func testToolChannelIsNotAResourceIdentity() async throws {
         let log = BotProvenanceTestLog()
-        let first = try await log.append(ProvenanceTest.event(
-            type: "conversation.tool_result", eventId: "tool-1", at: 1_000,
-            data: .object([
-                "observation": .object([
-                    "source": .string("tool"),
-                    "origin": .string("web_search"),
-                ]),
-                "version": .object([
-                    "basis": .string("provider-version"), "value": .string("rev:q1"),
-                ]),
-            ])))
+        let first = try await log.append(ProvenanceTest.toolResultEvent(
+            eventId: "tool-1", source: "tool", origin: "web_search",
+            owner: "bot-a", at: 1_000))
         let artifact = BotDerivedRef(kind: .memory, id: "user/tool.md", version: 1)
         _ = try await log.append(ProvenanceTest.event(
             type: "memory.document_written", eventId: "tool-carrier",
@@ -442,25 +405,14 @@ final class BotProvenanceBehaviorTests: XCTestCase {
     /// R1: the same URL under different owners/scopes is not one resource.
     func testSameURLDifferentOwnerIsNotMerged() async throws {
         let log = BotProvenanceTestLog()
-        func observation(_ eventId: String, botID: String, value: String,
+        func observation(_ eventId: String, botID: String,
                          at: Int64) async throws -> Int {
-            try await log.append(ProvenanceTest.event(
-                type: "conversation.tool_result", eventId: eventId, at: at,
-                data: .object([
-                    "observation": .object([
-                        "source": .string("web"),
-                        "origin": .string("https://shared.example/doc"),
-                    ]),
-                    "version": .object([
-                        "basis": .string("etag"), "value": .string(value),
-                    ]),
-                ]),
-                botID: botID))
+            try await log.append(ProvenanceTest.toolResultEvent(
+                eventId: eventId, source: "web",
+                origin: "https://shared.example/doc", owner: botID, at: at))
         }
-        let first = try await observation("owner-a-1", botID: "bot-a",
-                                          value: "etag:a1", at: 1_000)
-        _ = try await observation("owner-b-2", botID: "bot-b",
-                                  value: "etag:b2", at: 1_200)
+        let first = try await observation("owner-a-1", botID: "bot-a", at: 1_000)
+        _ = try await observation("owner-b-2", botID: "bot-b", at: 1_200)
         let artifact = BotDerivedRef(kind: .memory, id: "user/owner.md", version: 1)
         _ = try await log.append(ProvenanceTest.event(
             type: "memory.document_written", eventId: "owner-carrier",
@@ -497,23 +449,16 @@ final class BotProvenanceBehaviorTests: XCTestCase {
     /// R1: different real resources of the same tool are separate identities.
     func testSameToolDifferentResourcesDoNotSupersede() async throws {
         let log = BotProvenanceTestLog()
-        func observation(_ eventId: String, origin: String, value: String,
+        func observation(_ eventId: String, origin: String,
                          at: Int64) async throws -> Int {
-            try await log.append(ProvenanceTest.event(
-                type: "conversation.tool_result", eventId: eventId, at: at,
-                data: .object([
-                    "observation": .object([
-                        "source": .string("web"), "origin": .string(origin),
-                    ]),
-                    "version": .object([
-                        "basis": .string("etag"), "value": .string(value),
-                    ]),
-                ])))
+            try await log.append(ProvenanceTest.toolResultEvent(
+                eventId: eventId, source: "web", origin: origin,
+                owner: "bot-a", at: at))
         }
         let first = try await observation("resource-a", origin: "https://a.example/x",
-                                          value: "etag:a1", at: 1_000)
+                                          at: 1_000)
         _ = try await observation("resource-b", origin: "https://b.example/y",
-                                  value: "etag:b2", at: 1_200)
+                                  at: 1_200)
         let artifact = BotDerivedRef(kind: .memory, id: "user/resource.md", version: 1)
         _ = try await log.append(ProvenanceTest.event(
             type: "memory.document_written", eventId: "resource-carrier",
@@ -526,6 +471,93 @@ final class BotProvenanceBehaviorTests: XCTestCase {
         XCTAssertEqual(state.state, .unknown)
         XCTAssertEqual(state.reasons, [.refreshNotPerformed])
         XCTAssertNil(state.sources.first?.status.latestRef)
+    }
+
+    /// Q1 P0-2: a real conversation.tool_result envelope carrier is an
+    /// observation and its record://event/N ref reaches the P facts adapter.
+    func testProductionToolResultEnvelopeIsObservation() async throws {
+        let log = BotProvenanceTestLog()
+        let source = try await log.append(ProvenanceTest.toolResultEvent(
+            eventId: "prod-tool", source: "web",
+            origin: "https://prod.example/doc", owner: "bot-a", at: 1_000))
+        let ref = "record://event/\(source)"
+        let resource = BotResourceIdentity(
+            kind: .webURL, key: "https://prod.example/doc", owner: "bot-a")
+        let artifact = BotDerivedRef(kind: .memory, id: "user/prod.md", version: 1)
+        _ = try await log.append(ProvenanceTest.event(
+            type: "memory.document_written", eventId: "prod-carrier",
+            data: .object(["derivation": derivation(artifact, [
+                BotDerivationSource(
+                    record: ref, role: .evidence, resource: resource,
+                    sourceVersion: .known(basis: .etag, value: "etag:p1")),
+            ])])))
+        let resolver = BotProvenanceRecordingResolver(facts: [
+            ref: BotProvenanceSourceFact(
+                resolved: true, erased: false, observedAtMS: 1_000,
+                recordType: "conversation.tool_result", trust: "observation",
+                version: .known(basis: .etag, value: "etag:p1")),
+        ])
+        let rechecker = BotProvenanceTestRechecker(outcome: "ok", atMS: 1_050)
+        let service = BotProvenanceService(
+            eventLog: log, resolver: resolver, rechecker: rechecker)
+        let state = try await service.currentState(for: artifact)
+        XCTAssertEqual(state.state, .current)
+        XCTAssertEqual(state.sources.first?.status.resource, resource)
+        XCTAssertEqual(state.sources.first?.status.recheckedAtMS, 1_050)
+        let seen = await resolver.seenRefs
+        XCTAssertTrue(seen.contains(ref), "event ref must be sent to P facts")
+    }
+
+    /// Q1 P0-2: real context.observed flat data is an observation with the
+    /// G-3 context-source resource and flat source_version.
+    func testProductionContextObservedFlatIsObservation() async throws {
+        let log = BotProvenanceTestLog()
+        let resource = BotResourceIdentity(
+            kind: .contextSource, key: "calendar:event-42", owner: "bot-a")
+        let source = try await log.append(ProvenanceTest.contextObservedEvent(
+            eventId: "prod-context", owner: "bot-a", at: 1_000,
+            resource: resource,
+            version: .known(basis: .etag, value: "etag:c1")))
+        let artifact = BotDerivedRef(kind: .memory, id: "user/context.md", version: 1)
+        _ = try await log.append(ProvenanceTest.event(
+            type: "memory.document_written", eventId: "context-carrier",
+            data: .object(["derivation": derivation(artifact, [
+                BotDerivationSource(
+                    record: "record://event/\(source)", role: .evidence,
+                    resource: resource,
+                    sourceVersion: .known(basis: .etag, value: "etag:c1")),
+            ])])))
+        let rechecker = BotProvenanceTestRechecker(outcome: "ok", atMS: 1_050)
+        let service = BotProvenanceService(eventLog: log, rechecker: rechecker)
+        let state = try await service.currentState(for: artifact)
+        XCTAssertEqual(state.state, .current)
+        XCTAssertEqual(state.sources.first?.status.resource, resource)
+        XCTAssertEqual(state.sources.first?.status.sourceVersion?.knownValue, "etag:c1")
+    }
+
+    /// G-1 r11: data.observation is not a contract carrier. An event carrying
+    /// only that invented member must not be indexed as an observation.
+    func testDataObservationIsNotAContractCarrier() async throws {
+        let log = BotProvenanceTestLog()
+        let source = try await log.append(ProvenanceTest.event(
+            type: "conversation.tool_result", eventId: "invented",
+            data: .object([
+                "observation": .object([
+                    "source": .string("web"),
+                    "origin": .string("https://invented.example/x"),
+                ]),
+            ])))
+        let artifact = BotDerivedRef(kind: .memory, id: "user/invented.md", version: 1)
+        _ = try await log.append(ProvenanceTest.event(
+            type: "memory.document_written", eventId: "invented-carrier",
+            data: .object(["derivation": derivation(artifact, [
+                BotDerivationSource(
+                    record: "record://event/\(source)", role: .evidence,
+                    sourceVersion: .known(basis: .etag, value: "etag:i1")),
+            ])])))
+        let state = try await service(log).currentState(for: artifact)
+        XCTAssertNil(state.sources.first?.status.resource)
+        XCTAssertEqual(state.state, .current)
     }
 
 }
