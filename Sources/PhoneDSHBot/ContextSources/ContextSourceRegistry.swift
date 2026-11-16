@@ -94,6 +94,14 @@ public actor BotContextSourceRegistry: BotContextSourceRegistrying {
     private var deliveredIDSet: [String: Set<String>] = [:]
     private var recordRefs: [String: [String: String]] = [:]
     private var retired: [BotContextSourceKind: [(BotContextObservation, BotContextObservationViewItem.InactiveReason)]] = [:]
+    private struct PendingConsentKey: Hashable {
+        var botID: String
+        var source: BotContextSourceKind
+    }
+    /// In-memory request identity only (not a second permission document). A
+    /// revoke/unsubscribe/OS-denial cancels the pending request so a late
+    /// authorized callback cannot grant or subscribe after the user's decision.
+    private var pendingConsentRequests: [PendingConsentKey: UUID] = [:]
 
     public init(ledger: BotContextConsentLedger,
                 audit: any BotContextAuditRecording = BotContextAuditLog(),
@@ -181,12 +189,27 @@ public actor BotContextSourceRegistry: BotContextSourceRegistrying {
             return await ledger.state(for: source)
         }
 
+        let key = PendingConsentKey(botID: botID, source: source)
+        let requestID = UUID()
+        pendingConsentRequests[key] = requestID
+        defer {
+            if pendingConsentRequests[key] == requestID {
+                pendingConsentRequests.removeValue(forKey: key)
+            }
+        }
+        let expectedRevision = current.permissionRevision
+        try await ensureConsentRequestCurrent(
+            requestID, key: key, source: source, expectedRevision: expectedRevision)
         var osStatus = await registered[source]!.source.authorization()
+        try await ensureConsentRequestCurrent(
+            requestID, key: key, source: source, expectedRevision: expectedRevision)
         if source.requiresOSPermission, osStatus == .notDetermined {
             guard let requesting = registered[source]?.requesting else {
                 throw BotContextSourceError.unsupported("\(source.rawValue) has no OS permission requester")
             }
             osStatus = await requesting.requestAuthorization()
+            try await ensureConsentRequestCurrent(
+                requestID, key: key, source: source, expectedRevision: expectedRevision)
         }
         if osStatus == .denied || osStatus == .restricted {
             _ = try await ledger.noteOSStatus(source: source, status: osStatus)
@@ -203,17 +226,39 @@ public actor BotContextSourceRegistry: BotContextSourceRegistrying {
             throw BotContextSourceError.notAuthorized(
                 source, permissionRevision: await ledger.state(for: source).permissionRevision)
         }
+        // The user/OS decision may have changed while the prompt was suspended.
+        // Never let the late callback overwrite a newer revoke/unsubscribe.
+        try await ensureConsentRequestCurrent(
+            requestID, key: key, source: source, expectedRevision: expectedRevision)
         let updated = try await ledger.grant(
             source: source, by: .user,
             authorization: osStatus == .limited ? .limited : .authorized,
             detail: "user-requested")
+        guard pendingConsentRequests[key] == requestID else {
+            throw BotContextSourceError.staleCallback
+        }
         await recordConsentEvent(BotContextAuditEvent(
             kind: .consentChanged, source: source, ownerBotID: botID,
             at: now(), permissionRevision: updated.permissionRevision,
             detail: "user-grant", previous: current.authorization,
             current: updated.authorization, by: .user, osState: osStatus))
+        guard pendingConsentRequests[key] == requestID else {
+            throw BotContextSourceError.staleCallback
+        }
         try await subscribe(botID: botID, sources: [source])
         return await ledger.state(for: source)
+    }
+
+    private func ensureConsentRequestCurrent(
+        _ requestID: UUID, key: PendingConsentKey,
+        source: BotContextSourceKind, expectedRevision: Int) async throws {
+        guard pendingConsentRequests[key] == requestID else {
+            throw BotContextSourceError.staleCallback
+        }
+        let latest = await ledger.state(for: source)
+        guard latest.permissionRevision == expectedRevision else {
+            throw BotContextSourceError.staleCallback
+        }
     }
 
     public func subscribe(botID: String, sources: [BotContextSourceKind]) async throws {
@@ -257,6 +302,7 @@ public actor BotContextSourceRegistry: BotContextSourceRegistrying {
     }
 
     public func unsubscribe(botID: String, source: BotContextSourceKind) async {
+        pendingConsentRequests.removeValue(forKey: PendingConsentKey(botID: botID, source: source))
         try? await ledger.unsubscribe(botID: botID, source: source)
         let remaining = await ledger.subscribedBots(for: source)
         if remaining.isEmpty {
@@ -273,6 +319,7 @@ public actor BotContextSourceRegistry: BotContextSourceRegistrying {
             throw BotContextSourceError.invalidRequest("botID must be non-empty")
         }
         for source in Set(sources).sorted(by: { $0.rawValue < $1.rawValue }) {
+            pendingConsentRequests.removeValue(forKey: PendingConsentKey(botID: trimmed, source: source))
             let wasSubscribed = await ledger.isSubscribed(botID: trimmed, source: source)
             guard wasSubscribed else { continue }
             try await ledger.unsubscribe(botID: trimmed, source: source)
@@ -286,6 +333,7 @@ public actor BotContextSourceRegistry: BotContextSourceRegistrying {
     public func revoke(source: BotContextSourceKind,
                        by actor: BotSourceAuthorizationActor = .user,
                        reason: String) async {
+        pendingConsentRequests = pendingConsentRequests.filter { $0.key.source != source }
         let previous = await ledger.state(for: source).authorization
         do {
             let updated = try await ledger.revoke(source: source, by: actor, reason: reason)
@@ -310,6 +358,7 @@ public actor BotContextSourceRegistry: BotContextSourceRegistrying {
     /// adapter; an OS grant never silently opts the user in.
     public func noteOSAuthorizationChange(source: BotContextSourceKind,
                                           status: BotSourceAuthorization) async {
+        pendingConsentRequests = pendingConsentRequests.filter { $0.key.source != source }
         do {
             let before = await ledger.state(for: source).authorization
             let updated = try await ledger.noteOSStatus(source: source, status: status)
