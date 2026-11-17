@@ -47,6 +47,9 @@ final class BotRuntimeUnit {
     let maintenance: BotMemoryMaintenanceController
     let proactive: ProactiveEngine
     let deviceResults: DeviceTaskResultOutbox
+    /// The one skill mutation queue shared by this unit's observer wiring and
+    /// its runtime write/edit path.
+    let skillQueue: BotSkillEventQueue
     /// G-3 cloud scheduling client. Optional: an install without a confirmed
     /// base URL keeps the local-only behaviour instead of faking a caller.
     let cloudClient: CloudScheduleClient?
@@ -71,6 +74,7 @@ final class BotRuntimeUnit {
                  maintenance: BotMemoryMaintenanceController,
                  proactive: ProactiveEngine,
                  deviceResults: DeviceTaskResultOutbox,
+                 skillQueue: BotSkillEventQueue,
                  cloudClient: CloudScheduleClient?,
                  cloudLifecycle: BotCloudScheduleLifecycle?,
                  cloudWiring: BotCloudScheduleWiring?,
@@ -88,6 +92,7 @@ final class BotRuntimeUnit {
         self.maintenance = maintenance
         self.proactive = proactive
         self.deviceResults = deviceResults
+        self.skillQueue = skillQueue
         self.cloudClient = cloudClient
         self.cloudLifecycle = cloudLifecycle
         self.cloudWiring = cloudWiring
@@ -123,11 +128,13 @@ final class BotRuntimeUnit {
             roots: skillRoots,
             recorder: { request in try await runtime.recordSkillWrite(request) },
             latest: { identity in try await runtime.latestSkillChange(identity: identity) })
+        let skillQueue = BotSkillEventQueue(producer: skillProducer)
         let remote = try await BotDSHRemoteRuntime(
             transport: UnstartedBotTransport(), runtime: runtime,
             botId: botID, wakeInbox: inbox,
             botDataDirectory: botData,
             skillProducer: skillProducer,
+            skillQueue: skillQueue,
             onSessionRegistered: { sessionID in
                 Task { @MainActor in BotSessionRegistry.shared.register(sessionID) }
             })
@@ -307,6 +314,7 @@ final class BotRuntimeUnit {
             routineOutbox: routineOutbox, rows: rows, info: info,
             maintenance: maintenance,
             proactive: proactive, deviceResults: deviceResults,
+            skillQueue: skillQueue,
             cloudClient: cloudClient, cloudLifecycle: cloudLifecycle,
             cloudWiring: cloudWiring,
             routineActivity: routineActivity, nowProvider: resolvedNow)

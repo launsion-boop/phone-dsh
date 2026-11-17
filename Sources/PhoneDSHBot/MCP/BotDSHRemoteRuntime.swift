@@ -308,6 +308,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         wakeInbox: WakeInbox? = nil,
         botDataDirectory: String = BotWorkspaceLayout.defaultBotDataDirectory,
         skillProducer: BotSkillProvenanceProducer? = nil,
+        skillQueue: BotSkillEventQueue? = nil,
         onSessionRegistered: (@Sendable (String) -> Void)? = nil,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }
     ) async throws {
@@ -319,6 +320,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         self.wakeInbox = wakeInbox
         self.botDataDirectory = botDataDirectory
         self.skillProducer = skillProducer
+        self.skillQueue = skillQueue
+            ?? skillProducer.map { BotSkillEventQueue(producer: $0) }
         self.onSessionRegistered = onSessionRegistered
         self.now = now
         ledger = BotLLMLedger(eventLog: runtime.store)
@@ -3666,11 +3669,17 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     kind: watchdogKind(kind), id: "\(sessionId):\(currentTurn ?? "unknown")",
                     name: name, status: failed ? "error" : "ok", callId: callId, at: eventTime)
                 var resultData = data
-                if !failed, let vfsPath = toolWriteVfsPaths.removeValue(forKey: callId) {
-                    // G-4 A04: record the real skill bytes after a successful
-                    // write/edit; the producer classifies only the frozen roots.
-                    _ = try? await skillProducer?.recordBotWrite(
-                        vfsPath: vfsPath, botID: botId, sessionID: sessionId, sources: [])
+                if !failed, let vfsPath = toolWriteVfsPaths.removeValue(forKey: callId),
+                   let skillQueue {
+                    // G-4 A04: wait for the mutation. The queue is shared with
+                    // the observer, so the next immediate skill/model request
+                    // sees the same durable `skill.changed`.
+                    let botID = botId
+                    let session = sessionId
+                    await skillQueue.enqueueAndWait {
+                        await skillQueue.runtimeWrite(
+                            vfs: vfsPath, botID: botID, sessionID: session)
+                    }
                 }
                 if !failed, let path = toolWritePaths[callId],
                    let userRef = currentUserSourceRef,
