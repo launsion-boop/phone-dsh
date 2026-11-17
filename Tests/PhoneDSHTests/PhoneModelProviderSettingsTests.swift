@@ -887,6 +887,14 @@ final class PhoneModelProviderSettingsTests: XCTestCase {
         XCTAssertNil(PhoneModelProviderSettings.searchBaseURL(for: URL(string: "file:///tmp/x")!))
     }
 
+    func testApplyWithoutSelectionFailsInsteadOfInventingADefault() {
+        var environment: [String: String] = [:]
+        XCTAssertThrowsError(try settings.apply(to: &environment)) { error in
+            XCTAssertEqual(error as? ModelProviderSettingsError, .noSelectedProvider)
+        }
+        XCTAssertTrue(environment.isEmpty)
+    }
+
     func testUpsertPreservesPerModelImageInput() throws {
         var value = profile()
         value.models = [
