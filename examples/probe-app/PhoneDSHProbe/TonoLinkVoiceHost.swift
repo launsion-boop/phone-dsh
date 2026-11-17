@@ -40,6 +40,13 @@ import ProbeKit
     /// (deferred or no engine within the admission bound); executable work speaks only its answer.
     static let acknowledgement = "已经记下了，打开手机后继续处理"
     private var ackAudio: Data?
+    /// Spoken when recognised text was not saved, so a command is never dropped in silence.
+    /// It states a failure, never an acceptance.
+    static let notSaved = "这条没有保存，请在手机上重试"
+    static let noDestination = "请先在手机上打开一个对话"
+    /// Source name for a link whose peripheral reported no name (the journal hashes it).
+    private static let unnamedBoard = "board"
+    private var notSavedAudio: Data?
     private static let keepAliveOwner = "tonolink-voice"
 
     /// Keeps a ctrl link to the user's board and listens for its wake word.
@@ -196,6 +203,9 @@ import ProbeKit
         tally = TonoLinkVoiceTally()
         let id = turnID
         let request = ChatModel.shared.voiceDestination().map { NativeVoiceRequest(sessionID: $0) }
+        // Fixed at the wake (external-admission.md §1): the request id the journal dedupes
+        // on and the downstream id every delivery attempt of this turn uses.
+        let requestID = request?.rpcID ?? UUID().uuidString.lowercased()
         let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(700))
         audio = continuation
         lastTurn = ["id": Int(id), "wake": Int(wake), "source": source, "at": ISO8601DateFormatter().string(from: Date())]
@@ -211,7 +221,7 @@ import ProbeKit
         pendingUnlock = Task { [weak self] in await self?.unlockForTurn() }
         turn = Task { [weak self] in
             let speaker = self?.acquireSpeaker()
-            await self?.runTurn(id: id, audio: stream, request: request)
+            await self?.runTurn(id: id, audio: stream, request: request, requestID: requestID)
             if let speaker { PhoneAudioSessionLease.releaseSpeakerOutput(speaker) }
             self?.turnEnded(id)
         }
@@ -288,7 +298,8 @@ import ProbeKit
         backgroundTask = .invalid
     }
 
-    private func runTurn(id: UInt32, audio: AsyncStream<Data>, request: NativeVoiceRequest?) async {
+    private func runTurn(id: UInt32, audio: AsyncStream<Data>, request: NativeVoiceRequest?,
+                         requestID: String) async {
         let start = Date()
         func ms() -> Int { Int(Date().timeIntervalSince(start) * 1000) }
         guard var credential = await credential() else {
@@ -349,7 +360,7 @@ import ProbeKit
         case .text(let text):
             note("heard", text)
             light(.taskStart)
-            await answer(text, request: request, credential: credential, start: start)
+            await answer(text, request: request, requestID: requestID, credential: credential, start: start)
         case .silent:
             note("heard", "")
             light(.idle)
@@ -361,8 +372,10 @@ import ProbeKit
         }
     }
 
-    /// Admits to the wake-time destination and speaks only this request's completed turn.
-    private func answer(_ text: String, request: NativeVoiceRequest?, credential: String, start: Date) async {
+    /// Admits the heard text to the external admission journal with a target decided once
+    /// (PC-20261116-external-admission §2.1), then speaks only this request's completed turn.
+    private func answer(_ text: String, request: NativeVoiceRequest?, requestID: String,
+                        credential: String, start: Date) async {
         if let unlock = pendingUnlock {
             await unlock.value
             note("unlock_wait_ms", Int(Date().timeIntervalSince(start) * 1000))
@@ -372,27 +385,43 @@ import ProbeKit
             await answerVolumeCommand(direction, credential: credential, start: start)
             return
         }
+        let chat = ChatModel.shared
+        let board = ctrl?.peripheralName ?? Self.unnamedBoard
         // tonolink-board.md §4.1: the board's own Bot takes the heard text first. A paused engine
         // is resumed while the App may execute (host contract §10.1), so the Bot path does not
-        // wait out its start bound in the background; an unreachable Bot falls back to the
-        // durable chat path below.
+        // wait out its start bound in the background. The target is decided here, once: the
+        // board's Bot when its unit can be reached now, otherwise the wake-time chat session.
         if let botID = DeviceBotRegistry.shared.tonoLinkBotID() {
-            let chat = ChatModel.shared
             if chat.parked, chat.executionEligible { await chat.resumeParkedHost() }
-            if await answerThroughBot(botID, text: text, credential: credential, start: start) { return }
+            do {
+                let model = try await BotProductionHub.shared.chatModel(ensuring: botID)
+                await answerThroughBot(model, botID: botID, text: text, requestID: requestID,
+                                       board: board, credential: credential, start: start)
+                return
+            } catch {
+                note("bot_error", error.localizedDescription)
+            }
         }
         guard let request else {
             note("error", "请先在手机上打开一个本地对话，再使用语音")
+            await speakFailure(Self.noDestination, credential: credential)
             light(.idle)
             return
         }
-        let chat = ChatModel.shared
-        guard let receipt = await chat.admitVoice(text, request: request) else {
-            if !Task.isCancelled { note("error", "消息未保存，请解锁手机后重试"); light(.idle) }
+        let outcome = await chat.admitVoice(text, requestID: requestID,
+                                            target: .dshSession(sessionId: request.sessionID),
+                                            boardName: board)
+        guard outcome?.receipt != nil else {
+            if !Task.isCancelled {
+                note("error", "消息未保存，请在手机上重试（\(outcome?.result.rawValue ?? "not_attempted")）")
+                await speakFailure(Self.notSaved, credential: credential)
+                light(.idle)
+            }
             return
         }
-        // The queue owns delivery from this point, even if a new wake cancels this voice task.
+        // The journal owns delivery from this point, even if a new wake cancels this voice task.
         guard !Task.isCancelled else { return }
+        let receipt = request
         note("admitted", ["session": receipt.sessionID, "request": receipt.rpcID])
         // Executable work speaks only its answer (the light shows it running). The saved-work
         // acknowledgement is spoken once, and only when execution cannot start now.
@@ -452,12 +481,11 @@ import ProbeKit
     }
 
     /// tonolink-board.md §4.1: the board's own Bot takes the heard text, so every voice turn lands
-    /// in one conversation whatever page is open. False when that Bot cannot be reached (the
-    /// caller then uses the current chat).
-    private func answerThroughBot(_ botID: String, text: String, credential: String, start: Date) async -> Bool {
-        let model: BotChatModel
-        do { model = try await BotProductionHub.shared.chatModel(ensuring: botID) }
-        catch { note("bot_error", error.localizedDescription); return false }
+    /// in one conversation whatever page is open. The text is admitted to the journal with this
+    /// Bot as its fixed target and handed to the Bot's user-action path by the dispatch pass
+    /// (`nonce = downstreamId`); nothing is sent to the Bot without that record.
+    private func answerThroughBot(_ model: BotChatModel, botID: String, text: String, requestID: String,
+                                  board: String, credential: String, start: Date) async {
         note("bot", botID)
         // A Bot's rows are read only while its page is visible: in the background, or with another
         // Bot on screen, the answer would never arrive here. Read them for this turn, then restore.
@@ -466,7 +494,17 @@ import ProbeKit
         defer { if !wasActive { model.setPageActive(false) } }
         try? await Task.sleep(for: .milliseconds(300))   // the first durable read
         let before = Set(model.rows.map(\.id))
-        model.send(text: text)
+        let outcome = await ChatModel.shared.admitVoice(text, requestID: requestID,
+                                                        target: .bot(botId: botID), boardName: board)
+        guard let receipt = outcome?.receipt else {
+            if !Task.isCancelled {
+                note("error", "消息未保存，请在手机上重试（\(outcome?.result.rawValue ?? "not_attempted")）")
+                await speakFailure(Self.notSaved, credential: credential)
+                light(.idle)
+            }
+            return
+        }
+        note("admitted", ["bot": botID, "request": receipt.downstreamId])
         // The answer row reaches the model after the turn ends, sometimes seconds later: wait for a
         // new answer with no turn running (up to 2 min), not just for the turn to stop.
         // The answer after this turn's own message (rows read on activation may arrive late, so
@@ -481,7 +519,7 @@ import ProbeKit
         var answeredAt: ContinuousClock.Instant?
         let deadline = ContinuousClock.now + .seconds(120)
         while ContinuousClock.now < deadline {
-            if Task.isCancelled { return true }
+            if Task.isCancelled { return }
             // In the background the model's feed is paused: pull the Bot's rows ourselves.
             await BotProductionHub.shared.pullRows(for: botID)
             if model.runningTurnID != nil, !sawRunning { sawRunning = true; light(.taskRunning) }
@@ -495,14 +533,13 @@ import ProbeKit
             try? await Task.sleep(for: .seconds(1))
         }
         let reply = newAnswer() ?? ""
-        if !sawRunning && reply.isEmpty { note("error", "Bot 没有开始运行（引擎暂停或忙）"); light(.idle); return true }
+        if !sawRunning && reply.isEmpty { note("error", "Bot 没有开始运行（引擎暂停或忙）"); light(.idle); return }
         note("reply", String(reply.prefix(500)))
         note("reply_ms", Int(Date().timeIntervalSince(start) * 1000))
-        guard !reply.isEmpty else { light(.taskDone); return true }
+        guard !reply.isEmpty else { light(.taskDone); return }
         light(.taskReport)
         do { try await speak(reply, credential: credential) } catch { note("speak_error", error.localizedDescription) }
         if !Task.isCancelled { light(.taskDone) }
-        return true
     }
 
     /// A clear one-step volume command is handled locally, without the LLM or UI-Venus screen loop.
@@ -565,6 +602,8 @@ import ProbeKit
         guard let credential = await credential() else { return }
         if hereAudio == nil, let pcm = await synthesize("我在", credential: credential) { hereAudio = pcm }
         if ackAudio == nil, let pcm = await synthesize(Self.acknowledgement, credential: credential) { ackAudio = pcm }
+        // Kept in memory like the acknowledgement, so a failure is spoken without waiting for TTS.
+        if notSavedAudio == nil, let pcm = await synthesize(Self.notSaved, credential: credential) { notSavedAudio = pcm }
     }
 
     private func synthesize(_ text: String, credential: String) async -> Data? {
@@ -574,6 +613,15 @@ import ProbeKit
     }
 
     /// Queues 「好的，马上处理」 and returns without waiting for it to finish.
+    /// Best effort: a failure that cannot be spoken is still logged and shown by the light.
+    private func speakFailure(_ text: String, credential: String) async {
+        var audio = text == Self.notSaved ? notSavedAudio : nil
+        if audio == nil { audio = await synthesize(text, credential: credential) }
+        if text == Self.notSaved, notSavedAudio == nil { notSavedAudio = audio }
+        guard let audio, !Task.isCancelled else { return }
+        do { try player.play(audio) } catch { note("speak_error", error.localizedDescription) }
+    }
+
     private func acknowledge(credential: String) async {
         if ackAudio == nil { ackAudio = await synthesize(Self.acknowledgement, credential: credential) }
         guard let ackAudio else { return }
@@ -675,7 +723,9 @@ import ProbeKit
         var result: [String: Any] = ["packets": packets.count, "outcome": "\(outcome)"]
         if chat, case .text(let text) = outcome {
             lastTurn = ["id": Int(turnID), "source": "debug opus", "heard": text]
-            await answer(text, request: request, credential: credential, start: Date())
+            await answer(text, request: request,
+                         requestID: request?.rpcID ?? UUID().uuidString.lowercased(),
+                         credential: credential, start: Date())
             result["turn"] = lastTurn
         }
         return result
@@ -684,9 +734,10 @@ import ProbeKit
     /// Hosted device tests call the same local command path the voice turn uses, without ASR.
     func debugAnswer(_ text: String) async -> [String: Any] {
         let request = ChatModel.shared.voiceDestination().map { NativeVoiceRequest(sessionID: $0) }
+        let requestID = request?.rpcID ?? UUID().uuidString.lowercased()
         guard let credential = await credential() else { return ["error": "no cloud credential", "heard": text] }
         lastTurn = ["source": "debug answer", "heard": text, "at": ISO8601DateFormatter().string(from: Date())]
-        await answer(text, request: request, credential: credential, start: Date())
+        await answer(text, request: request, requestID: requestID, credential: credential, start: Date())
         return ["heard": text, "last_turn": lastTurn]
     }
     #endif

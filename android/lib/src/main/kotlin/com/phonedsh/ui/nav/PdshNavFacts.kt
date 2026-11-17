@@ -563,6 +563,11 @@ public sealed interface PdshHostAction {
         override val wire: String = "tonoAccount.signOut"
     }
 
+    /** Tono 账号 → 云端任务 → 接收其他设备的任务: the host stores the switch and registers or deletes this phone. */
+    public data class TonoAccountSetCloudTasks(public val enabled: Boolean) : PdshHostAction {
+        override val wire: String = "tonoAccount.cloudTasks"
+    }
+
     /** Persist the web-search switch position. */
     public data class SetWebSearchEnabled(public val enabled: Boolean) : PdshHostAction {
         override val wire: String = "websearch.toggle"

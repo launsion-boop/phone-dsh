@@ -1,0 +1,26 @@
+{
+  "name": "admission-record-linked",
+  "schema": "schema/admission-record.schema.json",
+  "instance": {
+    "v": 1,
+    "admissionId": "178331184650cfb14a64181218e6060d46efa86ffe89763d613f772ad6b2b1a8",
+    "principal": "account:u_18f3",
+    "source": {
+      "kind": "cloud-task",
+      "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+    },
+    "sourceRequestId": "task-0002",
+    "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+    },
+    "contentSha256": "8d58ea8404c231b35543bdd54437c7acc9a265cca92498a05e2d0adb7e6674f1",
+    "downstreamId": "9c8b7a6d-5e4f-4d3c-ab2a-1f0e9d8c7b6a",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794786400000,
+    "stage": "linked",
+    "attempts": 0,
+    "linkedAtMs": 1794700004000
+  },
+  "notes": "spec/host/v1/external-admission.md:§3 — the downstream owner holds downstreamId; text is removed and linked is never reported as executed."
+}

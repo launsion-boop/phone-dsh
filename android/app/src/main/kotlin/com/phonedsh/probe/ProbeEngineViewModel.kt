@@ -114,10 +114,26 @@ import com.phonedsh.platform.android.AndroidDurability
 import com.phonedsh.platform.android.AndroidLifecycleSignals
 import com.phonedsh.platform.android.ProotRuntime
 import com.phonedsh.platform.android.UbuntuRootfsStore
+import com.phonedsh.probe.admission.AdmissionTarget
+import com.phonedsh.probe.admission.ProcessAdmissionJournal
+import com.phonedsh.probe.cloudtasks.CloudTaskCenter
+import com.phonedsh.probe.cloudtasks.CloudTaskHostHooks
+import com.phonedsh.probe.cloudtasks.CloudTaskPresenceRule
+import com.phonedsh.probe.cloudtasks.CloudTaskTargetPresence
 import com.phonedsh.probe.bot.AppBotMcpEgress
 import com.phonedsh.probe.bot.AppBotRuntime
 import com.phonedsh.probe.bot.BotPlatformConfig
 import com.phonedsh.probe.bot.DshBotSessionTransport
+import com.phonedsh.probe.outbox.ChatDeliveryFacts
+import com.phonedsh.probe.outbox.ChatSendHost
+import com.phonedsh.probe.outbox.ChatSendQueue
+import com.phonedsh.probe.outbox.DshSessionHistorySource
+import com.phonedsh.probe.outbox.SendOutbox
+import com.phonedsh.probe.outbox.SendOutboxEntry
+import com.phonedsh.probe.outbox.SendOutboxHistoryReader
+import com.phonedsh.probe.outbox.SendOutboxReadBack
+import com.phonedsh.probe.outbox.SendOutboxState
+import com.phonedsh.probe.pc.PcBackend
 import com.phonedsh.probe.pc.PcLinkWorkspace
 import com.phonedsh.probe.pc.PcWorkspaceController
 import com.phonedsh.shell.AcceleratorMount
@@ -254,6 +270,18 @@ internal fun composeChatPrompt(typed: String, attachments: List<ChatAttachment>)
  * assertion can be made against the real state transition rather than a mock
  * invocation.
  */
+/** The durable ledger a mid-turn submission passes through before and after its transport call. */
+internal interface ChatPromptLedger {
+    suspend fun admit(sessionId: String, text: String, rpcId: String, mode: String): com.phonedsh.probe.outbox.ChatPromptAdmission
+
+    suspend fun accepted(rpcId: String)
+
+    suspend fun unknown(rpcId: String, error: String)
+}
+
+/** The submission never reached the transport: the ledger refused it or is still settling it. */
+private class PromptNotAdmitted(message: String) : Exception(message)
+
 internal interface ChatQueueTransport {
     suspend fun updateQueue(
         workerSessionId: String,
@@ -293,6 +321,12 @@ internal class ChatQueueActions(
     private val transport: ChatQueueTransport,
     private val refresh: () -> Unit = {},
     private val log: (String) -> Unit = {},
+    /**
+     * The durable send outbox for the local phone backend, or null when the
+     * caller has none. With it, a mid-turn submission is on disk and marked
+     * submitting before `session/prompt` is called.
+     */
+    private val ledger: ChatPromptLedger? = null,
 ) {
     /** Mutate one durable DSH queue item, then read the projection back before publishing success. */
     fun updateQueueItem(
@@ -440,7 +474,8 @@ internal class ChatQueueActions(
         // A retry of an ambiguous busy submission reuses its own backend prompt
         // identity. Matching by text would conflate duplicate messages.
         val promptRequestId = current.retryBusyPromptRequestId
-            ?: StateRequestId("pdsh-prompt-" + java.util.UUID.randomUUID().toString())
+            // A bare lowercase UUIDv4: the send outbox's rpcId and the Worker's requestId.
+            ?: StateRequestId(java.util.UUID.randomUUID().toString())
         val existing = current.localQueueItems.firstOrNull { it.promptRequestId == promptRequestId }
         val localId = existing?.id ?: QueueItemId.Local(promptRequestId.value)
         val localItemId = (localId as? QueueItemId.Local)?.value ?: return false
@@ -469,13 +504,30 @@ internal class ChatQueueActions(
             }
         }
         scope.launch {
+            val wireMode = if (mode == com.phonedsh.ui.state.EnterMode.STEER) "steer" else "queue"
             try {
-                transport.prompt(
-                    workerSessionId = workerSessionId,
-                    text = prompt,
-                    requestId = promptRequestId.value,
-                    mode = if (mode == com.phonedsh.ui.state.EnterMode.STEER) "steer" else "queue",
-                )
+                // Enqueue is the durable fact and precedes the transport. An entry
+                // whose outcome is already unknown is never resent by a retry:
+                // only the authoritative read-back may settle it.
+                when (ledger?.admit(workerSessionId, prompt, promptRequestId.value, wireMode)) {
+                    com.phonedsh.probe.outbox.ChatPromptAdmission.REFUSED -> throw PromptNotAdmitted("消息队列不可用，消息没有发出")
+                    com.phonedsh.probe.outbox.ChatPromptAdmission.HELD -> throw PromptNotAdmitted("请求结果未确认，正在核对")
+                    else -> Unit
+                }
+                try {
+                    transport.prompt(
+                        workerSessionId = workerSessionId,
+                        text = prompt,
+                        requestId = promptRequestId.value,
+                        mode = wireMode,
+                    )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    ledger?.unknown(promptRequestId.value, failure.message?.substringBefore('\n')?.take(180) ?: "unknown")
+                    throw failure
+                }
+                ledger?.accepted(promptRequestId.value)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -1679,6 +1731,10 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
      * by creating the lazy runtime for the first time.
      */
     internal fun startBotRuntime() {
+        // The Activity's onStart: the App is in the foreground again, so queued
+        // sends that waited for execution eligibility are prepared now.
+        appForeground = true
+        chatSendQueue.onForeground()
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { appBotRuntime?.start() }
                 .onFailure { error ->
@@ -1695,6 +1751,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     }
 
     internal fun stopBotRuntime() {
+        appForeground = false
         if (!appBotRuntimeDelegate.isInitialized()) return
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { appBotRuntime?.stop() }
@@ -2310,7 +2367,181 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
             transport = DshChatQueueTransport(host.channel, ::logTurn),
             refresh = { refreshChatSession() },
             log = ::logTurn,
+            ledger = object : ChatPromptLedger {
+                override suspend fun admit(sessionId: String, text: String, rpcId: String, mode: String) =
+                    chatSendQueue.admitRunningPrompt(sessionId, text, rpcId, mode)
+
+                override suspend fun accepted(rpcId: String) = chatSendQueue.runningPromptAccepted(rpcId)
+
+                override suspend fun unknown(rpcId: String, error: String) = chatSendQueue.transportUnknown(rpcId, error)
+            },
         )
+    }
+
+    // ---- durable send outbox (spec/host/v1 §10, §10.1) ------------------------
+    // Every local send is written to `<filesDir>/send-outbox/` before any
+    // transport attempt; `ChatSendQueue` decides when it is delivered. The PC
+    // backend has its own page and transport and does not pass through here.
+    private val sendOutbox = SendOutbox(application.filesDir)
+
+    /** True between the Activity's onStart and onStop. */
+    @Volatile
+    private var appForeground = false
+
+    /** What the bubble of a queued send shows (the typed text, or its attachment names). */
+    private val queuedBubbleText = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** One admission (session establishment + enqueue) at a time, so a double tap is one send. */
+    private val sendAdmissionInFlight = AtomicBoolean(false)
+
+    private val chatSendHost = object : ChatSendHost {
+        override fun deliveryFacts(): ChatDeliveryFacts {
+            val engineState = state.value
+            val hostState = host.state.value
+            return ChatDeliveryFacts(
+                foreground = appForeground,
+                // The existing turn window (UIDT, or its dataSync foreground service).
+                keepingAlive = com.phonedsh.dsh.background.TurnRuntime.snapshot().isRunning,
+                hostPresent = engineState !is EngineHostState.Stopped,
+                parked = hostState == com.phonedsh.controller.HostState.PARKED,
+                transitioning = engineState is EngineHostState.Starting || engineState is EngineHostState.Recovering ||
+                    hostState == com.phonedsh.controller.HostState.DRAINING ||
+                    hostState == com.phonedsh.controller.HostState.RECOVERING ||
+                    hostState == com.phonedsh.controller.HostState.BACKOFF ||
+                    hostState == com.phonedsh.controller.HostState.HANDING_OFF ||
+                    hostState == com.phonedsh.controller.HostState.RECLAIMING,
+                busy = chatPreparationJob?.isActive == true,
+                transportReady = engineState is EngineHostState.Running && host.ready.value &&
+                    hostState == com.phonedsh.controller.HostState.RUNNING,
+                requiresRecovery = hostState == com.phonedsh.controller.HostState.FAILED ||
+                    engineState is EngineHostState.Failed,
+            )
+        }
+
+        override suspend fun startEngine() {
+            check(modelRoute.route != ModelRoute.NONE) { "no model route" }
+            host.start()
+            withTimeout(ENGINE_READY_TIMEOUT_MILLIS) {
+                host.ready.first { it }
+                engine.state.first { it is EngineHostState.Running }
+            }
+        }
+
+        override suspend fun resumeEngine() = startEngine()
+
+        override fun activeSessionId(): String? = mutableChat.value.workerSessionId
+
+        override fun turnRunning(): Boolean = mutableChat.value.running
+
+        override fun startTurn(entry: SendOutboxEntry): Boolean = startQueuedTurn(entry)
+
+        override suspend fun promptRunningTurn(entry: SendOutboxEntry, mode: String) =
+            DshTurnClient(host.channel, ::logTurn).prompt(entry.sessionId, entry.text, requestId = entry.rpcId, mode = mode)
+
+        override suspend fun readBack(entry: SendOutboxEntry): SendOutboxReadBack {
+            if (state.value !is EngineHostState.Running || !host.ready.value) return SendOutboxReadBack.INCONCLUSIVE
+            return withContext(Dispatchers.IO) {
+                SendOutboxHistoryReader.readBack(entry, DshSessionHistorySource(DshTurnClient(host.channel, ::logTurn)))
+            }
+        }
+
+        override fun sessionExists(sessionId: String): Boolean =
+            sessionId in chatWorkerClaims || mutableChat.value.workerSessionId == sessionId
+
+        // The tono user id of the account signed in now (cloud-tasks.md §7). Null
+        // when signed out, or when it cannot be read now: an `account:` record waits.
+        override fun signedInAccountId(): String? = CloudTaskCenter.active()?.signedInAccountId()
+
+        override fun queueChanged(entries: List<SendOutboxEntry>) = projectQueuedSends(entries)
+
+        override fun log(line: String) = logTurn(line)
+    }
+
+    internal val chatSendQueue: ChatSendQueue by lazy {
+        ChatSendQueue(
+            outbox = sendOutbox,
+            // The process's one journal object: the cloud task bridge admits into the same one.
+            journal = lazy { ProcessAdmissionJournal.get(getApplication<Application>().filesDir) },
+            host = chatSendHost,
+            scope = turnScope,
+        )
+    }
+
+    // ---- phone task queue (spec/v1/cloud-tasks.md §7) -------------------------
+    // What this view model tells the process-owned `CloudTaskCenter`: whether a
+    // task's target exists, and that new admissions wait in the journal. Both are
+    // called on the cloud task lane, never on the main thread, and neither starts
+    // the engine.
+    private val cloudTaskHooks = object : CloudTaskHostHooks {
+        override fun presence(target: AdmissionTarget): CloudTaskTargetPresence = cloudTaskTargetPresence(target)
+
+        override fun onAdmitted() = chatSendQueue.onAdmission()
+    }
+
+    /**
+     * Three answers. `ABSENT` is given only on an authoritative reading: the
+     * Worker's own `session/list` while the engine is running, or the loaded Bot
+     * roster. A session the app holds a claim for is `PRESENT`. Everything else
+     * is `UNKNOWN`, which admits nothing and acks nothing. A session the Worker
+     * lists but this app holds no claim for is also `UNKNOWN`: the dispatcher's
+     * own existence fact ([ChatSendHost.sessionExists]) would not accept it.
+     */
+    private fun cloudTaskTargetPresence(target: AdmissionTarget): CloudTaskTargetPresence = when (target) {
+        is AdmissionTarget.Bot -> {
+            val roster = if (appBotRuntimeDelegate.isInitialized()) appBotRuntime?.platformConfig?.roster else null
+            when {
+                roster.isNullOrEmpty() -> CloudTaskTargetPresence.UNKNOWN
+                roster.any { it.id == target.botId } -> CloudTaskTargetPresence.PRESENT
+                else -> CloudTaskTargetPresence.ABSENT
+            }
+        }
+        is AdmissionTarget.DshSession -> {
+            val known = chatSendHost.sessionExists(target.sessionId)
+            val listed = if (chatSendHost.deliveryFacts().transportReady) workerSessionIds() else null
+            CloudTaskPresenceRule.session(known = known, listed = listed?.contains(target.sessionId))
+        }
+    }
+
+    /** One `session/list` read of the running engine, or null when it gave no usable answer. */
+    private fun workerSessionIds(): Set<String>? = runCatching {
+        runBlocking {
+            val reply = DshTurnClient(host.channel, ::logTurn).call("session/list", timeoutMillis = 5_000)
+            ((reply as? JsonObject)?.get("items") as? JsonArray)?.values
+                ?.mapNotNull { ((it as? JsonObject)?.get("sessionId") as? JsonString)?.value }?.toSet()
+        }
+    }.getOrNull()
+
+    /**
+     * The existing 排队中 projection for sends that are durable but not delivered
+     * yet: one local queue row per `queued` entry of the conversation on screen
+     * that has no bubble. Rows owned by the mid-turn composer are left alone.
+     */
+    private fun projectQueuedSends(entries: List<SendOutboxEntry>) {
+        mutableChat.update { live ->
+            val session = live.workerSessionId
+            val kept = live.localQueueItems.filterNot {
+                (it.id as? com.phonedsh.ui.state.QueueItemId.Local)?.value?.startsWith(OUTBOX_ROW_PREFIX) == true
+            }
+            val owned = kept.mapNotNull { it.promptRequestId?.value }.toSet()
+            val rows = if (session == null) emptyList() else entries
+                .filter { it.sessionId == session && it.state == SendOutboxState.QUEUED && it.attempts == 0 }
+                .filterNot { it.rpcId in owned || (live.running && it.rpcId == live.lastPromptRequestId) }
+                .map { entry ->
+                    com.phonedsh.ui.state.ManagedQueueItemState(
+                        id = com.phonedsh.ui.state.QueueItemId.Local(OUTBOX_ROW_PREFIX + entry.rpcId),
+                        text = queuedBubbleText[entry.rpcId] ?: entry.text,
+                        sessionId = session,
+                        lane = "next-turn",
+                        state = com.phonedsh.ui.state.QueueItemStatus.QUEUED,
+                        canEdit = false,
+                        canRemove = false,
+                        canSteer = false,
+                        promptRequestId = com.phonedsh.ui.state.StateRequestId(entry.rpcId),
+                    )
+                }
+            val next = kept + rows
+            if (next == live.localQueueItems) live else live.copy(localQueueItems = next)
+        }
     }
 
     init {
@@ -2342,6 +2573,12 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // onStart/onStop then keep these services on the foreground lifecycle.
         restoreSessionArchive()
         restoreChatSessions()
+        // The outbox startup scan: orphan attachment GC, then resume what an
+        // earlier process left. It never invents an rpcId.
+        chatSendQueue.startup()
+        // The phone task queue exists without the engine; it learns here who can
+        // answer "does this target exist" and whom to nudge after an admission.
+        CloudTaskCenter.attach(cloudTaskHooks)
         // Asynchronous by contract: recovery, the final HELLO and engine.start()
         // run on the host's scope. Observe engine.state for the outcome.
         viewModelScope.launch(Dispatchers.IO) {
@@ -2375,8 +2612,10 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         turnScope.launch {
             engine.state.collect { next ->
                 when (next) {
-                    is EngineHostState.Running -> if (runningSinceMillis == null) {
-                        runningSinceMillis = clock.monotonicMillis()
+                    is EngineHostState.Running -> {
+                        if (runningSinceMillis == null) runningSinceMillis = clock.monotonicMillis()
+                        // The engine became ready: retained queued sends are looked at again.
+                        chatSendQueue.requestDelivery()
                     }
 
                     EngineHostState.Stopped, is EngineHostState.Failed ->
@@ -2391,12 +2630,20 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         }
     }
 
-    fun start() = host.start()
+    fun start() {
+        // The person asked for the engine: queued delivery is no longer paused.
+        chatSendQueue.unpause()
+        host.start()
+    }
 
-    fun stop() = host.stop()
+    fun stop() {
+        // An explicit stop pauses queued preparation first, including a boot that
+        // queued work started: that boot must not drain afterwards.
+        chatSendQueue.pause()
+        host.stop()
+    }
 
     private val nativeLaunchStarted = AtomicBoolean(false)
-    private val sendStartupInFlight = AtomicBoolean(false)
 
     internal fun startNativeSurface() {
         if (!nativeLaunchStarted.compareAndSet(false, true)) return
@@ -2414,7 +2661,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         }
         return com.phonedsh.ui.state.EngineLifecycleFacts(status, needsReset = failed,
             canStartBySending = status == com.phonedsh.ui.state.EngineLifecycleStatus.STOPPED &&
-                modelRoute.route != ModelRoute.NONE && !sendStartupInFlight.get())
+                modelRoute.route != ModelRoute.NONE)
     }
 
     internal fun restartChatEngine() {
@@ -3296,6 +3543,8 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
             chatWorkerClaims = chatWorkerClaims + record.workerSessionIds
             mutableChat.value = record.toUiState()
             refreshChatSession()
+            // Sends queued for this conversation while another one was open.
+            chatSendQueue.requestDelivery()
             mutableSessions.update { it.copy(currentSessionID = chatId) }
             LogcatHostLog.info(
                 "chat: opened session=$chatId rows=${record.nodes.size} " +
@@ -3906,58 +4155,136 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         return true
     }
 
+    /**
+     * Accepts one local send: establish the session if this is the first send,
+     * write the outbox entry, and only then let delivery start.
+     *
+     * Enqueue is the durable fact (host contract §10). The engine may be
+     * stopped, starting or busy: the send is still accepted and shown as 排队中;
+     * `ChatSendQueue` prepares the engine and delivers. Only a first-ever send
+     * needs the engine before it can be accepted, because there is no session to
+     * bind the entry to yet (§10.1): no session means no acceptance, and the
+     * draft is kept.
+     *
+     * Attachments stay named inside the prompt text, as before this change: the
+     * outbox entry carries that text and no attachment reference.
+     */
     private fun submitChat(retryOriginalSubmission: Boolean, retryRequestId: String?) {
         val current = mutableChat.value
         if (current.running) return
         val typed = current.draft.trim()
         val attachments = current.attachments
         if (typed.isEmpty() && attachments.isEmpty()) return
-        val promptRequestId = if (retryOriginalSubmission) {
-            current.lastPromptRequestId ?: return
-        } else {
-            "pdsh-prompt-${java.util.UUID.randomUUID()}"
-        }
         val commandName = typed.removePrefix("/").substringBefore(' ')
         if (typed.startsWith('/') && attachments.isEmpty() &&
             current.sessionSnapshot.commands.any { it.name == commandName }) {
             runChatCommand(typed)
             return
         }
-        if (state.value !is EngineHostState.Running || host.state.value == com.phonedsh.controller.HostState.FAILED) {
-            if (nativeEngineLifecycle().canStartBySending && sendStartupInFlight.compareAndSet(false, true)) {
-                turnScope.launch {
-                    try {
-                        start()
-                        withTimeout(ENGINE_READY_TIMEOUT_MILLIS) {
-                            host.ready.first { it }
-                            engine.state.first { it is EngineHostState.Running }
-                        }
-                        sendStartupInFlight.set(false)
-                        if (mutableChat.value.draft == current.draft) submitChat(retryOriginalSubmission, retryRequestId)
-                        else mutableChat.update { it.copy(notice = "引擎已就绪，点发送继续。") }
-                    } catch (cancelled: CancellationException) { throw cancelled
-                    } catch (failure: Exception) {
-                        mutableChat.update { it.copy(error = "引擎没有启动成功，输入已保留。", bannerDismissed = false) }
-                    } finally { sendStartupInFlight.set(false) }
-                }
-                return
-            }
-            mutableChat.update {
-                it.copy(error = "本地引擎还没就绪，消息没有发出", bannerDismissed = false)
-            }
-            return
+        // A bare lowercase UUIDv4: the outbox rpcId and the Worker's requestId. A
+        // retry of the same row keeps its id, so the authority de-duplicates.
+        val rpcId = if (retryOriginalSubmission) {
+            current.lastPromptRequestId ?: return
+        } else {
+            UUID.randomUUID().toString()
         }
-        if (!turnRunning.compareAndSet(false, true)) {
-            mutableChat.update {
-                it.copy(error = "上一个回合还在运行，这条消息没有发出", bannerDismissed = false)
-            }
-            return
-        }
-        // `newChatSession` replaces the state, so it runs before the send snapshot
-        // is taken again.
+        if (!sendAdmissionInFlight.compareAndSet(false, true)) return
+        // `newChatSession` replaces the state, so it runs before the snapshot below.
         val chatId = current.chatId.ifEmpty { newChatSession() }
-        val sending = mutableChat.value
         val prompt = composeChatPrompt(typed, attachments)
+        val bubble = typed.ifEmpty { attachments.joinToString(", ") { it.name } }
+        turnScope.launch {
+            try {
+                val session = mutableChat.value.takeIf { it.chatId == chatId }?.workerSessionId
+                    ?: establishWorkerSession(chatId)
+                if (session == null) {
+                    mutableChat.update {
+                        if (it.chatId != chatId) it
+                        else it.copy(error = "本地引擎还没就绪，消息没有发出，输入已保留。", bannerDismissed = false)
+                    }
+                    return@launch
+                }
+                queuedBubbleText[rpcId] = bubble
+                val entry = chatSendQueue.enqueue(session, prompt, rpcId)
+                if (entry == null) {
+                    queuedBubbleText.remove(rpcId)
+                    mutableChat.update {
+                        if (it.chatId != chatId) it
+                        else it.copy(error = "消息队列不可用，消息没有发出，输入已保留。", bannerDismissed = false)
+                    }
+                    return@launch
+                }
+                LogcatHostLog.info(
+                    "APP_CHAT_QUEUED session=$chatId chars=${prompt.length} attachments=${attachments.size} worker=$session",
+                )
+                // The text is in the queue now; the composer no longer has to hold it.
+                mutableChat.update { live ->
+                    if (live.chatId != chatId) live else live.copy(
+                        draft = if (live.draft.trim() == typed) "" else live.draft,
+                        attachments = if (live.attachments == attachments) emptyList() else live.attachments,
+                        lastSubmission = if (retryOriginalSubmission) live.lastSubmission else current.draft,
+                        lastAttachments = if (retryOriginalSubmission) live.lastAttachments else attachments,
+                        error = null,
+                        bannerDismissed = false,
+                        notice = null,
+                        attachmentError = null,
+                    )
+                }
+                chatSendQueue.requestDelivery()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                mutableChat.update {
+                    if (it.chatId != chatId) it
+                    else it.copy(error = "引擎没有启动成功，输入已保留。", bannerDismissed = false)
+                }
+            } finally {
+                sendAdmissionInFlight.set(false)
+                if (activeRetryRequestId == retryRequestId && !mutableChat.value.running) activeRetryRequestId = null
+            }
+        }
+    }
+
+    /**
+     * The first send of a conversation: bring the engine up through the
+     * existing start transition if it is stopped, then create the Worker session
+     * and record it in the chat. Returns null when there is no session to bind a
+     * queue entry to.
+     */
+    private suspend fun establishWorkerSession(chatId: String): String? {
+        if (state.value !is EngineHostState.Running || host.state.value == com.phonedsh.controller.HostState.FAILED) {
+            if (!nativeEngineLifecycle().canStartBySending || !chatSendHost.deliveryFacts().executionEligible) return null
+            host.start()
+            withTimeout(ENGINE_READY_TIMEOUT_MILLIS) {
+                host.ready.first { it }
+                engine.state.first { it is EngineHostState.Running }
+            }
+        }
+        chatPreparationJob?.join()
+        mutableChat.value.takeIf { it.chatId == chatId }?.workerSessionId?.let { return it }
+        val worker = withContext(Dispatchers.IO) {
+            withTimeout(HOST_READY_TIMEOUT_MILLIS) { host.ready.first { it } }
+            DshTurnClient(host.channel, ::logTurn).createSessionWhenReady(cwd = "/dsh/workspace")
+        }
+        if (mutableChat.value.chatId != chatId) return null
+        claimWorkerSession(chatId, worker)
+        return worker
+    }
+
+    /**
+     * Starts the turn that carries one queued entry. Called by `ChatSendQueue`
+     * when the engine is ready; the entry is already durable, and it is marked
+     * submitting immediately before `session/prompt` (the runner's `beforePrompt`).
+     */
+    private fun startQueuedTurn(entry: SendOutboxEntry): Boolean {
+        val current = mutableChat.value
+        if (current.running || current.chatId.isEmpty() || current.workerSessionId != entry.sessionId) return false
+        if (state.value !is EngineHostState.Running || host.state.value == com.phonedsh.controller.HostState.FAILED) return false
+        if (!turnRunning.compareAndSet(false, true)) return false
+        val chatId = current.chatId
+        val prompt = entry.text
+        val promptRequestId = entry.rpcId
+        val retryRequestId = activeRetryRequestId
         val ordinal = ++chatOrdinal
         // Every send gets its own turn-id prefix: a replacement Worker session
         // numbers its turns from 0001 again.
@@ -3966,22 +4293,17 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // duplicate-id guard would drop a legitimate new row (measured: the answer
         // of the newest turn was not drawn while an older turn's row was).
         val turnToken = "t${clock.nowMillis()}-$ordinal"
-        val userNode = userNodeOf(
-            chatId,
-            turnToken,
-            typed.ifEmpty { attachments.joinToString(", ") { it.name } },
-            ordinal,
-        )
+        val userNode = userNodeOf(chatId, turnToken, queuedBubbleText.remove(promptRequestId) ?: prompt, ordinal)
+        // An entry that was already submitted once drew its bubble then.
+        val firstAttempt = entry.attempts == 0
         val at = clock.nowMillis()
         mutableChat.update {
             it.copy(
-                chatId = chatId,
-                nodes = if (retryOriginalSubmission) it.nodes else it.nodes + userNode,
-                draft = "",
-                lastSubmission = if (retryOriginalSubmission) current.lastSubmission else current.draft,
-                lastAttachments = if (retryOriginalSubmission) current.lastAttachments else attachments,
+                nodes = if (firstAttempt) it.nodes + userNode else it.nodes,
                 lastPromptRequestId = promptRequestId,
-                attachments = emptyList(),
+                localQueueItems = it.localQueueItems.filterNot { row ->
+                    (row.id as? com.phonedsh.ui.state.QueueItemId.Local)?.value == OUTBOX_ROW_PREFIX + promptRequestId
+                },
                 running = true,
                 streaming = "",
                 reasoningStreaming = "",
@@ -3996,12 +4318,13 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         }
         persistChat(chatId)
         LogcatHostLog.info(
-            "APP_CHAT_SEND session=$chatId chars=${prompt.length} " +
-                "attachments=${attachments.size} worker=${sending.workerSessionId ?: "-"}",
+            "APP_CHAT_SEND session=$chatId chars=${prompt.length} worker=${entry.sessionId} attempt=${entry.attempts + 1}",
         )
         val turnGeneration = chatTurnGeneration.incrementAndGet()
         chatTurnJob = turnScope.launch(Dispatchers.IO) {
             var outcome: ChatTurnOutcome? = null
+            // What the outbox is told when this delivery is over; null is a turn that ran to its end.
+            var deliveryFailure: String? = null
             // The 本 session 产物 fact's baseline: every workspace file the person
             // already had is *not* this turn's output. Taken after the awaits and
             // before the prompt, on this IO thread (see HostSessionArtifacts).
@@ -4015,14 +4338,20 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                 chatRunner = runner
                 chatPreparationJob?.join()
                 outcome = runner.run(
-                    // The conversation's own Worker session, persisted in the chat
-                    // record. It survives a Worker page reload and a cold start:
-                    // `session/prompt` resumes it from the Worker's JSONL log
-                    // (`/dsh/home/sessions`, repacked into every boot overlay), so
-                    // the model keeps the earlier turns instead of starting blind.
-                    workerSessionId = mutableChat.value.takeIf { it.chatId == chatId }?.workerSessionId,
+                    // The entry's own Worker session. It survives a Worker page
+                    // reload and a cold start: `session/prompt` resumes it from the
+                    // Worker's JSONL log (`/dsh/home/sessions`, repacked into every
+                    // boot overlay), so the model keeps the earlier turns.
+                    workerSessionId = entry.sessionId,
                     prompt = prompt,
                     promptRequestId = promptRequestId,
+                    // Durable before the transport call; then the local acknowledgement.
+                    beforePrompt = { chatSendQueue.transportStarting(promptRequestId) },
+                    afterPrompt = {
+                        chatSendQueue.transportAccepted(promptRequestId)
+                        // Sends queued behind this one may follow into the running turn.
+                        chatSendQueue.requestDelivery()
+                    },
                     onSession = { workerSessionId ->
                         if (turnGeneration == chatTurnGeneration.get()) claimWorkerSession(chatId, workerSessionId)
                     },
@@ -4071,16 +4400,24 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                 )
                 if (turnGeneration == chatTurnGeneration.get()) finishChatTurn(chatId, outcome)
             } catch (timeout: TimeoutCancellationException) {
+                deliveryFailure = "timeout"
                 if (turnGeneration == chatTurnGeneration.get()) failChatTurn(chatId, "timeout")
             } catch (cancelled: CancellationException) {
+                deliveryFailure = "stopped"
                 // 停止: the job was cancelled from the main thread. 停止 itself
                 // already closed the turn synchronously; this branch remains for a
                 // scope cancellation that did not go through `stopChat`.
                 if (turnGeneration == chatTurnGeneration.get()) markChatTurnStopped(chatId)
                 throw cancelled
             } catch (failure: Exception) {
+                deliveryFailure = reasonOf(failure)
                 if (turnGeneration == chatTurnGeneration.get()) failChatTurn(chatId, reasonOf(failure))
             } finally {
+                // The entry keeps its rpcId whatever happened: never reached the
+                // transport -> still queued; mid-submit -> outcomeUnknown, settled
+                // by the read-back and never resent on its own.
+                val failure = deliveryFailure
+                turnScope.launch { chatSendQueue.deliveryEnded(promptRequestId, failure) }
                 if (turnGeneration == chatTurnGeneration.get()) {
                     chatRunner = null
                     if (activeRetryRequestId == retryRequestId) activeRetryRequestId = null
@@ -4100,6 +4437,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                 }
             }
         }
+        return true
     }
 
     /**
@@ -4151,6 +4489,20 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // The 本 session 产物 fact's corroborating signal (a named write tool's path).
         // The bytes are the evidence; this only catches a same-size rewrite.
         sessionArtifacts.observe(event)
+        // Authoritative facts for the send outbox, whatever turn generation read
+        // them: a user message carrying `source.rpcId` is what deletes its entry.
+        when (event.kind) {
+            HostEventKind.TURN_STARTED -> chatSendQueue.onTurnStarted()
+            HostEventKind.USER_MESSAGE -> {
+                val source = event.data?.get("source") as? JsonObject
+                val rpcId = (source?.get("rpcId") as? JsonString)?.value
+                if (rpcId != null && (source["kind"] as? JsonString)?.value == "user") {
+                    chatSendQueue.onAuthoritativeUserMessage(rpcId)
+                }
+            }
+            HostEventKind.TURN_ENDED -> chatSendQueue.onTurnEnded(event.turnEndReason)
+            else -> Unit
+        }
         if (event.kind == HostEventKind.TURN_STARTED) {
             mutableChat.update { current ->
                 applyChatEventIfCurrent(
@@ -4269,8 +4621,8 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                 activeTurnNodeId = null,
                 error = "消息发送失败（$safe）",
                 bannerDismissed = false,
-                draft = it.draft.ifEmpty { it.lastSubmission },
-                attachments = if (it.attachments.isEmpty()) it.lastAttachments else it.attachments,
+                // The send is in the durable outbox with its rpcId; putting its text
+                // back into the draft would let the same message be sent twice.
             )
         }
         persistChat(chatId)
@@ -4456,6 +4808,8 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
             if (!turnRunning.get() && mutableChat.value.chatId.isEmpty()) {
                 mutableChat.value = selected.toUiState()
             }
+            // The conversation on screen is known now: its queued sends can be delivered.
+            chatSendQueue.requestDelivery()
             LogcatHostLog.info(
                 "chat: restored ${records.size} conversation(s) open=${selected.id} " +
                     "rows=${selected.nodes.size} worker=${selected.workerSessionId ?: "-"}",
@@ -4464,6 +4818,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     }
 
     override fun onCleared() {
+        CloudTaskCenter.detach(cloudTaskHooks)
         turnScope.cancel()
         if (appBotRuntimeDelegate.isInitialized()) appBotRuntime?.close()
         pcWorkspace?.close()
@@ -4774,6 +5129,9 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
 
         const val HOST_READY_TIMEOUT_MILLIS = 180_000L
         const val ENGINE_READY_TIMEOUT_MILLIS = 180_000L
+
+        /** Local queue rows projected from the durable send outbox carry this id prefix. */
+        const val OUTBOX_ROW_PREFIX = "outbox:"
         /** 使用预设: one bounded `session/create`, not the 3-minute generic wait. */
         const val AGENT_PRESET_SESSION_TIMEOUT_MILLIS = 30_000L
         const val AGENT_PRESET_SESSION_ATTEMPT_TIMEOUT_MILLIS = 10_000L

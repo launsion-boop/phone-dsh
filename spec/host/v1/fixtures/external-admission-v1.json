@@ -1,0 +1,2554 @@
+{
+ "revision": "external-admission-v1.1",
+ "contract": "spec/host/v1/external-admission.md",
+ "limits": {
+  "maxTextBytes": 16384,
+  "minTtlMs": 1000,
+  "maxTtlMs": 604800000,
+  "maxPending": 256,
+  "maxEntries": 2048,
+  "maxAttempts": 12,
+  "tombstoneMs": 86400000,
+  "linkedTimeoutMs": 1209600000,
+  "passLimit": 16
+ },
+ "ids": [
+  {
+   "principal": "local",
+   "source": {
+    "kind": "tonolink-voice",
+    "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+   },
+   "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+   "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196"
+  },
+  {
+   "principal": "account:u_18f3",
+   "source": {
+    "kind": "cloud-task",
+    "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+   },
+   "sourceRequestId": "task-0001",
+   "admissionId": "e151e0813a9b4f28e0f18c8c8afdccc73f1f3a5c936742ad6451600e714b61ce"
+  },
+  {
+   "principal": "account:u_18f3",
+   "source": {
+    "kind": "cloud-task",
+    "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+   },
+   "sourceRequestId": "task-0002",
+   "admissionId": "178331184650cfb14a64181218e6060d46efa86ffe89763d613f772ad6b2b1a8"
+  },
+  {
+   "principal": "account:u_18f3",
+   "source": {
+    "kind": "cloud-task",
+    "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+   },
+   "sourceRequestId": "task-0003",
+   "admissionId": "073487a56a32188062b02fe434a630b0ea57ce0659b7a501d8d153fbe3014302"
+  },
+  {
+   "principal": "account:u_9999",
+   "source": {
+    "kind": "cloud-task",
+    "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+   },
+   "sourceRequestId": "task-0001",
+   "admissionId": "b5914541a94ef084f2f5215d781f457519671a17cc7242b43b69d8fb17f0115f"
+  }
+ ],
+ "content": [
+  {
+   "text": "现在几点了？",
+   "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5"
+  },
+  {
+   "text": "a",
+   "contentSha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"
+  },
+  {
+   "text": "run the tests\n",
+   "contentSha256": "4cd2988ac740d94eae84e76699de90039b582d227d95a8a8d4a84b783c5ed7c7"
+  }
+ ],
+ "records": {
+  "valid": [
+   {
+    "id": "admitted",
+    "record": {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   },
+   {
+    "id": "dispatching-retry",
+    "record": {
+     "v": 1,
+     "admissionId": "e151e0813a9b4f28e0f18c8c8afdccc73f1f3a5c936742ad6451600e714b61ce",
+     "principal": "account:u_18f3",
+     "source": {
+      "kind": "cloud-task",
+      "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+     },
+     "sourceRequestId": "task-0001",
+     "target": {
+      "kind": "bot",
+      "botId": "bot-7f3a"
+     },
+     "contentSha256": "2ce4bb9f8df6772b141ae37190d59e74e14f39baac5e891a93e4ce3bdec8f666",
+     "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "dispatching",
+     "attempts": 2,
+     "text": "整理今天的会议纪要",
+     "lastError": "downstream_unavailable"
+    }
+   },
+   {
+    "id": "linked",
+    "record": {
+     "v": 1,
+     "admissionId": "178331184650cfb14a64181218e6060d46efa86ffe89763d613f772ad6b2b1a8",
+     "principal": "account:u_18f3",
+     "source": {
+      "kind": "cloud-task",
+      "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+     },
+     "sourceRequestId": "task-0002",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "8d58ea8404c231b35543bdd54437c7acc9a265cca92498a05e2d0adb7e6674f1",
+     "downstreamId": "9c8b7a6d-5e4f-4d3c-ab2a-1f0e9d8c7b6a",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "linked",
+     "attempts": 0,
+     "linkedAtMs": 1794700004000
+    }
+   },
+   {
+    "id": "completed",
+    "record": {
+     "v": 1,
+     "admissionId": "d5435d6eb14d22fa9613eb7b1d914543c0088691fa37aff2efd98b7f52ca9d3f",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "7645adc2815dfc378380a246f02dc4858ef491b440e3bf4d9217ce215f33a27c",
+     "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "completed",
+     "attempts": 0,
+     "linkedAtMs": 1794700000900,
+     "settledAtMs": 1794700009800
+    }
+   },
+   {
+    "id": "expired",
+    "record": {
+     "v": 1,
+     "admissionId": "073487a56a32188062b02fe434a630b0ea57ce0659b7a501d8d153fbe3014302",
+     "principal": "account:u_18f3",
+     "source": {
+      "kind": "cloud-task",
+      "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+     },
+     "sourceRequestId": "task-0003",
+     "target": {
+      "kind": "bot",
+      "botId": "bot-7f3a"
+     },
+     "contentSha256": "51c450a1c07bf0b947f69fbf56d41a2041c59051767db9a211157d148c579c66",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794700060000,
+     "stage": "expired",
+     "attempts": 0,
+     "settledAtMs": 1794700060000,
+     "reason": "expired"
+    }
+   }
+  ],
+  "invalid": [
+   {
+    "id": "text-on-linked",
+    "by": "schema",
+    "record": {
+     "v": 1,
+     "admissionId": "178331184650cfb14a64181218e6060d46efa86ffe89763d613f772ad6b2b1a8",
+     "principal": "account:u_18f3",
+     "source": {
+      "kind": "cloud-task",
+      "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+     },
+     "sourceRequestId": "task-0002",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "8d58ea8404c231b35543bdd54437c7acc9a265cca92498a05e2d0adb7e6674f1",
+     "downstreamId": "9c8b7a6d-5e4f-4d3c-ab2a-1f0e9d8c7b6a",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "linked",
+     "attempts": 0,
+     "linkedAtMs": 1794700004000,
+     "text": "跑一下测试"
+    }
+   },
+   {
+    "id": "pending-without-text",
+    "by": "schema",
+    "record": {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0
+    }
+   },
+   {
+    "id": "terminal-without-settled",
+    "by": "schema",
+    "record": {
+     "v": 1,
+     "admissionId": "d5435d6eb14d22fa9613eb7b1d914543c0088691fa37aff2efd98b7f52ca9d3f",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "7645adc2815dfc378380a246f02dc4858ef491b440e3bf4d9217ce215f33a27c",
+     "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "completed",
+     "attempts": 0,
+     "linkedAtMs": 1794700000900
+    }
+   },
+   {
+    "id": "unknown-stage",
+    "by": "schema",
+    "record": {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "queued",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   },
+   {
+    "id": "unknown-member",
+    "by": "schema",
+    "record": {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？",
+     "sessionId": "gb-main"
+    }
+   },
+   {
+    "id": "version-2",
+    "by": "schema",
+    "record": {
+     "v": 2,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   },
+   {
+    "id": "uppercase-admission-id",
+    "by": "schema",
+    "record": {
+     "v": 1,
+     "admissionId": "F751A05AED69141C1AB62D77459D2C876BD8D5D91EF277C4669391A5D8B98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   },
+   {
+    "id": "downstream-not-uuid4",
+    "by": "schema",
+    "record": {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-1e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   },
+   {
+    "id": "principal-device",
+    "by": "schema",
+    "record": {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "device:PhoneAgent-7356",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   },
+   {
+    "id": "source-kind-unknown",
+    "by": "schema",
+    "record": {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "apns",
+      "id": "x"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   },
+   {
+    "id": "target-two-kinds",
+    "by": "schema",
+    "record": {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "bot",
+      "botId": "b",
+      "sessionId": "s"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   },
+   {
+    "id": "target-kind-pc",
+    "by": "schema",
+    "record": {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "pc",
+      "sessionId": "s"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   },
+   {
+    "id": "attempts-13",
+    "by": "schema",
+    "record": {
+     "v": 1,
+     "admissionId": "e151e0813a9b4f28e0f18c8c8afdccc73f1f3a5c936742ad6451600e714b61ce",
+     "principal": "account:u_18f3",
+     "source": {
+      "kind": "cloud-task",
+      "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+     },
+     "sourceRequestId": "task-0001",
+     "target": {
+      "kind": "bot",
+      "botId": "bot-7f3a"
+     },
+     "contentSha256": "2ce4bb9f8df6772b141ae37190d59e74e14f39baac5e891a93e4ce3bdec8f666",
+     "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "dispatching",
+     "attempts": 13,
+     "text": "整理今天的会议纪要",
+     "lastError": "downstream_unavailable"
+    }
+   },
+   {
+    "id": "empty-text",
+    "by": "schema",
+    "record": {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": ""
+    }
+   },
+   {
+    "id": "request-id-with-space",
+    "by": "schema",
+    "record": {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "a b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   },
+   {
+    "id": "admission-id-of-other-request",
+    "by": "identity",
+    "record": {
+     "v": 1,
+     "admissionId": "e151e0813a9b4f28e0f18c8c8afdccc73f1f3a5c936742ad6451600e714b61ce",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   }
+  ]
+ },
+ "admit": [
+  {
+   "id": "new-voice",
+   "now": 1794700000000,
+   "existing": [],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": "现在几点了？"
+   },
+   "result": "admitted"
+  },
+  {
+   "id": "new-beside-others",
+   "now": 1794700000000,
+   "existing": [
+    {
+     "v": 1,
+     "admissionId": "e151e0813a9b4f28e0f18c8c8afdccc73f1f3a5c936742ad6451600e714b61ce",
+     "principal": "account:u_18f3",
+     "source": {
+      "kind": "cloud-task",
+      "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+     },
+     "sourceRequestId": "task-0001",
+     "target": {
+      "kind": "bot",
+      "botId": "bot-7f3a"
+     },
+     "contentSha256": "2ce4bb9f8df6772b141ae37190d59e74e14f39baac5e891a93e4ce3bdec8f666",
+     "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "dispatching",
+     "attempts": 2,
+     "text": "整理今天的会议纪要",
+     "lastError": "downstream_unavailable"
+    },
+    {
+     "v": 1,
+     "admissionId": "178331184650cfb14a64181218e6060d46efa86ffe89763d613f772ad6b2b1a8",
+     "principal": "account:u_18f3",
+     "source": {
+      "kind": "cloud-task",
+      "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+     },
+     "sourceRequestId": "task-0002",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "8d58ea8404c231b35543bdd54437c7acc9a265cca92498a05e2d0adb7e6674f1",
+     "downstreamId": "9c8b7a6d-5e4f-4d3c-ab2a-1f0e9d8c7b6a",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "linked",
+     "attempts": 0,
+     "linkedAtMs": 1794700004000
+    }
+   ],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": "现在几点了？"
+   },
+   "result": "admitted"
+  },
+  {
+   "id": "redelivery-same-content",
+   "now": 1794700005000,
+   "existing": [
+    {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   ],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "expiresAtMs": 1794786405000,
+    "text": "现在几点了？"
+   },
+   "result": "duplicate"
+  },
+  {
+   "id": "redelivery-after-terminal",
+   "now": 1794700020000,
+   "existing": [
+    {
+     "v": 1,
+     "admissionId": "d5435d6eb14d22fa9613eb7b1d914543c0088691fa37aff2efd98b7f52ca9d3f",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "7645adc2815dfc378380a246f02dc4858ef491b440e3bf4d9217ce215f33a27c",
+     "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "completed",
+     "attempts": 0,
+     "linkedAtMs": 1794700000900,
+     "settledAtMs": 1794700009800
+    }
+   ],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "9c8b7a6d-5e4f-4d3c-ab2a-1f0e9d8c7b6a",
+    "expiresAtMs": 1794786420000,
+    "text": "今天几号"
+   },
+   "result": "duplicate"
+  },
+  {
+   "id": "same-id-different-text",
+   "now": 1794700005000,
+   "existing": [
+    {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   ],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786405000,
+    "text": "现在几点了"
+   },
+   "result": "conflict"
+  },
+  {
+   "id": "same-id-different-target",
+   "now": 1794700005000,
+   "existing": [
+    {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   ],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "bot",
+     "botId": "bot-7f3a"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786405000,
+    "text": "现在几点了？"
+   },
+   "result": "conflict"
+  },
+  {
+   "id": "same-request-id-other-principal",
+   "now": 1794700000000,
+   "existing": [
+    {
+     "v": 1,
+     "admissionId": "e151e0813a9b4f28e0f18c8c8afdccc73f1f3a5c936742ad6451600e714b61ce",
+     "principal": "account:u_18f3",
+     "source": {
+      "kind": "cloud-task",
+      "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+     },
+     "sourceRequestId": "task-0001",
+     "target": {
+      "kind": "bot",
+      "botId": "bot-7f3a"
+     },
+     "contentSha256": "2ce4bb9f8df6772b141ae37190d59e74e14f39baac5e891a93e4ce3bdec8f666",
+     "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "dispatching",
+     "attempts": 2,
+     "text": "整理今天的会议纪要",
+     "lastError": "downstream_unavailable"
+    }
+   ],
+   "request": {
+    "principal": "account:u_9999",
+    "source": {
+     "kind": "cloud-task",
+     "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+    },
+    "sourceRequestId": "task-0001",
+    "target": {
+     "kind": "bot",
+     "botId": "bot-7f3a"
+    },
+    "downstreamId": "9c8b7a6d-5e4f-4d3c-ab2a-1f0e9d8c7b6a",
+    "expiresAtMs": 1794786400000,
+    "text": "整理今天的会议纪要"
+   },
+   "result": "admitted"
+  },
+  {
+   "id": "same-request-id-other-device",
+   "now": 1794700000000,
+   "existing": [
+    {
+     "v": 1,
+     "admissionId": "e151e0813a9b4f28e0f18c8c8afdccc73f1f3a5c936742ad6451600e714b61ce",
+     "principal": "account:u_18f3",
+     "source": {
+      "kind": "cloud-task",
+      "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+     },
+     "sourceRequestId": "task-0001",
+     "target": {
+      "kind": "bot",
+      "botId": "bot-7f3a"
+     },
+     "contentSha256": "2ce4bb9f8df6772b141ae37190d59e74e14f39baac5e891a93e4ce3bdec8f666",
+     "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "dispatching",
+     "attempts": 2,
+     "text": "整理今天的会议纪要",
+     "lastError": "downstream_unavailable"
+    }
+   ],
+   "request": {
+    "principal": "account:u_18f3",
+    "source": {
+     "kind": "cloud-task",
+     "id": "dev-other"
+    },
+    "sourceRequestId": "task-0001",
+    "target": {
+     "kind": "bot",
+     "botId": "bot-7f3a"
+    },
+    "downstreamId": "9c8b7a6d-5e4f-4d3c-ab2a-1f0e9d8c7b6a",
+    "expiresAtMs": 1794786400000,
+    "text": "整理今天的会议纪要"
+   },
+   "result": "admitted"
+  },
+  {
+   "id": "pending-full",
+   "now": 1794700000000,
+   "existing": [],
+   "pendingCount": 256,
+   "directoryEntries": 300,
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": "现在几点了？"
+   },
+   "result": "capacity"
+  },
+  {
+   "id": "pending-255",
+   "now": 1794700000000,
+   "existing": [],
+   "pendingCount": 255,
+   "directoryEntries": 300,
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": "现在几点了？"
+   },
+   "result": "admitted"
+  },
+  {
+   "id": "directory-full",
+   "now": 1794700000000,
+   "existing": [],
+   "pendingCount": 0,
+   "directoryEntries": 2048,
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": "现在几点了？"
+   },
+   "result": "capacity"
+  },
+  {
+   "id": "duplicate-wins-over-capacity",
+   "now": 1794700000000,
+   "existing": [
+    {
+     "v": 1,
+     "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+     "principal": "local",
+     "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+     },
+     "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+     },
+     "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+     "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "stage": "admitted",
+     "attempts": 0,
+     "text": "现在几点了？"
+    }
+   ],
+   "pendingCount": 256,
+   "directoryEntries": 2048,
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": "现在几点了？"
+   },
+   "result": "duplicate"
+  },
+  {
+   "id": "ttl-999",
+   "now": 1794700000000,
+   "existing": [],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794700000999,
+    "text": "x"
+   },
+   "result": "invalid"
+  },
+  {
+   "id": "ttl-1000",
+   "now": 1794700000000,
+   "existing": [],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794700001000,
+    "text": "x"
+   },
+   "result": "admitted"
+  },
+  {
+   "id": "ttl-7-days",
+   "now": 1794700000000,
+   "existing": [],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1795304800000,
+    "text": "x"
+   },
+   "result": "admitted"
+  },
+  {
+   "id": "ttl-7-days-plus-1",
+   "now": 1794700000000,
+   "existing": [],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1795304800001,
+    "text": "x"
+   },
+   "result": "invalid"
+  },
+  {
+   "id": "already-expired",
+   "now": 1794700000000,
+   "existing": [],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794699999999,
+    "text": "x"
+   },
+   "result": "invalid"
+  },
+  {
+   "id": "text-16384-ascii-bytes",
+   "now": 1794700000000,
+   "existing": [],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "textRepeat": {
+     "unit": "a",
+     "count": 16384
+    }
+   },
+   "result": "admitted"
+  },
+  {
+   "id": "text-16385-ascii-bytes",
+   "now": 1794700000000,
+   "existing": [],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "textRepeat": {
+     "unit": "a",
+     "count": 16385
+    }
+   },
+   "result": "invalid"
+  },
+  {
+   "id": "text-5462-cjk-16386-bytes",
+   "now": 1794700000000,
+   "existing": [],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "textRepeat": {
+     "unit": "好",
+     "count": 5462
+    }
+   },
+   "result": "invalid"
+  },
+  {
+   "id": "text-5461-cjk-16383-bytes",
+   "now": 1794700000000,
+   "existing": [],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "textRepeat": {
+     "unit": "好",
+     "count": 5461
+    }
+   },
+   "result": "admitted"
+  },
+  {
+   "id": "empty-text",
+   "now": 1794700000000,
+   "existing": [],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": ""
+   },
+   "result": "invalid"
+  },
+  {
+   "id": "principal-unknown-form",
+   "now": 1794700000000,
+   "existing": [],
+   "request": {
+    "principal": "device:x",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": "x"
+   },
+   "result": "invalid"
+  },
+  {
+   "id": "downstream-uppercase",
+   "now": 1794700000000,
+   "existing": [],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3F2A1C4E-5B6D-4E8F-9A0B-1C2D3E4F5A6B",
+    "expiresAtMs": 1794786400000,
+    "text": "x"
+   },
+   "result": "invalid"
+  },
+  {
+   "id": "target-unknown-kind",
+   "now": 1794700000000,
+   "existing": [],
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "pc",
+     "sessionId": "s"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": "x"
+   },
+   "result": "invalid"
+  },
+  {
+   "id": "undecodable-file-under-own-id",
+   "now": 1794700000000,
+   "existing": [],
+   "undecodableOwnFile": true,
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": "现在几点了？"
+   },
+   "result": "storage"
+  },
+  {
+   "id": "undecodable-own-file-wins-over-capacity",
+   "now": 1794700000000,
+   "existing": [],
+   "undecodableOwnFile": true,
+   "pendingCount": 256,
+   "directoryEntries": 2048,
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": "现在几点了？"
+   },
+   "result": "storage"
+  },
+  {
+   "id": "undecodable-own-file-but-request-invalid",
+   "now": 1794700000000,
+   "existing": [],
+   "undecodableOwnFile": true,
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": ""
+   },
+   "result": "invalid"
+  }
+ ],
+ "transitions": [
+  {
+   "from": "admitted",
+   "to": "admitted",
+   "allowed": false
+  },
+  {
+   "from": "admitted",
+   "to": "dispatching",
+   "allowed": true
+  },
+  {
+   "from": "admitted",
+   "to": "linked",
+   "allowed": false
+  },
+  {
+   "from": "admitted",
+   "to": "completed",
+   "allowed": false
+  },
+  {
+   "from": "admitted",
+   "to": "failed",
+   "allowed": true
+  },
+  {
+   "from": "admitted",
+   "to": "expired",
+   "allowed": true
+  },
+  {
+   "from": "admitted",
+   "to": "cancelled",
+   "allowed": true
+  },
+  {
+   "from": "admitted",
+   "to": "unknown",
+   "allowed": false
+  },
+  {
+   "from": "dispatching",
+   "to": "admitted",
+   "allowed": true
+  },
+  {
+   "from": "dispatching",
+   "to": "dispatching",
+   "allowed": false
+  },
+  {
+   "from": "dispatching",
+   "to": "linked",
+   "allowed": true
+  },
+  {
+   "from": "dispatching",
+   "to": "completed",
+   "allowed": false
+  },
+  {
+   "from": "dispatching",
+   "to": "failed",
+   "allowed": true
+  },
+  {
+   "from": "dispatching",
+   "to": "expired",
+   "allowed": false
+  },
+  {
+   "from": "dispatching",
+   "to": "cancelled",
+   "allowed": false
+  },
+  {
+   "from": "dispatching",
+   "to": "unknown",
+   "allowed": false
+  },
+  {
+   "from": "linked",
+   "to": "admitted",
+   "allowed": false
+  },
+  {
+   "from": "linked",
+   "to": "dispatching",
+   "allowed": false
+  },
+  {
+   "from": "linked",
+   "to": "linked",
+   "allowed": false
+  },
+  {
+   "from": "linked",
+   "to": "completed",
+   "allowed": true
+  },
+  {
+   "from": "linked",
+   "to": "failed",
+   "allowed": true
+  },
+  {
+   "from": "linked",
+   "to": "expired",
+   "allowed": false
+  },
+  {
+   "from": "linked",
+   "to": "cancelled",
+   "allowed": false
+  },
+  {
+   "from": "linked",
+   "to": "unknown",
+   "allowed": true
+  },
+  {
+   "from": "completed",
+   "to": "admitted",
+   "allowed": false
+  },
+  {
+   "from": "completed",
+   "to": "dispatching",
+   "allowed": false
+  },
+  {
+   "from": "completed",
+   "to": "linked",
+   "allowed": false
+  },
+  {
+   "from": "completed",
+   "to": "completed",
+   "allowed": false
+  },
+  {
+   "from": "completed",
+   "to": "failed",
+   "allowed": false
+  },
+  {
+   "from": "completed",
+   "to": "expired",
+   "allowed": false
+  },
+  {
+   "from": "completed",
+   "to": "cancelled",
+   "allowed": false
+  },
+  {
+   "from": "completed",
+   "to": "unknown",
+   "allowed": false
+  },
+  {
+   "from": "failed",
+   "to": "admitted",
+   "allowed": false
+  },
+  {
+   "from": "failed",
+   "to": "dispatching",
+   "allowed": false
+  },
+  {
+   "from": "failed",
+   "to": "linked",
+   "allowed": false
+  },
+  {
+   "from": "failed",
+   "to": "completed",
+   "allowed": false
+  },
+  {
+   "from": "failed",
+   "to": "failed",
+   "allowed": false
+  },
+  {
+   "from": "failed",
+   "to": "expired",
+   "allowed": false
+  },
+  {
+   "from": "failed",
+   "to": "cancelled",
+   "allowed": false
+  },
+  {
+   "from": "failed",
+   "to": "unknown",
+   "allowed": false
+  },
+  {
+   "from": "expired",
+   "to": "admitted",
+   "allowed": false
+  },
+  {
+   "from": "expired",
+   "to": "dispatching",
+   "allowed": false
+  },
+  {
+   "from": "expired",
+   "to": "linked",
+   "allowed": false
+  },
+  {
+   "from": "expired",
+   "to": "completed",
+   "allowed": false
+  },
+  {
+   "from": "expired",
+   "to": "failed",
+   "allowed": false
+  },
+  {
+   "from": "expired",
+   "to": "expired",
+   "allowed": false
+  },
+  {
+   "from": "expired",
+   "to": "cancelled",
+   "allowed": false
+  },
+  {
+   "from": "expired",
+   "to": "unknown",
+   "allowed": false
+  },
+  {
+   "from": "cancelled",
+   "to": "admitted",
+   "allowed": false
+  },
+  {
+   "from": "cancelled",
+   "to": "dispatching",
+   "allowed": false
+  },
+  {
+   "from": "cancelled",
+   "to": "linked",
+   "allowed": false
+  },
+  {
+   "from": "cancelled",
+   "to": "completed",
+   "allowed": false
+  },
+  {
+   "from": "cancelled",
+   "to": "failed",
+   "allowed": false
+  },
+  {
+   "from": "cancelled",
+   "to": "expired",
+   "allowed": false
+  },
+  {
+   "from": "cancelled",
+   "to": "cancelled",
+   "allowed": false
+  },
+  {
+   "from": "cancelled",
+   "to": "unknown",
+   "allowed": false
+  },
+  {
+   "from": "unknown",
+   "to": "admitted",
+   "allowed": false
+  },
+  {
+   "from": "unknown",
+   "to": "dispatching",
+   "allowed": false
+  },
+  {
+   "from": "unknown",
+   "to": "linked",
+   "allowed": false
+  },
+  {
+   "from": "unknown",
+   "to": "completed",
+   "allowed": false
+  },
+  {
+   "from": "unknown",
+   "to": "failed",
+   "allowed": false
+  },
+  {
+   "from": "unknown",
+   "to": "expired",
+   "allowed": false
+  },
+  {
+   "from": "unknown",
+   "to": "cancelled",
+   "allowed": false
+  },
+  {
+   "from": "unknown",
+   "to": "unknown",
+   "allowed": false
+  }
+ ],
+ "retry": [
+  {
+   "attempts": 0,
+   "now": 1794700000000,
+   "result": {
+    "stage": "admitted",
+    "attempts": 1,
+    "nextAttemptAtMs": 1794700003000
+   }
+  },
+  {
+   "attempts": 1,
+   "now": 1794700000000,
+   "result": {
+    "stage": "admitted",
+    "attempts": 2,
+    "nextAttemptAtMs": 1794700006000
+   }
+  },
+  {
+   "attempts": 2,
+   "now": 1794700000000,
+   "result": {
+    "stage": "admitted",
+    "attempts": 3,
+    "nextAttemptAtMs": 1794700012000
+   }
+  },
+  {
+   "attempts": 6,
+   "now": 1794700000000,
+   "result": {
+    "stage": "admitted",
+    "attempts": 7,
+    "nextAttemptAtMs": 1794700192000
+   }
+  },
+  {
+   "attempts": 7,
+   "now": 1794700000000,
+   "result": {
+    "stage": "admitted",
+    "attempts": 8,
+    "nextAttemptAtMs": 1794700300000
+   }
+  },
+  {
+   "attempts": 11,
+   "now": 1794700000000,
+   "result": {
+    "stage": "admitted",
+    "attempts": 12,
+    "nextAttemptAtMs": 1794700300000
+   }
+  },
+  {
+   "attempts": 12,
+   "now": 1794700000000,
+   "result": {
+    "stage": "failed",
+    "reason": "retry_exhausted"
+   }
+  }
+ ],
+ "sweep": [
+  {
+   "id": "admitted-before-expiry",
+   "now": 1794786399999,
+   "record": {
+    "v": 1,
+    "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794786400000,
+    "stage": "admitted",
+    "attempts": 0,
+    "text": "现在几点了？"
+   },
+   "action": "keep"
+  },
+  {
+   "id": "admitted-at-expiry",
+   "now": 1794786400000,
+   "record": {
+    "v": 1,
+    "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794786400000,
+    "stage": "admitted",
+    "attempts": 0,
+    "text": "现在几点了？"
+   },
+   "action": "expire"
+  },
+  {
+   "id": "dispatching-past-expiry-is-kept",
+   "now": 1795564000000,
+   "record": {
+    "v": 1,
+    "admissionId": "e151e0813a9b4f28e0f18c8c8afdccc73f1f3a5c936742ad6451600e714b61ce",
+    "principal": "account:u_18f3",
+    "source": {
+     "kind": "cloud-task",
+     "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+    },
+    "sourceRequestId": "task-0001",
+    "target": {
+     "kind": "bot",
+     "botId": "bot-7f3a"
+    },
+    "contentSha256": "2ce4bb9f8df6772b141ae37190d59e74e14f39baac5e891a93e4ce3bdec8f666",
+    "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794786400000,
+    "stage": "dispatching",
+    "attempts": 2,
+    "text": "整理今天的会议纪要",
+    "lastError": "downstream_unavailable"
+   },
+   "action": "keep"
+  },
+  {
+   "id": "linked-before-14-days",
+   "now": 1795909599999,
+   "record": {
+    "v": 1,
+    "admissionId": "178331184650cfb14a64181218e6060d46efa86ffe89763d613f772ad6b2b1a8",
+    "principal": "account:u_18f3",
+    "source": {
+     "kind": "cloud-task",
+     "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+    },
+    "sourceRequestId": "task-0002",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "contentSha256": "8d58ea8404c231b35543bdd54437c7acc9a265cca92498a05e2d0adb7e6674f1",
+    "downstreamId": "9c8b7a6d-5e4f-4d3c-ab2a-1f0e9d8c7b6a",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794786400000,
+    "stage": "linked",
+    "attempts": 0,
+    "linkedAtMs": 1794700004000
+   },
+   "action": "keep"
+  },
+  {
+   "id": "linked-at-14-days",
+   "now": 1795909600000,
+   "record": {
+    "v": 1,
+    "admissionId": "178331184650cfb14a64181218e6060d46efa86ffe89763d613f772ad6b2b1a8",
+    "principal": "account:u_18f3",
+    "source": {
+     "kind": "cloud-task",
+     "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+    },
+    "sourceRequestId": "task-0002",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "contentSha256": "8d58ea8404c231b35543bdd54437c7acc9a265cca92498a05e2d0adb7e6674f1",
+    "downstreamId": "9c8b7a6d-5e4f-4d3c-ab2a-1f0e9d8c7b6a",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794786400000,
+    "stage": "linked",
+    "attempts": 0,
+    "linkedAtMs": 1794700004000
+   },
+   "action": "unknown"
+  },
+  {
+   "id": "tombstone-kept-until-expiry",
+   "now": 1794786399999,
+   "record": {
+    "v": 1,
+    "admissionId": "d5435d6eb14d22fa9613eb7b1d914543c0088691fa37aff2efd98b7f52ca9d3f",
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "contentSha256": "7645adc2815dfc378380a246f02dc4858ef491b440e3bf4d9217ce215f33a27c",
+    "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794786400000,
+    "stage": "completed",
+    "attempts": 0,
+    "linkedAtMs": 1794700000900,
+    "settledAtMs": 1794700009800
+   },
+   "action": "keep"
+  },
+  {
+   "id": "tombstone-kept-24h-after-settle",
+   "now": 1794786409799,
+   "record": {
+    "v": 1,
+    "admissionId": "d5435d6eb14d22fa9613eb7b1d914543c0088691fa37aff2efd98b7f52ca9d3f",
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "contentSha256": "7645adc2815dfc378380a246f02dc4858ef491b440e3bf4d9217ce215f33a27c",
+    "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794786400000,
+    "stage": "completed",
+    "attempts": 0,
+    "linkedAtMs": 1794700000900,
+    "settledAtMs": 1794700009800
+   },
+   "action": "keep"
+  },
+  {
+   "id": "tombstone-deleted",
+   "now": 1794786409800,
+   "record": {
+    "v": 1,
+    "admissionId": "d5435d6eb14d22fa9613eb7b1d914543c0088691fa37aff2efd98b7f52ca9d3f",
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "contentSha256": "7645adc2815dfc378380a246f02dc4858ef491b440e3bf4d9217ce215f33a27c",
+    "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794786400000,
+    "stage": "completed",
+    "attempts": 0,
+    "linkedAtMs": 1794700000900,
+    "settledAtMs": 1794700009800
+   },
+   "action": "delete"
+  },
+  {
+   "id": "short-ttl-tombstone-kept-24h",
+   "now": 1794786459999,
+   "record": {
+    "v": 1,
+    "admissionId": "073487a56a32188062b02fe434a630b0ea57ce0659b7a501d8d153fbe3014302",
+    "principal": "account:u_18f3",
+    "source": {
+     "kind": "cloud-task",
+     "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+    },
+    "sourceRequestId": "task-0003",
+    "target": {
+     "kind": "bot",
+     "botId": "bot-7f3a"
+    },
+    "contentSha256": "51c450a1c07bf0b947f69fbf56d41a2041c59051767db9a211157d148c579c66",
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794700060000,
+    "stage": "expired",
+    "attempts": 0,
+    "settledAtMs": 1794700060000,
+    "reason": "expired"
+   },
+   "action": "keep"
+  },
+  {
+   "id": "short-ttl-tombstone-deleted",
+   "now": 1794786460000,
+   "record": {
+    "v": 1,
+    "admissionId": "073487a56a32188062b02fe434a630b0ea57ce0659b7a501d8d153fbe3014302",
+    "principal": "account:u_18f3",
+    "source": {
+     "kind": "cloud-task",
+     "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+    },
+    "sourceRequestId": "task-0003",
+    "target": {
+     "kind": "bot",
+     "botId": "bot-7f3a"
+    },
+    "contentSha256": "51c450a1c07bf0b947f69fbf56d41a2041c59051767db9a211157d148c579c66",
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794700060000,
+    "stage": "expired",
+    "attempts": 0,
+    "settledAtMs": 1794700060000,
+    "reason": "expired"
+   },
+   "action": "delete"
+  }
+ ],
+ "order": [
+  {
+   "id": "fifo-then-id",
+   "now": 1794700000100,
+   "records": [
+    {
+     "admissionId": "0303030303030303030303030303030303030303030303030303030303030303",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000002,
+     "expiresAtMs": 1794786400002
+    },
+    {
+     "admissionId": "0202020202020202020202020202020202020202020202020202020202020202",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000001,
+     "expiresAtMs": 1794786400001
+    },
+    {
+     "admissionId": "0101010101010101010101010101010101010101010101010101010101010101",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000002,
+     "expiresAtMs": 1794786400002
+    },
+    {
+     "admissionId": "0404040404040404040404040404040404040404040404040404040404040404",
+     "stage": "linked",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000
+    },
+    {
+     "admissionId": "0505050505050505050505050505050505050505050505050505050505050505",
+     "stage": "completed",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000
+    }
+   ],
+   "dispatch": [
+    "0202020202020202020202020202020202020202020202020202020202020202",
+    "0101010101010101010101010101010101010101010101010101010101010101",
+    "0303030303030303030303030303030303030303030303030303030303030303"
+   ]
+  },
+  {
+   "id": "backoff-skipped",
+   "now": 1794700000100,
+   "records": [
+    {
+     "admissionId": "0101010101010101010101010101010101010101010101010101010101010101",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000,
+     "nextAttemptAtMs": 1794700000101
+    },
+    {
+     "admissionId": "0202020202020202020202020202020202020202020202020202020202020202",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000001,
+     "expiresAtMs": 1794786400001,
+     "nextAttemptAtMs": 1794700000100
+    }
+   ],
+   "dispatch": [
+    "0202020202020202020202020202020202020202020202020202020202020202"
+   ]
+  },
+  {
+   "id": "expired-skipped-dispatching-redone",
+   "now": 1794786400000,
+   "records": [
+    {
+     "admissionId": "0101010101010101010101010101010101010101010101010101010101010101",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000
+    },
+    {
+     "admissionId": "0202020202020202020202020202020202020202020202020202020202020202",
+     "stage": "dispatching",
+     "admittedAtMs": 1794700000000,
+     "expiresAtMs": 1794786400000
+    }
+   ],
+   "dispatch": [
+    "0202020202020202020202020202020202020202020202020202020202020202"
+   ]
+  },
+  {
+   "id": "sixteen-per-pass",
+   "now": 1794700000100,
+   "records": [
+    {
+     "admissionId": "0101010101010101010101010101010101010101010101010101010101010101",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000001,
+     "expiresAtMs": 1794786400001
+    },
+    {
+     "admissionId": "0202020202020202020202020202020202020202020202020202020202020202",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000002,
+     "expiresAtMs": 1794786400002
+    },
+    {
+     "admissionId": "0303030303030303030303030303030303030303030303030303030303030303",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000003,
+     "expiresAtMs": 1794786400003
+    },
+    {
+     "admissionId": "0404040404040404040404040404040404040404040404040404040404040404",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000004,
+     "expiresAtMs": 1794786400004
+    },
+    {
+     "admissionId": "0505050505050505050505050505050505050505050505050505050505050505",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000005,
+     "expiresAtMs": 1794786400005
+    },
+    {
+     "admissionId": "0606060606060606060606060606060606060606060606060606060606060606",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000006,
+     "expiresAtMs": 1794786400006
+    },
+    {
+     "admissionId": "0707070707070707070707070707070707070707070707070707070707070707",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000007,
+     "expiresAtMs": 1794786400007
+    },
+    {
+     "admissionId": "0808080808080808080808080808080808080808080808080808080808080808",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000008,
+     "expiresAtMs": 1794786400008
+    },
+    {
+     "admissionId": "0909090909090909090909090909090909090909090909090909090909090909",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000009,
+     "expiresAtMs": 1794786400009
+    },
+    {
+     "admissionId": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000010,
+     "expiresAtMs": 1794786400010
+    },
+    {
+     "admissionId": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000011,
+     "expiresAtMs": 1794786400011
+    },
+    {
+     "admissionId": "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000012,
+     "expiresAtMs": 1794786400012
+    },
+    {
+     "admissionId": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000013,
+     "expiresAtMs": 1794786400013
+    },
+    {
+     "admissionId": "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000014,
+     "expiresAtMs": 1794786400014
+    },
+    {
+     "admissionId": "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000015,
+     "expiresAtMs": 1794786400015
+    },
+    {
+     "admissionId": "1010101010101010101010101010101010101010101010101010101010101010",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000016,
+     "expiresAtMs": 1794786400016
+    },
+    {
+     "admissionId": "1111111111111111111111111111111111111111111111111111111111111111",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000017,
+     "expiresAtMs": 1794786400017
+    },
+    {
+     "admissionId": "1212121212121212121212121212121212121212121212121212121212121212",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000018,
+     "expiresAtMs": 1794786400018
+    },
+    {
+     "admissionId": "1313131313131313131313131313131313131313131313131313131313131313",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000019,
+     "expiresAtMs": 1794786400019
+    }
+   ],
+   "dispatch": [
+    "0101010101010101010101010101010101010101010101010101010101010101",
+    "0202020202020202020202020202020202020202020202020202020202020202",
+    "0303030303030303030303030303030303030303030303030303030303030303",
+    "0404040404040404040404040404040404040404040404040404040404040404",
+    "0505050505050505050505050505050505050505050505050505050505050505",
+    "0606060606060606060606060606060606060606060606060606060606060606",
+    "0707070707070707070707070707070707070707070707070707070707070707",
+    "0808080808080808080808080808080808080808080808080808080808080808",
+    "0909090909090909090909090909090909090909090909090909090909090909",
+    "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c",
+    "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+    "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e",
+    "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f",
+    "1010101010101010101010101010101010101010101010101010101010101010"
+   ]
+  },
+  {
+   "id": "waiting-records-do-not-use-the-pass",
+   "now": 1794700000100,
+   "records": [
+    {
+     "admissionId": "0101010101010101010101010101010101010101010101010101010101010101",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000001,
+     "expiresAtMs": 1794786400001,
+     "waiting": true
+    },
+    {
+     "admissionId": "0202020202020202020202020202020202020202020202020202020202020202",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000002,
+     "expiresAtMs": 1794786400002,
+     "waiting": true
+    },
+    {
+     "admissionId": "0303030303030303030303030303030303030303030303030303030303030303",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000003,
+     "expiresAtMs": 1794786400003,
+     "waiting": true
+    },
+    {
+     "admissionId": "0404040404040404040404040404040404040404040404040404040404040404",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000004,
+     "expiresAtMs": 1794786400004,
+     "waiting": true
+    },
+    {
+     "admissionId": "0505050505050505050505050505050505050505050505050505050505050505",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000005,
+     "expiresAtMs": 1794786400005,
+     "waiting": true
+    },
+    {
+     "admissionId": "0606060606060606060606060606060606060606060606060606060606060606",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000006,
+     "expiresAtMs": 1794786400006,
+     "waiting": true
+    },
+    {
+     "admissionId": "0707070707070707070707070707070707070707070707070707070707070707",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000007,
+     "expiresAtMs": 1794786400007,
+     "waiting": true
+    },
+    {
+     "admissionId": "0808080808080808080808080808080808080808080808080808080808080808",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000008,
+     "expiresAtMs": 1794786400008,
+     "waiting": true
+    },
+    {
+     "admissionId": "0909090909090909090909090909090909090909090909090909090909090909",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000009,
+     "expiresAtMs": 1794786400009,
+     "waiting": true
+    },
+    {
+     "admissionId": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000010,
+     "expiresAtMs": 1794786400010,
+     "waiting": true
+    },
+    {
+     "admissionId": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000011,
+     "expiresAtMs": 1794786400011,
+     "waiting": true
+    },
+    {
+     "admissionId": "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000012,
+     "expiresAtMs": 1794786400012,
+     "waiting": true
+    },
+    {
+     "admissionId": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000013,
+     "expiresAtMs": 1794786400013,
+     "waiting": true
+    },
+    {
+     "admissionId": "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000014,
+     "expiresAtMs": 1794786400014,
+     "waiting": true
+    },
+    {
+     "admissionId": "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000015,
+     "expiresAtMs": 1794786400015,
+     "waiting": true
+    },
+    {
+     "admissionId": "1010101010101010101010101010101010101010101010101010101010101010",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000016,
+     "expiresAtMs": 1794786400016,
+     "waiting": true
+    },
+    {
+     "admissionId": "1111111111111111111111111111111111111111111111111111111111111111",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000017,
+     "expiresAtMs": 1794786400017,
+     "waiting": true
+    },
+    {
+     "admissionId": "1212121212121212121212121212121212121212121212121212121212121212",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000018,
+     "expiresAtMs": 1794786400018
+    },
+    {
+     "admissionId": "1313131313131313131313131313131313131313131313131313131313131313",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000019,
+     "expiresAtMs": 1794786400019
+    },
+    {
+     "admissionId": "1414141414141414141414141414141414141414141414141414141414141414",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000020,
+     "expiresAtMs": 1794786400020
+    },
+    {
+     "admissionId": "1515151515151515151515151515151515151515151515151515151515151515",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000021,
+     "expiresAtMs": 1794786400021
+    },
+    {
+     "admissionId": "1616161616161616161616161616161616161616161616161616161616161616",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000022,
+     "expiresAtMs": 1794786400022
+    },
+    {
+     "admissionId": "1717171717171717171717171717171717171717171717171717171717171717",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000023,
+     "expiresAtMs": 1794786400023
+    },
+    {
+     "admissionId": "1818181818181818181818181818181818181818181818181818181818181818",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000024,
+     "expiresAtMs": 1794786400024
+    },
+    {
+     "admissionId": "1919191919191919191919191919191919191919191919191919191919191919",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000025,
+     "expiresAtMs": 1794786400025
+    },
+    {
+     "admissionId": "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000026,
+     "expiresAtMs": 1794786400026
+    },
+    {
+     "admissionId": "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000027,
+     "expiresAtMs": 1794786400027
+    },
+    {
+     "admissionId": "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000028,
+     "expiresAtMs": 1794786400028
+    },
+    {
+     "admissionId": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000029,
+     "expiresAtMs": 1794786400029
+    },
+    {
+     "admissionId": "1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000030,
+     "expiresAtMs": 1794786400030
+    },
+    {
+     "admissionId": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000031,
+     "expiresAtMs": 1794786400031
+    },
+    {
+     "admissionId": "2020202020202020202020202020202020202020202020202020202020202020",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000032,
+     "expiresAtMs": 1794786400032
+    },
+    {
+     "admissionId": "2121212121212121212121212121212121212121212121212121212121212121",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000033,
+     "expiresAtMs": 1794786400033
+    },
+    {
+     "admissionId": "2222222222222222222222222222222222222222222222222222222222222222",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000034,
+     "expiresAtMs": 1794786400034
+    },
+    {
+     "admissionId": "2323232323232323232323232323232323232323232323232323232323232323",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000035,
+     "expiresAtMs": 1794786400035
+    }
+   ],
+   "dispatch": [
+    "1212121212121212121212121212121212121212121212121212121212121212",
+    "1313131313131313131313131313131313131313131313131313131313131313",
+    "1414141414141414141414141414141414141414141414141414141414141414",
+    "1515151515151515151515151515151515151515151515151515151515151515",
+    "1616161616161616161616161616161616161616161616161616161616161616",
+    "1717171717171717171717171717171717171717171717171717171717171717",
+    "1818181818181818181818181818181818181818181818181818181818181818",
+    "1919191919191919191919191919191919191919191919191919191919191919",
+    "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+    "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b",
+    "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c",
+    "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+    "1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e",
+    "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+    "2020202020202020202020202020202020202020202020202020202020202020",
+    "2121212121212121212121212121212121212121212121212121212121212121"
+   ]
+  }
+ ]
+}

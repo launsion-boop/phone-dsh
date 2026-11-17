@@ -292,6 +292,10 @@ targets:
       # real PhoneDSHBot recovery result, so the three lifecycle timings run
       # against an injected fake listener without constructing ChatModel.
       - path: PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
+      # The phone task queue's journal bridge (cloud-tasks.md §7) is UI-free and
+      # host-free: the suite drives it with the real admission journal and the
+      # real CloudTaskCoordinator against a fake cloud.
+      - path: PhoneDSHProbe/CloudTaskAdmissionBridge.swift
       # Live turn projection: dedupe live replay, finished process rows and
       # the exact unauthorized event sequence in the regression suite.
       - path: PhoneDSHProbe/Bot/BotLiveTurn.swift
@@ -463,6 +467,10 @@ targets:
       # real PhoneDSHBot recovery result, so the three lifecycle timings run
       # against an injected fake listener without constructing ChatModel.
       - path: PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
+      # The phone task queue's journal bridge (cloud-tasks.md §7) is UI-free and
+      # host-free: the suite drives it with the real admission journal and the
+      # real CloudTaskCoordinator against a fake cloud.
+      - path: PhoneDSHProbe/CloudTaskAdmissionBridge.swift
       # Live turn projection: dedupe live replay, finished process rows and
       # the exact unauthorized event sequence in the regression suite.
       - path: PhoneDSHProbe/Bot/BotLiveTurn.swift

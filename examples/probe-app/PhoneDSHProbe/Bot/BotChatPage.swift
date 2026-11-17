@@ -69,6 +69,12 @@ struct BotChatPage: View {
     /// stops the autoscroll; coming back re-enables it.
     @State private var followsTail = true
     @State private var userScrolling = false
+    /// The first tail placement after the page mounts is a plain jump, not
+    /// an animated follow. A restored transcript used to slide into place on
+    /// every launch because the coalesced follow animated its first two
+    /// passes; corrections inside this window are unanimated too.
+    @State private var initialTailPlacementPending = true
+    @State private var initialTailPlacedAt: Date?
     /// In an eager stack the history loader is always mounted, so `onAppear`
     /// no longer means "the reader reached the top". A one-shot visibility
     /// check restores the old auto-page without paging off-screen history.
@@ -637,11 +643,21 @@ struct BotChatPage: View {
         // scroll on it pushes the rows up under a blank band. This is the Bug
         // where sending the first message (or a short new turn) made the page
         // look empty. Wait until the content actually overflows.
-        guard BotTranscriptLayoutSupport.shouldScrollToTail(
+        let hasRows = !model.displayRows.isEmpty || model.streamingText != nil || model.live != nil
+        let overflows = BotTranscriptLayoutSupport.shouldScrollToTail(
             contentHeight: scrollMetrics.contentHeight,
             viewportHeight: scrollMetrics.viewportHeight,
-            hasRows: !model.displayRows.isEmpty || model.streamingText != nil || model.live != nil)
-        else { return }
+            hasRows: hasRows)
+        if !overflows {
+            // A short transcript is already fully visible. It still counts as
+            // the initial placement once the viewport has been measured, but
+            // an empty page must keep the flag for the rows that arrive next.
+            if hasRows, scrollMetrics.contentHeight > 0, scrollMetrics.viewportHeight > 0 {
+                initialTailPlacementPending = false
+                if initialTailPlacedAt == nil { initialTailPlacedAt = Date() }
+            }
+            return
+        }
         // The newest trigger replaces the target, but it must not restart the
         // pending sleep. The run below reads this box on every pass, so a
         // continuous stream gets one scroll per settle window instead of a
@@ -652,8 +668,7 @@ struct BotChatPage: View {
         guard transcriptScrollTask == nil else { return }
         transcriptScrollTask = Task { @MainActor in
             defer { transcriptScrollTask = nil }
-            var arrivedGeneration: UInt64 = 0
-            var corrected = false
+            var lastPass: BotTranscriptLayoutSupport.ScrollPass?
             var first = true
             while !Task.isCancelled {
                 let wait = first ? delay : 180_000_000
@@ -661,23 +676,40 @@ struct BotChatPage: View {
                 if wait > 0 { try? await Task.sleep(nanoseconds: wait) }
                 guard !Task.isCancelled, followsTail, !preservingHistoryPosition,
                       model.scrollRequestID == nil else { return }
-                let generation = transcriptScrollRequest.generation
-                if generation == arrivedGeneration {
-                    // The last pass already covered this content. One more
-                    // settle window catches a Markdown/code/card height that
-                    // lands after the scroll; then stop until new content.
-                    if corrected { return }
-                    corrected = true
-                } else {
-                    arrivedGeneration = generation
-                    corrected = false
+                let target = transcriptScrollRequest.target
+                let pass = BotTranscriptLayoutSupport.ScrollPass(
+                    generation: transcriptScrollRequest.generation,
+                    contentHeight: scrollMetrics.contentHeight,
+                    target: String(describing: target))
+                // A late Markdown/card height may need one correction, but a
+                // pass with the same target and height must not animate the
+                // same position again. The old unconditional second pass was
+                // the launch slide/jitter.
+                guard BotTranscriptLayoutSupport.shouldPerformScrollPass(
+                    previous: lastPass, next: pass) else { return }
+                lastPass = pass
+                let initial = initialTailPlacementPending || isInitialTailSettling
+                if initialTailPlacementPending {
+                    initialTailPlacementPending = false
+                    initialTailPlacedAt = Date()
                 }
-                withAnimation(.easeOut(duration: 0.18)) {
-                    proxy.scrollTo(transcriptScrollRequest.target,
-                                   anchor: transcriptScrollRequest.anchor)
+                if initial {
+                    proxy.scrollTo(target, anchor: transcriptScrollRequest.anchor)
+                } else {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        proxy.scrollTo(target, anchor: transcriptScrollRequest.anchor)
+                    }
                 }
             }
         }
+    }
+
+    /// The launch window in which corrections must not animate. A restored
+    /// transcript can still settle a Markdown/card height in the first frames;
+    /// animating those passes is what read as page jitter.
+    private var isInitialTailSettling: Bool {
+        guard let placedAt = initialTailPlacedAt else { return initialTailPlacementPending }
+        return Date().timeIntervalSince(placedAt) < 0.6
     }
 
     /// Near means the tail probe sits at or just above the viewport bottom.
@@ -767,7 +799,11 @@ struct BotChatPage: View {
     /// sentinel above the viewport and prevents a same-frame loop.
     private func historyTopFrameChanged(_ maxY: CGFloat, proxy: ScrollViewProxy,
                                         expandWindow: Bool, anchor: String?) {
-        guard model.hasMoreHistory || expandWindow,
+        // Do not page older rows while the restored transcript is still
+        // placing itself at the tail: the sentinel is visible for a frame and
+        // its re-anchor would fight the initial jump.
+        guard !initialTailPlacementPending,
+              model.hasMoreHistory || expandWindow,
               !historyAutoLoadScheduled, !model.loadingHistory,
               maxY.isFinite, maxY >= -1,
               maxY <= scrollMetrics.viewportHeight + 1 else { return }

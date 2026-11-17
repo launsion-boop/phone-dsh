@@ -75,6 +75,62 @@ class ChatTurnRunnerTest {
     }
 
     @Test
+    fun theSubmissionIsMadeDurableBeforeThePromptAndAcknowledgedAfterIt() = runBlocking<Unit> {
+        val peer = ScriptedRunnerPeer(this)
+        val host = testHost()
+        peer.attach(host)
+        peer.connect()
+        peer.turnEndDelayMillis = 1
+        val runner = ChatTurnRunner(
+            channel = host,
+            client = DshTurnClient(host),
+            firstEventTimeoutMillis = 500,
+            nextReadTimeoutMillis = 20,
+        )
+        val order = mutableListOf<String>()
+        runner.run(
+            workerSessionId = "session-existing",
+            prompt = "queued send",
+            promptRequestId = "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+            onSession = {},
+            onEvent = {},
+            onDelta = {},
+            // The outbox's markSubmitting / markAccepted sit exactly here.
+            beforePrompt = { order += "before:prompts=${peer.promptRequestIds.size}" },
+            afterPrompt = { order += "after:prompts=${peer.promptRequestIds.size}" },
+        )
+        assertEquals(listOf("before:prompts=0", "after:prompts=1"), order)
+        assertEquals(listOf("3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b"), peer.promptRequestIds)
+    }
+
+    @Test
+    fun aSubmissionThatCannotBeMadeDurableNeverReachesTheTransport() = runBlocking<Unit> {
+        val peer = ScriptedRunnerPeer(this)
+        val host = testHost()
+        peer.attach(host)
+        peer.connect()
+        val runner = ChatTurnRunner(
+            channel = host,
+            client = DshTurnClient(host),
+            firstEventTimeoutMillis = 500,
+            nextReadTimeoutMillis = 20,
+        )
+        val refused = runCatching {
+            runner.run(
+                workerSessionId = "session-existing",
+                prompt = "not durable",
+                promptRequestId = "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+                onSession = {},
+                onEvent = {},
+                onDelta = {},
+                beforePrompt = { throw IllegalStateException("outbox write failed") },
+            )
+        }
+        assertEquals("outbox write failed", refused.exceptionOrNull()?.message)
+        assertEquals(emptyList<String>(), peer.promptRequestIds)
+    }
+
+    @Test
     fun busySteerUsesTheWorkerSteerModeAndItsCallerRequestId() = runBlocking<Unit> {
         val peer = ScriptedRunnerPeer(this)
         val host = testHost()

@@ -1,0 +1,27 @@
+{
+  "pr_head_before_merge": "ace536e93de2514a1fac49acea14787528ac0005",
+  "main_integrated": "3e8b1923c84972ff20bdc4089503275a14da8f35",
+  "conflicts": [
+    "examples/probe-app/PhoneDSHProbe/Bot/BotChatModel.swift"
+  ],
+  "resolution": "Return main admission task with stable nonce and single local echo; preserve PR187 explicit approval decisions; no auto-deny on chat.",
+  "chat_model_tests": {
+    "executed": 28,
+    "failures": 0,
+    "full_log_sha256": "3338573ecb1d1acc3eb5e5f77ed8b1afe028588b100f24947ebae80073b018a0"
+  },
+  "local_checks": {
+    "bot_ui": "491 checks/records PASS",
+    "cross_check": "8/8 PASS",
+    "external_admission_vectors": "9/9 PASS",
+    "diff_check": "PASS"
+  },
+  "ios_app_build": {
+    "status": "PASS",
+    "target": "PhoneDSHProbe / generic iOS Simulator / arm64 and x86_64",
+    "code_signing": "disabled for simulator",
+    "full_log_sha256": "15674cb74412263b37a8c436b6224daffd85cd2f1c2cfbeac2ade20d6faa048b"
+  },
+  "ci": "IGNORED_BY_USER",
+  "independent_review": "Local DSH K: no blocking issue; main PR190 launch changes and PR192 admission files retained."
+}

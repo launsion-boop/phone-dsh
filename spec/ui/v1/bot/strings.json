@@ -7,42 +7,42 @@
     {
       "id": "settlement.dismissed",
       "value": "已关闭",
-      "source": "BotChatModel.swift:482",
+      "source": "BotChatModel.swift:479",
       "expect": "已关闭",
       "note": "question/steps settled by local dismiss id or durable status dismissed"
     },
     {
       "id": "settlement.selected",
       "value": "已选择：{label}",
-      "source": "BotChatModel.swift:498",
+      "source": "BotChatModel.swift:495",
       "expect": "已选择：",
       "note": "durable answered or accepted action; label resolved from optionID"
     },
     {
       "id": "settlement.sent",
       "value": "已送出",
-      "source": "BotChatModel.swift:498",
+      "source": "BotChatModel.swift:495",
       "expect": "已送出",
       "note": "answered/accepted but the option label cannot be resolved"
     },
     {
       "id": "settlement.skipped",
       "value": "已略过",
-      "source": "BotChatModel.swift:533",
+      "source": "BotChatModel.swift:530",
       "expect": "已略过",
       "note": "muted checklist precedes the latest user text and was never handled"
     },
     {
       "id": "settlement.checklistSent",
       "value": "已发送勾选结果",
-      "source": "BotChatModel.swift:530",
+      "source": "BotChatModel.swift:527",
       "expect": "已发送勾选结果",
       "note": "checklist result accepted"
     },
     {
       "id": "settlement.checklistDetail",
       "value": "{title} · 已完成 {done}/{total}",
-      "source": "BotChatModel.swift:528",
+      "source": "BotChatModel.swift:525",
       "expect": "· 已完成",
       "note": "checklist settled detail"
     },
@@ -95,14 +95,14 @@
     {
       "id": "settlement.approvalDefaultAction",
       "value": "操作",
-      "source": "BotChatModel.swift:544",
+      "source": "BotChatModel.swift:541",
       "expect": "操作",
       "note": "fallback when neither the card nor ask carries an action"
     },
     {
       "id": "settlement.stepsSuggestion",
       "value": "建议下一步",
-      "source": "BotChatModel.swift:508",
+      "source": "BotChatModel.swift:505",
       "expect": "建议下一步",
       "note": "steps prompt detail fallback"
     },
@@ -526,31 +526,31 @@
     {
       "id": "chat.drawer.open",
       "value": "打开 Bot 列表",
-      "source": "BotChatPage.swift:178",
+      "source": "BotChatPage.swift:184",
       "expect": "打开 Bot 列表"
     },
     {
       "id": "chat.info.label",
       "value": "Bot 信息",
-      "source": "BotChatPage.swift:214",
+      "source": "BotChatPage.swift:220",
       "expect": "Bot 信息"
     },
     {
       "id": "chat.menu.summary",
       "value": "跟进中 {following} · 需要你处理 {attention}",
-      "source": "BotChatPage.swift:288",
+      "source": "BotChatPage.swift:294",
       "expect": "跟进中"
     },
     {
       "id": "chat.menu.info",
       "value": "Bot 信息与设置",
-      "source": "BotChatPage.swift:290",
+      "source": "BotChatPage.swift:296",
       "expect": "Bot 信息与设置"
     },
     {
       "id": "chat.deeplink.unavailable",
       "value": "这条消息不可用或已过期。",
-      "source": "BotChatModel.swift:1482",
+      "source": "BotChatModel.swift:1489",
       "expect": "这条消息不可用或已过期"
     },
     {
@@ -562,32 +562,32 @@
     {
       "id": "realtime.degraded",
       "value": "实时更新中断，正在重连",
-      "source": "BotChatModel.swift:1574",
+      "source": "BotChatModel.swift:1588",
       "expect": "实时更新中断，正在重连",
       "note": "watch/live supervision degraded banner; cleared when the feed recovers"
     },
     {
       "id": "error.historyFailed",
       "value": "历史加载失败：{error}",
-      "source": "BotChatModel.swift:1468",
+      "source": "BotChatModel.swift:1482",
       "expect": "历史加载失败"
     },
     {
       "id": "error.attachmentFailed",
       "value": "附件「{name}」未附加：{reason}",
-      "source": "BotChatModel.swift:656",
+      "source": "BotChatModel.swift:667",
       "expect": "未附加"
     },
     {
       "id": "runtime.connecting",
       "value": "正在连接 Bot…",
-      "source": "BotProductionPage.swift:405",
+      "source": "BotProductionPage.swift:430",
       "expect": "正在连接 Bot"
     },
     {
       "id": "runtime.notReady",
       "value": "Bot 运行时还没有准备好。请先启动引擎，然后重试。",
-      "source": "BotProductionPage.swift:77",
+      "source": "BotProductionPage.swift:78",
       "expect": "Bot 运行时还没有准备好"
     },
     {
@@ -761,25 +761,25 @@
     {
       "id": "glyph.dismissed",
       "value": "xmark.circle",
-      "source": "BotChatModel.swift:482",
+      "source": "BotChatModel.swift:479",
       "expect": "xmark.circle"
     },
     {
       "id": "glyph.accepted",
       "value": "checkmark.circle",
-      "source": "BotChatModel.swift:497",
+      "source": "BotChatModel.swift:494",
       "expect": "checkmark.circle"
     },
     {
       "id": "glyph.approvalAllowed",
       "value": "checkmark.circle.fill",
-      "source": "BotChatModel.swift:559",
+      "source": "BotChatModel.swift:556",
       "expect": "checkmark.circle.fill"
     },
     {
       "id": "glyph.skipped",
       "value": "minus.circle",
-      "source": "BotChatModel.swift:533",
+      "source": "BotChatModel.swift:530",
       "expect": "minus.circle"
     }
   ]

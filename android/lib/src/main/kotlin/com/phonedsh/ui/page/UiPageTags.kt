@@ -143,6 +143,8 @@ public object UiPageTags {
     public const val TONO_ACCOUNT_SIGN_IN: String = "pdsh.tonoaccount.signin"
     public const val TONO_ACCOUNT_SIGN_OUT: String = "pdsh.tonoaccount.signout"
     public const val TONO_ACCOUNT_STATUS: String = "pdsh.tonoaccount.status"
+    public const val TONO_ACCOUNT_CLOUD_TASKS_TOGGLE: String = "pdsh.tonoaccount.cloudtasks.toggle"
+    public const val TONO_ACCOUNT_CLOUD_TASKS_STATUS: String = "pdsh.tonoaccount.cloudtasks.status"
 
     public const val WEB_SEARCH_ROOT: String = "pdsh.websearch.root"
     public const val WEB_SEARCH_LIST: String = "pdsh.websearch.list"

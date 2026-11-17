@@ -247,6 +247,96 @@ class ChatQueueActionsTest {
         assertEquals(listOf(QueueItemId.Durable("q-accepted")), state.value.sessionSnapshot.queueItems?.map { it.id })
     }
 
+    // ---- durable send outbox (spec/host/v1 §10): mid-turn submissions ----------
+
+    /** Records the order in which the ledger and the transport were touched. */
+    private class ScriptedLedger(private val order: MutableList<String>) : ChatPromptLedger {
+        var admission = com.phonedsh.probe.outbox.ChatPromptAdmission.SEND
+
+        override suspend fun admit(sessionId: String, text: String, rpcId: String, mode: String):
+            com.phonedsh.probe.outbox.ChatPromptAdmission {
+            order += "admit:$sessionId:$mode:$text:$rpcId"
+            return admission
+        }
+
+        override suspend fun accepted(rpcId: String) {
+            order += "accepted:$rpcId"
+        }
+
+        override suspend fun unknown(rpcId: String, error: String) {
+            order += "unknown:$rpcId:$error"
+        }
+    }
+
+    private fun ledgerActions(
+        chat: MutableStateFlow<ChatUiState>,
+        transport: ChatQueueTransport,
+        ledger: ChatPromptLedger,
+    ) = ChatQueueActions(chat, CoroutineScope(Dispatchers.Unconfined), transport, {}, {}, ledger)
+
+    @Test
+    fun `a mid-turn submission is admitted to the ledger before the transport with a bare UUIDv4`() {
+        val order = mutableListOf<String>()
+        val state = MutableStateFlow(uiState(emptyList(), draft = "hello worker"))
+        val transport = object : ChatQueueTransport by ScriptedTransport() {
+            override suspend fun prompt(workerSessionId: String, text: String, requestId: String, mode: String) {
+                order += "prompt:$requestId"
+            }
+        }
+        assertTrue(
+            ledgerActions(state, transport, ScriptedLedger(order))
+                .submitWhileRunning(WORKER, StateRequestId("submit-ledger-1"), "hello worker", EnterMode.QUEUE),
+        )
+        assertEquals(3, order.size)
+        val rpcId = order[1].removePrefix("prompt:")
+        assertTrue(
+            "the request id is the outbox rpcId: $rpcId",
+            Regex("[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}").matches(rpcId),
+        )
+        assertEquals(listOf("admit:$WORKER:queue:hello worker:$rpcId", "prompt:$rpcId", "accepted:$rpcId"), order)
+    }
+
+    @Test
+    fun `a failed transport call is recorded as unknown and its retry is held without a second transport call`() {
+        val order = mutableListOf<String>()
+        val state = MutableStateFlow(uiState(emptyList(), draft = "hello worker"))
+        val scripted = ScriptedTransport().apply { promptFailure = DshTurnException("timeout", "response lost") }
+        val ledger = ScriptedLedger(order)
+        val actions = ledgerActions(state, scripted, ledger)
+        assertTrue(actions.submitWhileRunning(WORKER, StateRequestId("submit-ledger-2"), "hello worker", EnterMode.QUEUE))
+        val rpcId = scripted.promptRequestIds.single()
+        assertEquals(2, order.size)
+        assertTrue(order[1], order[1].startsWith("unknown:$rpcId:"))
+        assertEquals(StateRequestId(rpcId), state.value.retryBusyPromptRequestId)
+
+        // The retry reuses the id; the ledger holds it, so the transport is not called again.
+        ledger.admission = com.phonedsh.probe.outbox.ChatPromptAdmission.HELD
+        assertTrue(actions.submitWhileRunning(WORKER, StateRequestId("submit-ledger-3"), "hello worker", EnterMode.QUEUE))
+        assertEquals(listOf(rpcId), scripted.promptRequestIds)
+        assertEquals("admit:$WORKER:queue:hello worker:$rpcId", order[2])
+        assertEquals(3, order.size)
+        assertEquals("the text is still the person's to see", "hello worker", state.value.draft)
+    }
+
+    @Test
+    fun `a submission the ledger refuses never reaches the transport and keeps the draft`() {
+        val order = mutableListOf<String>()
+        val state = MutableStateFlow(uiState(emptyList(), draft = "hello worker"))
+        val scripted = ScriptedTransport()
+        val ledger = ScriptedLedger(order).apply { admission = com.phonedsh.probe.outbox.ChatPromptAdmission.REFUSED }
+        assertTrue(
+            ledgerActions(state, scripted, ledger)
+                .submitWhileRunning(WORKER, StateRequestId("submit-ledger-4"), "hello worker", EnterMode.QUEUE),
+        )
+        assertTrue(scripted.prompts.isEmpty())
+        assertEquals(1, order.size)
+        assertEquals("hello worker", state.value.draft)
+        assertEquals(
+            com.phonedsh.ui.state.CommandOutcome.FAILED,
+            state.value.localQueueItems.single().receipt?.outcome,
+        )
+    }
+
     private class ScriptedTransport : ChatQueueTransport {
         data class UpdateCall(val workerSessionId: String, val itemId: String, val action: QueueAction, val replacement: String?)
 

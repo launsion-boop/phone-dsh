@@ -136,6 +136,30 @@ public enum SessionHistoryReader {
         try await followSnapshot(sessionID: sessionID, transport: transport).cursor
     }
 
+    /// Settles one outbox entry against a single follow snapshot: the inbox projection and
+    /// the history through that snapshot's cursor describe the same instant.
+    public static func readBack(rpcId: String, createdAtMs: Int64, sessionID: String,
+                                transport: any DSHRemoteTransport) async throws -> SendOutboxReadBack {
+        let follow = try await followSnapshot(sessionID: sessionID, transport: transport)
+        let cursor = follow.cursor
+        // Only -1 denotes an empty history in the pinned session controller.
+        guard cursor >= -1 else { return .inconclusive }
+        func page(before: Int?) async throws -> JSONValue {
+            var request: [String: JSONValue] = [
+                "address": .object(["kind": .string("session"), "sessionId": .string(sessionID)]),
+                "throughSeq": .number(Double(cursor)),
+                "maxMessages": .number(60),
+            ]
+            if let before { request["beforeSeq"] = .number(Double(before)) }
+            return try await transport.call("session/page", args: .object(["request": .object(request)]))
+        }
+        let firstPage = cursor >= 0 ? try await page(before: nil) : nil
+        return try await SendOutboxReadBack.resolve(
+            rpcId: rpcId, createdAtMs: createdAtMs,
+            inbox: follow.projections?["values"]?["inbox"], firstPage: firstPage
+        ) { before in try await page(before: before) }
+    }
+
     public static func turnFacts(in records: [JSONValue]) -> SessionTurnFacts {
         var facts = SessionTurnFacts()
         for event in records {
@@ -188,15 +212,23 @@ public enum SessionHistoryReader {
                 ])])]),
             ]))
             let snapshot = try await receiveSnapshot(from: mux, streamID: streamID)
-            guard let cursor = snapshot["cursor"]?.intValue else {
-                throw ProviderError.invalidResponse("session/follow snapshot has no cursor")
-            }
+            let cursor = try integralCursor(in: snapshot)
             await mux.close()
             return FollowSnapshot(cursor: cursor, projections: snapshot["projections"])
         } catch {
             await mux.close()
             throw error
         }
+    }
+
+    /// Do not round a fractional cursor into the empty-history sentinel.
+    private static func integralCursor(in snapshot: JSONValue) throws -> Int {
+        guard let number = snapshot["cursor"]?.numberValue,
+              number.isFinite,
+              let cursor = Int(exactly: number) else {
+            throw ProviderError.invalidResponse("session/follow snapshot has no integral cursor")
+        }
+        return cursor
     }
 
     private static func receiveSnapshot(from mux: any DSHMuxConnection,
@@ -217,9 +249,7 @@ public enum SessionHistoryReader {
                     case "item":
                         let value = frame["value"] ?? .null
                         if value["type"]?.stringValue == "snapshot" {
-                            guard value["cursor"]?.intValue != nil else {
-                                throw ProviderError.invalidResponse("session/follow snapshot has no cursor")
-                            }
+                            _ = try integralCursor(in: value)
                             return value
                         }
                     default:

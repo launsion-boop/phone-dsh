@@ -1,0 +1,234 @@
+// SPDX-License-Identifier: MIT
+// phone-dsh phone DSH — the app's owner of the phone task queue.
+//
+// spec/v1/cloud-tasks.md §7–§8. One `CloudTaskCoordinator` for the app, built
+// without the engine: it pulls tasks left by the user's other signed-in
+// devices, writes them into the external admission journal and acknowledges
+// them. It has no timer and never polls. A pass runs when the app becomes
+// active, after sign-in, when the switch is turned on, after a task push, and
+// once when APNs hands over a new device token (so the address reaches the
+// cloud). It never boots the engine: admitted records go to the existing
+// dispatch entry, which keeps its own §10.1 eligibility.
+
+import Foundation
+import Observation
+import PhoneDSH
+import ProbeKit
+import UIKit
+
+/// The signed-in tono account, read from the session record at the moment of use.
+enum CloudTaskAccount {
+    /// `user_id` of the stored session record, or nil when signed out, when the
+    /// record carries no user id, or when the Keychain cannot be read now.
+    static func signedInUserID() async -> String? {
+        guard TonoAccountSession.shared.hasSession else { return nil }
+        return await Task.detached(priority: .utility) {
+            (try? KeychainTonoAccountSessionStore().load())
+                .flatMap { $0 }
+                .flatMap(TonoAccountProtocol.decodeRecord)?.userID
+        }.value
+    }
+
+    static func signedInPrincipal() async -> String? {
+        ExternalAdmissionRequest.accountPrincipal(userID: await signedInUserID())
+    }
+}
+
+@MainActor
+@Observable
+final class CloudTaskCenter {
+    static let shared = CloudTaskCenter()
+
+    /// The user's switch (library preference `phone-dsh.cloud-tasks.enabled.v1`; absent = off).
+    private(set) var enabled: Bool
+    private(set) var signedIn: Bool
+    private(set) var statusText: String
+    private(set) var busy = false
+
+    @ObservationIgnored private let coordinator: CloudTaskCoordinator
+    @ObservationIgnored private let bridge: CloudTaskAdmissionBridge
+    @ObservationIgnored private var accountWatch: Task<Void, Never>?
+    @ObservationIgnored private var registeredToken: Data?
+
+    private init() {
+        let bridge = CloudTaskAdmissionBridge(
+            journal: ChatModel.shared.externalAdmissionJournal,
+            signedInUserID: { await CloudTaskAccount.signedInUserID() },
+            presence: { target in await ChatModel.shared.cloudTaskTargetPresence(target) })
+        self.bridge = bridge
+        let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)
+            .flatMap { (1...32).contains($0.utf8.count) ? $0 : nil } ?? "0"
+        coordinator = CloudTaskCoordinator(
+            configuration: .init(appVersion: version),
+            host: bridge.host(),
+            tokens: TonoAccountSession.shared,
+            transport: URLSessionCloudTaskTransport(),
+            keyStore: KeychainCloudTaskKeyStore())
+        enabled = coordinator.isEnabled
+        signedIn = TonoAccountSession.shared.hasSession
+        statusText = CloudTaskStatusText.describe(
+            enabled: coordinator.isEnabled, signedIn: TonoAccountSession.shared.hasSession, status: nil)
+    }
+
+    /// Called once at launch. Follows the account: a sign-in runs a pass, a
+    /// sign-out (the user's, or one the account service forced) cancels that
+    /// account's admitted records.
+    func start() {
+        guard accountWatch == nil else { return }
+        accountWatch = Task { @MainActor [weak self] in
+            var previous: Bool?
+            for await state in await TonoAccountSession.shared.states() {
+                guard let self else { return }
+                let nowSignedIn: Bool
+                if case .signedIn = state { nowSignedIn = true } else { nowSignedIn = false }
+                self.signedIn = nowSignedIn
+                // Also at launch: an account that ended while the app was not running.
+                await self.bridge.cancelAdmissionsOfSignedOutAccounts()
+                self.updatePushRegistration()
+                if previous == false, nowSignedIn {
+                    await self.run(.signedIn)
+                } else {
+                    self.refreshStatus(nil)
+                }
+                previous = nowSignedIn
+            }
+        }
+    }
+
+    // MARK: - Triggers
+
+    func appBecameActive() {
+        Task { await run(.appActive) }
+    }
+
+    /// The settings switch.
+    func setEnabled(_ value: Bool) async {
+        busy = true
+        defer { busy = false }
+        let report = await coordinator.setEnabled(value)
+        enabled = coordinator.isEnabled
+        updatePushRegistration()
+        if value {
+            finish(report)
+        } else {
+            statusText = CloudTaskStatusText.describeTurnedOff(status: report.status)
+        }
+    }
+
+    /// Before the account signs out, while its token still works: the cloud
+    /// forgets this phone (§2). Call ``accountDidSignOut()`` after the session is cleared.
+    func accountWillSignOut() async {
+        await coordinator.accountWillSignOut()
+    }
+
+    func accountDidSignOut() async {
+        signedIn = false
+        await bridge.cancelAdmissionsOfSignedOutAccounts()
+        updatePushRegistration()
+        refreshStatus(nil)
+    }
+
+    /// §8: one pull → admit → ack pass for a task push; any other payload is not ours.
+    func handleRemoteNotification(_ userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        guard let report = await coordinator.handleRemoteNotification(userInfo) else { return .noData }
+        finish(report)
+        switch report.status {
+        case .ready:
+            return report.pulled > 0 || report.terminalSettled > 0 ? .newData : .noData
+        case .disabled, .signedOut:
+            return .noData
+        case .unavailable, .deviceLimit, .storeUnavailable, .failed:
+            return .failed
+        }
+    }
+
+    // MARK: - Push address
+
+    func didRegisterForRemoteNotifications(deviceToken: Data) {
+        guard let topic = Bundle.main.bundleIdentifier else { return }
+        let changed = registeredToken != deviceToken
+        registeredToken = deviceToken
+        Task {
+            let accepted = await coordinator.setPush(CloudTaskPush(
+                environment: Self.apnsEnvironment, topic: topic, deviceToken: deviceToken))
+            // The registration body changed: one pass sends the address to the cloud.
+            if accepted, changed { await run(.appActive) }
+        }
+    }
+
+    func didFailToRegisterForRemoteNotifications() {
+        registeredToken = nil
+        Task { await coordinator.setPush(nil) }
+    }
+
+    /// Registers for remote notifications only while the feature is on and an
+    /// account is signed in. A background push needs no notification permission,
+    /// and none is requested here.
+    private func updatePushRegistration() {
+        if enabled, signedIn {
+            UIApplication.shared.registerForRemoteNotifications()
+        } else {
+            UIApplication.shared.unregisterForRemoteNotifications()
+            registeredToken = nil
+            Task { await coordinator.setPush(nil) }
+        }
+    }
+
+    /// `aps-environment` of the profile this build was signed with; a build
+    /// without an embedded profile (simulator, App Store) falls back to the configuration.
+    private static let apnsEnvironment: CloudTaskPush.Environment = {
+        if let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+           let data = try? Data(contentsOf: url) {
+            let text = String(decoding: data, as: UTF8.self)
+            if let key = text.range(of: "<key>aps-environment</key>"),
+               let open = text.range(of: "<string>", range: key.upperBound..<text.endIndex),
+               let close = text.range(of: "</string>", range: open.upperBound..<text.endIndex) {
+                return text[open.upperBound..<close.lowerBound] == "production" ? .production : .development
+            }
+        }
+        #if DEBUG
+        return .development
+        #else
+        return .production
+        #endif
+    }()
+
+    // MARK: - One pass
+
+    private func run(_ trigger: CloudTaskTrigger) async {
+        finish(await coordinator.run(trigger))
+    }
+
+    private func finish(_ report: CloudTaskPassReport) {
+        refreshStatus(report.status)
+        // Admitted records go to the existing dispatch entry; it decides when they run.
+        if !report.admitted.isEmpty { ChatModel.shared.scheduleExternalAdmissionPass() }
+    }
+
+    private func refreshStatus(_ status: CloudTaskStatus?) {
+        enabled = coordinator.isEnabled
+        statusText = CloudTaskStatusText.describe(enabled: enabled, signedIn: signedIn, status: status)
+    }
+}
+
+/// UIKit hands remote-notification registration and background pushes to the
+/// application delegate only.
+final class ProbeAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        CloudTaskCenter.shared.didRegisterForRemoteNotifications(deviceToken: deviceToken)
+    }
+
+    func application(_ application: UIApplication,
+                     didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        CloudTaskCenter.shared.didFailToRegisterForRemoteNotifications()
+    }
+
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        Task { @MainActor in
+            completionHandler(await CloudTaskCenter.shared.handleRemoteNotification(userInfo))
+        }
+    }
+}

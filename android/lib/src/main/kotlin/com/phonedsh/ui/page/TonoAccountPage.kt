@@ -9,17 +9,24 @@
 // refresh token and every request; this page only edits the phone and code
 // drafts and sends 获取验证码 / 登录 / 退出登录. It never receives a token: the
 // signed-in facts are a four-digit phone hint and the re-verification date.
+//
+// 云端任务 (spec/v1/cloud-tasks.md §7) is shown signed in or out: one switch,
+// off by default, and the host's plain-language status line. The host owns the
+// preference, the registration and every pull; the page only reports the tap.
 package com.phonedsh.ui.page
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -27,9 +34,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import com.phonedsh.ui.surface.SETTINGS_CLOSE_GLYPH
 import com.phonedsh.ui.surface.SettingsFootnoteRow
@@ -37,6 +48,7 @@ import com.phonedsh.ui.surface.SettingsSectionLabel
 import com.phonedsh.ui.surface.SettingsSubPageFrame
 import com.phonedsh.ui.surface.settingsValueStyle
 import com.phonedsh.ui.theme.LocalUiTokens
+import com.phonedsh.ui.theme.LocalUiType
 
 /** What the host says about the session; never a token or a full phone number. */
 @Immutable
@@ -56,6 +68,12 @@ public data class TonoAccountFacts(
     public val failed: Boolean = false,
     /** Bumped when the drafts must be cleared (after a sign-in). */
     public val revision: Int = 0,
+    /** 云端任务 → 接收其他设备的任务: the stored switch; absent = off. */
+    public val cloudTasksEnabled: Boolean = false,
+    /** 云端任务 → 状态, in plain words (the host writes it). */
+    public val cloudTasksStatus: String = "未开启",
+    /** A switch change is being applied; the switch is disabled meanwhile. */
+    public val cloudTasksBusy: Boolean = false,
 ) {
     override fun toString(): String = "TonoAccountFacts(available=$available, signedIn=$signedIn, busy=$busy)"
 }
@@ -68,6 +86,7 @@ public fun TonoAccountPage(
     onSignIn: (String) -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
+    onSetCloudTasks: (Boolean) -> Unit = {},
 ) {
     var phone by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
@@ -147,6 +166,51 @@ public fun TonoAccountPage(
                             .padding(horizontal = tokens.geometry.pageOuterMarginH, vertical = tokens.spacing.iconText),
                     )
                 }
+            }
+            // 云端任务: the same section signed in or out, as on iOS.
+            item(key = "cloudtasks.header") { SettingsSectionLabel("云端任务") }
+            item(key = "cloudtasks.toggle") {
+                // The switch and its caption are written here, not in a helper, so the
+                // row's label stays a literal beside the control it names.
+                val tokens = LocalUiTokens.current
+                val type = LocalUiType.current
+                val enabled = facts.available && !facts.cloudTasksBusy
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(UiPageTags.TONO_ACCOUNT_CLOUD_TASKS_TOGGLE)
+                        .then(
+                            if (enabled) {
+                                Modifier.toggleable(
+                                    value = facts.cloudTasksEnabled,
+                                    role = Role.Switch,
+                                    onValueChange = onSetCloudTasks,
+                                )
+                            } else {
+                                Modifier.semantics(mergeDescendants = true) { disabled() }
+                            },
+                        )
+                        .heightIn(min = tokens.geometry.pageRowMinHeight)
+                        .padding(horizontal = tokens.geometry.pageOuterMarginH, vertical = tokens.spacing.iconText),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BasicText(
+                        text = "接收其他设备的任务",
+                        modifier = Modifier.weight(1f),
+                        style = type.body.copy(color = if (enabled) tokens.colors.primary else tokens.colors.tertiary),
+                    )
+                    Switch(checked = facts.cloudTasksEnabled, onCheckedChange = null, enabled = enabled)
+                }
+            }
+            item(key = "cloudtasks.status") {
+                InfoRow(
+                    title = "状态",
+                    value = facts.cloudTasksStatus,
+                    modifier = Modifier.testTag(UiPageTags.TONO_ACCOUNT_CLOUD_TASKS_STATUS),
+                )
+            }
+            item(key = "cloudtasks.footer") {
+                SettingsFootnoteRow(text = "开启后，你在其他已登录设备上留给这台手机的任务，会加密保存在云端，直到这台手机取走。任务在这台手机上运行，需要权限时仍会照常询问你。")
             }
         }
     }

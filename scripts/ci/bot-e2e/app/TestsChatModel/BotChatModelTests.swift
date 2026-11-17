@@ -310,6 +310,39 @@ final class BotChatModelTests: XCTestCase {
                        "only the explicit decision emits the approval action")
     }
 
+    /// Combining external admission with continuous chat must preserve both
+    /// the stable nonce and the pending approval; a hand-over is not a deny.
+    func testAdmittedReplayKeepsOneEchoAndDoesNotDecideApproval() async throws {
+        var nonces: [String] = []
+        var approvals = 0
+        let model = BotChatModel(
+            rows: [approvalRow(id: "approval-admitted")],
+            context: context,
+            driver: driver { action in
+                switch action {
+                case .chat(let nonce, _, _, _):
+                    nonces.append(nonce)
+                    return nonces.count == 1
+                        ? .accepted(eventID: "evt-admitted")
+                        : .duplicate(eventID: "evt-admitted")
+                case .approval:
+                    approvals += 1
+                    return .accepted(eventID: "unexpected-approval")
+                default:
+                    return .rejected(reason: "unexpected action")
+                }
+            })
+
+        let first = await model.sendAdmitted(text: "整理评审资料", nonce: "admission-stable")
+        let replay = await model.sendAdmitted(text: "整理评审资料", nonce: "admission-stable")
+        XCTAssertEqual(first, .accepted)
+        XCTAssertEqual(replay, .accepted)
+        XCTAssertEqual(nonces, ["admission-stable", "admission-stable"])
+        XCTAssertEqual(model.rows.filter { $0.id == "local-admission-stable" }.count, 1)
+        XCTAssertEqual(approvals, 0)
+        XCTAssertEqual(model.pendingApprovalCount, 1)
+    }
+
     func testSendDoesNotClearPendingApprovalCount() async throws {
         let model = BotChatModel(rows: [approvalRow(id: "approval-immediate")],
                                  context: context,

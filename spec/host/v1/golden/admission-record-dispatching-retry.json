@@ -1,0 +1,27 @@
+{
+  "name": "admission-record-dispatching-retry",
+  "schema": "schema/admission-record.schema.json",
+  "instance": {
+    "v": 1,
+    "admissionId": "e151e0813a9b4f28e0f18c8c8afdccc73f1f3a5c936742ad6451600e714b61ce",
+    "principal": "account:u_18f3",
+    "source": {
+      "kind": "cloud-task",
+      "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+    },
+    "sourceRequestId": "task-0001",
+    "target": {
+      "kind": "bot",
+      "botId": "bot-7f3a"
+    },
+    "contentSha256": "2ce4bb9f8df6772b141ae37190d59e74e14f39baac5e891a93e4ce3bdec8f666",
+    "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794786400000,
+    "stage": "dispatching",
+    "attempts": 2,
+    "text": "整理今天的会议纪要",
+    "lastError": "downstream_unavailable"
+  },
+  "notes": "spec/host/v1/external-admission.md:§3 — the stage is durable before the downstream write; attempts counts definite downstream failures only."
+}
