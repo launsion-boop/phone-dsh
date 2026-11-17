@@ -145,7 +145,7 @@ before any acceptance), but the acknowledgement is spoken once only when executi
 now (deferred, or no engine within the admission bound), worded 「已经记下了，打开手机后继续处理」.
 Executable work speaks only its answer; the LED shows it running. No wire, BLE or record change.
 
-### Locked admission and proof of absence (revision 9, PROPOSED — needs contract owner sign-off)
+### Locked admission and proof of absence (revision 9, confirmed by user)
 
 Review after merge found two ways a request could be lost or stuck.
 
@@ -161,6 +161,10 @@ Review after merge found two ways a request could be lost or stuck.
    no exit. The read-back now defines that proof (see §10 "Outcome unknown"): inbox projection
    and history from one follow snapshot. The state machine, `rpcId` and the DSH `requestId`
    de-duplication are unchanged; a resend after proof reuses the original `rpcId`.
+
+The user confirmed revision 9 and the bounded-history behavior on 2026-11-16. If 40 history
+pages do not reach the beginning, the request remains outcomeUnknown and is not automatically
+resent. This confirmation does not claim hardware verification or retroactive contract freezing.
 
 Compatibility: no record, schema, wire or BLE change. Old↔new read the same queue; rollback
 restores lock-gated admission and leaves unknown entries in place. Not verified on hardware:
