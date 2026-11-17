@@ -104,6 +104,7 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
     private let onDeleted: Handler?
     private let createRoot: Bool
     private var source: DispatchSourceFileSystemObject?
+    private var timer: DispatchSourceTimer?
     private var previous: [String: BotSkillFileStamp]?
     private var started = false
 
@@ -149,6 +150,14 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
             source.setCancelHandler { close(fd) }
             self.source = source
             source.resume()
+            // FSEvents may coalesce a short-lived create/delete into no
+            // observable change. A bounded periodic rescan is the fallback;
+            // it only emits changed stamps and never reads file bodies.
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(deadline: .now() + 1, repeating: 1)
+            timer.setEventHandler { [weak self] in self?.scan() }
+            self.timer = timer
+            timer.resume()
             started = true
             didStart = true
             NSLog("[BOT_SKILL_OBSERVER] start root=%@", root.path)
@@ -160,7 +169,10 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
         queue.sync {
             source?.cancel()
             source = nil
+            timer?.cancel()
+            timer = nil
             started = false
+            NSLog("[BOT_SKILL_OBSERVER] stop root=%@", root.path)
         }
     }
 
