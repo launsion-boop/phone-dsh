@@ -165,7 +165,8 @@ public actor CloudScheduleClient {
     /// (opaque ids + timing only) and heals a server that lost its schedule
     /// rows; only changed routines produce a routine snapshot write.
     public func noteSchedulesChanged() {
-        requiresReauthentication = false
+        // A routine edit is not a credential refresh. Keep the 401/403 fence
+        // until the account observer confirms a real token update.
         needsFullSync = true
     }
 
