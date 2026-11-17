@@ -197,8 +197,15 @@ final class BotSkillEventQueueTests: XCTestCase {
 
 
     func testFeatureAdminSuppressionSkipsOnlyThatObserverMutation() async throws {
-        let queue = BotSkillEventQueue(producer: producer(), now: { 1 })
-        try Data("weekly".utf8).write(to: project.appendingPathComponent("suppressed.md"))
+        let producer = BotSkillProvenanceProducer(
+            botRoot: "/dsh/workspace/.dshbot/agents/bot-a",
+            roots: QueueTestRoots(user: user, project: project),
+            recorder: { request in
+                BotDerivedRef(kind: .skill, id: request.name, version: request.revision)
+            },
+            latest: { _ in nil }, now: { 1 })
+        let queue = BotSkillEventQueue(producer: producer, now: { 1 })
+        try Data("weekly".utf8).write(to: user.appendingPathComponent("suppressed.md"))
         queue.suppressObserverMutation(
             fileName: "suppressed.md", action: "write", operationID: "op-write")
         await queue.observeUserWrite("suppressed.md")
@@ -213,7 +220,7 @@ final class BotSkillEventQueueTests: XCTestCase {
             sources: [BotDerivationSource(record: "record://event/9", role: .basis)])
         XCTAssertTrue(queue.diagnosticsSnapshot().contains {
             $0.action == "user-write" && $0.outcome == .recorded
-        })
+        }, "\(queue.diagnosticsSnapshot())")
     }
 
 }
