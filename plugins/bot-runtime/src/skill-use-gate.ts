@@ -49,12 +49,41 @@ export function skillUseDenialCode(status: string | null): string {
   return status === null ? 'skill-provenance-untracked' : `skill-provenance-${status}`
 }
 
+export const SKILL_STATUS_UNAVAILABLE = 'skill-provenance-status-unavailable'
+
+function statusUnavailable(): { readonly kind: 'deny'; readonly reason: string } {
+  return {
+    kind: 'deny',
+    reason: `[skill provenance] The skill status could not be verified (${SKILL_STATUS_UNAVAILABLE}); its instructions were NOT loaded.`,
+  }
+}
+
 function denial(status: string | null): { readonly kind: 'deny'; readonly reason: string } {
   const code = skillUseDenialCode(status)
   return {
     kind: 'deny',
     reason: `[skill provenance] This skill is not current (${code}); its instructions were NOT loaded.`,
   }
+}
+
+/**
+ * Parse one internal BotSkillUseStatus tool result. `undefined` means the
+ * lookup itself failed (missing/error/wrong schema), which must not be
+ * reported as a tracked `unknown`; `null` means L has no tracked identity.
+ */
+export function skillStatusFromToolResult(result: unknown): string | null | undefined {
+  if (!isRecord(result) || result.isError === true || !isRecord(result.value)) return undefined
+  const value = result.value.structuredContent
+  if (!isRecord(value) || value.schema !== BOT_SKILL_USE_STATUS_SCHEMA || value.ok !== true) {
+    return undefined
+  }
+  const raw = value.status
+  if (raw === null || raw === undefined) return null
+  if (typeof raw === 'string'
+    && ['current', 'changed', 'unavailable', 'revoked', 'erased', 'unknown'].includes(raw)) {
+    return raw
+  }
+  return undefined
 }
 
 /**
@@ -260,24 +289,11 @@ export default function dshbotSkillUseGate(
         ...exec.agent === undefined ? {} : { agent: exec.agent as never },
       })
       const result = batch.results[0]?.result
-      if (result === undefined || result.isError || !isRecord(result.value)) {
-        return denial('unknown')
-      }
-      const value = result.value.structuredContent
-      if (!isRecord(value) || value.schema !== BOT_SKILL_USE_STATUS_SCHEMA || value.ok !== true) {
-        return denial('unknown')
-      }
-      const raw = value.status
-      if (raw === null || raw === undefined) {
-        status = null
-      } else if (typeof raw === 'string'
-        && ['current', 'changed', 'unavailable', 'revoked', 'erased', 'unknown'].includes(raw)) {
-        status = raw
-      } else {
-        return denial('unknown')
-      }
+      const parsed = skillStatusFromToolResult(result)
+      if (parsed === undefined) return statusUnavailable()
+      status = parsed
     } catch {
-      return denial('unknown')
+      return statusUnavailable()
     }
     if (skillUseDecision(status) === 'allow') return next()
     return denial(status)

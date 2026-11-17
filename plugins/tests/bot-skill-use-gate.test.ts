@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { filterSkillProvenanceMessages, removeCatalogLines, skillUseDecision, skillUseDenialCode } from '../bot-runtime/src/skill-use-gate.ts'
+import { filterSkillProvenanceMessages, removeCatalogLines, skillStatusFromToolResult, skillUseDecision, skillUseDenialCode } from '../bot-runtime/src/skill-use-gate.ts'
 
 test('only a current skill may load', () => {
   assert.equal(skillUseDecision('current'), 'allow')
@@ -94,4 +94,21 @@ test('unknown and nil statuses keep the catalog and body untouched', () => {
     const filtered = filterSkillProvenanceMessages(messages, new Map([['maybe-skill', status]]))
     assert.equal(filtered, messages)
   }
+})
+
+test('status lookup failure is unavailable, while null is untracked and unknown is tracked unknown', () => {
+  const ok = (status: unknown) => ({
+    value: { structuredContent: { schema: 'bot-skill-use-status/v1', ok: true, status } },
+  })
+  assert.equal(skillStatusFromToolResult(ok(null)), null)
+  assert.equal(skillStatusFromToolResult(ok('unknown')), 'unknown')
+  assert.equal(skillStatusFromToolResult(ok('current')), 'current')
+  assert.equal(skillStatusFromToolResult(undefined), undefined)
+  assert.equal(skillStatusFromToolResult({ isError: true, value: {} }), undefined)
+  assert.equal(skillStatusFromToolResult({}), undefined)
+  assert.equal(skillStatusFromToolResult({ value: { structuredContent: {} } }), undefined)
+  assert.equal(skillStatusFromToolResult({
+    value: { structuredContent: { schema: 'wrong', ok: true, status: 'current' } },
+  }), undefined)
+  assert.equal(skillStatusFromToolResult(ok('bogus')), undefined)
 })
