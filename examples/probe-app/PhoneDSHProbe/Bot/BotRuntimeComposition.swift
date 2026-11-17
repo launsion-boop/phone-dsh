@@ -1418,6 +1418,7 @@ final class BotRuntimeComposition {
         let sessions = await sessionIDs(for: botID)
         let previousSelection = rosterModel.selectedBotID
         var pendingApprovalIDs: [String] = []
+        var archiveReceipt = BotSessionArchiveCascade.Receipt()
 
         let plan = BotDeletionPlan(steps: [
             BotDeletionStep(name: "abort-turns") { [weak self] in
@@ -1440,7 +1441,12 @@ final class BotRuntimeComposition {
             },
             BotDeletionStep(name: "archive-sessions") { [weak self] in
                 guard let self else { return }
-                await self.archiveSessions(sessions)
+                archiveReceipt = await self.archiveSessions(sessions)
+            } rollback: { [weak self] in
+                // GAP-45: a later step failed and the Bot stays. An archived session is gated
+                // as `blocked` by the Worker, so lift what this cascade archived.
+                guard let self else { return }
+                await self.restoreArchivedSessions(archiveReceipt)
             },
             BotDeletionStep(name: "clear-routines") { [weak self] in
                 guard let self else { return }
@@ -1530,15 +1536,17 @@ final class BotRuntimeComposition {
         return ids.sorted()
     }
 
-    private func archiveSessions(_ sessions: [String]) async {
-        guard let host, let transport = try? await host.makeTransport() else { return }
-        for sessionID in sessions {
-            _ = try? await transport.call("workspace/archiveSession", args: .object([
-                "request": .object([
-                    "sessionId": .string(sessionID), "stopActivity": .bool(false),
-                ]),
-            ]))
+    private func archiveSessions(_ sessions: [String]) async -> BotSessionArchiveCascade.Receipt {
+        guard let host, let transport = try? await host.makeTransport() else {
+            return BotSessionArchiveCascade.Receipt()
         }
+        return await BotSessionArchiveCascade.archive(sessions, via: transport)
+    }
+
+    private func restoreArchivedSessions(_ receipt: BotSessionArchiveCascade.Receipt) async {
+        guard !receipt.archivedHere.isEmpty,
+              let host, let transport = try? await host.makeTransport() else { return }
+        await BotSessionArchiveCascade.restore(receipt, via: transport)
     }
 
 #if DEBUG

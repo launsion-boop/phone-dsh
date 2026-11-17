@@ -33,7 +33,14 @@ struct MCPSettingsPage: View {
             settings: settings,
             isHostRunning: { ChatModel.shared.isStarted },
             makeTransport: { try await ChatModel.shared.transportForManagement() },
-            refreshPolicy: { ChatModel.shared.refreshMCPAccessPolicy() }))
+            refreshPolicy: { ChatModel.shared.refreshMCPAccessPolicy() },
+            didSaveGrant: { before, after, name in
+                // device-bot-v1 §4 LAN trigger: the user saved the grant and the credential.
+                guard let endpoint = LANGrantTrigger.newlySaved(
+                    beforeURL: before?.url, beforeHasCredential: before?.hasCredential ?? false,
+                    afterURL: after.url, afterHasCredential: after.hasCredential) else { return }
+                DeviceBotRegistry.shared.lanGrantSaved(host: endpoint.host, port: endpoint.port, name: name)
+            }))
     }
 
     var body: some View {
