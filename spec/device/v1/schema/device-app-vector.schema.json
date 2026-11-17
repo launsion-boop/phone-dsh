@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Device app vector (device-app.md §2-§9)",
+  "oneOf": [
+    {"type":"object","additionalProperties":false,"required":["id","kind","value","valid"],
+     "properties":{"id":{"type":"string","minLength":1},"kind":{"type":"string","enum":["name","path","title"]},"value":{"type":"string"},"valid":{"type":"boolean"}}},
+    {"type":"object","additionalProperties":false,"required":["id","kind","app_name","json","valid"],
+     "properties":{"id":{"type":"string","minLength":1},"kind":{"type":"string","const":"manifest"},"app_name":{"type":"string"},"json":{"type":"string"},"valid":{"type":"boolean"}}},
+    {"type":"object","additionalProperties":false,"required":["id","kind","files","digest"],
+     "properties":{"id":{"type":"string","minLength":1},"kind":{"type":"string","const":"digest"},
+       "files":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["path","size","sha256"],
+         "properties":{"path":{"type":"string"},"size":{"type":"integer","minimum":0},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}},
+       "digest":{"type":"string","pattern":"^[0-9a-f]{64}$"}}},
+    {"type":"object","additionalProperties":false,"required":["id","kind","perms","files","ok"],
+     "properties":{"id":{"type":"string","minLength":1},"kind":{"type":"string","const":"check"},
+       "perms":{"type":"array","items":{"type":"string"}},
+       "files":{"type":"object","additionalProperties":{"type":"string"}},
+       "ok":{"type":"boolean"},
+       "code":{"type":"string","enum":["size","lex","fstring","import","name","underscore","perm","except","exit_path"]},
+       "path":{"type":"string"},"line":{"type":"integer","minimum":0}}},
+    {"type":"object","additionalProperties":false,"required":["id","kind","declared","next_offset","offset","same_bytes","length","ok"],
+     "properties":{"id":{"type":"string","minLength":1},"kind":{"type":"string","const":"put"},
+       "declared":{"type":"integer","minimum":1},"next_offset":{"type":"integer","minimum":0},
+       "offset":{"type":"integer","minimum":0},"length":{"type":"integer","minimum":1},"same_bytes":{"type":"boolean"},
+       "ok":{"type":"boolean"},"code":{"type":"string","enum":["offset_mismatch","too_large","bad_request"]},
+       "result_next":{"type":"integer","minimum":0}}}
+  ]
+}
