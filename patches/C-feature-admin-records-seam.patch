@@ -11,7 +11,7 @@ index 4e2108e9d..280b9af54 100644
              try grant(serverName: serverName, url: base.appendingPathComponent(path), headers: headers)
          }
 diff --git a/examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeComposition.swift b/examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeComposition.swift
-index e6b3fcc1f..e717f25eb 100644
+index e6b3fcc1f..d4f0553eb 100644
 --- a/examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeComposition.swift
 +++ b/examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeComposition.swift
 @@ -243,6 +243,9 @@ final class BotRuntimeComposition {
@@ -24,7 +24,7 @@ index e6b3fcc1f..e717f25eb 100644
      /// G-3 account credential observation; cancelled with the composition.
      private var cloudAccountTask: Task<Void, Never>?
      private var contextStartTask: Task<Void, Never>?
-@@ -563,6 +566,39 @@ final class BotRuntimeComposition {
+@@ -563,6 +566,38 @@ final class BotRuntimeComposition {
          composition.installSkillObservers(
              botID: rosterModel.selectedBotID ?? selectedCandidate,
              queue: selectedUnit.skillQueue)
@@ -47,16 +47,15 @@ index e6b3fcc1f..e717f25eb 100644
 +                },
 +                emit: { file, action, requestRecord, appliedRecord in
 +                    guard userSkillRouter.hasQueue else { return false }
-+                    let name = String(file.dropLast(3))
 +                    let sources = [
 +                        BotDerivationSource(record: appliedRecord, role: .basis),
 +                        BotDerivationSource(record: requestRecord, role: .evidence),
 +                    ]
 +                    switch action {
 +                    case .write:
-+                        await userSkillRouter.userWriteAndWait(name, sources: sources)
++                        await userSkillRouter.userWriteAndWait(file, sources: sources)
 +                    case .delete:
-+                        await userSkillRouter.userDeleteAndWait(name, sources: sources)
++                        await userSkillRouter.userDeleteAndWait(file, sources: sources)
 +                    }
 +                    return true
 +                }),

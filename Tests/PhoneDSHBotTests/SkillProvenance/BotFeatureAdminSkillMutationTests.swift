@@ -64,15 +64,21 @@ private final class FeatureAdminQueueSpy: @unchecked Sendable {
             ready: { [weak self] in self?.ready ?? false },
             suppress: { [weak self] file, action, operationID in
                 guard let self else { return }
-                lock.lock(); suppressed.append((file, action, operationID)); lock.unlock()
+                self.lock.lock()
+                self.suppressed.append((file, action, operationID))
+                self.lock.unlock()
             },
             clear: { [weak self] operationID in
                 guard let self else { return }
-                lock.lock(); cleared.append(operationID); lock.unlock()
+                self.lock.lock()
+                self.cleared.append(operationID)
+                self.lock.unlock()
             },
             emit: { [weak self] file, action, request, applied in
                 guard let self else { return false }
-                lock.lock(); emitted.append((file, action, request, applied)); lock.unlock()
+                self.lock.lock()
+                self.emitted.append((file, action, request, applied))
+                self.lock.unlock()
                 return self.emitResult
             })
     }
@@ -369,7 +375,6 @@ final class BotFeatureAdminSkillMutationTests: XCTestCase {
                     queue.clearObserverSuppression(operationID: operationID)
                 },
                 emit: { file, action, requestRecord, appliedRecord in
-                    let name = String(file.dropLast(3))
                     let sources = [
                         BotDerivationSource(record: appliedRecord, role: .basis),
                         BotDerivationSource(record: requestRecord, role: .evidence),
@@ -377,9 +382,9 @@ final class BotFeatureAdminSkillMutationTests: XCTestCase {
                     await queue.enqueueAndWait {
                         switch action {
                         case .write:
-                            await queue.userWrite(name, sources: sources)
+                            await queue.userWrite(file, sources: sources)
                         case .delete:
-                            await queue.userDelete(name, sources: sources)
+                            await queue.userDelete(file, sources: sources)
                         }
                     }
                     return true
@@ -395,6 +400,10 @@ final class BotFeatureAdminSkillMutationTests: XCTestCase {
         ])))
         XCTAssertEqual(applied["ok"]?.boolValue, true)
         let appliedRecord = try XCTUnwrap(applied["record"]?.stringValue)
+        let diagnostics = queue.diagnosticsSnapshot()
+        XCTAssertFalse(diagnostics.contains {
+            $0.action == "user-write" && $0.outcome == .failed
+        }, "\(diagnostics)")
 
         var changed = await log.all().filter { $0.type == "skill.changed" }
         XCTAssertEqual(changed.count, 1, "exactly one skill.changed per UI mutation")
@@ -422,8 +431,8 @@ final class BotFeatureAdminSkillMutationTests: XCTestCase {
         })
 
         let state = try await service.currentState(
-            forSkill: BotSkillIdentity(name: "weekly"), botID: nil)
-        XCTAssertEqual(state.state, .current)
+            forSkill: BotSkillIdentity(name: "weekly"), botID: "bot-a")
+        XCTAssertEqual(state.state, .current, "\(state.reasons) sources=\(state.sources)")
     }
 
     func testErasingTheRequestRecordInvalidatesTheDerivedSkill() async throws {
@@ -448,15 +457,14 @@ final class BotFeatureAdminSkillMutationTests: XCTestCase {
                 },
                 clear: { operationID in queue.clearObserverSuppression(operationID: operationID) },
                 emit: { file, action, requestRecord, appliedRecord in
-                    let name = String(file.dropLast(3))
                     let sources = [
                         BotDerivationSource(record: appliedRecord, role: .basis),
                         BotDerivationSource(record: requestRecord, role: .evidence),
                     ]
                     await queue.enqueueAndWait {
                         switch action {
-                        case .write: await queue.userWrite(name, sources: sources)
-                        case .delete: await queue.userDelete(name, sources: sources)
+                        case .write: await queue.userWrite(file, sources: sources)
+                        case .delete: await queue.userDelete(file, sources: sources)
                         }
                     }
                     return true
@@ -470,8 +478,8 @@ final class BotFeatureAdminSkillMutationTests: XCTestCase {
             "op": .string("applied"), "operation_id": .string("op-1"),
         ])))
         let before = try await service.currentState(
-            forSkill: BotSkillIdentity(name: "weekly"), botID: nil)
-        XCTAssertEqual(before.state, .current)
+            forSkill: BotSkillIdentity(name: "weekly"), botID: "bot-a")
+        XCTAssertEqual(before.state, .current, "\(before.reasons) sources=\(before.sources)")
 
         let seq = try await log.append(BotEvent(
             type: "erasure", eventId: "erasure-request", time: featureAdminTestNow + 1,
@@ -483,7 +491,7 @@ final class BotFeatureAdminSkillMutationTests: XCTestCase {
             ])))
         XCTAssertGreaterThan(seq, 0)
         let after = try await service.currentState(
-            forSkill: BotSkillIdentity(name: "weekly"), botID: nil)
+            forSkill: BotSkillIdentity(name: "weekly"), botID: "bot-a")
         XCTAssertEqual(after.state, .erased)
     }
 
