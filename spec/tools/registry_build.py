@@ -294,6 +294,10 @@ PATH_PROJECTIONS['P07']['evidence'].append('spec/v1/tools/test_ble_secure_sessio
 PATH_PROJECTIONS['P07']['authority'].append('spec/device/v1/device-panel.md')
 PATH_PROJECTIONS['P07']['evidence'].append('spec/v1/tools/test_device_panel_golden.py')
 PATH_PROJECTIONS['P18']['authority'].append('spec/device/v1/device-panel.md')
+# device Bot (PC-20261117-device-bot-contract): trigger/key/text are P07, the persisted map is P18.
+PATH_PROJECTIONS['P07']['authority'].append('spec/device/v1/device-bot.md')
+PATH_PROJECTIONS['P07']['evidence'].append('spec/v1/tools/test_device_bot_binding_golden.py')
+PATH_PROJECTIONS['P18']['authority'].append('spec/device/v1/device-bot.md')
 
 
 def registry_schema():
