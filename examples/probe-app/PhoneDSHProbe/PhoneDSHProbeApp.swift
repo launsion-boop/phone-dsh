@@ -139,6 +139,10 @@ struct PhoneDSHProbeApp: App {
                     await Self.bleAutoconnect()
                 }
                 .task {
+                    // DEBUG only, launch argument `-pdsh-selftest-device-app 1`; bypasses the install approval card.
+                    await DeviceAppSelfTest.runIfRequested()
+                }
+                .task {
                     if let mode = ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] { await TonoLinkUSBOTADiagnostics.run(mode) }
                 }
                 .task {
