@@ -2922,6 +2922,9 @@ public actor BotMCPRuntime {
         // needs an approval card. The model's real action is RequestApproval.
         if name == BotToolCatalog.decisionContextName { return [] }
         if name == BotToolCatalog.volatileContextName { return [] }
+        // The Bot gate reads this internal status tool without user approval;
+        // same read-only contract as the decision/volatile context tools.
+        if name == BotToolCatalog.skillStatusName { return [] }
         let workspace = BotWorkspaceLayout.botRoot(botId: botID)
         if name == "bash" {
             return BotApprovalPatternAnalyzer.effects(
