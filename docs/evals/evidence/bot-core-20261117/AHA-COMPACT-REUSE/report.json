@@ -1,0 +1,197 @@
+{
+  "auto_decisions" : [
+
+  ],
+  "budget" : {
+    "max_minutes" : 18,
+    "max_model_requests" : 45
+  },
+  "expect" : "pass",
+  "expectation_met" : true,
+  "finished_at" : "2026-11-17T06:16:48Z",
+  "id" : "AHA-COMPACT-REUSE",
+  "keep_bodies" : true,
+  "model" : {
+    "base_url_host" : "api.deepseek.com",
+    "name" : "deepseek-flash",
+    "real" : true
+  },
+  "repeat" : 1,
+  "repeats" : [
+    {
+      "actions" : [
+        {
+          "bot" : "main",
+          "detail" : "allow_once",
+          "index" : 0,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "approval_policy",
+          "wall_ms" : 0
+        },
+        {
+          "bot" : "main",
+          "index" : 1,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 156,
+              "turn" : 1
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 8350
+        },
+        {
+          "bot" : "main",
+          "index" : 2,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 2,
+              "turn" : 2
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 1205
+        },
+        {
+          "bot" : "main",
+          "index" : 3,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 2,
+              "turn" : 3
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 6579
+        },
+        {
+          "bot" : "main",
+          "index" : 4,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 2,
+              "turn" : 4
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 12973
+        },
+        {
+          "bot" : "main",
+          "index" : 5,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 2,
+              "turn" : 5
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 12944
+        },
+        {
+          "bot" : "main",
+          "index" : 6,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 64,
+              "turn" : 6
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 13770
+        }
+      ],
+      "approval_requests" : {
+
+      },
+      "assertions" : [
+        {
+          "bot" : "main",
+          "detail" : "found 6 compaction\/summary session event(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "session_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "found 3 user\/message session event(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "session_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "reply contains \"成果\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "turn" : 6,
+          "type" : "reply_contains"
+        },
+        {
+          "bot" : "main",
+          "detail" : "found 2 memory.document_written event(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "found 2 matching memory fact(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "memory_contains"
+        }
+      ],
+      "auto_decisions" : [
+
+      ],
+      "index" : 1,
+      "page_visibility" : {
+        "attached_with_visible_area" : true,
+        "document_visibility_state" : "visible",
+        "is_visible" : true,
+        "window_occlusion_visible" : true
+      },
+      "status" : "PASS",
+      "usage" : {
+        "max_minutes" : 18,
+        "max_model_requests" : 45,
+        "model_requests" : 20,
+        "recorded_model_requests" : 20,
+        "upstream_bytes_in" : 2186400,
+        "upstream_bytes_out" : 1157942,
+        "upstream_requests" : 20,
+        "wall_s" : 60.286630034446716
+      },
+      "wall_s" : 60.286630034446716
+    }
+  ],
+  "run_status" : "PASS",
+  "schema_version" : 1,
+  "selftest" : false,
+  "started_at" : "2026-11-17T06:15:47Z",
+  "status" : "PASS",
+  "title" : "reuse a stored way of working after a real compaction",
+  "upstream" : "real",
+  "usage" : {
+    "model_requests" : 20,
+    "upstream_bytes_in" : 2186400,
+    "upstream_bytes_out" : 1157942,
+    "wall_s" : 60.286630034446716
+  }
+}

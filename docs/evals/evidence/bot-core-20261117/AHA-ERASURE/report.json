@@ -1,0 +1,181 @@
+{
+  "auto_decisions" : [
+
+  ],
+  "budget" : {
+    "max_minutes" : 10,
+    "max_model_requests" : 25
+  },
+  "expect" : "pass",
+  "expectation_met" : true,
+  "finished_at" : "2026-11-17T06:18:23Z",
+  "id" : "AHA-ERASURE",
+  "keep_bodies" : true,
+  "model" : {
+    "base_url_host" : "api.deepseek.com",
+    "name" : "deepseek-flash",
+    "real" : true
+  },
+  "repeat" : 1,
+  "repeats" : [
+    {
+      "actions" : [
+        {
+          "bot" : "main",
+          "detail" : "allow_once",
+          "index" : 0,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "approval_policy",
+          "wall_ms" : 0
+        },
+        {
+          "bot" : "main",
+          "index" : 1,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 77,
+              "turn" : 1
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 7914
+        },
+        {
+          "bot" : "main",
+          "detail" : "erased agent scope",
+          "index" : 2,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "ui_action",
+          "wall_ms" : 96
+        },
+        {
+          "bot" : "main",
+          "detail" : "erased user scope",
+          "index" : 3,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "ui_action",
+          "wall_ms" : 1098
+        },
+        {
+          "bot" : "main",
+          "detail" : "plannedRestart completed",
+          "index" : 4,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "restart_worker",
+          "wall_ms" : 6941
+        },
+        {
+          "bot" : "main",
+          "index" : 5,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 7,
+              "turn" : 2
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 3191
+        }
+      ],
+      "approval_requests" : {
+
+      },
+      "assertions" : [
+        {
+          "bot" : "main",
+          "detail" : "reply does not contain \"QUOKKA_AHA_9D2\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "turn" : 2,
+          "type" : "reply_not_contains"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no memory fact matched \"QUOKKA_AHA_9D2\" for main",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "memory_absent"
+        },
+        {
+          "bot" : "main",
+          "detail" : "found 4 memory.document_written event(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "found 2 erasure event(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no memory.document_written event matched ",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "no_bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "scanned 2 session log file(s); none contains the word",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "session_log_absent"
+        }
+      ],
+      "auto_decisions" : [
+
+      ],
+      "index" : 1,
+      "page_visibility" : {
+        "attached_with_visible_area" : true,
+        "document_visibility_state" : "visible",
+        "is_visible" : true,
+        "window_occlusion_visible" : true
+      },
+      "status" : "PASS",
+      "usage" : {
+        "max_minutes" : 10,
+        "max_model_requests" : 25,
+        "model_requests" : 7,
+        "recorded_model_requests" : 7,
+        "upstream_bytes_in" : 506259,
+        "upstream_bytes_out" : 108527,
+        "upstream_requests" : 7,
+        "wall_s" : 23.506783962249756
+      },
+      "wall_s" : 23.506783962249756
+    }
+  ],
+  "run_status" : "PASS",
+  "schema_version" : 1,
+  "selftest" : false,
+  "started_at" : "2026-11-17T06:17:59Z",
+  "status" : "PASS",
+  "title" : "erasure clears the word and survives a restart",
+  "upstream" : "real",
+  "usage" : {
+    "model_requests" : 7,
+    "upstream_bytes_in" : 506259,
+    "upstream_bytes_out" : 108527,
+    "wall_s" : 23.506783962249756
+  }
+}
