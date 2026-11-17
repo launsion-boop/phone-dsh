@@ -39,15 +39,21 @@ final class BotWorkspaceFileDerivationTests: XCTestCase {
     func testDerivationUsesCanonicalUserEventAndWorkspaceFileIdentity() throws {
         let value = BotDSHRemoteRuntime.workspaceFileDerivation(
             path: "docs/current.md", botID: "main",
-            userRecord: "record://event/14")
+            userRecord: "record://event/14",
+            creatorRecord: "record://event/15")
         let derivation = try XCTUnwrap(value.objectValue)
         let artifact = try XCTUnwrap(derivation["artifact"]?.objectValue)
         XCTAssertEqual(artifact["kind"]?.stringValue, "workspaceFile")
         XCTAssertEqual(artifact["id"]?.stringValue, "docs/current.md")
         XCTAssertNil(artifact["version"])
-        let source = try XCTUnwrap(derivation["sources"]?.arrayValue?.first?.objectValue)
+        let sources = try XCTUnwrap(derivation["sources"]?.arrayValue)
+        XCTAssertEqual(sources.count, 2)
+        let source = try XCTUnwrap(sources.first?.objectValue)
         XCTAssertEqual(source["record"]?.stringValue, "record://event/14")
-        XCTAssertEqual(source["role"]?.stringValue, "evidence")
+        XCTAssertEqual(source["role"]?.stringValue, "trigger")
+        let cre = try XCTUnwrap(sources.last?.objectValue)
+        XCTAssertEqual(cre["record"]?.stringValue, "record://event/15")
+        XCTAssertEqual(cre["role"]?.stringValue, "creator")
         let resource = try XCTUnwrap(source["resource"]?.objectValue)
         XCTAssertEqual(resource["kind"]?.stringValue, "workspace-file")
         XCTAssertEqual(resource["key"]?.stringValue, "docs/current.md")

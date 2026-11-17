@@ -3701,12 +3701,24 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     kind: watchdogKind(kind), id: "\(sessionId):\(currentTurn ?? "unknown")",
                     name: name, status: failed ? "error" : "ok", callId: callId, at: eventTime)
                 var resultData = data
+                var writeSources = currentUserSourceRef.map {
+                    [BotDerivationSource(record: $0, role: .trigger)]
+                } ?? []
+                var creatorRecord: String?
+                var creatorSHA: String?
+                if !failed, name == "write",
+                   let callRef = toolCallRecordRefs[callId],
+                   let contentSHA = toolWriteCreatorSHA[callId] {
+                    creatorRecord = callRef
+                    creatorSHA = contentSHA
+                    writeSources.append(BotDerivationSource(record: callRef, role: .creator))
+                }
                 if !failed, let path = toolWritePaths[callId],
-                   let userRef = currentUserSourceRef,
+                   (currentUserSourceRef != nil || creatorRecord != nil),
                    case var .object(object) = data {
                     object["derivation"] = Self.workspaceFileDerivation(
-                        path: path, botID: botId, userRecord: userRef,
-                        creatorRecord: toolCallRecordRefs[callId])
+                        path: path, botID: botId, userRecord: currentUserSourceRef,
+                        creatorRecord: creatorRecord)
                     resultData = .object(object)
                 }
                 toolWritePaths.removeValue(forKey: callId)
@@ -3720,15 +3732,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     // content basis: G-SCB-1 only evidence/basis count. An
                     // edit carries just a patch, so it stays trigger-only and
                     // content-unknown until a reconstructable version exists.
-                    var sources = currentUserSourceRef.map {
-                        [BotDerivationSource(record: $0, role: .trigger)]
-                    } ?? []
-                    if name == "write",
-                       toolWriteFullContent[callId] == true,
-                       let callRef = toolCallRecordRefs[callId],
-                       resultCommitSeq > 0 {
-                        sources.append(BotDerivationSource(record: callRef, role: .creator))
-                    }
                     let botID = botId
                     let session = sessionId
                     let creatorRecord = sources.first(where: { $0.role == .creator })?.record
@@ -3736,8 +3739,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     await skillQueue.enqueueAndWait {
                         await skillQueue.runtimeWrite(
                             vfs: writeVfsPath, botID: botID, sessionID: session,
-                            sources: sources, creatorRecord: creatorRecord,
-                            creatorContentSHA256: creatorHash)
+                            sources: writeSources, creatorRecord: creatorRecord,
+                            creatorContentSHA256: creatorSHA)
                     }
                 }
                 toolCallRecordRefs.removeValue(forKey: callId)
@@ -3866,9 +3869,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// monotonic version; the real current user turn is the evidence source.
     /// A missing user source never produces a derivation.
     static func workspaceFileDerivation(path: String, botID: String,
-                                        userRecord: String,
+                                        userRecord: String?,
                                         creatorRecord: String? = nil) -> BotJSONValue {
-        var sourceList: [BotJSONValue] = [.object([
+        var sources: [BotJSONValue] = []
+        if let userRecord {
+            sources.append(.object([
                 "record": .string(userRecord),
                 "role": .string("trigger"),
                 "resource": .object([
@@ -3876,9 +3881,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     "key": .string(path),
                     "owner": .string(botID),
                     "scope": .string("agent"),
-                ])])
+                ]),
+            ]))
+        }
         if let creatorRecord {
-            sourceList.append(.object([
+            sources.append(.object([
                 "record": .string(creatorRecord),
                 "role": .string("creator"),
                 "resource": .object([
@@ -3894,7 +3901,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 "kind": .string("workspaceFile"),
                 "id": .string(path),
             ]),
-            "sources": .array(sourceList),
+            "sources": .array(sources),
         ])
     }
 
