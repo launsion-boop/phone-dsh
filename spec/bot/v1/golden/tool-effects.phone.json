@@ -638,6 +638,46 @@
         "known": true,
         "isMcp": false
       }
+    },
+    {
+      "name": "DeviceAppList",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "DeviceAppList",
+        "operation": "device.app.list",
+        "resource": "device-app:list",
+        "target": "device-app:list",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "查看设备上的应用",
+        "detail": "读取设备上已装的设备应用（名称、版本、是否在运行），不改动设备。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "DeviceAppRemove",
+      "args": {
+        "name": "focus_timer"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "DeviceAppRemove",
+        "operation": "device.app.remove",
+        "resource": "device-app:remove&app=focus_timer",
+        "target": "device-app:remove&app=focus_timer",
+        "mutability": "destructive",
+        "policy": "ask",
+        "label": "从设备上删除应用",
+        "detail": "停止并删除设备上的一个设备应用；每次删除都需要你确认。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
     }
   ],
   "invalid": [
@@ -681,6 +721,49 @@
         "detail": "从 用户共享记忆移除一条事实。",
         "ui": false,
         "execution": "memory",
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "DeviceAppRemove",
+      "args": {
+        "name": "/apps/focus_timer"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "DeviceAppRemove",
+        "operation": "device.app.remove",
+        "resource": "device-app:remove",
+        "target": "device-app:remove",
+        "mutability": "destructive",
+        "policy": "ask",
+        "label": "从设备上删除应用",
+        "detail": "停止并删除设备上的一个设备应用；每次删除都需要你确认。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "DeviceAppList",
+      "args": {
+        "name": "focus_timer",
+        "path": "/apps"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "DeviceAppList",
+        "operation": "device.app.list",
+        "resource": "device-app:list",
+        "target": "device-app:list",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "查看设备上的应用",
+        "detail": "读取设备上已装的设备应用（名称、版本、是否在运行），不改动设备。",
+        "ui": false,
+        "execution": null,
         "known": true,
         "isMcp": false
       }

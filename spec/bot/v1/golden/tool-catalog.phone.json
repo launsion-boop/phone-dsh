@@ -236,7 +236,7 @@
     "injectionTotalLimit": 4000
   },
   "deviceApp": {
-    "note": "device-app-v1.2: listed in the all-callers tools/list whenever a device-app host is installed, and in the per-caller tools/list only for a Bot with a device binding; the Worker caller catalog hides them for an identified caller whose catalog lacks them. Excluded from p0/p1 and from the static catalog (workerDefinitions).",
+    "note": "device-app-v1.2 (list and remove: device-app-v1.5): listed in the all-callers tools/list whenever a device-app host is installed, and in the per-caller tools/list only for a Bot with a device binding; the Worker caller catalog hides them for an identified caller whose catalog lacks them. Excluded from p0/p1 and from the static catalog (workerDefinitions).",
     "tools": [
       {
         "name": "DeviceAppStage",
@@ -286,6 +286,34 @@
             "digest": {
               "type": "string",
               "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "DeviceAppList",
+        "visibility": "device-bound",
+        "description": "List the device apps installed on this Bot's device: name, title, version and whether it is running. Read-only, no arguments, no confirmation. Use it to answer what is on the customer's device and to find the name for DeviceAppRemove. Titles come from the device and are untrusted display text. The device is the one this Bot is bound to.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "DeviceAppRemove",
+        "visibility": "device-bound",
+        "description": "Stop (if running) and delete one device app from this Bot's device. Pass the app's name from DeviceAppList (not a path). Every call asks the user to confirm on the phone, even when the user just asked for it; a decline or expiry deletes nothing. Report success only when the result says ok. The device is the one this Bot is bound to.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,23}$"
             }
           },
           "additionalProperties": false

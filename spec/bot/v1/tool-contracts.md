@@ -330,7 +330,7 @@ spelling for an existing member.
 - `BotVolatileContext` is a Bot tool even though it is not in the upstream P0 catalog; it is
   advertised by `BotToolCatalog.allDefinitions` and is covered by §8.
 
-## 10. Device app tools (phone-only, device-bound Bots)
+## 10. Device app tools (phone-only, device-bound Bots; `DeviceAppList` / `DeviceAppRemove` from `device-app-v1.5`)
 
 Owned by P26 for the Bot surface; the install pipeline, bundle digest, static check and approval
 text are owned by [device-app.md](../../device/v1/device-app.md) (§4, §7, §9). Names, descriptions
@@ -345,13 +345,25 @@ classification in `golden/tool-effects.phone.json`.
 - `DeviceAppInstall {digest}` (`digest` is 64 lowercase hex, no other property) installs the bundle
   staged earlier in the same session. Effect: `destructive`/`ask`, operation `device.app.install`,
   resource `device-app:install&digest=<digest>`, no `grantResource` (no standing grant is offered).
-- Both tools are callable only for a Bot with a device binding. The device is the one in
+- `DeviceAppList {}` (no property at all) reads the installed device apps of the bound device:
+  success `{ok:true, count, apps:[{name,title,version?,running}], message, hint}`. Effect:
+  `read`/`auto`, operation `device.app.list`, resource `device-app:list`; no approval.
+- `DeviceAppRemove {name}` (`name` matches `^[a-z][a-z0-9_]{0,23}$`, no other property; a path is
+  never accepted) stops the app if it runs and removes it. Effect: `destructive`/`ask`, operation
+  `device.app.remove`, resource `device-app:remove&app=<name>` (just `device-app:remove` when `name`
+  is missing or fails the rule), no `grantResource`. Success `{ok:true, removed:true, name,
+  was_running, audit_recorded, message, hint}`; failure `error.code` `remove_failed` (+ `error.reason`),
+  `outcome_unknown`, `busy`, `permission_denied`, `invalid_arguments`.
+- All four tools are callable only for a Bot with a device binding. The device is the one in
   the binding; it is never an argument. A Bot without a binding does not see them and a call is
   refused as for any unlisted tool (the host checks the call against the same per-caller catalog
   `tools/list` returns for that principal).
 - Every `DeviceAppInstall` call raises one once-only approval, also on a user's own turn, **before
-  any radio use**, bound to the full digest. A decline or expiry installs nothing.
-- Error codes of the result: `not_staged`, `stale_binding`, `digest_mismatch`, `busy`,
+  any radio use**, bound to the full digest. A decline or expiry installs nothing. Every
+  `DeviceAppRemove` call raises its own once-only approval in the same way (action `DeviceAppRemove`,
+  `alwaysScope` `none`, bound to the device key and the app name); a decline or expiry removes nothing
+  and touches no radio (device-app.md §7, `device-app-v1.5`).
+- Error codes of the result (install and stage): `not_staged`, `stale_binding`, `digest_mismatch`, `busy`,
   `install_failed`, `outcome_unknown`, `permission_denied`, `invalid_arguments`, `manifest`. The
   install success payload is `{ok:true, installed:true, digest, name, audit_recorded, opened, message,
   hint}` (and `run_reason` when the automatic `app.run` failed); `audit_recorded` is a boolean and is
@@ -359,21 +371,25 @@ classification in `golden/tool-effects.phone.json`.
   claim the install was logged). A failure keeps `error.code` and adds `error.reason`, `message` (one
   customer sentence, also the visible text), `hint` and `diagnostic` (device-app.md §8.1, §12,
   `device-app-v1.4`). The host runs `app.run` after the commit.
+- After a successful removal the host writes a durable
+  `ui.system_event{event:"device.app.remove", device, name, title?, was_running, author}` with the
+  same `author` record.
 - After a successful install the host writes a durable
   `ui.system_event{event:"device.app.install", device, name, title, version, digest,
   files:[{path,size,sha256}], author}` where `author` is the same author record as the
   `CreateTeammate` audit (`rpcId`, `turnId`, `sessionId`, `origin`, `authorization`, `approvalID`).
 - Catalog visibility (device-app-v1.2, replaces the earlier "per-caller only" rule). The Worker
-  registers `mcp__phone__*` tools only from the all-callers `tools/list`, so the host lists both
+  registers `mcp__phone__*` tools only from the all-callers `tools/list`, so the host lists all four
   tools there whenever a device-app host is installed. The per-caller `tools/list` (the
   `x-pdsh-bot-session` request) lists them only when the caller has a binding. The Worker's
-  caller catalog is deny-unless-listed for exactly these two names: an identified caller whose
+  caller catalog is deny-unless-listed for exactly these four names: an identified caller whose
   per-caller catalog lacks one gets it hidden from its tool surface; a caller that cannot be
   identified keeps the all-callers surface and the host still refuses an unbound call. They are
   excluded from the golden's `p0`/`p1` lists and from the static catalog count
   (`BotToolCatalog.workerDefinitions`), which is what the host returns when no device-app host is
   installed.
-- The Worker approval gate classifies both bare names (with or without `mcp__phone__`) as
-  App-owned: no Worker effect, no `/approval` round trip. `DeviceAppStage` is the host's
-  `read`/`auto`; `DeviceAppInstall` raises the App's own once-only approval (above). A near name
+- The Worker approval gate classifies all four bare names (with or without `mcp__phone__`) as
+  App-owned: no Worker effect, no `/approval` round trip. `DeviceAppStage` and `DeviceAppList` are the
+  host's `read`/`auto`; `DeviceAppInstall` and `DeviceAppRemove` raise the App's own once-only
+  approval (above). A near name
   stays `tool.unclassified`.

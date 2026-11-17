@@ -8,7 +8,10 @@ import Foundation
 public enum DeviceAppToolNames {
     public static let stage = "DeviceAppStage"
     public static let install = "DeviceAppInstall"
-    public static let all: [String] = [stage, install]
+    /// `device-app-v1.5`: read the installed apps / stop and remove one.
+    public static let list = "DeviceAppList"
+    public static let remove = "DeviceAppRemove"
+    public static let all: [String] = [stage, install, list, remove]
     public static func handles(_ name: String) -> Bool { all.contains(name) }
 }
 
@@ -75,16 +78,83 @@ public enum DeviceAppInstallOutcome: Sendable, Equatable {
     case outcomeUnknown(message: String)
 }
 
-/// The durable `ui.system_event{event:"device.app.install"}` payload.
+/// One app of the device's `app.info` reply (device-app.md §5), as the phone reads it.
+public struct DeviceAppListedApp: Sendable, Equatable {
+    public let name: String
+    /// nil when the device reports none.
+    public let title: String?
+    public let version: Int?
+    public let running: Bool
+    public init(name: String, title: String? = nil, version: Int? = nil, running: Bool = false) {
+        self.name = name
+        self.title = title
+        self.version = version
+        self.running = running
+    }
+}
+
+/// What a full `app.info` read says (list and remove; the install path keeps `DeviceAppInfoResult`).
+public enum DeviceAppSnapshot: Sendable, Equatable {
+    case reply(protocolName: String?, apps: [DeviceAppListedApp])
+    case unavailable(String)
+}
+
+/// Outcome of `DeviceAppList`'s injected reader.
+public enum DeviceAppListOutcome: Sendable, Equatable {
+    case apps([DeviceAppListedApp])
+    case failed(code: String, message: String)
+}
+
+/// What the injected remover receives. It is built only after approval; the device is the
+/// Bot's binding and `name` passed the §2 app-name rule.
+public struct DeviceAppRemoveRequest: Sendable, Equatable {
+    public let deviceKey: String
+    public let name: String
+    public init(deviceKey: String, name: String) {
+        self.deviceKey = deviceKey
+        self.name = name
+    }
+}
+
+/// What the injected remover observed. Only `.removed` is a success.
+public enum DeviceAppRemoveOutcome: Sendable, Equatable {
+    /// `wasRunning`: the app was open and the host stopped it first.
+    case removed(wasRunning: Bool)
+    case failed(code: String, message: String)
+    /// The remove reply was lost and `app.info` could not settle it.
+    case outcomeUnknown(message: String)
+}
+
+public enum DeviceAppAuditAction: String, Sendable, Equatable { case install, remove }
+
+/// The durable `ui.system_event{event:"device.app.install"}` payload. With `action: .remove` it is
+/// the `device.app.remove` event of `DeviceAppRemove` (device-app-v1.5): no digest, no files.
 public struct DeviceAppInstallAudit: Sendable, Equatable {
     public static let event = "device.app.install"
+    public static let removeEvent = "device.app.remove"
     public let deviceKey: String
     public let manifest: DeviceAppManifestSummary
     public let digest: String
     public let files: [DeviceAppFileEntry]
     public let author: BotTeammateAuthor
+    public var action: DeviceAppAuditAction = .install
+    public var wasRunning: Bool = false
 
     public var eventData: BotJSONValue {
+        if action == .remove {
+            var fields: [String: BotJSONValue] = [
+                "event": .string(Self.removeEvent),
+                "device": .string(deviceKey),
+                "name": .string(manifest.name),
+                "was_running": .bool(wasRunning),
+            ]
+            if !manifest.title.isEmpty { fields["title"] = .string(manifest.title) }
+            if let data = try? JSONEncoder().encode(author),
+               let value = try? BotJSONValue.parse(data) {
+                fields["author"] = value
+            }
+            return .object(fields)
+        }
         var fields: [String: BotJSONValue] = [
             "event": .string(Self.event),
             "device": .string(deviceKey),

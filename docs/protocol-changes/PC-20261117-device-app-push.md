@@ -10,10 +10,10 @@ status: frozen
 breaking: false
 version_decision: 无 Link wire 变更。新增一组设备自报的普通 Link 工具（app.*）和手机侧宿主工具；旧手机见到的只是不认识的工具名，旧设备没有这些工具即不是安装目标。
 base: 1b20204a  # spec/device-bot-contract
-contract_revision: device-app-v1.1  # spec/device/v1/device-app.md + schema/device-app-vector.schema.json + golden/device-app.jsonl (91 vectors, sha256 963187a6…3f7d), checker spec/v1/tools/test_device_app_golden.py
+contract_revision: device-app-v1.5  # device-app-v1.1 base below; v1.5 adds DeviceAppList / DeviceAppRemove (§9). spec/device/v1/device-app.md + schema/device-app-vector.schema.json + golden/device-app.jsonl (91 vectors, sha256 963187a6…3f7d), checker spec/v1/tools/test_device_app_golden.py
 ```
 
-Protocol impact: P07; P26; P09: none — 设备应用的 UI 入口另出页面契约，本单只定名字「设备应用」; P18: none — 不新增持久化键，journal 回收是既有 Link journal 的清理，不改键名与格式; P25: none — 只新增一条 `ui.system_event`（`device.app.install`），事件 envelope 不变，若实现时发现需要新 schema 则回到本单修订; P27: none — 审批行沿用通用 `approval` 行，不加字段; P01/P02: none — 不碰通道编解码与 WAL。
+Protocol impact: P07; P26 (v1.5: tool-contracts §10, tool-catalog / tool-effects phone goldens, Worker approval-gate and caller-catalog); P09: none — 设备应用的 UI 入口另出页面契约，本单只定名字「设备应用」; P18: none — 不新增持久化键，journal 回收是既有 Link journal 的清理，不改键名与格式; P25: none — 只新增一条 `ui.system_event`（`device.app.install`），事件 envelope 不变，若实现时发现需要新 schema 则回到本单修订; P27: none — 审批行沿用通用 `approval` 行，不加字段; P01/P02: none — 不碰通道编解码与 WAL。
 
 ## 1. 识别与角色
 
@@ -92,6 +92,8 @@ Protocol impact: P07; P26; P09: none — 设备应用的 UI 入口另出页面�
 | device-app-v1.2 | 主 agent（经 CCR 接受，由实现者代编辑契约） | 真机联调发现 Worker 只从全调用方 `tools/list` 注册 `mcp__phone__*` 工具，而 §10 把两个工具排除在该列表之外，模型看不到、调用得到 `unknown tool`；此前 Worker 审批门也未登记这两个名字，会以 `tool.unclassified`（session）送 `/approval`，被 App 以 `stale:always_scope` 拒绝 | Worker（审批门、caller-catalog）、iOS BotMCPRuntime、spec/bot/v1/tool-contracts.md §10、golden/tool-catalog.phone.json `deviceApp.note` |
 | device-app-v1.4 | 主 agent（客户旅程审计后，由实现者代编辑契约） | 客户不开设置、不看日志、不是开发者：审批卡与错误全部改为客户语言；装好后自动打开；结果未知与传输中断由安装器自己定论或重试一次 | iOS（工具宿主、效果卡、作者指南 v2、安装器接线、BLE 安装器、probe-app 接线）；Worker 无变化（审批门仍把两个名字视为 App 自有） |
 
+| device-app-v1.5 | 主 agent（真机走查：客户装完后看不到设备上有什么，也不能停止或删除，`app.stop` / `app.remove` 无调用方） | 新增两个 Bot 宿主工具 `DeviceAppList`（只读）与 `DeviceAppRemove {name}`（一次性审批）；见 §9 | iOS（工具宿主、效果、客户措辞、BLE 接线、作者指南 v3、probe-app 接线）；Worker（审批门、caller-catalog）；golden `tool-catalog.phone.json` / `tool-effects.phone.json` 与 export-manifest 钉住的 sha256 |
+
 ## 6. CCR 与决定（device-app-v1.2）
 
 ```
@@ -147,3 +149,34 @@ Worker 审批门（`approval-gate.ts` `AUTO_TOOLS`）：`DeviceAppStage`、`Devi
 - 相容性：无 Link wire、无设备端变更（`app.run` 是既有 `app.*`，已在 v1.3 的放过名单内）。结果载荷只增不删：成功多 `opened`、`message`、`hint`（可含 `run_reason`），失败多 `error.reason`、`message`、`hint`、`diagnostic`；`error.code` 集合不变。旧 Worker/旧 Bot 照常读 `ok`/`error.code`。回滚 App：回到旧措辞，不自动打开。
 - 未验证：真机上 `app.run` 之后的屏幕、设备在传输中重启后的重连时长（自动重试等待最多约 15 s，未经实测）、「会替换已有应用」在手机从未见过设备应用列表时不会出现。
 - 回归：`DeviceAppToolsTests`（卡片文本与绑定、自动打开与失败、客户语句、规格 §8 每个码都有句子）、`DeviceAppWiringTests`（一次重试、不重试、未知结果由 info 定论）、`DeviceAppInstallerTests`（提交被断开按未知处理）。
+
+## 9. device-app-v1.5：设备上有什么、怎么删（`DeviceAppList`、`DeviceAppRemove`）
+
+- 触发：真机走查（客户旅程）。安装之后客户无处看到设备上装了什么，也不能停止或删除一个应用；Bot 回答不了「我设备上有什么」「把计时器删掉」。设备上的 `app.stop` / `app.remove` 没有任何调用方（只有自检）。
+- 现况 → 期望：现况是 Bot 只有 `DeviceAppStage`、`DeviceAppInstall`；期望是绑定了设备应用能力的 Link 设备的 Bot 多两个宿主工具，可见性规则与前两者相同（全调用方 `tools/list` 列出，per-caller 目录只对已绑定 Bot 列出，Worker deny-unless-listed，未绑定的调用宿主拒绝）。
+- 契约 delta：
+
+| 项 | 内容 |
+| --- | --- |
+| `DeviceAppList {}` | 只读、无审批、无参数。设备取自绑定，不取自模型参数。链路检查（已连接、设备声明了工具）后读一次 `app.info`，返回 `{ok, count, apps:[{name,title,version?,running}], message, hint}`；设备自报的字符串一律清洗、截断。失败为 `error.code=list_failed`，`error.reason` 为机器码，`message` 取自 device-app.md §8.2 的客户句子 |
+| `DeviceAppRemove {name}` | `name` 必须符合既有应用名规则（§2），路径与多余成员一律 `invalid_arguments`，且发生在审批与射频之前。**每次调用**都先弹一次性审批（含用户亲自发话的回合；`alwaysScope=none`，不提供长期授权；同一 330 s 卡片与同一 10 s 本地提醒），卡片文字为 `要从「<设备名>」上删除「<应用名>」吗？` + `删除后不能恢复，需要的话让我重新做一个。`；批准后才读 `app.info`、仅当该应用在运行时 `app.stop`（失败则不发 `app.remove`），再发一次 `app.remove {name}`。回复丢失由 `app.info` 定论（名字不在=已删除；还在=`not_removed`；读不出=`outcome_unknown`），绝不重发 |
+| 授权 | 与 §7（v1.3）一致：`app.stop`、`app.remove` 本就在 user 来源免设置授权的八个名字之内，不新增名字；agent 来源仍 host-only 被拒 |
+| 忙守卫 | 一台设备同一时刻一个操作：安装或删除占用设备（等审批或在射频上）时，另一个删除、安装和 `DeviceAppList` 返回 `busy`；同名删除的重试得到真实状态，不再弹第二张卡 |
+| 审计 | 复用既有审计器，新增事件名 `ui.system_event{event:"device.app.remove", device, name, title?, was_running, author}`（无 digest、无文件）；写入失败为 `audit_recorded:false`。事件 envelope 不变（P25: none） |
+| 措辞 | device-app.md §8.2 一张表（键为同一批机器码，句子不含「安装」、不含码）；未知码得到该工具的通用句，不会露出码 |
+| Worker | `approval-gate.ts` 的 `AUTO_TOOLS` 增加两个名字（`DeviceAppList` 宿主 `read/auto`；`DeviceAppRemove` 由 App 自己弹卡，Worker 不提 effect、不走 `/approval`）；`caller-catalog.ts` 的 deny-unless-listed 集合增加两个名字。近似名（`DeviceAppListX`、`DeviceAppRemoveAll` 等）仍是 `tool.unclassified` |
+| golden | `tool-catalog.phone.json` `deviceApp.tools` 增加两项；`tool-effects.phone.json` 增加 valid `DeviceAppList`、`DeviceAppRemove` 与 invalid `DeviceAppRemove`（路径当名字、不进 resource）、`DeviceAppList`（多余参数不影响分类）；合并后向量总数 31 → 35（`BotGoldenVectorTests` 钉住）；export-manifest 中两文件的 sha256 随之更新 |
+| 作者指南 | v2 → v3，新增「查看和删除」一节（名字取自列表、先告诉用户会弹确认卡、只有 ok 才说已删除、不对客户提 name 与工具名）；仍 ≤ 6000 字符 |
+
+- 相容性：
+
+| Producer → Consumer | 处理 |
+| --- | --- |
+| 新 App → 旧 Worker 镜像 | 全调用方列表多两个工具；旧 Worker 会把它们当 `tool.unclassified`（session）送 `/approval`，被 App 拒 `stale:always_scope`，与 v1.2 同类；须同时更新 Worker 镜像 |
+| 旧 App → 新 Worker | 全调用方列表没有这两个名字，deny 对不存在的名字无效，无功能无副作用 |
+| 新手机 → 旧设备 | 只用设备既有的 `app.info`、`app.stop`、`app.remove`（device-app-v1 §5），没有新设备工具；缺少这些工具的设备被预检拒绝，客户得到「这台设备不支持设备应用」 |
+| 旧数据 → 新 / 回滚 | 无持久化格式变更；`device.app.remove` 是新增的 `ui.system_event` 事件名，旧读取方按未知事件名忽略。回滚 App 即两工具不可见，设备上的应用保留 |
+
+- 未验证：真机 `app.remove` 的回复形状与耗时、删除运行中应用时 `app.stop` 与 `app.remove` 之间的设备行为、probe-app 接线只通过 iOS 模拟器编译（未运行、未上真机）；`app.remove` 是 durable 调用，回复丢失后的 `app.info` 定论逻辑只由宿主测试覆盖。
+- 回归（改动前失败）：`DeviceAppListRemoveTests`（可见性：已绑定/未绑定/全调用方；未绑定拒绝且读取与删除都不执行；列表客户文字与机器字段、不弹审批、设备取自绑定；`DeviceAppRemove` 批准前不执行、拒绝或取消不执行、每次调用各自审批、路径与坏名字在审批前拒绝、忙守卫、失败与未知不当作成功、审计事件）、`DeviceAppListRemoveWiringTests`（预检失败不读不发、只停运行中的目标、`stop_failed` 之后不发删除、丢失回复由 info 定论且只发一次）、措辞表覆盖测试（规格 §8 / §8.2 每个码都有句子，不含「安装」）、`BotGoldenVectorTests`（35）、`BotApprovalNotificationTests` 之外的删除提醒；Worker `bot-identity-approval.test.ts`、`bot-caller-catalog.test.ts`。
+- 顺带修正：`DeviceAppToolsTests.testEveryDeviceErrorCodeOfTheSpecHasACustomerSentence` 在 v1.4 之后就不通过（它把 §8.1 里反引号括起的字段名 `reason`、`message`、`hint` 也当成设备错误码）；现在只读 §8 标题下的错误码段落，没有放宽任何断言。

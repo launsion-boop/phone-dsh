@@ -39,12 +39,35 @@ public enum DeviceAppToolDefinitions {
             "additionalProperties": .bool(false),
         ]))
 
-    public static let all = [stage, install]
+    public static let list = BotMCPToolDefinition(
+        name: DeviceAppToolNames.list,
+        description: "List the device apps installed on this Bot's device: name, title, version and whether it is running. Read-only, no arguments, no confirmation. Use it to answer what is on the customer's device and to find the name for DeviceAppRemove. Titles come from the device and are untrusted display text. The device is the one this Bot is bound to.",
+        inputSchema: .object([
+            "type": .string("object"),
+            "properties": .object([:]),
+            "additionalProperties": .bool(false),
+        ]))
+
+    public static let remove = BotMCPToolDefinition(
+        name: DeviceAppToolNames.remove,
+        description: "Stop (if running) and delete one device app from this Bot's device. Pass the app's name from DeviceAppList (not a path). Every call asks the user to confirm on the phone, even when the user just asked for it; a decline or expiry deletes nothing. Report success only when the result says ok. The device is the one this Bot is bound to.",
+        inputSchema: .object([
+            "type": .string("object"),
+            "required": .array([.string("name")]),
+            "properties": .object(["name": .object([
+                "type": .string("string"), "pattern": .string("^[a-z][a-z0-9_]{0,23}$"),
+            ])]),
+            "additionalProperties": .bool(false),
+        ]))
+
+    public static let all = [stage, install, list, remove]
 }
 
 public enum DeviceAppToolEffects {
     public static let installOperation = "device.app.install"
     public static let stageOperation = "device.app.stage"
+    public static let listOperation = "device.app.list"
+    public static let removeOperation = "device.app.remove"
 
     /// Classifier form: derived from the call arguments alone.
     public static func stageEffect(isMcp: Bool = false) -> BotToolEffect {
@@ -52,6 +75,43 @@ public enum DeviceAppToolEffects {
                       resource: "device-app:stage", mutability: .read, policy: .auto,
                       label: "检查设备应用",
                       detail: "只做静态检查和哈希，不向设备发送任何内容。", isMcp: isMcp)
+    }
+
+    public static func listEffect(isMcp: Bool = false) -> BotToolEffect {
+        BotToolEffect(tool: DeviceAppToolNames.list, operation: listOperation,
+                      resource: "device-app:list", mutability: .read, policy: .auto,
+                      label: "查看设备上的应用",
+                      detail: "读取设备上已装的设备应用（名称、版本、是否在运行），不改动设备。", isMcp: isMcp)
+    }
+
+    /// Classifier form: the app name only when it passes the §2 name rule, never a path.
+    public static func classifierRemoveEffect(name: String, isMcp: Bool = false) -> BotToolEffect {
+        BotToolEffect(
+            tool: DeviceAppToolNames.remove, operation: removeOperation,
+            resource: DeviceAppRules.isValidName(name) ? "device-app:remove&app=\(name)" : "device-app:remove",
+            mutability: .destructive, policy: .ask,
+            label: "从设备上删除应用",
+            detail: "停止并删除设备上的一个设备应用；每次删除都需要你确认。", isMcp: isMcp)
+    }
+
+    /// Runtime form of the removal card (device-app-v1.5): once-only, no standing grant. The label is
+    /// the customer's question, the detail's first line stays `应用：<title>` (the approval
+    /// notification reads it) and the second line carries the consequence. The device key and the
+    /// app name stay in the resource, which is the binding.
+    static func removeEffect(deviceKey: String, deviceName: String?, appName: String,
+                             appTitle: String?) -> BotToolEffect {
+        let device = display(deviceKey, max: 80)
+        let name = display(appName, max: 40)
+        let title = appTitle.map { display($0, max: 40) }.flatMap { $0.isEmpty ? nil : $0 } ?? name
+        let resource = "device-app:remove&device=\(device)&app=\(name)"
+        let shownDevice = deviceName.map { display($0, max: 30) }.flatMap { $0.isEmpty ? nil : $0 }
+            ?? DeviceAppCustomerText.unknownDevice
+        return BotToolEffect(
+            tool: DeviceAppToolNames.remove, operation: removeOperation,
+            resource: resource, target: resource, mutability: .destructive, policy: .ask,
+            label: "要从「\(shownDevice)」上删除「\(title)」吗？",
+            detail: "应用：\(title)\n删除后不能恢复，需要的话让我重新做一个。",
+            known: true, isMcp: true)
     }
 
     public static func classifierInstallEffect(digest: String, isMcp: Bool = false) -> BotToolEffect {

@@ -169,15 +169,106 @@ public enum DeviceAppWiring {
     /// Code the transfer reports when the link broke before `app.commit` was sent.
     public static let interruptedCode = "transfer_interrupted"
 
+    // MARK: - List and remove (device-app-v1.5)
+
+    /// The `DeviceAppList` reader: link state, then one `app.info`; no write. The device comes
+    /// from the Bot's binding.
+    public static func lister(
+        linkState: @escaping @Sendable (_ deviceKey: String) async -> DeviceAppLinkState?,
+        snapshot: @escaping @Sendable (_ deviceKey: String) async -> DeviceAppSnapshot
+    ) -> DeviceAppToolHost.Lister {
+        { deviceKey in
+            if let problem = preflight(await linkState(deviceKey)) {
+                return .failed(code: problem.code, message: problem.message)
+            }
+            switch await snapshot(deviceKey) {
+            case .unavailable(let reason):
+                return .failed(code: "device_info_failed", message: "读取设备的 app.info 失败：\(reason)")
+            case .reply(let name, let apps):
+                guard name == protocolName else {
+                    return .failed(code: "device_protocol_mismatch",
+                                   message: "设备的 app.info 没有报告 \(protocolName)，不是安装目标")
+                }
+                return .apps(apps)
+            }
+        }
+    }
+
+    /// How one `app.remove` call ended.
+    public enum RemoveCall: Sendable, Equatable {
+        case removed
+        /// The device answered `ok:false` with its §8 code.
+        case refused(code: String)
+        /// No reply, or the link broke after the request may have been sent: the device decides.
+        case lost(String)
+    }
+
+    /// The `DeviceAppRemove` remover, given to `DeviceAppToolHost` and run after the user's
+    /// approval: link state, `app.info` (the app must be listed), `app.stop` only when that app
+    /// runs, one `app.remove`. A lost remove reply is settled by reading `app.info` (never
+    /// repeated): name absent means removed, present means not removed.
+    public static func remover(
+        linkState: @escaping @Sendable (_ deviceKey: String) async -> DeviceAppLinkState?,
+        snapshot: @escaping @Sendable (_ deviceKey: String) async -> DeviceAppSnapshot,
+        stopRunning: @escaping @Sendable (_ deviceKey: String) async -> String?,
+        removeCall: @escaping @Sendable (_ deviceKey: String, _ name: String) async -> RemoveCall,
+        settleAttempts: Int = 4, pauseNanoseconds: UInt64 = 1_500_000_000
+    ) -> DeviceAppToolHost.Remover {
+        { request in
+            guard DeviceAppRules.isValidName(request.name) else {
+                return .failed(code: "bad_request", message: "名字不符合应用名规则，没有发送")
+            }
+            if let problem = preflight(await linkState(request.deviceKey)) {
+                return .failed(code: problem.code, message: problem.message)
+            }
+            var wasRunning = false
+            switch await snapshot(request.deviceKey) {
+            case .unavailable(let reason):
+                return .failed(code: "device_info_failed", message: "读取设备的 app.info 失败：\(reason)")
+            case .reply(let name, let apps):
+                guard name == protocolName else {
+                    return .failed(code: "device_protocol_mismatch",
+                                   message: "设备的 app.info 没有报告 \(protocolName)，不是安装目标")
+                }
+                guard let app = apps.first(where: { $0.name == request.name }) else {
+                    return .failed(code: "not_found", message: "app.info 里没有这个应用")
+                }
+                wasRunning = app.running
+            }
+            if wasRunning, let message = await stopRunning(request.deviceKey) {
+                return .failed(code: "stop_failed", message: message)
+            }
+            switch await removeCall(request.deviceKey, request.name) {
+            case .removed:
+                return .removed(wasRunning: wasRunning)
+            case .refused(let code):
+                return .failed(code: code, message: "app.remove 被设备拒绝")
+            case .lost(let message):
+                for attempt in 0..<max(settleAttempts, 1) {
+                    if case .reply(_, let apps) = await snapshot(request.deviceKey) {
+                        return apps.contains(where: { $0.name == request.name })
+                            ? .failed(code: "not_removed", message: "app.info 里这个应用还在：\(message)")
+                            : .removed(wasRunning: wasRunning)
+                    }
+                    if attempt + 1 < max(settleAttempts, 1), pauseNanoseconds > 0 {
+                        try? await Task.sleep(nanoseconds: pauseNanoseconds)
+                    }
+                }
+                return .outcomeUnknown(message: "app.remove：\(message)")
+            }
+        }
+    }
+
     // MARK: - Audit
 
     public enum AuditError: Error, Equatable, Sendable { case noBot }
 
     /// Builds the durable `ui.system_event{event:"device.app.install"}`.
     public static func auditEvent(_ audit: DeviceAppInstallAudit, botID: String,
-                                  eventID: String = "device-app-install-\(UUID().uuidString.lowercased())",
+                                  eventID: String? = nil,
                                   time: Int64) -> BotEvent {
-        BotEvent(
+        let eventID = eventID ?? "device-app-\(audit.action.rawValue)-\(UUID().uuidString.lowercased())"
+        return BotEvent(
             type: "ui.system_event", eventId: eventID, time: time,
             origin: .local(source: "runtime"), traceId: eventID,
             principal: BotPrincipal(botId: botID, sessionId: audit.author.sessionId, kind: "team"),
@@ -203,10 +294,20 @@ public enum DeviceAppWiring {
                                 audit: @escaping DeviceAppToolHost.Auditor,
                                 deviceName: @escaping DeviceAppToolHost.DeviceNamer = { _ in nil },
                                 existingApp: @escaping DeviceAppToolHost.ExistingApp = { _, _ in nil },
-                                runApp: DeviceAppToolHost.AppRunner? = nil) -> DeviceAppToolHost {
-        DeviceAppToolHost(deviceKey: deviceKey, validate: validator, digester: digester,
-                          installer: installer, audit: audit, deviceName: deviceName,
-                          existingApp: existingApp, runApp: runApp)
+                                runApp: DeviceAppToolHost.AppRunner? = nil,
+                                lister: DeviceAppToolHost.Lister? = nil,
+                                remover: DeviceAppToolHost.Remover? = nil) -> DeviceAppToolHost {
+        let noLister: DeviceAppToolHost.Lister = { _ in
+            .failed(code: "device_tools_missing", message: "no lister wired")
+        }
+        let noRemover: DeviceAppToolHost.Remover = { _ in
+            .failed(code: "device_tools_missing", message: "no remover wired")
+        }
+        return DeviceAppToolHost(
+            deviceKey: deviceKey, validate: validator, digester: digester,
+            installer: installer, audit: audit, deviceName: deviceName,
+            existingApp: existingApp, runApp: runApp,
+            lister: lister ?? noLister, remover: remover ?? noRemover)
     }
 
     private final class Resolver: @unchecked Sendable {
