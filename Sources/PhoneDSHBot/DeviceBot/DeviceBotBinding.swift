@@ -91,7 +91,26 @@ public enum DeviceBotText {
         }
         let kept = trimSpaces(Array(scalars)).prefix(nameMaxScalars)
         let text = trimSpaces(Array(kept))
-        return text.isEmpty ? fallbackName : stringOf(text)
+        let name = stringOf(text)
+        return text.isEmpty || isTechnicalID(name) ? fallbackName : name
+    }
+
+    /// §5 step 5: a sanitized name that is a technical id, not a name a customer would read:
+    /// it starts with `PDSH-` (ASCII case-insensitive), or is 4 or more ASCII hex digits only,
+    /// or is a MAC-like `XX:XX:XX…`/`XX-XX-XX…` (three or more hex pairs).
+    public static func isTechnicalID(_ name: String) -> Bool {
+        let scalars = Array(name.unicodeScalars)
+        if scalars.count >= 5, scalars.prefix(5).map({ Character($0).lowercased() }).joined() == "pdsh-" { return true }
+        func isHex(_ s: Unicode.Scalar) -> Bool { isLowerHex(s) || (s.value >= 0x41 && s.value <= 0x46) }
+        if scalars.count >= 4, scalars.allSatisfy(isHex) { return true }
+        // pairs separated by one ':' or one '-': length 3n-1, n >= 3
+        if scalars.count >= 8, (scalars.count + 1) % 3 == 0 {
+            for (i, s) in scalars.enumerated() {
+                if i % 3 == 2 { if s != ":" && s != "-" { return false } } else if !isHex(s) { return false }
+            }
+            return true
+        }
+        return false
     }
 
     /// The full name: sanitized, then ` 2`, ` 3`… (smallest free number >= 2) when another Bot
@@ -112,7 +131,15 @@ public enum DeviceBotText {
         }
     }
 
+    /// The device-app tools; a device whose `tools/list` has all of them is device-app capable.
+    public static let deviceAppTools: Set<String> = [
+        "app.info", "app.begin", "app.put", "app.abort", "app.commit", "app.run", "app.stop", "app.remove",
+    ]
+    public static let deviceAppLinkDescription =
+        "管理一台设备，可以帮你写小应用装到设备上（比如计时器、计数器）。装之前会先问你。"
+
     public static func linkDescription(tools: [String]) -> String {
+        if deviceAppTools.isSubset(of: Set(tools)) { return deviceAppLinkDescription }
         var seen = Set<String>()
         var listed: [String] = []
         for tool in tools where isToolName(tool) && seen.insert(tool).inserted {

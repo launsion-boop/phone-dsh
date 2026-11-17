@@ -353,9 +353,12 @@ classification in `golden/tool-effects.phone.json`.
   any radio use**, bound to the full digest. A decline or expiry installs nothing.
 - Error codes of the result: `not_staged`, `stale_binding`, `digest_mismatch`, `busy`,
   `install_failed`, `outcome_unknown`, `permission_denied`, `invalid_arguments`, `manifest`. The
-  install success payload is `{ok:true, installed:true, digest, name, audit_recorded}`;
-  `audit_recorded` is a boolean and is `false` when the durable record could not be written (the Bot
-  must then not claim the install was logged).
+  install success payload is `{ok:true, installed:true, digest, name, audit_recorded, opened, message,
+  hint}` (and `run_reason` when the automatic `app.run` failed); `audit_recorded` is a boolean and is
+  `false` when the durable record could not be written (the `hint`, model-facing, then says not to
+  claim the install was logged). A failure keeps `error.code` and adds `error.reason`, `message` (one
+  customer sentence, also the visible text), `hint` and `diagnostic` (device-app.md §8.1, §12,
+  `device-app-v1.4`). The host runs `app.run` after the commit.
 - After a successful install the host writes a durable
   `ui.system_event{event:"device.app.install", device, name, title, version, digest,
   files:[{path,size,sha256}], author}` where `author` is the same author record as the

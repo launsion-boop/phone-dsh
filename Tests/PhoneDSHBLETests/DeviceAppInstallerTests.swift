@@ -231,6 +231,25 @@ final class DeviceAppInstallerTests: XCTestCase {
         XCTAssertNil(device.session)
     }
 
+    func testCommitCutByADisconnectIsSettledByInfoNotReportedAsATransferFailure() async throws {
+        // The request may have reached the device: it is a lost reply, never a retryable failure.
+        let device = FakeAppDevice()
+        device.inject("app.commit", nth: 1, .throwError)
+        do { try await installer(device).install(makeAppBundle()); XCTFail("must fail") } catch {
+            XCTAssertEqual(error as? DeviceAppInstallError, .commitNotInstalled)
+        }
+        XCTAssertEqual(device.calls("app.commit"), 1)
+
+        let unreadable = FakeAppDevice()
+        unreadable.inject("app.commit", nth: 1, .throwError)
+        for n in 1...3 { unreadable.inject("app.info", nth: n, .throwError) }
+        do { try await installer(unreadable).install(makeAppBundle()); XCTFail("must fail") } catch {
+            XCTAssertEqual(error as? DeviceAppInstallError, .commitOutcomeUnknown)
+        }
+        XCTAssertEqual(unreadable.calls("app.commit"), 1)
+        XCTAssertEqual(unreadable.calls("app.abort"), 0)
+    }
+
     func testCommitUnknownWithUnreadableInfoStaysUnknown() async throws {
         let device = FakeAppDevice()
         device.inject("app.commit", nth: 1, .lostReplyApplied)

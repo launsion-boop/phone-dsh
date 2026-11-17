@@ -11,6 +11,8 @@ public enum DeviceAppInstallError: Error, Equatable, Sendable {
     case notExecuted(tool: String, stage: String, status: String)
     /// The call could not be made at all (not connected, not authorized, busy).
     case callFailed(tool: String, message: String)
+    /// The Link was busy with another call: this call was never sent.
+    case linkBusy(tool: String)
     /// A reply broke the §5/§6 shape.
     case protocolViolation(String)
     /// `app.commit` replied, but with a digest other than the declared one.
@@ -143,6 +145,8 @@ public struct DeviceAppInstaller: Sendable {
                 outcome = try await installer.callTool(tool, arguments, key)
             } catch is CancellationError {
                 throw CancellationError()
+            } catch is LinkBusy {
+                throw DeviceAppInstallError.linkBusy(tool: tool)
             } catch {
                 throw DeviceAppInstallError.callFailed(tool: tool, message: String(describing: error))
             }
@@ -251,8 +255,15 @@ public struct DeviceAppInstaller: Sendable {
         func commit() async throws -> DeviceAppInstallResult {
             guard let id = session else { throw DeviceAppInstallError.protocolViolation("no session") }
             // One key, one send. It is never repeated, whatever the outcome.
-            let step = try await call(DeviceAppTools.commit,
+            // A call that failed after the request may have been sent (disconnect) is a lost
+            // reply, settled by `app.info`; only `LinkBusy` proves it was never sent.
+            let step: Step
+            do {
+                step = try await call(DeviceAppTools.commit,
                                       .object(["session": .string(id), "digest": .string(bundle.digest)]))
+            } catch DeviceAppInstallError.callFailed {
+                step = .lost
+            }
             switch step {
             case .ok(let result):
                 committed = true
@@ -264,7 +275,11 @@ public struct DeviceAppInstaller: Sendable {
                 throw DeviceAppInstallError.deviceRefused(tool: DeviceAppTools.commit, code: code)
             case .lost:
                 for _ in 0..<installer.infoAttempts {
-                    switch try await call(DeviceAppTools.info, .object([:])) {
+                    let reply: Step
+                    do { reply = try await call(DeviceAppTools.info, .object([:])) } catch DeviceAppInstallError.callFailed {
+                        reply = .lost
+                    }
+                    switch reply {
                     case .ok(let result):
                         let installed = (result["apps"]?.arrayValue ?? []).contains {
                             $0["name"]?.stringValue == bundle.name && $0["digest"]?.stringValue == bundle.digest

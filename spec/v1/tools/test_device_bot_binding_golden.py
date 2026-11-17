@@ -24,8 +24,8 @@ DEVICE = Path(__file__).resolve().parents[2] / "device" / "v1"
 GOLDEN = DEVICE / "golden" / "device-bot-binding.jsonl"
 SCHEMA = json.loads((DEVICE / "schema" / "device-bot-binding.schema.json").read_text(encoding="utf-8"))
 
-# Reviewed fixture revision device-bot-v1. Changing a vector needs a new contract revision.
-FROZEN = "7c226b6ce1fbbab80b65d1a8857b3c8730867e32039ba30fd15102dd29a2f06d"
+# Reviewed fixture revision device-bot-v1.1. Changing a vector needs a new contract revision.
+FROZEN = "be43586ea8bd86350baf367c66aa2a25fddc9faa092dff1b022614f69ea37bf9"
 
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 HOST = re.compile(r"^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$")
@@ -34,6 +34,9 @@ GATT_LABELS = [("battery", "电池"), ("temperature", "温度"), ("humidity", "�
                ("manufacturer", "厂商"), ("model", "型号"), ("alert", "提醒")]
 BOARD = "通过小智 Link 帮你操作这台 iPhone：打开 App、点按、输入、看屏幕，也能调板子的灯效。对板子说「你好小智」就会找我。"
 NAME_MAX = 60
+DEVICE_APP_TOOLS = {"app.info", "app.begin", "app.put", "app.abort", "app.commit", "app.run", "app.stop", "app.remove"}
+DEVICE_APP_LINK = "管理一台设备，可以帮你写小应用装到设备上（比如计时器、计数器）。装之前会先问你。"
+TECH_ID = re.compile(r"^(?:[Pp][Dd][Ss][Hh]-.*|[0-9A-Fa-f]{4,}|[0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){2,})$")
 
 
 def rows():
@@ -75,7 +78,7 @@ def make_name(raw, roster):
         out.append(" " if cat in ("Cc", "Zl", "Zp", "Zs") else ch)
     text = " ".join("".join(out).split(" ")).strip()
     text = re.sub(" +", " ", text)[:NAME_MAX].rstrip(" ")
-    base = text or "设备助手"
+    base = "设备助手" if not text or TECH_ID.fullmatch(text) else text
     if base not in roster:
         return base
     n = 2
@@ -91,6 +94,8 @@ def make_description(cls, i):
     if cls == "board":
         return BOARD
     if cls == "link":
+        if DEVICE_APP_TOOLS <= set(i["tools"]):
+            return DEVICE_APP_LINK
         seen, tools = set(), []
         for t in i["tools"]:
             if TOOL.match(t) and t not in seen:

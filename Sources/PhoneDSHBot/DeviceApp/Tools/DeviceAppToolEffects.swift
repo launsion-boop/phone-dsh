@@ -64,29 +64,38 @@ public enum DeviceAppToolEffects {
     }
 
     /// Runtime form shown on the approval card. No `grantResource`, so no
-    /// standing grant is ever offered; the resource carries the full digest.
-    static func installEffect(deviceKey: String, manifest: DeviceAppManifestSummary,
+    /// standing grant is ever offered; the resource carries the full digest and the
+    /// Link device key (the binding), while the visible text speaks the customer's
+    /// language: the device's display name, the app title first, a one-line purpose,
+    /// permissions in Chinese, a replace notice, and no digest or paths (device-app-v1.4).
+    /// The detail's first line stays `应用：<title>` (the approval notification reads it).
+    static func installEffect(deviceKey: String, deviceName: String? = nil, replacing: String? = nil,
+                              manifest: DeviceAppManifestSummary,
                               entries: [DeviceAppFileEntry], digest: String) -> BotToolEffect {
         let device = display(deviceKey, max: 80)
         let name = display(manifest.name, max: 40)
         let title = display(manifest.title, max: 40)
         let resource = "device-app:install&device=\(device)&app=\(name)&digest=\(digest)"
-        let files = entries.map { "- \(display($0.path, max: 64))  \($0.size) 字节" }.joined(separator: "\n")
-        let perms = manifest.perms.isEmpty
-            ? "无" : manifest.perms.map { display($0, max: 16) }.joined(separator: "、")
-        let detail = """
-            设备：\(device)
-            应用：\(title)（\(name)，版本 \(manifest.version)）
-            文件：
-            \(files)
-            权限：\(perms)
-            摘要：\(digest.prefix(8))（完整摘要已绑定到这次确认）
-            程序由 Bot 编写并在设备上运行，每次安装都需要你确认。
-            """
+        let shownDevice = deviceName.map { display($0, max: 30) }.flatMap { $0.isEmpty ? nil : $0 }
+            ?? DeviceAppCustomerText.unknownDevice
+        let uses = manifest.perms.isEmpty
+            ? "不需要用到设备的喇叭、麦克风等"
+            : "会用到：" + manifest.perms.map { DeviceAppCustomerText.permission(display($0, max: 16)) }
+                .joined(separator: "、")
+        var lines = [
+            "应用：\(title)",
+            "Bot 写了一个小程序，装好后在设备上运行；\(uses)。装之前请确认。",
+        ]
+        if let replacing {
+            let old = display(replacing, max: 40)
+            lines.append("会替换已有的「\(old.isEmpty ? title : old)」并先停止它")
+        }
+        lines.append(DeviceAppCustomerText.sizeLine(files: entries.count,
+                                                    bytes: entries.reduce(0) { $0 + $1.size }))
         return BotToolEffect(
             tool: DeviceAppToolNames.install, operation: installOperation,
             resource: resource, target: resource, mutability: .destructive, policy: .ask,
-            label: "在设备上安装应用「\(title)」", detail: detail,
+            label: "在「\(shownDevice)」上安装「\(title)」？", detail: lines.joined(separator: "\n"),
             known: true, isMcp: true)
     }
 

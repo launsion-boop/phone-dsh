@@ -76,7 +76,10 @@ untrusted and the description reaches the model, so it carries no free text from
    separators and space separators (`Cc`, `Zl`, `Zp`, `Zs`) into U+0020.
 3. Collapse runs of U+0020 into one, trim both ends.
 4. Keep at most 60 Unicode scalar values, then trim a trailing space.
-5. An empty result is `设备助手`. The TonoLink board's name is the fixed `手机助手`.
+5. An empty result is `设备助手`, and so is a result that is a technical id (revision v1.1): it
+   starts with `PDSH-` (ASCII, case-insensitive), or is 4 or more ASCII hex digits only, or is
+   three or more hex pairs joined by `:` or `-` (`AA:BB:CC`). Anything else, including `PDSH`,
+   `abc` and `灯1234`, is kept. The TonoLink board's name is the fixed `手机助手`.
 6. If another Bot in the roster already has exactly that name, append ` 2`, ` 3`… (smallest
    free number ≥ 2); the base is shortened so the whole name stays within 60 scalars.
 
@@ -85,7 +88,8 @@ untrusted and the description reaches the model, so it carries no free text from
 | Class | Text |
 | --- | --- |
 | board | `通过小智 Link 帮你操作这台 iPhone：打开 App、点按、输入、看屏幕，也能调板子的灯效。对板子说「你好小智」就会找我。` |
-| Link | `管理一台通过 Link 连接的设备。` and, when at least one tool qualifies, `可用工具：a、b。` |
+| Link, device-app capable (revision v1.1) | `管理一台设备，可以帮你写小应用装到设备上（比如计时器、计数器）。装之前会先问你。` Chosen only when `tools/list` contains all eight of `app.info`, `app.begin`, `app.put`, `app.abort`, `app.commit`, `app.run`, `app.stop`, `app.remove` (exact, case-sensitive names). Fixed text, no tool names. |
+| Link, other | `管理一台通过 Link 连接的设备。` and, when at least one tool qualifies, `可用工具：a、b。` |
 | standard GATT | `管理一台标准蓝牙设备。` and, when at least one profile is granted, `已授权：电池、温度。` |
 | LAN | `管理一台局域网设备（H）。`; a host that does not match `^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$` is omitted with its parentheses |
 
@@ -93,6 +97,9 @@ A Link tool name qualifies when it matches `^[a-z0-9_.-]{1,64}$`; duplicates are
 kept, at most 8 are listed. GATT profile labels in this fixed order: `battery` 电池,
 `temperature` 温度, `humidity` 湿度, `manufacturer` 厂商, `model` 型号, `alert` 提醒; other
 profile names are ignored.
+
+Revision v1.1 changes text only. Keys, `decide` and `complete` are unchanged; a Bot that already
+exists keeps its name and description (nothing renames or re-describes it).
 
 ## 6. Idempotent creation and lifecycle
 

@@ -90,6 +90,7 @@ Protocol impact: P07; P26; P09: none — 设备应用的 UI 入口另出页面�
 | device-app-v1 | 主 agent | 冻结；依据 5 份只读探索结果 | 6 个实现者（见 §4） |
 | device-app-v1.1 | 主 agent | 收下 `kit` 导入变更请求（样式库实现者）；写入 `.devapp` 标记、`limits` 键名、提交遇运行中应用返回 `running`、按块计费的配额、EOF 词法错误行号、总大小由 DeviceAppStage 报告；oracle 改为完整匹配（结尾换行无效）并加 5 条向量；记录 `DeviceAppInstall` 自带审批、持久主体待决 | 全部实现者；设备端沙箱与安装器已按此改，iOS 校验器放行 `kit` |
 | device-app-v1.2 | 主 agent（经 CCR 接受，由实现者代编辑契约） | 真机联调发现 Worker 只从全调用方 `tools/list` 注册 `mcp__phone__*` 工具，而 §10 把两个工具排除在该列表之外，模型看不到、调用得到 `unknown tool`；此前 Worker 审批门也未登记这两个名字，会以 `tool.unclassified`（session）送 `/approval`，被 App 以 `stale:always_scope` 拒绝 | Worker（审批门、caller-catalog）、iOS BotMCPRuntime、spec/bot/v1/tool-contracts.md §10、golden/tool-catalog.phone.json `deviceApp.note` |
+| device-app-v1.4 | 主 agent（客户旅程审计后，由实现者代编辑契约） | 客户不开设置、不看日志、不是开发者：审批卡与错误全部改为客户语言；装好后自动打开；结果未知与传输中断由安装器自己定论或重试一次 | iOS（工具宿主、效果卡、作者指南 v2、安装器接线、BLE 安装器、probe-app 接线）；Worker 无变化（审批门仍把两个名字视为 App 自有） |
 
 ## 6. CCR 与决定（device-app-v1.2）
 
@@ -115,7 +116,12 @@ Worker 审批门（`approval-gate.ts` `AUTO_TOOLS`）：`DeviceAppStage`、`Devi
 ### 真机观测（device-app-v1.2 之后，无契约变更）
 
 - 安装本身很快：自检 `-pdsh-selftest-device-app` 实测 4 次 Link 调用（begin、2×put、commit）共 1.5 s，`app.info` 往返约 0.5 s；2048 字节的 chunk 上限不是瓶颈，不需要更大的写或流水线。
-- Worker 的 `Request timed out` 来自审批等待，不是传输：`DeviceAppInstall` 在宿主里先等一次性审批（交互审批默认最长 300 s），而 Worker 的 MCP 工具调用超时更短（约 130 s）。用户超过这个时间才点确认时，Worker 已放弃该调用，宿主那一次调用仍会在批准后完成安装（真机：`focus_timer` 摘要 `a6ad8577…` 已在 `/apps/.devapp`）。不允许在批准或完成之前返回（受理 ≠ 已执行），所以不改变返回时机。
+- Worker 的 `Request timed out` 来自审批等待，不是传输：`DeviceAppInstall` 在宿主里先等一次性审批（交互审批卡片最长 300 s），而 Worker 的 MCP 工具调用超时原为 130 s。用户超过这个时间才点确认时，Worker 已放弃该调用，Bot 说「请求超时」而卡片还在，晚到的「允许」会在没人告知用户的情况下完成安装（真机：`focus_timer` 摘要 `a6ad8577…` 已在 `/apps/.devapp`）。不允许在批准或完成之前返回（受理 ≠ 已执行），所以不改变返回时机。
+  **决定（GAP-44 收口，选「放宽 Worker 超时」）**：
+  1. `plugins/profile/phone.worker.cordis.patch.yml` 的 `mcp-phone.toolCallTimeoutMs` 由 130000 改为 **330000**（卡片 300 s + 30 s，与 `BotAttributionRegistry.defaultTTLMilliseconds` 相同）。Worker 的 MCP 客户端按 server 配置超时，无法按工具设置，所以这是整个 `phone` server 的上限；不需要改 DSH 源码。长调用的 SSE keepalive（15 s）不变，传输层不受影响。因此人工应答一定先于 Worker 超时到达：点「允许」→ 正常安装并返回结果；300 s 无人应答 → 卡片过期，调用以 `approval timed out` 结束（不再是 Worker 的 `Request timed out`）。`/identity/cancel` 仍会关闭该调用的交互卡片，但只发生在调用真的被取消时，不再因 130 s 超时误触发。
+  2. 副作用：其他 phone 工具一旦真的卡死，现在最长等 330 s 而不是 130 s。已有的有界等待（Worker 重连探测 10 s、聊天 egress 20 s、`AwaitTask` 自带 `timeout_ms`）不受影响。
+  3. 提醒：`DeviceAppInstall` 的交互卡片在 10 s 后发本地通知「「<应用名>」在等你点「允许」，才会装到设备上」（其他审批仍为 60 s 通用文案）；通知权限在第一次出现设备应用安装审批时请求一次（不在 App 启动时），被拒绝不阻塞流程。
+  回退：把 `toolCallTimeoutMs` 改回 130000 即回到旧行为（旧 App/旧 Worker 互通：该字段只在 Worker profile，宿主不读）。未验证：真机人工耗时（>130 s 才点允许）的端到端。
 - 重试语义：同一设备上同一 digest 的调用仍在等待确认或在传输时，重试返回错误码 `busy`，消息说明是同一个应用的上一次请求（不重复发起）；不同 digest 仍是原来的「正在安装另一个应用」。错误码集合不变，没有新字段。
 - 剩余风险：用户确认慢于 Worker 超时，会让模型看到 `Request timed out` 而安装随后才发生。缓解办法（缩短交互审批等待、或让 Worker 对该工具放宽超时）需要单独的契约变更，本单未做。
 
@@ -127,3 +133,17 @@ Worker 审批门（`approval-gate.ts` `AUTO_TOOLS`）：`DeviceAppStage`、`Devi
 - 契约：device-app.md 第 7 节加「Authorization (device-app-v1.3)」一条；没有改共享 golden／向量（授权检查不在其中）；`device_not_authorized` 保留不用。
 - 相容性：新手机 → 旧设备／旧设备 → 新手机无线上变化；旧手机仍要求手动授权（行为更严，不会出错）；回滚即回到要求设置授权。
 - 回归：`DeviceAppAdmissionTests.testUserOriginInstallToolsNeedNoSettingsGrantButAgentAndOtherToolsStillDo`（无授权时 user 来源 8 个全部成功、agent 来源全部拒绝、`light.set` 仍需授权；改动前失败）；`DeviceAppWiringTests.testPreflightCodes` 更新。
+
+## 8. device-app-v1.4：客户语言、自动打开、结果定论
+
+- 触发：真机走查发现客户看到的是开发者话：审批卡列出 Link 设备 id、`counter`、摘要前 8 位和文件路径；失败回复带 `no_space`、「用设备应用列表确认」；装好后还要用户自己去设备上找应用；`outcome_unknown` 把判断推给 Bot。
+- 决定（契约所有者）：
+  1. **自动打开**：提交成功后宿主用同一 user 来源路径（同 v1.3 的放过）调用 `app.run`。`app.run` 失败不算安装失败，报「已装好，但没能自动打开，请在设备上选「X」打开」。成功语「已装好「X」并已在设备上打开。长按确定键退出。」（真实退出手势：长按确定 0.7 s 得到 `back`；3 s 强制结束，见设备端 DEVICE_APP_AUTHORING.md「Keys」）。客户文字不含摘要。
+  2. **结果未知**：提交后回复丢失、超时或链路断开，安装器自己重新读 `app.info`（链路恢复后最多几次）：摘要一致 = 已安装，否则 = 没装上、原应用不变；只有设备读不出来才保持 `outcome_unknown`，并告诉客户让 Bot 再装一次（同摘要，可重复）。提交本身仍绝不发两次。提交中被断开的调用不再算「传输失败」，一律走未知结果的定论。
+  3. **传输中断**：提交发出之前的断线、设备重启或看门狗，客户语「传输中断，设备上原来的应用没有改变。要重试吗？」；链路恢复后最多自动重试一次，同名同摘要（§6 规则 1 的续传规则），新的 install id（新的 staging journal key）；第二次中断或其他失败不重试。
+  4. **审批卡**：见 device-app.md §12。客户可见文字不再含摘要、路径、Link 设备 id；完整摘要、设备 key、应用名仍在审批 `resource`，绑定不变。「会替换已有的「X」」只读手机侧已知状态（审批先于任何射频，§7 不变）。详情第一行仍是 `应用：<应用名>`，审批通知继续读它。
+  5. **错误措辞**：device-app.md §8.1 一张表；结果里机器码保持稳定（`error.code`、`error.reason`），一句话放在 `message` 和可见文字里；给模型的指令只在 `hint`。
+  6. **作者指南 v2**：先告知确认卡与 2 分钟内点「允许」，装好后说明应用已打开及退出方式，不对客户提摘要、错误码、工具名；仍 ≤ 6000 字符。
+- 相容性：无 Link wire、无设备端变更（`app.run` 是既有 `app.*`，已在 v1.3 的放过名单内）。结果载荷只增不删：成功多 `opened`、`message`、`hint`（可含 `run_reason`），失败多 `error.reason`、`message`、`hint`、`diagnostic`；`error.code` 集合不变。旧 Worker/旧 Bot 照常读 `ok`/`error.code`。回滚 App：回到旧措辞，不自动打开。
+- 未验证：真机上 `app.run` 之后的屏幕、设备在传输中重启后的重连时长（自动重试等待最多约 15 s，未经实测）、「会替换已有应用」在手机从未见过设备应用列表时不会出现。
+- 回归：`DeviceAppToolsTests`（卡片文本与绑定、自动打开与失败、客户语句、规格 §8 每个码都有句子）、`DeviceAppWiringTests`（一次重试、不重试、未知结果由 info 定论）、`DeviceAppInstallerTests`（提交被断开按未知处理）。

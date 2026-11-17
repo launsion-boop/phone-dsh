@@ -781,14 +781,23 @@ public actor BotApprovalCoordinator {
     /// schedule/cancel the local "approval waiting" reminder.
     public func pendingNotificationRecords() async -> [BotApprovalNotificationRecord] {
         await ensureRestored()
+        // A live interactive device-app install card is included too: the Bot
+        // is blocked on it and the user is probably on another screen. Its
+        // reminder is cancelled by the same sync when the card is answered,
+        // cancelled or expires; no other interactive card is reminded.
+        let interactiveLifetime = approvalTimeoutMs
         return pending
-            .filter { $0.value.persistent }
+            .filter {
+                $0.value.persistent
+                    || $0.value.action == BotApprovalNotificationPlanner.deviceAppInstallAction
+            }
             .map { id, request in
                 BotApprovalNotificationRecord(
                     approvalID: id, botID: request.principal.botId,
                     action: request.action, detail: request.detail,
                     command: request.command, requestedAt: request.requestedAt,
-                    expiresAt: request.expiresAt)
+                    expiresAt: request.persistent
+                        ? request.expiresAt : request.requestedAt + interactiveLifetime)
             }
             .sorted { ($0.requestedAt, $0.approvalID) < ($1.requestedAt, $1.approvalID) }
     }
