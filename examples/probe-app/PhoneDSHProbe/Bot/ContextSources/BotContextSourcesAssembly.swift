@@ -78,6 +78,7 @@ public final class BotContextSourcesAssembly {
     private let location: LocationRegionSource?
     private let injections: [BotContextSourceKind: BotContextInjectionDriver]
     private let registrations: [(BotContextSourceKind, (any BotContextSource)?, BotContextObservationDelivery)]
+    private var confirmedGeofences: [BotContextGeofenceSpec]
     private var started = false
 
     public init(dependencies: BotContextSourcesDependencies = BotContextSourcesDependencies()) {
@@ -150,6 +151,9 @@ public final class BotContextSourcesAssembly {
             injections[.power] = BotContextInjectionDriver(kind: .power, now: dependencies.now)
         }
 
+        self.confirmedGeofences = dependencies.locationFences.isEmpty
+            ? BotContextSourcesGeofenceStore.load()
+            : dependencies.locationFences
         self.injections = injections
         self.externalEntry = external
         self.selectedMedia = selectedMedia
@@ -337,15 +341,23 @@ public final class BotContextSourcesAssembly {
     /// Single persistence owner read API for the settings UI. The value is the
     /// in-memory confirmed set loaded from/saved to the one product key.
     public var geofences: [BotContextGeofenceSpec] {
-        location?.fencesSnapshot() ?? []
+        confirmedGeofences
     }
 
     public func setGeofences(_ fences: [BotContextGeofenceSpec]) async throws {
-        guard let location else {
-            throw BotContextSourceError.unsupported("the location adapter is not registered")
-        }
-        try await location.updateFences(fences)
+        // Save the user's confirmed configuration first. Without Always/location
+        // source started, updateFences rejects with .revoked and cannot register
+        // OS regions; that must not discard the configuration. No region is
+        // registered and no event is fabricated until the source is active.
         BotContextSourcesGeofenceStore.save(fences)
+        confirmedGeofences = fences
+        guard let location else { return }
+        do {
+            try await location.updateFences(fences)
+        } catch BotContextSourceError.revoked(.locationFence) {
+            // Saved, waiting for the user to enable the source/permission.
+            return
+        }
     }
 
     // MARK: - Legal external entries (C wires these call sites)
