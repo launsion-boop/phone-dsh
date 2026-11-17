@@ -280,7 +280,14 @@ export function phoneEffectsForApproval(
   if (bare === 'write' || bare === 'edit') {
     return fileEffect(bare, args, context.workspaceRoot ?? '/dsh/workspace')
   }
-  if (bare === 'BotVolatileContext' || bare === 'BotDecisionContext' || UI_TOOLS.has(bare) || AUTO_TOOLS.has(bare)) return []
+  // The host classifies both internal context reads as read-only/auto-policy
+  // (`BotMCPRuntime.effectsForApproval` returns an empty effect list). This
+  // table must agree: an unclassified effect would send `alwaysScope=session`
+  // for a tool the host expects as `until`, so the host rejects the call with
+  // `stale:always_scope` before its auto-policy can run. `agent/pre-step` then
+  // loses its decision materials with no approval card and no visible error.
+  if (bare === 'BotVolatileContext' || bare === 'BotDecisionContext'
+      || UI_TOOLS.has(bare) || AUTO_TOOLS.has(bare)) return []
   if (BLE_TOOLS.has(bare)) return [bleEffect(bare, args)]
   if (bare === 'attach_to_model') return [modelImageEffect(name, args)]
   // DSH's built-in read_image is a model-egress path too: without this gate

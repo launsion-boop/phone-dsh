@@ -1125,8 +1125,6 @@
       name: '@phone-dsh/dsh-bot-runtime/decision-context'
       config:
         enabled: true
-        # Eval activation telemetry; never logs user text or material bodies.
-        debug: false
         # Same Worker image A/B switch for R2's workspace candidates (G-2 r6).
         workspaceMaterials: true
         limits:

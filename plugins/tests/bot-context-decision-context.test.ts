@@ -29,6 +29,7 @@ import type {
   DecisionContextObservation,
   DecisionMaterialBlock,
 } from '../bot-runtime/src/decision-context.ts'
+import dshbotApprovalGate from '../bot-runtime/src/approval-gate.ts'
 import type { ScriptEntry } from './bot-runtime-test-kit.ts'
 import {
   createAgent,
@@ -105,6 +106,9 @@ async function mountDecision(options: {
   deadlineMilliseconds?: number
   script?: ScriptEntry[]
   source?: (request: { sessionId: string; turn: number; signal: AbortSignal }) => Promise<DecisionMaterialBlock | undefined>
+  approvalGate?: {
+    request: (payload: Record<string, unknown>) => Promise<{ ok: boolean; allowed: boolean; message?: string }>
+  }
 } = {}): Promise<Mounted> {
   const ctx = await mountRuntime()
   const calls: Record<string, unknown>[] = []
@@ -150,6 +154,26 @@ async function mountDecision(options: {
       }
     },
   }))
+  if (options.approvalGate !== undefined) {
+    // The real Worker always has the volatile host tool; its presence is the
+    // approval gate's runtime-liveness signal. Register it before the gate so
+    // this mount matches the production composition.
+    ctx.tools.register(createMcpToolDefinition(ctx, {
+      name: 'mcp__phone__BotVolatileContext',
+      rawName: 'BotVolatileContext',
+      description: 'Host volatile context (internal).',
+      inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } } },
+      call: async () => {
+        const value = { schemaVersion: 1, sessionId: 'gb-decision', revision: 1, blocks: {} }
+        return { content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value }
+      },
+    }))
+    await ctx.plugin(dshbotApprovalGate, {
+      approvalUrl: 'http://127.0.0.1:9/approval',
+      bridgeToken: 'test-only',
+      request: options.approvalGate.request,
+    })
+  }
   ctx.tools.register(createMcpToolDefinition(ctx, {
     name: 'mcp__phone__ReadMemory',
     rawName: 'ReadMemory',
@@ -225,6 +249,39 @@ test('the accepted request carries the host block as runtime-context, not as the
     const injected = mounted.observations.find(event => event.stage === 'injected')
     assert.deepEqual(injected?.materialIds, ['mat:abc12345:1'])
     assert.deepEqual(injected?.refs, ['memory:user/travel.md@v1'])
+  } finally {
+    await mounted.ctx.fiber.dispose()
+  }
+})
+
+test('the structural approval gate does not block the read-only decision host call', async () => {
+  // Production regression: the Worker effect table classified
+  // BotDecisionContext as an unclassified `policy: ask` tool while the host
+  // classified it as read-only/auto. The resulting `alwaysScope=session` was
+  // rejected by the host as `stale:always_scope` before its auto-policy ran,
+  // so every real pre-step lost its materials with no approval card and no
+  // visible error. The gate must not even ask for this internal read.
+  const approvals: Record<string, unknown>[] = []
+  const mounted = await mountDecision({
+    approvalGate: {
+      request: async payload => {
+        approvals.push(payload)
+        return { ok: false, allowed: false, message: 'stale:always_scope' }
+      },
+    },
+  })
+  const agent: Agent = await createAgent(mounted.ctx, 'gb-decision-gate')
+  try {
+    agent.followup(userMessage('帮我看出行准备'))
+    await agent.whenIdle()
+    assert.equal(mounted.calls.length, 1, 'the host decision read still executes once')
+    assert.deepEqual(approvals, [],
+      'a read-only internal host tool is auto-policy, not an unclassified approval ask')
+    const request = mounted.adapter.requests[0]!.messages as unknown as ModelMessageView[]
+    const decision = runtimeContextMessages(request).find(message =>
+      message.source?.sections?.some(section => section.name === DECISION_CONTEXT_SECTION))
+    assert.ok(decision, 'the accepted request carries the decision section despite the gate')
+    assert.match(textOf(decision), /dshbot:decision-context/gu)
   } finally {
     await mounted.ctx.fiber.dispose()
   }

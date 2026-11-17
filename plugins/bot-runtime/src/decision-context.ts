@@ -554,6 +554,28 @@ export function internalToolOrigin(origin: TurnOriginKind): 'user' | 'bot' | 'ro
   }
 }
 
+/**
+ * Bounded, content-free reason a decision host read produced no block. The
+ * pre-step provider logs this code (never the query, path or tool text) so a
+ * real deployment can tell timeout / host refusal / schema drift / validation
+ * apart without turning on the verbose activation telemetry.
+ */
+export class DecisionContextSourceError extends Error {
+  readonly code: string
+  constructor(code: string) {
+    super(code)
+    this.name = 'DecisionContextSourceError'
+    this.code = code
+  }
+}
+
+function hostFailureCode(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined
+  const structured = isRecord(value.structuredContent) ? value.structuredContent : value
+  const code = structured.code
+  return typeof code === 'string' && /^[A-Za-z0-9.:_-]{1,80}$/u.test(code) ? code : undefined
+}
+
 /** Default provider: the single internal `BotDecisionContext` host call. */
 export function createPhoneDecisionContextSource(
   ctx: Context,
@@ -591,13 +613,26 @@ export function createPhoneDecisionContextSource(
         ...agent === undefined ? {} : { agent },
       })
       const result = batch.results[0]?.result
-      if (result === undefined || result.isError || signal.aborted || !isRecord(result.value)) return undefined
+      if (result === undefined) throw new DecisionContextSourceError('host-result-missing')
+      if (result.isError) {
+        const code = hostFailureCode(result.value)
+        throw new DecisionContextSourceError(code === undefined ? 'host-error' : `host-error:${code}`)
+      }
+      if (signal.aborted) throw new DecisionContextSourceError('aborted')
+      if (!isRecord(result.value)) throw new DecisionContextSourceError('host-value-malformed')
       const value = result.value.structuredContent
-      if (!isRecord(value) || value.schema !== BOT_DECISION_CONTEXT_RESULT_SCHEMA) return undefined
-      if (value.ok !== true || !isRecord(value.block)) return undefined
-      return validateDecisionContextResponse(value.block, { sessionId, turn })
-    } catch {
-      return undefined
+      if (!isRecord(value) || value.schema !== BOT_DECISION_CONTEXT_RESULT_SCHEMA) {
+        throw new DecisionContextSourceError('schema-mismatch')
+      }
+      if (value.ok !== true || !isRecord(value.block)) throw new DecisionContextSourceError('host-not-ok')
+      const block = validateDecisionContextResponse(value.block, { sessionId, turn })
+      if (block === undefined) throw new DecisionContextSourceError('validation-failed')
+      return block
+    } catch (error) {
+      if (error instanceof DecisionContextSourceError) throw error
+      // The timeout is ours (the caller's signal is separate); name it so a
+      // slow host read is not confused with a refused or malformed result.
+      throw new DecisionContextSourceError(signal.aborted ? 'timeout' : 'source-failed')
     }
   }
 }
@@ -696,9 +731,17 @@ export default function dshbotDecisionContext(
       states.set(sessionId, state)
       log('injected', { sessionId, block: block.block_id, materials: visible.materials.length })
       note('retrieved', sessionId, state)
-    } catch {
+    } catch (error) {
       // Timeout, abort and host failure all mean "no material this turn"; the
       // turn proceeds exactly as the baseline and no partial block survives.
+      // Keep one bounded, content-free line so a real deployment can see the
+      // cause after the verbose activation telemetry is switched off.
+      const code = error instanceof DecisionContextSourceError
+        ? error.code
+        : deadline.aborted ? 'timeout' : 'source-failed'
+      ctx.logger('dshbot-decision-context').warn(
+        'no decision material for session %s turn %s: %s',
+        sessionId, payload.turn, code)
     }
     return next()
   })
