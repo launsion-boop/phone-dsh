@@ -104,7 +104,10 @@ final class A07ContextSettingsUITests: XCTestCase {
         XCTAssertEqual(contacts.value as? String, "0",
                        "pre-grant must not fabricate App consent before the user taps")
         contacts.tap()
-        app.tap() // allow the interruption monitor to accept a real OS prompt
+        // Do not tap the app here: with an already granted OS permission there
+        // is no alert, and an unconditional app.tap() can dismiss the settings
+        // sheet before the switch value updates. The interruption monitor still
+        // handles a real prompt when one exists.
         let on = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value != %@", "0"), object: contacts)
         XCTAssertEqual(XCTWaiter().wait(for: [on], timeout: 10), .completed,
                        "real contacts tap with pre-granted OS permission should write App consent")
