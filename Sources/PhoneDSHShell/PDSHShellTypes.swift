@@ -276,13 +276,3 @@ public struct ClosurePhoneToolBridge: PhoneToolBridge {
     }
 }
 
-
-/// Host owner of the Bot-scoped native `phone contacts.search` command.
-///
-/// The shell passes the trusted tool-call session from the exec request; the
-/// host resolves that session to a claimed Bot and runs the Bot context-source
-/// consent/subscription gate. A model argument can never select the Bot.
-public protocol PhoneBotContactsQuerying: Sendable {
-    func runContactsCommand(arguments: [String], callerSessionID: String) async
-        -> PhoneRecordCommandResult
-}
