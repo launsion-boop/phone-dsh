@@ -6,7 +6,7 @@ yet; do not claim it until each end has runtime evidence. Change record:
 
 This fills README §9 row J2 for the phone host. A request that arrives from outside the
 composer — a TonoLink voice command, a task fetched from the phone task queue
-([cloud-tasks](../../cloud-tasks/v1/README.md)) — is first written to a native journal, and only
+([cloud-tasks.md](../../v1/cloud-tasks.md)) — is first written to a native journal, and only
 then handed to the owner that executes it. The journal records **that the request was admitted
 and which downstream id carries it**. It does not execute anything, does not copy conversation
 history, and does not replace the send outbox (§10), the Bot wake inbox or the Bot effect ledger.
