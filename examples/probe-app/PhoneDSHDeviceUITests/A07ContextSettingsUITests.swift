@@ -57,6 +57,7 @@ final class A07ContextSettingsUITests: XCTestCase {
         attach(name: "a07-context-calendar-before")
 
         let initial = calendar.value as? String
+        print("A07_CALENDAR_BEFORE label=\(calendar.label) value=\(String(describing: calendar.value))")
         calendar.tap()
         let changed = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "value != %@", initial ?? ""),
@@ -101,6 +102,8 @@ final class A07ContextSettingsUITests: XCTestCase {
         openContextSources()
         let contacts = app.switches["bot.info.context-source.contacts"]
         XCTAssertTrue(contacts.waitForExistence(timeout: 10), "contacts source row is missing")
+        print("A07_CONTACTS_BEFORE label=\(contacts.label) value=\(String(describing: contacts.value))")
+        attach(name: "a07-contacts-before")
         XCTAssertEqual(contacts.value as? String, "0",
                        "pre-grant must not fabricate App consent before the user taps")
         contacts.tap()
@@ -109,11 +112,17 @@ final class A07ContextSettingsUITests: XCTestCase {
         // sheet before the switch value updates. The interruption monitor still
         // handles a real prompt when one exists.
         let on = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value != %@", "0"), object: contacts)
-        XCTAssertEqual(XCTWaiter().wait(for: [on], timeout: 10), .completed,
+        let onResult = XCTWaiter().wait(for: [on], timeout: 10)
+        print("A07_CONTACTS_AFTER_ON result=\(onResult.rawValue) label=\(contacts.label) value=\(String(describing: contacts.value))")
+        attach(name: "a07-contacts-after-on")
+        XCTAssertEqual(onResult, .completed,
                        "real contacts tap with pre-granted OS permission should write App consent")
         contacts.tap()
         let off = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "0"), object: contacts)
-        XCTAssertEqual(XCTWaiter().wait(for: [off], timeout: 10), .completed,
+        let offResult = XCTWaiter().wait(for: [off], timeout: 10)
+        print("A07_CONTACTS_AFTER_OFF result=\(offResult.rawValue) label=\(contacts.label) value=\(String(describing: contacts.value))")
+        attach(name: "a07-contacts-after-off")
+        XCTAssertEqual(offResult, .completed,
                        "contacts revoke should clear the switch")
         attach(name: "a07-context-contacts-consent-revoke")
     }
