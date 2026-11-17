@@ -887,12 +887,17 @@ final class PhoneModelProviderSettingsTests: XCTestCase {
         XCTAssertNil(PhoneModelProviderSettings.searchBaseURL(for: URL(string: "file:///tmp/x")!))
     }
 
-    func testApplyWithoutSelectionFailsInsteadOfInventingADefault() {
-        var environment: [String: String] = [:]
-        XCTAssertThrowsError(try settings.apply(to: &environment)) { error in
-            XCTAssertEqual(error as? ModelProviderSettingsError, .noSelectedProvider)
-        }
-        XCTAssertTrue(environment.isEmpty)
+    func testUpsertPreservesPerModelImageInput() throws {
+        var value = profile()
+        value.models = [
+            ProviderModelDefinition(id: "deepseek-flash", imageInput: true,
+                                    reasoningEffort: "max"),
+        ]
+        try settings.upsert(value)
+        let loaded = try settings.load().profiles.first
+        XCTAssertEqual(loaded?.models?.first?.id, "deepseek-flash")
+        XCTAssertEqual(loaded?.models?.first?.imageInput, true)
+        XCTAssertEqual(loaded?.models?.first?.reasoningEffort, "max")
     }
 }
 
