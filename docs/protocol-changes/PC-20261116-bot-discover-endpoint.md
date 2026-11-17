@@ -85,4 +85,4 @@ English：
 | revision | 由誰 | 原因 | 通知了哪些端 |
 | --- | --- | --- | --- |
 | r1 | C | 真实 DISCOVER 失败证据（未读取规范→默认格式定例程）；按 R1/R2 只补一条终点 | R、E、Q |
-| r2 | C | 旧 r9 A/B 无效（r8 未进入 Worker）；修提示链后有效 A/B control 2/2 FAIL、treatment 2/2 FAIL、INJECTION PASS，无增益 → **withdrawn** | R、E、Q |
+| r2 | C | 旧 r9 A/B 无效（r8 未进入 Worker）；修提示链后有效 A/B control **1 PASS / 1 FAIL**、treatment **1 FAIL / 1 PASS**（两臂 `expectation_met=false`），INJECTION **PASS / PASS**；无增益 → **withdrawn** | R、E、Q |
