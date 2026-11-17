@@ -114,6 +114,13 @@ function readLabel(path: string | undefined): string {
   return shortLabel(suffix)
 }
 
+const SECRET_LABEL = /(?:bearer\s+[A-Za-z0-9._~+/=-]{8,}|\bsk-[A-Za-z0-9_-]{8,}|(?:api[_-]?key|access[_-]?token|auth[_-]?token|secret|password)\s*[:=]\s*\S{4,}|gh[pousr]_[A-Za-z0-9]{20,})/iu
+
+function safeLabel(value: string): string {
+  const label = shortLabel(value)
+  return SECRET_LABEL.test(label) ? 'tool' : label
+}
+
 function labelFor(tool: string, args: unknown): string {
   const bare = tool.startsWith('mcp__phone__')
     ? tool.slice('mcp__phone__'.length)
@@ -125,41 +132,42 @@ function labelFor(tool: string, args: unknown): string {
   if (bare === 'bash') {
     const description = stringArgument(args, 'description')
     if (description !== undefined) {
-      const label = shortLabel(description)
+      const label = safeLabel(description)
       if (label !== '') return label
     }
     const command = stringArgument(args, 'command')
     if (command !== undefined) {
-      const label = shortLabel(command)
+      const label = safeLabel(command)
       if (label !== '') return label
     }
   }
   if (bare === 'glob' || bare === 'grep') {
     const pattern = stringArgument(args, 'pattern') ?? stringArgument(args, 'query')
     if (pattern !== undefined) {
-      const label = shortLabel(pattern)
+      const label = safeLabel(pattern)
       if (label !== '') return label
     }
   }
   if (bare === 'web_fetch' || bare === 'web_search') {
     const target = stringArgument(args, 'url') ?? stringArgument(args, 'query')
     if (target !== undefined) {
-      const label = shortLabel(target)
+      const label = safeLabel(target)
       if (label !== '') return label
     }
   }
   if (bare === 'Task') {
     const title = stringArgument(args, 'task_title') ?? stringArgument(args, 'title')
     if (title !== undefined) {
-      const label = shortLabel(title)
+      const label = safeLabel(title)
       if (label !== '') return label
     }
   }
-  return shortLabel(bare) || 'tool'
+  return safeLabel(bare) || 'tool'
 }
 
 function isFailed(message: ToolResultMessage | undefined, data: Record<string, unknown>): boolean {
   return message?.isError === true || data.isError === true
+    || (data.error !== undefined && data.error !== null)
 }
 
 const TRUNCATION_MARKERS = [
@@ -174,7 +182,9 @@ const REDACTION_MARKERS = [
   /\[redact\]/iu,
 ] as const
 
-function isWithheld(text: string): boolean {
+function isWithheld(text: string, data?: Record<string, unknown>, message?: ToolResultMessage): boolean {
+  if (data?.truncated === true || data?.redacted === true) return true
+  if ((message as { truncated?: unknown } | undefined)?.truncated === true) return true
   return TRUNCATION_MARKERS.some(marker => marker.test(text))
     || REDACTION_MARKERS.some(marker => marker.test(text))
 }
@@ -217,6 +227,9 @@ export function buildToolResultIndex(
   if (sessionId === '' || !Array.isArray(events) || events.length === 0) return []
   const bound = Math.min(Math.max(Math.trunc(limit), 1), 12)
   const latestTurn = latestTurnOf(events)
+  // Without a real turn/start marker there is no trustworthy "current turn"
+  // boundary; listing every historical result would leak stale refs.
+  if (latestTurn === undefined) return []
   const calls = callsOf(events)
   const entries: ToolResultIndexEntry[] = []
   const seen = new Set<number>()
@@ -234,7 +247,7 @@ export function buildToolResultIndex(
     const message = messageOf(data.message)
     if (isFailed(message, data)) continue
     const text = textOfMessage(message)
-    if (text === '' || isWithheld(text)) continue
+    if (text === '' || isWithheld(text, data, message)) continue
     const callId = stringOf(message?.toolCallId) ?? stringOf(message?.source?.callId)
     const call = callId === undefined ? undefined : calls.get(callId)
     const tool = call?.name ?? 'tool'

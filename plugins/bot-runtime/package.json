@@ -13,7 +13,6 @@
     "./volatile-context": "./src/volatile-context.ts",
     "./decision-context": "./src/decision-context.ts",
     "./tool-result-index": "./src/tool-result-index.ts",
-    "./skill-use-gate": "./src/skill-use-gate.ts",
     "./channel": "./src/channel.ts",
     "./identity-bridge": "./src/identity-bridge.ts",
     "./activity-intent": "./src/activity-intent.ts",
