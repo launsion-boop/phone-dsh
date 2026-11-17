@@ -51,11 +51,31 @@ export function skillUseDenialCode(status: string | null): string {
 
 export const SKILL_STATUS_UNAVAILABLE = 'skill-provenance-status-unavailable'
 
-function statusUnavailable(): { readonly kind: 'deny'; readonly reason: string } {
+function statusUnavailable(detail?: string): { readonly kind: 'deny'; readonly reason: string } {
+  const suffix = detail === undefined ? '' : `:${detail.slice(0, 80)}`
   return {
     kind: 'deny',
-    reason: `[skill provenance] The skill status could not be verified (${SKILL_STATUS_UNAVAILABLE}); its instructions were NOT loaded.`,
+    reason: `[skill provenance] The skill status could not be verified (${SKILL_STATUS_UNAVAILABLE}${suffix}); its instructions were NOT loaded.`,
   }
+}
+
+/** Bounded failure classification for the internal status tool result. */
+export function skillStatusFailureCode(result: unknown): string {
+  if (!isRecord(result)) return 'missing-result'
+  if (result.isError === true) {
+    const value = isRecord(result.value) ? result.value : undefined
+    const raw = value?.error ?? value?.code
+    const code = typeof raw === 'string' ? raw.replace(/\s+/gu, '-').slice(0, 40) : ''
+    return code === '' ? 'isError' : `isError:${code}`
+  }
+  if (!isRecord(result.value)) return 'missing-value'
+  const structured = result.value.structuredContent
+  if (!isRecord(structured)) return 'missing-structured-content'
+  if (structured.schema !== BOT_SKILL_USE_STATUS_SCHEMA) return 'schema'
+  if (structured.ok !== true) return 'not-ok'
+  const raw = structured.status
+  if (raw === null || raw === undefined || typeof raw === 'string') return 'ok'
+  return 'invalid-status'
 }
 
 function denial(status: string | null): { readonly kind: 'deny'; readonly reason: string } {
@@ -290,10 +310,13 @@ export default function dshbotSkillUseGate(
       })
       const result = batch.results[0]?.result
       const parsed = skillStatusFromToolResult(result)
-      if (parsed === undefined) return statusUnavailable()
+      if (parsed === undefined) {
+        return statusUnavailable(skillStatusFailureCode(result))
+      }
       status = parsed
-    } catch {
-      return statusUnavailable()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return statusUnavailable(`exception:${message.replace(/\s+/gu, '-').slice(0, 60)}`)
     }
     if (skillUseDecision(status) === 'allow') return next()
     return denial(status)

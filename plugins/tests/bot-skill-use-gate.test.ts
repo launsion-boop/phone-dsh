@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import dshbotSkillUseGate, { filterSkillProvenanceMessages, removeCatalogLines, skillStatusFromToolResult, skillUseDecision, skillUseDenialCode } from '../bot-runtime/src/skill-use-gate.ts'
+import dshbotSkillUseGate, { filterSkillProvenanceMessages, removeCatalogLines, skillStatusFailureCode, skillStatusFromToolResult, skillUseDecision, skillUseDenialCode } from '../bot-runtime/src/skill-use-gate.ts'
 
 test('only a current skill may load', () => {
   assert.equal(skillUseDecision('current'), 'allow')
@@ -115,4 +115,21 @@ test('status lookup failure is unavailable, while null is untracked and unknown 
 
 test('the gate declares the tools service it calls', () => {
   assert.deepEqual(dshbotSkillUseGate.inject, ['tools'])
+})
+
+test('status lookup failures are classified without changing denial policy', () => {
+  assert.equal(skillStatusFailureCode(undefined), 'missing-result')
+  assert.equal(skillStatusFailureCode({}), 'missing-value')
+  assert.equal(skillStatusFailureCode({ isError: true, value: { error: 'unknown_tool' } }),
+    'isError:unknown_tool')
+  assert.equal(skillStatusFailureCode({ value: {} }), 'missing-structured-content')
+  assert.equal(skillStatusFailureCode({
+    value: { structuredContent: { schema: 'wrong', ok: true, status: 'current' } },
+  }), 'schema')
+  assert.equal(skillStatusFailureCode({
+    value: { structuredContent: { schema: 'bot-skill-use-status/v1', ok: false } },
+  }), 'not-ok')
+  assert.equal(skillStatusFailureCode({
+    value: { structuredContent: { schema: 'bot-skill-use-status/v1', ok: true, status: null } },
+  }), 'ok')
 })
