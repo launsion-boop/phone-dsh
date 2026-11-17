@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "vector": "web-search-address-lifecycle",
+  "cases": [
+    {
+      "id": "first-address-on-leave",
+      "storedBase": "",
+      "credential": "absent",
+      "draft": "example.invalid",
+      "submitted": "https://example.invalid",
+      "result": "saved",
+      "finalBase": "https://example.invalid",
+      "platform": "both",
+      "operation": "address"
+    },
+    {
+      "id": "same-address-keeps-key",
+      "storedBase": "https://old.example.invalid",
+      "credential": "present",
+      "draft": "https://old.example.invalid",
+      "submitted": "https://old.example.invalid",
+      "result": "unchanged",
+      "finalBase": "https://old.example.invalid",
+      "platform": "both",
+      "operation": "address"
+    },
+    {
+      "id": "new-address-requires-new-key",
+      "storedBase": "https://old.example.invalid",
+      "credential": "present",
+      "draft": "new.example.invalid",
+      "submitted": "https://new.example.invalid",
+      "result": "rejected",
+      "finalBase": "https://old.example.invalid",
+      "platform": "both",
+      "operation": "address"
+    },
+    {
+      "id": "unreadable-key-blocks-change",
+      "storedBase": "https://old.example.invalid",
+      "credential": "unreadable",
+      "draft": "new.example.invalid",
+      "submitted": "https://new.example.invalid",
+      "result": "rejected",
+      "finalBase": "https://old.example.invalid",
+      "platform": "both",
+      "operation": "address"
+    },
+    {
+      "id": "query-is-invalid",
+      "storedBase": "",
+      "credential": "absent",
+      "draft": "https://example.invalid/?query=1",
+      "submitted": "https://example.invalid/?query=1",
+      "result": "rejected",
+      "finalBase": "",
+      "platform": "both",
+      "operation": "address"
+    },
+    {
+      "id": "stale-key-save-refused",
+      "storedBase": "https://old.example.invalid",
+      "credential": "absent",
+      "draft": "",
+      "submitted": "https://new.example.invalid",
+      "result": "rejected",
+      "finalBase": "https://old.example.invalid",
+      "platform": "android",
+      "operation": "key-save"
+    },
+    {
+      "id": "unknown-document-refused",
+      "storedBase": "",
+      "credential": "unreadable",
+      "draft": "example.invalid",
+      "submitted": "https://example.invalid",
+      "result": "rejected",
+      "finalBase": "",
+      "platform": "both",
+      "operation": "address"
+    },
+    {
+      "id": "key-save-unreadable",
+      "storedBase": "https://old.example.invalid",
+      "credential": "unreadable",
+      "draft": "https://old.example.invalid",
+      "submitted": "https://old.example.invalid",
+      "result": "rejected",
+      "finalBase": "https://old.example.invalid",
+      "platform": "both",
+      "operation": "key-save"
+    }
+  ],
+  "visual402": {
+    "referenceSha256": "7e148c91a59b66180a9e585882229ff405792bd2914b806f05f4b87f5cc7edd4",
+    "width": 402,
+    "scale": 3,
+    "modeCardLeft": 16,
+    "modeCardRight": 386,
+    "modeCardTopPx": 466,
+    "modeCardBottomPx": 982,
+    "modeDividerTopPx": 721,
+    "addressCardTopPx": 1184,
+    "addressCardBottomPx": 1337,
+    "keyCardTopPx": 1555,
+    "unselectedSubtitleVisible": false
+  }
+}

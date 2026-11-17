@@ -1137,3 +1137,29 @@ class StandardGattServiceChangeFixtureTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class WebSearchAddressLifecycleFixtureSchemaTest(unittest.TestCase):
+    def test_cases_and_schema_mutations(self):
+        repo = SPEC_DIR.parents[1]
+        fixture = json.loads((repo / "spec/ui/v1/fixtures/web-search-address-lifecycle.json").read_text())
+        schema = json.loads((repo / "spec/ui/v1/schema/web-search-address-lifecycle.schema.json").read_text())
+        spec_golden.validate_json(fixture, schema, "web-search-address-lifecycle")
+        self.assertEqual(len({case["id"] for case in fixture["cases"]}), len(fixture["cases"]))
+        self.assertEqual({case["credential"] for case in fixture["cases"]}, {"absent", "present", "unreadable"})
+        self.assertEqual({case["result"] for case in fixture["cases"]}, {"saved", "unchanged", "rejected"})
+        for mutation in ("missing-base", "unknown-credential", "extra-secret", "unknown-result", "wrong-visual", "unknown-operation"):
+            changed = copy.deepcopy(fixture)
+            if mutation == "missing-base":
+                del changed["cases"][0]["storedBase"]
+            elif mutation == "unknown-credential":
+                changed["cases"][0]["credential"] = "unknown"
+            elif mutation == "extra-secret":
+                changed["cases"][0]["key"] = "not-a-real-key"
+            elif mutation == "wrong-visual":
+                changed["visual402"]["modeCardTopPx"] += 1
+            elif mutation == "unknown-operation":
+                changed["cases"][0]["operation"] = "unsafe-overwrite"
+            else:
+                changed["cases"][0]["result"] = "assumed-saved"
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(changed, schema, mutation)
