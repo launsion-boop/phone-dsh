@@ -244,6 +244,7 @@ final class BotRuntimeComposition {
     private var contextStartTask: Task<Void, Never>?
     private var stopped = false
     private var contextLifecycleGeneration = 0
+    private var skillEventQueue: BotSkillEventQueue?
 
     /// Read-only seam for the Bot info/settings entry and the info driver. The
     /// assembly remains the sole consent/observation authority.
@@ -475,14 +476,12 @@ final class BotRuntimeComposition {
         let userRoot = skillRoots.skillsRoot(source: "user-dsh", ownerBotID: nil)
             ?? (workspaceRoot ?? BotProductionPaths.workspaceRoot())
                 .appendingPathComponent("materialized/home/skills", isDirectory: true)
+        let skillQueue = BotSkillEventQueue(producer: skillProducer)
+        skillEventQueue = skillQueue
         let userObserver = BotSkillDirectoryObserver(
             root: userRoot, label: "bot.skill.user-dsh", createRoot: true,
-            onWritten: { name in
-                Task { _ = try? await skillProducer.recordUserDshWrite(fileName: name) }
-            },
-            onDeleted: { name in
-                Task { _ = try? await skillProducer.recordUserDshDelete(fileName: name) }
-            })
+            onWritten: { name in Task { await skillQueue.userWrite(name) } },
+            onDeleted: { name in Task { await skillQueue.userDelete(name) } })
         var skillObservers: [BotSkillDirectoryObserver] = [userObserver]
         userObserver.start()
         let botRoot = BotWorkspaceLayout.botRoot(
@@ -494,8 +493,8 @@ final class BotRuntimeComposition {
                 root: root, label: "bot.skill.\(source)", createRoot: true,
                 onDeleted: { name in
                     let vfs = botRoot + "/" + suffix + "/" + name
-                    Task { _ = try? await skillProducer.recordBotDelete(
-                        vfsPath: vfs, botID: selectedCandidate, sessionID: nil) }
+                    Task { await skillQueue.botDelete(
+                        vfs: vfs, botID: selectedCandidate) }
                 })
             skillObservers.append(observer)
             observer.start()
@@ -2164,5 +2163,31 @@ struct BotRecordPhoneAdapter: PhoneRecordQuerying {
         return PhoneRecordCommandResult(stdout: output.stdout,
                                         stderr: output.stderr,
                                         exitCode: output.exitCode)
+    }
+}
+
+/// Serializes observer callbacks per root so a fast write→delete cannot run
+/// delete before the producer has recorded the preceding write. Failures are
+/// logged, never swallowed, and never retried in a loop.
+actor BotSkillEventQueue {
+    private let producer: BotSkillProvenanceProducer
+
+    init(producer: BotSkillProvenanceProducer) {
+        self.producer = producer
+    }
+
+    func userWrite(_ name: String) async {
+        do { _ = try await producer.recordUserDshWrite(fileName: name) }
+        catch { NSLog("BOT_SKILL_PRODUCER_FAILED action=user-write name=%@ error=%@", name, String(describing: error)) }
+    }
+
+    func userDelete(_ name: String) async {
+        do { _ = try await producer.recordUserDshDelete(fileName: name) }
+        catch { NSLog("BOT_SKILL_PRODUCER_FAILED action=user-delete name=%@ error=%@", name, String(describing: error)) }
+    }
+
+    func botDelete(vfs: String, botID: String) async {
+        do { _ = try await producer.recordBotDelete(vfsPath: vfs, botID: botID, sessionID: nil) }
+        catch { NSLog("BOT_SKILL_PRODUCER_FAILED action=project-delete path=%@ error=%@", vfs, String(describing: error)) }
     }
 }
