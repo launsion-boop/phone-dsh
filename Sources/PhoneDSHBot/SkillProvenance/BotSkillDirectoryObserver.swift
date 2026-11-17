@@ -104,22 +104,26 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
     private let onDeleted: Handler?
     private let createRoot: Bool
     private let rescanInterval: TimeInterval?
+    private let useFileSystemSource: Bool
     private var source: DispatchSourceFileSystemObject?
     private var timer: DispatchSourceTimer?
     private var previous: [String: BotSkillFileStamp]?
     private var started = false
     private var reportedUnreadable = false
+    private var unreadableTransitions = 0
 
     public init(root: URL,
                 label: String = "bot.skill-directory-observer",
                 createRoot: Bool = false,
                 rescanInterval: TimeInterval? = 1,
+                useFileSystemSource: Bool = true,
                 onWritten: Handler? = nil,
                 onDeleted: Handler? = nil) {
         self.root = root
         self.rescanInterval = rescanInterval
         self.queue = DispatchQueue(label: label)
         self.createRoot = createRoot
+        self.useFileSystemSource = useFileSystemSource
         self.onWritten = onWritten
         self.onDeleted = onDeleted
     }
@@ -140,20 +144,18 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
                 if case .present(let files) = initial { return files }
                 return [:]
             }()
-            let fd = open(root.path, O_EVTONLY)
-            guard fd >= 0 else {
-                NSLog("[BOT_SKILL_OBSERVER] open-failed root=%@ errno=%d", root.path, errno)
-                return
+            if useFileSystemSource {
+                let fd = open(root.path, O_EVTONLY)
+                guard fd >= 0 else { return }
+                let source = DispatchSource.makeFileSystemObjectSource(
+                    fileDescriptor: fd,
+                    eventMask: [.write, .rename, .delete, .attrib],
+                    queue: queue)
+                source.setEventHandler { [weak self] in self?.scan() }
+                source.setCancelHandler { close(fd) }
+                self.source = source
+                source.resume()
             }
-            NSLog("[BOT_SKILL_OBSERVER] opened root=%@", root.path)
-            let source = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: fd,
-                eventMask: [.write, .rename, .delete, .attrib],
-                queue: queue)
-            source.setEventHandler { [weak self] in self?.scan() }
-            source.setCancelHandler { close(fd) }
-            self.source = source
-            source.resume()
             // FSEvents may coalesce a short-lived create/delete into no
             // observable change. A bounded periodic rescan is the fallback;
             // it only emits changed stamps and never reads file bodies.
@@ -164,6 +166,7 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
                 self.timer = timer
                 timer.resume()
             }
+            guard useFileSystemSource || timer != nil else { return }
             started = true
             didStart = true
             NSLog("[BOT_SKILL_OBSERVER] start root=%@", root.path)
@@ -184,6 +187,12 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
 
     /// Tests drive the same serial queue as FSEvents/timer, not the XCTest
     /// thread, so a manual scan cannot race a timer tick.
+    public func unreadableTransitionsForTesting() async -> Int {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: self.unreadableTransitions) }
+        }
+    }
+
     public func scanForTesting() async {
         await withCheckedContinuation { continuation in
             queue.async {
@@ -199,6 +208,7 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
         if case .unreadable = current {
             if !reportedUnreadable {
                 reportedUnreadable = true
+                unreadableTransitions += 1
                 NSLog("[BOT_SKILL_OBSERVER] unreadable root=%@", root.path)
             }
         } else {

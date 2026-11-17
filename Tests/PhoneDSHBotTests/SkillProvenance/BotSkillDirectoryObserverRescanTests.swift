@@ -32,4 +32,52 @@ final class BotSkillDirectoryObserverRescanTests: XCTestCase {
         observer.stop()
         XCTAssertEqual(seen.snapshot(), ["w:weekly.md", "d:weekly.md"])
     }
+
+    func testTimerFallbackSuppliesCreateAndDeleteWithoutFSEvents() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("skill-timer-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let written = expectation(description: "timer-written")
+        let deleted = expectation(description: "timer-deleted")
+        final class Once: @unchecked Sendable {
+            private let lock = NSLock()
+            private var written = false, deleted = false
+            func write() -> Bool { lock.lock(); defer { lock.unlock() }
+                if written { return false }; written = true; return true }
+            func delete() -> Bool { lock.lock(); defer { lock.unlock() }
+                if deleted { return false }; deleted = true; return true }
+        }
+        let once = Once()
+        let observer = BotSkillDirectoryObserver(
+            root: root, rescanInterval: 0.05, useFileSystemSource: false,
+            onWritten: { _ in if once.write() { written.fulfill() } },
+            onDeleted: { _ in if once.delete() { deleted.fulfill() } })
+        XCTAssertTrue(observer.start())
+        try Data("x".utf8).write(to: root.appendingPathComponent("timer.md"))
+        await fulfillment(of: [written], timeout: 2)
+        try FileManager.default.removeItem(at: root.appendingPathComponent("timer.md"))
+        await fulfillment(of: [deleted], timeout: 2)
+        observer.stop()
+    }
+
+    func testUnreadableRootEmitsOneTransition() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("skill-unreadable-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let observer = BotSkillDirectoryObserver(
+            root: root, rescanInterval: 0.05, useFileSystemSource: false,
+            onWritten: nil, onDeleted: nil)
+        XCTAssertTrue(observer.start())
+        try FileManager.default.removeItem(at: root)
+        try Data("not-a-directory".utf8).write(to: root)
+        for _ in 0..<100 where await observer.unreadableTransitionsForTesting() == 0 {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let transitions = await observer.unreadableTransitionsForTesting()
+        observer.stop()
+        XCTAssertEqual(transitions, 1)
+    }
+
 }
