@@ -6,7 +6,7 @@
 ```yaml
 change: PC-20261116-external-admission
 contracts: [P06, P07, P09, P27]
-status: frozen
+status: implemented
 breaking: false
 version_decision: 新增文件与新目录；既有记录、schema、wire 均不变
 base: d8151ad58e4b352671a2ff332038c4a9a0a27222

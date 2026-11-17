@@ -6,7 +6,7 @@
 ```yaml
 change: PC-20261116-cloud-task-queue
 contracts: [P05, P06, P08, P09, P18]
-status: frozen
+status: implemented
 breaking: false
 version_decision: 只新增路由、文件与偏好键；既有路由、错误体、记录不变
 base: d8151ad58e4b352671a2ff332038c4a9a0a27222
