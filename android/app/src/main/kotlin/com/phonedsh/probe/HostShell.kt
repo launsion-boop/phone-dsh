@@ -456,6 +456,10 @@ internal fun HostShell(
     // Tono 账号: the process-owned cloud account session (tono-account.md).
     val tonoAccount = remember { TonoAccountHost.get(context) }
     val tonoAccountFacts by tonoAccount.facts.collectAsState()
+    // 云端任务: the process-owned phone task queue (cloud-tasks.md §7); the page shows
+    // its switch and status line inside the Tono account facts.
+    val cloudTasks = remember { com.phonedsh.probe.cloudtasks.CloudTaskCenter.get(context) }
+    val cloudTaskFacts by cloudTasks.facts.collectAsState()
     // 局域网设备 on the MCP page: the user-started mDNS browse (lan-mcp.md).
     val lanDiscovery = remember { AndroidLanDiscovery.get(context) }
     val lanFacts by lanDiscovery.facts.collectAsState()
@@ -1097,7 +1101,17 @@ internal fun HostShell(
     // platform really carries this app's back gesture through the invoker. It is
     // measured by the back callback (one gesture moves it), so it is applied here
     // rather than inside the remembered walk.
-    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts, ssh = sshFacts, androidAdb = androidAdbFacts, tonoAccount = tonoAccountFacts, lan = lanFacts)
+    val shownFacts = PredictiveBack.measured(facts).copy(
+        bluetooth = bluetoothFacts,
+        ssh = sshFacts,
+        androidAdb = androidAdbFacts,
+        tonoAccount = tonoAccountFacts.copy(
+            cloudTasksEnabled = cloudTaskFacts.enabled,
+            cloudTasksStatus = cloudTaskFacts.status,
+            cloudTasksBusy = cloudTaskFacts.busy,
+        ),
+        lan = lanFacts,
+    )
     LaunchedEffect(chatUi.commandExecution?.id) {
         if (chatUi.commandExecution != null) pushRoute(PdshRoute.CommandResult)
     }
@@ -2377,6 +2391,7 @@ private fun actionLabel(action: PdshHostAction): String = when (action) {
     is PdshHostAction.TonoAccountRequestCode -> "获取 Tono 验证码"
     is PdshHostAction.TonoAccountSignIn -> "登录 Tono 账号"
     PdshHostAction.TonoAccountSignOut -> "退出 Tono 账号"
+    is PdshHostAction.TonoAccountSetCloudTasks -> "云端任务开关"
     is PdshHostAction.SaveMcpServer -> "保存 MCP 服务器"
     PdshHostAction.StopRuntime -> "停止本地引擎"
     PdshHostAction.RestartRuntime -> "启动本地引擎"

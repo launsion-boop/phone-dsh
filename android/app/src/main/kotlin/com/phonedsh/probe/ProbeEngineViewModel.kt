@@ -114,7 +114,12 @@ import com.phonedsh.platform.android.AndroidDurability
 import com.phonedsh.platform.android.AndroidLifecycleSignals
 import com.phonedsh.platform.android.ProotRuntime
 import com.phonedsh.platform.android.UbuntuRootfsStore
-import com.phonedsh.probe.admission.ExternalAdmissionJournal
+import com.phonedsh.probe.admission.AdmissionTarget
+import com.phonedsh.probe.admission.ProcessAdmissionJournal
+import com.phonedsh.probe.cloudtasks.CloudTaskCenter
+import com.phonedsh.probe.cloudtasks.CloudTaskHostHooks
+import com.phonedsh.probe.cloudtasks.CloudTaskPresenceRule
+import com.phonedsh.probe.cloudtasks.CloudTaskTargetPresence
 import com.phonedsh.probe.bot.AppBotMcpEgress
 import com.phonedsh.probe.bot.AppBotRuntime
 import com.phonedsh.probe.bot.BotPlatformConfig
@@ -2443,9 +2448,9 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         override fun sessionExists(sessionId: String): Boolean =
             sessionId in chatWorkerClaims || mutableChat.value.workerSessionId == sessionId
 
-        // No account-scoped admission producer is wired on Android yet, so an
-        // `account:` record only waits.
-        override fun signedInAccountId(): String? = null
+        // The tono user id of the account signed in now (cloud-tasks.md §7). Null
+        // when signed out, or when it cannot be read now: an `account:` record waits.
+        override fun signedInAccountId(): String? = CloudTaskCenter.active()?.signedInAccountId()
 
         override fun queueChanged(entries: List<SendOutboxEntry>) = projectQueuedSends(entries)
 
@@ -2455,11 +2460,56 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     internal val chatSendQueue: ChatSendQueue by lazy {
         ChatSendQueue(
             outbox = sendOutbox,
-            journal = lazy { runCatching { ExternalAdmissionJournal(getApplication<Application>().filesDir) }.getOrNull() },
+            // The process's one journal object: the cloud task bridge admits into the same one.
+            journal = lazy { ProcessAdmissionJournal.get(getApplication<Application>().filesDir) },
             host = chatSendHost,
             scope = turnScope,
         )
     }
+
+    // ---- phone task queue (spec/v1/cloud-tasks.md §7) -------------------------
+    // What this view model tells the process-owned `CloudTaskCenter`: whether a
+    // task's target exists, and that new admissions wait in the journal. Both are
+    // called on the cloud task lane, never on the main thread, and neither starts
+    // the engine.
+    private val cloudTaskHooks = object : CloudTaskHostHooks {
+        override fun presence(target: AdmissionTarget): CloudTaskTargetPresence = cloudTaskTargetPresence(target)
+
+        override fun onAdmitted() = chatSendQueue.onAdmission()
+    }
+
+    /**
+     * Three answers. `ABSENT` is given only on an authoritative reading: the
+     * Worker's own `session/list` while the engine is running, or the loaded Bot
+     * roster. A session the app holds a claim for is `PRESENT`. Everything else
+     * is `UNKNOWN`, which admits nothing and acks nothing. A session the Worker
+     * lists but this app holds no claim for is also `UNKNOWN`: the dispatcher's
+     * own existence fact ([ChatSendHost.sessionExists]) would not accept it.
+     */
+    private fun cloudTaskTargetPresence(target: AdmissionTarget): CloudTaskTargetPresence = when (target) {
+        is AdmissionTarget.Bot -> {
+            val roster = if (appBotRuntimeDelegate.isInitialized()) appBotRuntime?.platformConfig?.roster else null
+            when {
+                roster.isNullOrEmpty() -> CloudTaskTargetPresence.UNKNOWN
+                roster.any { it.id == target.botId } -> CloudTaskTargetPresence.PRESENT
+                else -> CloudTaskTargetPresence.ABSENT
+            }
+        }
+        is AdmissionTarget.DshSession -> {
+            val known = chatSendHost.sessionExists(target.sessionId)
+            val listed = if (chatSendHost.deliveryFacts().transportReady) workerSessionIds() else null
+            CloudTaskPresenceRule.session(known = known, listed = listed?.contains(target.sessionId))
+        }
+    }
+
+    /** One `session/list` read of the running engine, or null when it gave no usable answer. */
+    private fun workerSessionIds(): Set<String>? = runCatching {
+        runBlocking {
+            val reply = DshTurnClient(host.channel, ::logTurn).call("session/list", timeoutMillis = 5_000)
+            ((reply as? JsonObject)?.get("items") as? JsonArray)?.values
+                ?.mapNotNull { ((it as? JsonObject)?.get("sessionId") as? JsonString)?.value }?.toSet()
+        }
+    }.getOrNull()
 
     /**
      * The existing 排队中 projection for sends that are durable but not delivered
@@ -2526,6 +2576,9 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // The outbox startup scan: orphan attachment GC, then resume what an
         // earlier process left. It never invents an rpcId.
         chatSendQueue.startup()
+        // The phone task queue exists without the engine; it learns here who can
+        // answer "does this target exist" and whom to nudge after an admission.
+        CloudTaskCenter.attach(cloudTaskHooks)
         // Asynchronous by contract: recovery, the final HELLO and engine.start()
         // run on the host's scope. Observe engine.state for the outcome.
         viewModelScope.launch(Dispatchers.IO) {
@@ -4765,6 +4818,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     }
 
     override fun onCleared() {
+        CloudTaskCenter.detach(cloudTaskHooks)
         turnScope.cancel()
         if (appBotRuntimeDelegate.isInitialized()) appBotRuntime?.close()
         pcWorkspace?.close()
