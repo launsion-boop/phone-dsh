@@ -43,20 +43,7 @@ public final class BotContextContactsToolBridge: PhoneToolBridge {
             guard case .object(let payload) = observation.payload else {
                 return Self.failure(code: "invalid_response", message: "contacts observation has no object payload")
             }
-            let encoded = try JSONEncoder().encode(payload)
-            guard var data = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else {
-                return Self.failure(code: "invalid_response", message: "contacts payload is not an object")
-            }
-            data["source"] = observation.source.rawValue
-            data["permissionRevision"] = observation.permissionRevision
-            data["masked"] = true
-            if let key = observation.resource?.key { data["sourceKey"] = key }
-            let response: [String: Any] = [
-                "ok": true, "tool": "contacts.search", "egress": false,
-                "scope": "contacts.read", "data": data,
-            ]
-            let bytes = try JSONSerialization.data(withJSONObject: response, options: [.sortedKeys])
-            return String(decoding: bytes, as: UTF8.self)
+            return try Self.response(observation)
         } catch let error as BotContextSourceError {
             switch error {
             case .notAuthorized, .revoked:
@@ -71,6 +58,26 @@ public final class BotContextContactsToolBridge: PhoneToolBridge {
         } catch {
             return Self.failure(code: "unavailable", message: "contacts source unavailable")
         }
+    }
+
+    static func response(_ observation: BotContextObservation) throws -> String {
+        guard case .object(let payload) = observation.payload else {
+            throw BotContextSourceError.invalidRequest("contacts observation has no object payload")
+        }
+        let encoded = try JSONEncoder().encode(payload)
+        guard var data = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else {
+            throw BotContextSourceError.invalidRequest("contacts payload is not an object")
+        }
+        data["source"] = observation.source.rawValue
+        data["permissionRevision"] = observation.permissionRevision
+        data["masked"] = true
+        if let key = observation.resource?.key { data["sourceKey"] = key }
+        let response: [String: Any] = [
+            "ok": true, "tool": "contacts.search", "egress": false,
+            "scope": "contacts.read", "data": data,
+        ]
+        let bytes = try JSONSerialization.data(withJSONObject: response, options: [.sortedKeys])
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     private static func failure(code: String, message: String) -> String {
