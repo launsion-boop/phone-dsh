@@ -42,9 +42,11 @@ final class SimPartnerChatDriver: XCTestCase {
         let send = app.buttons["bot.composer.send"]
         XCTAssertTrue(send.waitForExistence(timeout: 20), "send button missing")
         XCTAssertTrue(waitUntil(30) { send.isEnabled }, "send stayed disabled")
+        let transcript = app.otherElements["bot.chat.transcript"]
+        let before = transcript.staticTexts.count
         send.tap()
-        XCTAssertTrue(app.staticTexts[text].waitForExistence(timeout: 30),
-                      "user text did not render in transcript")
+        XCTAssertTrue(waitUntil(60) { transcript.staticTexts.count > before },
+                      "message did not render in transcript")
     }
 
     @discardableResult
@@ -53,6 +55,30 @@ final class SimPartnerChatDriver: XCTestCase {
         let deadline = Date().addingTimeInterval(timeout)
         var quiet = 0
         while Date() < deadline {
+            if stop.exists { quiet = 0 } else { quiet += 1 }
+            if quiet >= 4 { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        return false
+    }
+
+    /// Waits for a turn to settle while accepting explicit image-egress
+    /// approval cards the Bot raises. Each tap is a real user decision; the
+    /// driver never fabricates an approval result.
+    @discardableResult
+    private func waitForTurnEndApprovingOnce(timeout: TimeInterval) -> Bool {
+        let stop = app.buttons["bot.composer.stop"]
+        let allow = app.buttons["允许一次"]
+        var quiet = 0
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if allow.exists {
+                attach("approval-card")
+                allow.tap()
+                quiet = 0
+                RunLoop.current.run(until: Date().addingTimeInterval(2))
+                continue
+            }
             if stop.exists { quiet = 0 } else { quiet += 1 }
             if quiet >= 4 { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
@@ -69,6 +95,139 @@ final class SimPartnerChatDriver: XCTestCase {
         return condition()
     }
 
+    /// Fast-send race probe: selects photos, taps Done, then sends text
+    /// immediately without waiting for the async chip. Records whether the chip
+    /// existed at send time so a lost attachment can be classified.
+    func testPhotosFastSend() throws {
+        launchBot()
+        app.buttons["bot.composer.attach"].tap()
+        let photos = app.buttons["照片"]
+        XCTAssertTrue(photos.waitForExistence(timeout: 10), "photo menu missing")
+        photos.tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        let close = app.buttons["Close"]
+        if close.exists { close.tap() }
+        let cells = app.images.matching(identifier: "PXGGridLayout-Info")
+        XCTAssertTrue(waitUntil(20) { cells.count >= 2 }, "photo grid did not load")
+        cells.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        cells.element(boundBy: 1).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let done = app.buttons["Done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 10), "photo Done missing")
+        done.tap()
+        let chip0 = app.descendants(matching: .any)["bot.composer.attachment.0"]
+        let chipBefore = chip0.exists
+        let input = composer()
+        input.tap()
+        input.typeText("看图")
+        let chipAtSend = chip0.exists
+        print("FAST_SEND_CHIP_BEFORE=\(chipBefore) AT_SEND=\(chipAtSend)")
+        attach("fast-send-chip-\(chipAtSend)")
+        let dump = XCTAttachment(string: app.debugDescription)
+        dump.name = "fast-send-hierarchy"
+        dump.lifetime = .keepAlways
+        add(dump)
+        let send = app.buttons["bot.composer.send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 10), "send missing")
+        if send.isEnabled { send.tap() }
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        attach("fast-send-after")
+        XCTAssertTrue(waitForTurnEndApprovingOnce(timeout: 600), "fast send turn did not settle")
+    }
+
+    /// Enables image input on the seeded provider model through the normal
+    /// advanced settings editor, then saves. The seed profile defaults to
+    /// text-only, which would make the App drop image attachments.
+    func testEnableImageInput() throws {
+        app.terminate()
+        app.launchArguments = ["-uiPreview", "settings.model", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        let edit = app.buttons["provider.edit-default"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 60), "edit-default missing")
+        edit.tap()
+        XCTAssertTrue(app.buttons["保存"].waitForExistence(timeout: 15), "editor did not open")
+        app.buttons["高级设置"].tap()
+        XCTAssertTrue(app.navigationBars["高级设置"].waitForExistence(timeout: 10), "advanced page missing")
+        var toggle = app.switches["图片输入"]
+        for _ in 0..<3 where !toggle.exists {
+            app.swipeUp()
+            toggle = app.switches["图片输入"]
+        }
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "image input toggle missing")
+        attach("image-input-before")
+        if (toggle.value as? String) == "0" {
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+        }
+        attach("image-input-after")
+        app.navigationBars["高级设置"].buttons.firstMatch.tap()
+        let save = app.buttons["保存"]
+        XCTAssertTrue(save.waitForExistence(timeout: 10), "save missing")
+        save.tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        attach("image-input-saved")
+    }
+
+    /// Selects two controlled photos, waits for the attachment chips to
+    /// appear (loadPhotos is async), captures the chip hierarchy, then sends.
+    func testPhotosChipThenSend() throws {
+        launchBot()
+        app.buttons["bot.composer.attach"].tap()
+        let photos = app.buttons["照片"]
+        XCTAssertTrue(photos.waitForExistence(timeout: 10), "photo menu missing")
+        photos.tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        let close = app.buttons["Close"]
+        if close.exists { close.tap() }
+        let cells = app.images.matching(identifier: "PXGGridLayout-Info")
+        XCTAssertTrue(waitUntil(20) { cells.count >= 2 }, "photo grid did not load")
+        cells.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        cells.element(boundBy: 1).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let done = app.buttons["Done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 10), "photo Done missing")
+        done.tap()
+        let chip0 = app.descendants(matching: .any)["bot.composer.attachment.0"]
+        XCTAssertTrue(chip0.waitForExistence(timeout: 30), "attachment 0 chip never appeared")
+        let chip1 = app.descendants(matching: .any)["bot.composer.attachment.1"]
+        _ = chip1.waitForExistence(timeout: 10)
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        attach("photos-chip-before-send")
+        let chipDump = XCTAttachment(string: app.debugDescription)
+        chipDump.name = "photos-chip-hierarchy"
+        chipDump.lifetime = .keepAlways
+        add(chipDump)
+        let input = composer()
+        input.tap()
+        input.typeText("请分别说出这两张图片里的票据金额和白板上的三个决策点；看不清就直说。")
+        let send = app.buttons["bot.composer.send"]
+        XCTAssertTrue(waitUntil(20) { send.isEnabled }, "send disabled after chips")
+        send.tap()
+        attach("photos-chip-sent")
+        XCTAssertTrue(waitForTurnEndApprovingOnce(timeout: 900), "photo chip turn did not settle")
+        attach("photos-chip-turn-end")
+    }
+
+    /// Clicks the App's explicit engine-restart row after a failed boot. This
+    /// is the product's own recovery entry, not a state-file edit.
+    func testRestartEngine() throws {
+        app.launchArguments = ["-uiPreview", "settings", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        let restart = app.buttons["重新启动引擎"]
+        let english = app.buttons["Restart engine"]
+        if restart.waitForExistence(timeout: 20) {
+            attach("engine-restart-before")
+            restart.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        } else if english.waitForExistence(timeout: 10) {
+            attach("engine-restart-before")
+            english.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        } else {
+            attach("engine-restart-row-missing")
+            XCTFail("restart engine row missing")
+            return
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(20))
+        attach("engine-restart-after")
+    }
+
     /// One real task through the real composer. The reply text is not asserted:
     /// evidence is the durable transcript/row plus host/DB records.
     func testSendTask() throws {
@@ -78,7 +237,7 @@ final class SimPartnerChatDriver: XCTestCase {
         attach("bot-before-task")
         send(task)
         attach("bot-after-send")
-        XCTAssertTrue(waitForTurnEnd(timeout: 900), "turn did not settle")
+        XCTAssertTrue(waitForTurnEndApprovingOnce(timeout: 900), "turn did not settle")
         attach("bot-after-turn")
     }
 

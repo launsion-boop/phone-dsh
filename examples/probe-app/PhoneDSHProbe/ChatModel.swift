@@ -1637,6 +1637,12 @@ final class ChatModel {
             if let phoneError = error as? PhoneDSHError,
                case .backoffNotElapsed(let deadline) = phoneError {
                 hostEventTask?.cancel(); hostEventTask = nil
+                // A backoff wait is healthy, but the person still needs a
+                // visible manual way out if the persisted window is wrong or
+                // the host cannot resume. Keep the red failure line hidden;
+                // SettingsPage renders the restart row from this flag.
+                failedHost = launch.host
+                engineNeedsReset = true
                 scheduleBackoffRetry(for: deadline)
                 return
             }
