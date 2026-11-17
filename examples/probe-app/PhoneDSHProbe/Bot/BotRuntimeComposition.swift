@@ -244,6 +244,7 @@ final class BotRuntimeComposition {
     private var contextStartTask: Task<Void, Never>?
     private var stopped = false
     private var contextLifecycleGeneration = 0
+    private var contextStartInFlight = false
     private var latestCloudSceneGeneration = 0
 
     /// Read-only seam for the Bot info/settings entry and the info driver. The
@@ -479,8 +480,8 @@ final class BotRuntimeComposition {
         let skillQueue = BotSkillEventQueue(producer: skillProducer)
         let userObserver = BotSkillDirectoryObserver(
             root: userRoot, label: "bot.skill.user-dsh", createRoot: true,
-            onWritten: { name in Task { await skillQueue.userWrite(name) } },
-            onDeleted: { name in Task { await skillQueue.userDelete(name) } })
+            onWritten: { name in skillQueue.enqueue { await skillQueue.userWrite(name) } },
+            onDeleted: { name in skillQueue.enqueue { await skillQueue.userDelete(name) } })
         var skillObservers: [BotSkillDirectoryObserver] = [userObserver]
         userObserver.start()
         let botRoot = BotWorkspaceLayout.botRoot(
@@ -492,8 +493,9 @@ final class BotRuntimeComposition {
                 root: root, label: "bot.skill.\(source)", createRoot: true,
                 onDeleted: { name in
                     let vfs = botRoot + "/" + suffix + "/" + name
-                    Task { await skillQueue.botDelete(
-                        vfs: vfs, botID: selectedCandidate) }
+                    skillQueue.enqueue {
+                        await skillQueue.botDelete(vfs: vfs, botID: selectedCandidate)
+                    }
                 })
             skillObservers.append(observer)
             observer.start()
@@ -834,7 +836,10 @@ final class BotRuntimeComposition {
     /// the settings surface is not stuck at "unavailable" until a host bind.
     func startContextSourcesIfNeeded() async {
         let generation = contextLifecycleGeneration
-        guard !stopped, let contextSources, !contextSources.isStarted() else { return }
+        guard !stopped, !contextStartInFlight,
+              let contextSources, !contextSources.isStarted() else { return }
+        contextStartInFlight = true
+        defer { contextStartInFlight = false }
         let router = BotContextWakeDecisionRouter(
             assembly: contextSources,
             runner: { [weak self] request in
@@ -2175,14 +2180,26 @@ struct BotRecordPhoneAdapter: PhoneRecordQuerying {
     }
 }
 
-/// Serializes observer callbacks per root so a fast write→delete cannot run
-/// delete before the producer has recorded the preceding write. Failures are
-/// logged, never swallowed, and never retried in a loop.
-actor BotSkillEventQueue {
+/// Serializes observer callbacks per root. `enqueue` is synchronous on the
+/// callback thread, so a fast write→delete preserves order while the producer
+/// work itself stays async. Failures are logged; they are never retried.
+final class BotSkillEventQueue: @unchecked Sendable {
     private let producer: BotSkillProvenanceProducer
+    private let lock = NSLock()
+    private var tail: Task<Void, Never> = Task {}
 
     init(producer: BotSkillProvenanceProducer) {
         self.producer = producer
+    }
+
+    func enqueue(_ operation: @escaping @Sendable () async -> Void) {
+        lock.lock()
+        let previous = tail
+        tail = Task {
+            await previous.value
+            await operation()
+        }
+        lock.unlock()
     }
 
     func userWrite(_ name: String) async {
