@@ -72,7 +72,9 @@ executes speaks only its answer. Only when admitted text cannot execute now (def
 within the admission bound) does the phone say a short acknowledgement after durable enqueue
 (「已经记下了，打开手机后继续处理」, synthesized once and kept in memory like 「我在」); it confirms
 saved work, not execution. Missing targets
-or unavailable protected storage produce no acceptance. While the board's keep-alive holds the
+or unavailable protected storage produce no acceptance; the phone says a short failure instead
+(「这条没有保存，请在手机上重试」 / 「请先在手机上打开一个对话」), never silence. A locked phone
+whose outbox is writable admits the text and defers it until the phone is unlocked. While the board's keep-alive holds the
 process resident, admitted text executes in the background; otherwise it waits for foreground.
 
 The spoken reply requires the exact authoritative user request, its observed turn and a completed
