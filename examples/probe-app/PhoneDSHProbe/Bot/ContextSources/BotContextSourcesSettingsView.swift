@@ -20,6 +20,10 @@ final class BotContextSourcesSettingsModel: ObservableObject {
     @Published private(set) var fences: [BotContextGeofenceSpec] = []
     @Published private(set) var loading = false
     @Published var actionError: String?
+    /// A later load/set supersedes an older OS-refresh read. Without this an
+    /// older task can overwrite the current loading/actionError/states.
+    private var loadGeneration = 0
+    private var refreshTask: Task<Void, Never>?
 
     let botID: String
     private let assembly: BotContextSourcesAssembly
@@ -63,18 +67,24 @@ final class BotContextSourcesSettingsModel: ObservableObject {
     }
 
     func load() async {
-        await readStates()
+        loadGeneration += 1
+        let generation = loadGeneration
+        await readStates(generation: generation)
         // Syncing every OS adapter can block on a permission prompt; it must
         // never delay the switch states or hold `loading` while the page is
-        // visible. Sync in the background, then re-read the ledger truth.
-        Task { [weak self] in
+        // visible. Sync in the background, then re-read the ledger truth. Only
+        // the newest generation may apply its result.
+        refreshTask?.cancel()
+        refreshTask = Task { [weak self] in
             guard let self else { return }
             await self.assembly.refreshOSAuthorizations()
-            await self.readStates()
+            guard !Task.isCancelled, generation == self.loadGeneration else { return }
+            await self.readStates(generation: generation)
         }
     }
 
-    private func readStates() async {
+    private func readStates(generation: Int) async {
+        guard generation == loadGeneration else { return }
         loading = true
         var next: [BotContextSourceKind: BotSourceAuthorizationState] = [:]
         var nextSubscriptions: [BotContextSourceKind: Bool] = [:]
@@ -84,10 +94,13 @@ final class BotContextSourcesSettingsModel: ObservableObject {
                 nextSubscriptions[source] = await assembly.isSubscribed(
                     botID: botID, source: source)
             }
+            guard generation == loadGeneration else { return }
         }
+        guard generation == loadGeneration else { return }
         states = next
         subscriptions = nextSubscriptions
         let view = await assembly.observationView(for: botID)
+        guard generation == loadGeneration else { return }
         recent = view.items
         fences = assembly.geofences
         if !assembly.isStarted() {
