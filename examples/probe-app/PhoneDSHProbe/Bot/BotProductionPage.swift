@@ -62,6 +62,7 @@ final class BotProductionHub {
                 self.roster = roster
                 composition.onBotDeleted = { [weak self] botID in
                     self?.dropCaches(botID)
+                    ChatModel.shared.withdrawExternalAdmissions(forDeletedBot: botID)
                 }
                 let initial = roster.selectedBotID
                 if let initial {
@@ -129,6 +130,27 @@ final class BotProductionHub {
         return model
     }
 
+    /// Where an admitted `bot` request can go right now (external-admission.md §4).
+    enum AdmissionTarget {
+        /// The Bot's unit is running and its chat model is installed.
+        case ready(BotChatModel)
+        /// The Bot runtime, the unit or the page model is not up yet; nothing is started here.
+        case waiting
+        /// The loaded roster no longer has this Bot.
+        case missing
+    }
+
+    /// Never starts the engine, the Bot runtime or a unit: a request for a Bot that is not
+    /// running waits in the journal until that unit comes up on its own.
+    func admissionTarget(for botID: String) -> AdmissionTarget {
+        guard let composition, let roster, !roster.bots.isEmpty else { return .waiting }
+        guard roster.bots.contains(where: { $0.id == botID }) else { return .missing }
+        guard composition.unit(for: botID) != nil, let model = chatModels[botID] else {
+            return .waiting
+        }
+        return .ready(model)
+    }
+
     /// Reads a Bot's durable rows into its chat model now. The model's own feed is paused while
     /// the app is in the background, so a voice turn pulls the answer itself.
     func pullRows(for botID: String) async {
@@ -177,6 +199,7 @@ final class BotProductionHub {
         guard let composition else { throw BotRuntimeError.unavailable }
         try await composition.deleteBot(botID)
         dropCaches(botID)
+        ChatModel.shared.withdrawExternalAdmissions(forDeletedBot: botID)
         if let next = composition.rosterModel.selectedBotID {
             do { try await select(next) }
             catch { self.error = "切换到剩余 Bot 失败：\(error.localizedDescription)" }
@@ -243,6 +266,8 @@ final class BotProductionHub {
         profileCenters[botID] = center
         chatModels[botID] = model
         infoModels[botID] = info
+        // This Bot's unit and page model are up: admitted requests waiting for it can go.
+        ChatModel.shared.scheduleExternalAdmissionPass()
         roster.setRuntimeState(
             BotRosterRuntimeState(fishState: model.fishState, activity: model.activity,
                                   isRunning: model.runningTurnID != nil,

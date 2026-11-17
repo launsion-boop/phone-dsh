@@ -398,10 +398,16 @@ final class ChatModel {
             forName: UIApplication.protectedDataDidBecomeAvailableNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.scheduleRecoveryQueueFlush() }
+            Task { @MainActor [weak self] in
+                self?.scheduleRecoveryQueueFlush()
+                self?.scheduleExternalAdmissionPass()
+            }
         }
         Task { @MainActor [weak self] in
             guard let self, self.pcRuntime == nil else { return }
+            // Admitted and recovered `dispatching` requests are handed over at launch; the
+            // pass only writes to the outbox or an already running Bot unit.
+            self.scheduleExternalAdmissionPass()
             // Attachment bytes are user data. Only directories without an
             // entry file are orphans; a directory whose entry still exists is
             // a consistency failure handled at dispatch, never GC'd here.
@@ -838,6 +844,14 @@ final class ChatModel {
     @ObservationIgnored
     private lazy var sendOutbox = SendOutbox(directory: Self.sendOutboxDirectory)
     #endif
+    /// External admission journal (P06): `admissions/` beside `send-outbox/` in the same
+    /// app-private tree. Opening it is a directory read; it needs no engine or Bot runtime.
+    @ObservationIgnored
+    private lazy var externalAdmissions = ExternalAdmissionJournal(
+        directory: sendOutbox.directory.deletingLastPathComponent()
+            .appendingPathComponent("admissions", isDirectory: true))
+    @ObservationIgnored private var admissionPassTask: Task<Void, Never>?
+    @ObservationIgnored private var admissionPassQueued = false
     private var outboxScanStarted = false
     private var hostResumeWatchdogTimeout =
         ChatHostConfiguration.defaultResumeWatchdogTimeout
@@ -2998,6 +3012,7 @@ final class ChatModel {
             resumeWatchdogTask = nil
         }
         if phase == .active, outboxNeedsDrain { scheduleRecoveryQueueFlush() }
+        if phase == .active, pcRuntime == nil { scheduleExternalAdmissionPass() }
         // A start refused while the App was ineligible (background without a
         // resident keep-alive) runs now; queued work joins it through the flush.
         if phase == .active, host == nil, startDeferredUntilEligible, !busy, pcRuntime == nil {
@@ -3821,18 +3836,142 @@ final class ChatModel {
         return target
     }
 
-    /// A receipt is returned only after the existing outbox has persisted this exact request.
-    func admitVoice(_ text: String, request: NativeVoiceRequest) async -> NativeVoiceRequest? {
-        // A locked phone still admits: the outbox write itself decides whether storage is
+    /// Admits one TonoLink voice request to the external admission journal
+    /// (spec/host/v1/external-admission.md; PC-20261116-external-admission §2.1), then runs
+    /// one dispatch pass so the record is handed to its fixed target. The outcome carries a
+    /// receipt only for `admitted` / `duplicate`; nil means admission was not attempted.
+    func admitVoice(_ text: String, requestID: String, target: ExternalAdmissionTarget,
+                    boardName: String) async -> ExternalAdmissionOutcome? {
+        // A locked phone still admits: the journal write itself decides whether storage is
         // available, and delivery waits for the unlock (``queuedDeliveryEligible``).
-        guard !Task.isCancelled,
-              pcRuntime == nil, !DeviceSessionCoordinator.shared.isDeviceSession(request.sessionID) else {
+        guard !Task.isCancelled, pcRuntime == nil else { return nil }
+        if case .dshSession(let sessionID) = target,
+           DeviceSessionCoordinator.shared.isDeviceSession(sessionID) {
             return nil
         }
-        let saved = await enqueueSend(text.trimmingCharacters(in: .whitespacesAndNewlines),
-                                      attachments: [], reusing: nil,
-                                      pinnedSession: request.sessionID, requestID: request.rpcID)
-        return saved ? request : nil
+        let nowMs = ExternalAdmissionJournal.nowMs()
+        let outcome = await externalAdmissions.admit(
+            .tonoLinkVoice(boardName: boardName, requestID: requestID, target: target,
+                           text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                           nowMs: nowMs),
+            nowMs: nowMs)
+        guard outcome.receipt != nil else {
+            appendStatus("External admission refused: \(outcome.result.rawValue)")
+            return outcome
+        }
+        // The journal owns the request from here; the pass is not cancelled with the voice turn.
+        await scheduleExternalAdmissionPass().value
+        return outcome
+    }
+
+    // MARK: External admission (P06, external-admission-v1)
+
+    /// Joins the single dispatch chain: a pass that has not started yet is shared, and a new
+    /// one starts only after the pass in flight ends, so a record is never handed over twice
+    /// by two passes. Called at launch, on unlock, on foreground return, after an admission,
+    /// at a turn end and when a Bot unit becomes available. It starts no timer.
+    @discardableResult
+    func scheduleExternalAdmissionPass() -> Task<Void, Never> {
+        if admissionPassQueued, let queued = admissionPassTask { return queued }
+        let previous = admissionPassTask
+        admissionPassQueued = true
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            self.admissionPassQueued = false
+            await self.runExternalAdmissionPass()
+        }
+        admissionPassTask = task
+        return task
+    }
+
+    /// external-admission.md §4: sweep, then hand over at most 16 ready records in FIFO
+    /// order. Waiting for an engine, a Bot unit or the unlock changes nothing in a record.
+    private func runExternalAdmissionPass() async {
+        guard pcRuntime == nil else { return }
+        let batch = await externalAdmissions.beginPass()
+        for record in batch {
+            // No source on this host admits an `account:` principal yet, and there is no
+            // signed-in account id to compare with: such a record is held, never dispatched.
+            guard record.principal == "local" else { continue }
+            switch record.target {
+            case .dshSession(let sessionID):
+                await dispatchAdmission(record, toSession: sessionID)
+            case .bot(let botID):
+                await dispatchAdmission(record, toBot: botID)
+            }
+        }
+        await settleLinkedAdmissions()
+    }
+
+    /// Hands a `dsh-session` record to the send outbox with `rpcId = downstreamId`; the
+    /// existing enqueue joins the single queued-delivery preparation. A recovered
+    /// `dispatching` record repeats this with the same id and the outbox de-duplicates.
+    private func dispatchAdmission(_ record: ExternalAdmissionRecord,
+                                   toSession sessionID: String) async {
+        guard let live = try? await externalAdmissions.beginDispatch(record.admissionId),
+              let text = live.text else { return }
+        let held = await enqueueSend(text, attachments: [], reusing: nil,
+                                     pinnedSession: sessionID, requestID: live.downstreamId)
+        if held {
+            _ = try? await externalAdmissions.markLinked(live.admissionId)
+        } else if !Task.isCancelled {
+            _ = try? await externalAdmissions.recordDispatchFailure(
+                live.admissionId, error: "downstream_unavailable")
+        }
+    }
+
+    /// Hands a `bot` record to that Bot's user-action path with `nonce = downstreamId`,
+    /// only while its unit is already running. The journal never starts the engine or a unit.
+    private func dispatchAdmission(_ record: ExternalAdmissionRecord,
+                                   toBot botID: String) async {
+        switch BotProductionHub.shared.admissionTarget(for: botID) {
+        case .waiting:
+            return
+        case .missing:
+            _ = try? await externalAdmissions.fail(record.admissionId, reason: "target_missing")
+        case .ready(let model):
+            guard let live = try? await externalAdmissions.beginDispatch(record.admissionId),
+                  let text = live.text else { return }
+            if await model.sendAdmitted(text: text, nonce: live.downstreamId) == .accepted {
+                _ = try? await externalAdmissions.markLinked(live.admissionId)
+            } else {
+                _ = try? await externalAdmissions.recordDispatchFailure(
+                    live.admissionId, error: "downstream_unavailable")
+            }
+        }
+    }
+
+    /// `linked → completed | failed` needs the downstream owner's own terminal evidence: the
+    /// journaled user message with this `rpcId` and its turn's end, read from the engine's
+    /// active session only. A `bot` record has no contract-defined read-back and stays `linked`.
+    private func settleLinkedAdmissions() async {
+        guard let active = sessionID, currentSessionID == nil || currentSessionID == active else {
+            return
+        }
+        let ended = Set(turnEndTimes.keys)
+        let failed = Set(turnEndReasons.compactMap { $0.value == "completed" ? nil : $0.key })
+        for record in await externalAdmissions.linkedRecords() {
+            guard record.target == .dshSession(sessionId: active) else { continue }
+            switch ExternalAdmissionSettlement.resolve(
+                downstreamId: record.downstreamId, items: items,
+                endedTurns: ended, failedTurns: failed) {
+            case .completed:
+                _ = try? await externalAdmissions.complete(record.admissionId)
+            case .failed:
+                _ = try? await externalAdmissions.fail(record.admissionId, reason: "turn_failed")
+            case .pending:
+                break
+            }
+        }
+    }
+
+    /// A deleted Bot can no longer take its admitted requests (external-admission.md §3).
+    func withdrawExternalAdmissions(forDeletedBot botID: String) {
+        guard pcRuntime == nil else { return }
+        Task { [externalAdmissions] in
+            _ = await externalAdmissions.withdraw(target: .bot(botId: botID))
+        }
     }
 
     func voiceProgress(_ request: NativeVoiceRequest) -> NativeVoiceProgress {
@@ -4953,6 +5092,8 @@ final class ChatModel {
             turnEndReasons[finishedTurn] = event.rawTurnEndKind ?? Self.rawTurnEndKind(reason)
             turnEndTimes[finishedTurn] = event.time
             if outboxNeedsDrain { scheduleRecoveryQueueFlush() }
+            // A turn end is the terminal evidence a linked admission waits for.
+            if pcRuntime == nil { scheduleExternalAdmissionPass() }
             if keepingAlive, !botTurnsRunning {
                 Task { await self.finishBackgroundKeepAlive() }
             }
@@ -5233,6 +5374,8 @@ final class ChatModel {
             refreshFiles()
             Task { await self.refreshGoal() }
             if outboxNeedsDrain { scheduleRecoveryQueueFlush() }
+            // A turn end is the terminal evidence a linked admission waits for.
+            if pcRuntime == nil { scheduleExternalAdmissionPass() }
             if keepingAlive, !botTurnsRunning { Task { await self.finishBackgroundKeepAlive() } }
         case .progress(let phase, let step, let total):
             if phase == "step" { activeStep = step }
