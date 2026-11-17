@@ -33,6 +33,9 @@ public actor RoutineScheduler {
     private let cancelGraceMs: Int64
     private let leaseOwner: String
     private var timerTask: Task<Void, Never>?
+    /// Coalesced one-time restore before any tick may admit/consider work.
+    private var prepareTask: Task<Void, Never>?
+    private var prepared = false
     private var stopped = false
     private var ticking = false
     private var active: Set<String> = []
@@ -112,10 +115,35 @@ public actor RoutineScheduler {
     }
 
     private func restoreAndTick() async {
-        if let proactive { _ = await proactive.restoreAccounting() }
-        _ = try? await recover()
+        await ensurePrepared()
         try? await tick()
     }
+
+    /// Startup restore is a prerequisite for considering a delivery, not a
+    /// best-effort background side effect. Coalesce concurrent callers and let
+    /// every tick wait for the same preparation task.
+    private func ensurePrepared() async {
+        if prepared { return }
+        if let prepareTask {
+            await prepareTask.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            if let proactive = await self.proactiveValue {
+                _ = await proactive.restoreAccounting()
+            }
+            _ = try? await self.recover()
+            await self.markPrepared()
+        }
+        prepareTask = task
+        await task.value
+        prepareTask = nil
+    }
+
+    private var proactiveValue: (any ProactiveConsidering)? { proactive }
+
+    private func markPrepared() { prepared = true }
 
     @discardableResult
     public func recover() async throws -> [RoutineRecoveryAction] {
@@ -135,6 +163,7 @@ public actor RoutineScheduler {
     }
 
     public func tick() async throws {
+        await ensurePrepared()
         let now = nowProvider()
         if ticking {
             for routineId in active {

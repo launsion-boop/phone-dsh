@@ -719,7 +719,6 @@ final class BotCompositionE2ETests: XCTestCase {
         let beforeRestartHeld = heldAfterRun
         try await runRoutine("a05-outlet-2")
         try await waitUntil { try await heldCount() >= beforeRestartHeld + 1 }
-        print("A05_RESTART_EVENTS=\(try await events().filter { $0.principal.botId == b.id && ($0.type == "proactive.considered" || $0.type == "routine.run_finished") }.map { ($0.type, $0.data) })")
         let afterRestartHeld = try await heldCount()
         XCTAssertEqual(afterRestartHeld, beforeRestartHeld + 1,
                        "restart must keep the durable feedback hold")
