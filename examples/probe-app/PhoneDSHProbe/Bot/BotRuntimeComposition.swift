@@ -252,12 +252,6 @@ final class BotRuntimeComposition {
     /// Read-only seam for the Bot info/settings entry and the info driver. The
     /// assembly remains the sole consent/observation authority.
     var contextSourcesAssembly: BotContextSourcesAssembly? { contextSources }
-
-    /// The authenticated Bot currently selected by the roster. The contacts
-    /// bridge binds this at construction; it never reads a model argument.
-    var selectedBotID: String {
-        rosterModel.selectedBotID ?? rosterModel.mainBotID
-    }
     /// G-1 provenance read model (process-wide, one event log).
     private(set) var provenance: BotProvenanceService?
     /// G-2 feedback center, shared by every unit and the RecordFeedback tool.

@@ -1845,15 +1845,9 @@ final class ChatModel {
         // EXEC_REQ whitelist instead of advertising commands that would exit 69.
         let capabilityBridge = PhoneCapabilityBridge()
         phoneCapabilityBridge = capabilityBridge
-        var bridgeStack: [any PhoneToolBridge] = []
-        if let composition = botLaunch?.composition {
-            bridgeStack.append(BotContextContactsToolBridge(
-                botID: composition.selectedBotID,
-                assembly: composition.contextSourcesAssembly))
-        }
-        bridgeStack.append(OfficeToolBridge(presenter: OfficePresenter()))
-        bridgeStack.append(capabilityBridge)
-        let toolBridge = CompositePhoneToolBridge(bridges: bridgeStack)
+        let toolBridge = CompositePhoneToolBridge(
+            office: OfficeToolBridge(presenter: OfficePresenter()),
+            phone: capabilityBridge)
         let recordQuery = botLaunch.map { BotRecordPhoneAdapter(service: $0.composition.recordService) }
         let shell = PDSHShellProvider(materializedWorkspace: materializedWorkspace,
                                       materializedHome: materializedHome,
