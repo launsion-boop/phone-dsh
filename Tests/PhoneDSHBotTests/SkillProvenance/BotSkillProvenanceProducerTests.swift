@@ -253,7 +253,7 @@ final class BotSkillProvenanceProducerTests: XCTestCase {
             recorder: { try await service.recordSkillWrite($0) },
             latest: { try await service.latestSkillChange(identity: $0) },
             now: { 1_500 })
-        let file = project.appendingPathComponent("derived.md")
+        let file = projectDir.appendingPathComponent("derived.md")
         try Data("derived".utf8).write(to: file)
         _ = try await producer.recordBotWrite(
             vfsPath: "/dsh/workspace/.dshbot/agents/bot-a/.dsh/skills/derived.md",
