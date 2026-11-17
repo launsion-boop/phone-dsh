@@ -74,13 +74,19 @@ final class BotContextContactsSessionBridge: PhoneBotContactsQuerying,
     /// incomplete projections are not ordinary.
     static func isVerifiedOrdinaryProjection(_ projection: BotJSONValue) -> Bool {
         guard case .object(let root) = projection,
-              Self.string(root["kind"]) == "sequenced",
-              Self.number(root["asOfSeq"]) != nil,
-              case .object(let values)? = root["values"],
-              Self.string(values["agentPreset"]) == "standard" else {
+              case .object(let values)? = root["values"] else {
             return false
         }
-        return true
+        return isVerifiedOrdinaryProjection(
+            kind: Self.string(root["kind"]),
+            hasAsOfSeq: Self.number(root["asOfSeq"]) != nil,
+            agentPreset: Self.string(values["agentPreset"]))
+    }
+
+    /// Single shape rule shared with ChatModel; no duplicate field parsing.
+    static func isVerifiedOrdinaryProjection(kind: String?, hasAsOfSeq: Bool,
+                                             agentPreset: String?) -> Bool {
+        kind == "sequenced" && hasAsOfSeq && agentPreset == "standard"
     }
 
     private static func string(_ value: BotJSONValue?) -> String? {

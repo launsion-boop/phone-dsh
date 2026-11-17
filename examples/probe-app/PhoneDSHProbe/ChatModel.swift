@@ -1396,7 +1396,10 @@ final class ChatModel {
             let projection = try await transport.call(
                 "session/projections",
                 args: .object(["request": .object(["sessionId": .string(sessionID)])]))
-            return BotContextContactsSessionBridge.isVerifiedOrdinaryProjection(projection)
+            return BotContextContactsSessionBridge.isVerifiedOrdinaryProjection(
+                kind: projection["kind"]?.stringValue,
+                hasAsOfSeq: projection["asOfSeq"]?.intValue != nil,
+                agentPreset: projection["values"]?["agentPreset"]?.stringValue)
         } catch {
             return false
         }
