@@ -13,6 +13,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import re
 import unittest
 from pathlib import Path
@@ -24,7 +25,9 @@ try:  # pragma: no cover - availability differs per machine
 except Exception:  # noqa: BLE001
     HAVE_CRYPTO = False
 
-CASES = Path(__file__).resolve().parents[1] / "golden" / "cloud-tasks" / "cases.json"
+# The importing repository keeps the package flat; it points this at its copy of the cases.
+CASES = Path(os.environ.get("PDSH_CLOUD_TASK_CASES")
+             or Path(__file__).resolve().parents[1] / "golden" / "cloud-tasks" / "cases.json")
 
 ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 DEVICE_ID = re.compile(r"^dev-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -321,10 +324,17 @@ def decode_pull_element(element):
         raise ValueError("not an object")
     for name in ("task_id", "request_id", "key_id"):
         _id(element.get(name))
-    _target(element.get("target"))
+    # Responses are open at every level (§1): only the named members are judged.
+    target = element.get("target")
+    if not isinstance(target, dict):
+        raise ValueError("target")
+    _target({"kind": target.get("kind"), "id": target.get("id")})
     _int(element.get("expires_at_ms"))
     _int(element.get("created_at_ms"))
-    _sealed(element.get("sealed"))
+    sealed = element.get("sealed")
+    if not isinstance(sealed, dict):
+        raise ValueError("sealed")
+    _sealed({"enc": sealed.get("enc"), "ct": sealed.get("ct")})
     lease = element.get("lease")
     if not isinstance(lease, dict):
         raise ValueError("lease")

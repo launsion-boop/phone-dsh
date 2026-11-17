@@ -1,7 +1,8 @@
 # Phone task queue (cloud ↔ phone)
 
-Revision `cloud-tasks-v1.1`, frozen 2026-11-16 (v1.1 rules three implementer change requests:
-response openness, device takeover, terminal reason mapping). Status: `target` — no end is implemented yet.
+Revision `cloud-tasks-v1.2`, frozen 2026-11-16 (v1.1 rules three implementer change requests:
+response openness, device takeover, terminal reason mapping; v1.2 makes the oracle and two new
+cases agree that openness reaches nested `target` and `sealed`). Status: `target` — no end is implemented yet.
 Owner: P05. Change record:
 [PC-20261116-cloud-task-queue](../../docs/protocol-changes/PC-20261116-cloud-task-queue.md).
 Shared cases: [golden/cloud-tasks/cases.json](golden/cloud-tasks/cases.json), the judge where this
@@ -12,7 +13,9 @@ it durably until that phone confirms it wrote the task into its own admission jo
 ([external-admission.md](../host/v1/external-admission.md)). The phone runs the task; the cloud
 never does. This is the producer **and** consumer contract: the cloud service
 (`TonoTeam/phone-dsh-cloud`) imports this file and the cases as a whole package under
-`contracts/phone-tasks/v1/` and does not edit them.
+`contracts/phone-tasks/v1/` (flat: this file, `cases.json`, the oracle; the oracle reads its cases
+from `PDSH_CLOUD_TASK_CASES` when set; links in this file resolve only in the source repository)
+and does not edit them.
 
 ## 1. Boundaries
 
@@ -150,7 +153,9 @@ form) does not fail the pull: when its `task_id` is a valid id the phone acks it
 
 1–16 acks. Response `{"schema":"phone-task-ack-result/v1","results":[{"task_id","accepted",
 "duplicate","state"}],"server_time_ms"}` in request order; `state` is the task's state after the
-call. A task of another device or account is `accepted: false`, `state: "not_found"`.
+call. A task of another device or account is `accepted: false`, `state: "not_found"`; so is
+every ack while `device_id` is not registered to the caller (after its `DELETE` or a takeover).
+The phone keeps such terminal acks and re-sends them after it registers again.
 
 ## 6. Task states
 

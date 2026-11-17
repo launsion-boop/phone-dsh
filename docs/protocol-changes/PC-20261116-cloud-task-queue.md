@@ -92,3 +92,5 @@ P16: none — Worker 启动与 wire 不变; P24: none — 不新增包依赖，�
 | --- | --- | --- | --- |
 | cloud-tasks-v1 | 主 agent | 首次冻结 | 云端、iOS、Android |
 | cloud-tasks-v1.1 | 主 agent | 裁定 iOS 库实现者的三条 CONTRACT CHANGE REQUEST：(1) 终态确认的原因映射补全（§7，未列出的 `failed` 原因一律 `run_failed`，新增 `terminal` 用例）；(2) 请求封闭、响应开放，单个解不出的拉取元素不拖垮整次拉取（§1、§5，新增 `pull_elements` 用例）；(3) 另一账号对同一 `device_id` 的 `PUT` 视为接管（§2）。v1 的其余条款与既有用例不变 | 云端、iOS、Android |
+| cloud-tasks-v1.2 | 主 agent | iOS 库实现者指出规范“每一层都开放”与参考校验器对 `target`／`sealed` 的封闭判定不一致：以规范为准，修正校验器并新增 2 个 `pull_elements` 用例；语义不变 | 云端、iOS、Android |
+| cloud-tasks-v1.2（补充） | 主 agent | 云端实现者的打包请求：校验器可用 `PDSH_CLOUD_TASK_CASES` 指定用例路径，规范写明导入布局为平铺；并写明确认只在设备注册于调用方时接受（§5） | 云端、iOS、Android |
