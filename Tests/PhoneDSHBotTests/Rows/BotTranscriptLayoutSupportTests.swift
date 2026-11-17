@@ -65,6 +65,35 @@ final class BotTranscriptLayoutSupportTests: XCTestCase {
             tailY: 400, viewportHeight: 0))
     }
 
+    func testScrollPassRunsFirstAndSkipsAnIdenticalRepeat() {
+        let first = BotTranscriptLayoutSupport.ScrollPass(
+            generation: 1, contentHeight: 1_000, target: "tail")
+        XCTAssertTrue(BotTranscriptLayoutSupport.shouldPerformScrollPass(
+            previous: nil, next: first), "the first pass must always run")
+
+        // The old coalescer ran a second, unconditional settle pass. It was the
+        // second animated placement on launch, so an unchanged pass must stop.
+        XCTAssertFalse(BotTranscriptLayoutSupport.shouldPerformScrollPass(
+            previous: first, next: first))
+        XCTAssertFalse(BotTranscriptLayoutSupport.shouldPerformScrollPass(
+            previous: first,
+            next: .init(generation: 1, contentHeight: 1_000.4, target: "tail")),
+            "sub-pixel height rounding is not new work")
+
+        XCTAssertTrue(BotTranscriptLayoutSupport.shouldPerformScrollPass(
+            previous: first,
+            next: .init(generation: 2, contentHeight: 1_000, target: "tail")),
+            "a new trigger must run")
+        XCTAssertTrue(BotTranscriptLayoutSupport.shouldPerformScrollPass(
+            previous: first,
+            next: .init(generation: 1, contentHeight: 1_240, target: "tail")),
+            "a late Markdown/card height still gets its correction")
+        XCTAssertTrue(BotTranscriptLayoutSupport.shouldPerformScrollPass(
+            previous: first,
+            next: .init(generation: 1, contentHeight: 1_000, target: "card")),
+            "a new card target must run")
+    }
+
     func testKeyboardOrComposerResizeAloneCannotStopFollowing() {
         // Even a tail that is now far below a shorter viewport must not turn
         // following off: the resize path is not user-driven.

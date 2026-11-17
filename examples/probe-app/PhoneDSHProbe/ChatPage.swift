@@ -3,6 +3,7 @@
 
 import PhoneDSHAgentCore
 import PhoneDSH
+import PhoneDSHBot
 import ProbeKit
 import PhoneDSHEngine
 import SwiftUI
@@ -1373,7 +1374,12 @@ struct ChatPage: View {
                                      viewportHeight: CGFloat) {
         let rows = timelineRows
         let window = renderWindow(in: rows)
-        guard hasEarlierRows(in: rows, window: window),
+        // A restored/cached transcript can show the sentinel for a frame
+        // before the initial tail placement. Paging older rows then re-anchors
+        // the top and fights the tail jump. Do not page until the initial
+        // placement has consumed `pendingInitialScroll`.
+        guard !pendingInitialScroll,
+              hasEarlierRows(in: rows, window: window),
               !loadingEarlierTranscript, !historyAutoLoadScheduled,
               maxY.isFinite, maxY >= -1, maxY <= viewportHeight + 1 else { return }
         historyAutoLoadScheduled = true
@@ -1541,16 +1547,6 @@ struct ChatPage: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(12)
                                 .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                        }
-                        if model.isShowingCachedTranscript {
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.mini)
-                                Text("显示上次对话 · 引擎后台启动中…")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(ChatPage.inkSecondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.vertical, 4)
                         }
                         if visibleItems.isEmpty {
                             if model.isSwitchingSession,
@@ -1776,16 +1772,22 @@ struct ChatPage: View {
         // state stays put. The indicator floats above it after the 300 ms
         // delay, so it cannot change the transcript's height or move rows.
         .overlay(alignment: .top) {
-            Group {
+            VStack(spacing: 6) {
+                if model.isShowingCachedTranscript {
+                    cachedTranscriptIndicator
+                        .transition(.opacity)
+                }
                 if showsSessionSwitchIndicator {
                     sessionSwitchIndicator
-                        .padding(.top, 8)
-                        .allowsHitTesting(false)
                         .transition(.opacity)
                 }
             }
-            // Only the pill fades. The transcript's one-shot content swap is
-            // outside this subtree, so it stays animation-free.
+            .padding(.top, 8)
+            .allowsHitTesting(false)
+            // Only these pills fade. The transcript's content swap is outside
+            // this subtree, so the cached → live hand-off cannot change the
+            // scroll content height or move rows.
+            .animation(.easeInOut(duration: 0.16), value: model.isShowingCachedTranscript)
             .animation(.easeInOut(duration: 0.16), value: showsSessionSwitchIndicator)
         }
         // A tap anywhere in the transcript area — rows or the empty space
@@ -2022,25 +2024,24 @@ struct ChatPage: View {
         guard tailScrollTask == nil else { return }
         tailScrollTask = Task { @MainActor in
             defer { tailScrollTask = nil }
-            var arrivedGeneration: UInt64 = 0
-            var corrected = false
+            var lastPass: BotTranscriptLayoutSupport.ScrollPass?
             var first = true
             while !Task.isCancelled {
                 let wait = first ? 50 : 180
                 first = false
                 try? await Task.sleep(for: .milliseconds(wait))
                 guard !Task.isCancelled, followsTail else { return }
-                let generation = tailScrollGeneration
-                if generation == arrivedGeneration {
-                    // The previous pass covered this content. One more settle
-                    // window catches a late Markdown/code/list height; after
-                    // that, wait for the next deltas instead of spinning.
-                    if corrected { return }
-                    corrected = true
-                } else {
-                    arrivedGeneration = generation
-                    corrected = false
-                }
+                let pass = BotTranscriptLayoutSupport.ScrollPass(
+                    generation: tailScrollGeneration,
+                    contentHeight: scrollTrace.contentHeight,
+                    target: timelineRows.last?.scrollTargetID ?? "transcript-tail")
+                // A late Markdown/list height may need one correction, but a
+                // pass that repeats the same height and target must not move
+                // the viewport again. The old unconditional settle pass was a
+                // second visible placement on launch.
+                guard BotTranscriptLayoutSupport.shouldPerformScrollPass(
+                    previous: lastPass, next: pass) else { return }
+                lastPass = pass
                 if Date().timeIntervalSince(lastScrollTrace) > 1 {
                     lastScrollTrace = Date()
                     ChatModel.appendDiagnostic(
@@ -2061,6 +2062,23 @@ struct ChatPage: View {
     /// fallback for a page that truly rendered nothing.
     private var oldPageDuringSwitch: SessionSwitchPresentationPolicy.OldPage {
         visibleItems.isEmpty ? .emptyStateCard : .transcriptRows
+    }
+
+    /// Cached-tail status is an overlay, not a transcript row: inserting and
+    /// removing a row at the top changed the scroll content height on the
+    /// cached → live hand-off and moved the restored transcript on launch.
+    private var cachedTranscriptIndicator: some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.mini)
+            Text("显示上次对话 · 引擎后台启动中…")
+                .font(.system(size: 12))
+                .foregroundStyle(ChatPage.inkSecondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Self.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color(uiColor: .separator), lineWidth: 0.5))
+        .accessibilityIdentifier("chat.cached.status")
     }
 
     /// The lightweight state while a tapped session's history is loading. It is
