@@ -244,7 +244,7 @@ final class BotRuntimeComposition {
     private var contextStartTask: Task<Void, Never>?
     private var stopped = false
     private var contextLifecycleGeneration = 0
-    private var contextStartInFlight = false
+    private var contextStartChain: Task<Void, Never> = Task {}
     private var latestCloudSceneGeneration = 0
 
     /// Read-only seam for the Bot info/settings entry and the info driver. The
@@ -836,10 +836,20 @@ final class BotRuntimeComposition {
     /// the settings surface is not stuck at "unavailable" until a host bind.
     func startContextSourcesIfNeeded() async {
         let generation = contextLifecycleGeneration
-        guard !stopped, !contextStartInFlight,
+        guard !stopped, let contextSources, !contextSources.isStarted() else { return }
+        let previous = contextStartChain
+        let task = Task { [weak self] in
+            await previous.value
+            guard let self else { return }
+            await self.performContextStart(generation: generation)
+        }
+        contextStartChain = task
+        await task.value
+    }
+
+    private func performContextStart(generation: Int) async {
+        guard !stopped, generation == contextLifecycleGeneration,
               let contextSources, !contextSources.isStarted() else { return }
-        contextStartInFlight = true
-        defer { contextStartInFlight = false }
         let router = BotContextWakeDecisionRouter(
             assembly: contextSources,
             runner: { [weak self] request in
