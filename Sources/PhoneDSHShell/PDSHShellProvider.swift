@@ -33,6 +33,7 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
     /// Injected host tool bridge for `phone` / `ctx` (normally the App's MCP
     /// server). `nil` makes those commands fail with exit 69.
     public let toolBridge: (any PhoneToolBridge)?
+    public let botContactsQuery: (any PhoneBotContactsQuerying)?
     /// Injected read-only `phone record` owner. `nil` refuses that subcommand
     /// instead of forwarding it to the generic phone bridge.
     public let recordQuery: (any PhoneRecordQuerying)?
@@ -55,11 +56,13 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
                 materializedHome: URL? = nil,
                 limits: PDSHShellLimits = .default,
                 toolBridge: (any PhoneToolBridge)? = nil,
+                botContactsQuery: (any PhoneBotContactsQuerying)? = nil,
                 recordQuery: (any PhoneRecordQuerying)? = nil) {
         self.materializedWorkspace = materializedWorkspace
         self.materializedHome = materializedHome
         self.limits = limits
         self.toolBridge = toolBridge
+        self.botContactsQuery = botContactsQuery
         self.recordQuery = recordQuery
         let mounts = Self.makeMounts(workspace: materializedWorkspace, home: materializedHome)
         self.mounts = mounts
@@ -85,6 +88,7 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
                       "materialized/home", isDirectory: true),
                   limits: limits,
                   toolBridge: toolBridge,
+                  botContactsQuery: botContactsQuery,
                   recordQuery: recordQuery)
     }
 
@@ -201,10 +205,7 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
     /// `plugins/shell-ext/src/bridge.ts`). It is never read from argv.
     public static let toolCallSessionEnvironmentKey = "PDSH_TOOL_CALL_SESSION"
 
-    private func recordSession(_ request: ExecRequest) -> String? {
-        guard request.argv.count >= 2, request.argv[0] == "phone", request.argv[1] == "record" else {
-            return nil
-        }
+    private func trustedToolCallSession(_ request: ExecRequest) -> String? {
         guard let raw = request.env[Self.toolCallSessionEnvironmentKey],
               raw.range(of: #"^[A-Za-z0-9._-]{1,64}$"#, options: .regularExpression) != nil else {
             return nil
@@ -212,7 +213,18 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
         return raw
     }
 
+    private func recordSession(_ request: ExecRequest) -> String? {
+        guard request.argv.count >= 2, request.argv[0] == "phone", request.argv[1] == "record" else {
+            return nil
+        }
+        return trustedToolCallSession(request)
+    }
+
     public func run(_ request: ExecRequest) -> AsyncThrowingStream<ExecEvent, Error> {
+        if request.argv.count >= 2, request.argv[0] == "phone", request.argv[1] == "contacts.search",
+           botContactsQuery != nil {
+            return contactsStream(request)
+        }
         if request.argv.count >= 2, request.argv[0] == "phone", request.argv[1] == "record" {
             return recordStream(request)
         }
@@ -227,6 +239,37 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
                 }
             }
             engine.start(request, continuation: continuation)
+        }
+    }
+
+    private func contactsStream(_ request: ExecRequest) -> AsyncThrowingStream<ExecEvent, Error> {
+        AsyncThrowingStream { continuation in
+            guard let botContactsQuery else {
+                continuation.yield(.stderr(seq: 0, data: Data("phone: contacts bridge is unavailable\n".utf8)))
+                continuation.yield(.exit(code: 1, signal: nil, truncated: false))
+                continuation.finish()
+                return
+            }
+            guard let sessionID = trustedToolCallSession(request) else {
+                continuation.yield(.stderr(seq: 0, data: Data("phone: contacts requires a claimed tool-call session; nothing executed\n".utf8)))
+                continuation.yield(.exit(code: 1, signal: nil, truncated: false))
+                continuation.finish()
+                return
+            }
+            let arguments = Array(request.argv.dropFirst(2))
+            let task = Task {
+                let result = await botContactsQuery.runContactsCommand(
+                    arguments: arguments, callerSessionID: sessionID)
+                if !result.stdout.isEmpty {
+                    continuation.yield(.stdout(seq: 0, data: Data(result.stdout.utf8)))
+                }
+                if !result.stderr.isEmpty {
+                    continuation.yield(.stderr(seq: 1, data: Data(result.stderr.utf8)))
+                }
+                continuation.yield(.exit(code: result.exitCode, signal: nil, truncated: false))
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -278,6 +321,7 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
             && lhs.limits == rhs.limits
             && (lhs.toolBridge == nil) == (rhs.toolBridge == nil)
             && (lhs.recordQuery == nil) == (rhs.recordQuery == nil)
+            && (lhs.botContactsQuery == nil) == (rhs.botContactsQuery == nil)
             && lhs.helloCapabilities == rhs.helloCapabilities
     }
 
