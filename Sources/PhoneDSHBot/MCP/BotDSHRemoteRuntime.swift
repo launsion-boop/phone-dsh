@@ -3734,8 +3734,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     // content-unknown until a reconstructable version exists.
                     let botID = botId
                     let session = sessionId
-                    let creatorRecord = sources.first(where: { $0.role == .creator })?.record
-                    let creatorHash = toolWriteContentSHA256[callId]
                     await skillQueue.enqueueAndWait {
                         await skillQueue.runtimeWrite(
                             vfs: writeVfsPath, botID: botID, sessionID: session,
