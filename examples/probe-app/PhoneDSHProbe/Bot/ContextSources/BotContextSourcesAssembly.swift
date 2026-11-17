@@ -139,7 +139,10 @@ public final class BotContextSourcesAssembly {
         if injected.contains(.locationFence) {
             injections[.locationFence] = BotContextInjectionDriver(kind: .locationFence, now: dependencies.now)
         } else {
-            location = LocationRegionSource(fences: dependencies.locationFences, now: dependencies.now)
+            let storedFences = dependencies.locationFences.isEmpty
+                ? BotContextSourcesGeofenceStore.load()
+                : dependencies.locationFences
+            location = LocationRegionSource(fences: storedFences, now: dependencies.now)
         }
         let power: PowerIdleSource? = injected.contains(.power)
             ? nil : PowerIdleSource(now: dependencies.now)
@@ -336,6 +339,7 @@ public final class BotContextSourcesAssembly {
             throw BotContextSourceError.unsupported("the location adapter is not registered")
         }
         try await location.updateFences(fences)
+        BotContextSourcesGeofenceStore.save(fences)
     }
 
     // MARK: - Legal external entries (C wires these call sites)
