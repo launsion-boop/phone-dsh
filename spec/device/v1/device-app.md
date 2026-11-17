@@ -1,7 +1,8 @@
 <!-- SPDX-License-Identifier: MIT -->
 # Device app install v1 (`device-app-v1`)
 
-Status: `target`. Nothing here is implemented on any end; no real-device run exists. The reference
+Status: `target`. Nothing here is implemented on any end; no real-device run exists (`device-app-v1.5` adds the
+Bot tools `DeviceAppList` and `DeviceAppRemove`, §7, §8.2, §12). The reference
 device is a MicroPython board (FoloToy AI Passport) running the `link_peripheral` role of
 [ble-link.md](ble-link.md); the host is the iPhone App. Android stays `target` (GAP-20).
 Owner: P07 (tool surface, limits, admission). The Bot host tools that call it are P26.
@@ -111,11 +112,12 @@ through §6, which is the same result.
   (`host_only`) before the journal and the radio. `app.info` stays callable by an agent. Installs must
   never go through `ble_link_call`: its approval offers a standing grant that would cover every Link
   tool of every device.
-- The Bot has two host tools (P26): `DeviceAppStage {files}` is read-only: it runs the static check of
+- The Bot has four host tools (P26): `DeviceAppStage {files}` is read-only: it runs the static check of
   §9, computes the file hashes and the digest of §4, and returns them. `DeviceAppInstall {digest}`
-  installs the staged bundle. The device is resolved from the calling Bot's binding
+  installs the staged bundle. `DeviceAppList {}` and `DeviceAppRemove {name}` (device-app-v1.5, below)
+  read and remove what is installed. The device is resolved from the calling Bot's binding
   ([device-bot.md](device-bot.md)), never from a model-supplied id; a Bot without a binding does not see
-  these tools.
+  these tools, and a call from one is refused by the host.
 - `DeviceAppInstall` raises one approval **on every call, including on a user's own turn**: a
   model-written program is not covered by "the user asked for an app". The card is once-only (no
   standing grant). Its visible text is the customer's (§12): the device's display name, the app
@@ -160,6 +162,43 @@ through §6, which is the same result.
   again, with the same name and digest (so §6 rule 1 applies) and a new install id (new staging
   journal keys). A second interruption, or any other failure, is not retried. A call cut off while
   `app.commit` is in flight is never a transfer failure: it is an unknown outcome, settled as above.
+- **List and remove (device-app-v1.5).** After an install the customer can neither see what is on the
+  device nor stop or delete an app, and `app.stop` / `app.remove` have no other caller; the Bot gets two
+  tools, visible under the same rule as `DeviceAppStage` / `DeviceAppInstall` (listed for all callers,
+  hidden per caller unless bound, refused by the host when unbound):
+  - `DeviceAppList {}` takes no argument. It is read-only and needs no approval: after the link checks
+    of the install path (connected, tools advertised) it reads `app.info` once on the bound device and
+    returns `{ok:true, count, apps:[{name,title,version?,running}], message, hint}`. `title` falls back
+    to `name`; every string the device reported is sanitized and clipped (it is untrusted display
+    text). `message` is the customer text (§12). A failure is `{ok:false, error:{code:"list_failed",
+    reason}, message, ...}` with the sentence from §8.2.
+  - `DeviceAppRemove {name}` stops the app when it is running and removes it. `name` must pass the §2
+    app-name rule; anything else (a path, another case, an extra member such as a device) is refused
+    `invalid_arguments` before any card or radio use. It raises one **once-only** approval **on every
+    call, including on a user's own turn**, before any radio use: the card is the §12 removal card,
+    bound to the device key and the app name in the approval `resource`, offered no standing grant,
+    with the same 330 s card and the same 10 s local reminder as the install card. A decline, an expiry
+    or a cancel deletes nothing and sends nothing to the radio.
+  - After the approval the host reads `app.info` (the link checks first); an app that is not listed
+    ends `not_found` with nothing removed. It calls `app.stop` only when **that** app is running (a
+    failed stop ends `stop_failed` and `app.remove` is never sent), then `app.remove {name}` once, as
+    the user origin under the v1.3 waiver (both names are among the eight). A remove call that was cut
+    off or got no reply is never repeated: the host reads `app.info` again; the name absent means
+    removed, present means `not_removed`, an unreadable device stays `outcome_unknown` (and the
+    customer is told to ask again, which is safe because removing is idempotent for the customer).
+    A device refusal keeps its §8 code in `error.reason`.
+  - One operation per device: while an install or a removal holds the device (waiting for its
+    approval or on the radio), another `DeviceAppRemove` or `DeviceAppInstall` and a `DeviceAppList`
+    answer `busy`; a retry of the same removal is told the real state (same name awaiting approval, or
+    being removed) and raises no second card.
+  - Success is `{ok:true, removed:true, name, was_running, audit_recorded, message, hint}`; failure is
+    `error.code` `remove_failed` (with `error.reason` the device or installer code), `outcome_unknown`,
+    `busy`, `permission_denied` or `invalid_arguments`, plus `message` (§8.2 sentence, also the visible
+    text), `hint` and a clipped `diagnostic`.
+  - Audit: after an observed removal the host writes a durable
+    `ui.system_event{event:"device.app.remove", device, name, title?, was_running, author}` through the
+    same auditor as the install (`author` is the same approval author record; no digest, no files).
+    A failed write is `audit_recorded:false`; success is never claimed beyond what was observed.
 - The device Bot's authoring guide is host-authored and static (versioned in the App, injected into
   that Bot's persona); nothing the device reports is quoted into it.
 
@@ -197,6 +236,28 @@ in the table gets the generic sentence, never the code.
 A §9 static-check failure is only for the Bot to fix; its text is a plain reason with the line
 (`检查没通过：用了 f-string（main.py 第 3 行），改好后再检查一次`), and `code`, `path`, `line` stay in the
 fields.
+
+### 8.2 Remove and list wording (device-app-v1.5)
+
+`DeviceAppRemove` and `DeviceAppList` use their own sentences (never "安装"), keyed by the same machine
+codes (`DeviceAppCustomerText.removeTable`, `listTable`). A code not in a table gets that tool's generic
+sentence, never the code. `error.code` stays remove_failed or list_failed (§7) and the code is in
+`error.reason`.
+
+| Code | Sentence |
+| --- | --- |
+| `device_not_found` | 没找到这台设备，请到设备页面确认它还在列表里 |
+| `device_not_connected` | 设备没连上，请靠近设备并确认蓝牙已开 |
+| `device_tools_missing`, `device_protocol_mismatch` | 这台设备不支持设备应用，可能需要先升级设备 |
+| `device_info_failed` | 读不到设备上的应用，请靠近设备并确认蓝牙已开 |
+| `not_found` | 设备上找不到这个应用，可能已经删掉了 |
+| `stop_failed`, `running` | 设备上的应用停不下来，请在设备上长按确定键退出后再试 |
+| `busy`, `link_busy` | 设备正忙着处理另一个应用，稍后再试 |
+| `bad_request` | 设备没能理解这次操作，请稍后再试一次 |
+| `host_only`, `declined`, `cancelled`, `device_not_authorized` | one plain sentence each (`removeTable`) |
+| `call_failed`, `not_executed`, `protocol`, `transfer_interrupted` | 没能删除，设备上的应用没有改变。要重试吗？ (list: 读不到设备上的应用，请靠近设备并确认蓝牙已开) |
+| `not_removed` | 没有删掉，设备上的应用没有改变。要重试吗？ |
+| `outcome_unknown` | 没能确认设备上有没有删掉。请靠近设备并确认蓝牙已开，然后让我再看一下；没删掉的话也不会有别的影响。 |
 
 ## 9. Static check (phone) and runtime guard (device)
 
@@ -275,6 +336,16 @@ must each run the same file through their real functions.
   failed); a failure carries `error.code` (unchanged: `install_failed`, `outcome_unknown`, `busy`,
   `digest_mismatch`, `permission_denied`, …), `error.reason` (the device or installer code), `message`
   (the §8.1 sentence), `hint` and a clipped `diagnostic` for the model.
-- **Authoring guide (v2).** Before `DeviceAppStage` the Bot says that a confirmation card will appear
+- **Removal card (device-app-v1.5).** Title `要从「<设备显示名>」上删除「<应用名>」吗？` (`你的设备` when the
+  name is unknown; `<应用名>` is the title the phone last saw for that app, else the app name); body, first
+  line `应用：<应用名>` (the approval notification reads it), second line
+  `删除后不能恢复，需要的话让我重新做一个。`. No digest, name code, path or Link device id is shown; the
+  device key and the app name are in the approval `resource`. The local reminder after 10 s says
+  `「<应用名>」在等你点「允许」，才会从设备上删除`.
+- **List and remove text.** List: `设备上现在有 N 个设备应用：` and one line `「<标题>」` per app, with
+  `（正在运行）` appended to a running one; none: `设备上现在没有设备应用。`. Remove success:
+  `已从设备上删除「<应用名>」。` or, when the app was open, `已把「<应用名>」停掉并从设备上删除。`.
+- **Authoring guide (v3, was v2).** The guide gains a section telling the Bot it can list and remove (names
+  come from the list, the confirmation card appears, only `ok` means done). Before `DeviceAppStage` the Bot says that a confirmation card will appear
   and to tap 允许 within 2 minutes; after the install it says the app is open and how to quit; it
   never says digest, error code or tool name to the customer.

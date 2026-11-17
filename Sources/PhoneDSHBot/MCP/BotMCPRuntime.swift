@@ -1519,22 +1519,35 @@ public actor BotMCPRuntime {
         }
     }
 
-    /// `DeviceAppInstall` never goes through the generic ask-authorization (its
-    /// effect has no standing grant): it raises its own once-only approval on
+    /// `DeviceAppInstall` and `DeviceAppRemove` never go through the generic ask-authorization
+    /// (their effects have no standing grant): each raises its own once-only approval on
     /// every call, including a user's own turn, before any radio use.
     private func executeDeviceApp(_ name: String, arguments: BotJSONValue,
                                   call: BotResolvedToolCall,
                                   host: DeviceAppToolHost) async -> BotMCPCallResult {
-        if name == DeviceAppToolNames.stage {
+        if name == DeviceAppToolNames.stage || name == DeviceAppToolNames.list {
+            // Read-only, auto: classified like any other read, no approval card.
             let effect = BotToolEffectClassifier.effect(for: name, arguments: arguments)
             if let reason = await authorize(call: call, effect: effect) {
                 return .failure("permission_denied", reason)
             }
-            return await host.stage(arguments: arguments, principal: call.principal)
+            return name == DeviceAppToolNames.list
+                ? await host.list(arguments: arguments, principal: call.principal)
+                : await host.stage(arguments: arguments, principal: call.principal)
         }
         let authority = turnAuthority(for: call)
         let persistence = approvalPersistence(for: call)
         let approvals = self.approvals
+        if name == DeviceAppToolNames.remove {
+            return await host.remove(
+                arguments: arguments, principal: call.principal, authority: authority
+            ) { effect in
+                await approvals.request(
+                    call: call, effects: [effect], action: DeviceAppToolNames.remove,
+                    detail: effect.detail, command: "", alwaysScope: "none",
+                    persistence: persistence, origin: "structural")
+            }
+        }
         return await host.install(
             arguments: arguments, principal: call.principal, authority: authority
         ) { effect in

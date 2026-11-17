@@ -790,6 +790,7 @@ public actor BotApprovalCoordinator {
             .filter {
                 $0.value.persistent
                     || $0.value.action == BotApprovalNotificationPlanner.deviceAppInstallAction
+                    || $0.value.action == BotApprovalNotificationPlanner.deviceAppRemoveAction
             }
             .map { id, request in
                 BotApprovalNotificationRecord(

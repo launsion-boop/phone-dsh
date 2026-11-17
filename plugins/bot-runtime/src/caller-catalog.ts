@@ -20,8 +20,11 @@ export const CALLER_CATALOG_TOOL_NAMES = Object.freeze(['SendToAgent', 'CreateTe
  * lists them in the all-callers catalog the Worker registers from, but only a
  * Bot with a device binding has them in its per-caller catalog. Deny-unless-
  * listed: an identified caller whose catalog lacks one gets it hidden.
+ * device-app-v1.5 adds DeviceAppList and DeviceAppRemove under the same rule.
  */
-export const CALLER_CATALOG_DEVICE_APP_TOOL_NAMES = Object.freeze(['DeviceAppStage', 'DeviceAppInstall'])
+export const CALLER_CATALOG_DEVICE_APP_TOOL_NAMES = Object.freeze([
+  'DeviceAppStage', 'DeviceAppInstall', 'DeviceAppList', 'DeviceAppRemove',
+])
 
 const PHONE_TOOL_PREFIX = 'mcp__phone__'
 const DEFAULT_TIMEOUT_MS = 2_000

@@ -68,7 +68,9 @@ const AUTO_TOOLS = new Set([
   // digest-bound approval before any radio use. A Worker effect here would send
   // `alwaysScope=session` (unclassified), be rejected as `stale:always_scope`
   // before the call runs, and for Install would double the approval card.
-  'DeviceAppStage', 'DeviceAppInstall',
+  // device-app-v1.5: List is the host's `read + auto` (no card); Remove raises the
+  // App's own once-only card exactly like Install, so it never gets a Worker card.
+  'DeviceAppStage', 'DeviceAppInstall', 'DeviceAppList', 'DeviceAppRemove',
 ])
 // PR59's native-MCP "BLE tools" (`spec/v1/native-mcp.md`), forwarded by the
 // Bot server as `mcp__phone__ble_*`. PR59's per-connection grant is the real

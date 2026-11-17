@@ -84,6 +84,8 @@ public enum BotApprovalNotificationPlanner {
     public static let deviceAppInstallDelayMilliseconds: Int64 = 10_000
     /// `BotToolEffect.tool` / approval `action` of the device-app install card.
     public static let deviceAppInstallAction = "DeviceAppInstall"
+    /// Approval `action` of the device-app removal card (device-app-v1.5); same reminder timing.
+    public static let deviceAppRemoveAction = "DeviceAppRemove"
     /// iOS keeps at most 64 pending notifications per application. Leave room
     /// for routine due reminders and other system notifications.
     public static let maximumPendingNotifications = 48
@@ -108,6 +110,15 @@ public enum BotApprovalNotificationPlanner {
         record.action.trimmingCharacters(in: .whitespacesAndNewlines) == deviceAppInstallAction
     }
 
+    static func isDeviceAppRemove(_ record: BotApprovalNotificationRecord) -> Bool {
+        record.action.trimmingCharacters(in: .whitespacesAndNewlines) == deviceAppRemoveAction
+    }
+
+    /// A live device-app card (install or removal): reminded sooner, asks for notification permission once.
+    static func isDeviceAppCard(_ record: BotApprovalNotificationRecord) -> Bool {
+        isDeviceAppInstall(record) || isDeviceAppRemove(record)
+    }
+
     /// `delayMs == nil` uses the per-approval default (10 s for a device-app
     /// install, 60 s otherwise); a value overrides every record.
     public static func notification(
@@ -117,7 +128,8 @@ public enum BotApprovalNotificationPlanner {
     ) -> BotApprovalScheduledNotification {
         let action = record.action.trimmingCharacters(in: .whitespacesAndNewlines)
         let isInstall = isDeviceAppInstall(record)
-        let delay = delayMs ?? (isInstall ? deviceAppInstallDelayMilliseconds : defaultDelayMilliseconds)
+        let isRemove = isDeviceAppRemove(record)
+        let delay = delayMs ?? (isInstall || isRemove ? deviceAppInstallDelayMilliseconds : defaultDelayMilliseconds)
         var title = "有待办的审批"
         let body: String
         if isInstall {
@@ -126,6 +138,13 @@ public enum BotApprovalNotificationPlanner {
                 body = "「\(app)」在等你点「允许」，才会装到设备上"
             } else {
                 body = "有一个应用在等你点「允许」，才会装到设备上"
+            }
+        } else if isRemove {
+            title = "有应用在等你确认"
+            if let app = deviceAppTitle(detail: record.detail) {
+                body = "「\(app)」在等你点「允许」，才会从设备上删除"
+            } else {
+                body = "有一个应用在等你点「允许」，才会从设备上删除"
             }
         } else if action.isEmpty {
             body = "有一项操作在等你批准或拒绝。点开处理后，任务会继续或结束。"
@@ -267,7 +286,7 @@ public actor BotApprovalNotificationReconciler {
     @discardableResult
     func requestPermissionIfNeeded(for records: [BotApprovalNotificationRecord]) async -> Bool {
         guard !permissionAsked,
-              records.contains(where: BotApprovalNotificationPlanner.isDeviceAppInstall),
+              records.contains(where: BotApprovalNotificationPlanner.isDeviceAppCard),
               !askedDefaults.bool(forKey: BotApprovalNotificationPermission.askedDefaultsKey),
               let authorizing = scheduling as? any BotApprovalNotificationAuthorizing else { return false }
         permissionAsked = true
@@ -280,7 +299,7 @@ public actor BotApprovalNotificationReconciler {
     @discardableResult
     public func sync(_ records: [BotApprovalNotificationRecord]) async -> Int {
         if !permissionAsked,
-           records.contains(where: BotApprovalNotificationPlanner.isDeviceAppInstall) {
+           records.contains(where: BotApprovalNotificationPlanner.isDeviceAppCard) {
             // Detached: the system dialog waits for the user and must not hold
             // the runtime tick that calls `sync`.
             Task { [self] in await requestPermissionIfNeeded(for: records) }

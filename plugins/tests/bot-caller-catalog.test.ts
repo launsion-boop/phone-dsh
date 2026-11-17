@@ -268,20 +268,28 @@ const boundCatalog: CallerCatalog = {
     },
     { name: 'DeviceAppStage', description: 'stage' },
     { name: 'DeviceAppInstall', description: 'install' },
+    { name: 'DeviceAppList', description: 'list' },
+    { name: 'DeviceAppRemove', description: 'remove' },
   ],
 }
 
 test('device-app tools are deny-unless-listed per caller', async () => {
-  assert.deepEqual(planCallerCatalog(boundCatalog)?.deviceAppTools, ['DeviceAppStage', 'DeviceAppInstall'])
+  assert.deepEqual(planCallerCatalog(boundCatalog)?.deviceAppTools,
+    ['DeviceAppStage', 'DeviceAppInstall', 'DeviceAppList', 'DeviceAppRemove'])
   assert.deepEqual(planCallerCatalog(nonMainCatalog)?.deviceAppTools, [])
-  // Only one of the two listed: the other stays hidden (no widening).
+  // Only some listed: the others stay hidden (no widening).
   assert.deepEqual(planCallerCatalog({
     tools: [boundCatalog.tools[0]!, boundCatalog.tools[1]!],
   })?.deviceAppTools, ['DeviceAppStage'])
   // A near-name is never treated as a device-app tool.
   assert.deepEqual(planCallerCatalog({
-    tools: [boundCatalog.tools[0]!, { name: 'DeviceAppInstallAll', description: 'x' }],
+    tools: [boundCatalog.tools[0]!, { name: 'DeviceAppInstallAll', description: 'x' },
+      { name: 'DeviceAppListX', description: 'x' }, { name: 'DeviceAppRemoveAll', description: 'x' }],
   })?.deviceAppTools, [])
+  // List and remove are independent names: listing one never reveals the other.
+  assert.deepEqual(planCallerCatalog({
+    tools: [boundCatalog.tools[0]!, boundCatalog.tools[3]!],
+  })?.deviceAppTools, ['DeviceAppList'])
 
   const ctx = await mountRuntime()
   let catalog: CallerCatalog = nonMainCatalog
@@ -292,6 +300,8 @@ test('device-app tools are deny-unless-listed per caller', async () => {
     registerTeamProbes(ctx)
     registerProbe(ctx, 'mcp__phone__DeviceAppStage', 'static stage')
     registerProbe(ctx, 'mcp__phone__DeviceAppInstall', 'static install')
+    registerProbe(ctx, 'mcp__phone__DeviceAppList', 'static list')
+    registerProbe(ctx, 'mcp__phone__DeviceAppRemove', 'static remove')
     await ctx.plugin(dshbotIdentityBridge, {
       catalog: {
         cacheTtlMs: 0,
@@ -302,18 +312,18 @@ test('device-app tools are deny-unless-listed per caller', async () => {
       },
     })
 
-    // Unbound Bot: both tools hidden; its other tools and the team surface stay.
+    // Unbound Bot: all four tools hidden; its other tools and the team surface stay.
     const unbound = await createAgent(ctx, 'gb-bot-b')
     assert.deepEqual(await names(unbound), [])
     assert.equal((await assembleFor(ctx, unbound)).tools.some(e => e.name === 'mcp__phone__SendToAgent'), true)
 
-    // Bound Bot: both visible.
+    // Bound Bot: all four visible.
     const bound = await createAgent(ctx, 'gb-bot-a')
-    assert.deepEqual(await names(bound), ['mcp__phone__DeviceAppInstall', 'mcp__phone__DeviceAppStage'])
+    assert.deepEqual(await names(bound), ['mcp__phone__DeviceAppInstall', 'mcp__phone__DeviceAppList', 'mcp__phone__DeviceAppRemove', 'mcp__phone__DeviceAppStage'])
 
     // Unidentified caller (workbench): the static surface is untouched.
     const workbench = await createAgent(ctx, 'session-workbench')
-    assert.deepEqual(await names(workbench), ['mcp__phone__DeviceAppInstall', 'mcp__phone__DeviceAppStage'])
+    assert.deepEqual(await names(workbench), ['mcp__phone__DeviceAppInstall', 'mcp__phone__DeviceAppList', 'mcp__phone__DeviceAppRemove', 'mcp__phone__DeviceAppStage'])
 
     // The binding appears later: a refresh reveals the tools; losing it hides them again.
     catalog = boundCatalog
@@ -323,7 +333,7 @@ test('device-app tools are deny-unless-listed per caller', async () => {
       await new Promise(resolve => setTimeout(resolve, 1))
     }
     await new Promise(resolve => setTimeout(resolve, 5))
-    assert.deepEqual(await names(unbound), ['mcp__phone__DeviceAppInstall', 'mcp__phone__DeviceAppStage'])
+    assert.deepEqual(await names(unbound), ['mcp__phone__DeviceAppInstall', 'mcp__phone__DeviceAppList', 'mcp__phone__DeviceAppRemove', 'mcp__phone__DeviceAppStage'])
     catalog = nonMainCatalog
     const again = requests
     ctx.emit('agent/status', { agent: unbound, status: 'idle' })

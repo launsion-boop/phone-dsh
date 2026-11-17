@@ -228,6 +228,11 @@ public enum BotToolEffectClassifier {
                                  isMcp: isMcp)
         case DeviceAppToolNames.stage:
             return DeviceAppToolEffects.stageEffect(isMcp: isMcp)
+        case DeviceAppToolNames.list:
+            return DeviceAppToolEffects.listEffect(isMcp: isMcp)
+        case DeviceAppToolNames.remove:
+            return DeviceAppToolEffects.classifierRemoveEffect(
+                name: clip(args["name"], max: 64), isMcp: isMcp)
         case DeviceAppToolNames.install:
             return DeviceAppToolEffects.classifierInstallEffect(
                 digest: clip(args["digest"], max: 64), isMcp: isMcp)

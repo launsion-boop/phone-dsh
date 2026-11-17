@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // App side of device-app-v1 (spec/device/v1/device-app.md §7): binds the P26 host tools of
 // PhoneDSHBot to the Link device the Bot is bound to. The device is never taken from model
-// arguments: it is `DeviceBotRegistry`'s binding of the calling Bot.
+// arguments: it is `DeviceBotRegistry`'s binding of the calling Bot. device-app-v1.5 adds the real
+// `app.info` read behind DeviceAppList and the `app.stop` + `app.remove` calls behind DeviceAppRemove.
 import Foundation
 import PhoneDSHAgentCore
 import PhoneDSHBLE
@@ -22,11 +23,25 @@ enum DeviceAppLiveWiring {
         let audit = DeviceAppWiring.auditor(
             botForDevice: { key in await MainActor.run { DeviceBotRegistry.shared.botID(forDevice: key) } },
             append: { event in _ = try await domain.append(event) })
+        let lister = DeviceAppWiring.lister(
+            linkState: { key in await linkState(key) },
+            snapshot: { key in await snapshot(key) })
+        let baseRemover = DeviceAppWiring.remover(
+            linkState: { key in await linkState(key) },
+            snapshot: { key in await snapshot(key) },
+            stopRunning: { key in await stop(key) },
+            removeCall: { key, name in await removeCall(key, name) })
+        let remover: DeviceAppToolHost.Remover = { request in
+            let outcome = await baseRemover(request)
+            if case .removed = outcome { KnownApps.remove(device: request.deviceKey, name: request.name) }
+            return outcome
+        }
         await runtime.setDeviceAppTools(DeviceAppWiring.toolHost(
             deviceKey: { botID in await boundKey(botID) }, installer: installer, audit: audit,
             deviceName: { key in await displayName(key) },
             existingApp: { key, name in KnownApps.title(device: key, name: name) },
-            runApp: { key, name in await run(key, name) }))
+            runApp: { key, name in await run(key, name) },
+            lister: lister, remover: remover))
     }
 
     /// The binding's Link device key. A TonoLink board's voice-link Bot has no Link device.
@@ -75,6 +90,60 @@ enum DeviceAppLiveWiring {
             return .reply(protocolName: result["protocol"]?.stringValue, running: running)
         } catch {
             return .unavailable(String(describing: error))
+        }
+    }
+
+    /// One full `app.info` read (list and remove). Refreshes the phone-side known titles.
+    private static func snapshot(_ key: String) async -> DeviceAppSnapshot {
+        guard let id = await deviceID(key) else { return .unavailable("设备不可用") }
+        do {
+            guard let result = try await call(id, "app.info", .object([:])) else {
+                return .unavailable("设备没有给出成功的回复")
+            }
+            let apps = result["apps"]?.arrayValue ?? []
+            KnownApps.replace(device: key, with: apps)
+            return .reply(protocolName: result["protocol"]?.stringValue, apps: apps.compactMap { app in
+                guard let name = app["name"]?.stringValue else { return nil }
+                return DeviceAppListedApp(name: name, title: app["title"]?.stringValue,
+                                          version: app["version"]?.intValue,
+                                          running: app["running"]?.boolValue == true)
+            })
+        } catch {
+            return .unavailable(String(describing: error))
+        }
+    }
+
+    /// One `app.remove {name}` as the user origin (the v1.3 waiver covers it). A refusal keeps the
+    /// device's §8 code; anything that may have been sent but has no verdict is `.lost`, and the
+    /// remover then reads `app.info` instead of ever sending the call again.
+    private static func removeCall(_ key: String, _ name: String) async -> DeviceAppWiring.RemoveCall {
+        guard let id = await deviceID(key) else { return .refused(code: "device_not_found") }
+        do {
+            let outcome = try await callLinkTool(
+                deviceID: id, name: "app.remove", arguments: .object(["name": .string(name)]),
+                idempotencyKey: "devapp.app.remove.\(UUID().uuidString.lowercased())", origin: .user)
+            switch outcome {
+            case .completed(_, let reply):
+                let result = reply["result"]
+                switch reply["status"]?.stringValue {
+                case "completed" where result?["ok"]?.boolValue == true:
+                    return .removed
+                case "completed", "failed":
+                    return .refused(code: result?["code"]?.stringValue ?? "bad_request")
+                default:
+                    return .lost("app.remove 的回复状态未知")
+                }
+            case .notExecuted:
+                return .refused(code: "not_executed")
+            case .running:
+                return .lost("app.remove 还没有结果")
+            case .outcomeUnknown(_, let message):
+                return .lost(message)
+            }
+        } catch is LinkBusy {
+            return .refused(code: "link_busy")
+        } catch {
+            return .lost(String(describing: error))
         }
     }
 
@@ -177,6 +246,12 @@ private enum KnownApps {
     static func add(device: String, name: String, title: String) {
         var table = (UserDefaults.standard.dictionary(forKey: key(device)) as? [String: String]) ?? [:]
         table[name] = title
+        UserDefaults.standard.set(table, forKey: key(device))
+    }
+
+    static func remove(device: String, name: String) {
+        var table = (UserDefaults.standard.dictionary(forKey: key(device)) as? [String: String]) ?? [:]
+        table[name] = nil
         UserDefaults.standard.set(table, forKey: key(device))
     }
 

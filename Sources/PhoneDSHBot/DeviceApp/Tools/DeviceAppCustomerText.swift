@@ -61,6 +61,70 @@ public enum DeviceAppCustomerText {
     /// the code itself.
     public static func sentence(forCode code: String) -> String { table[code] ?? generic }
 
+    // MARK: - Remove and list (device-app-v1.5, spec §8.2)
+
+    static let removeGeneric = "没能删除，设备上的应用没有改变。要重试吗？"
+    static let removeBusy = "设备正忙着处理另一个应用，稍后再试"
+    static let removeUnresolved = "没能确认设备上有没有删掉。请靠近设备并确认蓝牙已开，然后让我再看一下；没删掉的话也不会有别的影响。"
+    static let listGeneric = "读不到设备上的应用，请靠近设备并确认蓝牙已开"
+    static let notSupported = "这台设备不支持设备应用，可能需要先升级设备"
+
+    /// Remove sentences, one per code a removal can end with. Never says 安装; an unknown code
+    /// gets `removeGeneric`, never the code.
+    public static let removeTable: [String: String] = [
+        "device_not_found": table["device_not_found"]!,
+        "device_not_connected": notConnected,
+        "device_tools_missing": notSupported,
+        "device_protocol_mismatch": notSupported,
+        "device_info_failed": listGeneric,
+        "not_found": "设备上找不到这个应用，可能已经删掉了",
+        "stop_failed": table["stop_failed"]!,
+        "running": table["stop_failed"]!,
+        "busy": removeBusy,
+        "link_busy": removeBusy,
+        "bad_request": "设备没能理解这次操作，请稍后再试一次",
+        "host_only": table["host_only"]!,
+        "declined": "设备拒绝了这次删除，设备上的应用没有改变",
+        "device_not_authorized": "手机还没有获得在这台设备上操作应用的许可，没有改动设备",
+        "call_failed": removeGeneric,
+        "not_executed": removeGeneric,
+        "protocol": removeGeneric,
+        "transfer_interrupted": removeGeneric,
+        "cancelled": "删除被取消了，设备上的应用没有改变",
+        "not_removed": "没有删掉，设备上的应用没有改变。要重试吗？",
+        "outcome_unknown": removeUnresolved,
+    ]
+
+    public static func removeSentence(forCode code: String) -> String { removeTable[code] ?? removeGeneric }
+
+    /// List sentences: reading the device can only fail to reach or understand it.
+    public static let listTable: [String: String] = [
+        "device_not_found": table["device_not_found"]!,
+        "device_not_connected": notConnected,
+        "device_tools_missing": notSupported,
+        "device_protocol_mismatch": notSupported,
+        "device_info_failed": listGeneric,
+        "busy": removeBusy,
+        "link_busy": removeBusy,
+        "call_failed": listGeneric,
+        "not_executed": listGeneric,
+        "protocol": listGeneric,
+    ]
+
+    public static func listSentence(forCode code: String) -> String { listTable[code] ?? listGeneric }
+
+    public static func removed(title: String, wasRunning: Bool) -> String {
+        wasRunning ? "已把「\(title)」停掉并从设备上删除。" : "已从设备上删除「\(title)」。"
+    }
+
+    /// "设备上现在有 2 个设备应用：\n「专注计时器」（正在运行）\n「计数器」". Titles are device text,
+    /// already sanitized by the caller.
+    public static func listed(titles: [(title: String, running: Bool)]) -> String {
+        guard !titles.isEmpty else { return "设备上现在没有设备应用。" }
+        let rows = titles.map { "「\($0.title)」" + ($0.running ? "（正在运行）" : "") }
+        return "设备上现在有 \(titles.count) 个设备应用：\n" + rows.joined(separator: "\n")
+    }
+
     /// Plain reason of a §9 static-check failure, for the Bot to fix (it never reaches the customer).
     public static func validation(code: String, path: String, line: Int) -> String {
         let reason: String

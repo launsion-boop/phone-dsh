@@ -444,8 +444,10 @@ final class DeviceAppToolsTests: XCTestCase {
             if let text = try? String(contentsOf: url, encoding: .utf8) { spec = text; break }
         }
         let text = try XCTUnwrap(spec)
+        // The device error codes are the paragraph under "## 8." only. The 8.1 / 8.2 subsections
+        // (cut at the next heading of any level) mention result field names such as `reason`.
         let section = try XCTUnwrap(text.components(separatedBy: "## 8. Error codes").dropFirst().first?
-            .components(separatedBy: "\n## ").first)
+            .components(separatedBy: "\n#").first)
         let codes = section.components(separatedBy: "`").enumerated().filter { $0.offset % 2 == 1 }.map(\.element)
             .filter { $0.range(of: "^[a-z_]+$", options: .regularExpression) != nil && $0 != "phone" }
         XCTAssertGreaterThanOrEqual(codes.count, 13)
@@ -524,7 +526,7 @@ final class DeviceAppToolsTests: XCTestCase {
     func testGuideFitsBudgetPassesCredentialLintAndHasNoDeviceText() async throws {
         let text = DeviceAppAuthoringGuide.text
         XCTAssertLessThanOrEqual(text.unicodeScalars.count, DeviceAppAuthoringGuide.maxScalars)
-        XCTAssertEqual(DeviceAppAuthoringGuide.version, 2)
+        XCTAssertEqual(DeviceAppAuthoringGuide.version, 3)
         for needle in ["240x320", "GB2312", "back", "audio", "mic", "battery", "f-string", "每次安装", "不可信",
                        "2 分钟", "允许", "长按确定键", "不要对用户提"] {
             XCTAssertTrue(text.contains(needle) || text.contains(needle.replacingOccurrences(of: "f-string", with: "f-string")), needle)
