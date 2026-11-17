@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 /** `phone/featureAdmin` Remote: installed capabilities only, no package install. */
 
+import { createHash } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-host-plugin-inventory'
@@ -28,17 +29,29 @@ import { listInstalledPlugins, setInstalledPluginEnabled } from './plugin-toggle
 import {
   assertSkillCatalogInvalidation,
   invalidateSkillCatalog,
-  MAX_SKILL_BYTES,
   skillFileName,
   SkillsStore,
+  type StagedSkill,
 } from './skills.ts'
 import {
+  BLOB_CONTENT_REF_MIN_BYTES,
   HostSkillMutationJournal,
-  MAX_RECORDED_CONTENT_BYTES,
+  MAX_SKILL_CONTENT_BYTES,
   newSkillMutationOperationId,
   skillMutationFailureCode,
+  type SkillMutationBegin,
   type SkillMutationJournal,
 } from './mutation-records.ts'
+
+/** Inline small bodies; larger bodies reference their existing immutable VFS blob. */
+function recordContent(
+  content: string, contentSha256: string, bytes: number,
+): Pick<SkillMutationBegin, 'content' | 'contentRef' | 'contentSha256' | 'bytes'> {
+  if (bytes > BLOB_CONTENT_REF_MIN_BYTES) {
+    return { contentRef: `blob://sha256/${contentSha256}`, contentSha256, bytes }
+  }
+  return { content, contentSha256, bytes }
+}
 
 /** Translate any helper failure into the stable browser contract. */
 function failure(error: unknown): FeatureAdminResult<never> {
@@ -121,17 +134,42 @@ export class PhoneFeatureAdmin extends TypertRemoteService {
   skillsWrite(name: string, content: string): Promise<FeatureAdminResult<SkillMutationView>> {
     return attempt(async () => {
       assertSkillCatalogInvalidation(this.ctx)
-      const fileName = this.validateWrite(name, content)
+      const write = this.validateWrite(name, content)
       const operationId = newSkillMutationOperationId()
-      await this.mutations.begin({
-        operationId, action: 'write', file: fileName, content,
-      })
       let view: SkillMutationView
-      try {
-        view = await this.skills.write(fileName, content)
-      } catch (error) {
-        await this.recordFailed(operationId, error)
-        throw error
+      if (write.bytes <= BLOB_CONTENT_REF_MIN_BYTES) {
+        // Small bodies stay inline and requested precedes the atomic file.
+        await this.mutations.begin({
+          operationId, action: 'write', file: write.fileName,
+          content: write.content, contentSha256: write.contentSha256,
+          bytes: write.bytes,
+        })
+        try {
+          view = await this.skills.write(write.fileName, write.content)
+        } catch (error) {
+          await this.recordFailed(operationId, error)
+          throw error
+        }
+      } else {
+        // Large bodies: the hidden temp write is what creates the existing
+        // immutable content-addressed blob; requested then binds its ref, and
+        // only the final rename touches the skill name.
+        const staged = await this.skills.stage(write.fileName, write.content)
+        try {
+          await this.mutations.begin({
+            operationId, action: 'write', file: staged.name,
+            ...recordContent(staged.content, staged.contentSha256, staged.bytes),
+          })
+        } catch (error) {
+          await staged.abort()
+          throw error
+        }
+        try {
+          view = await staged.commit()
+        } catch (error) {
+          await this.recordFailed(operationId, error)
+          throw error
+        }
       }
       try {
         await this.mutations.applied(operationId)
@@ -157,9 +195,15 @@ export class PhoneFeatureAdmin extends TypertRemoteService {
       assertSkillCatalogInvalidation(this.ctx)
       const fileName = skillFileName(name)
       const handle = await this.skills.prepareDelete(fileName)
+      if (handle.bytes > MAX_SKILL_CONTENT_BYTES) {
+        throw invalidRequest(
+          `skill content exceeds ${String(MAX_SKILL_CONTENT_BYTES)} bytes; the skill was not deleted`,
+        )
+      }
       const operationId = newSkillMutationOperationId()
       await this.mutations.begin({
-        operationId, action: 'delete', file: fileName, content: handle.content,
+        operationId, action: 'delete', file: fileName,
+        ...recordContent(handle.content, handle.contentSha256, handle.bytes),
       })
       let view: SkillMutationView
       try {
@@ -182,23 +226,25 @@ export class PhoneFeatureAdmin extends TypertRemoteService {
     })
   }
 
-  /** Validate before any raw fact exists; an invalid page request touches nothing. */
-  private validateWrite(name: unknown, content: unknown): string {
+  /** Validate before any raw fact exists; a bad page request touches nothing. */
+  private validateWrite(name: unknown, content: unknown): {
+    readonly fileName: string
+    readonly content: string
+    readonly bytes: number
+    readonly contentSha256: string
+  } {
     const fileName = skillFileName(name)
     if (typeof content !== 'string') throw invalidRequest('skill content must be a string')
     const bytes = Buffer.byteLength(content, 'utf8')
-    if (bytes > MAX_SKILL_BYTES) {
-      throw invalidRequest(`skill content exceeds ${String(MAX_SKILL_BYTES)} bytes`)
+    if (bytes > MAX_SKILL_CONTENT_BYTES) {
+      throw invalidRequest(`skill content exceeds ${String(MAX_SKILL_CONTENT_BYTES)} bytes`)
     }
-    if (bytes > MAX_RECORDED_CONTENT_BYTES) {
-      throw new FeatureAdminError(
-        'invalid-request',
-        `skill content exceeds the ${String(MAX_RECORDED_CONTENT_BYTES)}-byte raw-record bound; `
-        + 'the skill was not written',
-        'record-content-too-large',
-      )
+    return {
+      fileName,
+      content,
+      bytes,
+      contentSha256: createHash('sha256').update(content, 'utf8').digest('hex'),
     }
-    return fileName
   }
 
   /** A failed file operation is recorded with its bounded code; never applied. */

@@ -23,7 +23,21 @@ public enum BotFeatureAdminSkillMutationError: Error, Equatable, Sendable {
     case alreadyApplied
     case fileMismatch
     case fileStillPresent
+    case contentRefUnavailable
     case appendFailed
+}
+
+/// Reads an existing immutable VFS/blob version by lowercase SHA-256 digest.
+/// The composition injects this over the existing `WorkspaceBlobStore`; tests
+/// inject a temp blob file. It never creates a second store.
+public struct BotFeatureAdminSkillMutationBlob: Sendable {
+    public typealias Reader = @Sendable (_ digest: String, _ expectedBytes: Int) -> Data?
+
+    public var read: Reader
+
+    public init(read: @escaping Reader) {
+        self.read = read
+    }
 }
 
 /// The one queue seam this adapter needs. The composition injects the current
@@ -73,7 +87,11 @@ public protocol BotFeatureAdminSkillMutationServing: Sendable {
 public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationServing {
     public static let eventType = "feature-admin.skill_mutation"
     public static let schema = "phone-skill-mutation/v2"
-    public static let maximumContentBytes = 65_536
+    /// The product's existing flat-skill ceiling. Inline bodies are capped at
+    /// the event schema limit; 64 KiB...2 MiB must use an immutable blob ref.
+    public static let maximumContentBytes = 2 * 1024 * 1024
+    public static let maximumInlineContentBytes = 64 * 1024
+    public static let blobRefPrefix = "blob://sha256/"
     public static let maximumPendingOperations = 32
     public static let operationTTLMS: Int64 = 60_000
 
@@ -81,7 +99,9 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
         var operationID: String
         var action: BotFeatureAdminSkillMutationAction
         var file: String
-        var content: String
+        /// Exactly one of content/contentRef is present.
+        var content: String?
+        var contentRef: String?
         var contentSHA256: String
         var bytes: Int
     }
@@ -106,6 +126,7 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
     private let eventLog: any BotEventLog
     private let userSkillsRoot: URL
     private let queue: BotFeatureAdminSkillMutationQueue
+    private let blob: BotFeatureAdminSkillMutationBlob?
     private let now: @Sendable () -> Int64
     /// The Worker's VFS write ACK can precede the host materializer. The
     /// applied fact waits a bounded number of polls for the real file, never
@@ -123,6 +144,7 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
 
     public init(eventLog: any BotEventLog,
                 userSkillsRoot: URL,
+                blob: BotFeatureAdminSkillMutationBlob? = nil,
                 queue: BotFeatureAdminSkillMutationQueue,
                 now: @escaping @Sendable () -> Int64 = {
                     Int64(Date().timeIntervalSince1970 * 1_000)
@@ -132,6 +154,7 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
         self.eventLog = eventLog
         self.userSkillsRoot = userSkillsRoot.standardizedFileURL
         self.queue = queue
+        self.blob = blob
         self.now = now
         self.fileVerificationAttempts = max(1, fileVerificationAttempts)
         self.fileVerificationDelayNanoseconds = fileVerificationDelayNanoseconds
@@ -167,6 +190,10 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
                     "the user-dsh skill queue is not attached")
             }
             let request = try Self.decodeBegin(object)
+            if let ref = request.contentRef {
+                try await verifyContentRef(ref, sha256: request.contentSHA256,
+                                           bytes: request.bytes)
+            }
             purgeExpired()
             guard pending.count < Self.maximumPendingOperations else {
                 throw BotFeatureAdminSkillMutationError.unavailable(
@@ -328,6 +355,31 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
 
     // MARK: - file verification
 
+    /// Read back the existing immutable blob and bind it to the recorded
+    /// content hash/bytes. A missing/unreadable ref fails closed; it is never
+    /// replaced by hash-only or a truncated body.
+    private func verifyContentRef(_ ref: String, sha256: String,
+                                  bytes: Int) async throws {
+        guard let digest = Self.blobDigest(ref), digest == sha256 else {
+            throw BotFeatureAdminSkillMutationError.invalidRequest(
+                "content_ref must be blob://sha256/<the same content_sha256>")
+        }
+        guard let blob else {
+            throw BotFeatureAdminSkillMutationError.contentRefUnavailable
+        }
+        for attempt in 0..<fileVerificationAttempts {
+            if let data = blob.read(digest, bytes),
+               data.count == bytes,
+               Self.sha256Hex(data) == sha256 {
+                return
+            }
+            if attempt + 1 < fileVerificationAttempts {
+                try? await Task.sleep(nanoseconds: fileVerificationDelayNanoseconds)
+            }
+        }
+        throw BotFeatureAdminSkillMutationError.contentRefUnavailable
+    }
+
     private func verifyDeleteRequest(_ request: BeginRequest) async throws {
         let url = try targetURL(request.file)
         for attempt in 0..<fileVerificationAttempts {
@@ -434,7 +486,13 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
             "surface": .string("phone-feature-admin"),
         ]
         if status == .requested {
-            data["content"] = .string(request.content)
+            if let ref = request.contentRef {
+                data["content_ref"] = .string(ref)
+            } else if let content = request.content {
+                data["content"] = .string(content)
+            }
+        } else if let ref = request.contentRef {
+            data["content_ref"] = .string(ref)
         }
         if let requestRecord {
             data["request_record"] = .string(requestRecord)
@@ -473,9 +531,11 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
             throw BotFeatureAdminSkillMutationError.invalidRequest(
                 "file must be a flat kebab-case .md basename")
         }
-        guard let content = object["content"]?.stringValue else {
+        let content = object["content"]?.stringValue
+        let contentRef = object["content_ref"]?.stringValue
+        guard (content != nil) != (contentRef != nil) else {
             throw BotFeatureAdminSkillMutationError.invalidRequest(
-                "content must be the actual UTF-8 user input")
+                "exactly one of content or content_ref is required")
         }
         guard let hash = object["content_sha256"]?.stringValue, isLowercaseSHA256(hash) else {
             throw BotFeatureAdminSkillMutationError.invalidRequest(
@@ -486,17 +546,30 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
             throw BotFeatureAdminSkillMutationError.invalidRequest(
                 "bytes must be within 0...\(maximumContentBytes)")
         }
-        let data = Data(content.utf8)
-        guard data.count == bytes else {
-            throw BotFeatureAdminSkillMutationError.invalidRequest(
-                "bytes does not match the UTF-8 content length")
-        }
-        guard sha256Hex(data) == hash else {
-            throw BotFeatureAdminSkillMutationError.invalidRequest(
-                "content_sha256 does not match the content")
+        if let content {
+            guard bytes <= maximumInlineContentBytes else {
+                throw BotFeatureAdminSkillMutationError.invalidRequest(
+                    "inline content must use an immutable content_ref above "
+                    + "\(maximumInlineContentBytes) bytes")
+            }
+            let data = Data(content.utf8)
+            guard data.count == bytes else {
+                throw BotFeatureAdminSkillMutationError.invalidRequest(
+                    "bytes does not match the UTF-8 content length")
+            }
+            guard sha256Hex(data) == hash else {
+                throw BotFeatureAdminSkillMutationError.invalidRequest(
+                    "content_sha256 does not match the content")
+            }
+        } else if let contentRef {
+            guard let digest = blobDigest(contentRef), digest == hash else {
+                throw BotFeatureAdminSkillMutationError.invalidRequest(
+                    "content_ref must be blob://sha256/<the same content_sha256>")
+            }
         }
         return BeginRequest(operationID: operationID, action: action, file: file,
-                            content: content, contentSHA256: hash, bytes: bytes)
+                            content: content, contentRef: contentRef,
+                            contentSHA256: hash, bytes: bytes)
     }
 
     private static func decodeOperationID(_ object: [String: BotJSONValue]) throws -> String {
@@ -529,6 +602,12 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
         return true
     }
 
+    private static func blobDigest(_ value: String) -> String? {
+        guard value.hasPrefix(blobRefPrefix) else { return nil }
+        let digest = String(value.dropFirst(blobRefPrefix.count))
+        return isLowercaseSHA256(digest) ? digest : nil
+    }
+
     private static func isLowercaseSHA256(_ value: String) -> Bool {
         value.count == 64 && value.allSatisfy {
             ($0 >= "0" && $0 <= "9") || ($0 >= "a" && $0 <= "f")
@@ -539,6 +618,7 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
         switch error {
         case .fileMismatch: return "file-mismatch"
         case .fileStillPresent: return "file-still-present"
+        case .contentRefUnavailable: return "content-ref-unavailable"
         case .invalidRequest: return "invalid-request"
         case .unavailable: return "unavailable"
         case .unknownOperation: return "unknown-operation"
@@ -597,6 +677,7 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
         case .alreadyApplied: return "the feature-admin operation already has an applied record"
         case .fileMismatch: return "the real skill file does not match the requested bytes"
         case .fileStillPresent: return "the skill file is still present after delete"
+        case .contentRefUnavailable: return "the immutable content_ref is missing or unreadable"
         case .appendFailed: return "the raw record could not be appended"
         }
     }

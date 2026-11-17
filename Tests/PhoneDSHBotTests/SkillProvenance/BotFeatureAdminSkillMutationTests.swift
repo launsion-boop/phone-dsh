@@ -137,6 +137,31 @@ final class BotFeatureAdminSkillMutationTests: XCTestCase {
         ])
     }
 
+    private func beginRefBody(operationID: String = "op-1",
+                              action: String = "write",
+                              file: String = "weekly.md",
+                              content: String) -> BotJSONValue {
+        let data = Data(content.utf8)
+        let hash = contentHash(content)
+        return .object([
+            "op": .string("begin"),
+            "operation_id": .string(operationID),
+            "action": .string(action),
+            "file": .string(file),
+            "content_ref": .string("blob://sha256/\(hash)"),
+            "content_sha256": .string(hash),
+            "bytes": .number(Double(data.count)),
+        ])
+    }
+
+    private func blobFixture(_ content: String) -> BotFeatureAdminSkillMutationBlob {
+        let data = Data(content.utf8)
+        let digest = contentHash(content)
+        return BotFeatureAdminSkillMutationBlob(read: { requested, expectedBytes in
+            requested == digest && expectedBytes == data.count ? data : nil
+        })
+    }
+
     private func appliedBody(operationID: String = "op-1") -> BotJSONValue {
         .object(["op": .string("applied"), "operation_id": .string(operationID)])
     }
@@ -159,7 +184,9 @@ final class BotFeatureAdminSkillMutationTests: XCTestCase {
     /// Real provenance service + producer + queue + recorder. The emit closure
     /// returns the producer's actual recorded/failed result, exactly like the
     /// composition seam should.
-    private func realChain(_ log: FeatureAdminTestLog) -> RealFeatureAdminChain {
+    private func realChain(_ log: FeatureAdminTestLog,
+                           blob: BotFeatureAdminSkillMutationBlob? = nil)
+        -> RealFeatureAdminChain {
         let service = BotProvenanceService(
             eventLog: log,
             skillRechecker: BotSkillFileRechecker(roots: roots))
@@ -172,6 +199,7 @@ final class BotFeatureAdminSkillMutationTests: XCTestCase {
         let queue = BotSkillEventQueue(producer: producer, now: { featureAdminTestNow })
         let recorder = BotFeatureAdminSkillMutationRecorder(
             eventLog: log, userSkillsRoot: userDir,
+            blob: blob,
             queue: BotFeatureAdminSkillMutationQueue(
                 ready: { true },
                 suppress: { file, action, operationID in
@@ -407,6 +435,126 @@ final class BotFeatureAdminSkillMutationTests: XCTestCase {
         XCTAssertEqual(events.count, 2)
         XCTAssertEqual(spy.emitted.count, 1,
                        "a completed applied retry must not call the producer again")
+    }
+
+    // MARK: - capacity compatibility (2 MiB skill bound)
+
+    func testTwoMebibyteContentRefIsAcceptedAndRecoverable() async throws {
+        let log = FeatureAdminTestLog()
+        let content = String(repeating: "a", count: 2 * 1024 * 1024)
+        let blob = blobFixture(content)
+        let chain = realChain(log, blob: blob)
+        let begin = result(await chain.recorder.handle(beginRefBody(content: content)))
+        XCTAssertEqual(begin["ok"]?.boolValue, true, "\(begin)")
+        let requestRecord = try XCTUnwrap(begin["record"]?.stringValue)
+        try Data(content.utf8).write(to: userDir.appendingPathComponent("weekly.md"))
+        let applied = result(await chain.recorder.handle(appliedBody()))
+        XCTAssertEqual(applied["ok"]?.boolValue, true)
+        XCTAssertEqual(applied["skill_event"]?.boolValue, true)
+
+        let events = await log.all()
+        let requested = try XCTUnwrap(events.first {
+            $0.type == BotFeatureAdminSkillMutationRecorder.eventType
+                && $0.data["status"]?.stringValue == "requested"
+        })
+        XCTAssertEqual("record://event/\(requested.commitSeq ?? 0)", requestRecord)
+        XCTAssertNil(requested.data["content"])
+        XCTAssertEqual(requested.data["content_ref"]?.stringValue,
+                       "blob://sha256/\(contentHash(content))")
+        XCTAssertEqual(events.filter { $0.type == "skill.changed" }.count, 1)
+        let readback = try XCTUnwrap(blob.read(contentHash(content), content.utf8.count))
+        XCTAssertEqual(readback, Data(content.utf8))
+    }
+
+    func test64KiBPlusOneContentRefIsAccepted() async throws {
+        let log = FeatureAdminTestLog()
+        let content = String(repeating: "b", count: 64 * 1024 + 1)
+        let chain = realChain(log, blob: blobFixture(content))
+        let begin = result(await chain.recorder.handle(beginRefBody(content: content)))
+        XCTAssertEqual(begin["ok"]?.boolValue, true, "\(begin)")
+        try Data(content.utf8).write(to: userDir.appendingPathComponent("weekly.md"))
+        let applied = result(await chain.recorder.handle(appliedBody()))
+        XCTAssertEqual(applied["ok"]?.boolValue, true)
+        XCTAssertEqual(applied["skill_event"]?.boolValue, true)
+        let events = await log.all()
+        XCTAssertEqual(events.filter { $0.type == "skill.changed" }.count, 1)
+    }
+
+    func testTwoMebibyteDeleteContentRefIsRecoverable() async throws {
+        let log = FeatureAdminTestLog()
+        let content = String(repeating: "d", count: 2 * 1024 * 1024)
+        let blob = blobFixture(content)
+        let chain = realChain(log, blob: blob)
+        _ = result(await chain.recorder.handle(beginRefBody(content: content)))
+        try Data(content.utf8).write(to: userDir.appendingPathComponent("weekly.md"))
+        let written = result(await chain.recorder.handle(appliedBody()))
+        XCTAssertEqual(written["skill_event"]?.boolValue, true)
+
+        let beginDelete = result(await chain.recorder.handle(
+            beginRefBody(operationID: "op-2", action: "delete", content: content)))
+        XCTAssertEqual(beginDelete["ok"]?.boolValue, true, "\(beginDelete)")
+        try FileManager.default.removeItem(at: userDir.appendingPathComponent("weekly.md"))
+        let deleted = result(await chain.recorder.handle(appliedBody(operationID: "op-2")))
+        XCTAssertEqual(deleted["ok"]?.boolValue, true)
+        XCTAssertEqual(deleted["skill_event"]?.boolValue, true)
+
+        let events = await log.all()
+        let requested = try XCTUnwrap(events.first {
+            $0.type == BotFeatureAdminSkillMutationRecorder.eventType
+                && $0.data["status"]?.stringValue == "requested"
+                && $0.data["operation_id"]?.stringValue == "op-2"
+        })
+        XCTAssertNil(requested.data["content"])
+        XCTAssertEqual(requested.data["content_ref"]?.stringValue,
+                       "blob://sha256/\(contentHash(content))")
+        XCTAssertEqual(events.filter { $0.type == "skill.changed" }.count, 2)
+        XCTAssertEqual(events.filter { $0.type == "skill.changed" }.last?
+            .data["action"]?.stringValue, "delete")
+        let readback = try XCTUnwrap(blob.read(contentHash(content), content.utf8.count))
+        XCTAssertEqual(readback, Data(content.utf8))
+    }
+
+    func testTwoMebibytePlusOneIsRejectedBeforeAnyRecordOrFile() async throws {
+        let log = FeatureAdminTestLog()
+        let spy = FeatureAdminQueueSpy()
+        let recorder = recorder(log, queue: spy)
+        let content = String(repeating: "x", count: 2 * 1024 * 1024 + 1)
+        let reply = result(await recorder.handle(beginRefBody(content: content)))
+        XCTAssertEqual(reply["ok"]?.boolValue, false)
+        XCTAssertEqual(reply["code"]?.stringValue, "invalid-request")
+        let events = await log.all()
+        XCTAssertTrue(events.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: userDir.appendingPathComponent("weekly.md").path))
+    }
+
+    func testAppendOnlyEventCarriesTwoMebibyteRawContent() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("feature-admin-event-\(UUID().uuidString)",
+                                    isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try SQLiteDomainStore(
+            fileURL: directory.appendingPathComponent("domain.sqlite"),
+            now: { featureAdminTestNow })
+        let content = String(repeating: "e", count: 2 * 1024 * 1024)
+        let event = BotEvent(
+            type: BotFeatureAdminSkillMutationRecorder.eventType,
+            eventId: "feature-admin-large-content",
+            time: featureAdminTestNow,
+            origin: .local(source: "user"),
+            traceId: "trace-large-content",
+            principal: BotPrincipal(botId: nil, sessionId: nil, kind: "ipc"),
+            causationId: nil, correlationId: nil, ignorable: true,
+            data: .object([
+                "schema": .string(BotFeatureAdminSkillMutationRecorder.schema),
+                "content": .string(content),
+            ]))
+        let seq = try await store.append(event)
+        XCTAssertGreaterThan(seq, 0)
+        let stored = try await store.events(after: 0, limit: 10)
+        let first = try XCTUnwrap(stored.first { $0.eventId == event.eventId })
+        XCTAssertEqual(first.data["content"]?.stringValue, content)
     }
 
     // MARK: - real queue + producer idempotency

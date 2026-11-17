@@ -3,6 +3,7 @@
 import Foundation
 import UserNotifications
 import PhoneDSH
+import PhoneDSHLog
 import PhoneDSHAgentCore
 import PhoneDSHBot
 import PhoneDSHDeviceTasks
@@ -579,11 +580,16 @@ final class BotRuntimeComposition {
         // G-FAM-2: the settings page's raw operation records and the one
         // applied-basis skill event share the user-dsh observer's router/queue.
         let userSkillRouter = composition.featureAdminSkillRouter
+        let hostRoot = workspaceRoot ?? BotProductionPaths.workspaceRoot()
         server.featureAdminSkillMutations = BotFeatureAdminSkillMutationRecorder(
             eventLog: store,
             userSkillsRoot: skillRoots.root(for: .userDsh, ownerBotID: nil)
-                ?? (workspaceRoot ?? BotProductionPaths.workspaceRoot())
-                    .appendingPathComponent("materialized/home/skills", isDirectory: true),
+                ?? hostRoot.appendingPathComponent("materialized/home/skills", isDirectory: true),
+            blob: BotFeatureAdminSkillMutationBlob(read: { digest, expectedBytes in
+                // Existing immutable content-addressed VFS blob; no second store.
+                let store = WorkspaceBlobStore(root: hostRoot)
+                return try? store.read(digest: digest, expectedLength: expectedBytes)
+            }),
             queue: BotFeatureAdminSkillMutationQueue(
                 ready: { userSkillRouter.hasQueue },
                 suppress: { file, action, operationID in

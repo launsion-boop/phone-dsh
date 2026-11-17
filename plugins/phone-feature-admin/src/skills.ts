@@ -10,7 +10,7 @@
  * @module @phone-dsh/dsh-feature-admin/skills
  */
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, open, readFile, readdir, realpath, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -147,6 +147,19 @@ export function invalidateSkillCatalog(ctx: Context): SkillInvalidation {
   return 'catalog'
 }
 
+/** One staged, not-yet-committed flat skill write. */
+export interface StagedSkill {
+  readonly name: string
+  readonly content: string
+  /** Lowercase hex SHA-256 of the exact UTF-8 bytes written to the temp file. */
+  readonly contentSha256: string
+  readonly bytes: number
+  /** Atomically rename the staged temp file to the skill name. */
+  commit(): Promise<SkillMutationView>
+  /** Remove the temp file without touching the skill name. */
+  abort(): Promise<void>
+}
+
 /** Filesystem operations bound to one canonical skills root. */
 export class SkillsStore {
   readonly root: string
@@ -195,11 +208,19 @@ export class SkillsStore {
     return { name: fileName, content: await readFile(target.candidate, 'utf8') }
   }
 
-  /** Atomically create or replace one flat skill and invalidate the catalog. */
-  async write(name: unknown, content: unknown): Promise<SkillMutationView> {
+  /**
+   * Stage one flat skill write in a hidden temp file in the same directory.
+   *
+   * The VFS write creates the existing immutable content-addressed blob for
+   * bodies at or above the host blob threshold, so the requested raw record
+   * can bind `blob://sha256/<digest>` before the final rename. The skill name
+   * itself is not changed until `commit()`.
+   */
+  async stage(name: unknown, content: unknown): Promise<StagedSkill> {
     const fileName = skillFileName(name)
     if (typeof content !== 'string') throw invalidRequest('skill content must be a string')
-    if (Buffer.byteLength(content, 'utf8') > MAX_SKILL_BYTES) {
+    const bytes = Buffer.byteLength(content, 'utf8')
+    if (bytes > MAX_SKILL_BYTES) {
       throw invalidRequest(`skill content exceeds ${String(MAX_SKILL_BYTES)} bytes`)
     }
     const root = await canonicalRoot(this.root, true)
@@ -215,12 +236,42 @@ export class SkillsStore {
       } finally {
         await handle.close()
       }
-      await rename(temporary, target.candidate)
     } catch (error) {
       await unlink(temporary).catch(() => {})
       throw error
     }
-    return { name: fileName, invalidation: this.invalidate() }
+    let state: 'staged' | 'committed' | 'aborted' = 'staged'
+    return {
+      name: fileName,
+      content,
+      contentSha256: createHash('sha256').update(content, 'utf8').digest('hex'),
+      bytes,
+      commit: async (): Promise<SkillMutationView> => {
+        if (state !== 'staged') {
+          throw new FeatureAdminError('conflict', `skill write is no longer staged: ${fileName}`)
+        }
+        try {
+          await rename(temporary, target.candidate)
+          state = 'committed'
+        } catch (error) {
+          await unlink(temporary).catch(() => {})
+          state = 'aborted'
+          throw error
+        }
+        return { name: fileName, invalidation: this.invalidate() }
+      },
+      abort: async (): Promise<void> => {
+        if (state !== 'staged') return
+        state = 'aborted'
+        await unlink(temporary).catch(() => {})
+      },
+    }
+  }
+
+  /** Atomically create or replace one flat skill and invalidate the catalog. */
+  async write(name: unknown, content: unknown): Promise<SkillMutationView> {
+    const staged = await this.stage(name, content)
+    return staged.commit()
   }
 
   /** Remove one flat skill and invalidate the catalog. */
@@ -235,6 +286,8 @@ export class SkillsStore {
    */
   async prepareDelete(name: unknown): Promise<{
     readonly content: string
+    readonly contentSha256: string
+    readonly bytes: number
     readonly commit: () => Promise<SkillMutationView>
   }> {
     const fileName = skillFileName(name)
@@ -245,6 +298,8 @@ export class SkillsStore {
     const content = await readFile(target.candidate, 'utf8')
     return {
       content,
+      contentSha256: createHash('sha256').update(content, 'utf8').digest('hex'),
+      bytes: Buffer.byteLength(content, 'utf8'),
       commit: async (): Promise<SkillMutationView> => {
         const finalContent = await readFile(target.candidate, 'utf8')
         if (finalContent !== content) {

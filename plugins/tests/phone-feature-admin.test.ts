@@ -8,6 +8,7 @@
  */
 
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { createRequire, registerHooks, stripTypeScriptTypes } from 'node:module'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -1352,7 +1353,95 @@ test('a successful file write with a failed applied append is reported as not in
   assert.equal(readFileSync(join(root, 'weekly.md'), 'utf8'), 'real file')
 })
 
-test('the raw-record content bound is refused before requested or file I/O', async (t) => {
+test('64KiB+1 body uses an immutable content_ref and keeps the skill', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'pdsh-feature-ref-64k-'))
+  t.after(() => { rmSync(home, { recursive: true, force: true }) })
+  const root = join(home, 'skills')
+  mkdirSync(root, { recursive: true })
+  const journal = new MemorySkillMutationJournal()
+  const { ctx, service } = adminWith({
+    skills: { invalidateCache() {} }, skillsRoot: root, skillsJournal: journal,
+  })
+  t.after(async () => { await ctx.fiber.dispose() })
+
+  const content = 'a'.repeat(64 * 1024 + 1)
+  const hash = createHash('sha256').update(content, 'utf8').digest('hex')
+  const written = await service.skillsWrite('large.md', content)
+  assert.equal(written.ok, true, JSON.stringify(written))
+  assert.equal(journal.begins.length, 1)
+  assert.equal(journal.begins[0]?.content, undefined)
+  assert.equal(journal.begins[0]?.contentRef, `blob://sha256/${hash}`)
+  assert.equal(journal.begins[0]?.contentSha256, hash)
+  assert.equal(journal.begins[0]?.bytes, 64 * 1024 + 1)
+  assert.equal(readFileSync(join(root, 'large.md'), 'utf8'), content)
+  assert.equal(journal.appliedOperations.length, 1)
+})
+
+test('exactly 64KiB body stays inline within the event schema', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'pdsh-feature-inline-64k-'))
+  t.after(() => { rmSync(home, { recursive: true, force: true }) })
+  const root = join(home, 'skills')
+  mkdirSync(root, { recursive: true })
+  const journal = new MemorySkillMutationJournal()
+  const { ctx, service } = adminWith({
+    skills: { invalidateCache() {} }, skillsRoot: root, skillsJournal: journal,
+  })
+  t.after(async () => { await ctx.fiber.dispose() })
+
+  const content = 'a'.repeat(64 * 1024)
+  const written = await service.skillsWrite('inline.md', content)
+  assert.equal(written.ok, true, JSON.stringify(written))
+  assert.equal(journal.begins[0]?.content, content)
+  assert.equal(journal.begins[0]?.contentRef, undefined)
+})
+
+test('2MiB body is accepted through content_ref and committed', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'pdsh-feature-ref-2m-'))
+  t.after(() => { rmSync(home, { recursive: true, force: true }) })
+  const root = join(home, 'skills')
+  mkdirSync(root, { recursive: true })
+  const journal = new MemorySkillMutationJournal()
+  const { ctx, service } = adminWith({
+    skills: { invalidateCache() {} }, skillsRoot: root, skillsJournal: journal,
+  })
+  t.after(async () => { await ctx.fiber.dispose() })
+
+  const content = 'b'.repeat(2 * 1024 * 1024)
+  const hash = createHash('sha256').update(content, 'utf8').digest('hex')
+  const written = await service.skillsWrite('two-mib.md', content)
+  assert.equal(written.ok, true, JSON.stringify(written))
+  assert.equal(journal.begins[0]?.content, undefined)
+  assert.equal(journal.begins[0]?.contentRef, `blob://sha256/${hash}`)
+  assert.equal(journal.begins[0]?.contentSha256, hash)
+  assert.equal(journal.begins[0]?.bytes, 2 * 1024 * 1024)
+  assert.equal(readFileSync(join(root, 'two-mib.md'), 'utf8'), content)
+})
+
+test('2MiB delete records content_ref and removes the file', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'pdsh-feature-delete-2m-'))
+  t.after(() => { rmSync(home, { recursive: true, force: true }) })
+  const root = join(home, 'skills')
+  mkdirSync(root, { recursive: true })
+  const content = 'c'.repeat(2 * 1024 * 1024)
+  writeFileSync(join(root, 'large.md'), content)
+  const hash = createHash('sha256').update(content, 'utf8').digest('hex')
+  const journal = new MemorySkillMutationJournal()
+  const { ctx, service } = adminWith({
+    skills: { invalidateCache() {} }, skillsRoot: root, skillsJournal: journal,
+  })
+  t.after(async () => { await ctx.fiber.dispose() })
+
+  const deleted = await service.skillsDelete('large.md')
+  assert.equal(deleted.ok, true, JSON.stringify(deleted))
+  assert.equal(journal.begins[0]?.content, undefined)
+  assert.equal(journal.begins[0]?.contentRef, `blob://sha256/${hash}`)
+  assert.equal(journal.begins[0]?.contentSha256, hash)
+  assert.equal(journal.begins[0]?.bytes, 2 * 1024 * 1024)
+  assert.equal(existsSync(join(root, 'large.md')), false)
+  assert.equal(journal.appliedOperations.length, 1)
+})
+
+test('2MiB+1 body is refused before requested or file I/O', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'pdsh-feature-records-bound-'))
   t.after(() => { rmSync(home, { recursive: true, force: true }) })
   const root = join(home, 'skills')
@@ -1363,11 +1452,10 @@ test('the raw-record content bound is refused before requested or file I/O', asy
   })
   t.after(async () => { await ctx.fiber.dispose() })
 
-  const large = 'a'.repeat(64 * 1024 + 1)
+  const large = 'a'.repeat(2 * 1024 * 1024 + 1)
   const written = await service.skillsWrite('large.md', large)
   assert.equal(written.ok, false, JSON.stringify(written))
   assert.equal(written.code, 'invalid-request')
-  assert.equal(written.domainCode, 'record-content-too-large')
   assert.equal(journal.begins.length, 0)
   assert.equal(existsSync(join(root, 'large.md')), false)
 })

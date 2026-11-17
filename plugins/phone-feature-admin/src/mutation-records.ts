@@ -14,9 +14,17 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { FeatureAdminFailureCode } from './contracts.ts'
 import { FeatureAdminError } from './errors.ts'
+import { MAX_SKILL_BYTES } from './skills.ts'
 
-/** Largest actual body one raw requested record may carry. */
-export const MAX_RECORDED_CONTENT_BYTES = 64 * 1024
+/**
+ * Largest body carried inline in the raw event. Larger skill bodies use the
+ * existing immutable VFS blob version via `blob://sha256/<digest>`.
+ */
+export const MAX_INLINE_CONTENT_BYTES = 64 * 1024
+/** The product's existing flat-skill ceiling; journal must not lower it. */
+export const MAX_SKILL_CONTENT_BYTES = MAX_SKILL_BYTES
+/** VFS writes at/above this create an immutable content-addressed blob. */
+export const BLOB_CONTENT_REF_MIN_BYTES = 64 * 1024
 /** Feature-admin bridge request timeout; a lost host must not hold the UI. */
 const DEFAULT_TIMEOUT_MS = 5_000
 
@@ -34,8 +42,13 @@ export interface SkillMutationBegin {
   readonly operationId: string
   readonly action: SkillMutationAction
   readonly file: string
-  /** The exact UTF-8 body the user asked to write or delete. */
-  readonly content: string
+  /** The exact UTF-8 body for an inline record (at most 64 KiB). */
+  readonly content?: string
+  /** Existing immutable VFS blob version for a larger body. */
+  readonly contentRef?: string
+  /** Lowercase hex SHA-256 of the exact UTF-8 content bytes. */
+  readonly contentSha256?: string
+  readonly bytes?: number
 }
 
 /** One host raw-record seam. Tests inject a fake; production uses the bridge. */
@@ -116,22 +129,80 @@ export class HostSkillMutationJournal implements SkillMutationJournal {
   }
 
   async begin(input: SkillMutationBegin): Promise<SkillMutationRecord> {
-    const content = input.content
-    const hash = createHash('sha256').update(content, 'utf8').digest('hex')
-    const bytes = Buffer.byteLength(content, 'utf8')
-    if (bytes > MAX_RECORDED_CONTENT_BYTES) {
+    const hasContent = input.content !== undefined
+    const hasRef = input.contentRef !== undefined
+    if (hasContent === hasRef) {
       throw new FeatureAdminError(
         'invalid-request',
-        `skill content exceeds the ${String(MAX_RECORDED_CONTENT_BYTES)}-byte raw-record bound; the skill was not written`,
+        'a raw skill operation needs exactly one of content or content_ref',
+        'record-content-invalid',
+      )
+    }
+    const content = input.content
+    const contentRef = input.contentRef
+    const bytes = input.bytes ?? (content === undefined
+      ? -1
+      : Buffer.byteLength(content, 'utf8'))
+    if (!Number.isInteger(bytes) || bytes < 0 || bytes > MAX_SKILL_CONTENT_BYTES) {
+      throw new FeatureAdminError(
+        'invalid-request',
+        `skill content exceeds ${String(MAX_SKILL_CONTENT_BYTES)} bytes`,
         'record-content-too-large',
       )
+    }
+    const hash = input.contentSha256
+      ?? (content === undefined
+        ? ''
+        : createHash('sha256').update(content, 'utf8').digest('hex'))
+    if (!/^[0-9a-f]{64}$/u.test(hash)) {
+      throw new FeatureAdminError(
+        'invalid-request',
+        'content_sha256 must be 64 lowercase hex characters',
+        'record-content-invalid',
+      )
+    }
+    if (content !== undefined) {
+      if (bytes > MAX_INLINE_CONTENT_BYTES) {
+        throw new FeatureAdminError(
+          'invalid-request',
+          `inline skill content exceeds the ${String(MAX_INLINE_CONTENT_BYTES)}-byte event bound; use its immutable blob content_ref`,
+          'record-content-inline-too-large',
+        )
+      }
+      const actualBytes = Buffer.byteLength(content, 'utf8')
+      const actualHash = createHash('sha256').update(content, 'utf8').digest('hex')
+      if (actualBytes !== bytes || actualHash !== hash) {
+        throw new FeatureAdminError(
+          'invalid-request',
+          'content does not match content_sha256/bytes',
+          'record-content-invalid',
+        )
+      }
+    } else {
+      const expected = `blob://sha256/${hash}`
+      if (contentRef !== expected) {
+        throw new FeatureAdminError(
+          'invalid-request',
+          'content_ref must be blob://sha256/<the same content_sha256>',
+          'record-content-invalid',
+        )
+      }
+      // 64 KiB...2 MiB must use the existing immutable blob version; only
+      // bodies at or above the VFS blob threshold have one.
+      if (bytes < BLOB_CONTENT_REF_MIN_BYTES) {
+        throw new FeatureAdminError(
+          'invalid-request',
+          'content_ref is only used for bodies at or above the immutable blob threshold',
+          'record-content-invalid',
+        )
+      }
     }
     const reply = await this.post({
       op: 'begin',
       operation_id: input.operationId,
       action: input.action,
       file: input.file,
-      content,
+      ...(content !== undefined ? { content } : { content_ref: contentRef }),
       content_sha256: hash,
       bytes,
     })
