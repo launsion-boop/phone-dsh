@@ -250,7 +250,7 @@ Named so that a Kotlin engineer does not invent them locally.
 
 | Gap | Why it is not here | Source |
 |---|---|---|
-| persistent external ingress queue (at-least-once, `request_id` dedupe, parked while the app is not running) | host behaviour above this contract; a connector must not write the WAL directly | `PLAN` §13.7 row J2 |
+| persistent external ingress queue (at-least-once, `request_id` dedupe, parked while the app is not running) | fixed for the phone host by [external-admission.md](external-admission.md) (§11, `target`); a connector still must not write the WAL directly | `PLAN` §13.7 row J2 |
 | tool-registry change while a worker runs (`registerTools()`) | belongs with the worker restart policy in `spec/v1` | `PLAN` §13.7 row J3 |
 | a device command channel inside the worker protocol | two candidate designs, undecided | `PLAN` §13.7 row J4 |
 | media port and the second foreground-service type | platform slice, `spec/platform` | `PLAN` §13.7 row J5 |
@@ -379,3 +379,10 @@ may defer an entry before calling transport, using submitting → outcomeUnknown
 with its original ID. This branch has direct proof that no transport attempt occurred. That
 proof does not survive a crash and cannot be inferred from a saved error string; recovered
 submitting/unknown entries still require authoritative reconciliation before retry.
+
+## 11. External admission journal (P06)
+
+A request that arrives from outside the composer is admitted into a native journal before any
+owner executes it. Identity, dedupe, stages, limits, storage and shared vectors are frozen in
+[external-admission.md](external-admission.md) (`external-admission-v1`, `target`). It links to
+the §10 outbox by `downstreamId`; it does not replace it.

@@ -1,0 +1,27 @@
+{
+  "name": "admission-record-expired-bot",
+  "schema": "schema/admission-record.schema.json",
+  "instance": {
+    "v": 1,
+    "admissionId": "073487a56a32188062b02fe434a630b0ea57ce0659b7a501d8d153fbe3014302",
+    "principal": "account:u_18f3",
+    "source": {
+      "kind": "cloud-task",
+      "id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a"
+    },
+    "sourceRequestId": "task-0003",
+    "target": {
+      "kind": "bot",
+      "botId": "bot-7f3a"
+    },
+    "contentSha256": "51c450a1c07bf0b947f69fbf56d41a2041c59051767db9a211157d148c579c66",
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794700060000,
+    "stage": "expired",
+    "attempts": 0,
+    "settledAtMs": 1794700060000,
+    "reason": "expired"
+  },
+  "notes": "spec/host/v1/external-admission.md:§3 — admitted → expired at expiresAtMs; a bot target is fixed at admission."
+}

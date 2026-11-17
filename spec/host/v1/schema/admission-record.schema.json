@@ -1,0 +1,161 @@
+{
+  "title": "HostExternalAdmissionRecord v1",
+  "description": "One durable record of an externally admitted request (spec/host/v1/external-admission.md). admissionId is the lowercase hex SHA-256 of principal, source.kind, source.id and sourceRequestId joined by single NUL bytes; it is the dedupe key and the file name. The target and downstreamId are fixed at admission and never change. text is present only while the record is pending (admitted or dispatching); linked and terminal records keep contentSha256 only. The record never replaces the send outbox, the Bot wake inbox or the Bot effect ledger: it owns the fact of admission and the link to the downstream id, nothing else.",
+  "type": "object",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "admissionId", "principal", "source", "sourceRequestId", "target", "contentSha256", "text", "downstreamId", "admittedAtMs", "expiresAtMs", "stage", "attempts"],
+      "properties": {
+        "v": {"type": "integer", "const": 1},
+        "admissionId": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "principal": {"type": "string", "pattern": "^(local|account:[A-Za-z0-9._-]{1,128})$"},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": {"type": "string", "enum": ["tonolink-voice", "cloud-task"]},
+            "id": {"type": "string", "pattern": "^[\\x21-\\x7e]{1,128}$"}
+          }
+        },
+        "sourceRequestId": {"type": "string", "pattern": "^[\\x21-\\x7e]{1,128}$"},
+        "target": {
+          "type": "object",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "sessionId"],
+              "properties": {
+                "kind": {"type": "string", "const": "dsh-session"},
+                "sessionId": {"type": "string", "pattern": "^[\\x21-\\x7e]{1,256}$"}
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "botId"],
+              "properties": {
+                "kind": {"type": "string", "const": "bot"},
+                "botId": {"type": "string", "pattern": "^[\\x21-\\x7e]{1,256}$"}
+              }
+            }
+          ]
+        },
+        "contentSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "text": {"type": "string", "minLength": 1, "maxLength": 16384},
+        "downstreamId": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+        "admittedAtMs": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "expiresAtMs": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "stage": {"type": "string", "enum": ["admitted", "dispatching"]},
+        "attempts": {"type": "integer", "minimum": 0, "maximum": 12},
+        "lastError": {"type": "string", "pattern": "^[a-z_]{1,64}$"},
+        "nextAttemptAtMs": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "admissionId", "principal", "source", "sourceRequestId", "target", "contentSha256", "downstreamId", "admittedAtMs", "expiresAtMs", "stage", "attempts"],
+      "properties": {
+        "v": {"type": "integer", "const": 1},
+        "admissionId": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "principal": {"type": "string", "pattern": "^(local|account:[A-Za-z0-9._-]{1,128})$"},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": {"type": "string", "enum": ["tonolink-voice", "cloud-task"]},
+            "id": {"type": "string", "pattern": "^[\\x21-\\x7e]{1,128}$"}
+          }
+        },
+        "sourceRequestId": {"type": "string", "pattern": "^[\\x21-\\x7e]{1,128}$"},
+        "target": {
+          "type": "object",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "sessionId"],
+              "properties": {
+                "kind": {"type": "string", "const": "dsh-session"},
+                "sessionId": {"type": "string", "pattern": "^[\\x21-\\x7e]{1,256}$"}
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "botId"],
+              "properties": {
+                "kind": {"type": "string", "const": "bot"},
+                "botId": {"type": "string", "pattern": "^[\\x21-\\x7e]{1,256}$"}
+              }
+            }
+          ]
+        },
+        "contentSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "downstreamId": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+        "admittedAtMs": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "expiresAtMs": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "stage": {"type": "string", "const": "linked"},
+        "attempts": {"type": "integer", "minimum": 0, "maximum": 12},
+        "linkedAtMs": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "admissionId", "principal", "source", "sourceRequestId", "target", "contentSha256", "downstreamId", "admittedAtMs", "expiresAtMs", "stage", "attempts", "settledAtMs"],
+      "properties": {
+        "v": {"type": "integer", "const": 1},
+        "admissionId": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "principal": {"type": "string", "pattern": "^(local|account:[A-Za-z0-9._-]{1,128})$"},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": {"type": "string", "enum": ["tonolink-voice", "cloud-task"]},
+            "id": {"type": "string", "pattern": "^[\\x21-\\x7e]{1,128}$"}
+          }
+        },
+        "sourceRequestId": {"type": "string", "pattern": "^[\\x21-\\x7e]{1,128}$"},
+        "target": {
+          "type": "object",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "sessionId"],
+              "properties": {
+                "kind": {"type": "string", "const": "dsh-session"},
+                "sessionId": {"type": "string", "pattern": "^[\\x21-\\x7e]{1,256}$"}
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "botId"],
+              "properties": {
+                "kind": {"type": "string", "const": "bot"},
+                "botId": {"type": "string", "pattern": "^[\\x21-\\x7e]{1,256}$"}
+              }
+            }
+          ]
+        },
+        "contentSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "downstreamId": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+        "admittedAtMs": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "expiresAtMs": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "stage": {"type": "string", "enum": ["completed", "failed", "expired", "cancelled", "unknown"]},
+        "attempts": {"type": "integer", "minimum": 0, "maximum": 12},
+        "linkedAtMs": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "settledAtMs": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "reason": {"type": "string", "pattern": "^[a-z_]{1,64}$"}
+      }
+    }
+  ]
+}
