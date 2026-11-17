@@ -3677,9 +3677,13 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     // sees the same durable `skill.changed`.
                     let botID = botId
                     let session = sessionId
+                    let sources = currentUserSourceRef.map {
+                        [BotDerivationSource(record: $0, role: .creator)]
+                    } ?? []
                     await skillQueue.enqueueAndWait {
                         await skillQueue.runtimeWrite(
-                            vfs: vfsPath, botID: botID, sessionID: session)
+                            vfs: vfsPath, botID: botID, sessionID: session,
+                            sources: sources)
                     }
                 }
                 if !failed, let path = toolWritePaths[callId],
