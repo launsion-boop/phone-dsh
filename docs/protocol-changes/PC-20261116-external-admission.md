@@ -6,11 +6,11 @@
 ```yaml
 change: PC-20261116-external-admission
 contracts: [P06, P07, P09, P27]
-status: draft
+status: frozen
 breaking: false
 version_decision: 新增文件与新目录；既有记录、schema、wire 均不变
 base: d8151ad58e4b352671a2ff332038c4a9a0a27222
-contract_revision: 待提交后填写（external-admission-v1）
+contract_revision: ac156bf7b  # external-admission-v1
 ```
 
 架构来源：[PR #180](https://github.com/launsion-boop/phone-dsh/pull/180) 的 R1。基线为
