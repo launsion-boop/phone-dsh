@@ -52,7 +52,9 @@ public struct BotSkillProvenanceProducer: Sendable {
     /// call this for every successful write/edit.
     public func recordBotWrite(vfsPath: String, botID: String,
                                sessionID: String?,
-                               sources: [BotDerivationSource] = []) async throws
+                               sources: [BotDerivationSource] = [],
+                               creatorRecord: String? = nil,
+                               creatorContentSHA256: String? = nil) async throws
         -> BotDerivedRef? {
         guard let target = classify(vfsPath: vfsPath, botID: botID) else { return nil }
         let data = try readFinalBytes(target.url)
