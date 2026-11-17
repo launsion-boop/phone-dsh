@@ -249,7 +249,7 @@ final class BotSkillProvenanceProducerTests: XCTestCase {
             skillRechecker: BotProvenanceTestSkillRechecker(outcome: .same(atMS: 2_000)))
         let producer = BotSkillProvenanceProducer(
             botRoot: "/dsh/workspace/.dshbot/agents/bot-a",
-            roots: QueueTestRoots(user: user, project: project),
+            roots: roots,
             recorder: { try await service.recordSkillWrite($0) },
             latest: { try await service.latestSkillChange(identity: $0) },
             now: { 1_500 })

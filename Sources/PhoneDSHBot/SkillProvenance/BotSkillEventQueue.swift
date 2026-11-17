@@ -9,6 +9,7 @@ public struct BotSkillDiagnostic: Sendable, Equatable {
     public enum Outcome: String, Sendable, Equatable {
         case recorded
         case failed
+        case skipped
     }
 
     public var action: String
@@ -40,6 +41,7 @@ public final class BotSkillEventQueue: @unchecked Sendable {
     private var tail: Task<Void, Never> = Task {}
     private var suppressedUserFiles: Set<String> = []
     private var diagnostics: [BotSkillDiagnostic] = []
+    private var observerSuppressions: [String: [(operationID: String, expiresAtMS: Int64)]] = [:]
     private let now: @Sendable () -> Int64
 
     public init(producer: BotSkillProvenanceProducer,
@@ -77,31 +79,62 @@ public final class BotSkillEventQueue: @unchecked Sendable {
         return next
     }
 
-    /// A feature-admin mutation owns this file from `requested` through
-    /// `applied`; the filesystem observer must not add a second, unsourced
-    /// event for that one operation. Bounded to file names and released by the
-    /// caller; deletes stay observed for every other file.
-    public func suppressUserObservation(file: String) {
-        lock.lock(); suppressedUserFiles.insert(file); lock.unlock()
+    /// Suppress the filesystem observer for one feature-admin operation. The
+    /// applied record is injected through `userWrite/Delete(sources:)`; the
+    /// observer must not append a second, unsourced event. Entries are bounded
+    /// by TTL and removed by operation id or by the matching observed change.
+    public func suppressObserverMutation(fileName: String, action: String,
+                                         operationID: String,
+                                         ttlMS: Int64 = 60_000) {
+        let key = "\(action):\(fileName)"
+        let expiry = Int64(Date().timeIntervalSince1970 * 1_000) + max(1, ttlMS)
+        lock.lock()
+        observerSuppressions[key, default: []].append((operationID, expiry))
+        lock.unlock()
     }
 
-    public func releaseUserObservation(file: String) {
-        lock.lock(); suppressedUserFiles.remove(file); lock.unlock()
+    public func clearObserverSuppression(operationID: String) {
+        lock.lock()
+        observerSuppressions = observerSuppressions.compactMapValues { entries in
+            let kept = entries.filter { $0.operationID != operationID }
+            return kept.isEmpty ? nil : kept
+        }
+        lock.unlock()
     }
 
-    public func userWriteObserved(_ name: String) async {
-        lock.lock(); let suppressed = suppressedUserFiles.contains(name); lock.unlock()
-        guard !suppressed else { return }
+    private func consumeObserverSuppression(fileName: String, action: String) -> Bool {
+        let key = "\(action):\(fileName)"
+        let wall = Int64(Date().timeIntervalSince1970 * 1_000)
+        lock.lock()
+        var entries = observerSuppressions[key] ?? []
+        entries.removeAll { $0.expiresAtMS <= wall }
+        let consumed = !entries.isEmpty
+        if consumed { entries.removeFirst() }
+        observerSuppressions[key] = entries.isEmpty ? nil : entries
+        lock.unlock()
+        return consumed
+    }
+
+    public func observeUserWrite(_ name: String) async {
+        if consumeObserverSuppression(fileName: name, action: "write") {
+            record(action: "observer-write", key: name, outcome: .skipped,
+                   detail: "suppressed feature-admin operation")
+            return
+        }
         await userWrite(name)
     }
 
-    public func userDeleteObserved(_ name: String) async {
-        lock.lock(); let suppressed = suppressedUserFiles.contains(name); lock.unlock()
-        guard !suppressed else { return }
+    public func observeUserDelete(_ name: String) async {
+        if consumeObserverSuppression(fileName: name, action: "delete") {
+            record(action: "observer-delete", key: name, outcome: .skipped,
+                   detail: "suppressed feature-admin operation")
+            return
+        }
         await userDelete(name)
     }
 
-    public func userWrite(_ name: String) async {
+    public func userWrite(_ name: String,
+                          sources: [BotDerivationSource] = []) async {
         do {
             _ = try await producer.recordUserDshWrite(fileName: name)
             record(action: "user-write", key: name, outcome: .recorded, detail: nil)

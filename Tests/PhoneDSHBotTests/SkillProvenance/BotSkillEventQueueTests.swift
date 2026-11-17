@@ -195,4 +195,25 @@ final class BotSkillEventQueueTests: XCTestCase {
         XCTAssertEqual(captured.get()?.sources.first?.role, .evidence)
     }
 
+
+    func testFeatureAdminSuppressionSkipsOnlyThatObserverMutation() async throws {
+        let queue = BotSkillEventQueue(producer: producer(), now: { 1 })
+        try Data("weekly".utf8).write(to: project.appendingPathComponent("suppressed.md"))
+        queue.suppressObserverMutation(
+            fileName: "suppressed.md", action: "write", operationID: "op-write")
+        await queue.observeUserWrite("suppressed.md")
+        let suppressed = queue.diagnosticsSnapshot()
+        XCTAssertTrue(suppressed.contains {
+            $0.action == "observer-write" && $0.outcome == .skipped
+        })
+        XCTAssertFalse(suppressed.contains { $0.action == "user-write" })
+
+        await queue.userWrite(
+            "suppressed.md",
+            sources: [BotDerivationSource(record: "record://event/9", role: .basis)])
+        XCTAssertTrue(queue.diagnosticsSnapshot().contains {
+            $0.action == "user-write" && $0.outcome == .recorded
+        })
+    }
+
 }
