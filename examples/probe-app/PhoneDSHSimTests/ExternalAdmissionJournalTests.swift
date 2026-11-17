@@ -18,7 +18,7 @@ final class ExternalAdmissionJournalTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let data = try Data(contentsOf: contractURL("fixtures/external-admission-v1.json"))
         fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        XCTAssertEqual(fixture["revision"] as? String, "external-admission-v1")
+        XCTAssertEqual(fixture["revision"] as? String, "external-admission-v1.1")
     }
 
     override func tearDownWithError() throws {
@@ -164,9 +164,24 @@ final class ExternalAdmissionJournalTests: XCTestCase {
                 before[name] = try seed(record, in: directory)
                 if ["admitted", "dispatching"].contains(try string(record["stage"])) { pending += 1 }
             }
+            let rawRequest = try XCTUnwrap(item["request"] as? [String: Any])
+            let request = try typedRequest(rawRequest)
             // `pendingCount` / `directoryEntries` are made true with real files: real
             // pending records, then entries this version does not interpret.
             var entries = existing.count
+            // v1.1: a real file under the request's own id that is not a v1 record.
+            var ownUndecodable: (url: URL, data: Data)?
+            if item["undecodableOwnFile"] as? Bool == true {
+                let request = try XCTUnwrap(request, id)
+                let ownId = ExternalAdmissionPolicy.admissionId(
+                    principal: request.principal, source: request.source,
+                    sourceRequestId: request.sourceRequestId)
+                let url = directory.appendingPathComponent("\(ownId).json")
+                let data = Data("{\"v\":2,\"admissionId\":\"\(ownId)\",\"shape\":\"newer\"}".utf8)
+                try data.write(to: url)
+                ownUndecodable = (url, data)
+                entries += 1
+            }
             if let wanted = int(item["pendingCount"]) {
                 var filler = 0
                 while pending < Int(wanted) {
@@ -182,8 +197,7 @@ final class ExternalAdmissionJournalTests: XCTestCase {
                 }
             }
             let journal = ExternalAdmissionJournal(directory: directory)
-            let rawRequest = try XCTUnwrap(item["request"] as? [String: Any])
-            guard let request = try typedRequest(rawRequest) else {
+            guard let request else {
                 // The production decoder refused the request's source or target.
                 XCTAssertEqual(expected, "invalid", id)
                 continue
@@ -221,10 +235,16 @@ final class ExternalAdmissionJournalTests: XCTestCase {
                                "\(id): the existing record is never overwritten")
             case .capacity, .invalid, .storage:
                 XCTAssertNil(outcome.receipt, id)
-                XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), id)
+                if let ownUndecodable {
+                    XCTAssertEqual(url, ownUndecodable.url, id)
+                    XCTAssertEqual(try Data(contentsOf: url), ownUndecodable.data,
+                                   "\(id): the undecodable file is never overwritten")
+                } else {
+                    XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), id)
+                }
             }
         }
-        XCTAssertEqual(seen, ["admitted", "duplicate", "conflict", "capacity", "invalid"])
+        XCTAssertEqual(seen, ["admitted", "duplicate", "conflict", "capacity", "invalid", "storage"])
     }
 
     func testAFailedWriteIsStorageAndLeavesNoReceipt() async throws {
@@ -378,7 +398,10 @@ final class ExternalAdmissionJournalTests: XCTestCase {
         XCTAssertFalse(cases.isEmpty)
         for item in cases {
             let now = try XCTUnwrap(int(item["now"]))
-            let candidates = try XCTUnwrap(item["records"] as? [[String: Any]]).map { raw in
+            let rawRecords = try XCTUnwrap(item["records"] as? [[String: Any]])
+            let waiting = Set(try rawRecords.filter { $0["waiting"] as? Bool == true }
+                .map { try string($0["admissionId"]) })
+            let candidates = try rawRecords.map { raw in
                 ExternalAdmissionDispatchCandidate(
                     admissionId: try string(raw["admissionId"]),
                     stage: try XCTUnwrap(ExternalAdmissionStage(rawValue: try string(raw["stage"]))),
@@ -388,9 +411,62 @@ final class ExternalAdmissionJournalTests: XCTestCase {
             }
             let caseID = try string(item["id"])
             XCTAssertEqual(
-                ExternalAdmissionPolicy.dispatchOrder(candidates, nowMs: now).map(\.admissionId),
+                ExternalAdmissionPolicy.dispatchOrder(candidates, nowMs: now) {
+                    waiting.contains($0.admissionId)
+                }.map(\.admissionId),
                 try XCTUnwrap(item["dispatch"] as? [String]), caseID)
         }
+    }
+
+    /// v1.1 §4 on a real journal: the `waiting-records-do-not-use-the-pass` vector as stored
+    /// records. The dispatcher precheck says "wait" for the vector's waiting records; they
+    /// are skipped without using the 16, and later ready records go out in the same pass.
+    func testWaitingRecordsDoNotUseThePass() async throws {
+        let vector = try XCTUnwrap(try section("order").first {
+            ($0["id"] as? String) == "waiting-records-do-not-use-the-pass"
+        })
+        let now = try XCTUnwrap(int(vector["now"]))
+        let rawRecords = try XCTUnwrap(vector["records"] as? [[String: Any]])
+        let directory = freshDirectory()
+        // Stored records need real identities, so each vector record keeps its stage and
+        // times and gets a derived id; the vector's id is mapped to it.
+        var storedId: [String: String] = [:]
+        var waiting = Set<String>()
+        for raw in rawRecords {
+            let vectorId = try string(raw["admissionId"])
+            var record = template(
+                stage: try XCTUnwrap(ExternalAdmissionStage(rawValue: try string(raw["stage"]))),
+                request: "waiting-\(vectorId.prefix(4))")
+            record.admittedAtMs = try XCTUnwrap(int(raw["admittedAtMs"]))
+            record.expiresAtMs = try XCTUnwrap(int(raw["expiresAtMs"]))
+            record.nextAttemptAtMs = int(raw["nextAttemptAtMs"])
+            try seed(record, in: directory)
+            storedId[vectorId] = record.admissionId
+            if raw["waiting"] as? Bool == true { waiting.insert(record.admissionId) }
+        }
+        XCTAssertGreaterThan(waiting.count, ExternalAdmissionLimits.passLimit,
+                             "the vector must have more waiting records than one pass holds")
+        let expected = try XCTUnwrap(vector["dispatch"] as? [String]).map { try XCTUnwrap(storedId[$0]) }
+        let journal = ExternalAdmissionJournal(directory: directory)
+        let frozenWaiting = waiting
+        let pass = await journal.beginPass(nowMs: now) { frozenWaiting.contains($0.admissionId) }
+        XCTAssertEqual(pass.map(\.admissionId), expected)
+        XCTAssertEqual(pass.count, ExternalAdmissionLimits.passLimit)
+        // The host's own selection path (records from the journal, the same policy function).
+        let pending = await journal.sweptPendingRecords(nowMs: now)
+        XCTAssertEqual(
+            ExternalAdmissionPolicy.dispatchOrder(pending, nowMs: now) {
+                frozenWaiting.contains($0.admissionId)
+            }.map(\.admissionId), expected)
+        // Waiting changed nothing in the waiting records.
+        for id in waiting {
+            let record = await journal.record(admissionId: id, nowMs: now)
+            XCTAssertEqual(record?.stage, .admitted)
+            XCTAssertEqual(record?.attempts, 0)
+        }
+        // Without the precheck the same waiting records would have filled the pass.
+        let starved = await journal.beginPass(nowMs: now)
+        XCTAssertTrue(Set(starved.map(\.admissionId)).isSubset(of: waiting))
     }
 
     /// The journal's own pass uses that order on stored records: FIFO by admission time

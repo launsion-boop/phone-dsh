@@ -3889,11 +3889,21 @@ final class ChatModel {
     /// order. Waiting for an engine, a Bot unit or the unlock changes nothing in a record.
     private func runExternalAdmissionPass() async {
         guard pcRuntime == nil else { return }
-        let batch = await externalAdmissions.beginPass()
-        for record in batch {
+        let nowMs = ExternalAdmissionJournal.nowMs()
+        let pending = await externalAdmissions.sweptPendingRecords(nowMs: nowMs)
+        // v1.1 §4: a record that is only waiting for execution conditions is skipped and
+        // does not use one of the pass's 16 places.
+        let batch = ExternalAdmissionPolicy.dispatchOrder(pending, nowMs: nowMs) { record in
             // No source on this host admits an `account:` principal yet, and there is no
-            // signed-in account id to compare with: such a record is held, never dispatched.
-            guard record.principal == "local" else { continue }
+            // signed-in account id to compare with: such a record waits, never dispatched.
+            guard record.principal == "local" else { return true }
+            if case .bot(let botID) = record.target,
+               case .waiting = BotProductionHub.shared.admissionTarget(for: botID) {
+                return true
+            }
+            return false
+        }
+        for record in batch {
             switch record.target {
             case .dshSession(let sessionID):
                 await dispatchAdmission(record, toSession: sessionID)

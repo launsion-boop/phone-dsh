@@ -67,8 +67,9 @@ public actor ExternalAdmissionJournal {
                 ? ExternalAdmissionOutcome(result: .duplicate, receipt: Self.receipt(existing))
                 : ExternalAdmissionOutcome(result: .conflict)
         }
-        // A file with this name that this version cannot decode is never
-        // overwritten; the write cannot be made.
+        // v1.1 §2: a file with this name that this version cannot decode is
+        // never overwritten. It is decided here, where `duplicate` would be:
+        // after `invalid` and before `capacity`.
         guard !opaqueNames.contains(Self.fileName(candidate.admissionId)) else {
             return ExternalAdmissionOutcome(result: .storage)
         }
@@ -122,10 +123,24 @@ public actor ExternalAdmissionJournal {
     /// Sweeps, then returns the records of this pass in dispatch order
     /// (external-admission.md §4). Recovered `dispatching` records are included:
     /// the caller repeats the downstream write with the same `downstreamId`.
-    public func beginPass(nowMs: Int64 = ExternalAdmissionJournal.nowMs()) -> [ExternalAdmissionRecord] {
+    /// `isWaiting` is the dispatcher's precheck: a record it names is only
+    /// waiting for execution conditions, is skipped and does not use one of the 16.
+    public func beginPass(
+        nowMs: Int64 = ExternalAdmissionJournal.nowMs(),
+        isWaiting: @Sendable (ExternalAdmissionRecord) -> Bool = { _ in false }
+    ) -> [ExternalAdmissionRecord] {
+        ExternalAdmissionPolicy.dispatchOrder(sweptPendingRecords(nowMs: nowMs), nowMs: nowMs,
+                                              isWaiting: isWaiting)
+    }
+
+    /// Sweeps, then returns every pending record. A dispatcher whose precheck
+    /// cannot cross into this actor selects its pass from these with
+    /// ``ExternalAdmissionPolicy/dispatchOrder(_:nowMs:isWaiting:)``, the same
+    /// function ``beginPass(nowMs:isWaiting:)`` uses.
+    public func sweptPendingRecords(nowMs: Int64 = ExternalAdmissionJournal.nowMs()) -> [ExternalAdmissionRecord] {
         guard open(nowMs: nowMs) else { return [] }
         sweep(nowMs: nowMs)
-        return ExternalAdmissionPolicy.dispatchOrder(Array(records.values), nowMs: nowMs)
+        return records.values.filter { $0.stage.isPending }
     }
 
     /// Immediately before the downstream write: re-checks expiry and makes

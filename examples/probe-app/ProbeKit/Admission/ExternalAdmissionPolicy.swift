@@ -143,13 +143,18 @@ public enum ExternalAdmissionPolicy {
     }
 
     /// Sequential FIFO by (`admittedAtMs`, `admissionId`), at most 16 per pass,
-    /// skipping expired `admitted` records and records still backing off.
+    /// skipping expired `admitted` records and records still backing off. A record
+    /// that is only waiting for execution conditions (`isWaiting`: Bot unit not
+    /// started, account not signed in, phone locked) is skipped and does not count
+    /// toward the 16, so waiting records never starve later ones (v1.1 §4).
     public static func dispatchOrder<Item: ExternalAdmissionSchedulable>(
-        _ items: [Item], nowMs: Int64) -> [Item] {
+        _ items: [Item], nowMs: Int64,
+        isWaiting: (Item) -> Bool = { _ in false }) -> [Item] {
         let ready = items.filter { item in
             guard item.stage.isPending else { return false }
             if item.stage == .admitted, nowMs >= item.expiresAtMs { return false }
-            return (item.nextAttemptAtMs ?? 0) <= nowMs
+            guard (item.nextAttemptAtMs ?? 0) <= nowMs else { return false }
+            return !isWaiting(item)
         }
         let ordered = ready.sorted {
             if $0.admittedAtMs != $1.admittedAtMs { return $0.admittedAtMs < $1.admittedAtMs }
