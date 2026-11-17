@@ -2,7 +2,7 @@
 # 外部请求准入记录与云端任务队列：实现记录
 
 架构来源：[PR #180](https://github.com/launsion-boop/phone-dsh/pull/180) 的 R1 与 R4，加 Android 对齐。
-基线：[PR #186](https://github.com/launsion-boop/phone-dsh/pull/186) 的分支头 `d8151ad5`。
+基线：[PR #186](https://github.com/launsion-boop/phone-dsh/pull/186) 合入后的 main `22cab7b1`。
 契约：[外部请求准入记录](../protocol-changes/PC-20261116-external-admission.md)
 （`external-admission-v1.1`）、[云端任务队列](../protocol-changes/PC-20261116-cloud-task-queue.md)
 （`cloud-tasks-v1.5`）。
@@ -26,33 +26,35 @@
 用户决定（2026-11-16）：任务正文端到端加密，云端只存密文；只接受同账号用户令牌提交；APNs
 密钥暂不配置（后台现有两把密钥找不到对应的 `.p8`，团队密钥数已满）。
 
-## 验证（head `adf758e1`，2026-11-16，macOS）
+## 基线说明
+
+本工作最初叠在 #186 合并前的分支头 `d8151ad5` 上。#186 随后以精简形式合入 main（`22cab7b1`），
+旧分支头上另有 32 个提交没有进 main。本分支因此变基到 `22cab7b1`，只保留自己的 23 个提交；
+变基解决了三处冲突（host README 章节号改为 §11；Android `ProbeEngineViewModel.kt` 与
+`HostShell.kt` 中只存在于旧版 #186 的本地授权代码被去掉）。下表是**变基后**重新执行的结果；
+变基前在旧基线上的结果不再引用。
+
+## 验证（变基后，2026-11-16，macOS）
 
 | 检查 | 结果 |
 | --- | --- |
 | `python3 -B spec/host/v1/tools/test_external_admission.py`、`spec/v1/tools/test_cloud_tasks.py` | PASS |
-| 密封向量对拍：Python 参考实现生成，CryptoKit 打开 | PASS（3 个正例打开，8 个反例拒绝；v1 时执行） |
-| `check.sh --only phone-spec,phone-cross-tree,phone-no-dsh-patch,phone-license,phone-modules` | PASS（`phone-spec` 在 `dadde725` 上执行，其后只有 `android/**` 变化） |
-| `phone-github-oauth`、`phone-xcode-resolve` | PASS |
-| iOS 模拟器：7 个套件 | PASS，90 项 / 0 失败（接线 10、准入记录 23、SendOutbox 21、读回 6、语音 6、准备策略 17、输入恢复 7） |
+| 密封向量对拍：Python 参考实现生成，CryptoKit 打开 | PASS（3 个正例打开，8 个反例拒绝；契约 v1 时执行，向量此后未变） |
+| `host_check.py`、`registry_build.py --check`、`registry_check.py`、`cross_check.py`（8 项不变量）、`extract_ios_pages.py --check` | PASS |
+| iOS 模拟器：6 个套件 | PASS，69 项 / 0 失败（接线 10、准入记录 23、SendOutbox 17、语音 6、准备策略 6、输入恢复 7）。`SendOutboxReadBackTests` 不在 main 上，未运行 |
 | iOS App 模拟器构建 | PASS |
 | `swift test --filter 'CloudTask\|CloudVoice\|TonoAccount'` | PASS，73 项，1 项跳过（需显式开启的 Keychain 用例） |
-| Android `:app:testDebugUnitTest` | PASS，746 项 / 0 失败 / 7 跳过 |
-| Android `:lib:testDebugUnitTest` | PASS，1664 项 / 0 失败 |
-| Android `:net:test --tests '*CloudTask*'` | PASS，47 项 |
-| 云端 `./scripts/check.sh`（`0021a57`） | PASS，424 项，契约校验器 14 项无跳过 |
-| `phone-p0-conformance` | FAIL：页面对齐 2 处基线外差异（Android 缺固件构建页及其设置入口），main 上既有，#186 已记录。本次新增的账号页差异已由 Android 实现消除 |
-| `phone-hygiene` | FAIL：476 条，其中 29 条位于本次新增文件，均为契约冻结的云端域名与键名；未改白名单 |
-| `phone-gate-contracts` | FAIL：生产扫描自测依赖 hygiene 干净 |
-| `phone-android-structure` | FAIL：工具测试报本机 Android SDK 缺 `platform-35` 等包；`structure_check.py` 本身 PASS（14 项） |
-| `phone-sdk` | FAIL：`BLESecureCrossRuntimeTests` 缺 cJSON／mbedTLS（既有环境问题）；`WebEngineTests.testJITProbeStoresBaselineAndReportsRatio` 失败，已在基线 `d8151ad5` 的独立工作树上原样复现 |
+| Android `:app` / `:lib` / `:net` 单元测试 | PASS：637（7 跳过）/ 1636 / 401，0 失败 |
+| 云端 `./scripts/check.sh`（`0021a57`，不受变基影响） | PASS，424 项，契约校验器 14 项无跳过 |
+| `page_structure_check.py --baseline` | FAIL：聊天页契约行号锚点过期，在 main（`22cab7b1`）上原样复现，与本次无关 |
+| `check.sh` 各门禁（`phone-spec`、`phone-p0-conformance`、`phone-hygiene`、`phone-sdk` 等） | 变基后 NOT_RUN。变基前在旧基线上：`phone-spec`、`phone-cross-tree`、`phone-license`、`phone-no-dsh-patch`、`phone-modules`、`phone-github-oauth`、`phone-xcode-resolve` 通过；`phone-hygiene` 失败且其中 29 条发现位于本次新增文件（契约冻结的云端域名与键名，未改白名单）；`phone-sdk` 的两处失败均为既有问题（缺 cJSON／mbedTLS；JIT 探测用例在基线上原样复现） |
 | `phone-android-tests`（完整门禁）、`phone-plugins`、`phone-image`、`scripts/ci/smoke.sh` | NOT_RUN |
 
 ### 真机（2026-11-16，iPhone19,4，`com.tono.phonedsh.probe`，团队 `Q322S2LD93`）
 
 | 检查 | 结果 |
 | --- | --- |
-| 带签名的设备构建（Xcode 自动管理的团队描述文件；`project.yml` 的 Bundle ID 与团队只在本地临时替换，未提交） | PASS |
+| 带签名的设备构建（变基前的树；Xcode 自动管理的团队描述文件；`project.yml` 的 Bundle ID 与团队只在本地临时替换，未提交） | PASS |
 | 已签名产物的 entitlement 含 `aps-environment = development` | PASS（`codesign -d --entitlements`） |
 | 安装并启动；进程存活，启动报告与 `tonolink-voice.log` 有新写入 | PASS |
 | 板子语音经准入记录 | NOT_RUN：日志为 `board not found or not ready within 20.0 seconds`，板子不在场 |

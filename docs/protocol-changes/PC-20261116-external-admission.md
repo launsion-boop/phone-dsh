@@ -9,12 +9,12 @@ contracts: [P06, P07, P09, P27]
 status: implemented
 breaking: false
 version_decision: 新增文件与新目录；既有记录、schema、wire 均不变
-base: d8151ad58e4b352671a2ff332038c4a9a0a27222
+base: 22cab7b1  # main after #186; first frozen on the pre-merge #186 head d8151ad5, then rebased
 contract_revision: ac156bf7b  # external-admission-v1
 ```
 
 架构来源：[PR #180](https://github.com/launsion-boop/phone-dsh/pull/180) 的 R1。基线为
-[PR #186](https://github.com/launsion-boop/phone-dsh/pull/186) 的分支头。
+[PR #186](https://github.com/launsion-boop/phone-dsh/pull/186) 合入后的 main。
 
 Protocol impact: P06; P07; P09; P27; P12: none — 不改 SDK 模块、ABI 或 `Package.swift`; P16: none — Worker
 启动与 wire 不变; P25: none — Bot store 的表、迁移与事件不变; P26: none — 工具面、记忆与唤醒不变。
