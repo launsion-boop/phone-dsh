@@ -223,25 +223,42 @@ function replaceLoadedSkillResult(message: unknown, status: string): unknown {
   }
 }
 
+function replaceUnverifiedSkillResult(message: unknown): unknown {
+  if (!isRecord(message)) return message
+  return {
+    ...message,
+    isError: true,
+    content: [{
+      type: 'text',
+      text: `Error: [skill provenance] The skill has no verifiable content source (${SKILL_CONTENT_UNKNOWN}); its instructions were NOT loaded.`,
+    }],
+  }
+}
+
 
 /** Apply known-invalid statuses to catalog and loaded skill messages. */
 export function filterSkillProvenanceMessages(
   messages: readonly unknown[],
   statuses: ReadonlyMap<string, string | null | undefined>,
+  contentUnknown: ReadonlySet<string> = new Set(),
 ): readonly unknown[] {
   const invalid = new Set([...statuses]
     .filter(([, status]) => isKnownInvalid(status))
     .map(([name]) => name))
-  if (invalid.size === 0) return messages
+  const blocked = new Set([...invalid, ...contentUnknown])
+  if (blocked.size === 0) return messages
   const calls = loadedSkillCalls(messages)
   return messages.map(message => {
-    const catalog = filterCatalogMessage(message, invalid)
+    const catalog = filterCatalogMessage(message, blocked)
     if (catalog !== message) return catalog
     if (!isRecord(message) || message.role !== 'tool') return message
     if (!isRecord(message.source) || typeof message.source.callId !== 'string') return message
     const name = calls.get(message.source.callId)
-    if (name === undefined || !invalid.has(name)) return message
-    return replaceLoadedSkillResult(message, statuses.get(name) ?? 'unknown')
+    if (name === undefined || !blocked.has(name)) return message
+    if (invalid.has(name)) {
+      return replaceLoadedSkillResult(message, statuses.get(name) ?? 'unknown')
+    }
+    return replaceUnverifiedSkillResult(message)
   })
 }
 
@@ -276,15 +293,21 @@ export default function dshbotSkillUseGate(
     if (names.size === 0) return decision
 
     const statuses = new Map<string, string | null | undefined>()
+    const contentUnknown = new Set<string>()
     let callId = nextCallId
     for (const name of names) {
       callId += 1
       const lookup = await queryStatus(
         ctx, statusTool, name, payload.agent, payload.signal, callId)
-      statuses.set(name, 'status' in lookup ? lookup.status : undefined)
+      if ('status' in lookup) {
+        statuses.set(name, lookup.status)
+        if (lookup.contentBasis !== 'known') contentUnknown.add(name)
+      } else {
+        statuses.set(name, undefined)
+      }
     }
     nextCallId = callId
-    const filtered = filterSkillProvenanceMessages(messages, statuses)
+    const filtered = filterSkillProvenanceMessages(messages, statuses, contentUnknown)
     if (filtered === messages) return decision
     return { ...decision, messages: filtered }
   })

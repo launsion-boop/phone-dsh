@@ -136,3 +136,43 @@ test('content basis gate matrix matches G-SCB-1', () => {
   assert.deepEqual(skillStatusLookup(ok('unknown', 'known')),
     { status: 'unknown', contentBasis: 'known' })
 })
+
+test('catalog and loaded body drop content-unknown entries while known current stays', () => {
+  const catalog = {
+    role: 'user',
+    content: [{ type: 'text', text: [
+      '<available_skills>',
+      '- `target-only-skill`: CATALOG_TARGET_MARKER',
+      '- `body-skill`: CATALOG_KNOWN_MARKER',
+      '</available_skills>',
+    ].join('\n') }],
+    source: {
+      kind: 'skill-catalog', form: 'catalog',
+      entries: [
+        { name: 'target-only-skill', description: 'CATALOG_TARGET_MARKER' },
+        { name: 'body-skill', description: 'CATALOG_KNOWN_MARKER' },
+      ],
+    },
+  }
+  const call = {
+    role: 'assistant',
+    content: [{ type: 'tool-call', id: 'call-target', name: 'skill',
+      arguments: JSON.stringify({ name: 'target-only-skill' }) }],
+    source: { kind: 'model' },
+  }
+  const result = {
+    role: 'tool', content: [{ type: 'text', text: 'TARGET_BODY_MARKER' }],
+    source: { kind: 'tool', callId: 'call-target' }, toolCallId: 'call-target',
+  }
+  const filtered = filterSkillProvenanceMessages(
+    [catalog, call, result],
+    new Map([['target-only-skill', 'unknown'], ['body-skill', 'current']]),
+    new Set(['target-only-skill']))
+  const text = JSON.stringify(filtered)
+  assert.equal(text.includes('CATALOG_TARGET_MARKER'), false)
+  assert.equal(text.includes('TARGET_BODY_MARKER'), false)
+  assert.equal(text.includes('CATALOG_KNOWN_MARKER'), true)
+  assert.equal(text.includes('skill-provenance-content-unknown'), true)
+  const entries = (filtered[0] as { source: { entries: { name: string }[] } }).source.entries
+  assert.deepEqual(entries.map(entry => entry.name), ['body-skill'])
+})
