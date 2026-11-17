@@ -3690,9 +3690,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     data: resultData, principalKind: kind, time: eventTime, attemptId: attemptId)
                 if !failed, let writeVfsPath, let skillQueue {
                     // Persist the real action/result before deriving the skill.
-                    // A write call carries the exact content; an edit call only
-                    // carries a patch, so it remains trigger-only/unknown until
-                    // a reconstructable base version is recorded.
+                    // The write call is the author's creator action, not a
+                    // content basis: G-SCB-1 only evidence/basis count. An
+                    // edit carries just a patch, so it stays trigger-only and
+                    // content-unknown until a reconstructable version exists.
                     var sources = currentUserSourceRef.map {
                         [BotDerivationSource(record: $0, role: .trigger)]
                     } ?? []
@@ -3701,8 +3702,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                        let callRef = toolCallRecordRefs[callId],
                        resultCommitSeq > 0 {
                         sources.append(BotDerivationSource(record: callRef, role: .creator))
-                        sources.append(BotDerivationSource(
-                            record: "record://event/\(resultCommitSeq)", role: .evidence))
                     }
                     let botID = botId
                     let session = sessionId
