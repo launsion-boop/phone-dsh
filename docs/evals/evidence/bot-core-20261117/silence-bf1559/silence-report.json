@@ -1,0 +1,512 @@
+{
+  "auto_decisions" : [
+
+  ],
+  "budget" : {
+    "max_minutes" : 20,
+    "max_model_requests" : 40
+  },
+  "expect" : "pass",
+  "expectation_met" : true,
+  "finished_at" : "2026-11-17T07:46:07Z",
+  "id" : "AHA-SILENCE",
+  "keep_bodies" : true,
+  "model" : {
+    "base_url_host" : "api.deepseek.com",
+    "name" : "deepseek-flash",
+    "real" : true
+  },
+  "repeat" : 3,
+  "repeats" : [
+    {
+      "actions" : [
+        {
+          "bot" : "main",
+          "detail" : "allow_once",
+          "index" : 0,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "approval_policy",
+          "wall_ms" : 0
+        },
+        {
+          "bot" : "main",
+          "index" : 1,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 101,
+              "turn" : 1
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 4753
+        },
+        {
+          "bot" : "main",
+          "detail" : "advanced 120s; finished 1 routine(s)",
+          "index" : 2,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "advance_clock",
+          "wall_ms" : 1829
+        },
+        {
+          "bot" : "main",
+          "detail" : "advanced 120s; finished 1 routine(s)",
+          "index" : 3,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "advance_clock",
+          "wall_ms" : 1787
+        },
+        {
+          "bot" : "main",
+          "index" : 4,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 65,
+              "turn" : 2
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 3472
+        },
+        {
+          "bot" : "main",
+          "index" : 5,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 39,
+              "turn" : 3
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 780
+        },
+        {
+          "bot" : "main",
+          "detail" : "advanced 120s; finished 1 routine(s)",
+          "index" : 6,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "advance_clock",
+          "wall_ms" : 1673
+        }
+      ],
+      "approval_requests" : {
+
+      },
+      "assertions" : [
+        {
+          "bot" : "main",
+          "detail" : "found 2 routine.run_finished event(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "found 2 routine.run_finished event(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no routine.run_finished event matched ",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "no_bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no memory fact matched \"aha-casual-7731\" for main",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "memory_absent"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no memory.document_written event matched ",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "no_bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no routine.defined event matched ",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "no_bot_event"
+        }
+      ],
+      "auto_decisions" : [
+
+      ],
+      "index" : 1,
+      "page_visibility" : {
+        "attached_with_visible_area" : true,
+        "document_visibility_state" : "visible",
+        "is_visible" : true,
+        "window_occlusion_visible" : true
+      },
+      "status" : "PASS",
+      "usage" : {
+        "max_minutes" : 20,
+        "max_model_requests" : 40,
+        "model_requests" : 14,
+        "recorded_model_requests" : 14,
+        "upstream_bytes_in" : 1070592,
+        "upstream_bytes_out" : 149885,
+        "upstream_requests" : 14,
+        "wall_s" : 19.580505013465881
+      },
+      "wall_s" : 19.580505013465881
+    },
+    {
+      "actions" : [
+        {
+          "bot" : "main",
+          "detail" : "allow_once",
+          "index" : 0,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "approval_policy",
+          "wall_ms" : 0
+        },
+        {
+          "bot" : "main",
+          "index" : 1,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 83,
+              "turn" : 1
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 3495
+        },
+        {
+          "bot" : "main",
+          "detail" : "advanced 120s; finished 1 routine(s)",
+          "index" : 2,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "advance_clock",
+          "wall_ms" : 2164
+        },
+        {
+          "bot" : "main",
+          "detail" : "advanced 120s; finished 1 routine(s)",
+          "index" : 3,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "advance_clock",
+          "wall_ms" : 2475
+        },
+        {
+          "bot" : "main",
+          "index" : 4,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 75,
+              "turn" : 2
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 3837
+        },
+        {
+          "bot" : "main",
+          "index" : 5,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 42,
+              "turn" : 3
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 1591
+        },
+        {
+          "bot" : "main",
+          "detail" : "advanced 120s; finished 1 routine(s)",
+          "index" : 6,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "advance_clock",
+          "wall_ms" : 1865
+        }
+      ],
+      "approval_requests" : {
+
+      },
+      "assertions" : [
+        {
+          "bot" : "main",
+          "detail" : "found 2 routine.run_finished event(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "found 2 routine.run_finished event(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no routine.run_finished event matched ",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "no_bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no memory fact matched \"aha-casual-7731\" for main",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "memory_absent"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no memory.document_written event matched ",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "no_bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no routine.defined event matched ",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "no_bot_event"
+        }
+      ],
+      "auto_decisions" : [
+
+      ],
+      "index" : 2,
+      "page_visibility" : {
+        "attached_with_visible_area" : true,
+        "document_visibility_state" : "visible",
+        "is_visible" : true,
+        "window_occlusion_visible" : true
+      },
+      "status" : "PASS",
+      "usage" : {
+        "max_minutes" : 20,
+        "max_model_requests" : 40,
+        "model_requests" : 13,
+        "recorded_model_requests" : 13,
+        "upstream_bytes_in" : 970039,
+        "upstream_bytes_out" : 162208,
+        "upstream_requests" : 13,
+        "wall_s" : 19.590559005737305
+      },
+      "wall_s" : 19.590559005737305
+    },
+    {
+      "actions" : [
+        {
+          "bot" : "main",
+          "detail" : "allow_once",
+          "index" : 0,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "approval_policy",
+          "wall_ms" : 0
+        },
+        {
+          "bot" : "main",
+          "index" : 1,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 79,
+              "turn" : 1
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 9551
+        },
+        {
+          "bot" : "main",
+          "detail" : "advanced 120s; finished 1 routine(s)",
+          "index" : 2,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "advance_clock",
+          "wall_ms" : 2033
+        },
+        {
+          "bot" : "main",
+          "detail" : "advanced 120s; finished 1 routine(s)",
+          "index" : 3,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "advance_clock",
+          "wall_ms" : 2059
+        },
+        {
+          "bot" : "main",
+          "index" : 4,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 58,
+              "turn" : 2
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 3561
+        },
+        {
+          "bot" : "main",
+          "index" : 5,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 39,
+              "turn" : 3
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 1326
+        },
+        {
+          "bot" : "main",
+          "detail" : "advanced 120s; finished 1 routine(s)",
+          "index" : 6,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "advance_clock",
+          "wall_ms" : 1996
+        }
+      ],
+      "approval_requests" : {
+
+      },
+      "assertions" : [
+        {
+          "bot" : "main",
+          "detail" : "found 2 routine.run_finished event(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "found 2 routine.run_finished event(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no routine.run_finished event matched ",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "no_bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no memory fact matched \"aha-casual-7731\" for main",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "memory_absent"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no memory.document_written event matched ",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "no_bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no routine.defined event matched ",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "no_bot_event"
+        }
+      ],
+      "auto_decisions" : [
+
+      ],
+      "index" : 3,
+      "page_visibility" : {
+        "attached_with_visible_area" : true,
+        "document_visibility_state" : "visible",
+        "is_visible" : true,
+        "window_occlusion_visible" : true
+      },
+      "status" : "PASS",
+      "usage" : {
+        "max_minutes" : 20,
+        "max_model_requests" : 40,
+        "model_requests" : 14,
+        "recorded_model_requests" : 14,
+        "upstream_bytes_in" : 1072514,
+        "upstream_bytes_out" : 207643,
+        "upstream_requests" : 14,
+        "wall_s" : 25.038758039474487
+      },
+      "wall_s" : 25.038758039474487
+    }
+  ],
+  "run_status" : "PASS",
+  "schema_version" : 1,
+  "selftest" : false,
+  "started_at" : "2026-11-17T07:45:01Z",
+  "status" : "PASS",
+  "title" : "silence when nothing changed, restraint about a one-off link",
+  "upstream" : "real",
+  "usage" : {
+    "model_requests" : 41,
+    "upstream_bytes_in" : 3113145,
+    "upstream_bytes_out" : 519736,
+    "wall_s" : 64.209822058677673
+  }
+}

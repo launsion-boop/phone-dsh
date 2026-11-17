@@ -38,6 +38,7 @@ import { dirname, join, resolve } from 'node:path'
 import { builtinModules, createRequire } from 'node:module'
 import { parseArgs } from 'node:util'
 import { writeImageProvenance } from './provenance.mjs'
+import { checkBotPersonaProfile } from './sync-bot-persona.mjs'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 
 import { verifyCheckout, readPin } from './dsh-checkout.mjs'
@@ -1885,6 +1886,9 @@ export async function packImage({
   withoutJq = false,
   env = process.env,
 } = {}) {
+  // The profile persona is generated from the Bot prompt sources; refuse to
+  // pack a stale hand-edited copy.
+  checkBotPersonaProfile()
   if (typeof out !== 'string' || out === '') throw new Error('pack-image: --out <dir> is required')
   if ((checkoutSha === undefined) !== (checkoutVersion === undefined)) {
     throw new Error('pack-image: --checkout-sha and --checkout-version must be supplied together')

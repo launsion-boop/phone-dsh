@@ -1,0 +1,305 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotSourceStatus v1",
+  "description": "One host-derived current-state entry for a record:// source. Read-time only. `source_version` is the current record-derived version; `baseline` is the version captured when the artifact was written (optional; absent for legacy/no-baseline); `latest_ref` is the newest observation of the same source identity. `state`/`reasons` come from the single provenance resolver. `current` only means no known newer observation/revocation/erasure; it is not a verification. See spec/bot/v2/provenance.md §4.",
+  "type": "object",
+  "required": [
+    "ref",
+    "roles",
+    "resolved",
+    "erased",
+    "state",
+    "reasons",
+    "observed_at_ms",
+    "record_type",
+    "trust"
+  ],
+  "properties": {
+    "ref": {
+      "type": "string",
+      "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+      "maxLength": 128
+    },
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "evidence",
+          "review",
+          "trigger",
+          "creator",
+          "recipient",
+          "basis"
+        ]
+      }
+    },
+    "resolved": {
+      "type": "boolean"
+    },
+    "erased": {
+      "type": "boolean"
+    },
+    "state": {
+      "enum": [
+        "current",
+        "changed",
+        "unavailable",
+        "revoked",
+        "erased",
+        "unknown"
+      ]
+    },
+    "reasons": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "record-unresolved",
+          "record-erased",
+          "grant-revoked",
+          "source-changed",
+          "newer-observation-unversioned",
+          "revision-basis-mismatch",
+          "no-baseline",
+          "source-version-unknown",
+          "cycle-detected",
+          "scan-limit-exceeded",
+          "no-resource-identity",
+          "resource-scope-mismatch",
+          "refresh-not-performed",
+          "refresh-unavailable",
+          "refresh-denied",
+          "cross-bot-unresolved"
+        ]
+      }
+    },
+    "observed_at_ms": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "record_type": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "trust": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "user",
+        "observation",
+        "assistant",
+        null
+      ]
+    },
+    "source_version": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "basis",
+            "value"
+          ],
+          "properties": {
+            "basis": {
+              "enum": [
+                "content-sha256",
+                "etag",
+                "last-modified",
+                "provider-version"
+              ]
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "observed_at_ms": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "basis_ref": {
+              "type": "string",
+              "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+              "maxLength": 128
+            },
+            "subject": {
+              "enum": [
+                "file-bytes",
+                "record-text"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "reason"
+          ],
+          "properties": {
+            "reason": {
+              "enum": [
+                "record-unresolved",
+                "record-erased",
+                "record-without-content",
+                "source-unversioned",
+                "invalid-reference"
+              ]
+            },
+            "observed_at_ms": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "basis_ref": {
+              "type": "string",
+              "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+              "maxLength": 128
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "latest_ref": {
+      "type": "string",
+      "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+      "maxLength": 128
+    },
+    "baseline": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "basis",
+            "value"
+          ],
+          "properties": {
+            "basis": {
+              "enum": [
+                "content-sha256",
+                "etag",
+                "last-modified",
+                "provider-version"
+              ]
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "observed_at_ms": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "basis_ref": {
+              "type": "string",
+              "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+              "maxLength": 128
+            },
+            "subject": {
+              "enum": [
+                "file-bytes",
+                "record-text"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "reason"
+          ],
+          "properties": {
+            "reason": {
+              "enum": [
+                "record-unresolved",
+                "record-erased",
+                "record-without-content",
+                "source-unversioned",
+                "invalid-reference"
+              ]
+            },
+            "observed_at_ms": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "basis_ref": {
+              "type": "string",
+              "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+              "maxLength": 128
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "resource": {
+      "type": "object",
+      "required": [
+        "kind",
+        "key"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "web-url",
+            "connector-resource",
+            "file",
+            "context-source",
+            "provider"
+          ]
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "additionalProperties": false
+    },
+    "rechecked_at_ms": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

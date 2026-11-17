@@ -735,8 +735,8 @@ final class BotTeamToolsTests: XCTestCase {
         XCTAssertFalse(teammateSend.description.contains("Bee"))
         XCTAssertFalse(teammateSend.description.contains("Hidden"))
 
-        XCTAssertEqual(BotToolCatalog.allDefinitions.count, BotToolCatalog.p0Names.count + 5)
-        XCTAssertEqual(BotToolCatalog.allDefinitions(roster: roster, callerBotID: "bot-a").count, BotToolCatalog.p0Names.count + 5)
+        XCTAssertEqual(BotToolCatalog.allDefinitions.count, BotToolCatalog.p0Names.count + 6)
+        XCTAssertEqual(BotToolCatalog.allDefinitions(roster: roster, callerBotID: "bot-a").count, BotToolCatalog.p0Names.count + 6)
         XCTAssertTrue(BotToolCatalog.isTeamTool("SendToAgent"))
         XCTAssertFalse(BotToolCatalog.isRegistered("SendToAgent"))
     }

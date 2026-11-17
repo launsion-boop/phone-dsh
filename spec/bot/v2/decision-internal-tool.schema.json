@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotDecisionContextInternalTool v1",
+  "description": "Internal additive iOS-only tool surface for the pre-step provider. It is registered in BotToolCatalog.allDefinitions (so tools/list exposes it) but is NOT part of the frozen P26 model catalog/golden. The host validates the claimed principal/session and returns only the current session's bounded decision-material block; the call is read-only and grants nothing. See spec/bot/v2/decision-context.md §1.7.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["schema", "session_id", "turn_id", "step", "stage", "query", "scopes", "limits"],
+      "properties": {
+        "schema": {"const": "bot-decision-context-request/v1"},
+        "session_id": {"type": "string", "minLength": 1, "maxLength": 64},
+        "turn_id": {"type": "string", "minLength": 1, "maxLength": 200},
+        "step": {"type": "integer", "minimum": 1},
+        "stage": {"enum": ["pre_step", "pre_delivery"]},
+        "query": {"type": "string", "maxLength": 600},
+        "origin": {"enum": ["user", "bot", "routine", "task", "proactive"]},
+        "scopes": {"type": "array", "minItems": 1, "maxItems": 2, "uniqueItems": true, "items": {"enum": ["user", "agent"]}},
+        "limits": {
+          "type": "object",
+          "required": ["max_materials", "max_characters", "max_snippet_characters", "deadline_ms"],
+          "properties": {
+            "max_materials": {"type": "integer", "minimum": 1, "maximum": 6},
+            "max_characters": {"type": "integer", "minimum": 240, "maximum": 2400},
+            "max_snippet_characters": {"type": "integer", "minimum": 60, "maximum": 300},
+            "deadline_ms": {"type": "integer", "minimum": 100, "maximum": 3000}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["schema", "ok"],
+      "properties": {
+        "schema": {"const": "bot-decision-context-result/v1"},
+        "ok": {"const": true},
+        "block": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["schema", "ok", "code", "message"],
+      "properties": {
+        "schema": {"const": "bot-decision-context-result/v1"},
+        "ok": {"const": false},
+        "code": {"enum": ["permission-denied", "invalid-request", "material-unavailable"]},
+        "message": {"type": "string", "minLength": 1, "maxLength": 200}
+      },
+      "additionalProperties": false
+    }
+  ]
+}

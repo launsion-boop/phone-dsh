@@ -1,0 +1,123 @@
+{
+  "auto_decisions" : [
+
+  ],
+  "budget" : {
+    "max_minutes" : 20,
+    "max_model_requests" : 40
+  },
+  "expect" : "pass",
+  "expectation_met" : true,
+  "finished_at" : "2026-11-17T07:51:00Z",
+  "id" : "AHA-SILENCE-CHANGED",
+  "keep_bodies" : false,
+  "model" : {
+    "base_url_host" : "api.deepseek.com",
+    "name" : "deepseek-flash",
+    "real" : true
+  },
+  "repeat" : 1,
+  "repeats" : [
+    {
+      "actions" : [
+        {
+          "bot" : "main",
+          "detail" : "allow_once",
+          "index" : 0,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "approval_policy",
+          "wall_ms" : 0
+        },
+        {
+          "bot" : "main",
+          "index" : 1,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 65,
+              "turn" : 1
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 4678
+        },
+        {
+          "bot" : "main",
+          "detail" : "advanced 120s; finished 1 routine(s)",
+          "index" : 2,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "advance_clock",
+          "wall_ms" : 3042
+        }
+      ],
+      "approval_requests" : {
+
+      },
+      "assertions" : [
+        {
+          "bot" : "main",
+          "detail" : "found 2 routine.run_finished event(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "found 2 routine.run_finished event(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "bot_event"
+        },
+        {
+          "bot" : "main",
+          "detail" : "no routine.run_finished event matched ",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "no_bot_event"
+        }
+      ],
+      "auto_decisions" : [
+
+      ],
+      "index" : 1,
+      "page_visibility" : {
+        "attached_with_visible_area" : true,
+        "document_visibility_state" : "visible",
+        "is_visible" : true,
+        "window_occlusion_visible" : true
+      },
+      "status" : "PASS",
+      "usage" : {
+        "max_minutes" : 20,
+        "max_model_requests" : 40,
+        "model_requests" : 6,
+        "recorded_model_requests" : 6,
+        "upstream_bytes_in" : 326081,
+        "upstream_bytes_out" : 76643,
+        "upstream_requests" : 6,
+        "wall_s" : 12.766872048377991
+      },
+      "wall_s" : 12.766872048377991
+    }
+  ],
+  "run_status" : "PASS",
+  "schema_version" : 1,
+  "selftest" : false,
+  "started_at" : "2026-11-17T07:50:47Z",
+  "status" : "PASS",
+  "title" : "changed result should be delivered normally",
+  "upstream" : "real",
+  "usage" : {
+    "model_requests" : 6,
+    "upstream_bytes_in" : 326081,
+    "upstream_bytes_out" : 76643,
+    "wall_s" : 12.766872048377991
+  }
+}

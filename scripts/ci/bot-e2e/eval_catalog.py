@@ -37,7 +37,8 @@ DEFAULT_BUDGET = {"max_minutes": 10, "max_model_requests": 40}
 DEFAULT_ACTION_TIMEOUT = 180.0
 EVIDENCE_FILES = ("report.json", "transcript.jsonl", "bot-events.jsonl", "workspace.tar")
 SUPPORTED_ACTIONS = {
-    "create_bot", "user_message", "agent_message", "ui_action", "approval_policy",
+    "create_bot", "user_message", "concurrent_user_message", "agent_message",
+    "ui_action", "approval_policy",
     "advance_clock", "seed_held_item", "restart_worker", "run_maintenance",
 }
 SUPPORTED_ASSERTIONS = {
@@ -47,7 +48,8 @@ SUPPORTED_ASSERTIONS = {
     "bot_event", "no_bot_event", "tool_called", "no_tool_call",
     "memory_contains", "memory_absent", "approval_count", "echo_requests",
     "tool_surface", "session_log_absent", "session_event", "no_session_event",
-    "card_count", "card_placement", "card_file_exists",
+    "card_count", "card_placement", "card_file_exists", "event_count",
+    "model_request_count", "model_request_contains", "model_request_absent", "model_request_section_contains", "provenance",
 }
 CONTEXT_PROFILES_PATH = HERE / "context-profiles.json"
 UI_KINDS = {
@@ -246,9 +248,13 @@ def _check_action(errors, path, action, aliases):
                 _error(errors, path, f"duplicate create_bot alias {alias!r}")
             else:
                 aliases.add(alias)
-    elif kind == "user_message":
+    elif kind in ("user_message", "concurrent_user_message"):
         if not (action.get("text") or "").strip():
-            _error(errors, path, "user_message requires non-empty text")
+            _error(errors, path, f"{kind} requires non-empty text")
+        if kind == "concurrent_user_message":
+            delay = action.get("delay_ms")
+            if not isinstance(delay, int) or delay < 0:
+                _error(errors, path, "concurrent_user_message requires delay_ms >= 0")
     elif kind == "agent_message":
         if not (action.get("text") or "").strip():
             _error(errors, path, "agent_message requires non-empty text")
@@ -304,8 +310,10 @@ def _check_assertion(errors, path, assertion):
         _error(errors, path, f"{kind} requires a non-empty value")
     if kind in ("memory_contains", "memory_absent") and not isinstance(assertion.get("value"), str):
         _error(errors, path, f"{kind} requires a string value")
-    if kind in ("bot_event", "no_bot_event") and not assertion.get("event"):
+    if kind in ("bot_event", "no_bot_event", "event_count") and not assertion.get("event"):
         _error(errors, path, f"{kind} requires event")
+    if kind == "event_count" and not isinstance(assertion.get("equals"), int):
+        _error(errors, path, "event_count requires an integer equals")
     if kind in ("memory_contains", "memory_absent") and assertion.get("value") == "" \
             and not any(assertion.get(key) for key in ("scope", "tier", "source")):
         _error(errors, path, f"{kind} with an empty value needs scope, tier or source")
@@ -402,6 +410,31 @@ def _check_assertion(errors, path, assertion):
         surface_op = assertion.get("surface_op")
         if surface_op is not None and surface_op not in ("append", "replace"):
             _error(errors, path, f"{kind} surface_op must be append or replace")
+    if kind == "model_request_count":
+        has_equals = "equals" in assertion
+        has_min = "min" in assertion
+        if has_equals == has_min:
+            _error(errors, path, "model_request_count requires exactly one of equals or min")
+        for name in ("equals", "min"):
+            if name in assertion and (not isinstance(assertion[name], int)
+                                      or isinstance(assertion[name], bool)
+                                      or assertion[name] < 0):
+                _error(errors, path, f"model_request_count {name} must be a non-negative integer")
+    if kind in {"model_request_contains", "model_request_absent", "model_request_section_contains"}:
+        if not assertion.get("value"):
+            _error(errors, path, f"{kind} requires a non-empty value")
+        if "ignore_case" in assertion and not isinstance(assertion["ignore_case"], bool):
+            _error(errors, path, f"{kind} ignore_case must be a boolean")
+    if kind == "provenance":
+        if "min_items" in assertion and (not isinstance(assertion["min_items"], int)
+                                         or isinstance(assertion["min_items"], bool)
+                                         or assertion["min_items"] < 0):
+            _error(errors, path, "provenance min_items must be a non-negative integer")
+        kinds = assertion.get("kinds")
+        if kinds is not None:
+            if not isinstance(kinds, list) or not kinds \
+                    or not all(isinstance(kind, str) and kind for kind in kinds):
+                _error(errors, path, "provenance kinds must be a non-empty array of kind names")
 
 
 def _fixture_root(name, fixtures_root: Path) -> Path | None:
@@ -556,8 +589,10 @@ def _normalize_action(action, default_bot="main"):
         out.pop("bot", None)
     else:
         out.setdefault("bot", default_bot)
-    if out.get("type") == "user_message":
+    if out.get("type") in ("user_message", "concurrent_user_message"):
         out.setdefault("text", "")
+    if out.get("type") == "concurrent_user_message":
+        out.setdefault("delay_ms", 500)
     if out.get("type") == "agent_message":
         out.setdefault("from_bot", "main")
     if out.get("type") == "restart_worker":

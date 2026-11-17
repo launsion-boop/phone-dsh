@@ -37,6 +37,16 @@ final class BlobStoreTests: XCTestCase {
         XCTAssertEqual(try store(root).read(digest: digest, expectedLength: bytes.count), bytes)
     }
 
+    func testBlobStoreCarriesTheTwoMebibyteSkillBound() throws {
+        let root = LogTestSupport.root(for: self)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let bytes = Data(repeating: 0x61, count: 2 * 1024 * 1024)
+        let ref = try store(root).write(bytes)
+        XCTAssertEqual(ref.byteCount, bytes.count)
+        XCTAssertEqual(try store(root).read(digest: ref.sha256,
+                                            expectedLength: bytes.count), bytes)
+    }
+
     func testReadRejectsWrongLengthAndMissingBlob() throws {
         let root = LogTestSupport.root(for: self)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

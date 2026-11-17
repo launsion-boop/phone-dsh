@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "generated_by": "M maintainer quality gate (E5/A06); G-1 45ab603e3",
+  "description": "Two real-model maintainer samples per class. The eval assertions only prove the batch ran; the independent judge (judge.py) is the quality authority and reads durable events, not model self-report.",
+  "budget": {
+    "max_minutes": 60,
+    "max_model_requests": 160
+  },
+  "scenarios": [
+    {
+      "id": "M-E5-CONTRADICTION",
+      "title": "maintainer corrects a memory contradicted by a later user record",
+      "user_story": "The user records a wake time, then corrects it and explicitly leaves the correction to the background maintainer. The maintainer must re-read the records, correct the memory or mark it uncertain with both record references, and the host recheck must back the result.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 12,
+        "max_model_requests": 40
+      },
+      "network": "none",
+      "actions": [
+        {
+          "type": "approval_policy",
+          "default": "allow_once"
+        },
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "请记住一件小事，只用 UpdateMemory 写 agent/notes/wake.md：正文就写「用户每天早上七点起床。」这一句。不要改 INDEX，不要写别的路径。写成功后只回复：已记。"
+        },
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "更正：我刚才说错了，是每天早上八点起床。这次不要更新记忆，也不要改 agent/notes/wake.md；后台整理会统一处理。你只回复：收到。"
+        },
+        {
+          "type": "run_maintenance",
+          "bot": "main",
+          "enabled": true,
+          "force": true
+        }
+      ],
+      "assertions": [
+        {
+          "type": "bot_event",
+          "event": "memory.maintenance_started"
+        },
+        {
+          "type": "bot_event",
+          "event": "memory.maintenance_finished"
+        }
+      ]
+    },
+    {
+      "id": "M-E5-STALE-EXTERNAL",
+      "title": "maintainer updates a memory after the external file changed",
+      "user_story": "The Bot records a launch date from a workspace file; the file is then updated on the user's instruction but the memory is deliberately left alone. The maintainer must find the newer record, update the memory or mark it possibly stale with the newer reference.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 12,
+        "max_model_requests": 40
+      },
+      "network": "none",
+      "workspace": {
+        "bot": "main",
+        "files": {
+          "launch.md": "发布会：11 月 18 日，3 号厅。\n"
+        }
+      },
+      "actions": [
+        {
+          "type": "approval_policy",
+          "default": "allow_once"
+        },
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "先读工作区的 launch.md，然后把发布会日期和厅号用 UpdateMemory 写到 agent/notes/launch.md：正文写「发布会 11 月 18 日在 3 号厅」。不要改 INDEX。写完只回复：已记。"
+        },
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "launch.md 更新了：日期从 11 月 18 日改成 11 月 20 日，厅号不变。请用 bash 把工作区 launch.md 里的 18 改成 20，只改这一处。然后不要更新记忆，后台整理会处理。你只回复：收到。"
+        },
+        {
+          "type": "run_maintenance",
+          "bot": "main",
+          "enabled": true,
+          "force": true
+        }
+      ],
+      "assertions": [
+        {
+          "type": "bot_event",
+          "event": "memory.maintenance_started"
+        },
+        {
+          "type": "bot_event",
+          "event": "memory.maintenance_finished"
+        }
+      ]
+    }
+  ]
+}

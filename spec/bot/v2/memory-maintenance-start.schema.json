@@ -22,7 +22,12 @@
       "minLength": 1
     },
     "trigger": {
-      "enum": ["writes", "index", "contradiction", "manual"]
+      "enum": [
+        "writes",
+        "index",
+        "contradiction",
+        "manual"
+      ]
     },
     "started_at_ms": {
       "type": "integer",
@@ -38,7 +43,10 @@
       "maxItems": 12,
       "items": {
         "type": "object",
-        "required": ["path", "reasons"],
+        "required": [
+          "path",
+          "reasons"
+        ],
         "properties": {
           "path": {
             "type": "string",
@@ -50,7 +58,15 @@
             "minItems": 1,
             "maxItems": 4,
             "items": {
-              "enum": ["most-read", "most-changed", "least-verified", "overlong", "inbox", "contradiction", "index"]
+              "enum": [
+                "most-read",
+                "most-changed",
+                "least-verified",
+                "overlong",
+                "inbox",
+                "contradiction",
+                "index"
+              ]
             },
             "uniqueItems": true
           }
@@ -60,7 +76,10 @@
     },
     "budget": {
       "type": "object",
-      "required": ["run_tokens", "daily_tokens"],
+      "required": [
+        "run_tokens",
+        "daily_tokens"
+      ],
       "properties": {
         "run_tokens": {
           "type": "integer",
@@ -69,6 +88,26 @@
         "daily_tokens": {
           "type": "integer",
           "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "verification_policy": {
+      "type": "object",
+      "description": "Optional gate identity used to judge this batch. Absence does not imply PASS.",
+      "required": [
+        "gate_revision",
+        "gate_sha256"
+      ],
+      "properties": {
+        "gate_revision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "gate_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "additionalProperties": false

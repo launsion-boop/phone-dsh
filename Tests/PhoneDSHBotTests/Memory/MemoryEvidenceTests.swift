@@ -9,6 +9,7 @@ final class MemoryEvidenceTests: XCTestCase {
     private var gateway: BotGateway!
     private var service: BotRecordService!
     private var runtime: BotMCPRuntime!
+    private var observationRef = "record://session/gb-main#4"
 
     override func setUp() async throws {
         root = FileManager.default.temporaryDirectory
@@ -23,6 +24,33 @@ final class MemoryEvidenceTests: XCTestCase {
         service = BotRecordService(store: store, gateway: gateway, workspaceRoot: root)
         runtime = BotMCPRuntime(store: store, gateway: gateway,
                                 recordEvidence: service, now: { 1_000 })
+        await runtime.installProvenance(BotProvenanceService(eventLog: store))
+        try await runtime.grants.recover()
+        observationRef = try await appendWebObservation()
+    }
+
+    /// A real web observation carrier with a resource identity. Session
+    /// `tool/call` lines are calls, not observations, and have no resource.
+    private func appendWebObservation() async throws -> String {
+        let envelope = try XCTUnwrap(BotObservationEnvelope(
+            source: "web", origin: "https://example.com/weather",
+            at: "2026-11-16T08:00:00.000Z", owner: "bot-a",
+            reference: BotRecordReference.session(sessionID: "gb-main", seq: 4),
+            text: "网页说今天下雨"))
+        let sequence = try await store.append(BotEvent(
+            type: "conversation.tool_result", eventId: "evidence-web-observation:test",
+            time: 1_760_000_004_000, origin: .local(source: "runtime"),
+            traceId: "trace-evidence-web",
+            principal: BotPrincipal(botId: "bot-a", sessionId: "gb-main", kind: "chat"),
+            causationId: nil, correlationId: "gb-main",
+            data: .object(["message": .object([
+                "role": .string("tool"),
+                "content": .array([.object([
+                    "type": .string("text"),
+                    "text": .string(envelope.encoded()),
+                ])]),
+            ])])))
+        return "record://event/\(sequence)"
     }
 
     override func tearDown() async throws {
@@ -79,7 +107,7 @@ final class MemoryEvidenceTests: XCTestCase {
             "action": "write", "path": "user/preferences/drinks.md",
             "content": "# Drinks\n\n- OAT_LATTE_B",
             "expected_version": 0,
-            "evidence": ["current-user-turn", "record://session/gb-main#4"],
+            "evidence": ["current-user-turn", observationRef],
         ])
         XCTAssertEqual(written.structuredContent?["ok"], .bool(true))
         let memory = await runtime.memory(for: "bot-a")
@@ -87,7 +115,7 @@ final class MemoryEvidenceTests: XCTestCase {
             return XCTFail("expected document")
         }
         XCTAssertEqual(document.trust, "user")
-        XCTAssertEqual(document.evidence, ["record://session/gb-main#3", "record://session/gb-main#4"])
+        XCTAssertEqual(document.evidence, ["record://session/gb-main#3", observationRef])
     }
 
     /// The host observation is per turn: starting the next user turn clears
@@ -161,7 +189,7 @@ final class MemoryEvidenceTests: XCTestCase {
         let observed = try await call([
             "action": "write", "path": "user/log/2025-10.md",
             "content": "网页观察", "expected_version": 0,
-            "evidence": ["record://session/gb-main#4"],
+            "evidence": [observationRef],
         ])
         XCTAssertEqual(observed.structuredContent?["ok"], .bool(false))
         XCTAssertEqual(observed.structuredContent?["code"]?.stringValue,
@@ -176,7 +204,7 @@ final class MemoryEvidenceTests: XCTestCase {
         let written = try await call([
             "action": "write", "path": "agent/notes/weather.md",
             "content": "网页说今天下雨", "expected_version": 0,
-            "evidence": ["record://session/gb-main#4"],
+            "evidence": [observationRef],
         ])
         XCTAssertNotEqual(written.isError, true)
         let memory = await runtime.memory(for: "bot-a")
@@ -184,7 +212,7 @@ final class MemoryEvidenceTests: XCTestCase {
             return XCTFail("expected document")
         }
         XCTAssertEqual(document.trust, "observation")
-        XCTAssertEqual(document.evidence, ["record://session/gb-main#4"])
+        XCTAssertEqual(document.evidence, [observationRef])
     }
 
     func testInvalidOrForeignEvidenceFailsClosed() async throws {
@@ -311,8 +339,9 @@ final class MemoryEvidenceTests: XCTestCase {
         // snapshot. Production recovers at composition start; seed it here
         // before appending the integration's comm.inbound record.
         try await runtime.grants.recover()
+        let digest = "sha256:" + String(repeating: "a", count: 64)
         let commitSeq = try await store.append(BotEvent(
-            type: DeviceTaskResultOutbox.recordEventType,
+            type: "context.observed",
             eventId: "device-task-result:memory-evidence",
             time: 1_760_000_000_500,
             origin: .local(source: "comm-service"),
@@ -320,13 +349,28 @@ final class MemoryEvidenceTests: XCTestCase {
             principal: BotPrincipal(botId: "bot-a", sessionId: "gb-main", kind: "chat"),
             causationId: nil,
             correlationId: "device-task-1",
+            ignorable: true,
             data: .object([
-                "deviceTaskResult": .object([
-                    "deviceID": .string("device-1"),
-                    "taskID": .string("task-1"),
-                    "status": .string("completed"),
-                    "result": .string("页面已打开"),
+                "schema": .string("bot-context-observation/v1"),
+                "source": .string("device-task"),
+                "kind": .string("device-task-result"),
+                "observed_at_ms": .number(1_760_000_000_500),
+                "owner_bot_id": .string("bot-a"),
+                "source_version": .object([
+                    "basis": .string("content-sha256"),
+                    "value": .string(digest),
+                    "observed_at_ms": .number(1_760_000_000_500),
+                    "subject": .string("record-text"),
                 ]),
+                "resource": .object([
+                    "kind": .string("provider"),
+                    "key": .string("device-1"),
+                    "owner": .string("bot-a"),
+                ]),
+                "payload": .object(["result": .string("页面已打开")]),
+                "dedupe_key": .string("device-task-result:test"),
+                "delivery": .string("would"),
+                "wake_requested": .bool(false),
             ])))
         let ref = "record://event/\(commitSeq)"
         let written = try await call([

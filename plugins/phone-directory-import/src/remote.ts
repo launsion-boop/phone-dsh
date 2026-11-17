@@ -3,9 +3,11 @@
  * Host half: the `phone` Remote namespace that publishes a bounded directory
  * import into the *existing* session workspace.
  *
- * Every call is scoped to a live DSH session. The session header's `cwd` (or
- * the sandbox policy root when the header has none) is the only workspace this
- * plugin writes; no second workspace, session or filesystem authority exists.
+ * Every call is scoped to an existing DSH session. A live session uses its
+ * in-memory header; an idle/restarted durable session is read through the
+ * official passive `sessionQuery`, never created or re-keyed. The session
+ * header's `cwd` is the only workspace this plugin writes; no second workspace,
+ * session or filesystem authority exists.
  * Final verification goes through `ctx.fs.resolve` + `ctx.fs.stat`, so a
  * success is observed by the same filesystem the Files tree reads.
  *
@@ -13,6 +15,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { isAbsolute } from 'node:path'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-fs'
@@ -120,7 +123,7 @@ export class PhoneDirectoryImportRemote extends TypertRemoteService {
       throw new RemoteError('gateway/bad-request',
         `directory import is busy: ${this.routes.size} active imports`, {})
     }
-    const service = this.serviceFor(sessionId)
+    const service = await this.serviceFor(sessionId)
     try {
       const importId = await service.begin(request)
       // Concurrent begins can all pass the check above before their awaits
@@ -226,8 +229,8 @@ export class PhoneDirectoryImportRemote extends TypertRemoteService {
     }
   }
 
-  private serviceFor(sessionId: string): WorkspaceImportService {
-    const workspaceRoot = this.workspaceRoot(sessionId)
+  private async serviceFor(sessionId: string): Promise<WorkspaceImportService> {
+    const workspaceRoot = await this.workspaceRoot(sessionId)
     const existing = this.services.get(workspaceRoot)
     if (existing !== undefined) return existing
     const service = new WorkspaceImportService(workspaceRoot, {
@@ -243,14 +246,48 @@ export class PhoneDirectoryImportRemote extends TypertRemoteService {
     return service
   }
 
-  private workspaceRoot(sessionId: string): string {
-    const session = this.ctx.sessions.get(sessionId as SessionId)
-    if (session === undefined) {
-      throw new RemoteError('session/not-found', `session "${sessionId}" does not exist`, {
+  /**
+   * Resolve the workspace of an existing session. `ctx.sessions.get` is the
+   * live registry only; a finished chat remains durable but not live after an
+   * idle/restart. In that case read the same logical session through the
+   * official passive `sessionQuery` (live-preferred, persisted fallback) and
+   * reuse its header cwd. This never creates, restores or re-keys a session.
+   */
+  private async workspaceRoot(sessionId: string): Promise<string> {
+    const registry = this.ctx.get('workspaceRegistry') as
+      | { archivedSessionIds?: readonly string[] }
+      | undefined
+    if (registry?.archivedSessionIds?.includes(sessionId) === true) {
+      throw this.sessionNotFound(sessionId, 'archived')
+    }
+    const live = this.ctx.sessions.get(sessionId as SessionId)
+    if (live !== undefined) {
+      // Preserve the live behaviour (including the historical sandbox-root
+      // fallback); only the persisted path requires a real header cwd.
+      return live.header.cwd ?? this.ctx.sandboxPolicy.workspaceRoot
+    }
+    const query = this.ctx.get('sessionQuery') as
+      | { readSession(id: SessionId): Promise<{ session: { id: SessionId; cwd?: string } }> }
+      | undefined
+    if (query === undefined) throw this.sessionNotFound(sessionId, 'unavailable')
+    let snapshot: { session: { id: SessionId; cwd?: string } }
+    try {
+      snapshot = await query.readSession(sessionId as SessionId)
+    } catch {
+      throw this.sessionNotFound(sessionId, 'unreadable')
+    }
+    if (snapshot.session.id !== sessionId || typeof snapshot.session.cwd !== 'string'
+        || snapshot.session.cwd === '' || !isAbsolute(snapshot.session.cwd)) {
+      throw this.sessionNotFound(sessionId, 'cwd-mismatch')
+    }
+    return snapshot.session.cwd
+  }
+
+  private sessionNotFound(sessionId: string, detail: string): RemoteError {
+    return new RemoteError('session/not-found',
+      `session "${sessionId}" does not exist (${detail})`, {
         sessionId: sessionId as SessionId,
       })
-    }
-    return session.header.cwd ?? this.ctx.sandboxPolicy.workspaceRoot
   }
 
   private activeRoute(importId: string, sessionId: string): ActiveRoute {

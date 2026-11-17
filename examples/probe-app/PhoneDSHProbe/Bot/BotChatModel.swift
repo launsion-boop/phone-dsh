@@ -125,10 +125,6 @@ final class BotChatModel: ObservableObject {
     @Published private(set) var idleSleeping = false
     @Published private(set) var actionStates: [String: BotUIActionState] = [:]
     @Published private(set) var dismissedCardIDs: Set<String> = []
-    /// Approvals this local send declined automatically ("发消息时自动拒绝").
-    /// They still went through the existing approval `deny` action; the set
-    /// only changes the settled summary.
-    @Published private(set) var autoDeclinedApprovalIDs: Set<String> = []
     @Published private(set) var checklistProgress: [String: BotChecklistProgress] = [:]
     @Published private(set) var actionLog: [String] = []
     /// The option picked on a choice card, kept locally so an accepted answer
@@ -545,17 +541,7 @@ final class BotChatModel: ObservableObject {
         let action = card.body.string("action", "title", "text") ?? ask["action"]?.string ?? "操作"
         let command = card.body.string("command", "target") ?? ask["target"]?.string ?? ""
         let detail = command.isEmpty ? action : command
-        let autoDeclined = autoDeclinedApprovalIDs.contains(row.id)
-
-        if status == "pending" {
-            guard autoDeclined else { return nil }
-            return BotCardSettlement(glyph: "xmark.circle", title: "已略过，视为拒绝",
-                                     detail: detail, monospacedDetail: !command.isEmpty)
-        }
-        if autoDeclined {
-            return BotCardSettlement(glyph: "xmark.circle", title: "已略过，视为拒绝",
-                                     detail: detail, monospacedDetail: !command.isEmpty)
-        }
+        if status == "pending" { return nil }
         // The durable projection may carry `allowed-session` for a session
         // grant; the shared receipt mapping is the single source of truth for
         // matching the label to the button the user actually pressed (P26
@@ -646,16 +632,11 @@ final class BotChatModel: ObservableObject {
             rows.append(local)
         }
 
-        // A send is also the user's answer to every approval still awaiting a
-        // decision: mark them pending synchronously so the header and
-        // pendingApprovalCount leave「等你确认」at once, then deny them in order
-        // before the chat action below. No new protocol action is involved;
-        // this is the existing approval deny path.
-        let autoDeclines = approvalsAwaitingDecision.filter { row in
-            approvalAction(row: row, decision: .deny) != nil
-        }
-        for row in autoDeclines { actionStates["approval:\(row.id)"] = .pending }
-
+        // Sending text is never an answer to a pending approval. The card may
+        // only change through an explicit decision, an explicit stop, or its
+        // existing timeout/revocation path; implicitly denying every pending
+        // approval here would cancel tool work the user did not decide.
+        //
         // The line starts on the local echo and only spans a new turn; steering
         // into an already running turn keeps the existing line. A stopped or
         // finalized turn keeps its live text, so `live != nil` alone does not
@@ -665,9 +646,6 @@ final class BotChatModel: ObservableObject {
             beginTurn(turnID: "fixture-turn")
         }
         return Task {
-            // One Task on the MainActor awaits each deny to completion before
-            // the chat action starts, so the driver observes deny → chat.
-            for row in autoDeclines { await autoDeclineApproval(row) }
             await importAndSend(text: trimmed, files: files, messageID: messageID,
                                 nonce: nonce, localID: localID, checklist: checklist)
         }
@@ -830,19 +808,6 @@ final class BotChatModel: ObservableObject {
                                         approvalID: approvalID, decision: resolved, digest: digest)
     }
 
-    /// Runs the existing deny action for an approval the user implicitly
-    /// rejected by sending the next message. The caller marked it `.pending`
-    /// synchronously; the marker for the settled text is only recorded after
-    /// the driver accepted the action.
-    private func autoDeclineApproval(_ row: BotUIRow) async {
-        let key = "approval:\(row.id)"
-        guard actionStates[key] == .pending,
-              let action = approvalAction(row: row, decision: .deny) else { return }
-        await perform(action, key: key, localRowID: nil)
-        if actionStates[key] == .accepted {
-            autoDeclinedApprovalIDs.insert(row.id)
-        }
-    }
 
     func stop() {
         clearAwaitingTurn()

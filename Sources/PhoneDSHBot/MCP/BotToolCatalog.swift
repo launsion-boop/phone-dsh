@@ -82,19 +82,51 @@ public enum BotToolCatalog {
             ], required: ["url"]), minItems: 1, maxItems: 4),
             "final": contentCardFinal(),
         ], required: ["links"], additionalProperties: false)),
-        tool("UpdateMemory", "Write, locally modify, move, delete or restore one Markdown memory document. Memory has exactly two roots: user/ (about the user, shared and visible to every Bot) and agent/ (this Bot's own working knowledge, invisible to other Bots). You choose subdirectories and length; there is no tier. Every call must carry the expected_version you just read (0 means the document must not exist); a stale version is rejected. A write to user/ needs a real user turn and at least one evidence reference to a user message; pass the reserved entry \"current-user-turn\" to cite the user message that opened this turn (host-resolved; hidden, held, agent, routine, Task and maintainer turns cannot use it). Facts about the user belong in user/. Each root's INDEX.md is injected every turn and is capped at 1,500 characters; an over-limit write is rejected. Keep verified rules, decisions and commitments, preferences, strategies and reasons; do not copy what raw records already hold — leave a record:// reference when you need the exact source. When correcting a preference, rewrite the original document and remove the old value unless the user asked to keep history. Task and routine sessions may only write agent/inbox/<their own session>/. Set marked_contradiction=true when this write records one side of a contradiction that later background maintenance must resolve or mark uncertain.", schema([
+        tool("UpdateMemory", "Write, locally modify, move, delete or restore one Markdown memory document. Memory has exactly two roots: user/ (about the user, shared and visible to every Bot) and agent/ (this Bot's own working knowledge, invisible to other Bots). You choose subdirectories and length; there is no tier. Every call must carry the expected_version you just read (0 means the document must not exist); a stale version is rejected. A write to user/ needs a real user turn and at least one evidence reference to a user message; pass the reserved entry \"current-user-turn\" to cite the user message that opened this turn (host-resolved; hidden, held, agent, routine, Task and maintainer turns cannot use it). Facts about the user belong in user/. Each root's INDEX.md is injected every turn and is capped at 1,500 characters; an over-limit write is rejected. Keep verified rules, decisions and commitments, preferences, strategies and reasons; do not copy what raw records already hold — leave a record:// reference when you need the exact source. When correcting a preference, rewrite the original document and remove the old value unless the user asked to keep history. Task and routine sessions may only write agent/inbox/<their own session>/. Set marked_contradiction=true when this write records one side of a contradiction that later background maintenance must resolve or mark uncertain. 可选 `review` 记录这次写入核对到什么程度，它是你的核验断言、不是系统认证：`verified` 必须给 `basis`（不能是 `model-inference`）且 `refs` 至少一条可解析的真实记录；`disputed` 要在 `refs` 里至少给出冲突一方，能给双方时都给出；没有核对就用 `unverified` + `basis:\"model-inference\"`，不要自称 verified。`method`/`at_ms` 是可选的说明，宿主不会据此认证。 内容只要来自某条会话记录、工具结果或用户原话，就带至少一条 `evidence`（`record://` 或 `current-user-turn`）；只有自己的推断才可以不带引用，并在正文里写明是推断。", schema([
             "action": enumString(["write", "append", "replace", "move", "delete", "restore"]),
             "path": string(), "content": string(), "find": string(), "replace": string(), "to": string(),
             "expected_version": .object(["type": .string("integer"), "minimum": .number(0)]),
             "restore_version": .object(["type": .string("integer"), "minimum": .number(1)]),
             "evidence": array(string(), maxItems: 8),
             "marked_contradiction": .object(["type": .string("boolean")]),
+            "review": .object([
+                "type": .string("object"),
+                "required": .array([.string("state"), .string("basis")]),
+                "properties": .object([
+                    "state": enumString(["verified", "unverified", "disputed"]),
+                    "basis": enumString([
+                        "user-statement", "observation", "record-recheck", "model-inference",
+                    ]),
+                    "method": .object([
+                        "type": .string("string"), "minLength": .number(1),
+                        "maxLength": .number(200),
+                    ]),
+                    "at_ms": .object([
+                        "type": .string("integer"), "minimum": .number(0),
+                    ]),
+                    "refs": .object([
+                        "type": .string("array"),
+                        "maxItems": .number(8),
+                        "items": .object([
+                            "oneOf": .array([
+                                .object([
+                                    "type": .string("string"),
+                                    "pattern": .string("^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$"),
+                                    "maxLength": .number(128),
+                                ]),
+                                .object(["const": .string("current-user-turn")]),
+                            ]),
+                        ]),
+                    ]),
+                ]),
+                "additionalProperties": .bool(false),
+            ]),
         ], required: ["action", "path", "expected_version"], additionalProperties: false)),
-        tool("ReadMemory", "Read one memory document (optionally a historical version) or list a directory under user/ or agent/. Paths and versions come from the same durable authority as the injected INDEX.md.", schema([
+        tool("ReadMemory", "Read one memory document (optionally a historical version) or list a directory under user/ or agent/. Paths and versions come from the same durable authority as the injected INDEX.md. 返回的 `evidence_status` 与 `evidence` 同序，给出每条原始记录的 `observed_at_ms`；`null` 表示记录取不到或没有时间，`review` 缺省表示没有记录核对判断，`source_version` 本版一律 `null`，不要用文档版本冒充来源版本。", schema([
             "path": string(),
             "version": .object(["type": .string("integer"), "minimum": .number(1)]),
         ], required: ["path"], additionalProperties: false)),
-        tool("RecallMemory", "Search memory document bodies with BM25 and CJK tokenization. Returns the path, a snippet and the document's evidence references; agent hits are this Bot's only, user hits are shared.", schema([
+        tool("RecallMemory", "Search memory document bodies with BM25 and CJK tokenization. Returns the path, a snippet and the document's evidence references; agent hits are this Bot's only, user hits are shared. 返回的 `evidence_status` 与 `evidence` 同序，给出每条原始记录的 `observed_at_ms`；`null` 表示记录取不到或没有时间，`review` 缺省表示没有记录核对判断，`source_version` 本版一律 `null`，不要用文档版本冒充来源版本。", schema([
             "query": string(), "limit": .object(["type": .string("number"), "minimum": .number(1), "maximum": .number(50)]),
             "scope": enumString(["agent", "user", "all"]),
         ], additionalProperties: false)),
@@ -187,7 +219,8 @@ public enum BotToolCatalog {
     public static func allDefinitions(roster: BotRoster,
                                       callerBotID: String?) -> [BotMCPToolDefinition] {
         definitions + [fishActionDefinition, volatileContextDefinition,
-                       attachToModelDefinition]
+                       attachToModelDefinition,
+                       BotFeedbackTools.definition]
             + teamDefinitions(roster: roster, callerBotID: callerBotID)
     }
 
@@ -239,6 +272,67 @@ public enum BotToolCatalog {
             "additionalProperties": .bool(false),
         ]))
 
+    /// G-2 r3 internal additive tool: exposed through `tools/list` so the
+    /// Worker pre-step provider can call it, but deliberately absent from the
+    /// frozen P26 `definitions`/golden. It is read-only, host-validated and
+    /// returns only the current session's bounded block; it grants nothing.
+    public static let decisionContextName = BotDecisionTool.name
+
+    public static let decisionContextDefinition = BotMCPToolDefinition(
+        name: decisionContextName,
+        description: "Return this session's bounded decision materials for the current turn and step. The host validates the claimed session/turn/step and returns only this session's materials; the call is read-only and grants nothing.",
+        inputSchema: .object([
+            "type": .string("object"),
+            "required": .array([
+                .string("schema"), .string("session_id"), .string("turn_id"), .string("step"),
+                .string("stage"), .string("query"), .string("scopes"), .string("limits"),
+            ]),
+            "properties": .object([
+                "schema": .object(["const": .string("bot-decision-context-request/v1")]),
+                "session_id": .object([
+                    "type": .string("string"), "minLength": .number(1), "maxLength": .number(64),
+                ]),
+                "turn_id": .object([
+                    "type": .string("string"), "minLength": .number(1), "maxLength": .number(200),
+                ]),
+                "step": .object(["type": .string("integer"), "minimum": .number(1)]),
+                "stage": .object(["enum": .array([.string("pre_step"), .string("pre_delivery")])]),
+                "query": .object(["type": .string("string"), "maxLength": .number(600)]),
+                "origin": .object(["enum": .array([
+                    .string("user"), .string("bot"), .string("routine"),
+                    .string("task"), .string("proactive"),
+                ])]),
+                "scopes": .object([
+                    "type": .string("array"), "minItems": .number(1), "maxItems": .number(2),
+                    "uniqueItems": .bool(true),
+                    "items": .object(["enum": .array([.string("user"), .string("agent")])]),
+                ]),
+                "limits": .object([
+                    "type": .string("object"),
+                    "required": .array([
+                        .string("max_materials"), .string("max_characters"),
+                        .string("max_snippet_characters"), .string("deadline_ms"),
+                    ]),
+                    "properties": .object([
+                        "max_materials": .object([
+                            "type": .string("integer"), "minimum": .number(1), "maximum": .number(6),
+                        ]),
+                        "max_characters": .object([
+                            "type": .string("integer"), "minimum": .number(240), "maximum": .number(2400),
+                        ]),
+                        "max_snippet_characters": .object([
+                            "type": .string("integer"), "minimum": .number(60), "maximum": .number(300),
+                        ]),
+                        "deadline_ms": .object([
+                            "type": .string("integer"), "minimum": .number(100), "maximum": .number(3000),
+                        ]),
+                    ]),
+                    "additionalProperties": .bool(false),
+                ]),
+            ]),
+            "additionalProperties": .bool(false),
+        ]))
+
     public static let attachToModelDefinition = BotMCPToolDefinition(
         name: attachToModelName,
         description: "Attach one image from the Bot workspace or an Office artifact to the model's context so you can actually see it. Pass exactly one of path, fileId or photoId; for a PDF pass page (1-8, default 1) to pick the page image; purpose is shown to the user in the approval card. The user must approve sending the image to the model service. Use this after camera.capture or when a user attached an image and you need its pixels; do not guess from metadata alone.",
@@ -249,12 +343,28 @@ public enum BotToolCatalog {
         ], required: ["purpose"], additionalProperties: false))
 
     public static var allDefinitions: [BotMCPToolDefinition] {
-        definitions + [fishActionDefinition, volatileContextDefinition,
-                       attachToModelDefinition] + baseTeamDefinitions
+        definitions + baseTeamDefinitions
+            + [fishActionDefinition, volatileContextDefinition,
+               attachToModelDefinition, BotFeedbackTools.definition]
     }
 
     public static func isRegistered(_ name: String) -> Bool {
-        name == volatileContextName || name == attachToModelName || p0Names.contains(name)
+        name == volatileContextName || name == attachToModelName
+            || name == decisionContextName
+            || name == BotFeedbackTools.definition.name
+            || p0Names.contains(name)
+    }
+
+    /// Worker-only `tools/list` view: the frozen P26 model catalog stays
+    /// unchanged, while the Bot gate can discover its internal status tool.
+    public static var workerDefinitions: [BotMCPToolDefinition] {
+        allDefinitions + [decisionContextDefinition]
+    }
+
+    public static func workerDefinitions(roster: BotRoster,
+                                         callerBotID: String?) -> [BotMCPToolDefinition] {
+        allDefinitions(roster: roster, callerBotID: callerBotID)
+            + [decisionContextDefinition]
     }
 
     public static func isTeamTool(_ name: String) -> Bool {

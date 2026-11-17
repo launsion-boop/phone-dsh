@@ -90,7 +90,8 @@
         "watchdog.flagged",
         "verification.reported",
         "redaction.applied",
-        "erasure"
+        "erasure",
+        "feedback.recorded"
       ]
     },
     "eventId": {

@@ -155,6 +155,145 @@ final class MemoryMaintenanceTests: XCTestCase {
         XCTAssertEqual(BotMemoryMaintenanceText.readableText(raw: "not json"), "not json")
     }
 
+    /// Q-08: a persisted review that no longer decodes is corruption, not
+    /// "no judgement"; the whole batch must roll back. A missing key stays
+    /// legal.
+    func testMalformedPersistedReviewFailsTheMechanicalCheck() async throws {
+        let reader = FakeMaintenanceReader(
+            trust: .user, texts: [evidence: "用户：我每天早上八点起床。"])
+        let missing = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/missing.md",
+            expected: 0, version: 1, scope: "agent")
+        let malformed = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/malformed.md",
+            expected: 0, version: 1, scope: "agent",
+            extra: ["review": .object([
+                "state": .string("future-state"), "basis": .string("observation"),
+            ])])
+        let unknownBasis = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/unknown-basis.md",
+            expected: 0, version: 1, scope: "agent",
+            extra: ["review": .object([
+                "state": .string("unverified"), "basis": .string("vibes"),
+            ])])
+        let refsNotAnArray = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/refs-string.md",
+            expected: 0, version: 1, scope: "agent",
+            extra: ["review": .object([
+                "state": .string("unverified"), "basis": .string("model-inference"),
+                "refs": .string("not-an-array"),
+            ])])
+        let tooManyRefs = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/too-many-refs.md",
+            expected: 0, version: 1, scope: "agent",
+            extra: ["review": .object([
+                "state": .string("verified"), "basis": .string("record-recheck"),
+                "refs": .array(Array(repeating: .string(evidence), count: 9)),
+            ])])
+        let longMethod = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/long-method.md",
+            expected: 0, version: 1, scope: "agent",
+            extra: ["review": .object([
+                "state": .string("unverified"), "basis": .string("model-inference"),
+                "method": .string(String(repeating: "a", count: 201)),
+            ])])
+        let valid = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/valid.md",
+            expected: 0, version: 1, scope: "agent",
+            extra: [
+                "evidence": .array([.string(evidence)]),
+                "trust": .string("user"),
+                "review": .object([
+                    "state": .string("verified"), "basis": .string("record-recheck"),
+                    "refs": .array([.string(evidence)]),
+                ]),
+            ])
+
+        let missingOK = await BotMemoryMaintenanceController.referencesResolve(
+            [missing], botID: "main", sessionID: maintainerSession, reading: reader)
+        XCTAssertTrue(missingOK, "an absent review means no recorded judgment")
+
+        let malformedOK = await BotMemoryMaintenanceController.referencesResolve(
+            [malformed], botID: "main", sessionID: maintainerSession, reading: reader)
+        XCTAssertFalse(malformedOK, "a present but undecodable review must fail the batch")
+
+        let validOK = await BotMemoryMaintenanceController.referencesResolve(
+            [valid], botID: "main", sessionID: maintainerSession, reading: reader)
+        XCTAssertTrue(validOK)
+
+        for (name, event) in [("unknown state", malformed),
+                              ("unknown basis", unknownBasis),
+                              ("refs not an array", refsNotAnArray),
+                              ("refs > 8", tooManyRefs),
+                              ("method > 200", longMethod)] {
+            let ok = await BotMemoryMaintenanceController.referencesResolve(
+                [event], botID: "main", sessionID: maintainerSession, reading: reader)
+            XCTAssertFalse(ok, "a persisted review with \(name) must fail the batch")
+        }
+    }
+
+    /// Unknown extra members keep the long-standing Codable compatibility rule
+    /// (ignored), which is NOT a security boundary. Only known-shape/enum
+    /// failures roll the batch back.
+    func testPersistedReviewExtraMemberIsIgnored() async throws {
+        let reader = FakeMaintenanceReader(
+            trust: .user, texts: [evidence: "用户：我每天早上八点起床。"])
+        let extraMember = makeMemoryEvent(
+            type: "memory.document_written", path: "agent/notes/extra-member.md",
+            expected: 0, version: 1, scope: "agent",
+            extra: ["review": .object([
+                "state": .string("unverified"), "basis": .string("model-inference"),
+                "confidence": .number(0.9),
+            ])])
+        let ok = await BotMemoryMaintenanceController.referencesResolve(
+            [extraMember], botID: "main", sessionID: maintainerSession, reading: reader)
+        XCTAssertTrue(ok, "an unknown extra member decodes by old Codable compatibility")
+    }
+
+    /// Q-10 + PR #187 review item 8: `least-verified` keys off the persisted
+    /// review state for ordering, but a writer-recorded `verified` never
+    /// removes the document from the candidate pool — the model cannot opt out
+    /// of maintenance by asserting its own work.
+    func testLeastVerifiedCandidateUsesReviewState() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let (settings, suite) = makeSettings()
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let memory = await fixture.runtime.memory(for: "main")
+        try await seedDocument(
+            makeDocument("agent/notes/old.md", "old", version: 1, evidence: [evidence]),
+            store: fixture.store)
+        let context = BotMemoryWriteContext(
+            botID: "main", sessionID: "gb-main", authorKind: .chat,
+            source: BotMemorySource(kind: .userTurn, sessionID: "gb-main"),
+            trust: .user, isMainBot: true)
+        let verified = try await memory.write(
+            BotMemoryWriteRequest(
+                action: .write, path: "agent/notes/verified.md", content: "x",
+                expectedVersion: 0, evidence: [evidence],
+                review: BotMemoryReview(
+                    state: .verified, basis: .recordRecheck, refs: [evidence])),
+            context: context)
+        XCTAssertTrue(verified.ok, "\(String(describing: verified.code))")
+        let controller = makeController(
+            fixture: fixture, memory: memory,
+            runner: FakeMaintenanceRunner(sessionID: maintainerSession, memory: memory),
+            reader: FakeMaintenanceReader(trust: .user, texts: [evidence: "用户原话"]),
+            settings: settings)
+        let candidates = try await controller.candidates()
+        let old = candidates.first { $0.path == "agent/notes/old.md" }
+        XCTAssertTrue(old?.reasons.contains(.leastVerified) == true,
+                      "an evidence-bearing document without a review stays a candidate")
+        let verifiedCandidate = candidates.first { $0.path == "agent/notes/verified.md" }
+        XCTAssertTrue(verifiedCandidate?.reasons.contains(.leastVerified) == true,
+                      "a self-recorded verified review must stay reviewable")
+        let oldIndex = try XCTUnwrap(candidates.firstIndex { $0.path == "agent/notes/old.md" })
+        let verifiedIndex = try XCTUnwrap(
+            candidates.firstIndex { $0.path == "agent/notes/verified.md" })
+        XCTAssertLessThan(oldIndex, verifiedIndex,
+                          "unverified documents are still examined first")
+    }
+
     func testDisabledByDefaultAndCommittedBatchIsVisibleAndRollbackable() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
@@ -241,7 +380,8 @@ final class MemoryMaintenanceTests: XCTestCase {
         defer { fixture.cleanup() }
         let (settings, suite) = makeSettings()
         defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
-        await settings.save(BotMemoryMaintenanceSettings(enabled: true))
+        await settings.save(BotMemoryMaintenanceSettings(
+            enabled: true, runTokenBudget: 1_000, dailyTokenBudget: 1_000))
         let memory = await fixture.runtime.memory(for: "main")
         let path = "agent/notes/erased-before-rollback.md"
         try await seedDocument(
@@ -297,7 +437,8 @@ final class MemoryMaintenanceTests: XCTestCase {
         defer { fixture.cleanup() }
         let (settings, suite) = makeSettings()
         defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
-        await settings.save(BotMemoryMaintenanceSettings(enabled: true))
+        await settings.save(BotMemoryMaintenanceSettings(
+            enabled: true, runTokenBudget: 1_000, dailyTokenBudget: 1_000))
         let memory = await fixture.runtime.memory(for: "main")
         try await seedDocument(
             makeDocument("agent/notes/split.md", "拆分前的原文", version: 1),
@@ -346,7 +487,8 @@ final class MemoryMaintenanceTests: XCTestCase {
         defer { fixture.cleanup() }
         let (settings, suite) = makeSettings()
         defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
-        await settings.save(BotMemoryMaintenanceSettings(enabled: true))
+        await settings.save(BotMemoryMaintenanceSettings(
+            enabled: true, runTokenBudget: 1_000, dailyTokenBudget: 1_000))
         let memory = await fixture.runtime.memory(for: "main")
         try await seedDocument(
             makeDocument("agent/notes/state.md", "旧内容", version: 1),
@@ -391,7 +533,8 @@ final class MemoryMaintenanceTests: XCTestCase {
         defer { fixture.cleanup() }
         let (settings, suite) = makeSettings()
         defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
-        await settings.save(BotMemoryMaintenanceSettings(enabled: true))
+        await settings.save(BotMemoryMaintenanceSettings(
+            enabled: true, runTokenBudget: 1_000, dailyTokenBudget: 1_000))
         let memory = await fixture.runtime.memory(for: "main")
         let runner = FakeMaintenanceRunner(sessionID: maintainerSession, memory: memory)
         runner.writes = [.init(
@@ -435,6 +578,7 @@ final class MemoryMaintenanceTests: XCTestCase {
     func testMaintainerWriteRulesMatchTheMainChat() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
+        await installTestProvenance(fixture)
         _ = try await fixture.runtime.issueSession(
             botId: "main", sessionId: maintainerSession, kind: .maintainer)
         await fixture.runtime.beginMaintenanceTurn(
@@ -492,7 +636,8 @@ final class MemoryMaintenanceTests: XCTestCase {
         defer { fixture.cleanup() }
         let (settings, suite) = makeSettings()
         defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
-        await settings.save(BotMemoryMaintenanceSettings(enabled: true))
+        await settings.save(BotMemoryMaintenanceSettings(
+            enabled: true, runTokenBudget: 1_000, dailyTokenBudget: 1_000))
         let memory = await fixture.runtime.memory(for: "main")
         let runner = FakeMaintenanceRunner(sessionID: maintainerSession, memory: memory)
         runner.status = "cancelled"
@@ -516,6 +661,7 @@ final class MemoryMaintenanceTests: XCTestCase {
     func testMarkedContradictionLeavesAReviewRequest() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
+        await installTestProvenance(fixture)
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
         await fixture.runtime.beginTurn(
             sessionId: "gb-main", hidden: false,
@@ -537,7 +683,8 @@ final class MemoryMaintenanceTests: XCTestCase {
     }
 
     private func makeMemoryEvent(
-        type: String, path: String, expected: Int, version: Int, scope: String
+        type: String, path: String, expected: Int, version: Int, scope: String,
+        extra: [String: BotJSONValue] = [:]
     ) -> BotEvent {
         BotEvent(
             type: type, eventId: "\(type):\(path):\(version)",
@@ -550,7 +697,7 @@ final class MemoryMaintenanceTests: XCTestCase {
                 "expected_version": .number(Double(expected)),
                 "version": .number(Double(version)),
                 "content": .string("x"),
-            ]))
+            ].merging(extra) { _, new in new }))
     }
 
     private func databaseScalar(_ sql: String, file: URL) throws -> String? {

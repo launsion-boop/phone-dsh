@@ -59,6 +59,123 @@ public struct BotMemoryAuthor: Codable, Sendable, Equatable {
     }
 }
 
+/// Writer-recorded check state (spec/bot/v2 §1.5.1). It is a model assertion
+/// with a resolvable basis, not a host certification of the conclusion. Absent
+/// means no recorded judgment at all — never `verified`, and not a synonym for
+/// `unverified`.
+public enum BotMemoryReviewState: String, Codable, Sendable, CaseIterable {
+    case verified
+    case unverified
+    case disputed
+}
+
+public enum BotMemoryReviewBasis: String, Codable, Sendable, CaseIterable {
+    case userStatement = "user-statement"
+    case observation
+    case recordRecheck = "record-recheck"
+    case modelInference = "model-inference"
+}
+
+public struct BotMemoryReview: Sendable, Equatable {
+    public var state: BotMemoryReviewState
+    public var basis: BotMemoryReviewBasis
+    /// Free text, ≤200 scalars. The host stores it but does not authenticate it.
+    public var method: String?
+    /// Writer-claimed time. The host does not validate the clock.
+    public var atMS: Int64?
+    /// Resolvable references behind the claim. `verified`/`disputed` need ≥1.
+    public var refs: [String]
+
+    public init(state: BotMemoryReviewState,
+                basis: BotMemoryReviewBasis,
+                method: String? = nil,
+                atMS: Int64? = nil,
+                refs: [String] = []) {
+        self.state = state
+        self.basis = basis
+        self.method = method
+        self.atMS = atMS
+        self.refs = refs
+    }
+}
+
+extension BotMemoryReview: Codable {
+    enum CodingKeys: String, CodingKey {
+        case state
+        case basis
+        case method
+        case atMS = "at_ms"
+        case refs
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        state = try container.decode(BotMemoryReviewState.self, forKey: .state)
+        basis = try container.decode(BotMemoryReviewBasis.self, forKey: .basis)
+        method = try container.decodeIfPresent(String.self, forKey: .method)
+        atMS = try container.decodeIfPresent(Int64.self, forKey: .atMS)
+        refs = try container.decodeIfPresent([String].self, forKey: .refs) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(state, forKey: .state)
+        try container.encode(basis, forKey: .basis)
+        if let method { try container.encode(method, forKey: .method) }
+        if let atMS { try container.encode(atMS, forKey: .atMS) }
+        if !refs.isEmpty { try container.encode(refs, forKey: .refs) }
+    }
+}
+
+/// Host-derived per-evidence observation time (spec/bot/v2 §1.5.1). Never
+/// persisted: it is recomputed by one batched resolve per read/recall call.
+/// `observed_at_ms == nil` means the record does not resolve (or was erased) or
+/// carries no time; `source_version` is always null in this revision because
+/// neither session lines nor Bot events expose a source version.
+public struct BotMemoryEvidenceStatus: Sendable, Equatable {
+    public let ref: String
+    public let observedAtMS: Int64?
+    public let sourceVersion: Int?
+
+    public init(ref: String, observedAtMS: Int64?, sourceVersion: Int? = nil) {
+        self.ref = ref
+        self.observedAtMS = observedAtMS
+        self.sourceVersion = sourceVersion
+    }
+}
+
+extension BotMemoryEvidenceStatus: Codable {
+    enum CodingKeys: String, CodingKey {
+        case ref
+        case observedAtMS = "observed_at_ms"
+        case sourceVersion = "source_version"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ref = try container.decode(String.self, forKey: .ref)
+        observedAtMS = try container.decodeIfPresent(Int64.self, forKey: .observedAtMS)
+        sourceVersion = try container.decodeIfPresent(Int.self, forKey: .sourceVersion)
+    }
+
+    /// Both nullable members are required by the schema, so nulls are encoded
+    /// explicitly rather than omitted.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(ref, forKey: .ref)
+        if let observedAtMS {
+            try container.encode(observedAtMS, forKey: .observedAtMS)
+        } else {
+            try container.encodeNil(forKey: .observedAtMS)
+        }
+        if let sourceVersion {
+            try container.encode(sourceVersion, forKey: .sourceVersion)
+        } else {
+            try container.encodeNil(forKey: .sourceVersion)
+        }
+    }
+}
+
 extension BotSessionKind {
     /// `verifier` has no memory write surface: the preset allow-list and the
     /// Worker guard both deny `UpdateMemory`, and the MCP runtime rejects a
@@ -88,6 +205,7 @@ public struct BotMemoryDocument: Codable, Sendable, Equatable, Identifiable {
     public let evidence: [String]
     public let trust: String?
     public let source: BotMemorySource?
+    public let review: BotMemoryReview?
 
     public var id: String { path }
 
@@ -100,7 +218,8 @@ public struct BotMemoryDocument: Codable, Sendable, Equatable, Identifiable {
         author: BotMemoryAuthor,
         evidence: [String] = [],
         trust: String? = nil,
-        source: BotMemorySource? = nil
+        source: BotMemorySource? = nil,
+        review: BotMemoryReview? = nil
     ) {
         self.path = path
         self.scope = scope
@@ -111,6 +230,7 @@ public struct BotMemoryDocument: Codable, Sendable, Equatable, Identifiable {
         self.evidence = evidence
         self.trust = trust
         self.source = source
+        self.review = review
     }
 
     enum CodingKeys: String, CodingKey {
@@ -123,6 +243,7 @@ public struct BotMemoryDocument: Codable, Sendable, Equatable, Identifiable {
         case evidence
         case trust
         case source
+        case review
     }
 
     public init(from decoder: Decoder) throws {
@@ -136,6 +257,7 @@ public struct BotMemoryDocument: Codable, Sendable, Equatable, Identifiable {
         evidence = try container.decodeIfPresent([String].self, forKey: .evidence) ?? []
         trust = try container.decodeIfPresent(String.self, forKey: .trust)
         source = try container.decodeIfPresent(BotMemorySource.self, forKey: .source)
+        review = try container.decodeIfPresent(BotMemoryReview.self, forKey: .review)
     }
 }
 
@@ -150,6 +272,10 @@ public struct BotMemoryDocumentVersion: Codable, Sendable, Equatable, Identifiab
     public let author: BotMemoryAuthor
     public let evidence: [String]
     public let trust: String?
+    /// Restored by `restore`/rollback so the inherited metadata can be read
+    /// back version by version. Not part of the read schema.
+    public let source: BotMemorySource?
+    public let review: BotMemoryReview?
 
     public var id: String { "\(path)#\(version)" }
 
@@ -163,7 +289,9 @@ public struct BotMemoryDocumentVersion: Codable, Sendable, Equatable, Identifiab
         updatedAtMS: Int64,
         author: BotMemoryAuthor,
         evidence: [String] = [],
-        trust: String? = nil
+        trust: String? = nil,
+        source: BotMemorySource? = nil,
+        review: BotMemoryReview? = nil
     ) {
         self.path = path
         self.scope = scope
@@ -175,6 +303,8 @@ public struct BotMemoryDocumentVersion: Codable, Sendable, Equatable, Identifiab
         self.author = author
         self.evidence = evidence
         self.trust = trust
+        self.source = source
+        self.review = review
     }
 
     enum CodingKeys: String, CodingKey {
@@ -188,6 +318,24 @@ public struct BotMemoryDocumentVersion: Codable, Sendable, Equatable, Identifiab
         case author
         case evidence
         case trust
+        case source
+        case review
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        path = try container.decode(String.self, forKey: .path)
+        scope = try container.decode(BotMemoryScope.self, forKey: .scope)
+        version = try container.decode(Int.self, forKey: .version)
+        content = try container.decode(String.self, forKey: .content)
+        deleted = try container.decodeIfPresent(Bool.self, forKey: .deleted) ?? false
+        deletionReason = try container.decodeIfPresent(String.self, forKey: .deletionReason)
+        updatedAtMS = try container.decode(Int64.self, forKey: .updatedAtMS)
+        author = try container.decode(BotMemoryAuthor.self, forKey: .author)
+        evidence = try container.decodeIfPresent([String].self, forKey: .evidence) ?? []
+        trust = try container.decodeIfPresent(String.self, forKey: .trust)
+        source = try container.decodeIfPresent(BotMemorySource.self, forKey: .source)
+        review = try container.decodeIfPresent(BotMemoryReview.self, forKey: .review)
     }
 }
 
@@ -326,6 +474,41 @@ public enum BotMemoryAuthorizer {
             return nil
         }
         return "memory-scope-denied"
+    }
+
+    /// §1.5.1: the host checks that the state/basis combination is coherent and
+    /// that the refs are canonical parsed references. Reference existence,
+    /// ownership and erasure are resolved by the caller against the record
+    /// service (the model can never supply an already-canonical claim without
+    /// it being checked).
+    public static let maximumReviewMethodScalars = 200
+    public static let maximumReviewRefs = 8
+
+    public static func reviewError(_ review: BotMemoryReview) -> String? {
+        switch review.state {
+        case .verified:
+            guard review.basis != .modelInference else { return "memory-review-invalid" }
+            guard !review.refs.isEmpty else { return "memory-review-invalid" }
+        case .disputed:
+            guard !review.refs.isEmpty else { return "memory-review-invalid" }
+        case .unverified:
+            break
+        }
+        if let method = review.method {
+            guard !method.isEmpty,
+                  method.unicodeScalars.count <= maximumReviewMethodScalars else {
+                return "memory-review-invalid"
+            }
+        }
+        if let atMS = review.atMS, atMS < 0 { return "memory-review-invalid" }
+        guard review.refs.count <= maximumReviewRefs else { return "memory-review-invalid" }
+        for raw in review.refs {
+            guard let parsed = BotRecordReference.parse(raw),
+                  parsed.canonical == raw else {
+                return "memory-review-invalid"
+            }
+        }
+        return nil
     }
 
     public static func indexOverflow(path: String, content: String) -> Int? {

@@ -13,6 +13,9 @@ public struct BotMemoryRecallHit: Codable, Sendable, Equatable {
     public let updatedAtMS: Int64
     public let version: Int
     public let evidence: [String]
+    /// Persisted writer-recorded check state (spec/bot/v2 §1.5.1); absent means
+    /// no recorded judgment.
+    public let review: BotMemoryReview?
 
     public init(
         path: String,
@@ -24,7 +27,8 @@ public struct BotMemoryRecallHit: Codable, Sendable, Equatable {
         matched: Bool,
         updatedAtMS: Int64,
         version: Int,
-        evidence: [String]
+        evidence: [String],
+        review: BotMemoryReview? = nil
     ) {
         self.path = path
         self.scope = scope
@@ -36,6 +40,7 @@ public struct BotMemoryRecallHit: Codable, Sendable, Equatable {
         self.updatedAtMS = updatedAtMS
         self.version = version
         self.evidence = evidence
+        self.review = review
     }
 
     enum CodingKeys: String, CodingKey {
@@ -49,6 +54,22 @@ public struct BotMemoryRecallHit: Codable, Sendable, Equatable {
         case updatedAtMS = "updated_at_ms"
         case version
         case evidence
+        case review
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        path = try container.decode(String.self, forKey: .path)
+        scope = try container.decode(BotMemoryScope.self, forKey: .scope)
+        snippet = try container.decode(String.self, forKey: .snippet)
+        score = try container.decode(Double.self, forKey: .score)
+        relevance = try container.decode(Double.self, forKey: .relevance)
+        recency = try container.decode(Double.self, forKey: .recency)
+        matched = try container.decodeIfPresent(Bool.self, forKey: .matched) ?? false
+        updatedAtMS = try container.decode(Int64.self, forKey: .updatedAtMS)
+        version = try container.decode(Int.self, forKey: .version)
+        evidence = try container.decodeIfPresent([String].self, forKey: .evidence) ?? []
+        review = try container.decodeIfPresent(BotMemoryReview.self, forKey: .review)
     }
 }
 
@@ -76,6 +97,7 @@ public struct BotMemoryDocumentRecallIndex {
         var updatedAtMS: Int64
         var version: Int
         var evidence: [String]
+        var review: BotMemoryReview?
     }
 
     private struct QueryTerm {
@@ -113,6 +135,7 @@ public struct BotMemoryDocumentRecallIndex {
                existing.version == value.version,
                existing.updatedAtMS == value.updatedAtMS {
                 documents[value.path]?.evidence = value.evidence
+                documents[value.path]?.review = value.review
                 continue
             }
             add(value)
@@ -135,7 +158,8 @@ public struct BotMemoryDocumentRecallIndex {
             length: length,
             updatedAtMS: value.updatedAtMS,
             version: value.version,
-            evidence: value.evidence)
+            evidence: value.evidence,
+            review: value.review)
         documents[path] = document
         documentOrder.append(path)
         totalLength += length
@@ -271,7 +295,8 @@ public struct BotMemoryDocumentRecallIndex {
                 matched: blank ? false : (candidate.bm25 > 0 || exact),
                 updatedAtMS: document.updatedAtMS,
                 version: document.version,
-                evidence: document.evidence))
+                evidence: document.evidence,
+                review: document.review))
         }
 
         if blank {

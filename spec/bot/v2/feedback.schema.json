@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotFeedbackRecorded v1",
+  "description": "Durable data of the additive feedback.recorded event. It binds one host-verified feedback action to a concrete artifact version and a host-derived scope; it stores ids/versions/enums, never the user's words or memory content. See spec/bot/v2/decision-context.md §3.",
+  "type": "object",
+  "required": [
+    "schema",
+    "feedback_id",
+    "action",
+    "origin",
+    "target",
+    "scope",
+    "subjects",
+    "accepted"
+  ],
+  "properties": {
+    "schema": {
+      "const": "bot-feedback/v1"
+    },
+    "feedback_id": {
+      "type": "string",
+      "pattern": "^feedback:[A-Za-z0-9._:-]{1,128}$"
+    },
+    "action": {
+      "enum": [
+        "adopt",
+        "undo",
+        "correct",
+        "suppress"
+      ]
+    },
+    "origin": {
+      "type": "object",
+      "required": [
+        "kind",
+        "nonce",
+        "verified_by"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "user-chat-turn",
+            "ui-action"
+          ]
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "nonce": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "verified_by": {
+          "const": "host"
+        }
+      },
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "proactive",
+            "routine",
+            "memory",
+            "task",
+            "delivery",
+            "feedback",
+            "suggestion",
+            "draft"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "delivery_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "additionalProperties": false
+    },
+    "scope": {
+      "type": "object",
+      "required": [
+        "kind",
+        "key"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "artifact",
+            "routine",
+            "class",
+            "user"
+          ]
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "additionalProperties": false
+    },
+    "class_key": {
+      "type": "string",
+      "pattern": "^(proactive:(task-done|routine-result|reminder(:[A-Za-z0-9._:-]{1,64})?)|routine:[A-Za-z0-9._:-]{1,64})$"
+    },
+    "subjects": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+        "maxLength": 128
+      }
+    },
+    "applied": {
+      "type": "object",
+      "properties": {
+        "memory": {
+          "type": "object",
+          "required": [
+            "path",
+            "version",
+            "previous_version"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 200
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "previous_version": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "reverses": {
+      "type": "string",
+      "pattern": "^feedback:[A-Za-z0-9._:-]{1,128}$"
+    },
+    "accepted": {
+      "type": "boolean"
+    },
+    "reason": {
+      "enum": [
+        "target-unresolved",
+        "scope-not-shareable",
+        "correction-not-applied",
+        "duplicate",
+        "permission-denied",
+        "insufficient-evidence",
+        "ambiguous-scope",
+        "scope-requires-confirmation"
+      ]
+    },
+    "expires_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

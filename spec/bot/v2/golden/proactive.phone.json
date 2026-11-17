@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "vector": "proactive.phone",
+  "upstream": "proactive.json",
+  "delta": [
+    "G-2 feedback suppression: skip/feedback-held is evaluated after mode and before deliveryKinds/hard limits/fuse; notification is generated, delivery absent, fuse not recorded.",
+    "mode=off still records mode-off (order evidence).",
+    "proactive.considered data may carry optional routineId/reminderId/rowId; open data, old readers ignore."
+  ],
+  "cases": [
+    {
+      "name": "on-with-active-class-preference",
+      "settings": {
+        "mode": "on",
+        "dnd": false,
+        "quietStart": "23:00",
+        "quietEnd": "08:00",
+        "routineQuietWeekends": false,
+        "timeZone": "UTC",
+        "fuseWindowMs": 900000,
+        "fuseMaxWakeups": 4,
+        "deliveryKinds": [
+          "task-done",
+          "routine-result"
+        ]
+      },
+      "preference": {
+        "action": "suppress",
+        "scope": "class",
+        "class_key": "proactive:task-done",
+        "active": true
+      },
+      "candidate": {
+        "id": "task-1",
+        "kind": "task-done",
+        "botId": "bot-a",
+        "dedupeKey": "task-done:task-1",
+        "createdAt": 1778587200001,
+        "taskId": "task-1",
+        "taskTitle": "Backup",
+        "summary": "Backup finished.",
+        "status": "completed"
+      },
+      "expect": {
+        "id": "proactive:1778587200001:1",
+        "at": 1778587200001,
+        "decision": "skip",
+        "reason": "feedback-held",
+        "kind": "task-done",
+        "botId": "bot-a",
+        "dedupeKey": "task-done:task-1",
+        "mode": "on",
+        "channel": "system-notification",
+        "notification": {
+          "title": "DSH Bot · 后台任务",
+          "body": "Backup finished.",
+          "kind": "task-done",
+          "botId": "bot-a",
+          "dedupeKey": "task-done:task-1",
+          "channel": "system-notification"
+        }
+      },
+      "fuseRecorded": false
+    },
+    {
+      "name": "off-still-mode-off",
+      "settings": {
+        "mode": "off",
+        "dnd": false,
+        "quietStart": "23:00",
+        "quietEnd": "08:00",
+        "routineQuietWeekends": false,
+        "timeZone": "UTC",
+        "fuseWindowMs": 900000,
+        "fuseMaxWakeups": 4,
+        "deliveryKinds": [
+          "task-done",
+          "routine-result"
+        ]
+      },
+      "preference": {
+        "action": "suppress",
+        "scope": "class",
+        "class_key": "proactive:task-done",
+        "active": true
+      },
+      "candidate": {
+        "id": "task-1",
+        "kind": "task-done",
+        "botId": "bot-a",
+        "dedupeKey": "task-done:task-1",
+        "createdAt": 1778587200002,
+        "taskId": "task-1",
+        "taskTitle": "Backup",
+        "summary": "Backup finished.",
+        "status": "completed"
+      },
+      "expect": {
+        "id": "proactive:1778587200002:1",
+        "at": 1778587200002,
+        "decision": "skip",
+        "reason": "mode-off",
+        "kind": "task-done",
+        "botId": "bot-a",
+        "dedupeKey": "task-done:task-1",
+        "mode": "off",
+        "channel": "system-notification",
+        "notification": {
+          "title": "DSH Bot · 后台任务",
+          "body": "Backup finished.",
+          "kind": "task-done",
+          "botId": "bot-a",
+          "dedupeKey": "task-done:task-1",
+          "channel": "system-notification"
+        }
+      },
+      "fuseRecorded": false
+    }
+  ],
+  "invalid": [
+    {
+      "name": "feedback-held-before-mode-off",
+      "settings": {
+        "mode": "off",
+        "dnd": false,
+        "quietStart": "23:00",
+        "quietEnd": "08:00",
+        "routineQuietWeekends": false,
+        "timeZone": "UTC",
+        "fuseWindowMs": 900000,
+        "fuseMaxWakeups": 4,
+        "deliveryKinds": [
+          "task-done",
+          "routine-result"
+        ]
+      },
+      "preference": {
+        "action": "suppress",
+        "scope": "class",
+        "class_key": "proactive:task-done",
+        "active": true
+      },
+      "claim": {
+        "id": "proactive:1778587200002:1",
+        "at": 1778587200002,
+        "decision": "skip",
+        "reason": "feedback-held",
+        "kind": "task-done",
+        "botId": "bot-a",
+        "dedupeKey": "task-done:task-1",
+        "mode": "off",
+        "channel": "system-notification",
+        "notification": {
+          "title": "DSH Bot · 后台任务",
+          "body": "Backup finished.",
+          "kind": "task-done",
+          "botId": "bot-a",
+          "dedupeKey": "task-done:task-1",
+          "channel": "system-notification"
+        }
+      }
+    }
+  ],
+  "source": {
+    "checkout": "phoneDSH-v2-proactive-20261113",
+    "note": "phoneDSH-owned proactive settings/decision vectors; there is no dsh-bot upstream file. Routine-due fields reuse routine-notification.schema.json."
+  }
+}

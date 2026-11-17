@@ -12,6 +12,9 @@ public actor ProactiveEngine: ProactiveConsidering {
     private let nowProvider: @Sendable () -> Int64
     private let deliverer: (any ProactiveDelivering)?
     private let eventLog: (any BotEventLog)?
+    /// User feedback preferences. Nil keeps the historical engine behaviour
+    /// byte-for-byte; the production composition injects the shared center.
+    private let feedback: (any BotFeedbackGating)?
     private let deliveryKinds: Set<ProactiveKind>
     private var policy: ProactivityPolicy
     private var waiting: [Waiting] = []
@@ -26,12 +29,14 @@ public actor ProactiveEngine: ProactiveConsidering {
                 policy: ProactivePolicyConfiguration = ProactivePolicyConfiguration(),
                 deliverer: (any ProactiveDelivering)? = nil,
                 eventLog: (any BotEventLog)? = nil,
+                feedback: (any BotFeedbackGating)? = nil,
                 deliveryKinds: Set<ProactiveKind> = [.taskDone, .routineResult]) {
         self.settingsProvider = settings
         self.nowProvider = now
         self.policy = ProactivityPolicy(configuration: policy)
         self.deliverer = deliverer
         self.eventLog = eventLog
+        self.feedback = feedback
         self.deliveryKinds = deliveryKinds
     }
 
@@ -140,6 +145,16 @@ public actor ProactiveEngine: ProactiveConsidering {
             return await finish(candidate, at: at, settings: settings, decision: .skip,
                                 reason: "mode-off")
         }
+        // A user preference is consulted before deliverability and before the
+        // fuse: a held candidate is neither delivered nor counted as a would
+        // disturbance, so it can never crowd out the real observation window.
+        if let feedback {
+            let hold = await feedback.hold(for: candidate, botID: candidate.botId, at: at)
+            if hold.isHeld {
+                return await finish(candidate, at: at, settings: settings, decision: .skip,
+                                    reason: "feedback-held", heldBy: hold)
+            }
+        }
         let deliverable = settings.mode == .on && deliveryKinds.contains(candidate.kind)
         let check = policy.check(candidate, now: at, settings: settings)
         guard check.allowed else {
@@ -183,7 +198,8 @@ public actor ProactiveEngine: ProactiveConsidering {
     private func finish(_ candidate: ProactiveCandidate, at: Int64, settings: ProactiveSettings,
                         decision: ProactiveDecisionKind, reason: String,
                         notification: ProactiveNotification? = nil,
-                        delivery: ProactiveDeliveryResult? = nil) async -> ProactiveDecision {
+                        delivery: ProactiveDeliveryResult? = nil,
+                        heldBy: BotFeedbackHold? = nil) async -> ProactiveDecision {
         sequence += 1
         let dedupeKey = Self.deliveryKey(candidate, at: at)
         let resolvedNotification = notification ?? Self.notification(candidate, dedupeKey: dedupeKey)
@@ -197,7 +213,10 @@ public actor ProactiveEngine: ProactiveConsidering {
         history.append(record)
         if history.count > 200 { history.removeFirst(history.count - 200) }
         if let eventLog {
-            let fuseRecorded = settings.mode == .would || decision == .did
+            // A held candidate never consumes the fuse, even in would mode:
+            // G-2 r4 requires fuseRecorded=false for feedback-held.
+            let fuseRecorded = reason != "feedback-held"
+                && (settings.mode == .would || decision == .did)
             var data: [String: BotJSONValue] = [
                 "decision": .string(decision.rawValue),
                 "reason": .string(reason),
@@ -209,6 +228,14 @@ public actor ProactiveEngine: ProactiveConsidering {
                 "fuseRecorded": .bool(fuseRecorded),
             ]
             if let trigger = candidate.trigger { data["trigger"] = .string(trigger) }
+            if let routineId = candidate.routineId { data["routineId"] = .string(routineId) }
+            if let reminderId = candidate.reminderId { data["reminderId"] = .string(reminderId) }
+            if let rowId = candidate.rowId { data["rowId"] = .string(rowId) }
+            if case let .held(feedbackID, scopeKind, scopeKey, _)? = heldBy {
+                data["feedback_id"] = .string(feedbackID)
+                data["scope_kind"] = .string(scopeKind.rawValue)
+                data["scope_key"] = .string(scopeKey)
+            }
             data["dedupeKey"] = .string(dedupeKey)
             let event = BotEvent(type: "proactive.considered", eventId: record.id, time: at,
                                  origin: .local(source: "runtime"), traceId: "trace:\(record.id)",
@@ -220,6 +247,7 @@ public actor ProactiveEngine: ProactiveConsidering {
                 history[history.count - 1] = record
             }
         }
+        await feedback?.noteConsidered(record, candidate: candidate)
         return record
     }
 

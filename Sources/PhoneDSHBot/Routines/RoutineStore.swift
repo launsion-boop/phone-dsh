@@ -8,14 +8,20 @@ public struct RoutineMutation<Value: Sendable>: Sendable {
     public var persistSnapshot: Bool
     public var botId: String
     public var snapshotEventId: String?
+    /// Optional G-1 `derivation` member for the routine snapshot carrier. Set
+    /// by writers that can name the user/record basis of the change (for
+    /// example cloud-schedule consent); absent means no provenance assertion.
+    public var derivation: BotJSONValue?
 
     public init(value: Value, events: [BotEvent] = [], persistSnapshot: Bool = true,
-                botId: String, snapshotEventId: String? = nil) {
+                botId: String, snapshotEventId: String? = nil,
+                derivation: BotJSONValue? = nil) {
         self.value = value
         self.events = events
         self.persistSnapshot = persistSnapshot
         self.botId = botId
         self.snapshotEventId = snapshotEventId
+        self.derivation = derivation
     }
 }
 
@@ -85,12 +91,17 @@ extension SQLiteDomainStore {
             type = "routine.updated"
         }
         let eventId = mutation.snapshotEventId ?? "routine-snapshot:\(UUID().uuidString.lowercased())"
+        var data = try DurableEventSnapshots.data(for: document, botId: botId)
+        if let derivation = mutation.derivation, case .object(var object) = data {
+            object["derivation"] = derivation
+            data = .object(object)
+        }
         let snapshot = BotEvent(
             type: type, eventId: eventId, time: clock(), origin: .local(source: "scheduler"),
             traceId: "trace:\(eventId)",
             principal: BotPrincipal(botId: botId, sessionId: nil, kind: "routine"),
             causationId: nil, correlationId: botId,
-            data: try DurableEventSnapshots.data(for: document, botId: botId)
+            data: data
         )
         _ = try await appendBatch([snapshot] + mutation.events)
         return mutation.value
