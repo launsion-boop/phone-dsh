@@ -226,6 +226,28 @@ public actor ExternalAdmissionJournal {
         return changed
     }
 
+    /// The account of an `account:` principal signed out (external-admission.md
+    /// §3): every `admitted` record of an account other than `signedInPrincipal`
+    /// becomes `cancelled`. A `dispatching` record has no cancel edge and is
+    /// left for the redo; handed-over records belong to the downstream owner.
+    @discardableResult
+    public func cancelAccountAdmissions(
+        exceptPrincipal signedInPrincipal: String?,
+        nowMs: Int64 = ExternalAdmissionJournal.nowMs()) -> [ExternalAdmissionRecord] {
+        guard open(nowMs: nowMs) else { return [] }
+        var changed: [ExternalAdmissionRecord] = []
+        for record in records.values
+        where record.stage == .admitted && record.principal != "local"
+            && record.principal != signedInPrincipal {
+            if let next = try? transition(record.admissionId, to: .cancelled,
+                                          reason: ExternalAdmissionPolicy.accountSignedOutReason,
+                                          nowMs: nowMs) {
+                changed.append(next)
+            }
+        }
+        return changed
+    }
+
     // MARK: - Transition
 
     /// The only way a stored record changes stage. An edge outside

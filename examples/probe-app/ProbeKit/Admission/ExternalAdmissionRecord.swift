@@ -327,6 +327,30 @@ public struct ExternalAdmissionRequest: Equatable, Sendable {
             sourceRequestId: requestID, target: target, text: text,
             downstreamId: requestID, expiresAtMs: nowMs + tonoLinkVoiceTtlMs)
     }
+
+    /// `"account:" + <tono user id>`, or nil when the id cannot be a principal
+    /// (schema: `account:[A-Za-z0-9._-]{1,128}`).
+    public static func accountPrincipal(userID: String?) -> String? {
+        guard let userID else { return nil }
+        let principal = "account:" + userID
+        return AdmissionText.isPrincipal(principal) ? principal : nil
+    }
+
+    /// spec/v1/cloud-tasks.md §7: a task fetched from the phone task queue.
+    /// `principal` is the signed-in account, the source is this install's
+    /// registered `device_id`, `sourceRequestId` is the cloud's `task_id`, and
+    /// `downstreamId` is a fresh lowercase UUIDv4.
+    public static func cloudTask(principal: String, deviceID: String, taskID: String,
+                                 target: ExternalAdmissionTarget, text: String,
+                                 expiresAtMs: Int64,
+                                 downstreamId: String = UUID().uuidString.lowercased())
+        -> ExternalAdmissionRequest {
+        ExternalAdmissionRequest(
+            principal: principal,
+            source: ExternalAdmissionSource(kind: .cloudTask, id: deviceID),
+            sourceRequestId: taskID, target: target, text: text,
+            downstreamId: downstreamId, expiresAtMs: expiresAtMs)
+    }
 }
 
 public enum ExternalAdmissionResult: String, CaseIterable, Sendable {

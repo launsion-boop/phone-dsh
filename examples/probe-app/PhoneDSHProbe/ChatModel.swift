@@ -3893,10 +3893,13 @@ final class ChatModel {
         let pending = await externalAdmissions.sweptPendingRecords(nowMs: nowMs)
         // v1.1 §4: a record that is only waiting for execution conditions is skipped and
         // does not use one of the pass's 16 places.
+        // An `account:` record (a task from the phone task queue) is dispatched only while
+        // its account is the signed-in one; any other account's record waits.
+        let accountPrincipal = await CloudTaskAccount.signedInPrincipal()
         let batch = ExternalAdmissionPolicy.dispatchOrder(pending, nowMs: nowMs) { record in
-            // No source on this host admits an `account:` principal yet, and there is no
-            // signed-in account id to compare with: such a record waits, never dispatched.
-            guard record.principal == "local" else { return true }
+            if ExternalAdmissionPolicy.isWaitingForAccount(record, signedInPrincipal: accountPrincipal) {
+                return true
+            }
             if case .bot(let botID) = record.target,
                case .waiting = BotProductionHub.shared.admissionTarget(for: botID) {
                 return true
@@ -3904,6 +3907,13 @@ final class ChatModel {
             return false
         }
         for record in batch {
+            // §4: immediately before each dispatch, an `account:` principal must still be
+            // the signed-in account (a sign-out may have happened during this pass).
+            if record.principal != "local",
+               ExternalAdmissionPolicy.isWaitingForAccount(
+                   record, signedInPrincipal: await CloudTaskAccount.signedInPrincipal()) {
+                continue
+            }
             switch record.target {
             case .dshSession(let sessionID):
                 await dispatchAdmission(record, toSession: sessionID)
@@ -3973,6 +3983,46 @@ final class ChatModel {
             case .pending:
                 break
             }
+        }
+    }
+
+    /// The journal the phone task queue admits into (spec/v1/cloud-tasks.md §7).
+    var externalAdmissionJournal: ExternalAdmissionJournal { externalAdmissions }
+
+    /// Whether a phone-task target exists, answered without booting anything. A running
+    /// engine's own `session/list` is the authority for a session; while it is not running
+    /// only a positive answer is possible (the selected session, or the last successful
+    /// `session/list` the app cached). The read-only materialized projection is never asked:
+    /// it must not decide an admission (wal.md §11). The Bot roster answers once it is loaded.
+    func cloudTaskTargetPresence(_ target: ExternalAdmissionTarget) async -> CloudTaskTargetPresence {
+        guard pcRuntime == nil else { return .unknown }
+        switch target {
+        case .bot(let botID):
+            guard let roster = botRuntime?.rosterModel ?? BotProductionHub.shared.roster,
+                  !roster.bots.isEmpty else { return .unknown }
+            return roster.bots.contains(where: { $0.id == botID }) ? .present : .absent
+        case .dshSession(let id):
+            // A device-task session takes no outside request (same rule as a voice turn).
+            // It exists, so it is not reported missing either: the task stays with the cloud.
+            if DeviceSessionCoordinator.shared.isDeviceSession(id) { return .unknown }
+            // A parked host is not asked: the call would wait for a resume nobody requested.
+            if host != nil, !parked, let transport = try? await transportForManagement(),
+               let value = try? await transport.call("session/list",
+                                                     args: .object(["_request": .object([:])])),
+               let rows = value["items"]?.arrayValue {
+                return rows.contains { $0["sessionId"]?.stringValue == id } ? .present : .absent
+            }
+            if id == currentSessionID || id == sessionID
+                || id == WorkspaceStorage.currentSessionID(for: .phone) {
+                return .present
+            }
+            if let data = UserDefaults.standard.data(
+                   forKey: WorkspaceStorageKeys.sessionSnapshotKey(for: .phone)),
+               let cached = CachedSessionSnapshotCodec.decode(data)?.snapshot,
+               cached.sessions.contains(where: { $0.id == id }) {
+                return .present
+            }
+            return .unknown
         }
     }
 

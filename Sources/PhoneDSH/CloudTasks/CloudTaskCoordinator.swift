@@ -375,7 +375,22 @@ public actor CloudTaskCoordinator {
             try keyStore.save(made)
             key = made
         }
-        guard let key, let deviceKey = key.deviceKey else { throw CloudTaskKeyStoreError.corrupt }
+        guard let first = key else { throw CloudTaskKeyStoreError.corrupt }
+        do {
+            try await register(deviceID: deviceID, key: first)
+        } catch CloudTaskClientError.http(status: 409, code: let code) where code == "key_mismatch" {
+            // §2 (v1.4): the cloud holds another public key under this `key_id`
+            // (a restored install, a lost Keychain item). A `key_id` names one
+            // key, so make a new one and register again: once, never in a loop.
+            // A second refusal ends the pass; the next trigger starts from the new key.
+            let made = CloudTaskKey.generate(nowMs: max(configuration.now(), first.createdAtMs + 1))
+            try keyStore.save(made)
+            try await register(deviceID: deviceID, key: made)
+        }
+    }
+
+    private func register(deviceID: String, key: CloudTaskKey) async throws {
+        guard let deviceKey = key.deviceKey else { throw CloudTaskKeyStoreError.corrupt }
         let wanted = Registered(deviceID: deviceID, registration: CloudTaskDeviceRegistration(
             platform: .ios, appVersion: configuration.appVersion, key: deviceKey, push: push))
         guard registered != wanted else { return }

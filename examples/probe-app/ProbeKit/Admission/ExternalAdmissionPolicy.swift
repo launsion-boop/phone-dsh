@@ -53,6 +53,17 @@ public enum ExternalAdmissionSweepAction: String, Equatable, Sendable {
 public enum ExternalAdmissionPolicy {
     public static let retryExhaustedReason = "retry_exhausted"
     public static let expiredReason = "expired"
+    public static let accountSignedOutReason = "account_signed_out"
+
+    /// A record is dispatched only for the principal that is present: `local`
+    /// always is, an `account:` principal only while it is the signed-in
+    /// account (external-admission.md §4). An `admitted` record of any other
+    /// account waits; a `dispatching` one is past that check and is redone (§3).
+    public static func isWaitingForAccount(_ record: ExternalAdmissionRecord,
+                                           signedInPrincipal: String?) -> Bool {
+        guard record.principal != "local", record.stage == .admitted else { return false }
+        return record.principal != signedInPrincipal
+    }
 
     public static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()

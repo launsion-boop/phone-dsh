@@ -20,6 +20,8 @@ import PhoneDSHVenus
 
 @main
 struct PhoneDSHProbeApp: App {
+    // Remote-notification registration and background task pushes (cloud-tasks.md §8).
+    @UIApplicationDelegateAdaptor(ProbeAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
     @State private var model = AppModel()
     @State private var workspaceModels = WorkspaceModels.shared
@@ -51,6 +53,9 @@ struct PhoneDSHProbeApp: App {
         #else
         Task { @MainActor in TonoLinkVoiceHost.shared.start(); DeviceBotRegistry.shared.start() }
         #endif
+        // The phone task queue follows the account from launch, a background launch by a
+        // task push included. It starts no engine and no timer.
+        Task { @MainActor in CloudTaskCenter.shared.start() }
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment["PDSH_APPEARANCE"],
            let value = NativeAppearance(rawValue: raw) {
@@ -90,6 +95,8 @@ struct PhoneDSHProbeApp: App {
                                 // refill the follow stream.
                                 if phase == .active {
                                     await workspaceModels.scenePhaseChanged(true)
+                                    // One pull → admit → ack pass (cloud-tasks.md §7); off = no-op.
+                                    CloudTaskCenter.shared.appBecameActive()
                                 }
                             },
                             backgroundMatrix: { phase in

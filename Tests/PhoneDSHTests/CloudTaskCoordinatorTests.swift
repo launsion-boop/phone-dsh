@@ -773,6 +773,86 @@ final class CloudTaskCoordinatorTests: XCTestCase {
         XCTAssertEqual((rig.cloud.registration?["key"] as? [String: Any])?["key_id"] as? String, current.keyID)
     }
 
+    // MARK: §2 key_mismatch (v1.4), §7 not-a-text (v1.5)
+
+    func testAKeyMismatchAnswerMakesANewKeyIDAndRegistersAgainOncePerPass() async throws {
+        let mismatch = #"{"error":{"code":"key_mismatch","message":"another public key"},"server_time_ms":1}"#
+        let rig = Rig()
+        try rig.submit("t-old")
+        rig.cloud.failOnce("register", .answer(409, mismatch))
+        let report = await rig.coordinator.run()
+        XCTAssertEqual(report.status, .ready)
+        let registers = rig.cloud.calls("register")
+        XCTAssertEqual(registers.count, 2, "one refusal, one new registration")
+        let firstKey = try XCTUnwrap(registers[0].json?["key"] as? [String: Any])
+        let secondKey = try XCTUnwrap(registers[1].json?["key"] as? [String: Any])
+        XCTAssertEqual(firstKey["key_id"] as? String, "k-1")
+        let newID = try XCTUnwrap(secondKey["key_id"] as? String)
+        XCTAssertNotEqual(newID, "k-1", "a key_id names one key: the new key has a new id")
+        XCTAssertNotEqual(secondKey["public_key"] as? String, firstKey["public_key"] as? String)
+        XCTAssertEqual(try rig.keys.keys().map(\.keyID), [newID], "the refused key goes once the new one is registered")
+        XCTAssertEqual((rig.cloud.registration?["key"] as? [String: Any])?["key_id"] as? String, newID)
+        // A task still sealed to the refused key is never admitted.
+        XCTAssertEqual(rig.cloud.acks() as NSArray,
+                       [["task_id": "t-old", "state": "rejected", "reason": "key_unknown"]] as NSArray)
+        XCTAssertEqual(rig.journal.requests.get().count, 0)
+
+        // A cloud that keeps refusing is asked twice per pass, never in a loop;
+        // the next trigger starts from the newest key and tries again the same way.
+        let stubborn = Rig()
+        stubborn.cloud.failAlways("register", .answer(409, mismatch))
+        let refused = await stubborn.coordinator.run()
+        XCTAssertEqual(refused.status, .failed(.http(status: 409, code: "key_mismatch")))
+        XCTAssertEqual(stubborn.cloud.calls("register").count, 2)
+        XCTAssertEqual(stubborn.cloud.calls("pull").count, 0, "nothing is pulled without a registration")
+        XCTAssertEqual(try stubborn.keys.keys().count, 2, "nothing is deleted before a registration is acknowledged")
+        let again = await stubborn.coordinator.run()
+        XCTAssertEqual(again.status, .failed(.http(status: 409, code: "key_mismatch")))
+        XCTAssertEqual(stubborn.cloud.calls("register").count, 4)
+        let ids = stubborn.cloud.calls("register").compactMap { ($0.json?["key"] as? [String: Any])?["key_id"] as? String }
+        XCTAssertEqual(Set(ids).count, 3, "k-1, then one new id per refusal; the second pass starts from the newest key")
+        XCTAssertEqual(ids[1], ids[2])
+    }
+
+    func testEverySharedNotTextCaseOpensToNoTextAndIsRejectedAsDecryptFailed() async throws {
+        let sealing = try XCTUnwrap(try CloudTaskCases.load()["sealing"] as? [String: Any])
+        let cases = try XCTUnwrap(sealing["not_text"] as? [[String: Any]])
+        XCTAssertEqual(cases.map { $0["id"] as? String }, ["invalid-utf8-continuation", "truncated-utf8-sequence"])
+        for item in cases {
+            let id = item["id"] as? String ?? ""
+            let sealedJSON = try XCTUnwrap(item["sealed"] as? [String: Any], id)
+            let scalar = CloudTaskCases.hex(item["recipient_private_scalar"] as! String)
+            let aadText = item["aad"] as! String
+            // The real open: HPKE accepts the bytes, and they are not a task text.
+            let sealed = CloudTaskSealed(enc: try XCTUnwrap(CloudTaskJSON.base64URLDecode(sealedJSON["enc"]), id),
+                                         ct: try XCTUnwrap(CloudTaskJSON.base64URLDecode(sealedJSON["ct"]), id))
+            XCTAssertThrowsError(try CloudTaskSealing.open(sealed, privateScalar: scalar, aad: Data(aadText.utf8)), id) { error in
+                XCTAssertEqual(error as? CloudTaskSealingError, .notText, id)
+            }
+            let listed = try XCTUnwrap(item["ack"] as? [String: Any], id)
+            XCTAssertEqual(listed as NSDictionary, ["state": "rejected", "reason": "decrypt_failed"] as NSDictionary, id)
+            // Both cases are deliverable elements (§5 decides a 16-byte `ct` earlier, as `invalid`).
+            XCTAssertTrue(CloudTaskSealed.ciphertextBytes.contains(sealed.ct.count), id)
+
+            // The real coordinator: the task the AAD names, pulled from the cloud.
+            let lines = aadText.components(separatedBy: "\n")
+            XCTAssertEqual(lines.count, 7, id)
+            XCTAssertEqual(lines[1], Rig.deviceID, id)
+            let rig = Rig(key: CloudTaskKey(keyID: lines[2], privateScalar: scalar, createdAtMs: 1))
+            rig.cloud.add(["task_id": "t-1", "request_id": lines[3], "key_id": lines[2],
+                           "target": ["kind": lines[4], "id": lines[5]],
+                           "expires_at_ms": try XCTUnwrap(Int64(lines[6]), id), "created_at_ms": Rig.now,
+                           "sealed": sealedJSON])
+            let report = await rig.coordinator.run()
+            XCTAssertEqual(report.status, .ready, id)
+            XCTAssertEqual(report.refused, 1, id)
+            let want = listed.merging(["task_id": "t-1"]) { $1 }
+            XCTAssertEqual(rig.cloud.acks() as NSArray, [want] as NSArray, id)
+            XCTAssertEqual(rig.cloud.state("t-1"), "rejected", id)
+            XCTAssertEqual(rig.journal.requests.get().count, 0, "\(id): the journal is never asked")
+        }
+    }
+
     func testALockedKeyStoreAcknowledgesNothing() async throws {
         let rig = Rig()
         try rig.submit("t-1")
