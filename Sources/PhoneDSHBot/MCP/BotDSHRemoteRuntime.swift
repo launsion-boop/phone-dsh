@@ -198,7 +198,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private let providerName: String
     private let botDataDirectory: String
     private let skillProducer: BotSkillProvenanceProducer?
-    private let skillQueue: BotSkillEventQueue?
     private let onSessionRegistered: (@Sendable (String) -> Void)?
     private let now: @Sendable () -> Int64
     private let ledger: BotLLMLedger
@@ -320,7 +319,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         self.wakeInbox = wakeInbox
         self.botDataDirectory = botDataDirectory
         self.skillProducer = skillProducer
-        self.skillQueue = skillProducer.map { BotSkillEventQueue(producer: $0) }
         self.onSessionRegistered = onSessionRegistered
         self.now = now
         ledger = BotLLMLedger(eventLog: runtime.store)
@@ -1297,11 +1295,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 eventId: "settled:\(taskId)")
         }
         return stopped
-    }
-
-    /// Bounded, content-free skill producer diagnostics for the App/E.
-    public func skillDiagnosticsSnapshot() -> [BotSkillDiagnostic] {
-        skillQueue?.diagnosticsSnapshot() ?? []
     }
 
     private func executeTask(taskId: String, generation: Int,
@@ -3673,15 +3666,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     kind: watchdogKind(kind), id: "\(sessionId):\(currentTurn ?? "unknown")",
                     name: name, status: failed ? "error" : "ok", callId: callId, at: eventTime)
                 var resultData = data
-                if !failed, let vfsPath = toolWriteVfsPaths.removeValue(forKey: callId),
-                   let skillQueue {
+                if !failed, let vfsPath = toolWriteVfsPaths.removeValue(forKey: callId) {
                     // G-4 A04: record the real skill bytes after a successful
-                    // write/edit. The queue preserves observer/runtime order and
-                    // retains bounded failure diagnostics; never swallow it.
-                    skillQueue.enqueue {
-                        await skillQueue.runtimeWrite(
-                            vfs: vfsPath, botID: botId, sessionID: sessionId)
-                    }
+                    // write/edit; the producer classifies only the frozen roots.
+                    _ = try? await skillProducer?.recordBotWrite(
+                        vfsPath: vfsPath, botID: botId, sessionID: sessionId, sources: [])
                 }
                 if !failed, let path = toolWritePaths[callId],
                    let userRef = currentUserSourceRef,

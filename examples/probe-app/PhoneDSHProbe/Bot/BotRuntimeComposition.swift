@@ -2189,3 +2189,41 @@ struct BotRecordPhoneAdapter: PhoneRecordQuerying {
                                         exitCode: output.exitCode)
     }
 }
+
+/// Serializes observer callbacks per root. `enqueue` is synchronous on the
+/// callback thread, so a fast write→delete preserves order while the producer
+/// work itself stays async. Failures are logged; they are never retried.
+final class BotSkillEventQueue: @unchecked Sendable {
+    private let producer: BotSkillProvenanceProducer
+    private let lock = NSLock()
+    private var tail: Task<Void, Never> = Task {}
+
+    init(producer: BotSkillProvenanceProducer) {
+        self.producer = producer
+    }
+
+    func enqueue(_ operation: @escaping @Sendable () async -> Void) {
+        lock.lock()
+        let previous = tail
+        tail = Task {
+            await previous.value
+            await operation()
+        }
+        lock.unlock()
+    }
+
+    func userWrite(_ name: String) async {
+        do { _ = try await producer.recordUserDshWrite(fileName: name) }
+        catch { NSLog("BOT_SKILL_PRODUCER_FAILED action=user-write name=%@ error=%@", name, String(describing: error)) }
+    }
+
+    func userDelete(_ name: String) async {
+        do { _ = try await producer.recordUserDshDelete(fileName: name) }
+        catch { NSLog("BOT_SKILL_PRODUCER_FAILED action=user-delete name=%@ error=%@", name, String(describing: error)) }
+    }
+
+    func botDelete(vfs: String, botID: String) async {
+        do { _ = try await producer.recordBotDelete(vfsPath: vfs, botID: botID, sessionID: nil) }
+        catch { NSLog("BOT_SKILL_PRODUCER_FAILED action=project-delete path=%@ error=%@", vfs, String(describing: error)) }
+    }
+}
