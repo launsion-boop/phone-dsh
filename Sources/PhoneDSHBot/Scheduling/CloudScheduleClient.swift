@@ -130,7 +130,8 @@ public actor CloudScheduleClient {
         guard !started else { return }
         started = true
         active = true
-        requiresReauthentication = false
+        // A unit restart is not a credential refresh; a 401/403 fence stays
+        // until credentialsDidChange/noteAuthenticationRefreshed.
         needsFullSync = true
         needsReconcile = true
         startLoop()
