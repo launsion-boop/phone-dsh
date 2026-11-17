@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Validate the G-2 decision-context / delivery-source / feedback contract.
+"""Validate the G-2 decision-context / sources / feedback contract (delivery selection is parked).
 
 Reference checker for spec/bot/v2/decision-context.md: material-block limits and
 state rules, approval-digest rebinding, feedback action/scope/idempotency rules,
@@ -143,20 +143,9 @@ def check_material(block: dict, where: str) -> None:
             raise AssertionError(f"{where}: {item['state']} material needs a reason")
 
 
-def check_suggestion(item: dict, where: str) -> None:
-    selected = [item["resource"]["id"]] if item["selected"] else []
-    expected = digest(item["draft_id"], item["revision"], selected, item.get("parameters", []))
-    if item["approval_digest"] != expected:
-        raise AssertionError(f"{where}: approval_digest does not bind draft/revision/selection/parameters")
-    if item["selected"] and item["resource"]["state"] in ("revoked", "erased", "unavailable"):
-        raise AssertionError(f"{where}: permission/availability-blocked resource cannot be selected")
-
-
 def check_user_action(item: dict, where: str) -> None:
     if item["kind"] == "feedback" and item["verdict"] == "undo" and "feedbackID" not in item:
         raise AssertionError(f"{where}: undo requires feedbackID")
-    if item["kind"] == "deliverySelection" and len(set(item["selectedResourceIDs"])) != len(item["selectedResourceIDs"]):
-        raise AssertionError(f"{where}: selectedResourceIDs must be unique")
 
 
 def check_feedback(data: dict, seen: dict, where: str) -> dict:
@@ -267,22 +256,6 @@ def main() -> int:
                 rejected = True
         if not rejected:
             raise AssertionError(f"material.invalid[{case['name']}]: unexpectedly accepted")
-    for index, item in enumerate(golden["suggestion"]["valid"]):
-        check(item, "suggested-attachment.schema.json", f"suggestion.valid[{index}]")
-        check_suggestion(item, f"suggestion.valid[{index}]")
-    for case in golden["suggestion"]["invalid"]:
-        rejected = False
-        try:
-            check(case["instance"], "suggested-attachment.schema.json", case["name"])
-        except SpecError:
-            rejected = True
-        if not rejected:
-            try:
-                check_suggestion(case["instance"], case["name"])
-            except AssertionError:
-                rejected = True
-        if not rejected:
-            raise AssertionError(f"suggestion.invalid[{case['name']}]: unexpectedly accepted")
     for index, item in enumerate(golden["user_actions"]["valid"]):
         check(item, "../v1/user-action.phone.schema.json", f"user_actions.valid[{index}]")
         check_user_action(item, f"user_actions.valid[{index}]")
@@ -402,13 +375,6 @@ def main() -> int:
             check_material(mutated, "mutation")
         except AssertionError:
             mutations += 1
-    for item in golden["suggestion"]["valid"]:
-        mutated = json.loads(json.dumps(item))
-        mutated["approval_digest"] = "sha256:" + "0" * 64
-        try:
-            check_suggestion(mutated, "mutation")
-        except AssertionError:
-            mutations += 1
     for trace in golden["trace"]["valid"]:
         mutated = json.loads(json.dumps(trace))
         mutated["injected"]["material_ids"] = ["mat:999"]
@@ -423,8 +389,7 @@ def main() -> int:
           f"{len(golden.get('internal_tool', {}).get('invalid', []))}, tool results "
           f"{len(golden.get('tool_results', {}).get('valid', []))}/"
           f"{len(golden.get('tool_results', {}).get('invalid', []))}, material {len(golden['material']['valid'])}/"
-          f"{len(golden['material']['invalid'])}, suggestions {len(golden['suggestion']['valid'])}/"
-          f"{len(golden['suggestion']['invalid'])}, user actions {len(golden['user_actions']['valid'])}/"
+          f"{len(golden['material']['invalid'])}, user actions {len(golden['user_actions']['valid'])}/"
           f"{len(golden['user_actions']['invalid'])}, feedback {len(feedback_results)}, "
           f"trace {len(golden['trace']['valid'])}/{len(golden['trace']['invalid'])}, "
           f"mutations {mutations})")

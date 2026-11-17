@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | retrieved | 检索服务返回的候选集（`decision-material.schema.json` 的 `materials` 全量） | `block_id`+`turn_id`+`retrieved_at_ms`+每项 `material_id`/`ref`/`selection_reason`。 |
 | injected | 官方 DSH `systemPrompt.context` 的 runtime-context 快照（`source.kind=runtime-context`），带 `dshbot:decision-context` 与 `r<requestID>` 标记 | 真实模型请求中的 runtime-context 段；不是 user message、不是 `current-user-turn`、不是 system prompt。 |
-| adopted | 产物/交付/工具参数引用 `material_id`（G-2 的 delivery/suggestion/feedback 或 R 的 trace） | 产物行/事件中出现该 `material_id` 或它对应的 ref；只有「材料出现过」不算 adopted。 |
+| adopted | 产物/交付/工具参数引用 `material_id`（G-2 的 feedback；delivery/suggestion 已 parked；或 R 的 trace） | 产物行/事件中出现该 `material_id` 或它对应的 ref；只有「材料出现过」不算 adopted。 |
 
 - 材料块 `decision-material.schema.json`：`{block_id, turn_id, session_id, bot_id, stage,
   authorization_revision, query_digest, goal_digest?, retrieved_at_ms, materials[], limits,
@@ -121,14 +121,14 @@ DSH 没有官方“非 tools/list 的 host→Worker 通道”。因此“完全 
 - R 的插件名/参数保持 `mcp__phone__BotDecisionContext` + 上述 request，不需要改 wire。
 - 不是 P25 事件、不是 P27 行/card/user-action、不是 cloud wire；不落库、不写第二套 trace。
 
-## 2. 交付来源、建议附件与重绑定
+## 2. 交付来源（U 的 `sources` 投影；delivery selection is parked）
 
-### 2.1 行/交付展示（U 的 `sources` / `delivery` 投影）
+### 2.1 行/交付展示（U 的 `sources` 投影）
 
-> **parked target（2026-11-17，原范围候选）**：`delivery` 的 A04 delivery-selection
-> host（draft/offer/confirm）不在本轮 core 安装；本机原范围候选仍使用既有文件交付。
-> 本节与 §3.2 的 phone user action 仅作为已冻结的 future target 保留，不能当成本轮
-> 可运行 current，也不作为原 8 类的验收门。
+> **parked target（2026-11-17，原范围候选）**：A04 `deliverySelection` host、`delivery{...}`
+> 行投影、建议附件/重绑定均不在本轮 core 安装，也不是原 8 类的验收门。冻结形状与向量保留在
+> `parked/delivery-selection.md`、`parked/decision-context.delivery-selection.json`、
+> `parked/suggested-attachment.schema.json`；current 行投影只带 `sources[]`。
 
 - 任意交付行可带 `sources[]`：每条 `{label,kind,reason?,observed_at?,verification,freshness,
   state,state_detail?}`；`label` 是人话（不得是 `record://`/session/event/tool id），`kind` 封闭
@@ -140,25 +140,7 @@ DSH 没有官方“非 tools/list 的 host→Worker 通道”。因此“完全 
     不得用通用 non-current 硬规则一律禁止（例如任务本来就是比较历史版本）；
   - `current`：可选用，但仍不表示 `review.verified`。
   系统守权限与可用性；用途判断不塞进来源状态。
-- 交付/审批行可带 `delivery{draft_id,revision,parameters[],resources[]}`；`resources` 每项
-  `{id,name,detail?,reason?,selected,state,source}`。这些是行投影，不是第二份权威：`source` 是
-  G-1 `source_statuses` 的 UI 投影，`revision` 由宿主单调分配。
-- 行没有 `sources`/`delivery` 时 UI 降级显示「未提供可核验来源」，不得补造 current/verified。
-
-### 2.2 建议附件候选（`suggested-attachment.schema.json`）
-
-- 一份候选：`{suggestion_id,draft_id,revision,artifact_kind,resource{…},selected,created_at_ms,
-  updated_at_ms,approval_digest}`；`artifact_kind` 封闭 `delivery|draft|notification`。
-- 生命周期：`candidate → selected/removed → submitted`；一次提交完整 `selected_resource_ids`
-  集合（幂等），不是增量 toggle；`state != current` 的资源不可选。
-- 选用规则：`resource.state` 为 `revoked|erased|unavailable` 的候选不可选（权限/可用性）；
-  `changed|unknown` 可选，但 UI 必须标“历史/时效未知”，不能显示成 current；用途由模型/用户判断。
-- **重绑定**：`approval_digest = "sha256:"+sha256(canonical JSON of
-  [draft_id, revision, sorted(selected_resource_ids), parameters sorted by label])`（UTF-8、
-  无空白、键序固定）。`revision` 单调 +1；选中集合或参数变化必须产生新 revision/digest。
-  旧 digest 的 allow/deny 一律拒绝（`digest_mismatch`/`draft_changed`），旧审批不能继续复用。
-  revision 变化后同一行回到 `pending` 并重算 digest；不新建第二行（除非宿主显式 supersede）。
-- 候选必须有 G-1 来源：`resource.source` 至少 `ref/trust/state`；`why used` 用 `reason` 人话。
+- 行没有 `sources[]` 时 UI 降级显示「未提供可核验来源」，不得补造 current/verified。
 
 ## 3. 反馈（`feedback.schema.json` + `feedback.recorded`）
 
@@ -212,15 +194,11 @@ DSH 没有官方“非 tools/list 的 host→Worker 通道”。因此“完全 
 
 ### 3.2 用户动作 phone 扩展（`spec/bot/v1/user-action.phone.schema.json`）
 
-> **parked target**：`deliverySelection` action 随 A04 host 一起不在 core 安装；
-> 保留 schema/向量供后续实现，不表示当前宿主接受该 action。
-
-两个 kind，只由 iOS 宿主/UI 产生，共享 `user-action.schema.json` 不变：
+Current kind 只有 `feedback`（`adopt|correct|suppress|undo`）；A04 `deliverySelection` 已 parked
+（见 `parked/delivery-selection.md`），不在 current `oneOf`/validator，也不表示当前宿主接受它。
 
 ```json
-{"nonce":"…","botID":"…","kind":"deliverySelection","rowID":"…","draftID":"…","expectedRevision":3,
- "selectedResourceIDs":["r1","r3"]}
-{"nonce":"…","botID":"…","kind":"feedback","rowID":"…","verdict":"adopt|correct|suppress|undo",
+{"nonce":"…","botID":"…","kind":"feedback","rowID":"…","verdict":"adopt|correct|suppress",
  "feedbackID":"…"}
 ```
 
