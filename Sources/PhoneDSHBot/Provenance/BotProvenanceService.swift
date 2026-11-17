@@ -648,14 +648,28 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         } catch {
             return .unknown
         }
+        let assertions = scoped.assertions.values.joined().filter {
+            $0.artifact.kind == .skill && $0.artifact.id == name
+        }
+        guard !assertions.isEmpty else { return .unknown }
+        let project = assertions.filter {
+            ($0.skillSource ?? BotSkillSource.userDsh.rawValue)
+                == BotSkillSource.projectDsh.rawValue
+                || ($0.skillSource ?? BotSkillSource.userDsh.rawValue)
+                    == BotSkillSource.projectAgents.rawValue
+        }
+        // Match `status`: project roots win over a same-named user skill, and
+        // only the effective identity's sources may claim a content basis.
+        let effective = project.isEmpty ? assertions : project
         let contentRoles: Set<BotDerivationRole> = [.evidence, .basis, .creator]
-        for assertion in scoped.assertions.values.joined() {
-            guard assertion.artifact.kind == .skill, assertion.artifact.id == name else { continue }
-            if assertion.sources.contains(where: { source in
-                guard let role = source.role else { return false }
-                return contentRoles.contains(role)
-            }) {
-                return .known
+        for assertion in effective {
+            for source in assertion.sources {
+                guard let role = source.role, contentRoles.contains(role) else { continue }
+                // G-SCB-1: a role label is not enough; the record must be a
+                // canonical record reference this host can resolve.
+                if BotRecordReference.canonicalize(source.record) != nil {
+                    return .known
+                }
             }
         }
         return .unknown
