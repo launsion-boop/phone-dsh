@@ -192,7 +192,7 @@ final class BotSkillEventQueueTests: XCTestCase {
             sources: [BotDerivationSource(record: "record://event/7",
                                           role: .evidence)])
         XCTAssertEqual(captured.get()?.sources.first?.record, "record://event/7")
-        XCTAssertEqual(captured.get()?.sources.first?.role, .evidence)
+        XCTAssertEqual(captured.get()?.sources.first?.role, .trigger)
     }
 
 

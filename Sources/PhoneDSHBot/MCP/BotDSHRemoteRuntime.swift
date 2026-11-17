@@ -3677,12 +3677,13 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     // sees the same durable `skill.changed`.
                     let botID = botId
                     let session = sessionId
-                    // A skill write is derived from the real user turn when
-                    // one exists; without it the event honestly has no
-                    // content source. Erasure/revocation can then target the
-                    // exact record instead of a synthetic ref.
+                    // The current user turn is a trigger/request, not proof
+                    // that the user supplied the skill body. Content evidence
+                    // must come from explicit adopted materials; without one
+                    // this event stays trigger-only and must not certify
+                    // current content. No keyword guessing.
                     let sources = currentUserSourceRef.map {
-                        [BotDerivationSource(record: $0, role: .evidence)]
+                        [BotDerivationSource(record: $0, role: .trigger)]
                     } ?? []
                     await skillQueue.enqueueAndWait {
                         await skillQueue.runtimeWrite(
