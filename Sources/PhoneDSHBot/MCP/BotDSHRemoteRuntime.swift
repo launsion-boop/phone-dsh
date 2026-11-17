@@ -868,6 +868,19 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         transport
     }
 
+    /// Transport + main-session id captured from the same host incarnation.
+    /// The attachment importer must not pair an old transport with a session
+    /// recreated after a Worker restart.
+    public func attachmentImportContext() async throws
+        -> (transport: any DSHRemoteTransport, sessionID: String) {
+        let generation = transportGeneration
+        let session = try await ensureMainSessionID()
+        guard generation == transportGeneration else {
+            throw BotMCPError.unavailable("Worker transport changed during attachment preparation")
+        }
+        return (transport, session)
+    }
+
     public func ensureMainSessionID() async throws -> String {
         try await ensureMainSession()
     }
