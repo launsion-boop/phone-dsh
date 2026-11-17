@@ -226,7 +226,8 @@ maintainer 回合都得不到保留值（`memory-evidence-invalid`）。
   不得用全 `unknown` 冒充已计算；缓存/上下文材料必须按 `generation` token 失效。
 - 写路径的 resolver 失败/超限 = 整条写入失败 `memory-source-baseline-unavailable`（fail-closed，
   不写无基线版本）；旧事件无 `derivation` 仍合法。
-- `skill` 自本 revision 起有 `skill.changed` 写事件（见 provenance.md §3.4）；没有该事件的旧数据仍是
+- `skill` 的 `skill.changed` 写事件（见 provenance.md §3.4）是 **parked target**（A04 不在本轮 core，
+  当前 envelope 枚举/golden 不含该事件）；没有该事件的旧数据仍是
   `unknown` + `no-skill-write-event`，不得冒充已覆盖。
 - 共享 golden 基线不新增 iOS 字段；G-1 的向量是新 phone-only 文件
   [golden/provenance.json](golden/provenance.json)，旧 Android/旧 reader 仍只读共享基线。

@@ -18,7 +18,7 @@
 | 术语 | 定义 |
 | --- | --- |
 | 原始记录 | 只有两处：DSH session log 行 `record://session/<id>#<seq>`、`bot_events` 行 `record://event/<commitSeq>`（v1 §4.2）。 |
-| 观察（observation） | 一条**捕获外部来源**的原始记录：它带 v1 §4.3 观察信封（`source`/`origin`/`at`/`owner`/`ref`），或 G-3 的 `context.observed`。用户消息、Bot 自身工具结果、派生物不是观察。 |
+| 观察（observation） | 一条**捕获外部来源**的原始记录：它带 v1 §4.3 观察信封（`source`/`origin`/`at`/`owner`/`ref`），或 G-3 的 `context.observed`（**parked target**：当前原范围候选不写该事件，仅保留契约供后续实现）。用户消息、Bot 自身工具结果、派生物不是观察。 |
 | 来源身份（source identity） | 观察信封的 `source` + `origin` 二元组，二者都按原字节比较；除该来源自己的契约写明外不做 URL/路径归一化。 |
 | 来源版本（source revision） | 该外部来源在观察时刻的版本，显式 known 或 unknown（§2.1）。它不是记录序号、不是记忆文档 `version`、不是 `updated_at_ms`。 |
 | 基线（baseline） | 写派生物时随断言一起记录的 `source version` + `observed_at_ms` 快照（§3.2），用于日后判断「来源是否已变」。 |
@@ -97,7 +97,7 @@
 | carrier（durable event / session 行） | 观察字段位置 | resource 身份 | 备注 |
 | --- | --- | --- | --- |
 | `conversation.tool_result`（外部工具结果） | 消息 content 文本里的 v1 §4.3 观察信封（`source/origin/at/owner/ref`）；可选 `data.grant_id` = 该 tool 读取的真实 `BotGrant.id` | 按 §2.3 从信封 `source`+`origin` 推导：web URL / file path / connector 需结构化 resource id | 宿主自己的 bash/文件工具不加信封，不是 observation |
-| `context.observed`（G-3） | flat `data`：`source/kind/observed_at_ms/owner_bot_id/consent_generation/source_version/uncertainty/delivery/payload`；可选 `grant_id` = 真实 `BotGrant.id` | `data.resource{kind:"context-source",key:<OS 资源 id>,owner}`（G-3 r3 起必填） | trust=`observation`；P 必须识别，不得落 `.assistant` |
+| `context.observed`（G-3，**parked target**；当前 core 不产生） | flat `data`：`source/kind/observed_at_ms/owner_bot_id/consent_generation/source_version/uncertainty/delivery/payload`；可选 `grant_id` = 真实 `BotGrant.id` | `data.resource{kind:"context-source",key:<OS 资源 id>,owner}`（G-3 r3 起必填） | trust=`observation`；P 必须识别，不得落 `.assistant` |
 | `comm.inbound` / `device-task` 终态 | 结构化 held/设备事件；若正文含信封则解析信封 | 来源有稳定资源 id 才给 resource；否则 `no-resource-identity` | 设备任务不是“最新文件版本” |
 | 其他 durable type | 不自动当 observation | — | 不得因工具名前缀 `mcp__*`/`web_search` 就猜 observation；名字不是身份 |
 
@@ -233,10 +233,13 @@
   `derivation.sources`（content role），否则 A04 的 routine 出处只能 PARTIAL/NOT_RUN，不得以
   “有 causationId”关闭。
 
-### 3.4 `skill.changed`（skill 写事件）
+### 3.4 `skill.changed`（skill 写事件，**parked target**）
+
+> A04 skill provenance/gate 不在本轮 core；当前 envelope 枚举与 golden 不含 `skill.changed`，
+> 本节仅保留 future target 契约，不代表当前宿主会写该事件。
 
 成功的 skill 文件 create/update/delete（`/dsh/home/skills/<kebab>.md`）由宿主写一条 durable
-`skill.changed`（P25 add-only；`ignorable:true`；复用既有 `origin.kind=local, source=ipc` 与
+`skill.changed`（P25 add-only，当前 core 不启用；`ignorable:true`；复用既有 `origin.kind=local, source=ipc` 与
 `principal.kind=ipc`；不新增枚举值；author 记录实际写入者）。`data` 形状由 `skill-change.schema.json` 冻结：
 
 - `skill{name,file,revision,content_sha256,bytes}`（delete 用 `previous_sha256`，不带 content/bytes）；
