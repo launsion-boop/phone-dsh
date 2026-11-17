@@ -1,0 +1,169 @@
+{
+  "schema": "phone-dsh.bot-full-acceptance/core-aha-repeat3/v1",
+  "source": "E overlay 10b + core worker 601a; 370/c2bf delta restore/spec only; 9 AHA no restore",
+  "total_requests": 248,
+  "scenarios": [
+    {
+      "scenario": "AHA-BOUNDARY",
+      "run1": {
+        "status": "PASS",
+        "requests": 5
+      },
+      "run2": {
+        "status": "PASS",
+        "requests": 5
+      },
+      "run3": {
+        "status": "PASS",
+        "requests": 6
+      },
+      "failed": []
+    },
+    {
+      "scenario": "AHA-COMPACT-REUSE",
+      "run1": {
+        "status": "PASS",
+        "requests": 20
+      },
+      "run2": {
+        "status": "PASS",
+        "requests": 22
+      },
+      "run3": {
+        "status": "PASS",
+        "requests": 21
+      },
+      "failed": []
+    },
+    {
+      "scenario": "AHA-CONTINUOUS",
+      "run1": {
+        "status": "PASS",
+        "requests": 3
+      },
+      "run2": {
+        "status": "PASS",
+        "requests": 7
+      },
+      "run3": {
+        "status": "PASS",
+        "requests": 3
+      },
+      "failed": []
+    },
+    {
+      "scenario": "AHA-DISCOVER",
+      "run1": {
+        "status": "PASS",
+        "requests": 13
+      },
+      "run2": {
+        "status": "PASS",
+        "requests": 17
+      },
+      "run3": {
+        "status": "PASS",
+        "requests": 10
+      },
+      "failed": []
+    },
+    {
+      "scenario": "AHA-ERASURE",
+      "run1": {
+        "status": "PASS",
+        "requests": 7
+      },
+      "run2": {
+        "status": "PASS",
+        "requests": 5
+      },
+      "run3": {
+        "status": "PASS",
+        "requests": 6
+      },
+      "failed": []
+    },
+    {
+      "scenario": "AHA-FRESHNESS",
+      "run1": {
+        "status": "PASS",
+        "requests": 10
+      },
+      "run2": {
+        "status": "PASS",
+        "requests": 9
+      },
+      "run3": {
+        "status": "PASS",
+        "requests": 9
+      },
+      "failed": []
+    },
+    {
+      "scenario": "AHA-INJECTION",
+      "run1": {
+        "status": "PASS",
+        "requests": 5
+      },
+      "run2": {
+        "status": "PASS",
+        "requests": 3
+      },
+      "run3": {
+        "status": "PASS",
+        "requests": 3
+      },
+      "failed": []
+    },
+    {
+      "scenario": "AHA-SILENCE",
+      "run1": {
+        "status": "PASS",
+        "requests": 14
+      },
+      "run2": {
+        "status": "PASS",
+        "requests": 13
+      },
+      "run3": {
+        "status": "FAIL",
+        "requests": 14
+      },
+      "failed": [
+        {
+          "bot": "main",
+          "detail": "no routine.run_finished event matched where attempt=1.0, quiet=true",
+          "expect_ok": true,
+          "ok": false,
+          "type": "bot_event"
+        },
+        {
+          "bot": "main",
+          "detail": "no routine.run_finished event matched where attempt=2.0, quiet=true",
+          "expect_ok": true,
+          "ok": false,
+          "type": "bot_event"
+        }
+      ]
+    },
+    {
+      "scenario": "AHA-SOURCE",
+      "run1": {
+        "status": "PASS",
+        "requests": 6
+      },
+      "run2": {
+        "status": "PASS",
+        "requests": 6
+      },
+      "run3": {
+        "status": "PASS",
+        "requests": 6
+      },
+      "failed": []
+    }
+  ],
+  "result": "FAIL",
+  "reason": "AHA-SILENCE run3 FAIL: no routine.run_finished quiet=true for attempts 1/2; other 8 scenarios 3/3 PASS; SILENCE 2/3",
+  "history": "5aba 7/8,D01 contract-only, old AHA FAIL/BOUNDARY count-only retained; repeat3 old not new candidate"
+}

@@ -1,0 +1,15 @@
+# AHA recheck evidence hashes (minimal reports only; no transcript/reasoning/keys)
+acc66f3a08f68337c19b217981d37c1776b658b48ec51908578831e6f59269f6  docs/evals/evidence/bot-core-20261117/repeat2/AHA-BOUNDARY/report.json
+732a9744a7bb5749bc0f2e6aa54bafec64320315fe11cf4e37b59bb823661e7e  docs/evals/evidence/bot-core-20261117/repeat2/AHA-COMPACT-REUSE/report.json
+975d75581d2d72c0bcb5dff62ad9a612c2a4ae0b996aa6cc7ee03fdeb65bb4fe  docs/evals/evidence/bot-core-20261117/repeat2/AHA-CONTINUOUS/report.json
+11742ad54d8c6291270cf3753352295237f8f19e6b901f6cc23b9fe7d46e9d29  docs/evals/evidence/bot-core-20261117/repeat2/AHA-DISCOVER/report.json
+3f6ae121b7e36f1a790b9509f822d6694cc56df3637b7112489eed07958c962e  docs/evals/evidence/bot-core-20261117/repeat2/AHA-ERASURE/report.json
+c3703fb705decdf3be962b4db4807d36eacf2b363679af130d20cb9dab84b197  docs/evals/evidence/bot-core-20261117/repeat2/AHA-FRESHNESS/report.json
+a7e26b45d86c0eb8e0b87e89151af8a29b8414f622ebf39c744ac45af1205759  docs/evals/evidence/bot-core-20261117/repeat2/AHA-INJECTION/report.json
+7b9683d74730e4ef3510ffa13e2b3357a2490f84cee8cda588b6b912ec9580fa  docs/evals/evidence/bot-core-20261117/repeat2/AHA-SILENCE/report.json
+277e2e737d9852b0a6ea93421fc947fa7c1113f972abc6d1fee0fd68e0f07c1d  docs/evals/evidence/bot-core-20261117/repeat2/AHA-SOURCE/report.json
+37dd6c4bc2c63383f5942a914cae3f53322b71b8ebfacba64b4e85888dcbd84a  docs/evals/evidence/bot-core-20261117/repeat2/aha-report.json
+bc2734f34399de37678392fddff164737c772b216eb0501c9ad9eb6e7c565213  docs/evals/evidence/bot-core-20261117/repeat2/table.json
+39e0ba39833ea7af3a918ab1632e6d4e3cbf550aa7b4f427914dda63e4194250  docs/evals/evidence/bot-core-20261117/silence-bf1559/aha-report.md
+c065bed1e3c925b21d4388b945b22eb0e9876a9bad3a1d09e721fe5d1e7e178d  docs/evals/evidence/bot-core-20261117/silence-bf1559/changed-report.json
+a741cfe7101a1ae9c27cce08263aa119fe8caf74604a06823bd162ec58fa1152  docs/evals/evidence/bot-core-20261117/silence-bf1559/silence-report.json

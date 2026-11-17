@@ -19,7 +19,9 @@
 
 | 验证 | 结果与边界 |
 | --- | --- |
-| 原 8 类 + 连续对话，真实模型 | 9/9 场景、每项 1 次，81 个请求；engine 与独立 scorer 均 PASS。不是发布级完整三轮声明。 |
+| 原 8 类 + 连续对话，真实模型 | repeat=1 最小运行 **9/9 场景、81 req**；engine 与独立 scorer 均 PASS。这是 primary minimal run，不是同 SHA 全量三轮。 |
+| AHA 组合三轮（历史 + 补跑） | 除 SILENCE 外 8 场景组合 1–3 各 **3/3**；AHA-SILENCE **2/3**（run3 旧 `[安静]` FAIL 保留）。3 轮合计 **248 req**；run1 为 `10b38870b` overlay，**不等同同一最终 SHA 三轮**。 |
+| SILENCE bf1559 定向 | **3/3 PASS**（14/13/14 req，quiet=true 断言均过）+ 变化分支 **1 PASS**（6 req，初始 CHANGED_V2，quiet=false，无 `[quiet]`）；旧 SILENCE 2/3 保留，不冒充同 SHA 全量三轮。 |
 | 压缩后复用 | 原始 SDK session 日志存在 6 次 compaction/summary 与 6 个 compact-checkpoint；记忆引用实际指向用户要求及读取规范的工具结果，root 已核查。 |
 | Bot Swift 回归 | 1,223 executed / 2 skipped / 0 failures。跳过项分别需要独立维护证据环境及 HTTP loopback 环境，未把跳过计为通过。 |
 | 记忆恢复/抹除 | 两个原失败方法 2/2；独立相关回归 8/8。 |
@@ -27,7 +29,7 @@
 | 维护质量 | 已有四批真实样例：矛盾修正 2/2、过期修正 2/2；原始引用及独立 judge 已复核。仅代表这些样例，默认 off。 |
 | iOS App | build-for-testing 成功；App 内外 Worker image hash 一致，root 核对签名与交付目录中的 xctestrun 路径。构建不代表真机通过。 |
 
-[逐场景原始报告与独立评分](evidence/bot-core-20261117/aha-report.md) · [源码/产物/测试收据](evidence/bot-core-20261117/source-receipt.json) · [XCTest 结果行](evidence/bot-core-20261117/swift-test-results.txt) · [SHA-256 清单](evidence/bot-core-20261117/SHA256SUMS.txt)
+[逐场景原始报告与独立评分](evidence/bot-core-20261117/aha-report.md) · [三轮组合表](evidence/bot-core-20261117/repeat2/table.json) · [SILENCE bf1559 报告](evidence/bot-core-20261117/silence-bf1559/silence-report.json) · [变化分支报告](evidence/bot-core-20261117/silence-bf1559/changed-report.json) · [源码/产物/测试收据](evidence/bot-core-20261117/source-receipt.json) · [XCTest 结果行](evidence/bot-core-20261117/swift-test-results.txt) · [SHA-256 清单](evidence/bot-core-20261117/SHA256SUMS.txt)
 
 真实模型使用 core `10b38870b` 的 host 与 Worker `601a5ef4…`。后续生产变化只有 restore 分支：这批实际捕获的 12 次 UpdateMemory 调用没有 restore；restore 已另行验证。构建源 `c2bf96de1` 与交付 `9b68ef81` 在 Sources/plugins/examples/Package 文件零差异，后续只是测试/规范记录。
 
@@ -35,7 +37,9 @@
 
 - CI 按用户要求延期，未宣称 CI 全绿。
 - 真机、电量/后台与两周观察不属于最早计划本轮范围；未将模拟器结果外推为这些结果。
-- 历史 repeat=3 的失败保留；当前 core 的完整发布级三轮回执仍待补齐，PR 保留 Draft，不合并、不部署。
+- 历史 repeat=3 的失败保留；当前 core 的三轮证据是“8/9 场景 3/3 + SILENCE 2/3”，另加 bf1559 定向 3/3 + 变化 1 PASS；**不是同一最终 SHA 的全量三轮**，不签 3/3 全 PASS，PR 保留 Draft，不合并、不部署。
+- SIM 真实文本 terminate/relaunch 验收仍 **NOT_RUN**（无 core SIM driver）；entry smoke 为 test-harness INCOMPLETE；整体不作为“已完成”发布。
+- SILENCE bf1559 的模板消歧已验收（3/3 + 变化 1 PASS）；仅代表该定向场景。
 - 第二套 FA-D02 未触发压缩的运行保留为未满足测试前提；不以其替代本表已发生真实压缩的 AHA 证据。
 - 通过这些场景不代表任意模型输出均无错误。历史初稿出现的无依据推断仍作为质量观察保留；可回查引用不自动证明每句话成立。
 - 没有为 OWNER、周报或随机标记增加产品特判；无证明收益的提示增量已撤回。
