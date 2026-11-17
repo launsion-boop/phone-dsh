@@ -124,6 +124,37 @@ final class SimPartnerChatDriver: XCTestCase {
         attach("photos-after-send-notice")
     }
 
+    /// Selects two *different* grid cells (0 and 2) with a delay and a fresh
+    /// query, to avoid the duplicate-photo fixture artifact.
+    func testPhotosChipDistinctThenSend() throws {
+        launchBot()
+        app.buttons["bot.composer.attach"].tap()
+        let photos = app.buttons["照片"]
+        XCTAssertTrue(photos.waitForExistence(timeout: 10), "photo menu missing")
+        photos.tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        let close = app.buttons["Close"]
+        if close.exists { close.tap() }
+        let firstQuery = app.images.matching(identifier: "PXGGridLayout-Info")
+        XCTAssertTrue(waitUntil(20) { firstQuery.count >= 3 }, "photo grid <3")
+        firstQuery.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        let secondQuery = app.images.matching(identifier: "PXGGridLayout-Info")
+        XCTAssertTrue(waitUntil(10) { secondQuery.count >= 3 }, "photo grid lost")
+        secondQuery.element(boundBy: 2).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        app.buttons["Done"].tap()
+        let chip0 = app.descendants(matching: .any)["bot.composer.attachment.0"]
+        XCTAssertTrue(chip0.waitForExistence(timeout: 30), "chip 0 missing")
+        let chip1 = app.descendants(matching: .any)["bot.composer.attachment.1"]
+        XCTAssertTrue(chip1.waitForExistence(timeout: 10), "chip 1 missing")
+        let input = composer()
+        input.tap()
+        input.typeText("请分别说出这两张图片里的票据金额和白板上的三个决策点；看不清就直说。")
+        app.buttons["bot.composer.send"].tap()
+        XCTAssertTrue(waitForTurnEndApprovingOnce(timeout: 900), "distinct photo turn did not settle")
+        attach("photos-distinct-turn-end")
+    }
+
     /// Fast-send race probe: selects photos, taps Done, then sends text
     /// immediately without waiting for the async chip. Records whether the chip
     /// existed at send time so a lost attachment can be classified.
