@@ -3457,6 +3457,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         var toolFinals: [String: Bool] = [:]
         var toolWritePaths: [String: String] = [:]
         var toolWriteVfsPaths: [String: String] = [:]
+        var toolCallRecordRefs: [String: String] = [:]
+        var toolWriteFullContent: [String: Bool] = [:]
         var currentUserSourceRef: String?
         var recordRefs: [String] = []
         var suppressWrapUp = false
@@ -3650,9 +3652,13 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 _ = await watchdog.observeToolCall(
                     kind: watchdogKind(kind), id: "\(sessionId):\(currentTurn ?? "unknown")",
                     name: name, callId: callId, at: eventTime)
-                _ = try await appendConversation(
+                let callCommitSeq = try await appendConversation(
                     type: "conversation.tool_call", sessionId: sessionId, seq: seq,
                     data: data, principalKind: kind, time: eventTime, attemptId: attemptId)
+                if callCommitSeq > 0 {
+                    toolCallRecordRefs[callId] = "record://event/\(callCommitSeq)"
+                }
+                if name == "write" { toolWriteFullContent[callId] = Self.toolWriteContent(from: data) != nil }
             case "tool/result":
                 let callId = data["message"]?["toolCallId"]?.stringValue ?? ""
                 let name = toolNames[callId] ?? ""
@@ -3670,27 +3676,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     kind: watchdogKind(kind), id: "\(sessionId):\(currentTurn ?? "unknown")",
                     name: name, status: failed ? "error" : "ok", callId: callId, at: eventTime)
                 var resultData = data
-                if !failed, let vfsPath = toolWriteVfsPaths.removeValue(forKey: callId),
-                   let skillQueue {
-                    // G-4 A04: wait for the mutation. The queue is shared with
-                    // the observer, so the next immediate skill/model request
-                    // sees the same durable `skill.changed`.
-                    let botID = botId
-                    let session = sessionId
-                    // The current user turn is a trigger/request, not proof
-                    // that the user supplied the skill body. Content evidence
-                    // must come from explicit adopted materials; without one
-                    // this event stays trigger-only and must not certify
-                    // current content. No keyword guessing.
-                    let sources = currentUserSourceRef.map {
-                        [BotDerivationSource(record: $0, role: .trigger)]
-                    } ?? []
-                    await skillQueue.enqueueAndWait {
-                        await skillQueue.runtimeWrite(
-                            vfs: vfsPath, botID: botID, sessionID: session,
-                            sources: sources)
-                    }
-                }
                 if !failed, let path = toolWritePaths[callId],
                    let userRef = currentUserSourceRef,
                    case var .object(object) = data {
@@ -3699,9 +3684,36 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     resultData = .object(object)
                 }
                 toolWritePaths.removeValue(forKey: callId)
+                let writeVfsPath = toolWriteVfsPaths.removeValue(forKey: callId)
                 let resultCommitSeq = try await appendConversation(
                     type: "conversation.tool_result", sessionId: sessionId, seq: seq,
                     data: resultData, principalKind: kind, time: eventTime, attemptId: attemptId)
+                if !failed, let writeVfsPath, let skillQueue {
+                    // Persist the real action/result before deriving the skill.
+                    // A write call carries the exact content; an edit call only
+                    // carries a patch, so it remains trigger-only/unknown until
+                    // a reconstructable base version is recorded.
+                    var sources = currentUserSourceRef.map {
+                        [BotDerivationSource(record: $0, role: .trigger)]
+                    } ?? []
+                    if name == "write",
+                       toolWriteFullContent[callId] == true,
+                       let callRef = toolCallRecordRefs[callId],
+                       resultCommitSeq > 0 {
+                        sources.append(BotDerivationSource(record: callRef, role: .creator))
+                        sources.append(BotDerivationSource(
+                            record: "record://event/\(resultCommitSeq)", role: .evidence))
+                    }
+                    let botID = botId
+                    let session = sessionId
+                    await skillQueue.enqueueAndWait {
+                        await skillQueue.runtimeWrite(
+                            vfs: writeVfsPath, botID: botID, sessionID: session,
+                            sources: sources)
+                    }
+                }
+                toolCallRecordRefs.removeValue(forKey: callId)
+                toolWriteFullContent.removeValue(forKey: callId)
                 if resultCommitSeq > 0,
                    let trace = Self.redactionTrace(in: data),
                    !trace.rules.isEmpty {
@@ -3781,6 +3793,19 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         }
         guard let object = arguments?.objectValue else { return nil }
         return object["file_path"]?.stringValue ?? object["path"]?.stringValue
+    }
+
+    /// The write tool's durable arguments contain the exact content. An edit
+    /// contains only a patch and is therefore not a content source here.
+    static func toolWriteContent(from data: BotJSONValue) -> String? {
+        var arguments = data["arguments"]
+        if case let .string(text)? = arguments {
+            arguments = try? BotJSONValue.parse(Data(text.utf8))
+        }
+        guard let object = arguments?.objectValue,
+              let content = object["content"]?.stringValue,
+              !content.isEmpty else { return nil }
+        return content
     }
 
     /// Only a path inside this Bot's root becomes a workspaceFile id. The id
