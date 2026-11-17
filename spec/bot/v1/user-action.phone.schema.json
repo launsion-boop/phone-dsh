@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "BotUserAction phone extension v1",
-  "description": "iOS-only extension of the P27 user action contract. The shared user-action.schema.json and its golden are unchanged; these two kinds are produced only by the iOS host/UI and validated with this phone schema. They never reach an older reader. See spec/bot/v2/decision-context.md §3.2.",
+  "description": "PARKED TARGET (A04 delivery selection is not installed by the original-scope host; the schema is kept for a future implementation and is not a current wire action). iOS-only extension of the P27 user action contract. The shared user-action.schema.json and its golden are unchanged; these two kinds are produced only by the iOS host/UI and validated with this phone schema. They never reach an older reader. See spec/bot/v2/decision-context.md §3.2.",
   "oneOf": [
     {
       "type": "object",

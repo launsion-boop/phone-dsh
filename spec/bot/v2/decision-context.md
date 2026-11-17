@@ -125,6 +125,11 @@ DSH 没有官方“非 tools/list 的 host→Worker 通道”。因此“完全 
 
 ### 2.1 行/交付展示（U 的 `sources` / `delivery` 投影）
 
+> **parked target（2026-11-17，原范围候选）**：`delivery` 的 A04 delivery-selection
+> host（draft/offer/confirm）不在本轮 core 安装；本机原范围候选仍使用既有文件交付。
+> 本节与 §3.2 的 phone user action 仅作为已冻结的 future target 保留，不能当成本轮
+> 可运行 current，也不作为原 8 类的验收门。
+
 - 任意交付行可带 `sources[]`：每条 `{label,kind,reason?,observed_at?,verification,freshness,
   state,state_detail?}`；`label` 是人话（不得是 `record://`/session/event/tool id），`kind` 封闭
   `user_message|file|calendar|contact|web|memory|inference|bot`；`verification` 封闭
@@ -206,6 +211,9 @@ DSH 没有官方“非 tools/list 的 host→Worker 通道”。因此“完全 
 - 旧 reader：未知 durable type + `ignorable:true` 被忽略；旧 golden/共享 user-action 基线不改。
 
 ### 3.2 用户动作 phone 扩展（`spec/bot/v1/user-action.phone.schema.json`）
+
+> **parked target**：`deliverySelection` action 随 A04 host 一起不在 core 安装；
+> 保留 schema/向量供后续实现，不表示当前宿主接受该 action。
 
 两个 kind，只由 iOS 宿主/UI 产生，共享 `user-action.schema.json` 不变：
 

@@ -176,14 +176,16 @@
             "ListRoutines",
             "RequestApproval",
             "SendToUser",
+            "SendToAgent",
+            "CreateTeammate",
             "FishAction",
             "BotVolatileContext",
             "attach_to_model",
-            "SendToAgent",
-            "CreateTeammate",
+            "RecordFeedback",
+            "BotDecisionContext",
             "native_echo"
           ],
-          "count": 23,
+          "count": 25,
           "last": "native_echo",
           "notContains": [
             "show_table",
@@ -210,7 +212,7 @@
       },
       "expect": {
         "toolList": {
-          "count": 22,
+          "count": 23,
           "contains": [
             "SendToAgent",
             "FishAction"

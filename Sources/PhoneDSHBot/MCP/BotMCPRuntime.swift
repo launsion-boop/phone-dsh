@@ -1979,7 +1979,11 @@ public actor BotMCPRuntime {
         // whole write is refused. P only validates and persists the result.
         var sourceBaselines: [BotSourceBaseline]?
         let sourceRefs = evidence.refs + (review?.refs ?? []) + (triggerRef.map { [$0] } ?? [])
-        if !sourceRefs.isEmpty {
+        // `restore` inherits the restored version's evidence/review, so the
+        // request-derived baseline (current turn/trigger only) must not be
+        // supplied: it would not cover the inherited sources and the write
+        // would fail closed. BotMemory resolves the inherited sources instead.
+        if action != .restore, !sourceRefs.isEmpty {
             guard let resolver = recordEvidence as? any BotSourceStateResolving else {
                 return .failure("memory-source-baseline-unavailable", "来源状态解析器未接入")
             }

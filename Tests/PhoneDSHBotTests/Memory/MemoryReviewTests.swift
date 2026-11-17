@@ -284,7 +284,14 @@ final class MemoryReviewTests: XCTestCase {
         XCTAssertEqual(written.structuredContent?["ok"], .bool(true))
         let read = try await call(["path": "agent/notes/plain.md"], name: "ReadMemory")
         XCTAssertNil(read.structuredContent?["review"])
-        XCTAssertEqual(read.structuredContent?["evidence_status"], .array([]))
+        // COMPACT stored_with_provenance anchors an evidence-less agent chat
+        // write to the host-observed current user turn. The read view must
+        // report that real ref (and its real observation time) rather than an
+        // empty list or a synthesized source version.
+        let status = read.structuredContent?["evidence_status"]?.arrayValue
+        XCTAssertEqual(status?.count, 1)
+        XCTAssertEqual(status?.first?["ref"]?.stringValue, userMessage)
+        XCTAssertEqual(status?.first?["source_version"], .null)
     }
 
     // MARK: - evidence_status (host-derived, never persisted)

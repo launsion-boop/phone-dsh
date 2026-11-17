@@ -291,6 +291,12 @@ public struct RoutineSkip: Codable, Sendable, Equatable {
 /// `cloud_schedule` means cloud scheduling is not authorized (old data and
 /// rollback fail closed), and old writers that drop the field only disable
 /// cloud wakes; they never cause a run.
+/// Legacy durable field for a routine's cloud-scheduling permission.
+///
+/// The original-scope candidate has no cloud scheduler caller: this type is
+/// kept only so older durable routine documents decode without loss. It is
+/// not a core capability, not a gate, and must not be presented as working
+/// cloud scheduling.
 public struct RoutineCloudSchedule: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var seq: Int64
