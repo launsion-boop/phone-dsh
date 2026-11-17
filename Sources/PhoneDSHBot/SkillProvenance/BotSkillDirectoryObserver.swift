@@ -136,7 +136,11 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
                 return [:]
             }()
             let fd = open(root.path, O_EVTONLY)
-            guard fd >= 0 else { return }
+            guard fd >= 0 else {
+                NSLog("[BOT_SKILL_OBSERVER] open-failed root=%@ errno=%d", root.path, errno)
+                return
+            }
+            NSLog("[BOT_SKILL_OBSERVER] opened root=%@", root.path)
             let source = DispatchSource.makeFileSystemObjectSource(
                 fileDescriptor: fd,
                 eventMask: [.write, .rename, .delete, .attrib],
