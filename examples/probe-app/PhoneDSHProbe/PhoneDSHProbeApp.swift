@@ -28,6 +28,9 @@ struct PhoneDSHProbeApp: App {
     @State private var preferences = NativeChatPreferences.shared
 
     init() {
+        #if DEBUG
+        DebugEngineQuarantine.runIfRequested()   // DEBUG recovery: moves chat-host aside, then exits
+        #endif
         // P09 main-thread bound: start the hang evidence first, before any
         // scene work. The monitor writes through the same off-main status log
         // the chat pipeline uses, so a blocked main actor still leaves a trace.
@@ -141,6 +144,10 @@ struct PhoneDSHProbeApp: App {
                 .task {
                     // DEBUG only, launch argument `-pdsh-selftest-device-app 1`; bypasses the install approval card.
                     await DeviceAppSelfTest.runIfRequested()
+                }
+                .task {
+                    // DEBUG only, launch argument `-pdsh-selftest-device-bot-chat 1`; auto-approves the install approval.
+                    await DeviceBotChatSelfTest.runIfRequested()
                 }
                 .task {
                     if let mode = ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] { await TonoLinkUSBOTADiagnostics.run(mode) }

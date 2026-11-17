@@ -68,6 +68,8 @@ Protocol impact: P07; P26; P09: none — 设备应用的 UI 入口另出页面�
 | iOS 静态检查与摘要 | `Sources/PhoneDSHBot/DeviceApp/Validator/**`、`Tests/PhoneDSHBotTests/DeviceApp/Validator*` |
 | iOS 安装编排（Link 调用、续传、journal 回收） | `Sources/PhoneDSHBLE/DeviceApp/**`、`Tests/PhoneDSHBLETests/DeviceApp*` |
 | iOS Bot 工具、审批、作者指南、host-only 准入 | `Sources/PhoneDSHBot/DeviceApp/Tools/**`、对应测试；`Sources/PhoneDSHBLE/LinkToolCaller.swift` 仅加 host-only 判定 |
+| Worker：审批门分类、per-caller 工具面（deny-unless-listed） | `plugins/bot-runtime/src/approval-gate.ts`、`plugins/bot-runtime/src/caller-catalog.ts`、`plugins/tests/bot-identity-approval.test.ts`、`plugins/tests/bot-caller-catalog.test.ts` |
+| iOS 全调用方 `tools/list` 含两工具 | `Sources/PhoneDSHBot/MCP/BotMCPRuntime.swift`（`toolDefinitions(callerBotID: nil)`）、`Tests/PhoneDSHBotTests/DeviceApp/DeviceAppToolsTests.swift` |
 | MicroPython 设备端 Link 外设与安装器 | `speaker-touch-demo/passport-mpy/frozen/{link_peripheral,devapp,link_wire}.py` 与其测试 |
 | MicroPython 运行时守卫与 HTTP 收紧 | `speaker-touch-demo/passport-mpy/frozen/{apprt,httpd,launcher,settings}.py` 的指定改动 |
 | 设备应用样式库与示例应用 | `speaker-touch-demo/passport-mpy/frozen/kit.py`、`apps-golden/**` |
@@ -87,3 +89,25 @@ Protocol impact: P07; P26; P09: none — 设备应用的 UI 入口另出页面�
 | --- | --- | --- | --- |
 | device-app-v1 | 主 agent | 冻结；依据 5 份只读探索结果 | 6 个实现者（见 §4） |
 | device-app-v1.1 | 主 agent | 收下 `kit` 导入变更请求（样式库实现者）；写入 `.devapp` 标记、`limits` 键名、提交遇运行中应用返回 `running`、按块计费的配额、EOF 词法错误行号、总大小由 DeviceAppStage 报告；oracle 改为完整匹配（结尾换行无效）并加 5 条向量；记录 `DeviceAppInstall` 自带审批、持久主体待决 | 全部实现者；设备端沙箱与安装器已按此改，iOS 校验器放行 `kit` |
+| device-app-v1.2 | 主 agent（经 CCR 接受，由实现者代编辑契约） | 真机联调发现 Worker 只从全调用方 `tools/list` 注册 `mcp__phone__*` 工具，而 §10 把两个工具排除在该列表之外，模型看不到、调用得到 `unknown tool`；此前 Worker 审批门也未登记这两个名字，会以 `tool.unclassified`（session）送 `/approval`，被 App 以 `stale:always_scope` 拒绝 | Worker（审批门、caller-catalog）、iOS BotMCPRuntime、spec/bot/v1/tool-contracts.md §10、golden/tool-catalog.phone.json `deviceApp.note` |
+
+## 6. CCR 与决定（device-app-v1.2）
+
+```
+CONTRACT CHANGE REQUEST
+Contract: P26/P05 device-app tool surface @ device-app-v1.1  Clause: tool-contracts.md §10 last bullet
+Problem: Worker 只从全调用方 tools/list 注册工具；per-caller 目录只能重述/隐藏已注册的 SendToAgent/CreateTeammate。设备应用工具只在 per-caller 目录 → Worker 永远没有注册 → unknown tool。
+Proposal: (a) 宿主装了 device-app host 时，全调用方列表含两工具；(b) Worker caller-catalog 对这两个名字 deny-unless-listed：已识别调用方的 per-caller 目录不含时隐藏；(c) 宿主继续按 per-caller 目录拒绝未绑定调用方；(d) 修订 §10 与 golden 说明。
+Decision: 接受（契约所有者）。
+```
+
+Worker 审批门（`approval-gate.ts` `AUTO_TOOLS`）：`DeviceAppStage`、`DeviceAppInstall`（裸名与 `mcp__phone__` 前缀）不产生 Worker effect、不走 `/approval`；Stage 是宿主 `read/auto`，Install 由 App 自己弹一次性、绑定 digest 的审批。近似名（如 `DeviceAppStageX`）仍是 `tool.unclassified`，不放宽。
+
+### 相容性（device-app-v1.2）
+
+| Producer → Consumer | 处理 |
+| --- | --- |
+| 新 App → 旧 Worker 镜像 | 全调用方列表多两个工具；旧 Worker 会把它们注册并对所有 Bot 可见（旧审批门把它们当 `tool.unclassified`/session，被 App 拒 `stale:always_scope`）。未绑定 Bot 的调用仍被宿主按 per-caller 目录拒绝。须同时更新 Worker 镜像 |
+| 旧 App → 新 Worker | 全调用方列表没有这两个工具，Worker 无从注册；deny 对不存在的名字无效，其他工具面不变（无功能，无副作用） |
+| 新 → 新 | 已绑定 Bot：两工具可见；未绑定的已识别 Bot：被隐藏且调用被拒；无法识别调用方（workbench）：保留全调用方面，宿主仍拒绝未绑定调用 |
+| 旧数据 → 新 / 回滚 | 无持久化变更；回滚 App 即回到「不可见」 |

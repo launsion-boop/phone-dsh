@@ -660,7 +660,13 @@ public actor BotMCPRuntime {
     /// installed by `registerTeamTools`; the App needs no extra wiring.
     public func toolDefinitions(callerBotID: String?) async -> [BotMCPToolDefinition] {
         guard let callerBotID, !callerBotID.isEmpty else {
-            return BotToolCatalog.workerDefinitions
+            // device-app-v1: the all-callers list the Worker registers its tools
+            // from carries the two host tools whenever the host is installed;
+            // the Worker hides them per caller and `execute` refuses an unbound
+            // caller against the per-caller catalog below.
+            return deviceApp == nil
+                ? BotToolCatalog.workerDefinitions
+                : BotToolCatalog.workerDefinitions + DeviceAppToolDefinitions.all
         }
         var base = BotToolCatalog.workerDefinitions
         if let provider = toolCatalogProvider,

@@ -1541,6 +1541,19 @@ final class BotRuntimeComposition {
         }
     }
 
+#if DEBUG
+    /// DEBUG self-test diagnostic: the Worker's archived-session set. `unarchiveSession` on an id
+    /// that is not archived is an idempotent no-op that returns the resulting set, so this only
+    /// reads. Never compiled into a release build.
+    func debugArchivedSessionIDs(unarchive sessionID: String = "zz-diagnostic-none") async -> [String]? {
+        guard let host, let transport = try? await host.makeTransport(),
+              let value = try? await transport.call("workspace/unarchiveSession", args: .object([
+                  "request": .object(["sessionId": .string(sessionID)]),
+              ])) else { return nil }
+        return value["archivedSessionIds"]?.arrayValue?.compactMap { $0.stringValue }
+    }
+#endif
+
     private func clearWakeInbox(for botID: String) async throws {
         let store = SQLiteWakeInboxStore(domainStore: domain, botId: botID)
         _ = try await store.mutate { document in

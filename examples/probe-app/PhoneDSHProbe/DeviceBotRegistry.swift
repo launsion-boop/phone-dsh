@@ -186,7 +186,7 @@ private final class ProbeDeviceBotHost: DeviceBotHost {
         let eventID = "teammate-created-\(profile.id)"
         let event = BotEvent(
             type: "ui.system_event", eventId: eventID,
-            time: botProductionNowMilliseconds(), origin: .local(source: "device-bot"),
+            time: botProductionNowMilliseconds(), origin: .local(source: "comm-service"),
             traceId: eventID,
             principal: BotPrincipal(botId: profile.id, sessionId: nil, kind: "team"),
             causationId: nil, correlationId: creationID,

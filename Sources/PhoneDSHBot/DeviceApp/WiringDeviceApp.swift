@@ -128,7 +128,7 @@ public enum DeviceAppWiring {
                                   time: Int64) -> BotEvent {
         BotEvent(
             type: "ui.system_event", eventId: eventID, time: time,
-            origin: .local(source: "device-app"), traceId: eventID,
+            origin: .local(source: "runtime"), traceId: eventID,
             principal: BotPrincipal(botId: botID, sessionId: audit.author.sessionId, kind: "team"),
             causationId: nil, correlationId: audit.author.rpcId, data: audit.eventData)
     }

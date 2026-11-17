@@ -62,6 +62,13 @@ const AUTO_TOOLS = new Set([
   // user for another approval card. FishAction is cosmetic only; playing a
   // gesture must never block a turn behind an approval card.
   'SendToAgent', 'CreateTeammate', 'FishAction',
+  // Device-app tools are App-owned (`BotMCPRuntime.executeDeviceApp`). Stage is
+  // a static check classified `read + auto` (golden tool-effects.phone.json);
+  // Install never uses a Worker card: the App raises its own once-only,
+  // digest-bound approval before any radio use. A Worker effect here would send
+  // `alwaysScope=session` (unclassified), be rejected as `stale:always_scope`
+  // before the call runs, and for Install would double the approval card.
+  'DeviceAppStage', 'DeviceAppInstall',
 ])
 // PR59's native-MCP "BLE tools" (`spec/v1/native-mcp.md`), forwarded by the
 // Bot server as `mcp__phone__ble_*`. PR59's per-connection grant is the real
