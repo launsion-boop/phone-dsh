@@ -255,6 +255,16 @@ final class BotRuntimeComposition {
     /// Read-only seam for the Bot info/settings entry and the info driver. The
     /// assembly remains the sole consent/observation authority.
     var contextSourcesAssembly: BotContextSourcesAssembly? { contextSources }
+
+    /// Resolve a trusted exec tool-call session through each unit's actual
+    /// Worker ownership. Never use the selected Bot or the last bound unit.
+    func botID(forToolSession sessionID: String) async -> String? {
+        guard !sessionID.isEmpty else { return nil }
+        for (botID, unit) in units {
+            if await unit.remote.ownsSession(sessionID) { return botID }
+        }
+        return nil
+    }
     /// G-1 provenance read model (process-wide, one event log).
     private(set) var provenance: BotProvenanceService?
     /// G-2 feedback center, shared by every unit and the RecordFeedback tool.

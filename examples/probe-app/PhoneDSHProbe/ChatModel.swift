@@ -1849,9 +1849,14 @@ final class ChatModel {
             office: OfficeToolBridge(presenter: OfficePresenter()),
             phone: capabilityBridge)
         let recordQuery = botLaunch.map { BotRecordPhoneAdapter(service: $0.composition.recordService) }
+        let contactsBridge = botLaunch.map {
+            BotContextContactsSessionBridge(composition: $0.composition)
+        }
         let shell = PDSHShellProvider(materializedWorkspace: materializedWorkspace,
                                       materializedHome: materializedHome,
                                       toolBridge: toolBridge,
+                                      botContactsQuery: contactsBridge,
+                                      contactsSessionClassifier: contactsBridge,
                                       recordQuery: recordQuery)
         // `phone record` is a Swift-side read-only bridge; it does not need the
         // linked Rust shell. Advertise `phone` whenever that bridge exists so a
