@@ -2038,6 +2038,8 @@ public actor BotMCPRuntime {
                                 "review 必须给出可解析的真实记录：verified 需要至少一条引用，disputed 需要冲突双方。")
             }
         }
+        // Current user turn is request provenance, never content evidence.
+        let triggerRef = currentUserMessageRefs[call.sessionId]
         let sourceKind = memorySourceKind(for: call)
         guard let authorKind = call.principal.kind.memoryAuthorKind else {
             return .failure("permission_denied", "验证会话不能写记忆")
