@@ -607,9 +607,12 @@ final class BotRuntimeComposition {
                 source: source, ownerBotID: botID) else { continue }
             let observer = BotSkillDirectoryObserver(
                 root: root, label: "bot.skill.\(source)", createRoot: true,
-                onDeleted: { [router = userSkillRouter] name in
+                onDeleted: { [queue] name in
+                    // Project roots are per-Bot. Capture this unit's queue, not
+                    // the shared user router: a late callback after selection
+                    // must never contaminate the newly selected Bot's queue.
                     let vfs = botRoot + "/" + suffix + "/" + name
-                    router.projectDelete(vfs: vfs, botID: botID)
+                    queue.enqueue { await queue.botDelete(vfs: vfs, botID: botID) }
                 })
             observer.start()
             skillDirectoryObservers.append(observer)

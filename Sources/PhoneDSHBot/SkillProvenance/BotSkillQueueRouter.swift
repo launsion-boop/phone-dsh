@@ -32,14 +32,6 @@ public final class BotSkillQueueRouter: @unchecked Sendable {
         }
     }
 
-    public func projectDelete(vfs: String, botID: String) {
-        let queue = current()
-        queue?.enqueue { [weak queue] in
-            guard let queue else { return }
-            await queue.botDelete(vfs: vfs, botID: botID)
-        }
-    }
-
     private func current() -> BotSkillEventQueue? {
         lock.lock(); defer { lock.unlock() }
         return queue
