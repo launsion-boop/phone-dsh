@@ -69,3 +69,24 @@ final class BotSkillUseStatusHandlerTests: XCTestCase {
                        .string("skill-provenance-unavailable"), "\(result)")
     }
 }
+
+    func testTokenedIdentityRegistrationAdmitsInternalSkillStatus() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        _ = try await fixture.runtime.issueSession(
+            botId: "bot-a", sessionId: "gb-bot-a", kind: .chat)
+        await beginUserTurn(fixture.runtime, sessionId: "gb-bot-a")
+        let token = try await fixture.runtime.issueSessionToken(
+            botId: "bot-a", sessionId: "gb-bot-a", kind: .chat)
+        let attribution = try await fixture.runtime.registerIdentity(
+            runtimeId: BotMCPRuntime.defaultRuntimeID,
+            sessionId: "gb-bot-a", callId: "skill-token",
+            name: "BotSkillUseStatus", arguments: arguments("missing"),
+            sessionToken: token.token)
+        XCTAssertFalse(attribution.id.isEmpty)
+        let result = await fixture.runtime.execute(
+            name: "BotSkillUseStatus", arguments: arguments("missing"),
+            context: BotMCPRequestContext(callId: "skill-token"))
+        XCTAssertEqual(result.structuredContent?["status"], .null, "\(result)")
+        XCTAssertFalse(result.isError)
+    }

@@ -51,11 +51,14 @@ export function skillUseDenialCode(status: string | null): string {
 
 export const SKILL_STATUS_UNAVAILABLE = 'skill-provenance-status-unavailable'
 
+const STATUS_FAILURE_DETAIL = /^[a-z0-9:_-]{1,48}$/u
+
 function statusUnavailable(detail?: string): { readonly kind: 'deny'; readonly reason: string } {
-  const suffix = detail === undefined ? '' : `:${detail.slice(0, 80)}`
+  const safe = detail !== undefined && STATUS_FAILURE_DETAIL.test(detail)
+    ? detail : 'unknown'
   return {
     kind: 'deny',
-    reason: `[skill provenance] The skill status could not be verified (${SKILL_STATUS_UNAVAILABLE}${suffix}); its instructions were NOT loaded.`,
+    reason: `[skill provenance] The skill status could not be verified (${SKILL_STATUS_UNAVAILABLE}; detail=${safe}); its instructions were NOT loaded.`,
   }
 }
 
@@ -91,19 +94,42 @@ function denial(status: string | null): { readonly kind: 'deny'; readonly reason
  * lookup itself failed (missing/error/wrong schema), which must not be
  * reported as a tracked `unknown`; `null` means L has no tracked identity.
  */
-export function skillStatusFromToolResult(result: unknown): string | null | undefined {
-  if (!isRecord(result) || result.isError === true || !isRecord(result.value)) return undefined
+export type SkillStatusLookup =
+  | { readonly status: string | null }
+  | { readonly failure: string }
+
+/** Pure lookup with a bounded failure code; it never changes the policy. */
+export function skillStatusLookup(result: unknown): SkillStatusLookup {
+  if (result === undefined) return { failure: 'missing' }
+  if (!isRecord(result)) return { failure: 'missing' }
+  if (result.isError === true) {
+    const value = isRecord(result.value) ? result.value : undefined
+    const structured = value !== undefined && isRecord(value.structuredContent)
+      ? value.structuredContent : undefined
+    const error = structured !== undefined && isRecord(structured.error)
+      ? structured.error : undefined
+    const code = error !== undefined && typeof error.code === 'string'
+      ? error.code.replace(/[^a-z0-9:_-]/giu, '').toLowerCase().slice(0, 24)
+      : 'unknown'
+    return { failure: `isError:${code || 'unknown'}` }
+  }
+  if (!isRecord(result.value)) return { failure: 'schema' }
   const value = result.value.structuredContent
   if (!isRecord(value) || value.schema !== BOT_SKILL_USE_STATUS_SCHEMA || value.ok !== true) {
-    return undefined
+    return { failure: 'schema' }
   }
   const raw = value.status
-  if (raw === null || raw === undefined) return null
+  if (raw === null || raw === undefined) return { status: null }
   if (typeof raw === 'string'
     && ['current', 'changed', 'unavailable', 'revoked', 'erased', 'unknown'].includes(raw)) {
-    return raw
+    return { status: raw }
   }
-  return undefined
+  return { failure: 'status' }
+}
+
+export function skillStatusFromToolResult(result: unknown): string | null | undefined {
+  const lookup = skillStatusLookup(result)
+  return 'status' in lookup ? lookup.status : undefined
 }
 
 /**
@@ -171,7 +197,7 @@ function loadedSkillCalls(messages: readonly unknown[]): Map<string, string> {
 async function queryStatus(
   ctx: Context, statusTool: string, name: string, agent: unknown,
   signal: AbortSignal | undefined, callId: number,
-): Promise<string | null | undefined> {
+): Promise<SkillStatusLookup> {
   try {
     const batch = await ctx.tools.execute({
       calls: [{
@@ -183,21 +209,9 @@ async function queryStatus(
       ...signal === undefined ? {} : { signal },
       ...agent === undefined ? {} : { agent: agent as never },
     })
-    const result = batch.results[0]?.result
-    if (result === undefined || result.isError || !isRecord(result.value)) return undefined
-    const value = result.value.structuredContent
-    if (!isRecord(value) || value.schema !== BOT_SKILL_USE_STATUS_SCHEMA || value.ok !== true) {
-      return undefined
-    }
-    const raw = value.status
-    if (raw === null || raw === undefined) return null
-    if (typeof raw === 'string'
-      && ['current', 'changed', 'unavailable', 'revoked', 'erased', 'unknown'].includes(raw)) {
-      return raw
-    }
-    return undefined
+    return skillStatusLookup(batch.results[0]?.result)
   } catch {
-    return undefined
+    return { failure: 'exception' }
   }
 }
 
@@ -269,8 +283,9 @@ export default function dshbotSkillUseGate(
     let callId = nextCallId
     for (const name of names) {
       callId += 1
-      statuses.set(name, await queryStatus(
-        ctx, statusTool, name, payload.agent, payload.signal, callId))
+      const lookup = await queryStatus(
+        ctx, statusTool, name, payload.agent, payload.signal, callId)
+      statuses.set(name, 'status' in lookup ? lookup.status : undefined)
     }
     nextCallId = callId
     const filtered = filterSkillProvenanceMessages(messages, statuses)
@@ -308,15 +323,11 @@ export default function dshbotSkillUseGate(
         ...exec.signal === undefined ? {} : { signal: exec.signal },
         ...exec.agent === undefined ? {} : { agent: exec.agent as never },
       })
-      const result = batch.results[0]?.result
-      const parsed = skillStatusFromToolResult(result)
-      if (parsed === undefined) {
-        return statusUnavailable(skillStatusFailureCode(result))
-      }
-      status = parsed
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      return statusUnavailable(`exception:${message.replace(/\s+/gu, '-').slice(0, 60)}`)
+      const lookup = skillStatusLookup(batch.results[0]?.result)
+      if ('failure' in lookup) return statusUnavailable(lookup.failure)
+      status = lookup.status
+    } catch {
+      return statusUnavailable('exception')
     }
     if (skillUseDecision(status) === 'allow') return next()
     return denial(status)
