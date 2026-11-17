@@ -247,7 +247,6 @@ final class BotRuntimeComposition {
     private var cloudAccountTask: Task<Void, Never>?
     private var contextStartTask: Task<Void, Never>?
     private var stopped = false
-    private var contextStartTask: Task<Void, Never>?
     private var latestCloudSceneGeneration = 0
 
     /// Read-only seam for the Bot info/settings entry and the info driver. The
