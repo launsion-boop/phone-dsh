@@ -24,15 +24,10 @@ final class BotContextSourcesSettingsModel: ObservableObject {
     let botID: String
     private let assembly: BotContextSourcesAssembly
 
-    static let fencesDefaultsKey = "phone-dsh.bot.geofences.v1"
-
     init(botID: String, assembly: BotContextSourcesAssembly) {
         self.botID = botID
         self.assembly = assembly
-        if let data = UserDefaults.standard.data(forKey: Self.fencesDefaultsKey),
-           let decoded = try? JSONDecoder().decode([BotContextGeofenceSpec].self, from: data) {
-            self.fences = decoded
-        }
+        // N/assembly owns the single product-config store; read after load.
     }
 
     /// User-confirmed places only. Coordinates are typed/selected by the user;
@@ -48,9 +43,8 @@ final class BotContextSourcesSettingsModel: ObservableObject {
                 radiusMeters: radiusMeters, label: clean)
             var next = fences
             next.append(spec)
-            try persistFences(next)
             try await assembly.setGeofences(next)
-            fences = next
+            fences = assembly.geofences
             actionError = nil
         } catch {
             actionError = (error as? LocalizedError)?.errorDescription ?? "围栏保存失败"
@@ -61,17 +55,11 @@ final class BotContextSourcesSettingsModel: ObservableObject {
         var next = fences
         next.removeAll { $0.id == spec.id }
         do {
-            try persistFences(next)
             try await assembly.setGeofences(next)
-            fences = next
+            fences = assembly.geofences
         } catch {
             actionError = (error as? LocalizedError)?.errorDescription ?? "围栏移除失败"
         }
-    }
-
-    private func persistFences(_ next: [BotContextGeofenceSpec]) throws {
-        let data = try JSONEncoder().encode(next)
-        UserDefaults.standard.set(data, forKey: Self.fencesDefaultsKey)
     }
 
     func load() async {
@@ -101,6 +89,7 @@ final class BotContextSourcesSettingsModel: ObservableObject {
         subscriptions = nextSubscriptions
         let view = await assembly.observationView(for: botID)
         recent = view.items
+        fences = assembly.geofences
         if !assembly.isStarted() {
             actionError = "情境来源尚未启动，请回到 Bot 页面重试。"
         }
@@ -175,6 +164,18 @@ struct BotContextSourcesSettingsView: View {
 
     var body: some View {
         List {
+            if model.loading {
+                Section {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("正在读取情境来源…")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityIdentifier("bot.context.loading")
+                }
+            }
+
             Section {
                 ForEach(BotContextSourceKind.allCases, id: \.self) { source in
                     Toggle(isOn: Binding(
@@ -274,6 +275,7 @@ struct BotContextSourcesSettingsView: View {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .font(.system(size: 13))
                         .foregroundStyle(.red)
+                        .accessibilityIdentifier("bot.context.error")
                 }
             }
         }
