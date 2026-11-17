@@ -103,6 +103,7 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
     private let onWritten: Handler?
     private let onDeleted: Handler?
     private let createRoot: Bool
+    private let rescanInterval: TimeInterval?
     private var source: DispatchSourceFileSystemObject?
     private var timer: DispatchSourceTimer?
     private var previous: [String: BotSkillFileStamp]?
@@ -112,9 +113,11 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
     public init(root: URL,
                 label: String = "bot.skill-directory-observer",
                 createRoot: Bool = false,
+                rescanInterval: TimeInterval? = 1,
                 onWritten: Handler? = nil,
                 onDeleted: Handler? = nil) {
         self.root = root
+        self.rescanInterval = rescanInterval
         self.queue = DispatchQueue(label: label)
         self.createRoot = createRoot
         self.onWritten = onWritten
@@ -154,11 +157,13 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
             // FSEvents may coalesce a short-lived create/delete into no
             // observable change. A bounded periodic rescan is the fallback;
             // it only emits changed stamps and never reads file bodies.
-            let timer = DispatchSource.makeTimerSource(queue: queue)
-            timer.schedule(deadline: .now() + 1, repeating: 1)
-            timer.setEventHandler { [weak self] in self?.scan() }
-            self.timer = timer
-            timer.resume()
+            if let interval = rescanInterval, interval > 0 {
+                let timer = DispatchSource.makeTimerSource(queue: queue)
+                timer.schedule(deadline: .now() + interval, repeating: interval)
+                timer.setEventHandler { [weak self] in self?.scan() }
+                self.timer = timer
+                timer.resume()
+            }
             started = true
             didStart = true
             NSLog("[BOT_SKILL_OBSERVER] start root=%@", root.path)
@@ -174,6 +179,17 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
             timer = nil
             started = false
             NSLog("[BOT_SKILL_OBSERVER] stop root=%@", root.path)
+        }
+    }
+
+    /// Tests drive the same serial queue as FSEvents/timer, not the XCTest
+    /// thread, so a manual scan cannot race a timer tick.
+    public func scanForTesting() async {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                self.scan()
+                continuation.resume()
+            }
         }
     }
 
