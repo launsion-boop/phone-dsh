@@ -280,7 +280,7 @@ export function phoneEffectsForApproval(
   if (bare === 'write' || bare === 'edit') {
     return fileEffect(bare, args, context.workspaceRoot ?? '/dsh/workspace')
   }
-  if (bare === 'BotVolatileContext' || UI_TOOLS.has(bare) || AUTO_TOOLS.has(bare)) return []
+  if (bare === 'BotVolatileContext' || bare === 'BotDecisionContext' || UI_TOOLS.has(bare) || AUTO_TOOLS.has(bare)) return []
   if (BLE_TOOLS.has(bare)) return [bleEffect(bare, args)]
   if (bare === 'attach_to_model') return [modelImageEffect(name, args)]
   // DSH's built-in read_image is a model-egress path too: without this gate
