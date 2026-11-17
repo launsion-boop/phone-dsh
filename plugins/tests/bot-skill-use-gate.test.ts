@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { filterSkillProvenanceMessages, removeCatalogLines, skillStatusFromToolResult, skillUseDecision, skillUseDenialCode } from '../bot-runtime/src/skill-use-gate.ts'
+import dshbotSkillUseGate, { filterSkillProvenanceMessages, removeCatalogLines, skillStatusFromToolResult, skillUseDecision, skillUseDenialCode } from '../bot-runtime/src/skill-use-gate.ts'
 
 test('only a current skill may load', () => {
   assert.equal(skillUseDecision('current'), 'allow')
@@ -111,4 +111,8 @@ test('status lookup failure is unavailable, while null is untracked and unknown 
     value: { structuredContent: { schema: 'wrong', ok: true, status: 'current' } },
   }), undefined)
   assert.equal(skillStatusFromToolResult(ok('bogus')), undefined)
+})
+
+test('the gate declares the tools service it calls', () => {
+  assert.deepEqual(dshbotSkillUseGate.inject, ['tools'])
 })
