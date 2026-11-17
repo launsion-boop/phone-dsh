@@ -175,11 +175,14 @@ public final class BotSkillEventQueue: @unchecked Sendable {
     /// Runtime write/edit after a successful tool result. This replaces the
     /// former `try? recordBotWrite`; failures are visible, not silent.
     public func runtimeWrite(vfs: String, botID: String, sessionID: String?,
-                             sources: [BotDerivationSource] = []) async {
+                             sources: [BotDerivationSource] = [],
+                             creatorRecord: String? = nil,
+                             creatorContentSHA256: String? = nil) async {
         do {
             _ = try await producer.recordBotWrite(
                 vfsPath: vfs, botID: botID, sessionID: sessionID,
-                sources: sources)
+                sources: sources, creatorRecord: creatorRecord,
+                creatorContentSHA256: creatorContentSHA256)
             record(action: "runtime-write", key: vfs, outcome: .recorded, detail: nil)
         } catch {
             record(action: "runtime-write", key: vfs, outcome: .failed,

@@ -3478,6 +3478,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         var toolFinals: [String: Bool] = [:]
         var toolWritePaths: [String: String] = [:]
         var toolWriteVfsPaths: [String: String] = [:]
+        var toolWriteContentSHA256: [String: String] = [:]
         var toolCallRecordRefs: [String: String] = [:]
         var toolWriteFullContent: [String: Bool] = [:]
         var currentUserSourceRef: String?
@@ -3679,7 +3680,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 if callCommitSeq > 0 {
                     toolCallRecordRefs[callId] = "record://event/\(callCommitSeq)"
                 }
-                if name == "write" { toolWriteFullContent[callId] = Self.toolWriteContent(from: data) != nil }
+                if name == "write", let content = Self.toolWriteContent(from: data) {
+                    toolWriteFullContent[callId] = true
+                    toolWriteContentSHA256[callId] = BotSkillProvenanceProducer.contentSHA256(content)
+                }
             case "tool/result":
                 let callId = data["message"]?["toolCallId"]?.stringValue ?? ""
                 let name = toolNames[callId] ?? ""
@@ -3701,7 +3705,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                    let userRef = currentUserSourceRef,
                    case var .object(object) = data {
                     object["derivation"] = Self.workspaceFileDerivation(
-                        path: path, botID: botId, userRecord: userRef)
+                        path: path, botID: botId, userRecord: userRef,
+                        creatorRecord: toolCallRecordRefs[callId])
                     resultData = .object(object)
                 }
                 toolWritePaths.removeValue(forKey: callId)
@@ -3726,14 +3731,18 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     }
                     let botID = botId
                     let session = sessionId
+                    let creatorRecord = sources.first(where: { $0.role == .creator })?.record
+                    let creatorHash = toolWriteContentSHA256[callId]
                     await skillQueue.enqueueAndWait {
                         await skillQueue.runtimeWrite(
                             vfs: writeVfsPath, botID: botID, sessionID: session,
-                            sources: sources)
+                            sources: sources, creatorRecord: creatorRecord,
+                            creatorContentSHA256: creatorHash)
                     }
                 }
                 toolCallRecordRefs.removeValue(forKey: callId)
                 toolWriteFullContent.removeValue(forKey: callId)
+                toolWriteContentSHA256.removeValue(forKey: callId)
                 if resultCommitSeq > 0,
                    let trace = Self.redactionTrace(in: data),
                    !trace.rules.isEmpty {
@@ -3857,22 +3866,35 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// monotonic version; the real current user turn is the evidence source.
     /// A missing user source never produces a derivation.
     static func workspaceFileDerivation(path: String, botID: String,
-                                        userRecord: String) -> BotJSONValue {
-        .object([
-            "artifact": .object([
-                "kind": .string("workspaceFile"),
-                "id": .string(path),
-            ]),
-            "sources": .array([.object([
+                                        userRecord: String,
+                                        creatorRecord: String? = nil) -> BotJSONValue {
+        var sourceList: [BotJSONValue] = [.object([
                 "record": .string(userRecord),
-                "role": .string("evidence"),
+                "role": .string("trigger"),
+                "resource": .object([
+                    "kind": .string("workspace-file"),
+                    "key": .string(path),
+                    "owner": .string(botID),
+                    "scope": .string("agent"),
+                ])])
+        if let creatorRecord {
+            sourceList.append(.object([
+                "record": .string(creatorRecord),
+                "role": .string("creator"),
                 "resource": .object([
                     "kind": .string("workspace-file"),
                     "key": .string(path),
                     "owner": .string(botID),
                     "scope": .string("agent"),
                 ]),
-            ])]),
+            ]))
+        }
+        return .object([
+            "artifact": .object([
+                "kind": .string("workspaceFile"),
+                "id": .string(path),
+            ]),
+            "sources": .array(sourceList),
         ])
     }
 
