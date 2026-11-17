@@ -3478,7 +3478,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         var toolFinals: [String: Bool] = [:]
         var toolWritePaths: [String: String] = [:]
         var toolWriteVfsPaths: [String: String] = [:]
-        var toolWriteContentSHA256: [String: String] = [:]
+        var toolWriteCreatorSHA: [String: String] = [:]
         var toolCallRecordRefs: [String: String] = [:]
         var toolWriteFullContent: [String: Bool] = [:]
         var currentUserSourceRef: String?
@@ -3682,7 +3682,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 }
                 if name == "write", let content = Self.toolWriteContent(from: data) {
                     toolWriteFullContent[callId] = true
-                    toolWriteContentSHA256[callId] = BotSkillProvenanceProducer.contentSHA256(content)
+                    toolWriteCreatorSHA[callId] = BotSkillProvenanceProducer.contentSHA256(content)
                 }
             case "tool/result":
                 let callId = data["message"]?["toolCallId"]?.stringValue ?? ""
@@ -3743,7 +3743,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 }
                 toolCallRecordRefs.removeValue(forKey: callId)
                 toolWriteFullContent.removeValue(forKey: callId)
-                toolWriteContentSHA256.removeValue(forKey: callId)
+                toolWriteCreatorSHA.removeValue(forKey: callId)
                 if resultCommitSeq > 0,
                    let trace = Self.redactionTrace(in: data),
                    !trace.rules.isEmpty {
