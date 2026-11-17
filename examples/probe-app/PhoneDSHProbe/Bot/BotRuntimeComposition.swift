@@ -241,6 +241,8 @@ final class BotRuntimeComposition {
     private var skillDirectoryObservers: [BotSkillDirectoryObserver] = []
     /// G-3 account credential observation; cancelled with the composition.
     private var cloudAccountTask: Task<Void, Never>?
+    private var contextStartTask: Task<Void, Never>?
+    private var stopped = false
 
     /// Read-only seam for the Bot info/settings entry and the info driver. The
     /// assembly remains the sole consent/observation authority.
@@ -589,7 +591,7 @@ final class BotRuntimeComposition {
         let selectedUnit = try await composition.ensureUnit(
             for: rosterModel.selectedBotID ?? selectedCandidate,
             reason: "prepare")
-        Task { await composition.startContextSourcesIfNeeded() }
+        composition.contextStartTask = Task { await composition.startContextSourcesIfNeeded() }
         return Launch(composition: composition, environment: selectedUnit.environment,
                       materialTrace: materialTrace)
     }
@@ -826,7 +828,7 @@ final class BotRuntimeComposition {
     /// Start the context-source registry as soon as the composition exists, so
     /// the settings surface is not stuck at "unavailable" until a host bind.
     func startContextSourcesIfNeeded() async {
-        guard let contextSources, !contextSources.isStarted() else { return }
+        guard !stopped, let contextSources, !contextSources.isStarted() else { return }
         let router = BotContextWakeDecisionRouter(
             assembly: contextSources,
             runner: { [weak self] request in
@@ -840,6 +842,7 @@ final class BotRuntimeComposition {
             try await contextSources.start { [weak self] signal in
                 Task { @MainActor in await self?.contextWakeRouter?.handle(signal) }
             }
+            if stopped { await contextSources.stopAll(); return }
         } catch {
             contextWakeLog.append(WakeSignal(botId: "context-sources",
                                              reason: "context-source-start-failed",
@@ -848,6 +851,7 @@ final class BotRuntimeComposition {
     }
 
     func start(host newHost: PhoneDSHHost) async throws {
+        stopped = false
         if let current = host, current === newHost, started, !state.isFailure {
             return
         }
@@ -1212,6 +1216,11 @@ final class BotRuntimeComposition {
     }
 
     func stop() async {
+        stopped = true
+        contextStartTask?.cancel()
+        contextStartTask = nil
+        cloudAccountTask?.cancel()
+        cloudAccountTask = nil
         contextWakeRouter = nil
         if let contextSources { await contextSources.stopAll() }
         await detachBinding()
