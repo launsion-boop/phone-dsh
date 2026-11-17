@@ -32,6 +32,9 @@ public struct BotContextSourcesDependencies {
     /// Simulator/debug only: register an injected driver instead of the real
     /// adapter for these sources. Empty in production.
     public var injectedSources: Set<BotContextSourceKind>
+    /// Test-only adapter overrides; empty in production. Used by the lifecycle
+    /// pause/resume test, not a permission bypass.
+    public var sourceOverrides: [BotContextSourceKind: any BotContextSource]
 
     public init(now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) },
                 consentStore: any BotContextSourceConsentPersisting = UserDefaultsBotContextSourceConsentStore(),
@@ -40,7 +43,8 @@ public struct BotContextSourcesDependencies {
                 locationFences: [BotContextGeofenceSpec] = [],
                 allowedExternalSchemes: Set<String> = ["phonedsh"],
                 allowedActivityTypes: Set<String> = ["dev.phone-dsh.probe.context-entry"],
-                injectedSources: Set<BotContextSourceKind> = []) {
+                injectedSources: Set<BotContextSourceKind> = [],
+                sourceOverrides: [BotContextSourceKind: any BotContextSource] = [:]) {
         self.now = now
         self.consentStore = consentStore
         self.audit = audit
@@ -49,6 +53,7 @@ public struct BotContextSourcesDependencies {
         self.allowedExternalSchemes = allowedExternalSchemes
         self.allowedActivityTypes = allowedActivityTypes
         self.injectedSources = injectedSources
+        self.sourceOverrides = sourceOverrides
     }
 }
 
@@ -80,6 +85,10 @@ public final class BotContextSourcesAssembly {
     private let registrations: [(BotContextSourceKind, (any BotContextSource)?, BotContextObservationDelivery)]
     private var confirmedGeofences: [BotContextGeofenceSpec]
     private var started = false
+    private var lifecycleGeneration: UInt64 = 0
+    private var stopTask: Task<Void, Never>?
+    private var stopSequence: UInt64 = 0
+    private var registrationTask: Task<Void, Error>?
 
     public init(dependencies: BotContextSourcesDependencies = BotContextSourcesDependencies()) {
         self.dependencies = dependencies
@@ -172,47 +181,99 @@ public final class BotContextSourcesAssembly {
         ]
     }
 
-    /// Loads the consent document and wires the wake relay. C calls this once
-    /// after the production composition is ready.
+    /// Loads the consent document, restores subscriptions and wires the wake
+    /// relay. A monotonic lifecycle token serializes overlapping start/stop:
+    /// a late old start can never mark the assembly started or restart adapters
+    /// after a newer stop/start decision, and the latest start eventually wins.
     public func start(onWake: @escaping @Sendable (WakeSignal) -> Void) async throws {
-        guard !started else { return }
-        let alreadyRegistered = Set(await registry.registeredSources())
-        for (kind, source, provenance) in registrations where !alreadyRegistered.contains(kind) {
-            do {
-                if let injection = injections[kind] {
-                    try await registry.register(injection, provenance: .injected)
-                } else if let source {
-                    try await registry.register(source, provenance: provenance)
-                } else {
-                    throw BotContextSourceError.unsupported(
-                        "\(kind.rawValue) has no adapter in this build")
-                }
-            } catch {
-                // One unavailable native adapter must not hide the others from
-                // the settings page. The surface reports that source as
-                // unavailable; registration continues for the rest.
-                NSLog("BOT_CONTEXT_SOURCE_REGISTRATION_FAILED=%@ error=%@",
-                      kind.rawValue, String(describing: error))
-            }
+        lifecycleGeneration &+= 1
+        let generation = lifecycleGeneration
+        while let stopping = stopTask {
+            await stopping.value
         }
+        guard generation == lifecycleGeneration else { return }
+        if started { return }
+        try await ensureRegistered()
+        guard generation == lifecycleGeneration else { return }
         _ = await ledger.load()
+        guard generation == lifecycleGeneration else { return }
+        // stopAll() clears adapters but not ledger subscriptions; restore only
+        // this assembly's active subscriptions on the latest start.
+        let snapshot = await ledger.snapshot()
+        for (botID, sources) in snapshot.subscriptions {
+            guard generation == lifecycleGeneration else { return }
+            try? await registry.subscribe(botID: botID, sources: Array(sources))
+        }
+        guard generation == lifecycleGeneration else { return }
         for (kind, source, _) in registrations where source != nil {
+            guard generation == lifecycleGeneration else { return }
             guard let source else { continue }
-            let status = await source.authorization()
+            let effective = dependencies.sourceOverrides[kind] ?? source
+            let status = await effective.authorization()
+            guard generation == lifecycleGeneration else { return }
             await registry.noteOSAuthorizationChange(source: kind, status: status)
         }
+        guard generation == lifecycleGeneration else { return }
         await registry.setWakeHandler { [weak wakeRelay] wake in
             guard let wakeRelay else { return }
             Task { await wakeRelay.emit(wake) }
         }
         await wakeRelay.start(onSignal: onWake)
+        guard generation == lifecycleGeneration else { return }
         started = true
     }
 
+    private func ensureRegistered() async throws {
+        if let existing = registrationTask {
+            try await existing.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { throw CancellationError() }
+            let alreadyRegistered = Set(await self.registry.registeredSources())
+            for (kind, source, provenance) in self.registrations
+                where !alreadyRegistered.contains(kind) {
+                do {
+                    if let override = self.dependencies.sourceOverrides[kind] {
+                        try await self.registry.register(override, provenance: provenance)
+                    } else if let injection = self.injections[kind] {
+                        try await self.registry.register(injection, provenance: .injected)
+                    } else if let source {
+                        try await self.registry.register(source, provenance: provenance)
+                    } else {
+                        throw BotContextSourceError.unsupported(
+                            "\(kind.rawValue) has no adapter in this build")
+                    }
+                } catch {
+                    // One unavailable native adapter must not hide the others
+                    // from the settings page.
+                    NSLog("BOT_CONTEXT_SOURCE_REGISTRATION_FAILED=%@ error=%@",
+                          kind.rawValue, String(describing: error))
+                }
+            }
+        }
+        registrationTask = task
+        do {
+            try await task.value
+        } catch {
+            registrationTask = nil
+            throw error
+        }
+    }
+
     public func stopAll() async {
+        lifecycleGeneration &+= 1
         started = false
-        await wakeRelay.stop()
-        await registry.stopAll()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.wakeRelay.stop()
+            await self.registry.stopAll()
+        }
+        stopSequence &+= 1
+        let sequence = stopSequence
+        stopTask = task
+        await task.value
+        if stopSequence == sequence { stopTask = nil }
     }
 
     /// UI/composition read path: never throws. An unstarted assembly, an
