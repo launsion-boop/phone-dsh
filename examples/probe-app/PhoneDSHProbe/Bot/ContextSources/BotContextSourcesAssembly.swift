@@ -334,6 +334,12 @@ public final class BotContextSourcesAssembly {
 
     /// Updates the user-confirmed fences. The caller supplies only confirmed
     /// places; no coordinate is persisted by this module.
+    /// Single persistence owner read API for the settings UI. The value is the
+    /// in-memory confirmed set loaded from/saved to the one product key.
+    public var geofences: [BotContextGeofenceSpec] {
+        location?.fencesSnapshot() ?? []
+    }
+
     public func setGeofences(_ fences: [BotContextGeofenceSpec]) async throws {
         guard let location else {
             throw BotContextSourceError.unsupported("the location adapter is not registered")

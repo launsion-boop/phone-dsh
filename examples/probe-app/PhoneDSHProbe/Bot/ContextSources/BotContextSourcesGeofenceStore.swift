@@ -7,7 +7,7 @@ import PhoneDSHBot
 /// configuration, not an OS permission: the OS still holds the actual
 /// `CLCircularRegion` and may deliver callbacks only on a real device.
 enum BotContextSourcesGeofenceStore {
-    static let defaultsKey = "phone-dsh.bot.context-source-geofences.v1"
+    static let defaultsKey = "phone-dsh.bot.geofences.v1"
 
     static func load(from defaults: UserDefaults = .standard) -> [BotContextGeofenceSpec] {
         guard let data = defaults.data(forKey: defaultsKey),

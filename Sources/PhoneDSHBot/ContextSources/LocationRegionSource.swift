@@ -159,6 +159,14 @@ public final class LocationRegionSource: BotContextSource, BotContextSourceStrea
         buffer.observations(since: since)
     }
 
+    /// Current user-confirmed fences (only the Bot's own `pdsh.context.`
+    /// registrations). Used by the assembly's single persistence owner; this
+    /// does not read the user's current location.
+    public func fencesSnapshot() -> [BotContextGeofenceSpec] {
+        lock.lock(); defer { lock.unlock() }
+        return fences
+    }
+
     /// Adds/replaces the user-confirmed fences while the source is active. A
     /// removed fence stops monitoring only this source's `pdsh.context.` region;
     /// regions owned by another App feature are never touched.
