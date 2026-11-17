@@ -107,6 +107,7 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
     private var timer: DispatchSourceTimer?
     private var previous: [String: BotSkillFileStamp]?
     private var started = false
+    private var reportedUnreadable = false
 
     public init(root: URL,
                 label: String = "bot.skill-directory-observer",
@@ -179,6 +180,14 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
     func scan() {
         guard started else { return }
         let current = BotSkillDirectoryReconciler.snapshot(root)
+        if case .unreadable = current {
+            if !reportedUnreadable {
+                reportedUnreadable = true
+                NSLog("[BOT_SKILL_OBSERVER] unreadable root=%@", root.path)
+            }
+        } else {
+            reportedUnreadable = false
+        }
         let changes = BotSkillDirectoryReconciler.changes(
             previous: previous, current: current)
         if case .present(let files) = current { previous = files }
