@@ -693,8 +693,8 @@ test('remote: a commit retried during cleanup keeps the route and the real resul
     offset: 0,
     dataBase64: Buffer.from('payload').toString('base64'),
   })
-  const service = (remote as unknown as {
-    serviceFor(sessionId: string): WorkspaceImportService
+  const service = await (remote as unknown as {
+    serviceFor(sessionId: string): Promise<WorkspaceImportService>
   }).serviceFor('session-1')
   let releaseCleanup!: () => void
   let cleanupStarted!: () => void
