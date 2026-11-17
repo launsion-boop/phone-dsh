@@ -240,6 +240,9 @@ final class BotRuntimeComposition {
     private var contextSources: BotContextSourcesAssembly?
     private var skillDirectoryObservers: [BotSkillDirectoryObserver] = []
     private var skillQueue: BotSkillEventQueue?
+    private var skillQueueBotID: String?
+    private var userSkillObserver: BotSkillDirectoryObserver?
+    private let userSkillRouter = BotSkillQueueRouter()
     /// G-3 account credential observation; cancelled with the composition.
     private var cloudAccountTask: Task<Void, Never>?
     private var contextStartTask: Task<Void, Never>?
@@ -570,17 +573,32 @@ final class BotRuntimeComposition {
     /// every observer (user-dsh + project roots) therefore share one tail and
     /// one diagnostics ring.
     func installSkillObservers(botID: String, queue: BotSkillEventQueue) {
+        if skillQueueBotID == botID, skillQueue === queue { return }
+        // The user-dsh root is shared by every Bot. Keep its observer alive and
+        // atomically retarget its router, so a write during a selection change
+        // cannot fall into a stop→start gap. Project roots are per-Bot and are
+        // stopped/replaced below.
+        userSkillRouter.set(queue)
+        if userSkillObserver == nil {
+            let skillRoots = BotSkillRoots(workspaceRoot: workspaceRoot)
+            let userRoot = skillRoots.skillsRoot(source: "user-dsh", ownerBotID: nil)
+                ?? workspaceRoot.appendingPathComponent(
+                    "materialized/home/skills", isDirectory: true)
+            let observer = BotSkillDirectoryObserver(
+                root: userRoot, label: "bot.skill.user-dsh", createRoot: true,
+                onWritten: { [router = userSkillRouter] name in
+                    router.userWrite(name)
+                },
+                onDeleted: { [router = userSkillRouter] name in
+                    router.userDelete(name)
+                })
+            observer.start()
+            userSkillObserver = observer
+        }
+        for observer in skillDirectoryObservers { observer.stop() }
+        skillDirectoryObservers = []
         skillQueue = queue
         let skillRoots = BotSkillRoots(workspaceRoot: workspaceRoot)
-        let userRoot = skillRoots.skillsRoot(source: "user-dsh", ownerBotID: nil)
-            ?? workspaceRoot.appendingPathComponent(
-                "materialized/home/skills", isDirectory: true)
-        let userObserver = BotSkillDirectoryObserver(
-            root: userRoot, label: "bot.skill.user-dsh", createRoot: true,
-            onWritten: { name in queue.enqueue { await queue.userWrite(name) } },
-            onDeleted: { name in queue.enqueue { await queue.userDelete(name) } })
-        var observers: [BotSkillDirectoryObserver] = [userObserver]
-        userObserver.start()
         let botRoot = BotWorkspaceLayout.botRoot(
             botId: botID, dataDirectory: BotSessionRegistry.botDataDirectory)
         for (suffix, source) in [(".dsh/skills", "project-dsh"),
@@ -589,14 +607,13 @@ final class BotRuntimeComposition {
                 source: source, ownerBotID: botID) else { continue }
             let observer = BotSkillDirectoryObserver(
                 root: root, label: "bot.skill.\(source)", createRoot: true,
-                onDeleted: { name in
+                onDeleted: { [router = userSkillRouter] name in
                     let vfs = botRoot + "/" + suffix + "/" + name
-                    queue.enqueue { await queue.botDelete(vfs: vfs, botID: botID) }
+                    router.projectDelete(vfs: vfs, botID: botID)
                 })
-            observers.append(observer)
             observer.start()
+            skillDirectoryObservers.append(observer)
         }
-        skillDirectoryObservers = observers
     }
 
     /// Unified bounded producer diagnostics from the shared queue.

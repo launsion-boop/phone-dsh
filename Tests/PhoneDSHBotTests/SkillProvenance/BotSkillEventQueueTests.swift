@@ -143,4 +143,26 @@ final class BotSkillEventQueueTests: XCTestCase {
         XCTAssertEqual(queue.diagnosticsSnapshot().last?.outcome, .recorded)
     }
 
+
+    func testSelectionRouterDoesNotDropUserWriteDuringSwitch() async {
+        let q1 = BotSkillEventQueue(producer: producer(), now: { 1 })
+        let q2 = BotSkillEventQueue(producer: producer(), now: { 2 })
+        let router = BotSkillQueueRouter()
+        router.set(q1)
+        router.userDelete("missing.md")
+        // Simulate the selection switch. The observer is still alive; the
+        // callback after this point must go to q2, never disappear.
+        router.set(q2)
+        router.userDelete("missing.md")
+        // Drain both serial tails without depending on a UI thread.
+        for _ in 0..<200 where q1.diagnosticsSnapshot().isEmpty
+            || q2.diagnosticsSnapshot().isEmpty {
+            try? await Task.sleep(nanoseconds: 2_000_000)
+        }
+        XCTAssertEqual(q1.diagnosticsSnapshot().count, 1)
+        XCTAssertEqual(q2.diagnosticsSnapshot().count, 1)
+        XCTAssertEqual(q1.diagnosticsSnapshot().first?.key, "missing.md")
+        XCTAssertEqual(q2.diagnosticsSnapshot().first?.key, "missing.md")
+    }
+
 }
