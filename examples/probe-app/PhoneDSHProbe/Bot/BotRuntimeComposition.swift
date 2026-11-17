@@ -243,8 +243,7 @@ final class BotRuntimeComposition {
     private var cloudAccountTask: Task<Void, Never>?
     private var contextStartTask: Task<Void, Never>?
     private var stopped = false
-    private var contextLifecycleGeneration = 0
-    private var contextStartChain: Task<Void, Never> = Task {}
+    private var contextStartTask: Task<Void, Never>?
     private var latestCloudSceneGeneration = 0
 
     /// Read-only seam for the Bot info/settings entry and the info driver. The
@@ -835,21 +834,7 @@ final class BotRuntimeComposition {
     /// Start the context-source registry as soon as the composition exists, so
     /// the settings surface is not stuck at "unavailable" until a host bind.
     func startContextSourcesIfNeeded() async {
-        let generation = contextLifecycleGeneration
         guard !stopped, let contextSources, !contextSources.isStarted() else { return }
-        let previous = contextStartChain
-        let task = Task { [weak self] in
-            await previous.value
-            guard let self else { return }
-            await self.performContextStart(generation: generation)
-        }
-        contextStartChain = task
-        await task.value
-    }
-
-    private func performContextStart(generation: Int) async {
-        guard !stopped, generation == contextLifecycleGeneration,
-              let contextSources, !contextSources.isStarted() else { return }
         let router = BotContextWakeDecisionRouter(
             assembly: contextSources,
             runner: { [weak self] request in
@@ -860,17 +845,11 @@ final class BotRuntimeComposition {
             })
         contextWakeRouter = router
         do {
-            if generation != contextLifecycleGeneration || stopped { return }
             try await contextSources.start { [weak self] signal in
                 Task { @MainActor in
-                    guard let self, !self.stopped,
-                          self.contextLifecycleGeneration == generation else { return }
+                    guard let self, !self.stopped else { return }
                     await router.handle(signal)
                 }
-            }
-            if stopped || generation != contextLifecycleGeneration {
-                await contextSources.stopAll()
-                return
             }
         } catch {
             contextWakeLog.append(WakeSignal(botId: "context-sources",
@@ -1246,7 +1225,6 @@ final class BotRuntimeComposition {
 
     func stop() async {
         stopped = true
-        contextLifecycleGeneration &+= 1
         contextStartTask?.cancel()
         contextStartTask = nil
         cloudAccountTask?.cancel()
