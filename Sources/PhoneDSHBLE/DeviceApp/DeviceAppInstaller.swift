@@ -66,8 +66,12 @@ public struct DeviceAppInstaller: Sendable {
 
     /// The installer bound to the real Link entry as the user origin (device panel / host).
     /// Staging intents are pruned from the same journal at the end of every install.
-    static func live(deviceID: UUID, installID: UUID = UUID(),
-                     store: BLEDeviceStore? = nil, journal: LinkToolJournal? = nil) -> DeviceAppInstaller {
+    public static func live(deviceID: UUID, installID: UUID = UUID()) -> DeviceAppInstaller {
+        live(deviceID: deviceID, installID: installID, store: nil, journal: nil)
+    }
+
+    static func live(deviceID: UUID, installID: UUID,
+                     store: BLEDeviceStore?, journal: LinkToolJournal?) -> DeviceAppInstaller {
         let journal = journal ?? LinkToolStorage.defaultJournal
         return DeviceAppInstaller(
             installID: installID,
