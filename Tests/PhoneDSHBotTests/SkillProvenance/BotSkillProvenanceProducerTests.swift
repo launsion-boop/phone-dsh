@@ -269,4 +269,63 @@ final class BotSkillProvenanceProducerTests: XCTestCase {
         XCTAssertEqual(erased, .erased)
     }
 
+
+    func testCreatorSourceIsDroppedWhenFinalBytesDoNotMatch() async throws {
+        final class Captured: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value: [BotDerivationSource] = []
+            func set(_ sources: [BotDerivationSource]) { lock.lock(); value = sources; lock.unlock() }
+            func get() -> [BotDerivationSource] { lock.lock(); defer { lock.unlock() }; return value }
+        }
+        let captured = Captured()
+        let producer = BotSkillProvenanceProducer(
+            botRoot: botRoot, roots: roots,
+            recorder: { request in
+                captured.set(request.sources)
+                return BotDerivedRef(kind: .skill, id: request.name, version: request.revision)
+            },
+            latest: { _ in nil }, now: { 1 })
+        let file = projectDir.appendingPathComponent("creator.md")
+        try Data("final".utf8).write(to: file)
+        let callRecord = "record://event/12"
+        _ = try await producer.recordBotWrite(
+            vfsPath: "\(botRoot!)/.dsh/skills/creator.md", botID: "bot-a",
+            sessionID: "gb-a",
+            sources: [BotDerivationSource(record: callRecord, role: .creator)],
+            creatorRecord: callRecord,
+            creatorContentSHA256: BotSkillProvenanceProducer.contentSHA256("different"))
+        XCTAssertTrue(captured.get().isEmpty)
+    }
+
+
+    func testVerifiedCreatorCarriesTheFinalContentHash() async throws {
+        final class Captured: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value: [BotDerivationSource] = []
+            func set(_ sources: [BotDerivationSource]) { lock.lock(); value = sources; lock.unlock() }
+            func get() -> [BotDerivationSource] { lock.lock(); defer { lock.unlock() }; return value }
+        }
+        let captured = Captured()
+        let producer = BotSkillProvenanceProducer(
+            botRoot: botRoot, roots: roots,
+            recorder: { request in
+                captured.set(request.sources)
+                return BotDerivedRef(kind: .skill, id: request.name, version: request.revision)
+            },
+            latest: { _ in nil }, now: { 1 })
+        let file = projectDir.appendingPathComponent("verified.md")
+        let body = "verified-final"
+        try Data(body.utf8).write(to: file)
+        let callRecord = "record://event/13"
+        _ = try await producer.recordBotWrite(
+            vfsPath: "\(botRoot!)/.dsh/skills/verified.md", botID: "bot-a",
+            sessionID: "gb-a",
+            sources: [BotDerivationSource(record: callRecord, role: .creator)],
+            creatorRecord: callRecord,
+            creatorContentSHA256: BotSkillProvenanceProducer.contentSHA256(body))
+        let creator = captured.get().first { $0.role == .creator }
+        XCTAssertEqual(creator?.sourceVersion?.knownValue,
+                       BotSkillProvenanceProducer.contentSHA256(body))
+    }
+
 }

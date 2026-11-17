@@ -56,6 +56,26 @@ public struct BotSkillProvenanceProducer: Sendable {
         -> BotDerivedRef? {
         guard let target = classify(vfsPath: vfsPath, botID: botID) else { return nil }
         let data = try readFinalBytes(target.url)
+        var sources = sources
+        if let creatorRecord, let creatorContentSHA256 {
+            if Self.sha256(data) != creatorContentSHA256 {
+                // The action record cannot stand as the creator of different
+                // final bytes (truncated args, redaction, or a later mutation).
+                sources.removeAll { $0.record == creatorRecord && $0.role == .creator }
+            } else {
+                // Bind the validation to the creator source so a later reader
+                // can require the same final content hash, not role alone.
+                let version = BotProvenanceSourceVersion.known(
+                    basis: .contentSHA256, value: creatorContentSHA256,
+                    subject: .fileBytes)
+                sources = sources.map {
+                    $0.record == creatorRecord && $0.role == .creator
+                        ? BotDerivationSource(record: $0.record, role: .creator,
+                                              sourceVersion: version)
+                        : $0
+                }
+            }
+        }
         let snapshot = try await latest(BotSkillIdentity(
             source: target.source, ownerBotID: target.owner, name: target.name))
         let previous = snapshot?.action == "write" ? snapshot?.contentSHA256 : nil
