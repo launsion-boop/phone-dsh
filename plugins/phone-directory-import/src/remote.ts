@@ -120,7 +120,7 @@ export class PhoneDirectoryImportRemote extends TypertRemoteService {
       throw new RemoteError('gateway/bad-request',
         `directory import is busy: ${this.routes.size} active imports`, {})
     }
-    const service = this.serviceFor(sessionId)
+    const service = await this.serviceFor(sessionId)
     try {
       const importId = await service.begin(request)
       // Concurrent begins can all pass the check above before their awaits
@@ -226,8 +226,8 @@ export class PhoneDirectoryImportRemote extends TypertRemoteService {
     }
   }
 
-  private serviceFor(sessionId: string): WorkspaceImportService {
-    const workspaceRoot = this.workspaceRoot(sessionId)
+  private async serviceFor(sessionId: string): Promise<WorkspaceImportService> {
+    const workspaceRoot = await this.workspaceRoot(sessionId)
     const existing = this.services.get(workspaceRoot)
     if (existing !== undefined) return existing
     const service = new WorkspaceImportService(workspaceRoot, {
@@ -243,14 +243,41 @@ export class PhoneDirectoryImportRemote extends TypertRemoteService {
     return service
   }
 
-  private workspaceRoot(sessionId: string): string {
-    const session = this.ctx.sessions.get(sessionId as SessionId)
-    if (session === undefined) {
+  private async workspaceRoot(sessionId: string): Promise<string> {
+    const live = this.ctx.sessions.get(sessionId as SessionId)
+    if (live !== undefined) {
+      return live.header.cwd ?? this.ctx.sandboxPolicy.workspaceRoot
+    }
+    // A durable session may be idle/restarted and therefore absent from the
+    // live map. Import only needs its persisted workspace/cwd; use the
+    // official passive query without creating or claiming a new session.
+    const query = (this.ctx as unknown as {
+      get?: (name: string) => unknown
+    }).get?.('sessionQuery') as {
+      readSession?: (id: SessionId) => Promise<{
+        session?: { id?: SessionId; cwd?: string }
+      }>
+    } | undefined
+    if (query?.readSession === undefined) {
+      throw new RemoteError('session/not-found', `session "${sessionId}" is not live and no session query is mounted`, {
+        sessionId: sessionId as SessionId,
+      })
+    }
+    let snapshot: { session?: { id?: SessionId; cwd?: string } }
+    try {
+      snapshot = await query.readSession(sessionId as SessionId)
+    } catch {
       throw new RemoteError('session/not-found', `session "${sessionId}" does not exist`, {
         sessionId: sessionId as SessionId,
       })
     }
-    return session.header.cwd ?? this.ctx.sandboxPolicy.workspaceRoot
+    const persisted = snapshot.session
+    if (persisted?.id !== sessionId) {
+      throw new RemoteError('session/not-found', `session "${sessionId}" does not exist`, {
+        sessionId: sessionId as SessionId,
+      })
+    }
+    return persisted.cwd ?? this.ctx.sandboxPolicy.workspaceRoot
   }
 
   private activeRoute(importId: string, sessionId: string): ActiveRoute {
