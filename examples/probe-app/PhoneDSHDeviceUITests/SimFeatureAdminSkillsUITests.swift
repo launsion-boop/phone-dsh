@@ -30,10 +30,18 @@ final class SimFeatureAdminSkillsUITests: XCTestCase {
         let open = app.buttons["打开会话列表"]
         XCTAssertTrue(open.waitForExistence(timeout: 60), "DSH page did not appear")
         open.tap()
-        let settings = app.buttons.matching(
-            NSPredicate(format: "label BEGINSWITH %@", "设置")).firstMatch
-        XCTAssertTrue(settings.waitForExistence(timeout: 20), "DSH settings entry missing")
-        settings.tap()
+        // DSH's shipped drawer exposes the Plugins settings section as
+        // "Plugins and tools" (there is no standalone "设置" row here).
+        let plugins = app.buttons["Plugins and tools"].firstMatch
+        if plugins.waitForExistence(timeout: 10) {
+            plugins.tap()
+        } else {
+            let settings = app.buttons.matching(
+                NSPredicate(format: "label BEGINSWITH %@", "设置")).firstMatch
+            XCTAssertTrue(settings.waitForExistence(timeout: 20),
+                          "DSH Plugins/settings entry missing")
+            settings.tap()
+        }
 
         let tab = app.buttons[featureTab].firstMatch
         if !tab.waitForExistence(timeout: 20) {
