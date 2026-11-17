@@ -69,6 +69,18 @@ final class BotContextSourcesSettingsModel: ObservableObject {
     func load() async {
         loadGeneration += 1
         let generation = loadGeneration
+        loading = true
+        // Registration happens off the launch critical path. Reading before
+        // it completes makes every source look unavailable; wait boundedly,
+        // without prompting, and show an explicit retry instead of TCC guesses.
+        let ready = await assembly.waitUntilStarted()
+        guard generation == loadGeneration else { return }
+        guard ready else {
+            loading = false
+            actionError = "情境来源仍在启动，请稍后重试"
+            return
+        }
+        loading = false
         await readStates(generation: generation)
         // Syncing every OS adapter can block on a permission prompt; it must
         // never delay the switch states or hold `loading` while the page is
@@ -302,10 +314,16 @@ struct BotContextSourcesSettingsView: View {
 
             if let error = model.actionError {
                 Section {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.red)
-                        .accessibilityIdentifier("bot.context.error")
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Label(error, systemImage: "exclamationmark.triangle")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("bot.context.error")
+                        Spacer()
+                        Button("重试") { Task { await model.load() } }
+                            .font(.system(size: 13, weight: .semibold))
+                            .accessibilityIdentifier("bot.context.retry")
+                    }
                 }
             }
         }
