@@ -35,6 +35,9 @@ public struct BotContextSourcesDependencies {
     /// Test-only adapter overrides; empty in production. Used by the lifecycle
     /// pause/resume test, not a permission bypass.
     public var sourceOverrides: [BotContextSourceKind: any BotContextSource]
+    /// Test-only pause points around the wake commit. Production leaves both nil.
+    public var wakeInstallBefore: (@Sendable () async -> Void)?
+    public var wakeInstallAfter: (@Sendable () async -> Void)?
 
     public init(now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) },
                 consentStore: any BotContextSourceConsentPersisting = UserDefaultsBotContextSourceConsentStore(),
@@ -44,7 +47,9 @@ public struct BotContextSourcesDependencies {
                 allowedExternalSchemes: Set<String> = ["phonedsh"],
                 allowedActivityTypes: Set<String> = ["dev.phone-dsh.probe.context-entry"],
                 injectedSources: Set<BotContextSourceKind> = [],
-                sourceOverrides: [BotContextSourceKind: any BotContextSource] = [:]) {
+                sourceOverrides: [BotContextSourceKind: any BotContextSource] = [:],
+                wakeInstallBefore: (@Sendable () async -> Void)? = nil,
+                wakeInstallAfter: (@Sendable () async -> Void)? = nil) {
         self.now = now
         self.consentStore = consentStore
         self.audit = audit
@@ -54,6 +59,8 @@ public struct BotContextSourcesDependencies {
         self.allowedActivityTypes = allowedActivityTypes
         self.injectedSources = injectedSources
         self.sourceOverrides = sourceOverrides
+        self.wakeInstallBefore = wakeInstallBefore
+        self.wakeInstallAfter = wakeInstallAfter
     }
 }
 
@@ -89,6 +96,10 @@ public final class BotContextSourcesAssembly {
     private var stopTask: Task<Void, Never>?
     private var stopSequence: UInt64 = 0
     private var registrationTask: Task<Void, Error>?
+    /// Serializes wake-handler/relay installs with stop. This is the commit
+    /// point: an old start's install operation checks the generation when it
+    /// actually runs, and a stop cannot run in the middle of an install.
+    private var wakeOperation: Task<Void, Never>?
 
     public init(dependencies: BotContextSourcesDependencies = BotContextSourcesDependencies()) {
         self.dependencies = dependencies
@@ -214,11 +225,26 @@ public final class BotContextSourcesAssembly {
             await registry.noteOSAuthorizationChange(source: kind, status: status)
         }
         guard generation == lifecycleGeneration else { return }
-        await registry.setWakeHandler { [weak wakeRelay] wake in
-            guard let wakeRelay else { return }
-            Task { await wakeRelay.emit(wake) }
+        await enqueueWakeOperation { [weak self] in
+            guard let self, self.lifecycleGeneration == generation else { return }
+            if let pause = self.dependencies.wakeInstallBefore { await pause() }
+            guard self.lifecycleGeneration == generation else { return }
+            await self.registry.setWakeHandler { [weak wakeRelay] wake in
+                guard let wakeRelay else { return }
+                Task { await wakeRelay.emit(wake) }
+            }
+            if let pause = self.dependencies.wakeInstallAfter { await pause() }
+            if self.lifecycleGeneration != generation {
+                await self.wakeRelay.stop()
+                await self.registry.setWakeHandler(nil)
+                return
+            }
+            await self.wakeRelay.start(onSignal: onWake)
+            if self.lifecycleGeneration != generation {
+                await self.wakeRelay.stop()
+                await self.registry.setWakeHandler(nil)
+            }
         }
-        await wakeRelay.start(onSignal: onWake)
         guard generation == lifecycleGeneration else { return }
         started = true
     }
@@ -266,14 +292,30 @@ public final class BotContextSourcesAssembly {
         started = false
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.wakeRelay.stop()
-            await self.registry.stopAll()
+            await self.enqueueWakeOperation { [weak self] in
+                guard let self else { return }
+                await self.wakeRelay.stop()
+                await self.registry.setWakeHandler(nil)
+                await self.registry.stopAll()
+            }
         }
         stopSequence &+= 1
         let sequence = stopSequence
         stopTask = task
         await task.value
         if stopSequence == sequence { stopTask = nil }
+    }
+
+    private func enqueueWakeOperation(
+        _ operation: @escaping @MainActor @Sendable () async -> Void
+    ) async {
+        let previous = wakeOperation
+        let task = Task { @MainActor in
+            if let previous { await previous.value }
+            await operation()
+        }
+        wakeOperation = task
+        await task.value
     }
 
     /// UI/composition read path: never throws. An unstarted assembly, an

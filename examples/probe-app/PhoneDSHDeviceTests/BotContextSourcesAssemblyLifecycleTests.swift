@@ -47,6 +47,41 @@ private final class GatedLifecycleSource: BotContextSourceRequesting,
     func startCount() -> Int { lock.lock(); defer { lock.unlock() }; return starts }
 }
 
+
+private final class ImmediateLifecycleSource: BotContextSourceRequesting,
+                                            BotContextSourceStreaming,
+                                            @unchecked Sendable {
+    let kind: BotContextSourceKind = .calendar
+    func authorization() async -> BotSourceAuthorization { .authorized }
+    func requestAuthorization() async -> BotSourceAuthorization { .authorized }
+    func start(permissionRevision: Int,
+               emit: @escaping @Sendable (BotContextObservation) -> Void) async throws {}
+    func observations(since: Int64?) async throws -> [BotContextObservation] { [] }
+    func stop() async {}
+}
+
+private actor PauseGate {
+    private var arrived = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    func wait() async {
+        arrived = true
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+    func waitUntilArrived() async {
+        for _ in 0..<150 {
+            if arrived { return }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+    func release() {
+        let continuation = self.continuation
+        self.continuation = nil
+        continuation?.resume()
+    }
+}
+
 @MainActor
 final class BotContextSourcesAssemblyLifecycleTests: XCTestCase {
     func testStopThenLatestStartWinsAndOldStartCannotSetStarted() async throws {
@@ -89,5 +124,35 @@ final class BotContextSourcesAssemblyLifecycleTests: XCTestCase {
         try await first.value
         XCTAssertFalse(assembly.isStarted())
         XCTAssertEqual(source.startCount(), 0)
+    }
+
+    func testStopWhileWakeInstallPausedBeforeHandlerLeavesNoStartedRelay() async throws {
+        let gate = PauseGate()
+        let assembly = BotContextSourcesAssembly(
+            dependencies: .init(
+                sourceOverrides: [.calendar: ImmediateLifecycleSource()],
+                wakeInstallBefore: { await gate.wait() }))
+        let start = Task { @MainActor in try await assembly.start { _ in } }
+        await gate.waitUntilArrived()
+        let stop = Task { @MainActor in await assembly.stopAll() }
+        await gate.release()
+        try await start.value
+        await stop.value
+        XCTAssertFalse(assembly.isStarted(), "paused-before wake install must be cleaned up")
+    }
+
+    func testStopWhileWakeInstallPausedAfterRelayLeavesNoStartedRelay() async throws {
+        let gate = PauseGate()
+        let assembly = BotContextSourcesAssembly(
+            dependencies: .init(
+                sourceOverrides: [.calendar: ImmediateLifecycleSource()],
+                wakeInstallAfter: { await gate.wait() }))
+        let start = Task { @MainActor in try await assembly.start { _ in } }
+        await gate.waitUntilArrived()
+        let stop = Task { @MainActor in await assembly.stopAll() }
+        await gate.release()
+        try await start.value
+        await stop.value
+        XCTAssertFalse(assembly.isStarted(), "paused-after wake install must be cleaned up")
     }
 }
