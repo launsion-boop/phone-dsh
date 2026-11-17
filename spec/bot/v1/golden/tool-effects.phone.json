@@ -587,6 +587,57 @@
         "isMcp": false,
         "grantResource": "model:image"
       }
+    },
+    {
+      "name": "DeviceAppStage",
+      "args": {
+        "files": [
+          {
+            "path": "main.py",
+            "content": "print(1)"
+          },
+          {
+            "path": "app.json",
+            "content": "{}"
+          }
+        ]
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "DeviceAppStage",
+        "operation": "device.app.stage",
+        "resource": "device-app:stage",
+        "target": "device-app:stage",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "检查设备应用",
+        "detail": "只做静态检查和哈希，不向设备发送任何内容。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "DeviceAppInstall",
+      "args": {
+        "digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "DeviceAppInstall",
+        "operation": "device.app.install",
+        "resource": "device-app:install&digest=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "target": "device-app:install&digest=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "mutability": "destructive",
+        "policy": "ask",
+        "label": "在设备上安装应用",
+        "detail": "把已检查的设备应用装到绑定的设备上；每次安装都需要你确认。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
     }
   ],
   "invalid": [

@@ -329,3 +329,36 @@ spelling for an existing member.
   document. A native tool keeps its own arguments, result and authorization.
 - `BotVolatileContext` is a Bot tool even though it is not in the upstream P0 catalog; it is
   advertised by `BotToolCatalog.allDefinitions` and is covered by §8.
+
+## 10. Device app tools (phone-only, device-bound Bots)
+
+Owned by P26 for the Bot surface; the install pipeline, bundle digest, static check and approval
+text are owned by [device-app.md](../../device/v1/device-app.md) (§4, §7, §9). Names, descriptions
+and inputs are frozen in the `deviceApp` section of `golden/tool-catalog.phone.json`; the
+classification in `golden/tool-effects.phone.json`.
+
+- `DeviceAppStage {files:[{path,content}]}` (1–8 files, each `path` and `content` a string, no other
+  property) is read-only: it runs the static check and hashes the bundle, and sends nothing to the
+  device. Success: `{ok:true, app:{name,title,version,perms}, files:[{path,size,sha256}], digest,
+  digest_short}`. Failure: `{ok:false, stage:"validation", code, path, line, message?}` (the first
+  violation). Effect: `read`/`auto`, operation `device.app.stage`.
+- `DeviceAppInstall {digest}` (`digest` is 64 lowercase hex, no other property) installs the bundle
+  staged earlier in the same session. Effect: `destructive`/`ask`, operation `device.app.install`,
+  resource `device-app:install&digest=<digest>`, no `grantResource` (no standing grant is offered).
+- Both tools are listed and callable only for a Bot with a device binding. The device is the one in
+  the binding; it is never an argument. A Bot without a binding does not see them and a call is
+  refused as for any unlisted tool.
+- Every `DeviceAppInstall` call raises one once-only approval, also on a user's own turn, **before
+  any radio use**, bound to the full digest. A decline or expiry installs nothing.
+- Error codes of the result: `not_staged`, `stale_binding`, `digest_mismatch`, `busy`,
+  `install_failed`, `outcome_unknown`, `permission_denied`, `invalid_arguments`, `manifest`. The
+  install success payload is `{ok:true, installed:true, digest, name, audit_recorded}`;
+  `audit_recorded` is a boolean and is `false` when the durable record could not be written (the Bot
+  must then not claim the install was logged).
+- After a successful install the host writes a durable
+  `ui.system_event{event:"device.app.install", device, name, title, version, digest,
+  files:[{path,size,sha256}], author}` where `author` is the same author record as the
+  `CreateTeammate` audit (`rpcId`, `turnId`, `sessionId`, `origin`, `authorization`, `approvalID`).
+- These are per-caller additions like `CreateTeammate`'s main-Bot rule: they are appended to the
+  caller's catalog only when the binding exists, and are excluded from the static catalog golden's
+  `p0`/`p1` lists and from the all-callers tool list.

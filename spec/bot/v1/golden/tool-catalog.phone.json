@@ -179,6 +179,64 @@
     "indexLimit": 1500,
     "injectionTotalLimit": 4000
   },
+  "deviceApp": {
+    "note": "Per-caller additions listed only for a Bot with a device binding; excluded from p0/p1 and from the static catalog.",
+    "tools": [
+      {
+        "name": "DeviceAppStage",
+        "visibility": "device-bound",
+        "description": "Check a device app bundle without installing it. Pass files:[{path,content}] (main.py and app.json are required). Runs the static check, hashes every file and returns the file list with sizes, the bundle digest, or the first violation (code, path, line). Read-only; nothing is sent to the device. The device is the one this Bot is bound to.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "files"
+          ],
+          "properties": {
+            "files": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "required": [
+                  "path",
+                  "content"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "DeviceAppInstall",
+        "visibility": "device-bound",
+        "description": "Install the bundle you staged earlier in this session on this Bot's device. Pass the full 64-hex digest returned by DeviceAppStage. Every call asks the user to confirm on the phone, even when the user just asked for the app; a decline or expiry installs nothing. Report success only when the result says ok.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "digest"
+          ],
+          "properties": {
+            "digest": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    ]
+  },
   "delta": [
     "content-card final flag: show_attachment / show_document / show_progress / show_checklist / show_link accept an optional boolean final (default false). A successful final:true call suppresses later assistant text and SendToUser until turn/end, like ask_user/show_next_steps; a failed call and a missing/false final do not suppress. Mid-task updates under the same cardKey omit final.",
     "The five p0 entries replace their upstream counterparts only to add that property and state the conditional turn-end; every other field and the upstream tool-catalog.json are unchanged.",
