@@ -81,6 +81,7 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
     public init(workspaceRoot: URL,
                 limits: PDSHShellLimits = .default,
                 toolBridge: (any PhoneToolBridge)? = nil,
+                botContactsQuery: (any PhoneBotContactsQuerying)? = nil,
                 recordQuery: (any PhoneRecordQuerying)? = nil) {
         self.init(materializedWorkspace: workspaceRoot.appendingPathComponent(
                       "materialized/workspace", isDirectory: true),
