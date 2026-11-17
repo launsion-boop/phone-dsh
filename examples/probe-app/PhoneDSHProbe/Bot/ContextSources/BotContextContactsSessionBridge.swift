@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import PhoneDSHAgentCore
 import PhoneDSHBot
 import PhoneDSHShell
 
@@ -11,10 +12,10 @@ import PhoneDSHShell
 final class BotContextContactsSessionBridge: PhoneBotContactsQuerying,
                                            PhoneContactsSessionClassifying {
     private weak var composition: BotRuntimeComposition?
-    private let verifiedOrdinarySession: @Sendable (String) -> Bool
+    private let verifiedOrdinarySession: @Sendable (String) async -> Bool
 
     init(composition: BotRuntimeComposition,
-         verifiedOrdinarySession: @escaping @Sendable (String) -> Bool = { _ in false }) {
+         verifiedOrdinarySession: @escaping @Sendable (String) async -> Bool = { _ in false }) {
         self.composition = composition
         self.verifiedOrdinarySession = verifiedOrdinarySession
     }
@@ -27,7 +28,7 @@ final class BotContextContactsSessionBridge: PhoneBotContactsQuerying,
            let botID = await composition.botID(forToolSession: callerSessionID) {
             return .bot(botID: botID)
         }
-        if verifiedOrdinarySession(callerSessionID) { return .ordinary }
+        if await verifiedOrdinarySession(callerSessionID) { return .ordinary }
         return .invalid(reason: "unrecognized tool-call session")
     }
 
@@ -66,6 +67,30 @@ final class BotContextContactsSessionBridge: PhoneBotContactsQuerying,
         } catch {
             return Self.result(code: "unavailable", message: "contacts source unavailable")
         }
+    }
+
+    /// Official `session/projections` shape: a current sequenced projection with
+    /// `values.agentPreset`. `null`, migration/cache gaps, unknown presets and
+    /// incomplete projections are not ordinary.
+    static func isVerifiedOrdinaryProjection(_ projection: BotJSONValue) -> Bool {
+        guard case .object(let root) = projection,
+              Self.string(root["kind"]) == "sequenced",
+              Self.number(root["asOfSeq"]) != nil,
+              case .object(let values)? = root["values"],
+              Self.string(values["agentPreset"]) == "standard" else {
+            return false
+        }
+        return true
+    }
+
+    private static func string(_ value: BotJSONValue?) -> String? {
+        guard case .string(let text)? = value else { return nil }
+        return text
+    }
+
+    private static func number(_ value: BotJSONValue?) -> Double? {
+        guard case .number(let number)? = value else { return nil }
+        return number
     }
 
     private static func result(code: String, message: String) -> PhoneRecordCommandResult {

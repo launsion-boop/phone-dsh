@@ -1385,6 +1385,25 @@ final class ChatModel {
         try await workspaceBackend.transport()
     }
 
+    /// The only ordinary-session verifier for the shared host contacts bridge.
+    /// It reads the official current `session/projections`; Bot ownership is
+    /// checked first by the bridge. Missing/migration/cache/unknown projections
+    /// are rejected, never treated as ordinary.
+    func isVerifiedOrdinaryContactsSession(_ sessionID: String) async -> Bool {
+        guard !sessionID.isEmpty else { return false }
+        do {
+            let transport = try await transportForManagement()
+            let projection = try await transport.call(
+                "session/projections",
+                args: .object(["request": .object(["sessionId": .string(sessionID)])]))
+            return projection["kind"]?.stringValue == "sequenced"
+                && projection["asOfSeq"]?.intValue != nil
+                && projection["values"]?["agentPreset"]?.stringValue == "standard"
+        } catch {
+            return false
+        }
+    }
+
     let workspaceRoot: URL = ChatHostConfiguration.workspaceRoot()
 
     private var materializedWorkspace: URL {
@@ -1849,14 +1868,16 @@ final class ChatModel {
             office: OfficeToolBridge(presenter: OfficePresenter()),
             phone: capabilityBridge)
         let recordQuery = botLaunch.map { BotRecordPhoneAdapter(service: $0.composition.recordService) }
-        let contactsBridge = botLaunch.map {
-            BotContextContactsSessionBridge(composition: $0.composition)
+        let botContactsBridge: BotContextContactsSessionBridge? = botLaunch.map { launch in
+            BotContextContactsSessionBridge(composition: launch.composition) { [weak self] sessionID in
+                await self?.isVerifiedOrdinaryContactsSession(sessionID) ?? false
+            }
         }
         let shell = PDSHShellProvider(materializedWorkspace: materializedWorkspace,
                                       materializedHome: materializedHome,
                                       toolBridge: toolBridge,
-                                      botContactsQuery: contactsBridge,
-                                      contactsSessionClassifier: contactsBridge,
+                                      botContactsQuery: botContactsBridge,
+                                      contactsSessionClassifier: botContactsBridge,
                                       recordQuery: recordQuery)
         // `phone record` is a Swift-side read-only bridge; it does not need the
         // linked Rust shell. Advertise `phone` whenever that bridge exists so a
