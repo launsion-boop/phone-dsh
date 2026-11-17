@@ -586,10 +586,10 @@ final class BotRuntimeComposition {
             let observer = BotSkillDirectoryObserver(
                 root: userRoot, label: "bot.skill.user-dsh", createRoot: true,
                 onWritten: { [router = userSkillRouter] name in
-                    router.userWrite(name)
+                    router.observeUserWrite(name)
                 },
                 onDeleted: { [router = userSkillRouter] name in
-                    router.userDelete(name)
+                    router.observeUserDelete(name)
                 })
             observer.start()
             userSkillObserver = observer

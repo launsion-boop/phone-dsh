@@ -95,6 +95,35 @@ final class SimPartnerChatDriver: XCTestCase {
         return condition()
     }
 
+    /// Same chip path but dumps the hierarchy immediately after send so the
+    /// full attachment-refusal notice is captured (the UI truncates it).
+    func testPhotosChipNoticeDump() throws {
+        launchBot()
+        app.buttons["bot.composer.attach"].tap()
+        let photos = app.buttons["照片"]
+        XCTAssertTrue(photos.waitForExistence(timeout: 10), "photo menu missing")
+        photos.tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        let close = app.buttons["Close"]
+        if close.exists { close.tap() }
+        let cells = app.images.matching(identifier: "PXGGridLayout-Info")
+        XCTAssertTrue(waitUntil(20) { cells.count >= 2 }, "photo grid did not load")
+        cells.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        cells.element(boundBy: 1).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        app.buttons["Done"].tap()
+        let chip0 = app.descendants(matching: .any)["bot.composer.attachment.0"]
+        XCTAssertTrue(chip0.waitForExistence(timeout: 30), "chip missing")
+        let input = composer()
+        input.tap()
+        input.typeText("看图说金额")
+        app.buttons["bot.composer.send"].tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(4))
+        print("SIM_NOTICE_HIER_BEGIN")
+        print(app.debugDescription)
+        print("SIM_NOTICE_HIER_END")
+        attach("photos-after-send-notice")
+    }
+
     /// Fast-send race probe: selects photos, taps Done, then sends text
     /// immediately without waiting for the async chip. Records whether the chip
     /// existed at send time so a lost attachment can be classified.

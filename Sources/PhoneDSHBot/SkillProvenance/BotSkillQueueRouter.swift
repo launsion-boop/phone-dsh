@@ -24,6 +24,24 @@ public final class BotSkillQueueRouter: @unchecked Sendable {
         }
     }
 
+    /// Observer path: the current queue consumes one operation-scoped
+    /// suppression (feature-admin) or falls through to the normal record.
+    public func observeUserWrite(_ name: String) {
+        let queue = current()
+        queue?.enqueue { [weak queue] in
+            guard let queue else { return }
+            await queue.observeUserWrite(name)
+        }
+    }
+
+    public func observeUserDelete(_ name: String) {
+        let queue = current()
+        queue?.enqueue { [weak queue] in
+            guard let queue else { return }
+            await queue.observeUserDelete(name)
+        }
+    }
+
     public func userDelete(_ name: String) {
         let queue = current()
         queue?.enqueue { [weak queue] in
