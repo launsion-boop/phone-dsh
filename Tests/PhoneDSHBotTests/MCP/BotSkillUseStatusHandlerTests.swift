@@ -68,7 +68,6 @@ final class BotSkillUseStatusHandlerTests: XCTestCase {
         XCTAssertEqual(result.structuredContent?["error"]?["code"],
                        .string("skill-provenance-unavailable"), "\(result)")
     }
-}
 
     func testTokenedIdentityRegistrationAdmitsInternalSkillStatus() async throws {
         let fixture = try makeBotMCPFixture()
@@ -90,3 +89,4 @@ final class BotSkillUseStatusHandlerTests: XCTestCase {
         XCTAssertEqual(result.structuredContent?["status"], .null, "\(result)")
         XCTAssertFalse(result.isError)
     }
+}
