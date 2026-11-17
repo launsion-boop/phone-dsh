@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { after, test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import {
   MAX_COMPLETED_IMPORTS,
@@ -622,15 +623,23 @@ test('import: unknown import ids are rejected instead of being guessed', async (
 // workspace, with a minimal Cordis context and the same node:fs VFS.
 
 async function makeRemote(workspace: string,
-  stat?: (path: string) => Promise<{ type: string }>): Promise<{
+  stat?: (path: string) => Promise<{ type: string }>,
+  options: {
+    live?: boolean
+    sessionQuery?: { readSession(id: unknown): Promise<{ session: { id: string; cwd?: string } }> }
+    workspaceRegistry?: { archivedSessionIds: string[] }
+  } = {}): Promise<{
     remote: PhoneDirectoryImportRemote
     dispose: () => Promise<void>
   }> {
   const ctx = new Context()
   ctx.provide('sessions', {
-    get: (id: string) => id === 'session-1' ? { header: { cwd: workspace } } : undefined,
+    get: (id: string) => options.live === false ? undefined
+      : id === 'session-1' ? { header: { cwd: workspace } } : undefined,
   })
   ctx.provide('sandboxPolicy', { workspaceRoot: workspace })
+  if (options.sessionQuery !== undefined) ctx.provide('sessionQuery', options.sessionQuery)
+  if (options.workspaceRegistry !== undefined) ctx.provide('workspaceRegistry', options.workspaceRegistry)
   ctx.provide('fs', {
     resolve: async (path: string) => path,
     stat: stat ?? (async () => ({ type: 'directory' })),
@@ -642,6 +651,115 @@ async function makeRemote(workspace: string,
     dispose: async () => { await ctx.fiber.dispose() },
   }
 }
+
+function persistedSession(workspace: string, id = 'gb-main'): Session {
+  const session = Session.create(SessionId(id), undefined, {
+    version: 4, id, createdAt: 1_760_000_000_000, cwd: workspace, isSeeded: false,
+  } as never)
+  session.append('turn/start', { turn: 1 })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } } as never)
+  return session
+}
+
+function sessionQuery(forSession: Session): {
+  readSession(id: unknown): Promise<{ session: { id: string; cwd?: string } }>
+} {
+  return {
+    async readSession(id: unknown) {
+      assert.equal(id, forSession.id)
+      return {
+        session: { ...forSession.header },
+        inheritedEventCount: 0,
+        events: forSession.snapshotEvents(),
+      } as never
+    },
+  }
+}
+
+test('remote: a persisted idle session imports into the same cwd and keeps its history', async (t) => {
+  const { workspace, source } = await makeWorkspace()
+  await writeFile(join(source, 'a.txt'), 'persisted')
+  const session = persistedSession(workspace)
+  const before = JSON.stringify(session.snapshotEvents())
+  const manifest = await collectManifest(source, workspace, 'gb-main')
+  const { remote, dispose } = await makeRemote(workspace, undefined, {
+    live: false, sessionQuery: sessionQuery(session),
+  })
+  t.after(dispose)
+
+  const { importId } = await remote.importBegin(manifest)
+  await remote.importWrite({
+    v: 1, sessionId: 'gb-main', importId, path: 'a.txt', offset: 0,
+    dataBase64: Buffer.from('persisted').toString('base64'),
+  })
+  const result = await remote.importCommit({ v: 1, sessionId: 'gb-main', importId })
+  assert.equal(await readFile(join(result.absolutePath, 'a.txt'), 'utf8'), 'persisted')
+  assert.equal(session.id, 'gb-main')
+  assert.equal(JSON.stringify(session.snapshotEvents()), before,
+    'the import must not append, fork or re-key the persisted session history')
+  assert.equal(session.header.cwd, workspace)
+})
+
+test('remote: the same persisted session after a restart still imports into its cwd', async (t) => {
+  const { workspace, source } = await makeWorkspace()
+  await writeFile(join(source, 'a.txt'), 'restart')
+  const session = persistedSession(workspace)
+  const manifest = await collectManifest(source, workspace, 'gb-main')
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { remote, dispose } = await makeRemote(workspace, undefined, {
+      live: false, sessionQuery: sessionQuery(session),
+    })
+    t.after(dispose)
+    const { importId } = await remote.importBegin(manifest)
+    await remote.importWrite({
+      v: 1, sessionId: 'gb-main', importId, path: 'a.txt', offset: 0,
+      dataBase64: Buffer.from('restart').toString('base64'),
+    })
+    const result = await remote.importCommit({ v: 1, sessionId: 'gb-main', importId })
+    assert.equal(await readFile(join(result.absolutePath, 'a.txt'), 'utf8'), 'restart')
+  }
+  assert.equal(session.id, 'gb-main')
+})
+
+test('remote: archived, missing query, mismatched id and missing cwd fail closed', async (t) => {
+  const { workspace, source } = await makeWorkspace()
+  await writeFile(join(source, 'a.txt'), 'x')
+  const manifest = await collectManifest(source, workspace, 'gb-main')
+  const session = persistedSession(workspace)
+  const cases: Array<{ name: string; query?: ReturnType<typeof sessionQuery>; archived?: string[] }> = [
+    { name: 'archived', query: sessionQuery(session), archived: ['gb-main'] },
+    { name: 'missing query', archived: [] },
+    { name: 'id mismatch', query: { async readSession() { return { session: { id: 'other', cwd: workspace } } as never } }, archived: [] },
+    { name: 'missing cwd', query: { async readSession() { return { session: { id: 'gb-main' } } as never } }, archived: [] },
+  ]
+  for (const item of cases) {
+    const { remote, dispose } = await makeRemote(workspace, undefined, {
+      live: false, sessionQuery: item.query, workspaceRegistry: { archivedSessionIds: item.archived ?? [] },
+    })
+    t.after(dispose)
+    await assert.rejects(() => remote.importBegin(manifest),
+      (error: unknown) => remoteErrorOf(error)?.code === 'session/not-found', item.name)
+    assert.equal(await pathExists(join(workspace, 'imports')), false, item.name)
+  }
+})
+
+test('remote: a persisted session cannot import outside its header cwd', async (t) => {
+  const { workspace, root, source } = await makeWorkspace()
+  await writeFile(join(source, 'a.txt'), 'x')
+  const outside = join(root, 'outside')
+  await mkdir(outside, { recursive: true })
+  const session = persistedSession(workspace)
+  const manifest = await collectManifest(source, outside, 'gb-main')
+  const { remote, dispose } = await makeRemote(workspace, undefined, {
+    live: false, sessionQuery: sessionQuery(session),
+  })
+  t.after(dispose)
+  await assert.rejects(() => remote.importBegin(manifest),
+    (error: unknown) => remoteErrorOf(error)?.code === 'gateway/bad-request')
+  assert.equal(await pathExists(join(outside, 'imports')), false)
+  assert.equal(await pathExists(join(outside, '.imports')), false)
+})
 
 test('remote: a retried commit returns the same result instead of not-found', async (t) => {
   const { workspace, source } = await makeWorkspace()
