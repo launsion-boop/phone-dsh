@@ -146,11 +146,14 @@ public actor CloudScheduleClient {
     /// Foreground/scene activation: one immediate cycle, then the normal
     /// active cadence. The client never claims WebView liveness; while the app
     /// is suspended the cloud event log simply keeps pending events.
-    public func activate() async {
+    public func activate(rearmReauthentication: Bool = false) async {
         active = true
-        requiresReauthentication = false
+        if rearmReauthentication { requiresReauthentication = false }
         needsFullSync = true
         if started { startLoop() }
+        // A foreground return must not clear the 401/403 fence; only a real
+        // credential update (or an explicit user action) may re-arm requests.
+        guard !requiresReauthentication else { return }
         _ = await runCycle()
     }
 
