@@ -1,9 +1,10 @@
 # Phone task queue (cloud ↔ phone)
 
-Revision `cloud-tasks-v1.4`, frozen 2026-11-16 (v1.1 rules three implementer change requests:
+Revision `cloud-tasks-v1.5`, frozen 2026-11-16 (v1.1 rules three implementer change requests:
 response openness, device takeover, terminal reason mapping; v1.2 makes the oracle and two new
 cases agree that openness reaches nested `target` and `sealed`; v1.3 names the ack for sealed
-bytes that open but are not a task text; v1.4 forbids swapping the key under one `key_id`). Status: `target` — no end is implemented yet.
+bytes that open but are not a task text; v1.4 forbids swapping the key under one `key_id`; v1.5 removes a
+self-contradictory empty-plaintext case and writes down the clock and re-send bounds). Status: `target` — no end is implemented yet.
 Owner: P05. Change record:
 [PC-20261116-cloud-task-queue](../../docs/protocol-changes/PC-20261116-cloud-task-queue.md).
 Shared cases: [golden/cloud-tasks/cases.json](golden/cloud-tasks/cases.json), the judge where this
@@ -191,9 +192,11 @@ The phone keeps such terminal acks and re-sends them after it registers again.
 ## 7. Phone admission mapping
 
 For each pulled task the phone, in order: checks `expires_at_ms − now ≥ 1000` (else ack
-`expired`), finds the private key for `key_id` (else `rejected` / `key_unknown`), opens `sealed`
+`expired`; `now` is the pull response's `server_time_ms`, the phone's clock only if that member
+is unusable), finds the private key for `key_id` (else `rejected` / `key_unknown`), opens `sealed`
 with the §3 `aad` (else `rejected` / `decrypt_failed`; the same when the opened bytes are not
-1–16384 bytes of valid UTF-8), checks that the target exists (else
+valid UTF-8 — an empty plaintext cannot reach this step, its 16-byte `ct` is an undecodable
+element under §5), checks that the target exists (else
 `rejected` / `target_missing`), then admits with
 
 - `principal = "account:" + <signed-in user id>`, `source = {kind:"cloud-task", id: device_id}`,
@@ -203,7 +206,8 @@ with the §3 `aad` (else `rejected` / `decrypt_failed`; the same when the opened
 Admission results map to: `admitted` / `duplicate` → ack `admitted` with the record's
 `admissionId`; `invalid` → `rejected` / `invalid`; `conflict` → `rejected` / `conflict`;
 `capacity` / `storage` → no ack. The ack is sent only after the journal write returned.
-Terminal acks are produced from the admission record's stage and are re-sent until accepted; the
+Terminal acks are produced from the admission record's stage and are re-sent until accepted or
+until the record is swept from the journal (after that the §6 21-day rule applies); the
 phone keeps the pairing `task_id ↔ admissionId` in the record itself (`sourceRequestId`).
 The mapping is total: `completed` → `completed`; `unknown` → `unknown`; `expired` → `failed` /
 `expired`; `cancelled` → `failed` / `cancelled`; `failed` → `failed` with the record's `reason`

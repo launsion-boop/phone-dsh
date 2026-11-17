@@ -96,3 +96,4 @@ P16: none — Worker 启动与 wire 不变; P24: none — 不新增包依赖，�
 | cloud-tasks-v1.2（补充） | 主 agent | 云端实现者的打包请求：校验器可用 `PDSH_CLOUD_TASK_CASES` 指定用例路径，规范写明导入布局为平铺；并写明确认只在设备注册于调用方时接受（§5） | 云端、iOS、Android |
 | cloud-tasks-v1.3 | 主 agent | Android 库实现者的澄清请求：密文能打开但不是 1–16384 字节合法 UTF-8 时，确认为 `rejected`／`decrypt_failed`（§7，新增 `sealing.not_text` 2 个用例） | 云端（无行为变化）、iOS、Android |
 | cloud-tasks-v1.4 | 主 agent | 云端实现者正确地拒绝实现尚未写进契约的规则并提出请求：同一账号下同一 `key_id` 不得更换公钥（`409 key_mismatch`，不改变任何状态），接管不比较；手机收到后换新 `key_id` 重新注册（§2，新增 `registration` 5 个用例） | 云端、iOS、Android |
+| cloud-tasks-v1.5 | 主 agent | Android 库实现者指出 v1.3 的空明文用例与 §5 矛盾（16 字节密文本身就是不可解码元素）：删除该用例，换成截断的 UTF-8 序列；同时把此前只在通知里说过的两点写进 §7：到期判断以拉取响应的 `server_time_ms` 为准；终态确认重发到被接受或记录被清扫为止。线上行为不变 | 云端（无行为变化）、iOS、Android |
