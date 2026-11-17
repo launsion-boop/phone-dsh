@@ -66,6 +66,15 @@ public final class BotSkillEventQueue: @unchecked Sendable {
         await enqueueTask(operation).value
     }
 
+    /// Enqueue and wait for a mutation that produces a real result. The
+    /// feature-admin bridge uses this so `skill_event` reflects the producer's
+    /// actual recorded/failed outcome, never merely "a queue exists".
+    public func enqueueAndWaitResult<Value: Sendable>(
+        _ operation: @escaping @Sendable () async -> Value
+    ) async -> Value? {
+        await enqueueTaskResult(operation)?.value
+    }
+
     @discardableResult
     private func enqueueTask(_ operation: @escaping @Sendable () async -> Void) -> Task<Void, Never> {
         lock.lock()
@@ -75,6 +84,21 @@ public final class BotSkillEventQueue: @unchecked Sendable {
             await operation()
         }
         tail = next
+        lock.unlock()
+        return next
+    }
+
+    @discardableResult
+    private func enqueueTaskResult<Value: Sendable>(
+        _ operation: @escaping @Sendable () async -> Value
+    ) -> Task<Value, Never>? {
+        lock.lock()
+        let previous = tail
+        let next = Task {
+            await previous.value
+            return await operation()
+        }
+        tail = Task { _ = await next.value }
         lock.unlock()
         return next
     }
@@ -135,27 +159,54 @@ public final class BotSkillEventQueue: @unchecked Sendable {
 
     public func userWrite(_ name: String,
                           sources: [BotDerivationSource] = []) async {
+        _ = await userWriteResult(name, sources: sources)
+    }
+
+    /// The actual producer result for one user-dsh write. `false` means no
+    /// `skill.changed` was recorded (invalid path, append failure, ...), so the
+    /// feature-admin bridge must not report `skill_event:true`.
+    public func userWriteResult(_ name: String,
+                                sources: [BotDerivationSource] = []) async -> Bool {
         do {
-            _ = try await producer.recordUserDshWrite(fileName: name, sources: sources)
+            guard try await producer.recordUserDshWrite(
+                fileName: name, sources: sources) != nil else {
+                record(action: "user-write", key: name, outcome: .failed,
+                       detail: "not a skill path")
+                return false
+            }
             record(action: "user-write", key: name, outcome: .recorded, detail: nil)
+            return true
         } catch {
             record(action: "user-write", key: name, outcome: .failed,
                    detail: String(describing: error))
             NSLog("BOT_SKILL_PRODUCER_FAILED action=user-write name=%@ error=%@",
                   name, String(describing: error))
+            return false
         }
     }
 
     public func userDelete(_ name: String,
                            sources: [BotDerivationSource] = []) async {
+        _ = await userDeleteResult(name, sources: sources)
+    }
+
+    public func userDeleteResult(_ name: String,
+                                 sources: [BotDerivationSource] = []) async -> Bool {
         do {
-            _ = try await producer.recordUserDshDelete(fileName: name, sources: sources)
+            guard try await producer.recordUserDshDelete(
+                fileName: name, sources: sources) != nil else {
+                record(action: "user-delete", key: name, outcome: .failed,
+                       detail: "not a skill path")
+                return false
+            }
             record(action: "user-delete", key: name, outcome: .recorded, detail: nil)
+            return true
         } catch {
             record(action: "user-delete", key: name, outcome: .failed,
                    detail: String(describing: error))
             NSLog("BOT_SKILL_PRODUCER_FAILED action=user-delete name=%@ error=%@",
                   name, String(describing: error))
+            return false
         }
     }
 

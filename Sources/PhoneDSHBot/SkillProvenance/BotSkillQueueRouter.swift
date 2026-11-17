@@ -27,13 +27,14 @@ public final class BotSkillQueueRouter: @unchecked Sendable {
     /// The applied feature-admin record joins the same serial tail as the
     /// observer and the runtime, so a successful UI save cannot be observed
     /// before its `skill.changed` carrier exists.
+    @discardableResult
     public func userWriteAndWait(_ name: String,
-                                 sources: [BotDerivationSource]) async {
-        guard let queue = current() else { return }
-        await queue.enqueueAndWait { [weak queue] in
-            guard let queue else { return }
-            await queue.userWrite(name, sources: sources)
-        }
+                                 sources: [BotDerivationSource]) async -> Bool {
+        guard let queue = current() else { return false }
+        return await queue.enqueueAndWaitResult { [weak queue] in
+            guard let queue else { return false }
+            return await queue.userWriteResult(name, sources: sources)
+        } ?? false
     }
 
     /// Observer path: the current queue consumes one operation-scoped
@@ -62,13 +63,14 @@ public final class BotSkillQueueRouter: @unchecked Sendable {
         }
     }
 
+    @discardableResult
     public func userDeleteAndWait(_ name: String,
-                                  sources: [BotDerivationSource]) async {
-        guard let queue = current() else { return }
-        await queue.enqueueAndWait { [weak queue] in
-            guard let queue else { return }
-            await queue.userDelete(name, sources: sources)
-        }
+                                  sources: [BotDerivationSource]) async -> Bool {
+        guard let queue = current() else { return false }
+        return await queue.enqueueAndWaitResult { [weak queue] in
+            guard let queue else { return false }
+            return await queue.userDeleteResult(name, sources: sources)
+        } ?? false
     }
 
     public var hasQueue: Bool { current() != nil }

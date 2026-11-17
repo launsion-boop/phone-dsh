@@ -19,14 +19,20 @@ private actor FeatureAdminTestLog: BotEventLog {
     private var storage: [Int: BotEvent] = [:]
     private var nextSeq = 1
     var failApplied = false
+    var failNextSkillChanged = false
 
     func setFailApplied(_ value: Bool) { failApplied = value }
+    func setFailNextSkillChanged(_ value: Bool) { failNextSkillChanged = value }
 
     func append(_ event: BotEvent) async throws -> Int {
         if failApplied,
            event.type == BotFeatureAdminSkillMutationRecorder.eventType,
            event.data["status"]?.stringValue == "applied" {
             throw TestFailure.appliedAppend
+        }
+        if failNextSkillChanged, event.type == "skill.changed" {
+            failNextSkillChanged = false
+            throw TestFailure.skillChangedAppend
         }
         if let existing = storage.values.first(where: { $0.eventId == event.eventId }),
            let seq = existing.commitSeq {
@@ -48,7 +54,7 @@ private actor FeatureAdminTestLog: BotEventLog {
         storage.values.sorted { ($0.commitSeq ?? 0) < ($1.commitSeq ?? 0) }
     }
 
-    enum TestFailure: Error, Sendable { case appliedAppend }
+    enum TestFailure: Error, Sendable { case appliedAppend, skillChangedAppend }
 }
 
 private final class FeatureAdminQueueSpy: @unchecked Sendable {
@@ -82,6 +88,13 @@ private final class FeatureAdminQueueSpy: @unchecked Sendable {
                 return self.emitResult
             })
     }
+}
+
+private struct RealFeatureAdminChain {
+    let log: FeatureAdminTestLog
+    let service: BotProvenanceService
+    let queue: BotSkillEventQueue
+    let recorder: BotFeatureAdminSkillMutationRecorder
 }
 
 final class BotFeatureAdminSkillMutationTests: XCTestCase {
@@ -124,6 +137,10 @@ final class BotFeatureAdminSkillMutationTests: XCTestCase {
         ])
     }
 
+    private func appliedBody(operationID: String = "op-1") -> BotJSONValue {
+        .object(["op": .string("applied"), "operation_id": .string(operationID)])
+    }
+
     private func result(_ value: BotJSONValue) -> [String: BotJSONValue] {
         guard let object = value.objectValue else {
             XCTFail("reply is not an object")
@@ -137,6 +154,51 @@ final class BotFeatureAdminSkillMutationTests: XCTestCase {
         BotFeatureAdminSkillMutationRecorder(
             eventLog: log, userSkillsRoot: userDir, queue: queue.queue(),
             now: { featureAdminTestNow }, fileVerificationAttempts: 1)
+    }
+
+    /// Real provenance service + producer + queue + recorder. The emit closure
+    /// returns the producer's actual recorded/failed result, exactly like the
+    /// composition seam should.
+    private func realChain(_ log: FeatureAdminTestLog) -> RealFeatureAdminChain {
+        let service = BotProvenanceService(
+            eventLog: log,
+            skillRechecker: BotSkillFileRechecker(roots: roots))
+        let producer = BotSkillProvenanceProducer(
+            botRoot: "/dsh/workspace/.dshbot/agents/bot-a",
+            roots: roots,
+            recorder: { try await service.recordSkillWrite($0) },
+            latest: { try await service.latestSkillChange(identity: $0) },
+            now: { featureAdminTestNow })
+        let queue = BotSkillEventQueue(producer: producer, now: { featureAdminTestNow })
+        let recorder = BotFeatureAdminSkillMutationRecorder(
+            eventLog: log, userSkillsRoot: userDir,
+            queue: BotFeatureAdminSkillMutationQueue(
+                ready: { true },
+                suppress: { file, action, operationID in
+                    queue.suppressObserverMutation(
+                        fileName: file, action: action, operationID: operationID)
+                },
+                clear: { operationID in
+                    queue.clearObserverSuppression(operationID: operationID)
+                },
+                emit: { file, action, requestRecord, appliedRecord in
+                    let sources = [
+                        BotDerivationSource(record: appliedRecord, role: .basis),
+                        BotDerivationSource(record: requestRecord, role: .evidence),
+                    ]
+                    let emitted = await queue.enqueueAndWaitResult {
+                        switch action {
+                        case .write:
+                            return await queue.userWriteResult(file, sources: sources)
+                        case .delete:
+                            return await queue.userDeleteResult(file, sources: sources)
+                        }
+                    }
+                    return emitted ?? false
+                }),
+            now: { featureAdminTestNow }, fileVerificationAttempts: 1)
+        return RealFeatureAdminChain(log: log, service: service, queue: queue,
+                                     recorder: recorder)
     }
 
     func testRequestedRecordCarriesRecoverableActualInput() async throws {
@@ -330,23 +392,185 @@ final class BotFeatureAdminSkillMutationTests: XCTestCase {
         XCTAssertEqual(spy.cleared, ["op-1"])
     }
 
-    func testDuplicateAppliedRepairsIdempotently() async throws {
+    func testDuplicateAppliedAfterSuccessDoesNotReEmit() async throws {
         let log = FeatureAdminTestLog()
         let spy = FeatureAdminQueueSpy()
         let recorder = recorder(log, queue: spy)
         _ = result(await recorder.handle(beginBody(content: "wanted")))
         try Data("wanted".utf8).write(to: userDir.appendingPathComponent("weekly.md"))
-        let first = result(await recorder.handle(.object([
-            "op": .string("applied"), "operation_id": .string("op-1"),
-        ])))
-        let second = result(await recorder.handle(.object([
-            "op": .string("applied"), "operation_id": .string("op-1"),
-        ])))
+        let first = result(await recorder.handle(appliedBody()))
+        let second = result(await recorder.handle(appliedBody()))
         XCTAssertEqual(first["record"]?.stringValue, second["record"]?.stringValue)
+        XCTAssertEqual(first["skill_event"]?.boolValue, true)
+        XCTAssertEqual(second["skill_event"]?.boolValue, true)
         let events = await log.all()
         XCTAssertEqual(events.count, 2)
-        XCTAssertEqual(spy.emitted.count, 2, "repair reuses the same durable applied record")
-        XCTAssertEqual(spy.emitted[0].3, spy.emitted[1].3)
+        XCTAssertEqual(spy.emitted.count, 1,
+                       "a completed applied retry must not call the producer again")
+    }
+
+    // MARK: - real queue + producer idempotency
+
+    func testSameAppliedOperationTwiceUsesOneRawAppliedAndOneSkillChanged() async throws {
+        let log = FeatureAdminTestLog()
+        let chain = realChain(log)
+        let content = "# Weekly\n\n- one real body\n"
+        let begin = result(await chain.recorder.handle(beginBody(content: content)))
+        let requestRecord = try XCTUnwrap(begin["record"]?.stringValue)
+        try Data(content.utf8).write(to: userDir.appendingPathComponent("weekly.md"))
+
+        let first = result(await chain.recorder.handle(appliedBody()))
+        XCTAssertEqual(first["ok"]?.boolValue, true)
+        XCTAssertEqual(first["skill_event"]?.boolValue, true)
+        let appliedRecord = try XCTUnwrap(first["record"]?.stringValue)
+        let second = result(await chain.recorder.handle(appliedBody()))
+        XCTAssertEqual(second["record"]?.stringValue, appliedRecord)
+        XCTAssertEqual(second["skill_event"]?.boolValue, true)
+
+        var events = await log.all()
+        XCTAssertEqual(events.filter {
+            $0.type == BotFeatureAdminSkillMutationRecorder.eventType
+                && $0.data["status"]?.stringValue == "applied"
+        }.count, 1)
+        var changed = events.filter { $0.type == "skill.changed" }
+        XCTAssertEqual(changed.count, 1)
+        XCTAssertEqual(changed.first?.data["skill"]?["revision"]?.intValue, 1)
+
+        // Even a rogue second producer call with the same applied operation
+        // record must reuse the existing carrier, not revision+1.
+        let sources = [
+            BotDerivationSource(record: appliedRecord, role: .basis),
+            BotDerivationSource(record: requestRecord, role: .evidence),
+        ]
+        let rogue = await chain.queue.userWriteResult("weekly.md", sources: sources)
+        XCTAssertTrue(rogue)
+        changed = await log.all().filter { $0.type == "skill.changed" }
+        XCTAssertEqual(changed.count, 1)
+    }
+
+    func testSameDeleteAppliedOperationTwiceUsesOneDeleteCarrier() async throws {
+        let log = FeatureAdminTestLog()
+        let chain = realChain(log)
+        let content = "# Weekly\n"
+        _ = result(await chain.recorder.handle(beginBody(content: content)))
+        try Data(content.utf8).write(to: userDir.appendingPathComponent("weekly.md"))
+        let write = result(await chain.recorder.handle(appliedBody()))
+        XCTAssertEqual(write["skill_event"]?.boolValue, true)
+
+        let beginDelete = result(await chain.recorder.handle(
+            beginBody(operationID: "op-2", action: "delete", content: content)))
+        XCTAssertEqual(beginDelete["ok"]?.boolValue, true)
+        try FileManager.default.removeItem(at: userDir.appendingPathComponent("weekly.md"))
+        let firstDelete = result(await chain.recorder.handle(appliedBody(operationID: "op-2")))
+        XCTAssertEqual(firstDelete["ok"]?.boolValue, true)
+        XCTAssertEqual(firstDelete["skill_event"]?.boolValue, true)
+        let duplicate = result(await chain.recorder.handle(appliedBody(operationID: "op-2")))
+        XCTAssertEqual(duplicate["record"]?.stringValue, firstDelete["record"]?.stringValue)
+        XCTAssertEqual(duplicate["skill_event"]?.boolValue, true)
+
+        let events = await log.all()
+        XCTAssertEqual(events.filter {
+            $0.type == BotFeatureAdminSkillMutationRecorder.eventType
+                && $0.data["status"]?.stringValue == "applied"
+                && $0.data["operation_id"]?.stringValue == "op-2"
+        }.count, 1)
+        let changed = events.filter { $0.type == "skill.changed" }
+        XCTAssertEqual(changed.count, 2)
+        let deleted = try XCTUnwrap(changed.last)
+        XCTAssertEqual(deleted.data["action"]?.stringValue, "delete")
+        XCTAssertEqual(deleted.data["skill"]?["revision"]?.intValue, 2)
+    }
+
+    func testFailedSkillEventIsRepairedByOneAppliedRetry() async throws {
+        let log = FeatureAdminTestLog()
+        let chain = realChain(log)
+        let content = "# Weekly\n"
+        _ = result(await chain.recorder.handle(beginBody(content: content)))
+        try Data(content.utf8).write(to: userDir.appendingPathComponent("weekly.md"))
+        await log.setFailNextSkillChanged(true)
+
+        let first = result(await chain.recorder.handle(appliedBody()))
+        XCTAssertEqual(first["ok"]?.boolValue, true, "the applied raw fact itself is durable")
+        XCTAssertEqual(first["skill_event"]?.boolValue, false,
+                       "a caught producer failure must not claim a skill event")
+        var events = await log.all()
+        XCTAssertEqual(events.filter {
+            $0.type == BotFeatureAdminSkillMutationRecorder.eventType
+                && $0.data["status"]?.stringValue == "applied"
+        }.count, 1)
+        XCTAssertEqual(events.filter { $0.type == "skill.changed" }.count, 0)
+
+        let retry = result(await chain.recorder.handle(appliedBody()))
+        XCTAssertEqual(retry["ok"]?.boolValue, true)
+        XCTAssertEqual(retry["skill_event"]?.boolValue, true)
+        events = await log.all()
+        XCTAssertEqual(events.filter {
+            $0.type == BotFeatureAdminSkillMutationRecorder.eventType
+                && $0.data["status"]?.stringValue == "applied"
+        }.count, 1)
+        XCTAssertEqual(events.filter { $0.type == "skill.changed" }.count, 1)
+    }
+
+    func testNewOperationWithSameFileAndBodyCreatesNewRevision() async throws {
+        let log = FeatureAdminTestLog()
+        let chain = realChain(log)
+        let content = "# Same body\n"
+        for operation in ["op-1", "op-2"] {
+            _ = result(await chain.recorder.handle(
+                beginBody(operationID: operation, content: content)))
+            try Data(content.utf8).write(to: userDir.appendingPathComponent("weekly.md"))
+            let applied = result(await chain.recorder.handle(appliedBody(operationID: operation)))
+            XCTAssertEqual(applied["ok"]?.boolValue, true)
+            XCTAssertEqual(applied["skill_event"]?.boolValue, true)
+        }
+        let events = await log.all()
+        XCTAssertEqual(events.filter {
+            $0.type == BotFeatureAdminSkillMutationRecorder.eventType
+                && $0.data["status"]?.stringValue == "applied"
+        }.count, 2)
+        let changed = events.filter { $0.type == "skill.changed" }
+        XCTAssertEqual(changed.count, 2)
+        XCTAssertEqual(changed.compactMap { $0.data["skill"]?["revision"]?.intValue }.sorted(), [1, 2])
+    }
+
+    func testRouterReturnsProducerResultAndNoQueueIsFalse() async throws {
+        let log = FeatureAdminTestLog()
+        let chain = realChain(log)
+        let router = BotSkillQueueRouter()
+        let missing = await router.userWriteAndWait("weekly.md", sources: [])
+        XCTAssertFalse(missing)
+        router.set(chain.queue)
+
+        let begin = result(await chain.recorder.handle(beginBody(content: "body")))
+        let requestRecord = try XCTUnwrap(begin["record"]?.stringValue)
+        try Data("body".utf8).write(to: userDir.appendingPathComponent("weekly.md"))
+        let sources = [BotDerivationSource(record: requestRecord, role: .basis)]
+        await log.setFailNextSkillChanged(true)
+        let failed = await router.userWriteAndWait("weekly.md", sources: sources)
+        XCTAssertFalse(failed)
+        let succeeded = await router.userWriteAndWait("weekly.md", sources: sources)
+        XCTAssertTrue(succeeded)
+        let changed = await log.all().filter { $0.type == "skill.changed" }
+        XCTAssertEqual(changed.count, 1)
+    }
+
+    func testConcurrentSameAppliedOperationEmitsAtMostOneSkillChanged() async throws {
+        let log = FeatureAdminTestLog()
+        let chain = realChain(log)
+        let content = "# Weekly\n"
+        _ = result(await chain.recorder.handle(beginBody(content: content)))
+        try Data(content.utf8).write(to: userDir.appendingPathComponent("weekly.md"))
+
+        async let first = chain.recorder.handle(appliedBody())
+        async let second = chain.recorder.handle(appliedBody())
+        let replies = [result(await first), result(await second)]
+        XCTAssertTrue(replies.contains { $0["ok"]?.boolValue == true })
+        let events = await log.all()
+        XCTAssertEqual(events.filter {
+            $0.type == BotFeatureAdminSkillMutationRecorder.eventType
+                && $0.data["status"]?.stringValue == "applied"
+        }.count, 1)
+        XCTAssertEqual(events.filter { $0.type == "skill.changed" }.count, 1)
     }
 
     // MARK: - real producer chain

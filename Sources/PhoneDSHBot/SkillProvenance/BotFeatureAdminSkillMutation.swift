@@ -97,6 +97,10 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
         var requestRecord: String
         var appliedRecord: String
         var atMS: Int64
+        /// True only when the real producer returned a recorded skill change.
+        /// A true value forbids a second emit for the same operation; a false
+        /// value is the one bounded repair retry.
+        var skillEventEmitted: Bool
     }
 
     private let eventLog: any BotEventLog
@@ -110,6 +114,9 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
     private let fileVerificationDelayNanoseconds: UInt64
     private var pending: [String: Pending] = [:]
     private var completed: [String: Completed] = [:]
+    /// One applied call per operation at a time. Actor reentrancy at the
+    /// queue await must not append/emit the same operation twice.
+    private var appliedInFlight: Set<String> = []
 
     /// Tests can prove that a failed write never registers suppression.
     private(set) var suppressionRegistrations = 0
@@ -213,15 +220,32 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
         do {
             let operationID = try Self.decodeOperationID(object)
             purgeExpired()
+            guard !appliedInFlight.contains(operationID) else {
+                return Self.error("operation-in-progress",
+                                  "the same feature-admin operation is already being applied")
+            }
+            appliedInFlight.insert(operationID)
+            defer { appliedInFlight.remove(operationID) }
             guard let entry = pending[operationID] else {
                 if let done = completed[operationID] {
-                    // Idempotent repair: the applied fact already exists; the
-                    // producer deduplicates the same revision/action event.
-                    _ = await queue.emit(done.request.file, done.request.action,
-                                         done.requestRecord, done.appliedRecord)
+                    // The applied fact already exists. A completed operation
+                    // that really emitted must not call the producer again:
+                    // recordUserDshWrite would read the new latest and append a
+                    // second revision. Only a previously failed emit gets one
+                    // bounded repair attempt with the same applied record.
+                    if done.skillEventEmitted {
+                        return Self.ok(record: done.appliedRecord, operationID: operationID,
+                                       status: .applied,
+                                       extra: ["skill_event": .bool(true)])
+                    }
+                    let repaired = await queue.emit(done.request.file, done.request.action,
+                                                    done.requestRecord, done.appliedRecord)
+                    if repaired {
+                        completed[operationID]?.skillEventEmitted = true
+                    }
                     return Self.ok(record: done.appliedRecord, operationID: operationID,
                                    status: .applied,
-                                   extra: ["skill_event": .bool(true)])
+                                   extra: ["skill_event": .bool(repaired)])
                 }
                 throw BotFeatureAdminSkillMutationError.unknownOperation
             }
@@ -259,7 +283,8 @@ public actor BotFeatureAdminSkillMutationRecorder: BotFeatureAdminSkillMutationS
             pending.removeValue(forKey: operationID)
             completed[operationID] = Completed(
                 request: entry.request, requestRecord: entry.requestRecord,
-                appliedRecord: appliedRecord, atMS: atMS)
+                appliedRecord: appliedRecord, atMS: atMS,
+                skillEventEmitted: emitted)
             // The observer consumes the one-shot suppression when it sees the
             // file change; if it never does, the queue's TTL removes it.
             return Self.ok(record: appliedRecord, operationID: operationID,

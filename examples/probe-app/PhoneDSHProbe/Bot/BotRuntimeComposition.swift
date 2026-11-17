@@ -594,19 +594,22 @@ final class BotRuntimeComposition {
                     userSkillRouter.clearObserverSuppression(operationID: operationID)
                 },
                 emit: { file, action, requestRecord, appliedRecord in
-                    guard userSkillRouter.hasQueue else { return false }
-                    let name = String(file.dropLast(3))
+                    // Pass the real flat file name (`x.md`): the producer
+                    // classifies by file, not by the catalog skill name.
+                    // Return the real producer result; a missing queue or a
+                    // caught producer failure must be `skill_event:false`.
                     let sources = [
                         BotDerivationSource(record: appliedRecord, role: .basis),
                         BotDerivationSource(record: requestRecord, role: .evidence),
                     ]
                     switch action {
                     case .write:
-                        await userSkillRouter.userWriteAndWait(name, sources: sources)
+                        return await userSkillRouter.userWriteAndWait(
+                            file, sources: sources)
                     case .delete:
-                        await userSkillRouter.userDeleteAndWait(name, sources: sources)
+                        return await userSkillRouter.userDeleteAndWait(
+                            file, sources: sources)
                     }
-                    return true
                 }),
             now: runtimeClock)
         composition.contextStartTask = Task { await composition.startContextSourcesIfNeeded() }

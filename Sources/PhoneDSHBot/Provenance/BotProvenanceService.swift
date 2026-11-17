@@ -235,17 +235,34 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
         if cachedEventIDs[eventId] != nil {
             return BotDerivedRef(kind: .skill, id: name, version: write.revision)
         }
-        let latest = snapshot.assertions.compactMap { artifact, list -> Int? in
+        let latest = snapshot.assertions.compactMap {
+            artifact, list -> (version: Int, assertion: BotProvenanceAssertion)? in
             guard artifact.kind == .skill, artifact.id == name,
                   let last = list.last else { return nil }
             let lastSource = last.skillSource ?? BotSkillSource.userDsh.rawValue
-            let lastOwner = last.skillOwnerBotID
-            guard lastSource == source.rawValue, lastOwner == write.ownerBotID else {
-                return nil
-            }
-            return artifact.version
-        }.max()
-        let expected = (latest ?? 0) + 1
+            guard lastSource == source.rawValue,
+                  last.skillOwnerBotID == write.ownerBotID else { return nil }
+            return (artifact.version ?? 0, last)
+        }.max { $0.version < $1.version }
+        // Feature-admin retry idempotency: the applied operation record is the
+        // stable identity. If the latest skill assertion already carries this
+        // exact applied basis for the same action, this is a retry, not a new
+        // user save: reuse the existing revision instead of reading a fresh
+        // latest and appending revision+1. A genuinely new operation has a new
+        // applied record (and therefore still creates a new version, even when
+        // the file bytes/hash are identical).
+        if write.source == .userDsh, write.author.kind == "user",
+           let latest,
+           latest.assertion.isDeleted == (write.action == .delete),
+           let basis = write.sources.first(where: { $0.role == .basis }),
+           let canonicalBasis = BotRecordReference.canonicalize(basis.record),
+           latest.assertion.sources.contains(where: {
+               $0.role == .basis
+                   && BotRecordReference.canonicalize($0.record) == canonicalBasis
+           }) {
+            return BotDerivedRef(kind: .skill, id: name, version: latest.version)
+        }
+        let expected = (latest?.version ?? 0) + 1
         guard write.revision == expected else {
             throw BotProvenanceError.invalidDerivation(
                 "skill revision must be \(expected), got \(write.revision)")
