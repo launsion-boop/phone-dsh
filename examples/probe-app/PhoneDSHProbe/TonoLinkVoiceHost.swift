@@ -40,6 +40,11 @@ import ProbeKit
     /// (deferred or no engine within the admission bound); executable work speaks only its answer.
     static let acknowledgement = "已经记下了，打开手机后继续处理"
     private var ackAudio: Data?
+    /// Spoken when recognised text was not saved, so a command is never dropped in silence.
+    /// It states a failure, never an acceptance.
+    static let notSaved = "这条没有保存，请在手机上重试"
+    static let noDestination = "请先在手机上打开一个对话"
+    private var notSavedAudio: Data?
     private static let keepAliveOwner = "tonolink-voice"
 
     /// Keeps a ctrl link to the user's board and listens for its wake word.
@@ -383,12 +388,17 @@ import ProbeKit
         }
         guard let request else {
             note("error", "请先在手机上打开一个本地对话，再使用语音")
+            await speakFailure(Self.noDestination, credential: credential)
             light(.idle)
             return
         }
         let chat = ChatModel.shared
         guard let receipt = await chat.admitVoice(text, request: request) else {
-            if !Task.isCancelled { note("error", "消息未保存，请解锁手机后重试"); light(.idle) }
+            if !Task.isCancelled {
+                note("error", "消息未保存，请在手机上重试")
+                await speakFailure(Self.notSaved, credential: credential)
+                light(.idle)
+            }
             return
         }
         // The queue owns delivery from this point, even if a new wake cancels this voice task.
@@ -565,6 +575,8 @@ import ProbeKit
         guard let credential = await credential() else { return }
         if hereAudio == nil, let pcm = await synthesize("我在", credential: credential) { hereAudio = pcm }
         if ackAudio == nil, let pcm = await synthesize(Self.acknowledgement, credential: credential) { ackAudio = pcm }
+        // Kept in memory like the acknowledgement, so a failure is spoken without waiting for TTS.
+        if notSavedAudio == nil, let pcm = await synthesize(Self.notSaved, credential: credential) { notSavedAudio = pcm }
     }
 
     private func synthesize(_ text: String, credential: String) async -> Data? {
@@ -574,6 +586,15 @@ import ProbeKit
     }
 
     /// Queues 「好的，马上处理」 and returns without waiting for it to finish.
+    /// Best effort: a failure that cannot be spoken is still logged and shown by the light.
+    private func speakFailure(_ text: String, credential: String) async {
+        var audio = text == Self.notSaved ? notSavedAudio : nil
+        if audio == nil { audio = await synthesize(text, credential: credential) }
+        if text == Self.notSaved, notSavedAudio == nil { notSavedAudio = audio }
+        guard let audio, !Task.isCancelled else { return }
+        do { try player.play(audio) } catch { note("speak_error", error.localizedDescription) }
+    }
+
     private func acknowledge(credential: String) async {
         if ackAudio == nil { ackAudio = await synthesize(Self.acknowledgement, credential: credential) }
         guard let ackAudio else { return }

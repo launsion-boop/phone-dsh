@@ -145,6 +145,32 @@ before any acceptance), but the acknowledgement is spoken once only when executi
 now (deferred, or no engine within the admission bound), worded 「已经记下了，打开手机后继续处理」.
 Executable work speaks only its answer; the LED shows it running. No wire, BLE or record change.
 
+### Locked admission and proof of absence (revision 9, confirmed by user)
+
+Review after merge found two ways a request could be lost or stuck.
+
+1. Admission used `isProtectedDataAvailable` as a stand-in for "storage is writable". A voice
+   command on a locked phone whose board unlock failed was dropped with a log line only. P06
+   §10.1 / P07 §4.1.1 / P05 `cloud-voice.md`: the outbox write itself decides whether there is a
+   durable receipt. A locked phone admits; queued delivery (not `start()`/`resumeHost` in
+   general, and not Bot work) waits for protected data, so the deferred acknowledgement
+   「已经记下了，打开手机后继续处理」 is true, and the unlock notification retries delivery. Text
+   that is not saved, or has no local session, is spoken as a failure.
+2. P06 §10 allows `outcomeUnknown → queued` only on proof of absence, but the read-back could only
+   ever answer "found". With the user-retry requeue removed in revision 2, an unsent unknown had
+   no exit. The read-back now defines that proof (see §10 "Outcome unknown"): inbox projection
+   and history from one follow snapshot. The state machine, `rpcId` and the DSH `requestId`
+   de-duplication are unchanged; a resend after proof reuses the original `rpcId`.
+
+The user confirmed revision 9 and the bounded-history behavior on 2026-11-16. If 40 history
+pages do not reach the beginning, the request remains outcomeUnknown and is not automatically
+resent. This confirmation does not claim hardware verification or retroactive contract freezing.
+
+Compatibility: no record, schema, wire or BLE change. Old↔new read the same queue; rollback
+restores lock-gated admission and leaves unknown entries in place. Not verified on hardware:
+locked admission with a failed board unlock, delivery on the unlock notification, and the spoken
+failure are NOT_RUN.
+
 ### Background AirPlay speech (P08 ios-audio-session revision 3)
 
 See `spec/platform/ios-audio-session.md` §2: a speaker claim switches to playAndRecord only for an

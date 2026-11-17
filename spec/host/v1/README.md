@@ -320,6 +320,12 @@ references plus minimal metadata, never inline bytes.
   (the same source that would make it `durable`); if the `rpcId` is present it becomes `accepted`
   then `durable`; if proof of absence is available it returns to `queued` with the same `rpcId`;
   if the read-back cannot run it stays `outcomeUnknown` and does not resend.
+  Proof of absence is one follow snapshot whose inbox projection is present and does not hold
+  the `rpcId`, plus that snapshot's history walked back past the entry's `createdAtMs` (or to its
+  beginning) without finding it. A prompt held in the inbox is `accepted`, not absent. A snapshot
+  without the inbox projection, a failed or non-advancing page read, or an unknown that has not
+  yet settled (3 s, doubling per attempt up to 300 s) proves nothing. A user retry does not
+  replace this proof.
 - **Attachment consistency at dispatch.** Immediately before a first submit, and again before any
   retry, verify every referenced file exists and its bytes match `sha256`. On a missing file or a
   digest mismatch the host MUST NOT submit the entry, MUST NOT fall back to a text-only send, and
@@ -364,6 +370,9 @@ recovery and explicit stop gates remain authoritative; an explicit stop pauses q
 preparation even while a boot is in flight. Foreground return retries retained queued work.
 A first-ever UI send must establish a foreground session and then enqueue before submitting;
 there is no durable receipt while no session or protected storage is available.
+Storage availability is the result of the outbox write itself, not the lock state: a locked
+phone whose outbox is writable admits durably, and queued delivery then waits until protected
+data is available again (the unlock notification or the next foreground return retries it).
 
 If execution eligibility is lost while writing the submitting marker, the same live sender
 may defer an entry before calling transport, using submitting → outcomeUnknown → queued

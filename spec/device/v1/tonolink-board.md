@@ -182,7 +182,8 @@ this registration.
 The native voice consumer snapshots its existing local DSH session at wake, before ASR and
 unlock waits, and allocates one lowercase UUIDv4 request ID. Recognized non-volume text enters
 that session's existing durable SendOutbox (§10 of the host contract) using the same ID. A
-missing target or unavailable protected storage produces no acceptance. The board wake counter
+missing target or unavailable protected storage produces no acceptance and is spoken as a
+failure; a locked phone whose outbox is writable admits and defers until unlock. The board wake counter
 is not a globally stable task ID. No new BLE frame, permission or authentication is introduced.
 The saved-work acknowledgement follows durable enqueue and is spoken only when execution
 cannot start now (deferred, or no engine within the admission bound); work that executes speaks
