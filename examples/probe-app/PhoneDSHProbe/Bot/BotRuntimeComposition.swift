@@ -244,7 +244,7 @@ final class BotRuntimeComposition {
     private var contextStartTask: Task<Void, Never>?
     private var stopped = false
     private var contextLifecycleGeneration = 0
-    private var skillEventQueue: BotSkillEventQueue?
+    private var latestCloudSceneGeneration = 0
 
     /// Read-only seam for the Bot info/settings entry and the info driver. The
     /// assembly remains the sole consent/observation authority.
@@ -477,7 +477,6 @@ final class BotRuntimeComposition {
             ?? (workspaceRoot ?? BotProductionPaths.workspaceRoot())
                 .appendingPathComponent("materialized/home/skills", isDirectory: true)
         let skillQueue = BotSkillEventQueue(producer: skillProducer)
-        skillEventQueue = skillQueue
         let userObserver = BotSkillDirectoryObserver(
             root: userRoot, label: "bot.skill.user-dsh", createRoot: true,
             onWritten: { name in Task { await skillQueue.userWrite(name) } },
@@ -709,10 +708,16 @@ final class BotRuntimeComposition {
     func unit(for botID: String) -> BotRuntimeUnit? { units[botID] }
 
     /// Real App scene lifecycle reaches every Bot's existing cloud client.
-    func cloudSceneChanged(_ active: Bool) async {
+    func cloudSceneChanged(_ active: Bool, generation: Int) async {
+        guard generation == latestCloudSceneGeneration else { return }
         for unit in units.values {
             await unit.cloudSceneChanged(active)
         }
+    }
+
+    func nextCloudSceneGeneration() -> Int {
+        latestCloudSceneGeneration &+= 1
+        return latestCloudSceneGeneration
     }
 
     /// Account state changes (including a token refresh) reach every Bot.
@@ -842,7 +847,11 @@ final class BotRuntimeComposition {
         do {
             if generation != contextLifecycleGeneration || stopped { return }
             try await contextSources.start { [weak self] signal in
-                Task { @MainActor in await self?.contextWakeRouter?.handle(signal) }
+                Task { @MainActor in
+                    guard let self, !self.stopped,
+                          self.contextLifecycleGeneration == generation else { return }
+                    await router.handle(signal)
+                }
             }
             if stopped || generation != contextLifecycleGeneration {
                 await contextSources.stopAll()

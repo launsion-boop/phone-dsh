@@ -2926,7 +2926,8 @@ final class ChatModel {
         transcriptGate.isForeground = isAppForeground
         BotPresenceCenter.shared.update(appActive: appIsActive)
         if let botRuntime {
-            Task { await botRuntime.cloudSceneChanged(appIsActive) }
+            let generation = botRuntime.nextCloudSceneGeneration()
+            Task { await botRuntime.cloudSceneChanged(appIsActive, generation: generation) }
         }
         // The scene is the trigger that releases a parked history adoption:
         // this is the one commit, done before any further scene work can paint.
