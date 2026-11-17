@@ -289,7 +289,7 @@ export function phoneEffectsForApproval(
   // for a tool the host expects as `until`, so the host rejects the call with
   // `stale:always_scope` before its auto-policy can run. `agent/pre-step` then
   // loses its decision materials with no approval card and no visible error.
-  if (bare === 'BotVolatileContext' || bare === 'BotDecisionContext'
+  if (INTERNAL_READ_TOOLS.has(bare)
       || UI_TOOLS.has(bare) || AUTO_TOOLS.has(bare)) return []
   if (BLE_TOOLS.has(bare)) return [bleEffect(bare, args)]
   if (bare === 'attach_to_model') return [modelImageEffect(name, args)]
