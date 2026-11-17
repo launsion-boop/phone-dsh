@@ -1,6 +1,6 @@
 {
  "contract": "spec/v1/cloud-tasks.md",
- "revision": "cloud-tasks-v1.3",
+ "revision": "cloud-tasks-v1.4",
  "note": "Private scalars here are test-only values; never use them outside these vectors.",
  "constants": {
   "suite": "hpke-p256-sha256-aes128gcm",
@@ -2604,6 +2604,90 @@
    },
    "decodes": true,
    "ack": null
+  }
+ ],
+ "registration": [
+  {
+   "id": "first",
+   "registered": null,
+   "same_account": true,
+   "key": {
+    "key_id": "k-1",
+    "suite": "hpke-p256-sha256-aes128gcm",
+    "public_key": "BGD-1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p-2eQP-EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk"
+   },
+   "result": {
+    "status": 200
+   }
+  },
+  {
+   "id": "same-key-again",
+   "registered": {
+    "key_id": "k-1",
+    "suite": "hpke-p256-sha256-aes128gcm",
+    "public_key": "BGD-1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p-2eQP-EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk"
+   },
+   "same_account": true,
+   "key": {
+    "key_id": "k-1",
+    "suite": "hpke-p256-sha256-aes128gcm",
+    "public_key": "BGD-1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p-2eQP-EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk"
+   },
+   "result": {
+    "status": 200
+   }
+  },
+  {
+   "id": "new-key-id-rotates",
+   "registered": {
+    "key_id": "k-1",
+    "suite": "hpke-p256-sha256-aes128gcm",
+    "public_key": "BGD-1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p-2eQP-EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk"
+   },
+   "same_account": true,
+   "key": {
+    "key_id": "k-2",
+    "suite": "hpke-p256-sha256-aes128gcm",
+    "public_key": "BBzL6RwHX8f08DO_okjbj8zTVl3pS7-xLzxZ_0bCcb-DzkAUxogR-aIaH9ssDmET4G23ypO3QE543HzNXKiaTKk"
+   },
+   "result": {
+    "status": 200
+   }
+  },
+  {
+   "id": "same-key-id-other-public-key",
+   "registered": {
+    "key_id": "k-1",
+    "suite": "hpke-p256-sha256-aes128gcm",
+    "public_key": "BGD-1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p-2eQP-EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk"
+   },
+   "same_account": true,
+   "key": {
+    "key_id": "k-1",
+    "suite": "hpke-p256-sha256-aes128gcm",
+    "public_key": "BBzL6RwHX8f08DO_okjbj8zTVl3pS7-xLzxZ_0bCcb-DzkAUxogR-aIaH9ssDmET4G23ypO3QE543HzNXKiaTKk"
+   },
+   "result": {
+    "status": 409,
+    "code": "key_mismatch"
+   }
+  },
+  {
+   "id": "takeover-same-key-id-other-public-key",
+   "registered": {
+    "key_id": "k-1",
+    "suite": "hpke-p256-sha256-aes128gcm",
+    "public_key": "BGD-1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p-2eQP-EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk"
+   },
+   "same_account": false,
+   "key": {
+    "key_id": "k-1",
+    "suite": "hpke-p256-sha256-aes128gcm",
+    "public_key": "BBzL6RwHX8f08DO_okjbj8zTVl3pS7-xLzxZ_0bCcb-DzkAUxogR-aIaH9ssDmET4G23ypO3QE543HzNXKiaTKk"
+   },
+   "result": {
+    "status": 200
+   }
   }
  ]
 }

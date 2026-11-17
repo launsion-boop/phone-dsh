@@ -1,9 +1,9 @@
 # Phone task queue (cloud ↔ phone)
 
-Revision `cloud-tasks-v1.3`, frozen 2026-11-16 (v1.1 rules three implementer change requests:
+Revision `cloud-tasks-v1.4`, frozen 2026-11-16 (v1.1 rules three implementer change requests:
 response openness, device takeover, terminal reason mapping; v1.2 makes the oracle and two new
 cases agree that openness reaches nested `target` and `sealed`; v1.3 names the ack for sealed
-bytes that open but are not a task text). Status: `target` — no end is implemented yet.
+bytes that open but are not a task text; v1.4 forbids swapping the key under one `key_id`). Status: `target` — no end is implemented yet.
 Owner: P05. Change record:
 [PC-20261116-cloud-task-queue](../../docs/protocol-changes/PC-20261116-cloud-task-queue.md).
 Shared cases: [golden/cloud-tasks/cases.json](golden/cloud-tasks/cases.json), the judge where this
@@ -61,6 +61,10 @@ uses; one install has one cloud device id).
 - `public_key` is an uncompressed P-256 point (`0x04 ‖ X ‖ Y`), base64url without padding.
 - The call replaces the registration. Registering a different `key_id` makes tasks sealed to the
   old key undeliverable: the cloud marks each such `pending` task `rejected` / `key_replaced`.
+- A `key_id` names one key. A `PUT` by the same account whose `key_id` equals the registered one
+  but whose `public_key` differs is `409 key_mismatch` and changes nothing; rotation uses a new
+  `key_id`. (A takeover compares nothing: the previous registration belonged to another account.)
+  A phone that receives this answer creates a new key with a new `key_id` and registers again.
 - At most 8 devices per account: `409 device_limit`.
 - Takeover: a `PUT` for a `device_id` that is registered to **another** account moves the
   registration to the caller. The previous account's registration is removed and each of its

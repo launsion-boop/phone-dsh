@@ -423,6 +423,19 @@ class CloudTaskTests(unittest.TestCase):
             self.assertFalse(is_text, case["id"])
             self.assertEqual(case["ack"], {"state": "rejected", "reason": "decrypt_failed"})
 
+    def test_registration_key_rule(self) -> None:
+        outcomes = set()
+        for case in self.cases["registration"]:
+            _key(case["key"])
+            registered = case["registered"]
+            swap = (registered is not None and case["same_account"]
+                    and registered["key_id"] == case["key"]["key_id"]
+                    and registered["public_key"] != case["key"]["public_key"])
+            result = {"status": 409, "code": "key_mismatch"} if swap else {"status": 200}
+            outcomes.add(result["status"])
+            self.assertEqual(result, case["result"], case["id"])
+        self.assertEqual(outcomes, {200, 409})
+
     def test_submit_decisions(self) -> None:
         seen = set()
         for case in self.cases["submit"]:
