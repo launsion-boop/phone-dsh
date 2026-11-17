@@ -56,7 +56,7 @@ and `app.info` returns `"protocol":"device-app-v1"`; a device without them is no
 
 | Tool | Arguments | Result on success | Receipt class |
 | --- | --- | --- | --- |
-| `app.info` | `{}` | `protocol`, `apps:[{name,title,version,digest,running}]`, `free_bytes`, `free_mem`, `limits` (§2) | none |
+| `app.info` | `{}` | `protocol`, `apps:[{name,title,version,digest,running}]`, `free_bytes`, `free_mem`, `limits:{files,file_bytes,app_bytes,chunk_max,idle_s}` (§2) | none |
 | `app.begin` | `name`, `files:[{path,size,sha256}]` | `session` (`^[0-9a-f]{8}$`), `chunk_max` (≤ 2048), `next:{path:0…}` | staging |
 | `app.put` | `session`, `path`, `offset`, `data` (base64) | `next_offset` for that file | staging |
 | `app.abort` | `session` | `{}` | staging |
@@ -96,6 +96,13 @@ through §6, which is the same result.
 4. A disconnect, an idle timeout or `app.abort` removes the stage. Installed apps are never altered by
    anything but a successful commit, `app.remove` or a later commit of the same name.
 5. `app.run` and `app.remove` refuse an app that is mid-install; `app.run` stops a running app first.
+   `app.commit` over a running app fails `running`; the host calls `app.stop` first.
+6. An installed app carries the marker file `/apps/<name>/.devapp`, whose content is exactly the 64
+   hex characters of its §4 digest (computed over the declared files, excluding the marker). It is
+   written last into the stage, so the swap installs it atomically with the files. `app.info` reports
+   the digest from it; a directory without a valid marker is a legacy app (listed if it has `main.py`,
+   empty digest) and the runtime guard of §9 applies only to marked apps. Free-space accounting uses
+   the device's block size, so `no_space` may refuse a bundle whose plain size sum would fit.
 
 ## 7. Host admission and the user's confirmation (phone)
 
@@ -124,7 +131,9 @@ through §6, which is the same result.
   or not). An interrupted install leaves the old app intact (§6).
 - After the install the host writes a durable `ui.system_event{event:"device.app.install"}` carrying
   the device key, the digest, the file list and the approval id as the author; it never records
-  success it did not observe.
+  success it did not observe. `DeviceAppInstall` raises its own approval and so skips the generic
+  ask-authorize; a durable (routine or task) principal gets a pending outcome and installs nothing
+  until the user answers.
 - The device Bot's authoring guide is host-authored and static (versioned in the App, injected into
   that Bot's persona); nothing the device reports is quoted into it.
 
@@ -148,11 +157,14 @@ else failed. Codes: `size`, `lex`, `fstring`, `import`, `name`, `underscore`, `p
 Strings and comments are ignored by every rule below except 1 and 2.
 
 1. Size and text: the file is valid UTF-8, has no NUL, is within §2 and tokenizes without a lexical
-   error (unterminated string, inconsistent indentation).
+   error (unterminated string, inconsistent indentation). The line of a lexical error at end of input
+   (open bracket, unterminated triple quote, dangling backslash) is the line where the construct
+   opened. The per-app total, the file count and the required `main.py` and `app.json` are checked by
+   `DeviceAppStage` with code `size`, path `""` and line 0; the per-file vectors cover single files.
 2. String prefixes: an `f`/`F` prefix (f-strings) is rejected.
 3. Imports: `import a.b as c, d` and `from x import …` are checked on the module's first segment.
    Allowed: `time`, `math`, `random`, `json`, `gc`, `struct`, `array`, `micropython`, `lcd`, `keys`,
-   `ui`; `audio` and `mic`-functions as in rule 6; `battery` when `perms` lists it; and modules that
+   `ui`, `kit` (the frozen style kit of the device firmware); `audio` and `mic`-functions as in rule 6; `battery` when `perms` lists it; and modules that
    are `.py` files of the same app. Relative imports and `import *` are rejected.
 4. Names: any identifier token equal to `exec`, `eval`, `compile`, `execfile`, `open`, `__import__`,
    `getattr`, `setattr`, `delattr`, `globals`, `locals`, `vars`, `dir`, `breakpoint`, `input`,

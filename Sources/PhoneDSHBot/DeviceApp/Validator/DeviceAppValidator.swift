@@ -21,7 +21,7 @@ public struct DeviceAppCheckFailure: Equatable, Sendable, Error {
 /// harmless program and never accepts what the rules list. It does not prove the program valid.
 public enum DeviceAppValidator {
     private static let baseModules: Set<String> = [
-        "time", "math", "random", "json", "gc", "struct", "array", "micropython", "lcd", "keys", "ui", "audio", "battery",
+        "time", "math", "random", "json", "gc", "struct", "array", "micropython", "lcd", "keys", "ui", "kit", "audio", "battery",
     ]
     private static let forbiddenNames: Set<String> = [
         "exec", "eval", "compile", "execfile", "open", "__import__", "getattr", "setattr", "delattr", "globals",

@@ -10,7 +10,7 @@ status: frozen
 breaking: false
 version_decision: 无 Link wire 变更。新增一组设备自报的普通 Link 工具（app.*）和手机侧宿主工具；旧手机见到的只是不认识的工具名，旧设备没有这些工具即不是安装目标。
 base: 1b20204a  # spec/device-bot-contract
-contract_revision: device-app-v1  # spec/device/v1/device-app.md + schema/device-app-vector.schema.json + golden/device-app.jsonl (sha256 e3758718…7ff65), checker spec/v1/tools/test_device_app_golden.py
+contract_revision: device-app-v1.1  # spec/device/v1/device-app.md + schema/device-app-vector.schema.json + golden/device-app.jsonl (91 vectors, sha256 963187a6…3f7d), checker spec/v1/tools/test_device_app_golden.py
 ```
 
 Protocol impact: P07; P26; P09: none — 设备应用的 UI 入口另出页面契约，本单只定名字「设备应用」; P18: none — 不新增持久化键，journal 回收是既有 Link journal 的清理，不改键名与格式; P25: none — 只新增一条 `ui.system_event`（`device.app.install`），事件 envelope 不变，若实现时发现需要新 schema 则回到本单修订; P27: none — 审批行沿用通用 `approval` 行，不加字段; P01/P02: none — 不碰通道编解码与 WAL。
@@ -86,3 +86,4 @@ Protocol impact: P07; P26; P09: none — 设备应用的 UI 入口另出页面�
 | revision | 由谁 | 原因 | 通知了哪些端 |
 | --- | --- | --- | --- |
 | device-app-v1 | 主 agent | 冻结；依据 5 份只读探索结果 | 6 个实现者（见 §4） |
+| device-app-v1.1 | 主 agent | 收下 `kit` 导入变更请求（样式库实现者）；写入 `.devapp` 标记、`limits` 键名、提交遇运行中应用返回 `running`、按块计费的配额、EOF 词法错误行号、总大小由 DeviceAppStage 报告；oracle 改为完整匹配（结尾换行无效）并加 5 条向量；记录 `DeviceAppInstall` 自带审批、持久主体待决 | 全部实现者；设备端沙箱与安装器已按此改，iOS 校验器放行 `kit` |

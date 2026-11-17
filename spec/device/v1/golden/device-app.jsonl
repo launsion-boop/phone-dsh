@@ -84,3 +84,8 @@
 {"id":"put-gap","kind":"put","declared":1000,"next_offset":500,"offset":600,"length":100,"same_bytes":false,"ok":false,"code":"offset_mismatch"}
 {"id":"put-past-declared","kind":"put","declared":1000,"next_offset":900,"offset":900,"length":200,"same_bytes":false,"ok":false,"code":"too_large"}
 {"id":"put-overlap-extends","kind":"put","declared":1000,"next_offset":500,"offset":400,"length":200,"same_bytes":true,"ok":false,"code":"offset_mismatch"}
+{"id":"name-trailing-newline","kind":"name","value":"clock\n","valid":false}
+{"id":"path-trailing-newline","kind":"path","value":"main.py\n","valid":false}
+{"id":"check-ok-kit-import","kind":"check","perms":[],"files":{"main.py":"import kit, keys\nkeys.get(1)\n"},"ok":true}
+{"id":"check-ok-from-kit-import","kind":"check","perms":[],"files":{"main.py":"from kit import card\nimport keys\nkeys.get(1)\n"},"ok":true}
+{"id":"check-import-kit-submodule-sibling-missing","kind":"check","perms":[],"files":{"main.py":"import kit2, keys\nkeys.get(1)\n"},"ok":false,"code":"import","path":"main.py","line":1}

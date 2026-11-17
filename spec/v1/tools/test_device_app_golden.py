@@ -25,13 +25,13 @@ GOLDEN = DEVICE / "golden" / "device-app.jsonl"
 SCHEMA = json.loads((DEVICE / "schema" / "device-app-vector.schema.json").read_text(encoding="utf-8"))
 
 # Reviewed fixture revision device-app-v1. Changing a vector needs a new contract revision.
-FROZEN = "e3758718f691edc1662a7e6d0e9cd72510bdae4d155938b8d5b6df158787ff65"
+FROZEN = "963187a6224e0721e5442d238ca6b1a92e4194a7a89fad4989d059f293d03f7d"
 
 NAME = re.compile(r"^[a-z][a-z0-9_]{0,23}$")
 PATH = re.compile(r"^([A-Za-z0-9_-]+/){0,2}[A-Za-z0-9_-]+\.(py|json)$")
 PERMS = {"audio", "mic", "battery"}
 FILE_MAX = 12288
-BASE_MODULES = {"time", "math", "random", "json", "gc", "struct", "array", "micropython", "lcd", "keys", "ui", "audio", "battery"}
+BASE_MODULES = {"time", "math", "random", "json", "gc", "struct", "array", "micropython", "lcd", "keys", "ui", "kit", "audio", "battery"}
 FORBIDDEN_NAMES = {"exec", "eval", "compile", "execfile", "open", "__import__", "getattr", "setattr", "delattr", "globals",
                    "locals", "vars", "dir", "breakpoint", "input", "__builtins__", "machine", "os", "sys", "socket",
                    "network", "bluetooth", "_thread", "esp32", "_passport", "apprt", "settings"}
@@ -52,11 +52,11 @@ def digest_of(values):
 
 
 def valid_name(v):
-    return bool(NAME.match(v))
+    return bool(NAME.fullmatch(v))
 
 
 def valid_path(v):
-    return len(v) <= 64 and bool(PATH.match(v))
+    return len(v) <= 64 and bool(PATH.fullmatch(v))
 
 
 def valid_title(v):
