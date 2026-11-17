@@ -594,12 +594,12 @@ public sealed interface PdshHostAction {
      * The payload is the secret itself, handed to the host once; [toString] never
      * prints it, so a log line or crash report built from this value stays clean.
      */
-    public class CommitWebSearchKey(public val key: String) : PdshHostAction {
+    public class CommitWebSearchKey(public val key: String, public val expectedBase: String) : PdshHostAction {
         override val wire: String = "websearch.key"
 
-        override fun equals(other: Any?): Boolean = other is CommitWebSearchKey && other.key == key
+        override fun equals(other: Any?): Boolean = other is CommitWebSearchKey && other.key == key && other.expectedBase == expectedBase
 
-        override fun hashCode(): Int = key.hashCode()
+        override fun hashCode(): Int = 31 * key.hashCode() + expectedBase.hashCode()
 
         override fun toString(): String = "CommitWebSearchKey(key=***)"
     }

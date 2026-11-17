@@ -10,10 +10,9 @@
 // The page is deliberately honest about what it knows:
 //   * the mode comes from a fact, so 未知 is its own state, never "follow the
 //     model";
-//   * the address and the key are *drafts*: the page never reads a stored key or
-//     a complete URL into its state, and it commits an address only when the user
-//     says so (回车 / 保存 / 离开). A red line under the field is page-owned copy,
-//     so a host error string cannot put a URL or a key on screen;
+//   * the host supplies a confirmed non-secret base; the key is always a draft.
+//     Address commits happen on Done, blur and departure, while a key save is
+//     explicit and bound to the last confirmed base;
 //   * the 保存 button is the page's own button composable: the contract models
 //     that button without a label (`action-215`), so its visible text is copy,
 //     not a contract action label.
@@ -26,14 +25,17 @@
 // `geometry.pageRowMinHeight`); the list gap is the shared `pageListGap`.
 package com.phonedsh.ui.page
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -48,36 +50,45 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import com.phonedsh.ui.UiStrings
-import com.phonedsh.ui.surface.SETTINGS_CLOSE_GLYPH
 import com.phonedsh.ui.surface.SecretVisualTransformation
 import com.phonedsh.ui.surface.SettingsBodyRow
 import com.phonedsh.ui.surface.SettingsFootnoteRow
-import com.phonedsh.ui.surface.SettingsFormRow
+import com.phonedsh.ui.surface.SettingsGroupCard
+import com.phonedsh.ui.surface.SettingsHairline
 import com.phonedsh.ui.surface.SettingsSectionHeader
 import com.phonedsh.ui.surface.SettingsSectionLabel
-import com.phonedsh.ui.surface.SettingsSubPageFrame
 import com.phonedsh.ui.surface.secretInputSemantics
 import com.phonedsh.ui.surface.settingsFootnoteStyle
 import com.phonedsh.ui.surface.settingsLabelStyle
 import com.phonedsh.ui.surface.settingsValueStyle
 import com.phonedsh.ui.theme.LocalUiTokens
+import com.phonedsh.ui.theme.LocalUiType
 import com.phonedsh.ui.theme.materialDialogColors
 import com.phonedsh.ui.theme.generated.UiTokenNames
+import kotlinx.coroutines.delay
 
 // ---------------------------------------------------------------------------
 // Facts
@@ -132,6 +143,8 @@ public enum class WebSearchFailureReason {
 @Immutable
 public data class WebSearchFacts(
     public val mode: WebSearchMode = WebSearchMode.FOLLOW_MODEL,
+    /** Confirmed non-secret address, or null when the settings could not be read. */
+    public val savedBase: String? = null,
     public val hasCredential: FactState = FactState.UNKNOWN,
     public val keyTail: String? = null,
     public val engineStarted: FactState = FactState.UNKNOWN,
@@ -178,6 +191,7 @@ public data class WebSearchScreenState(
     public val canWrite: Boolean = true,
     public val readOnlyReason: String? = null,
     public val failure: String? = null,
+    public val savedBase: String? = null,
 ) {
     /** The last read failed; [failure] explains it. */
     public val isFailed: Boolean get() = phase == SettingsDataPhase.FAILED
@@ -215,6 +229,7 @@ public data class WebSearchScreenState(
             return WebSearchScreenState(
                 phase = phase,
                 mode = facts.mode,
+                savedBase = facts.savedBase,
                 followHint = facts.followHint(),
                 keyStatusLabel = when (facts.hasCredential) {
                     FactState.YES -> UiStrings.WEB_SEARCH_KEY_STORED
@@ -314,19 +329,14 @@ public fun WebSearchSettingsPage(
     onRetry: (() -> Unit)? = null,
     onModeChange: ((WebSearchMode) -> Unit)? = null,
     onCommitAddress: ((String) -> Unit)? = null,
-    onCommitKey: ((String) -> Unit)? = null,
+    onCommitKey: ((String, String) -> Unit)? = null,
     onClearKey: (() -> Unit)? = null,
     onRemoveConfiguration: (() -> Unit)? = null,
     onStartEngine: () -> Unit = {},
     onStopEngine: () -> Unit = {},
 ) {
-    // A write control is armed only when the host declared this page writable
-    // **and** the caller handed the write for that control. The host's answer
-    // alone is not enough: `PdshNavHost`'s WebSearchRoute never passes these five,
-    // so a host that reported `writable = YES` would paint five enabled controls
-    // whose taps land in a `{}` default — the exact fake the callback defaults used
-    // to hide. With this gate the control is disabled instead, and the page's own
-    // reason line (or the baseline's silence) is the visible answer.
+    // A write control is armed only when the host reports writable and supplies
+    // its callback; absent host wiring must not appear as a successful write.
     val tokens = LocalUiTokens.current
     val dialogPalette = materialDialogColors(tokens)
     val writable = state.canWrite
@@ -335,9 +345,12 @@ public fun WebSearchSettingsPage(
     val keyWritable = writable && onCommitKey != null
     val clearWritable = writable && onClearKey != null
     val removeWritable = writable && onRemoveConfiguration != null
-    var address by remember { mutableStateOf("") }
+    var address by remember { mutableStateOf(state.savedBase.orEmpty()) }
+    var addressDirty by remember { mutableStateOf(false) }
+    var suppressAddressCommit by remember { mutableStateOf(false) }
     var apiKey by remember { mutableStateOf("") }
     var feedback by remember { mutableStateOf<String?>(null) }
+    var feedbackForKey by remember { mutableStateOf(false) }
     var keyCommitPending by remember { mutableStateOf(false) }
     // `hasCredential` is level-triggered: an already-configured host reports YES
     // both before and after the save, so it cannot prove that *this* commit
@@ -349,6 +362,33 @@ public fun WebSearchSettingsPage(
     var keyCommitBaselineTail by remember { mutableStateOf<String?>(null) }
     var pendingClearKey by remember { mutableStateOf(false) }
     var pendingRemove by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.savedBase) {
+        val confirmed = state.savedBase ?: return@LaunchedEffect
+        if (!addressDirty || normalizeWebSearchDraft(address) == confirmed) {
+            val justSaved = addressDirty && confirmed.isNotEmpty()
+            address = confirmed
+            addressDirty = false
+            if (justSaved) {
+                feedbackForKey = false
+                feedback = "存好了"
+                delay(2_000)
+                if (feedback == "存好了") feedback = null
+            }
+        }
+    }
+    LaunchedEffect(state.mode) {
+        if (state.isSearchApi) suppressAddressCommit = false
+    }
+    fun commitAddress() {
+        if (!addressWritable || !state.isSearchApi || state.savedBase == null || !addressDirty || suppressAddressCommit) return
+        val candidate = normalizeWebSearchDraft(address)
+        if (candidate.isEmpty()) return
+        address = candidate
+        onCommitAddress?.invoke(candidate)
+    }
+    val currentCommitAddress by rememberUpdatedState(newValue = { commitAddress() })
+    DisposableEffect(Unit) { onDispose { currentCommitAddress() } }
 
     // The key draft is dropped only after the host confirms it was stored. A
     // pasted credential the host never acknowledged must stay on screen: losing
@@ -365,13 +405,8 @@ public fun WebSearchSettingsPage(
         }
     }
 
-    SettingsSubPageFrame(
-        backGlyph = SETTINGS_CLOSE_GLYPH,
-        largeTitle = UiStrings.WEB_SEARCH_TITLE,
-        onBack = onBack,
-        rootTag = UiPageTags.WEB_SEARCH_ROOT,
-        modifier = modifier,
-    ) {
+    Column(modifier = modifier.fillMaxSize().background(tokens.colors.page).testTag(UiPageTags.WEB_SEARCH_ROOT)) {
+        ProductNavigationBar(title = UiStrings.WEB_SEARCH_TITLE, onBack = onBack, leadingInset = 0.dp, topOffset = 12.dp)
         Column(modifier = Modifier.fillMaxSize()) {
             if (state.failure != null) {
                 SessionFailureLine(
@@ -394,7 +429,15 @@ public fun WebSearchSettingsPage(
                     modeGroup(
                         state = state,
                         enabled = modeWritable,
-                        onModeChange = { onModeChange?.invoke(it) },
+                        onModeChange = { mode ->
+                            if (mode != WebSearchMode.SEARCH_API) {
+                                suppressAddressCommit = true
+                                address = state.savedBase.orEmpty()
+                                addressDirty = false
+                                apiKey = ""
+                            }
+                            onModeChange?.invoke(mode)
+                        },
                     )
                     // The host's own reason, right under the controls it disabled:
                     // "why can this page not be written" is a host fact, and a
@@ -410,32 +453,36 @@ public fun WebSearchSettingsPage(
                         addressGroup(
                             address = address,
                             enabled = addressWritable,
-                            feedback = feedback,
+                            feedback = feedback.takeUnless { feedbackForKey },
                             onAddressChange = {
                                 address = it
+                                addressDirty = true
                                 feedback = null
                             },
-                            onCommit = {
-                                feedback = null
-                                onCommitAddress?.invoke(address.trim())
-                            },
+                            onCommit = { commitAddress() },
                         )
                         keyGroup(
                             state = state,
                             enabled = keyWritable,
                             apiKey = apiKey,
-                            feedback = feedback,
+                            feedback = feedback.takeIf { feedbackForKey },
                             onKeyChange = {
                                 apiKey = it
                                 keyCommitPending = false
                                 feedback = null
                             },
                             onCommit = {
-                                feedback = null
-                                keyCommitBaselineConfigured = state.hasCredential
-                                keyCommitBaselineTail = state.keyTailLabel
-                                keyCommitPending = true
-                                onCommitKey?.invoke(apiKey.trim())
+                                val confirmed = state.savedBase
+                                if (confirmed.isNullOrEmpty() || normalizeWebSearchDraft(address).removeSuffix("/") != confirmed) {
+                                    feedbackForKey = true
+                                    feedback = "请先保存有效地址，再保存密钥。"
+                                } else {
+                                    feedback = null
+                                    keyCommitBaselineConfigured = state.hasCredential
+                                    keyCommitBaselineTail = state.keyTailLabel
+                                    keyCommitPending = true
+                                    onCommitKey?.invoke(apiKey.trim(), confirmed)
+                                }
                             },
                             onClear = { if (clearWritable) pendingClearKey = true },
                         )
@@ -514,44 +561,17 @@ private fun LazyListScope.modeGroup(
     enabled: Boolean,
     onModeChange: (WebSearchMode) -> Unit,
 ) {
-    item(key = "mode.header") {
-        SettingsSectionLabel(UiStrings.WEB_SEARCH_SECTION_MODE)
-    }
-    item(key = "mode.follow") {
-        SettingsFormRow(
-            title = UiStrings.WEB_SEARCH_MODE_FOLLOW,
-            subtitle = UiStrings.WEB_SEARCH_MODE_FOLLOW_HINT,
-            enabled = enabled,
-            accentTitle = state.mode == WebSearchMode.FOLLOW_MODEL,
-            trailing = if (state.mode == WebSearchMode.FOLLOW_MODEL) {
-                { CheckmarkGlyph() }
-            } else {
-                null
-            },
-            onClick = if (enabled) {
-                { onModeChange(WebSearchMode.FOLLOW_MODEL) }
-            } else {
-                null
-            },
-        )
-    }
-    item(key = "mode.api") {
-        SettingsFormRow(
-            title = UiStrings.WEB_SEARCH_MODE_API,
-            subtitle = UiStrings.WEB_SEARCH_MODE_API_HINT,
-            enabled = enabled,
-            accentTitle = state.mode == WebSearchMode.SEARCH_API,
-            trailing = if (state.mode == WebSearchMode.SEARCH_API) {
-                { CheckmarkGlyph() }
-            } else {
-                null
-            },
-            onClick = if (enabled) {
-                { onModeChange(WebSearchMode.SEARCH_API) }
-            } else {
-                null
-            },
-        )
+    item(key = "mode.header") { WebSearchSectionHeader(title = UiStrings.WEB_SEARCH_SECTION_MODE) }
+    item(key = "mode.card") {
+        SettingsGroupCard {
+            WebSearchModeChoice(UiStrings.WEB_SEARCH_MODE_FOLLOW, UiStrings.WEB_SEARCH_MODE_FOLLOW_HINT,
+                selected = state.mode == WebSearchMode.FOLLOW_MODEL, enabled = enabled, minHeight = 85.dp,
+                onClick = { onModeChange(WebSearchMode.FOLLOW_MODEL) })
+            SettingsHairline(Modifier.padding(horizontal = 16.dp))
+            WebSearchModeChoice(UiStrings.WEB_SEARCH_MODE_API, UiStrings.WEB_SEARCH_MODE_API_HINT,
+                selected = state.mode == WebSearchMode.SEARCH_API, enabled = enabled,
+                onClick = { onModeChange(WebSearchMode.SEARCH_API) })
+        }
     }
     if (state.mode == WebSearchMode.FOLLOW_MODEL) {
         item(key = "mode.follow.hint") {
@@ -569,27 +589,26 @@ private fun LazyListScope.addressGroup(
     onCommit: () -> Unit,
 ) {
     item(key = "address.header") {
-        SettingsSectionLabel(UiStrings.WEB_SEARCH_SECTION_ADDRESS)
+        WebSearchSectionHeader(title = UiStrings.WEB_SEARCH_SECTION_ADDRESS, top = 34.dp)
     }
     item(key = "address.field") {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = LocalUiTokens.current.geometry.pageOuterMarginH),
-        ) {
+        SettingsGroupCard {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             WebSearchTextField(
                 value = address,
                 enabled = enabled,
                 placeholder = UiStrings.WEB_SEARCH_ADDRESS_PLACEHOLDER,
                 onValueChange = onAddressChange,
                 onDone = onCommit,
+                onBlur = onCommit,
                 tag = UiPageTags.WEB_SEARCH_ADDRESS_FIELD,
             )
             feedback?.let { line -> WebSearchFeedbackLine(text = line) }
+            }
         }
     }
     item(key = "address.footer") {
-        SettingsFootnoteRow(text = UiStrings.WEB_SEARCH_ADDRESS_FOOTER)
+        WebSearchSectionFooter(text = UiStrings.WEB_SEARCH_ADDRESS_FOOTER, secondary = true)
     }
 }
 
@@ -604,26 +623,25 @@ private fun LazyListScope.keyGroup(
     onClear: () -> Unit,
 ) {
     item(key = "key.header") {
-        SettingsSectionLabel(UiStrings.WEB_SEARCH_SECTION_KEY)
+        WebSearchSectionHeader(title = UiStrings.WEB_SEARCH_SECTION_KEY, top = 4.dp)
     }
-    item(key = "key.state") {
-        KeyStateRow(state = state)
-    }
-    item(key = "key.field") {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = LocalUiTokens.current.geometry.pageOuterMarginH),
-        ) {
-            WebSearchTextField(
-                value = apiKey,
-                enabled = enabled,
-                placeholder = UiStrings.WEB_SEARCH_KEY_PLACEHOLDER,
-                onValueChange = onKeyChange,
-                tag = UiPageTags.WEB_SEARCH_KEY_FIELD,
-                secure = true,
-            )
-            feedback?.let { line -> WebSearchFeedbackLine(text = line) }
+    item(key = "key.card") {
+        SettingsGroupCard {
+            KeyStateRow(state = state)
+            SettingsHairline(Modifier.padding(horizontal = 16.dp))
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                Box(Modifier.fillMaxWidth().heightIn(min = 74.dp), contentAlignment = Alignment.CenterStart) {
+                    WebSearchTextField(
+                        value = apiKey,
+                        enabled = enabled,
+                        placeholder = UiStrings.WEB_SEARCH_KEY_PLACEHOLDER,
+                        onValueChange = onKeyChange,
+                        tag = UiPageTags.WEB_SEARCH_KEY_FIELD,
+                        secure = true,
+                    )
+                }
+                feedback?.let { line -> WebSearchFeedbackLine(text = line) }
+            }
         }
     }
     item(key = "key.commit") {
@@ -647,7 +665,7 @@ private fun LazyListScope.keyGroup(
         }
     }
     item(key = "key.footer") {
-        SettingsFootnoteRow(text = UiStrings.WEB_SEARCH_KEY_FOOTER)
+        WebSearchSectionFooter(text = UiStrings.WEB_SEARCH_KEY_FOOTER)
     }
 }
 
@@ -657,15 +675,16 @@ private fun LazyListScope.deleteGroup(
     onDelete: () -> Unit,
 ) {
     item(key = "delete.row") {
-        WebSearchRowAction(
-            label = UiStrings.WEB_SEARCH_DELETE_SERVICE,
-            onClick = onDelete,
-            enabled = enabled,
-            danger = true,
-        )
+        SettingsGroupCard {
+            WebSearchRowAction(
+                label = UiStrings.WEB_SEARCH_DELETE_SERVICE,
+                onClick = onDelete,
+                enabled = enabled,
+            )
+        }
     }
     item(key = "delete.footer") {
-        SettingsFootnoteRow(text = UiStrings.WEB_SEARCH_DELETE_FOOTER)
+        WebSearchSectionFooter(text = UiStrings.WEB_SEARCH_DELETE_FOOTER)
     }
 }
 
@@ -752,7 +771,7 @@ private fun KeyStateRow(state: WebSearchScreenState) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = tokens.geometry.pageRowMinHeight)
+            .defaultMinSize(minHeight = 49.dp)
             .padding(horizontal = tokens.geometry.pageOuterMarginH),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
@@ -764,7 +783,7 @@ private fun KeyStateRow(state: WebSearchScreenState) {
         )
         BasicText(
             text = state.keyStatusLabel,
-            style = settingsFootnoteStyle().copy(color = tokens.colors.secondary),
+            style = settingsFootnoteStyle().copy(color = if (state.credential == FactState.NO) tokens.colors.warning else tokens.colors.secondary),
         )
         state.keyTailLabel?.let { tail ->
             BasicText(
@@ -794,9 +813,11 @@ private fun WebSearchTextField(
     onValueChange: (String) -> Unit,
     tag: String,
     onDone: (() -> Unit)? = null,
+    onBlur: (() -> Unit)? = null,
     secure: Boolean = false,
 ) {
     val tokens = LocalUiTokens.current
+    var hadFocus by remember { mutableStateOf(false) }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
@@ -819,16 +840,22 @@ private fun WebSearchTextField(
         modifier = Modifier
             .fillMaxWidth()
             .testTag(tag)
+            .onFocusChanged { focus ->
+                if (hadFocus && !focus.isFocused) onBlur?.invoke()
+                hadFocus = focus.isFocused
+            }
             .then(if (secure) Modifier.secretInputSemantics() else Modifier)
             .heightIn(min = tokens.geometry.pageRowMinHeight),
         decorationBox = { inner ->
-            if (value.isEmpty()) {
-                BasicText(
-                    text = placeholder,
-                    style = settingsValueStyle().copy(color = tokens.colors.tertiary),
-                )
+            Box(Modifier.fillMaxWidth().heightIn(min = 51.dp), contentAlignment = Alignment.CenterStart) {
+                if (value.isEmpty()) {
+                    BasicText(
+                        text = placeholder,
+                        style = settingsValueStyle().copy(color = tokens.colors.tertiary),
+                    )
+                }
+                inner()
             }
-            inner()
         },
     )
 }
@@ -865,8 +892,8 @@ private fun WebSearchSaveKeyButton(
         enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = tokens.geometry.pageOuterMarginH)
-            .defaultMinSize(minHeight = tokens.geometry.pageRowMinHeight),
+            .padding(horizontal = 32.dp)
+            .defaultMinSize(minHeight = 50.dp),
     ) {
         Text(text = text)
     }
@@ -884,7 +911,6 @@ private fun WebSearchRowAction(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    danger: Boolean = false,
 ) {
     val tokens = LocalUiTokens.current
     Row(
@@ -903,8 +929,7 @@ private fun WebSearchRowAction(
             style = settingsLabelStyle().copy(
                 color = when {
                     !enabled -> tokens.colors.tertiary
-                    danger -> tokens.colors.danger
-                    else -> tokens.colors.accent
+                    else -> tokens.colors.textPrimary
                 },
             ),
         )
@@ -950,4 +975,42 @@ internal object WebSearchSettingsPageTokens {
         UiTokenNames.GEOMETRY_PAGE_OUTER_MARGIN_H,
         UiTokenNames.GEOMETRY_PAGE_ROW_MIN_HEIGHT,
     )
+}
+
+/** UI preparation only; the host's P05 validator remains authoritative. */
+private fun normalizeWebSearchDraft(raw: String): String {
+    val trimmed = raw.trim()
+    return if (trimmed.isNotEmpty() && !trimmed.contains("://")) "https://$trimmed" else trimmed
+}
+
+
+@Composable
+private fun WebSearchSectionHeader(title: String, top: Dp = 19.dp) {
+    BasicText(title, style = LocalUiType.current.homeBody.copy(color = LocalUiTokens.current.colors.textPrimary),
+        modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 32.dp, top = top, bottom = 8.dp)
+            .semantics { heading() })
+}
+
+@Composable
+private fun WebSearchModeChoice(title: String, subtitle: String, selected: Boolean, enabled: Boolean, minHeight: Dp = 86.dp, onClick: () -> Unit) {
+    val tokens = LocalUiTokens.current
+    Row(Modifier.fillMaxWidth().heightIn(min = minHeight)
+        .clickable(enabled = enabled, role = Role.Button) { if (!selected) onClick() }
+        .padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            BasicText(title, style = LocalUiType.current.homeBody.copy(color = if (enabled) tokens.colors.textPrimary else tokens.colors.textTertiary))
+            Spacer(Modifier.height(4.dp))
+            BasicText(subtitle, style = settingsFootnoteStyle().copy(color = tokens.colors.textSecondary),
+                modifier = Modifier.alpha(if (selected) 1f else 0f))
+        }
+        if (selected) CheckmarkGlyph()
+    }
+}
+
+
+@Composable
+private fun WebSearchSectionFooter(text: String, secondary: Boolean = false) {
+    val tokens = LocalUiTokens.current
+    BasicText(text, style = LocalUiType.current.homeBody.copy(color = if (secondary) tokens.colors.textSecondary else tokens.colors.textPrimary),
+        modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 32.dp, top = 8.dp, bottom = 8.dp))
 }

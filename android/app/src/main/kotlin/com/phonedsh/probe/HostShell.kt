@@ -1453,7 +1453,8 @@ internal fun HostShell(
                                     onStop = onStop,
                                     onSettingsChanged = { settingsRevision++ },
                                 )
-                                if (feedback != null) notice = feedback
+                                if (feedback != null || action is PdshHostAction.SetWebSearchMode ||
+                                    action is PdshHostAction.CommitWebSearchAddress) notice = feedback
                             }
                         },
                         // Settings writes reach their real stores: ordinary choices
@@ -2232,7 +2233,8 @@ private fun handleHostAction(
     // line never contains the key; a write that changed nothing re-reads nothing.
     handleWebSearchAction(action, WebSearchSettingsStore.active())?.let { result ->
         if (result.changed) onSettingsChanged()
-        return result.message
+        val localFeedback = action is PdshHostAction.SetWebSearchMode || action is PdshHostAction.CommitWebSearchAddress
+        return if (localFeedback && (result.changed || result.message?.startsWith("地址没有变化") == true)) null else result.message
     }
     return when (action) {
         PdshHostAction.StopRuntime -> {

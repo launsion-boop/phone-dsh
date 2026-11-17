@@ -9,6 +9,10 @@
 package com.phonedsh.ui.nav
 
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -44,14 +48,18 @@ class WebSearchRouteWiringTest {
 
     private fun mount(webSearch: WebSearchFacts) {
         compose.setContent {
+            var liveFacts by remember { mutableStateOf(webSearch) }
             PdshTheme(darkTheme = false) {
                 PdshNavHost(
                     nav = PdshNavState(listOf(PdshRoute.Home, PdshRoute.WebSearch)),
-                    facts = PdshNavFacts(webSearch = webSearch),
+                    facts = PdshNavFacts(webSearch = liveFacts),
                     onNavigate = {},
                     onBack = {},
                     onHome = {},
-                    onHostAction = { actions += it },
+                    onHostAction = {
+                        actions += it
+                        if (it is PdshHostAction.CommitWebSearchAddress) liveFacts = liveFacts.copy(savedBase = it.address)
+                    },
                     home = { BasicText(text = "home") },
                     webSurface = {},
                 )
@@ -77,7 +85,7 @@ class WebSearchRouteWiringTest {
 
     @Test
     fun `the address and the key reach the host and the key never prints`() {
-        mount(WebSearchFacts(mode = WebSearchMode.SEARCH_API, hasCredential = FactState.NO, writable = FactState.YES))
+        mount(WebSearchFacts(mode = WebSearchMode.SEARCH_API, savedBase = "", hasCredential = FactState.NO, writable = FactState.YES))
         scrollToTag(UiPageTags.WEB_SEARCH_ADDRESS_FIELD)
         compose.onNodeWithTag(UiPageTags.WEB_SEARCH_ADDRESS_FIELD).performTextInput(" https://pdsh.tonoai.cn/v1/web ")
         compose.onNodeWithTag(UiPageTags.WEB_SEARCH_ADDRESS_FIELD).performImeAction()

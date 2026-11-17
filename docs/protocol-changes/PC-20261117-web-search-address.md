@@ -3,11 +3,11 @@
 ```yaml
 change: PC-20261117-web-search-address
 contracts: [P05, P09, P18]
-status: frozen
+status: implemented
 breaking: false
 version_decision: retain Android settings document v1 and existing secure account; tighten address-only writes and bind key writes to an expected base
 base: bed103f760e380a46037b6e972eba23ee0782783
-contract_revision: spec/ui/v1/fixtures/web-search-address-lifecycle.json@sha256:506ae70455187b93037b8a83ae5b05a80378720c1cfb05c0d536eb23aae054f7
+contract_revision: 312636e5a90059627eb8ee64397245c9451caeb6
 ```
 
 ## Trigger and scope
@@ -89,3 +89,10 @@ the prior key is invalid or unreadable, without writing or deleting it, even
 when the expected base matches. The shared fixture now identifies each case's
 operation and includes this failure for both real stores. Fixture SHA-256: `d19850f200869dd9f7dac3c5805fc765219afd658c4a1862954000ae8b183397`.
 No storage shape or compatibility decision changes.
+
+## Implementation revision
+
+The contract was frozen at `312636e5a90059627eb8ee64397245c9451caeb6` on top
+of `bed103f760e380a46037b6e972eba23ee0782783`. Android implements the page and
+store changes. The iOS store behavior is unchanged and is exercised by the shared
+fixture in the simulator. The Android keyed-endpoint replacement gap remains open.

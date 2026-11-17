@@ -2010,7 +2010,7 @@ public object UiStrings {
     // button without a label (its visible text is the copy below).
     public const val WEB_SEARCH_SECTION_MODE: String = "用哪一份搜索"
     public const val WEB_SEARCH_MODE_FOLLOW: String = "用模型服务自带的"
-    public const val WEB_SEARCH_MODE_FOLLOW_HINT: String = "自动用所选官方 DeepSeek 模型服务保存的密钥，不需要另填。"
+    public const val WEB_SEARCH_MODE_FOLLOW_HINT: String = "不填地址,用那边配好的搜索。"
     public const val WEB_SEARCH_MODE_API: String = "自己填一个"
     public const val WEB_SEARCH_MODE_API_HINT: String = "填地址和密钥,单独连一个搜索服务。"
     public const val WEB_SEARCH_FOLLOW_NO_PROFILE: String = "还没有设置模型服务。到「模型服务」选好官方 DeepSeek 并保存密钥后，搜索和抓取会自动启用。"

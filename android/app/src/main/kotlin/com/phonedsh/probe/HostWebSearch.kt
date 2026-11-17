@@ -58,6 +58,7 @@ internal fun webSearchFacts(
     if (!searchApi) {
         return WebSearchFacts(
             mode = WebSearchMode.FOLLOW_MODEL,
+            savedBase = (read as? WebSearchSettingsRead.Stored)?.settings?.baseUrl ?: "",
             modelSearchSupported = modelSearchSupported,
             noModelProfile = !modelConfigured,
             hasCredential = if (officialEnabled) FactState.YES else FactState.UNKNOWN,
@@ -75,6 +76,7 @@ internal fun webSearchFacts(
     )
     return WebSearchFacts(
         mode = WebSearchMode.SEARCH_API,
+        savedBase = (read as? WebSearchSettingsRead.Stored)?.settings?.baseUrl,
         modelSearchSupported = modelSearchSupported,
         noModelProfile = !modelConfigured,
         hasCredential = when (keyState) {
@@ -119,7 +121,7 @@ internal fun handleWebSearchAction(
             },
         )
         is PdshHostAction.CommitWebSearchAddress -> store.commitAddress(action.address)
-        is PdshHostAction.CommitWebSearchKey -> store.commitKey(action.key)
+        is PdshHostAction.CommitWebSearchKey -> store.commitKey(action.key, action.expectedBase)
         PdshHostAction.ClearWebSearchKey -> store.clearKey()
         PdshHostAction.RemoveWebSearchConfiguration -> store.remove()
         else -> null

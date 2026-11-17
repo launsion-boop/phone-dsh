@@ -227,6 +227,8 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
+      - path: ../../spec/ui/v1/fixtures/web-search-address-lifecycle.json
+        buildPhase: resources
       - path: PhoneDSHSimTests
       # The session-scoped DSH always-allow memory is app code but pure
       # UserDefaults logic; compile it into the hostless simulator suite.

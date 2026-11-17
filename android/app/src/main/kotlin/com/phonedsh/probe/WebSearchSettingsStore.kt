@@ -9,9 +9,9 @@
 // cannot fully read is its own state: the page says so and both web tools stay off,
 // so a broken search setup never falls back to the model key.
 //
-// Trust boundary: a key belongs to the base it was saved for. Committing a
-// different base deletes the stored key *before* the document points at the new
-// base, and a key is accepted only once a canonical base is stored. Nothing here
+// Trust boundary: a key belongs to the base it was saved for. A different
+// base is refused while a key may exist, and a key write checks the confirmed
+// base under the same lock before touching the secret store. Nothing here
 // logs a value; messages name the action, never the key.
 
 package com.phonedsh.probe
@@ -125,8 +125,7 @@ internal class WebSearchSettingsStore(
     }
 
     /**
-     * Stores a new base. A different base deletes the old key first (§5), so an
-     * old key can never be paired with a new service.
+     * Stores a new base only when no old key can be attached to it (§5).
      */
     @Synchronized
     fun commitAddress(raw: String): WebSearchWriteResult {
@@ -141,31 +140,29 @@ internal class WebSearchSettingsStore(
         if (current.baseUrl == canonical) {
             return WebSearchWriteResult("地址没有变化：$canonical", false)
         }
-        val hadKey = keyState() != ApiKeyState.Absent
-        if (hadKey) {
-            try {
-                keys.clear(ACCOUNT)
-            } catch (_: Exception) {
-                log("web-search key delete failed before an address change")
-                return WebSearchWriteResult("原来的密钥无法删除，为避免把它用于新地址，本次未保存", false)
-            }
+        if (keyState() != ApiKeyState.Absent) {
+            return WebSearchWriteResult("换了地址，密钥要重新粘一次；原地址和密钥未改变", false)
         }
         if (!write(WebSearchSettings(WebSearchSettingsMode.SEARCH_API, canonical))) {
-            return WebSearchWriteResult(
-                if (hadKey) "地址未保存；原来的密钥已删除，请重新保存" else NOT_SAVED,
-                hadKey,
-            )
+            return WebSearchWriteResult(NOT_SAVED, false)
         }
-        val keyLine = if (hadKey) "地址变了，原来的密钥已删除，请重新保存这个服务的密钥" else "请再保存这个服务的密钥"
-        return WebSearchWriteResult("已保存地址 $canonical；$keyLine", true)
+        return WebSearchWriteResult("已保存地址 $canonical；请再保存这个服务的密钥", true)
     }
 
     /** Stores the key for the stored base; never without one. */
     @Synchronized
-    fun commitKey(raw: String): WebSearchWriteResult {
+    fun commitKey(raw: String, expectedBase: String): WebSearchWriteResult {
         val settings = (read() as? WebSearchSettingsRead.Stored)?.settings
         if (settings == null || settings.mode != WebSearchSettingsMode.SEARCH_API || settings.baseUrl.isEmpty()) {
             return WebSearchWriteResult("请先保存搜索服务地址，再保存密钥；本次未保存", false)
+        }
+        if (settings.baseUrl != expectedBase) {
+            return WebSearchWriteResult("地址已变化，请确认当前地址后重新保存密钥", false)
+        }
+        when (keyState()) {
+            is ApiKeyState.Invalid, is ApiKeyState.Unreadable ->
+                return WebSearchWriteResult("无法读取本机保存的搜索密钥，本次未覆盖", false)
+            else -> Unit
         }
         try {
             keys.save(raw, ACCOUNT)
