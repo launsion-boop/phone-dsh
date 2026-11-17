@@ -3,11 +3,11 @@
 ```yaml
 change: PC-20261117-web-search-address
 contracts: [P05, P09, P18]
-status: implemented
+status: frozen
 breaking: false
-version_decision: retain Android settings document v1 and existing secure account; tighten address-only writes and bind key writes to an expected base
+version_decision: retain the existing Android AAR JVM signatures and v1 settings document; use an additive host projection with a fail-closed default
 base: bed103f760e380a46037b6e972eba23ee0782783
-contract_revision: 312636e5a90059627eb8ee64397245c9451caeb6
+contract_revision: spec/ui/v1/fixtures/web-search-address-lifecycle.json@sha256:d343566e24682daad2dcad9f6dcf57666958116334246e5580c7c7acfe64fdc0
 ```
 
 ## Trigger and scope
@@ -36,11 +36,13 @@ are the in-process producer/consumer boundary.
 * The host projects a non-secret confirmed base and unreadable state to the page.
   Page drafts submit on Done, blur and departure, and are restored from confirmed
   data. A key draft is explicit-save only and never enters facts or logs.
-* A key-save action carries the confirmed canonical base and the host verifies it
-  against the current document under its store lock before touching the key.
+* The host associates a key-save action with the same confirmed base supplied to
+  the page and verifies it under the store lock before touching the key.
   Draft and confirmed base mismatch must not send a key to the old service.
-* Old data remains v1 and is read identically. Old clients and new clients are
-  bundled within their own app builds, so no mixed in-process API is supported.
+* Old data remains v1 and is read identically. The published Android AAR keeps the existing public JVM signatures. An old
+  host linked to the new AAR has no address provider, so address and key controls
+  are disabled rather than writing to an unknown service. The updated app must be
+  deployed with the updated AAR because the old AAR lacks the new provider.
   Old app builds still delete their old key on an address-only change; rollback
   cannot retain the new refusal behavior. The new client reads old data, and no
   stored field or wire encoding changes. Worker inputs, gateway grants and network
@@ -96,3 +98,15 @@ The contract was frozen at `312636e5a90059627eb8ee64397245c9451caeb6` on top
 of `bed103f760e380a46037b6e972eba23ee0782783`. Android implements the page and
 store changes. The iOS store behavior is unchanged and is exercised by the shared
 fixture in the simulator. The Android keyed-endpoint replacement gap remains open.
+
+## Published AAR compatibility correction (P09)
+
+The first implementation changed the public constructors, data-class component
+order and composable callback signature in the published AAR. That would break
+existing compiled consumers. The corrected implementation preserves those JVM
+signatures and passes the non-secret address through an additive composition-local
+value. Its unavailable default disables address and key writes and explains why.
+The app host carries the same confirmed base to the store's locked key check.
+The shared fixture covers old hosts without the provider, readable hosts, and
+unreadable settings. The old-client/new-AAR binary test must run real compiled
+call sites and compare the affected public JVM descriptors. Fixture SHA-256: `d343566e24682daad2dcad9f6dcf57666958116334246e5580c7c7acfe64fdc0`.

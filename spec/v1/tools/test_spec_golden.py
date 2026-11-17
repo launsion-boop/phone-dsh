@@ -1147,7 +1147,11 @@ class WebSearchAddressLifecycleFixtureSchemaTest(unittest.TestCase):
         self.assertEqual(len({case["id"] for case in fixture["cases"]}), len(fixture["cases"]))
         self.assertEqual({case["credential"] for case in fixture["cases"]}, {"absent", "present", "unreadable"})
         self.assertEqual({case["result"] for case in fixture["cases"]}, {"saved", "unchanged", "rejected"})
-        for mutation in ("missing-base", "unknown-credential", "extra-secret", "unknown-result", "wrong-visual", "unknown-operation"):
+        self.assertEqual({case["provider"] for case in fixture["aarCompatibility"]}, {"missing", "readable", "unreadable"})
+        for case in fixture["aarCompatibility"]:
+            self.assertEqual(case["provider"] == "readable", case["addressEnabled"])
+            self.assertEqual(case["provider"] == "readable", case["keyEnabled"])
+        for mutation in ("missing-base", "unknown-credential", "extra-secret", "unknown-result", "wrong-visual", "unknown-operation", "unknown-provider"):
             changed = copy.deepcopy(fixture)
             if mutation == "missing-base":
                 del changed["cases"][0]["storedBase"]
@@ -1159,6 +1163,8 @@ class WebSearchAddressLifecycleFixtureSchemaTest(unittest.TestCase):
                 changed["visual402"]["modeCardTopPx"] += 1
             elif mutation == "unknown-operation":
                 changed["cases"][0]["operation"] = "unsafe-overwrite"
+            elif mutation == "unknown-provider":
+                changed["aarCompatibility"][0]["provider"] = "assumed-readable"
             else:
                 changed["cases"][0]["result"] = "assumed-saved"
             with self.assertRaises(spec_golden.SpecError):

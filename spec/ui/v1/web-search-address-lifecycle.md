@@ -39,3 +39,15 @@ show the existing short saved acknowledgement under the address and clear it
 after two seconds; editing clears it immediately. A failed write must not use
 that acknowledgement. This matches the observed iOS interaction and keeps the
 page's content geometry stable after reopening.
+
+## Published Android AAR compatibility
+
+The published AAR retains the existing JVM signatures and data-class component
+order of `WebSearchFacts`, `WebSearchScreenState`, `WebSearchSettingsPage`, and
+`PdshHostAction.CommitWebSearchKey`. The host supplies the confirmed base through
+an additive composition-local value. Its default is unavailable. If an old host
+does not supply that value, or the settings document is unreadable, the address
+and key controls are disabled and a reason is visible. This fails closed instead
+of binding a credential to an unknown address. A current host supplies either a
+confirmed base or an explicit unavailable state and checks the same base under
+the settings-store lock before writing a key. Existing stored data is unchanged.

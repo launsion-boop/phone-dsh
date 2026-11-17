@@ -104,5 +104,25 @@
     "addressCardBottomPx": 1337,
     "keyCardTopPx": 1555,
     "unselectedSubtitleVisible": false
-  }
+  },
+  "aarCompatibility": [
+    {
+      "id": "old-client-no-provider",
+      "provider": "missing",
+      "addressEnabled": false,
+      "keyEnabled": false
+    },
+    {
+      "id": "current-host-readable",
+      "provider": "readable",
+      "addressEnabled": true,
+      "keyEnabled": true
+    },
+    {
+      "id": "current-host-unreadable",
+      "provider": "unreadable",
+      "addressEnabled": false,
+      "keyEnabled": false
+    }
+  ]
 }

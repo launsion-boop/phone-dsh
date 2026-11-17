@@ -6,7 +6,8 @@
     "schemaVersion",
     "vector",
     "cases",
-    "visual402"
+    "visual402",
+    "aarCompatibility"
   ],
   "properties": {
     "schemaVersion": {
@@ -131,6 +132,40 @@
         },
         "unselectedSubtitleVisible": {
           "const": false
+        }
+      }
+    },
+    "aarCompatibility": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "provider",
+          "addressEnabled",
+          "keyEnabled"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "provider": {
+            "enum": [
+              "missing",
+              "readable",
+              "unreadable"
+            ]
+          },
+          "addressEnabled": {
+            "type": "boolean"
+          },
+          "keyEnabled": {
+            "type": "boolean"
+          }
         }
       }
     }
