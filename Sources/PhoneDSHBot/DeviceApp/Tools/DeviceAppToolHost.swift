@@ -33,7 +33,10 @@ public actor DeviceAppToolHost {
     private let installer: Installer
     private let audit: Auditor
     private var staged: [String: [Staged]] = [:]
-    private var busyDevices: Set<String> = []
+    /// device -> (digest, phase) of the install call in flight. A retry of the same digest
+    /// (typically after the caller's request timed out) is told the real state of that call.
+    private enum InstallPhase: String { case awaitingApproval, installing }
+    private var busyDevices: [String: (digest: String, phase: InstallPhase)] = [:]
 
     public init(deviceKey: @escaping DeviceKeyResolver, validate: @escaping Validator,
                 digester: @escaping Digester, installer: @escaping Installer,
@@ -185,10 +188,17 @@ public actor DeviceAppToolHost {
                 return .failure("digest_mismatch", "摘要与已检查的内容不一致，未安装")
             }
         }
-        guard busyDevices.insert(device).inserted else {
-            return .failure("busy", "这台设备正在安装另一个应用")
+        if let active = busyDevices[device] {
+            guard active.digest == digest else { return .failure("busy", "这台设备正在安装另一个应用") }
+            switch active.phase {
+            case .awaitingApproval:
+                return .failure("busy", "同一个应用（摘要 \(digest.prefix(8))）的上一次安装请求还在等用户在手机上确认；没有重复发起，请等它的结果，不要重试")
+            case .installing:
+                return .failure("busy", "同一个应用（摘要 \(digest.prefix(8))）的上一次安装正在向设备传输；没有重复发起，请稍后用设备应用列表确认结果，不要重试")
+            }
         }
-        defer { busyDevices.remove(device) }
+        busyDevices[device] = (digest, .awaitingApproval)
+        defer { busyDevices[device] = nil }
 
         // Approval first, before any radio use. It is spent by this install.
         let effect = DeviceAppToolEffects.installEffect(
@@ -200,6 +210,7 @@ public actor DeviceAppToolHost {
                 : outcome.message ?? "用户没有确认安装，没有向设备发送任何内容")
         }
 
+        busyDevices[device] = (digest, .installing)
         let request = DeviceAppInstallRequest(
             installID: UUID().uuidString.lowercased(), deviceKey: device,
             manifest: record.manifest, files: record.files, entries: record.entries, digest: digest)
