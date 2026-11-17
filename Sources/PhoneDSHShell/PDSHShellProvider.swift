@@ -221,10 +221,6 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
     }
 
     public func run(_ request: ExecRequest) -> AsyncThrowingStream<ExecEvent, Error> {
-        if request.argv.count >= 2, request.argv[0] == "phone", request.argv[1] == "contacts.search",
-           botContactsQuery != nil {
-            return contactsStream(request)
-        }
         if request.argv.count >= 2, request.argv[0] == "phone", request.argv[1] == "record" {
             return recordStream(request)
         }
