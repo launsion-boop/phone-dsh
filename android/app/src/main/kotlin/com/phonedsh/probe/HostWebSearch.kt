@@ -58,7 +58,6 @@ internal fun webSearchFacts(
     if (!searchApi) {
         return WebSearchFacts(
             mode = WebSearchMode.FOLLOW_MODEL,
-            savedBase = (read as? WebSearchSettingsRead.Stored)?.settings?.baseUrl ?: "",
             modelSearchSupported = modelSearchSupported,
             noModelProfile = !modelConfigured,
             hasCredential = if (officialEnabled) FactState.YES else FactState.UNKNOWN,
@@ -76,7 +75,6 @@ internal fun webSearchFacts(
     )
     return WebSearchFacts(
         mode = WebSearchMode.SEARCH_API,
-        savedBase = (read as? WebSearchSettingsRead.Stored)?.settings?.baseUrl,
         modelSearchSupported = modelSearchSupported,
         noModelProfile = !modelConfigured,
         hasCredential = when (keyState) {
@@ -97,6 +95,13 @@ internal fun webSearchFacts(
     )
 }
 
+/** The UI receives only a confirmed, non-secret address. Null fails closed. */
+internal fun webSearchSavedBase(store: WebSearchSettingsStore?): String? = when (val read = store?.read()) {
+    WebSearchSettingsRead.Absent -> ""
+    is WebSearchSettingsRead.Stored -> read.settings.baseUrl
+    WebSearchSettingsRead.Unreadable, null -> null
+}
+
 /**
  * Performs one 网页搜索 write, or returns `null` when [action] is not one.
  *
@@ -105,6 +110,7 @@ internal fun webSearchFacts(
 internal fun handleWebSearchAction(
     action: PdshHostAction,
     store: WebSearchSettingsStore?,
+    expectedBase: String? = null,
 ): WebSearchWriteResult? {
     val isWrite = action is PdshHostAction.SetWebSearchMode ||
         action is PdshHostAction.CommitWebSearchAddress ||
@@ -121,7 +127,9 @@ internal fun handleWebSearchAction(
             },
         )
         is PdshHostAction.CommitWebSearchAddress -> store.commitAddress(action.address)
-        is PdshHostAction.CommitWebSearchKey -> store.commitKey(action.key, action.expectedBase)
+        is PdshHostAction.CommitWebSearchKey -> if (expectedBase == null) {
+            WebSearchWriteResult("无法确认搜索地址，本次未保存密钥", false)
+        } else store.commitKey(action.key, expectedBase)
         PdshHostAction.ClearWebSearchKey -> store.clearKey()
         PdshHostAction.RemoveWebSearchConfiguration -> store.remove()
         else -> null

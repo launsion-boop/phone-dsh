@@ -3,11 +3,11 @@
 ```yaml
 change: PC-20261117-web-search-address
 contracts: [P05, P09, P18]
-status: frozen
+status: implemented
 breaking: false
 version_decision: retain the existing Android AAR JVM signatures and v1 settings document; use an additive host projection with a fail-closed default
 base: bed103f760e380a46037b6e972eba23ee0782783
-contract_revision: spec/ui/v1/fixtures/web-search-address-lifecycle.json@sha256:d343566e24682daad2dcad9f6dcf57666958116334246e5580c7c7acfe64fdc0
+contract_revision: 308e9683970d3813da393e323bf60e7e3da5ab2e
 ```
 
 ## Trigger and scope
@@ -110,3 +110,11 @@ The app host carries the same confirmed base to the store's locked key check.
 The shared fixture covers old hosts without the provider, readable hosts, and
 unreadable settings. The old-client/new-AAR binary test must run real compiled
 call sites and compare the affected public JVM descriptors. Fixture SHA-256: `d343566e24682daad2dcad9f6dcf57666958116334246e5580c7c7acfe64fdc0`.
+
+## AAR compatibility implementation
+
+The app supplies the confirmed base through `LocalWebSearchSavedBase`. An absent
+provider leaves address and key controls disabled. The host passes the same base
+to the store for its locked key check. A client compiled against the previous
+AAR successfully constructed the old facts, screen state, and key action against
+the new classes. The affected composable and data-class JVM descriptors match.

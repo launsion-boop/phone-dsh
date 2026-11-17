@@ -143,8 +143,6 @@ public enum class WebSearchFailureReason {
 @Immutable
 public data class WebSearchFacts(
     public val mode: WebSearchMode = WebSearchMode.FOLLOW_MODEL,
-    /** Confirmed non-secret address, or null when the settings could not be read. */
-    public val savedBase: String? = null,
     public val hasCredential: FactState = FactState.UNKNOWN,
     public val keyTail: String? = null,
     public val engineStarted: FactState = FactState.UNKNOWN,
@@ -191,7 +189,6 @@ public data class WebSearchScreenState(
     public val canWrite: Boolean = true,
     public val readOnlyReason: String? = null,
     public val failure: String? = null,
-    public val savedBase: String? = null,
 ) {
     /** The last read failed; [failure] explains it. */
     public val isFailed: Boolean get() = phase == SettingsDataPhase.FAILED
@@ -229,7 +226,6 @@ public data class WebSearchScreenState(
             return WebSearchScreenState(
                 phase = phase,
                 mode = facts.mode,
-                savedBase = facts.savedBase,
                 followHint = facts.followHint(),
                 keyStatusLabel = when (facts.hasCredential) {
                     FactState.YES -> UiStrings.WEB_SEARCH_KEY_STORED
@@ -329,7 +325,7 @@ public fun WebSearchSettingsPage(
     onRetry: (() -> Unit)? = null,
     onModeChange: ((WebSearchMode) -> Unit)? = null,
     onCommitAddress: ((String) -> Unit)? = null,
-    onCommitKey: ((String, String) -> Unit)? = null,
+    onCommitKey: ((String) -> Unit)? = null,
     onClearKey: (() -> Unit)? = null,
     onRemoveConfiguration: (() -> Unit)? = null,
     onStartEngine: () -> Unit = {},
@@ -339,13 +335,14 @@ public fun WebSearchSettingsPage(
     // its callback; absent host wiring must not appear as a successful write.
     val tokens = LocalUiTokens.current
     val dialogPalette = materialDialogColors(tokens)
+    val savedBase = LocalWebSearchSavedBase.current
     val writable = state.canWrite
     val modeWritable = writable && onModeChange != null
-    val addressWritable = writable && onCommitAddress != null
-    val keyWritable = writable && onCommitKey != null
+    val addressWritable = writable && onCommitAddress != null && savedBase != null
+    val keyWritable = writable && onCommitKey != null && savedBase != null
     val clearWritable = writable && onClearKey != null
     val removeWritable = writable && onRemoveConfiguration != null
-    var address by remember { mutableStateOf(state.savedBase.orEmpty()) }
+    var address by remember { mutableStateOf(savedBase.orEmpty()) }
     var addressDirty by remember { mutableStateOf(false) }
     var suppressAddressCommit by remember { mutableStateOf(false) }
     var apiKey by remember { mutableStateOf("") }
@@ -363,8 +360,8 @@ public fun WebSearchSettingsPage(
     var pendingClearKey by remember { mutableStateOf(false) }
     var pendingRemove by remember { mutableStateOf(false) }
 
-    LaunchedEffect(state.savedBase) {
-        val confirmed = state.savedBase ?: return@LaunchedEffect
+    LaunchedEffect(savedBase) {
+        val confirmed = savedBase ?: return@LaunchedEffect
         if (!addressDirty || normalizeWebSearchDraft(address) == confirmed) {
             val justSaved = addressDirty && confirmed.isNotEmpty()
             address = confirmed
@@ -381,7 +378,7 @@ public fun WebSearchSettingsPage(
         if (state.isSearchApi) suppressAddressCommit = false
     }
     fun commitAddress() {
-        if (!addressWritable || !state.isSearchApi || state.savedBase == null || !addressDirty || suppressAddressCommit) return
+        if (!addressWritable || !state.isSearchApi || savedBase == null || !addressDirty || suppressAddressCommit) return
         val candidate = normalizeWebSearchDraft(address)
         if (candidate.isEmpty()) return
         address = candidate
@@ -432,7 +429,7 @@ public fun WebSearchSettingsPage(
                         onModeChange = { mode ->
                             if (mode != WebSearchMode.SEARCH_API) {
                                 suppressAddressCommit = true
-                                address = state.savedBase.orEmpty()
+                                address = savedBase.orEmpty()
                                 addressDirty = false
                                 apiKey = ""
                             }
@@ -450,6 +447,11 @@ public fun WebSearchSettingsPage(
                         }
                     }
                     if (state.isSearchApi) {
+                        if (savedBase == null) {
+                            item(key = "address.unavailable") {
+                                SettingsFootnoteRow(text = "无法读取已保存的搜索地址，暂不能修改地址或保存密钥。")
+                            }
+                        }
                         addressGroup(
                             address = address,
                             enabled = addressWritable,
@@ -472,7 +474,7 @@ public fun WebSearchSettingsPage(
                                 feedback = null
                             },
                             onCommit = {
-                                val confirmed = state.savedBase
+                                val confirmed = savedBase
                                 if (confirmed.isNullOrEmpty() || normalizeWebSearchDraft(address).removeSuffix("/") != confirmed) {
                                     feedbackForKey = true
                                     feedback = "请先保存有效地址，再保存密钥。"
@@ -481,7 +483,7 @@ public fun WebSearchSettingsPage(
                                     keyCommitBaselineConfigured = state.hasCredential
                                     keyCommitBaselineTail = state.keyTailLabel
                                     keyCommitPending = true
-                                    onCommitKey?.invoke(apiKey.trim(), confirmed)
+                                    onCommitKey?.invoke(apiKey.trim())
                                 }
                             },
                             onClear = { if (clearWritable) pendingClearKey = true },

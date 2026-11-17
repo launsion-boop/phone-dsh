@@ -2035,7 +2035,7 @@ private fun WebSearchRoute(
         // host reports `writable = YES`, and the host answers with new facts.
         onModeChange = { mode -> onHostAction(PdshHostAction.SetWebSearchMode(mode)) },
         onCommitAddress = { address -> onHostAction(PdshHostAction.CommitWebSearchAddress(address)) },
-        onCommitKey = { key, expectedBase -> onHostAction(PdshHostAction.CommitWebSearchKey(key, expectedBase)) },
+        onCommitKey = { key -> onHostAction(PdshHostAction.CommitWebSearchKey(key)) },
         onClearKey = { onHostAction(PdshHostAction.ClearWebSearchKey) },
         onRemoveConfiguration = { onHostAction(PdshHostAction.RemoveWebSearchConfiguration) },
         // 什么时候生效's two engine verbs are real host commands.

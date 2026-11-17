@@ -12,6 +12,8 @@
 // false negative.
 package com.phonedsh.ui.page
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,7 +70,7 @@ class WebSearchSettingsPageTest {
     ) {
         val state = WebSearchScreenState.from(facts)
         compose.setContent {
-            PdshTheme {
+            TestWebSearchTheme {
                 WebSearchSettingsPage(
                     state = state,
                     onToggle = {},
@@ -77,7 +79,7 @@ class WebSearchSettingsPageTest {
                     onBack = {},
                     onRetry = onRetry,
                     onModeChange = onModeChange,
-                    onCommitKey = { key, _ -> onCommitKey(key) },
+                    onCommitKey = onCommitKey,
                     onClearKey = onClearKey,
                     onRemoveConfiguration = onRemoveConfiguration,
                     onStartEngine = onStartEngine,
@@ -90,7 +92,7 @@ class WebSearchSettingsPageTest {
     private fun showLive(facts: WebSearchFacts) {
         compose.setContent {
             var local by remember { mutableStateOf(WebSearchLocalState()) }
-            PdshTheme {
+            TestWebSearchTheme {
                 WebSearchSettingsPage(
                     state = WebSearchScreenState.from(facts, local),
                     onToggle = {},
@@ -118,8 +120,8 @@ class WebSearchSettingsPageTest {
         },
     ) {
         compose.setContent {
-            var liveFacts by remember { mutableStateOf(facts.copy(savedBase = facts.savedBase ?: "https://fixture.example")) }
-            PdshTheme {
+            var liveFacts by remember { mutableStateOf(facts) }
+            TestWebSearchTheme {
                 WebSearchSettingsPage(
                     state = WebSearchScreenState.from(liveFacts),
                     onToggle = {},
@@ -127,7 +129,7 @@ class WebSearchSettingsPageTest {
                     onToggleBackends = {},
                     onBack = {},
                     onModeChange = {},
-                    onCommitKey = { key, _ ->
+                    onCommitKey = { key ->
                         onCommitKey(key)
                         if (confirmCredential) {
                             liveFacts = confirmFacts(liveFacts)
@@ -228,7 +230,7 @@ class WebSearchSettingsPageTest {
     fun `保存 is the only button and it only sends what was typed`() {
         var committed: String? = null
         show(
-            WebSearchFacts(mode = WebSearchMode.SEARCH_API, hasCredential = FactState.NO, savedBase = "https://fixture.example"),
+            WebSearchFacts(mode = WebSearchMode.SEARCH_API, hasCredential = FactState.NO),
             onCommitKey = { committed = it },
         )
         scrollToTag(UiPageTags.WEB_SEARCH_KEY_FIELD)
@@ -536,12 +538,19 @@ class WebSearchSettingsPageTest {
         show(
             WebSearchFacts(
                 mode = WebSearchMode.SEARCH_API,
-                savedBase = "https://fixture.example",
                 hasCredential = FactState.YES,
                 keyTail = "sk-1234-9f3a",
             ),
         )
         compose.onAllNodesWithText("https://fixture.example", substring = true).assertCountEquals(1)
         compose.onAllNodesWithText("sk-1234-9f3a", substring = true).assertCountEquals(0)
+    }
+}
+
+
+@Composable
+private fun TestWebSearchTheme(content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalWebSearchSavedBase provides "https://fixture.example") {
+        PdshTheme(content = content)
     }
 }

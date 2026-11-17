@@ -297,11 +297,22 @@ class WebSearchSettingsStoreTest {
     }
 
     @Test
+    fun keyActionWithoutAConfirmedBaseCannotWrite() {
+        assertTrue(store.commitAddress(base).changed)
+        val result = requireNotNull(handleWebSearchAction(PdshHostAction.CommitWebSearchKey(searchKey), store))
+        assertFalse(result.changed)
+        assertEquals(ApiKeyState.Absent, store.keyState())
+        assertEquals(base, webSearchSavedBase(store))
+        file.writeText("broken")
+        assertNull(webSearchSavedBase(store))
+    }
+
+    @Test
     fun theHostActionsLandInTheStoreAndTheirLinesNeverQuoteTheKey() {
         val results = listOf(
             handleWebSearchAction(PdshHostAction.SetWebSearchMode(WebSearchMode.SEARCH_API), store),
             handleWebSearchAction(PdshHostAction.CommitWebSearchAddress(" $base/ "), store),
-            handleWebSearchAction(PdshHostAction.CommitWebSearchKey(searchKey, base), store),
+            handleWebSearchAction(PdshHostAction.CommitWebSearchKey(searchKey), store, base),
         ).map(::requireNotNull)
         assertTrue(results.all { it.changed })
         assertEquals(searchKey, store.readKey())
