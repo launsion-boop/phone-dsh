@@ -93,6 +93,52 @@ final class BotCloudScheduleLifecycleTests: XCTestCase {
         XCTAssertEqual(afterLogout, signedOut)
     }
 
+
+    /// Q1 P1: start()/schedule edits are not credential refreshes. Only
+    /// credentialsDidChange/noteAuthenticationRefreshed may re-arm the fence.
+    func testStartAndScheduleEditDoNotRearmA401Fence() async throws {
+        let now = wp6Date(2026, 5, 12, 12)
+        let f = try await fixture(device: "device-start-fence", now: now)
+        await f.client.start()
+        await f.lifecycle.scenePhaseChanged(false)
+        await f.lifecycle.scenePhaseChanged(true)
+        let blocked = await f.transport.requestCount
+        XCTAssertGreaterThan(blocked, 0)
+
+        await f.client.noteSchedulesChanged()
+        await f.lifecycle.scenePhaseChanged(true)
+        let afterEdit = await f.transport.requestCount
+        XCTAssertEqual(afterEdit, blocked, "schedule edit must not clear the 401 fence")
+
+        await f.client.stop()
+        await f.client.start()
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        let afterStart = await f.transport.requestCount
+        XCTAssertEqual(afterStart, blocked, "start() must not clear the 401 fence")
+
+        await f.transport.setCredentialValid(true)
+        await f.transport.enqueuePoll(.init(
+            serverTimeMS: now,
+            events: [CloudScheduleEvent(
+                eventID: "evt-start-fence", deviceID: "device-start-fence",
+                botID: "bot-a", routineID: "digest",
+                occurrenceKey: String(repeating: "ef", count: 32),
+                occurrenceAtMS: now, scheduledForMS: now, scheduleRevision: 1,
+                lease: .init(leaseID: "lease-start-fence", attempt: 1,
+                             expiresAtMS: now + 600_000))]))
+        await f.lifecycle.credentialsDidChange(signedIn: true)
+        XCTAssertEqual(f.runs.count, 1, "credential update must resume the due event")
+
+        await f.lifecycle.credentialsDidChange(signedIn: false)
+        let signedOut = await f.transport.requestCount
+        await f.lifecycle.scenePhaseChanged(false)
+        await f.lifecycle.scenePhaseChanged(true)
+        await f.client.noteSchedulesChanged()
+        await f.lifecycle.scenePhaseChanged(true)
+        let afterLogout = await f.transport.requestCount
+        XCTAssertEqual(afterLogout, signedOut, "logout foreground/edit must stay silent")
+    }
+
     func testOtherBotIsNotStoppedByOneBotsAuthFailure() async throws {
         let now = wp6Date(2026, 5, 12, 12)
         let first = try await fixture(botID: "bot-a", device: "device-a", now: now)
