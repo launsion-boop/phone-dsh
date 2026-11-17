@@ -155,17 +155,28 @@ internal object AdmissionPolicy {
     // ----------------------------------------------------------------- dispatch
 
     /**
-     * The records one pass may dispatch, in order: pending, not an `admitted`
+     * Every record a pass may look at, in order: pending, not an `admitted`
      * record past its expiry, not waiting for a later `nextAttemptAtMs`; FIFO by
-     * (`admittedAtMs`, `admissionId`); at most 16. A `dispatching` record is
-     * included whatever its expiry: it is resolved by repeating the downstream
-     * write, never by expiring it.
+     * (`admittedAtMs`, `admissionId`). A `dispatching` record is included
+     * whatever its expiry: it is resolved by repeating the downstream write,
+     * never by expiring it.
      */
-    fun dispatchOrder(records: List<AdmissionRecord>, nowMs: Long): List<AdmissionRecord> =
+    fun ready(records: List<AdmissionRecord>, nowMs: Long): List<AdmissionRecord> =
         records
             .filter { it.stage.isPending }
             .filterNot { it.stage == AdmissionStage.ADMITTED && nowMs >= it.expiresAtMs }
             .filter { (it.nextAttemptAtMs ?: 0L) <= nowMs }
             .sortedWith(compareBy<AdmissionRecord> { it.admittedAtMs }.thenBy { it.admissionId })
-            .take(PASS_LIMIT)
+
+    /**
+     * The records one pass dispatches: [ready], minus every record that is
+     * only waiting for execution conditions ([isWaiting]), at most 16. A waiting
+     * record is skipped and does not use up the pass, so it never starves a
+     * later one (revision external-admission-v1.1).
+     */
+    fun dispatchOrder(
+        records: List<AdmissionRecord>,
+        nowMs: Long,
+        isWaiting: (AdmissionRecord) -> Boolean = { false },
+    ): List<AdmissionRecord> = ready(records, nowMs).filterNot(isWaiting).take(PASS_LIMIT)
 }

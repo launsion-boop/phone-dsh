@@ -59,20 +59,24 @@ internal interface AdmissionDispatcher {
 /**
  * Hands `dsh-session` records to the durable send outbox.
  *
- * [sessionExists] and [isSignedInAccount] are the host's own facts, asked
+ * [sessionExists] and [signedInAccountId] are the host's own facts, asked
  * immediately before each dispatch; the dispatcher keeps no copy of them.
- * [isSignedInAccount] receives the id after `account:`.
+ * [signedInAccountId] is the id after `account:` of the account signed in now,
+ * or null when no account is signed in. For an `account:` record, no account is
+ * a wait (nothing changes); a different account is a cancel. An explicit
+ * sign-out is the host's own event and cancels through the journal directly.
  */
 internal class OutboxAdmissionDispatcher(
     private val outbox: SendOutbox,
     private val sessionExists: (sessionId: String) -> Boolean,
-    private val isSignedInAccount: (accountId: String) -> Boolean,
+    private val signedInAccountId: () -> String?,
 ) : AdmissionDispatcher {
     override fun precheck(record: AdmissionRecord): AdmissionPrecheck {
-        if (record.principal.startsWith(ACCOUNT_PREFIX) &&
-            !isSignedInAccount(record.principal.removePrefix(ACCOUNT_PREFIX))
-        ) {
-            return AdmissionPrecheck.Cancel(REASON_ACCOUNT_SIGNED_OUT)
+        if (record.principal.startsWith(ACCOUNT_PREFIX)) {
+            val current = signedInAccountId() ?: return AdmissionPrecheck.Wait
+            if (current != record.principal.removePrefix(ACCOUNT_PREFIX)) {
+                return AdmissionPrecheck.Cancel(REASON_ACCOUNT_SIGNED_OUT)
+            }
         }
         return when (val target = record.target) {
             is AdmissionTarget.DshSession ->

@@ -60,7 +60,7 @@ class ExternalAdmissionJournalTest {
 
     @Test
     fun `the fixture is the frozen revision and its limits are the implemented limits`() {
-        assertEquals("external-admission-v1", fixture.string("revision"))
+        assertEquals("external-admission-v1.1", fixture.string("revision"))
         val limits = fixture.child("limits")
         val implemented = mapOf(
             "maxTextBytes" to AdmissionPolicy.MAX_TEXT_BYTES.toLong(),
@@ -210,6 +210,7 @@ class ExternalAdmissionJournalTest {
     @Test
     fun `admit - every decision vector through the real journal over real files`() {
         val seen = HashSet<String>()
+        var undecodable = 0
         for (case in fixture.objects("admit")) {
             val id = case.string("id")
             val now = case.long("now")
@@ -231,16 +232,29 @@ class ExternalAdmissionJournalTest {
                 sandbox.seedBytes("not-a-record-${filler++}.bin", "x")
             }
             if (case["directoryEntries"] != null) assertEquals(id, entriesWanted, sandbox.directory.list()!!.size)
-            val before = sandbox.snapshot()
-
-            val journal = sandbox.journal(TestClock(now))
-            assertEquals("$id: opening must not change what an earlier process left", before, sandbox.snapshot())
             var requestJson = case.child("request")
             (requestJson["textRepeat"] as? JsonObject)?.let { repeat ->
                 val text = repeat.string("unit").repeat(repeat.long("count").toInt())
                 requestJson = requestJson.without("textRepeat").with("text" to JsonString(text))
             }
             val request = AdmissionCodec.decodeRequest(requestJson)
+            // v1.1: a real file under the request's own id that is not a v1 record.
+            if ((case["undecodableOwnFile"] as? com.phonedsh.agentcore.JsonBool)?.value == true) {
+                undecodable++
+                val ownId = AdmissionPolicy.admissionId(
+                    requestJson.string("principal"),
+                    source(requestJson.child("source")),
+                    requestJson.string("sourceRequestId"),
+                )
+                val wanted = (case["directoryEntries"] as? JsonNumber)?.asLongOrNull()?.toInt()
+                if (wanted != null) assertTrue(java.io.File(sandbox.directory, "not-a-record-0.bin").delete())
+                sandbox.seedBytes("$ownId.json", "{\"v\":2,\"admissionId\":\"$ownId\"}")
+                if (wanted != null) assertEquals(id, wanted, sandbox.directory.list()!!.size)
+            }
+            val before = sandbox.snapshot()
+
+            val journal = sandbox.journal(TestClock(now))
+            assertEquals("$id: opening must not change what an earlier process left", before, sandbox.snapshot())
             val result = if (request == null) AdmissionResult.Invalid else journal.admit(request)
             assertEquals(id, expected, result.name())
 
@@ -270,7 +284,8 @@ class ExternalAdmissionJournalTest {
                 else -> assertEquals("$id: nothing is written for $expected", before, sandbox.snapshot())
             }
         }
-        assertEquals(setOf("admitted", "duplicate", "conflict", "capacity", "invalid"), seen)
+        assertEquals(setOf("admitted", "duplicate", "conflict", "capacity", "invalid", "storage"), seen)
+        assertEquals(3, undecodable)
     }
 
     @Test
@@ -498,6 +513,7 @@ class ExternalAdmissionJournalTest {
     fun `order - every vector through the policy and through real files and a real pass`() {
         val cases = fixture.objects("order")
         assertTrue(cases.isNotEmpty())
+        var sawWaiting = false
         for (case in cases) {
             val id = case.string("id")
             val now = case.long("now")
@@ -514,7 +530,15 @@ class ExternalAdmissionJournalTest {
                     nextAttemptAtMs = (item["nextAttemptAtMs"] as? JsonNumber)?.asLongOrNull(),
                 ).copy(admissionId = item.string("admissionId"))
             }
-            assertEquals(id, expected, AdmissionPolicy.dispatchOrder(asGiven, now).map { it.admissionId })
+            val waitingIds = partial
+                .filter { (it["waiting"] as? com.phonedsh.agentcore.JsonBool)?.value == true }
+                .map { it.string("admissionId") }
+                .toSet()
+            assertEquals(
+                id,
+                expected,
+                AdmissionPolicy.dispatchOrder(asGiven, now) { it.admissionId in waitingIds }.map { it.admissionId },
+            )
 
             // 2. Real files. A real admissionId is a digest, so the vector's ids are
             // replaced by real ones in the same relative order: the i-th smallest
@@ -543,12 +567,15 @@ class ExternalAdmissionJournalTest {
             assertEquals(id, partial.size, rank.toSet().size)
             val journal = sandbox.journal(TestClock(now))
             val expectedReal = expected.map { realIdOf.getValue(it) }
-            assertEquals(id, expectedReal, journal.dispatchable().map { it.admissionId })
+            val waitingReal = waitingIds.map { realIdOf.getValue(it) }.toSet()
+            assertEquals(id, expectedReal, journal.dispatchable { it.admissionId in waitingReal }.map { it.admissionId })
+            val untouched = waitingReal.associateWith { sandbox.file(it).readText() }
 
             // 3. A real pass delivers exactly those, in that order, one at a time.
             val delivered = ArrayList<String>()
             val report = journal.runDispatchPass(object : AdmissionDispatcher {
-                override fun precheck(record: AdmissionRecord) = AdmissionPrecheck.Proceed
+                override fun precheck(record: AdmissionRecord): AdmissionPrecheck =
+                    if (record.admissionId in waitingReal) AdmissionPrecheck.Wait else AdmissionPrecheck.Proceed
 
                 override fun deliver(record: AdmissionRecord): AdmissionDelivery {
                     assertEquals(AdmissionStage.DISPATCHING, journal.record(record.admissionId)?.stage)
@@ -559,6 +586,10 @@ class ExternalAdmissionJournalTest {
             assertEquals(id, expectedReal, delivered)
             assertEquals(id, expectedReal, report.linked)
             assertTrue(id, delivered.size <= AdmissionPolicy.PASS_LIMIT)
+            // A waiting record is skipped: not an attempt, nothing in its file changes.
+            assertEquals(id, untouched, waitingReal.associateWith { sandbox.file(it).readText() })
+            if (waitingReal.isNotEmpty()) sawWaiting = true
         }
+        assertTrue("the v1.1 waiting vector must be present", sawWaiting)
     }
 }

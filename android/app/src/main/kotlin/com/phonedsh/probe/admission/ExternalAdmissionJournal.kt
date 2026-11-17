@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // External admission journal (P06; spec/host/v1/external-admission.md, revision
-// external-admission-v1; change record PC-20261116-external-admission).
+// external-admission-v1.1; change record PC-20261116-external-admission).
 //
 // A request that arrives from outside the composer is written here first, and
 // only then handed to the owner that executes it. One file per record,
@@ -168,9 +168,13 @@ internal class ExternalAdmissionJournal(
     @Synchronized
     fun directoryEntryCount(): Int = listNames().orEmpty().size
 
-    /** The records the next pass would dispatch, in order, at most 16. */
+    /**
+     * The records the next pass would dispatch, in order, at most 16. A record
+     * for which [isWaiting] is true is skipped and does not count toward the 16.
+     */
     @Synchronized
-    fun dispatchable(): List<AdmissionRecord> = AdmissionPolicy.dispatchOrder(records(), nowMs())
+    fun dispatchable(isWaiting: (AdmissionRecord) -> Boolean = { false }): List<AdmissionRecord> =
+        AdmissionPolicy.dispatchOrder(records(), nowMs(), isWaiting)
 
     // -------------------------------------------------------------- transitions
 
@@ -342,7 +346,9 @@ internal class ExternalAdmissionJournal(
     // ----------------------------------------------------------------- dispatch
 
     /**
-     * One sequential pass: sweep, then at most 16 records in FIFO order.
+     * One sequential pass: sweep, then at most 16 records in FIFO order. A
+     * record whose owner answers [AdmissionPrecheck.Wait] is skipped, is not an
+     * attempt, and does not count toward the 16.
      *
      * For an `admitted` record the pass re-checks expiry and asks
      * [AdmissionDispatcher.precheck]; only on [AdmissionPrecheck.Proceed] is the
@@ -365,34 +371,32 @@ internal class ExternalAdmissionJournal(
         val expired = ArrayList<String>()
         val waiting = ArrayList<String>()
         val unresolved = ArrayList<String>()
-        for (candidate in dispatchable()) {
+        // Waiting records are skipped without using the pass, so the limit counts
+        // the records this pass actually acts on.
+        var used = 0
+        for (candidate in AdmissionPolicy.ready(records(), nowMs())) {
+            if (used >= AdmissionPolicy.PASS_LIMIT) break
             val id = candidate.admissionId
             var current = record(id) ?: continue
+            if (!current.stage.isPending) continue
+            val check = dispatcher.precheck(current)
+            if (check == AdmissionPrecheck.Wait) {
+                waiting.add(id)
+                continue
+            }
+            used += 1
             if (current.stage == AdmissionStage.ADMITTED) {
                 if (nowMs() >= current.expiresAtMs) {
                     expire(id)
                     expired.add(id)
                     continue
                 }
-                when (val check = dispatcher.precheck(current)) {
-                    AdmissionPrecheck.Wait -> {
-                        waiting.add(id)
-                        continue
-                    }
-                    is AdmissionPrecheck.Cancel -> {
-                        cancel(id, check.reason)
-                        cancelled.add(id)
-                        continue
-                    }
-                    AdmissionPrecheck.Proceed -> current = markDispatching(id)
-                }
-            } else if (current.stage == AdmissionStage.DISPATCHING) {
-                if (dispatcher.precheck(current) == AdmissionPrecheck.Wait) {
-                    waiting.add(id)
+                if (check is AdmissionPrecheck.Cancel) {
+                    cancel(id, check.reason)
+                    cancelled.add(id)
                     continue
                 }
-            } else {
-                continue
+                current = markDispatching(id)
             }
             when (val delivery = dispatcher.deliver(current)) {
                 AdmissionDelivery.Linked -> {

@@ -52,7 +52,7 @@ class ExternalAdmissionRecoveryTest {
         outbox: SendOutbox = outbox(),
         sessions: Set<String> = setOf("gb-main"),
         account: String? = null,
-    ) = OutboxAdmissionDispatcher(outbox, sessionExists = { it in sessions }, isSignedInAccount = { it == account })
+    ) = OutboxAdmissionDispatcher(outbox, sessionExists = { it in sessions }, signedInAccountId = { account })
 
     private fun admitted(request: AdmissionRequest = AdmissionSpec.request()): AdmissionReceipt =
         (reopened().admit(request) as AdmissionResult.Admitted).receipt
@@ -424,6 +424,33 @@ class ExternalAdmissionRecoveryTest {
     }
 
     @Test
+    fun `waiting records never starve the records behind them`() {
+        val journal = reopened()
+        val bots = ArrayList<String>()
+        val chats = ArrayList<String>()
+        for (index in 0 until 40) {
+            clock.now = AdmissionSpec.T0 + index
+            val bot = index < 20
+            val result = journal.admit(
+                AdmissionSpec.request(
+                    requestId = "mixed-$index",
+                    target = if (bot) AdmissionTarget.Bot("bot-7f3a") else AdmissionTarget.DshSession("gb-main"),
+                    downstreamId = AdmissionSpec.uuid(200 + index),
+                ),
+            ) as AdmissionResult.Admitted
+            (if (bot) bots else chats).add(result.receipt.admissionId)
+        }
+        clock.now = AdmissionSpec.T0 + 1_000
+        val before = bots.associateWith { sandbox.file(it).readText() }
+        val first = journal.runDispatchPass(dispatcher())
+        assertEquals(chats.take(AdmissionPolicy.PASS_LIMIT), first.linked)
+        assertEquals(bots, first.waiting)
+        val second = journal.runDispatchPass(dispatcher())
+        assertEquals(chats.drop(AdmissionPolicy.PASS_LIMIT), second.linked)
+        assertEquals(before, bots.associateWith { sandbox.file(it).readText() })
+    }
+
+    @Test
     fun `the target and the account are re-checked immediately before dispatch`() {
         val gone = admitted(AdmissionSpec.request(requestId = "gone", target = AdmissionTarget.DshSession("deleted-chat")))
         val signedOut = admitted(
@@ -442,6 +469,15 @@ class ExternalAdmissionRecoveryTest {
         assertEquals("account_signed_out", cancelled.reason)
         assertNull(cancelled.text)
         assertTrue(outbox().entries().isEmpty())
+
+        // With no account signed in at all, an account record only waits: nothing changes.
+        sandbox.reset()
+        val parked = admitted(
+            AdmissionSpec.request(requestId = "task-9", principal = "account:u_18f3", source = AdmissionSpec.CLOUD, downstreamId = AdmissionSpec.uuid(9)),
+        )
+        val untouched = sandbox.snapshot()
+        assertEquals(listOf(parked.admissionId), reopened().runDispatchPass(dispatcher(account = null)).waiting)
+        assertEquals(untouched, sandbox.snapshot())
 
         // Signed in as that account, the same kind of record is handed over.
         sandbox.reset()
