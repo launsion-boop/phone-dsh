@@ -46,6 +46,9 @@ const UI_TOOLS = new Set([
   'ask_user', 'show_next_steps', 'show_attachment', 'show_document', 'show_progress',
   'show_checklist', 'show_link', 'RequestApproval',
 ])
+const INTERNAL_READ_TOOLS = new Set([
+  'BotVolatileContext', 'BotDecisionContext', 'BotSkillUseStatus',
+])
 const AUTO_TOOLS = new Set([
   // Both memory readers are read-only and frozen as `read + auto` in
   // spec/bot/v1/golden/tool-effects{,.phone}.json. ReadMemory was added after
@@ -53,11 +56,6 @@ const AUTO_TOOLS = new Set([
   // effect (alwaysScope=session) while the host classified it as a known read
   // (alwaysScope=until) and rejected the call with `stale:always_scope`.
   'ReadMemory', 'RecallMemory',
-  // Internal read-only status lookup used by the Bot-only skill gate. It is
-  // not model-visible; R calls it through ctx.tools.execute. The host's
-  // effectsForApproval maps skillStatusName to [] as well, so neither side
-  // may emit an unclassified `session` effect and reject the roundtrip.
-  'BotSkillUseStatus',
   'Task', 'AwaitTask', 'StopSubagent', 'UpdateRoutine', 'ListRoutines', 'SendToUser',
   // Team tools are auto-policy but audited by the App: SendToAgent is an
   // external send and CreateTeammate creates a local Bot. Neither asks the
