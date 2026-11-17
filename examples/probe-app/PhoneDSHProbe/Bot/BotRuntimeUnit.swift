@@ -103,10 +103,14 @@ final class BotRuntimeUnit {
             fallbackName: displayName)
         let inbox = WakeInbox(store: SQLiteWakeInboxStore(domainStore: store, botId: botID))
         let botData = BotSessionRegistry.botDataDirectory
+        let sessionLogURL: (@Sendable (String) async -> URL?)? = recordService.map { service in
+            { sessionID in await service.sessionLogURL(for: sessionID) }
+        }
         let remote = try await BotDSHRemoteRuntime(
             transport: UnstartedBotTransport(), runtime: runtime,
             botId: botID, wakeInbox: inbox,
             botDataDirectory: botData,
+            sessionLogURL: sessionLogURL,
             onSessionRegistered: { sessionID in
                 Task { @MainActor in BotSessionRegistry.shared.register(sessionID) }
             })

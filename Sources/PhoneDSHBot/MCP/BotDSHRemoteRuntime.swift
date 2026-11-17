@@ -198,6 +198,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private let model: String
     private let providerName: String
     private let botDataDirectory: String
+    /// Read-only materialized session-log locator used to close an orphaned
+    /// turn after an App restart. nil keeps the previous behaviour (tests and
+    /// hosts without a materialized log).
+    private let sessionLogURL: (@Sendable (String) async -> URL?)?
     private let onSessionRegistered: (@Sendable (String) -> Void)?
     private let now: @Sendable () -> Int64
     private let ledger: BotLLMLedger
@@ -307,6 +311,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         provider: String = "deepseek-official",
         wakeInbox: WakeInbox? = nil,
         botDataDirectory: String = BotWorkspaceLayout.defaultBotDataDirectory,
+        sessionLogURL: (@Sendable (String) async -> URL?)? = nil,
         onSessionRegistered: (@Sendable (String) -> Void)? = nil,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }
     ) async throws {
@@ -317,6 +322,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         providerName = provider
         self.wakeInbox = wakeInbox
         self.botDataDirectory = botDataDirectory
+        self.sessionLogURL = sessionLogURL
         self.onSessionRegistered = onSessionRegistered
         self.now = now
         ledger = BotLLMLedger(eventLog: runtime.store)
@@ -959,6 +965,13 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         if let turnID, coordinators[sessionId] != nil,
            await runtime.currentTurnID(sessionId: sessionId) != turnID {
             throw BotMCPError.invalidRequest("stale_turn")
+        }
+        // After an App restart there is no in-process coordinator for the
+        // durable turn. An explicit stop must still close it instead of
+        // silently doing nothing and leaving every later message queued.
+        if coordinators[sessionId] == nil {
+            await repairOrphanedChatTurnIfNeeded(sessionId: sessionId)
+            return
         }
         try await cancelTurn(sessionId: sessionId)
     }
@@ -2391,6 +2404,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 try Task.checkCancellation()
                 let principal = try await issueAndClaimSession(recovered.sessionId, kind: .chat)
                 try await recordRuntimeStarted(recovered.sessionId, principal: principal, cwd: root)
+                await repairOrphanedChatTurnIfNeeded(sessionId: recovered.sessionId)
                 return recovered.sessionId
             }
             // The old chat session belongs to another cwd (the pre-root
@@ -3064,6 +3078,44 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         let next = max(0, (waitingAdmissions[sessionId] ?? 1) - 1)
         if next == 0 { waitingAdmissions.removeValue(forKey: sessionId) }
         else { waitingAdmissions[sessionId] = next }
+    }
+
+    /// Closes one durable turn left open by an App restart.
+    ///
+    /// A materialized session log whose last `turn/start` has no `turn/end`
+    /// makes the freshly started Worker queue every prompt behind a turn that
+    /// no process owns. Ask DSH to cancel it once (bounded, best effort) and
+    /// write one idempotent interruption notice. Never rewrites the session
+    /// log or deletes the old turn.
+    private func repairOrphanedChatTurnIfNeeded(sessionId: String) async {
+        guard coordinators[sessionId] == nil,
+              let sessionLogURL,
+              let url = await sessionLogURL(sessionId),
+              let report = BotSessionLogRecovery.openTurn(at: url) else { return }
+        _ = try? await boundedTransportCall("session/cancel", args: .object([
+            "request": .object([
+                "sessionId": .string(sessionId),
+                "cause": .object([
+                    "kind": .string("hook"),
+                    "reason": .object(["kind": .string("hook")]),
+                ]),
+            ]),
+        ]), sessionId: sessionId)
+        let principal = sessions[sessionId]?.principal ?? BotGatewayPrincipal(
+            botId: botId, sessionId: sessionId, kind: .chat, expiresAt: Int64.max)
+        _ = try? await runtime.eventWriter.append(
+            type: "ui.notice", principal: principal,
+            data: .object([
+                "tone": .string("info"),
+                "text": .string("上次操作被 App 重启打断了，未完成的步骤已取消。你可以继续说。"),
+                "interrupted": .bool(true),
+                "sessionId": .string(sessionId),
+                "turn": .number(Double(report.turn)),
+                "pendingCalls": .number(Double(report.pendingCallIDs.count)),
+                "reason": .string("turn-interrupted"),
+            ]),
+            eventId: "turn-interrupted-recovery:\(sessionId):\(report.turn)",
+            origin: .local(source: "runtime"))
     }
 
     private func cancelTurn(sessionId: String, includeQueued: Bool = false) async throws {
