@@ -225,10 +225,18 @@ final class BotProductionHub {
         model.watchHealthProvider = { BotFeedHealth(await unit.rows.watchHealth()) }
         if let initial = try? await driver.watch(0) { model.apply(initial) }
         await model.refreshPresentation()
-        if let chat = currentChat, let transport = try? await chat.transportForManagement() {
-            let remote = unit.remote
+        let remote = unit.remote
+        let managementTransport: (any DSHRemoteTransport)?
+        if let chat = currentChat {
+            managementTransport = try? await chat.transportForManagement()
+        } else {
+            // A Bot opened from the DSH drawer has no foreground ChatModel;
+            // the unit's runtime still owns the management transport.
+            managementTransport = try? await remote.managementTransport()
+        }
+        if let managementTransport {
             model.attachmentImporter = BotWorkspaceAttachmentImporter(
-                transport: transport,
+                transport: managementTransport,
                 sessionID: { try await remote.ensureMainSessionID() })
         }
         let infoDriver = await unit.info.infoDriver()
