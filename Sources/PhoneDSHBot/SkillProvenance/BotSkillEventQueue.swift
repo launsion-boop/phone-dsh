@@ -136,7 +136,7 @@ public final class BotSkillEventQueue: @unchecked Sendable {
     public func userWrite(_ name: String,
                           sources: [BotDerivationSource] = []) async {
         do {
-            _ = try await producer.recordUserDshWrite(fileName: name)
+            _ = try await producer.recordUserDshWrite(fileName: name, sources: sources)
             record(action: "user-write", key: name, outcome: .recorded, detail: nil)
         } catch {
             record(action: "user-write", key: name, outcome: .failed,
@@ -146,9 +146,10 @@ public final class BotSkillEventQueue: @unchecked Sendable {
         }
     }
 
-    public func userDelete(_ name: String) async {
+    public func userDelete(_ name: String,
+                           sources: [BotDerivationSource] = []) async {
         do {
-            _ = try await producer.recordUserDshDelete(fileName: name)
+            _ = try await producer.recordUserDshDelete(fileName: name, sources: sources)
             record(action: "user-delete", key: name, outcome: .recorded, detail: nil)
         } catch {
             record(action: "user-delete", key: name, outcome: .failed,

@@ -143,7 +143,8 @@ public struct BotSkillProvenanceProducer: Sendable {
     /// A real feature-admin `SkillsStore.delete` under `/dsh/home/skills`.
     /// The file must already be gone; the previous hash comes from the latest
     /// durable write, never from a directory scan.
-    public func recordUserDshDelete(fileName: String) async throws
+    public func recordUserDshDelete(fileName: String,
+                                     sources: [BotDerivationSource] = []) async throws
         -> BotDerivedRef? {
         guard let target = userDshTarget(fileName: fileName) else { return nil }
         try requireAbsent(target.url)
@@ -158,7 +159,7 @@ public struct BotSkillProvenanceProducer: Sendable {
             revision: snapshot.revision + 1, action: .delete,
             contentSHA256: nil, bytes: nil, previousSHA256: previous,
             author: BotSkillChangeAuthor(kind: "user"),
-            atMS: now(), sources: [],
+            atMS: now(), sources: sources,
             source: .userDsh, ownerBotID: nil)
         return try await recorder(request)
     }

@@ -24,6 +24,18 @@ public final class BotSkillQueueRouter: @unchecked Sendable {
         }
     }
 
+    /// The applied feature-admin record joins the same serial tail as the
+    /// observer and the runtime, so a successful UI save cannot be observed
+    /// before its `skill.changed` carrier exists.
+    public func userWriteAndWait(_ name: String,
+                                 sources: [BotDerivationSource]) async {
+        guard let queue = current() else { return }
+        await queue.enqueueAndWait { [weak queue] in
+            guard let queue else { return }
+            await queue.userWrite(name, sources: sources)
+        }
+    }
+
     /// Observer path: the current queue consumes one operation-scoped
     /// suppression (feature-admin) or falls through to the normal record.
     public func observeUserWrite(_ name: String) {
@@ -48,6 +60,28 @@ public final class BotSkillQueueRouter: @unchecked Sendable {
             guard let queue else { return }
             await queue.userDelete(name)
         }
+    }
+
+    public func userDeleteAndWait(_ name: String,
+                                  sources: [BotDerivationSource]) async {
+        guard let queue = current() else { return }
+        await queue.enqueueAndWait { [weak queue] in
+            guard let queue else { return }
+            await queue.userDelete(name, sources: sources)
+        }
+    }
+
+    public var hasQueue: Bool { current() != nil }
+
+    public func suppressObserverMutation(fileName: String, action: String,
+                                         operationID: String,
+                                         ttlMS: Int64 = 60_000) {
+        current()?.suppressObserverMutation(fileName: fileName, action: action,
+                                           operationID: operationID, ttlMS: ttlMS)
+    }
+
+    public func clearObserverSuppression(operationID: String) {
+        current()?.clearObserverSuppression(operationID: operationID)
     }
 
     private func current() -> BotSkillEventQueue? {
