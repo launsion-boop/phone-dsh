@@ -48,6 +48,16 @@
 | `phone-sdk` | FAIL：`BLESecureCrossRuntimeTests` 缺 cJSON／mbedTLS（既有环境问题）；`WebEngineTests.testJITProbeStoresBaselineAndReportsRatio` 失败，已在基线 `d8151ad5` 的独立工作树上原样复现 |
 | `phone-android-tests`（完整门禁）、`phone-plugins`、`phone-image`、`scripts/ci/smoke.sh` | NOT_RUN |
 
+### 真机（2026-11-16，iPhone19,4，`com.tono.phonedsh.probe`，团队 `Q322S2LD93`）
+
+| 检查 | 结果 |
+| --- | --- |
+| 带签名的设备构建（Xcode 自动管理的团队描述文件；`project.yml` 的 Bundle ID 与团队只在本地临时替换，未提交） | PASS |
+| 已签名产物的 entitlement 含 `aps-environment = development` | PASS（`codesign -d --entitlements`） |
+| 安装并启动；进程存活，启动报告与 `tonolink-voice.log` 有新写入 | PASS |
+| 板子语音经准入记录 | NOT_RUN：日志为 `board not found or not ready within 20.0 seconds`，板子不在场 |
+| 打开「云端任务」开关、推送令牌注册、锁屏下准入、强退恢复 | NOT_RUN：需要在手机上操作 |
+
 ## 未验证
 
 - 真机：锁屏写入、BLE 冷唤醒后的准入、强退恢复、文件保护级别、设备 Keychain。
