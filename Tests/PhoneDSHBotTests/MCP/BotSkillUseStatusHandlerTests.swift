@@ -72,6 +72,8 @@ final class BotSkillUseStatusHandlerTests: XCTestCase {
     func testTokenedIdentityRegistrationAdmitsInternalSkillStatus() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
+        await fixture.runtime.installProvenance(
+            BotProvenanceService(eventLog: BotProvenanceTestLog()))
         _ = try await fixture.runtime.issueSession(
             botId: "bot-a", sessionId: "gb-bot-a", kind: .chat)
         await beginUserTurn(fixture.runtime, sessionId: "gb-bot-a")
