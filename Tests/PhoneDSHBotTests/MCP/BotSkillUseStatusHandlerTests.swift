@@ -89,6 +89,6 @@ final class BotSkillUseStatusHandlerTests: XCTestCase {
             name: "BotSkillUseStatus", arguments: arguments("missing"),
             context: BotMCPRequestContext(callId: "skill-token"))
         XCTAssertEqual(result.structuredContent?["status"], .null, "\(result)")
-        XCTAssertEqual(result.isError, false)
+        XCTAssertNil(result.isError)
     }
 }
