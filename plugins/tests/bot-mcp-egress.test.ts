@@ -25,7 +25,7 @@ const yaml = createRequire(import.meta.url)('js-yaml') as {
 
 interface PatchRow {
   readonly id?: string
-  readonly config?: { readonly headers?: unknown }
+  readonly config?: { readonly headers?: unknown; readonly toolCallTimeoutMs?: unknown }
   readonly insert?: readonly PatchRow[]
   readonly plugins?: readonly PatchRow[]
 }
@@ -111,3 +111,23 @@ for (const profile of PROFILES) {
     }
   })
 }
+
+/**
+ * GAP-44: the Worker's MCP `tools/call` deadline for the phone server must
+ * outlive an interactive approval card (300 s, BotApprovalCoordinator) so a
+ * human answer reaches a call that is still alive. 330 s matches the identity
+ * attribution lifetime (card + 30 s); the card expiring is then what ends the
+ * call, with its own message, never the Worker's `Request timed out`.
+ */
+const APPROVAL_CARD_LIFETIME_MS = 300_000
+const ATTRIBUTION_LIFETIME_MS = APPROVAL_CARD_LIFETIME_MS + 30_000
+
+test('phone.worker.cordis.patch.yml: mcp-phone tool timeout outlives the approval card', () => {
+  const filename = join(repository, 'plugins/profile', 'phone.worker.cordis.patch.yml')
+  const row = flatten(loadPatch(filename)).find(candidate => candidate.id === 'mcp-phone')
+  assert.ok(row, 'worker profile must mount mcp-phone')
+  const timeout = row.config?.toolCallTimeoutMs
+  assert.equal(typeof timeout, 'number')
+  assert.ok((timeout as number) >= APPROVAL_CARD_LIFETIME_MS, `toolCallTimeoutMs ${String(timeout)} < card lifetime`)
+  assert.ok((timeout as number) <= ATTRIBUTION_LIFETIME_MS, `toolCallTimeoutMs ${String(timeout)} outlives the identity attribution`)
+})

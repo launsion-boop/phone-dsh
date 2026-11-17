@@ -178,6 +178,94 @@ final class DeviceAppWiringTests: XCTestCase {
         XCTAssertFalse(order.contains("transfer"))
     }
 
+    // MARK: interrupted transfer and unknown outcome (device-app-v1.4)
+
+    private actor Script {
+        var outcomes: [DeviceAppInstallOutcome]
+        var states: [DeviceAppInstalledState]
+        var connected: Bool
+        let dropsLink: Bool
+        var ids: [String] = []
+        var probes = 0
+        init(outcomes: [DeviceAppInstallOutcome], states: [DeviceAppInstalledState] = [], dropsLink: Bool = false) {
+            self.outcomes = outcomes; self.states = states; self.connected = true; self.dropsLink = dropsLink
+        }
+        func next(_ request: DeviceAppInstallRequest) -> DeviceAppInstallOutcome {
+            ids.append(request.installID)
+            if dropsLink { connected = false }
+            return outcomes.isEmpty ? .failed(code: "x", message: "x") : outcomes.removeFirst()
+        }
+        func probe() -> DeviceAppInstalledState {
+            probes += 1
+            return states.isEmpty ? .unreadable : states.removeFirst()
+        }
+    }
+
+    private func scripted(_ script: Script) -> DeviceAppToolHost.Installer {
+        DeviceAppWiring.installer(
+            linkState: { _ in DeviceAppLinkState(connected: await script.connected, tools: Self.allTools,
+                                                 granted: []) },
+            info: { _ in .reply(protocolName: "device-app-v1", running: []) },
+            stopRunning: { _ in nil },
+            transfer: { await script.next($0) },
+            installedState: { _, _ in await script.probe() },
+            reconnectAttempts: 3, settleAttempts: 3, pauseNanoseconds: 0)
+    }
+
+    func testInterruptedTransferIsRetriedOnceWithTheSameDigestAfterReconnect() async {
+        let interrupted = DeviceAppInstallOutcome.failed(code: DeviceAppWiring.interruptedCode, message: "cut")
+        let req = request()
+        let again = Script(outcomes: [interrupted, .installed(digest: req.digest)])
+        let ok = await scripted(again)(req)
+        XCTAssertEqual(ok, .installed(digest: req.digest))
+        let ids = await again.ids
+        XCTAssertEqual(ids.count, 2)
+        XCTAssertNotEqual(ids[0], ids[1], "a new install id, so new staging journal keys")
+
+        // Never a second retry.
+        let twice = Script(outcomes: [interrupted, interrupted, .installed(digest: req.digest)])
+        let failed = await scripted(twice)(req)
+        XCTAssertEqual(failed, interrupted)
+        let count = await twice.ids.count
+        XCTAssertEqual(count, 2)
+
+        // No link, no retry.
+        let down = Script(outcomes: [interrupted, .installed(digest: req.digest)], dropsLink: true)
+        let stays = await scripted(down)(req)
+        XCTAssertEqual(stays, interrupted)
+        let downCount = await down.ids.count
+        XCTAssertEqual(downCount, 1)
+    }
+
+    func testOtherFailuresAreNeverRetried() async {
+        for code in ["no_space", "hash_mismatch", "link_busy", "cancelled", "too_many_resumes"] {
+            let script = Script(outcomes: [.failed(code: code, message: "x"), .installed(digest: request().digest)])
+            let outcome = await scripted(script)(request())
+            XCTAssertEqual(outcome, .failed(code: code, message: "x"))
+            let count = await script.ids.count
+            XCTAssertEqual(count, 1, code)
+        }
+    }
+
+    func testUnknownCommitOutcomeIsDecidedByAppInfoNotLeftToTheBot() async {
+        let req = request()
+        let unknown = DeviceAppInstallOutcome.outcomeUnknown(message: "lost")
+        let installed = Script(outcomes: [unknown], states: [.unreadable, .installed(digest: req.digest)])
+        let yes = await scripted(installed)(req)
+        XCTAssertEqual(yes, .installed(digest: req.digest))
+        let probes = await installed.probes
+        XCTAssertEqual(probes, 2)
+
+        for state in [DeviceAppInstalledState.absent, .installed(digest: String(repeating: "0", count: 64))] {
+            let no = await scripted(Script(outcomes: [unknown], states: [state]))(req)
+            guard case .failed(let code, _) = no else { return XCTFail("\(no)") }
+            XCTAssertEqual(code, "not_installed")
+        }
+
+        let unreadable = await scripted(Script(outcomes: [unknown], states: []))(req)
+        XCTAssertEqual(unreadable, unknown, "only a device that cannot be read stays unknown")
+    }
+
     // MARK: audit
 
     private func audit(_ request: DeviceAppInstallRequest) -> DeviceAppInstallAudit {

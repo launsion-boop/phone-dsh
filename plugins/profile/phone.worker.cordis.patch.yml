@@ -680,7 +680,11 @@
       config:
         serverName: phone
         transport: streamable-http
-        toolCallTimeoutMs: 130000
+        # Must outlive an interactive approval card (300 s) so a human answer
+        # reaches a call that is still alive (GAP-44): card lifetime + the
+        # 30 s identity-attribution margin. One server entry, so this bounds
+        # every phone tool call; the keepalive keeps the transport open.
+        toolCallTimeoutMs: 330000
         url: !!js "process.env.PDSH_PHONE_MCP_URL ?? 'http://127.0.0.1:1/mcp'"
         headers: !!js "({ Authorization: `Bearer ${process.env.PDSH_PHONE_MCP_TOKEN ?? ''}`, ...(process.env.PDSH_MCP_EGRESS_TOKEN ? { 'X-PDSH-MCP-Egress': process.env.PDSH_MCP_EGRESS_TOKEN } : {}) })"
         failOnStartupError: false

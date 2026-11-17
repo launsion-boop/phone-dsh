@@ -118,8 +118,11 @@ through §6, which is the same result.
   these tools.
 - `DeviceAppInstall` raises one approval **on every call, including on a user's own turn**: a
   model-written program is not covered by "the user asked for an app". The card is once-only (no
-  standing grant) and shows the device, the app name and title, the file list with sizes, the
-  permissions and the first 8 hex characters of the digest; the approval is bound to the full digest.
+  standing grant). Its visible text is the customer's (§12): the device's display name, the app
+  title first, a one-line purpose, the permissions in plain words, a replace notice and one line
+  with the file count and size; it shows no digest, path or Link device id. The approval is
+  bound to the full digest (and to the device key and app name in the approval `resource`); the
+  visible text never weakens that binding.
   The approval is obtained **before** any radio use and is spent by the install; it is never held
   across the transfer.
 - A decline, an expired approval or any validation failure ends with nothing sent to the radio.
@@ -142,6 +145,21 @@ through §6, which is the same result.
   success it did not observe. `DeviceAppInstall` raises its own approval and so skips the generic
   ask-authorize; a durable (routine or task) principal gets a pending outcome and installs nothing
   until the user answers.
+- **After the commit (device-app-v1.4).** The host calls `app.run` for the just-installed app on
+  the same user-origin path and under the same waiver: the user approved this install, and the card
+  says it runs on the device. A failed `app.run` is not an install failure; it is reported as
+  installed-but-not-opened (§12) and nothing is rolled back.
+- **Unknown commit outcome (device-app-v1.4).** When the commit reply is lost or the link drops after
+  `app.commit` was sent, the phone reads `app.info` (after the link is back, a few attempts) and
+  returns a definite verdict: the declared digest installed under the name → installed; the name
+  absent or another digest → not installed, the old app unchanged. Only a device that cannot be read
+  stays `outcome_unknown`, and then the customer is told to ask for the install again (same digest,
+  so repeating is safe). The commit itself is still never sent twice.
+- **Interrupted transfer (device-app-v1.4).** A call cut off before `app.commit` was sent
+  (disconnect, device reboot or watchdog) gets one automatic retry, only after the link is connected
+  again, with the same name and digest (so §6 rule 1 applies) and a new install id (new staging
+  journal keys). A second interruption, or any other failure, is not retried. A call cut off while
+  `app.commit` is in flight is never a transfer failure: it is an unknown outcome, settled as above.
 - The device Bot's authoring guide is host-authored and static (versioned in the App, injected into
   that Bot's persona); nothing the device reports is quoted into it.
 
@@ -150,6 +168,35 @@ through §6, which is the same result.
 `bad_request`, `forbidden_path`, `too_large`, `no_space`, `busy`, `bad_session`, `offset_mismatch`,
 `hash_mismatch`, `digest_mismatch`, `not_found`, `running`, `host_only` (phone-side), `declined`
 (user or on-device). A device never invents another code for these meanings.
+
+### 8.1 Customer wording (device-app-v1.4)
+
+The customer never opens Settings, reads logs or sees codes. Result fields keep the stable
+machine codes (`error.code`, `reason`); the visible text and `message` are one Chinese sentence from
+the table below, and the Bot is told (authoring guide) to relay `message` in its own words without
+codes, digests or tool names. Internal instructions to the model (for example that the install
+record was not written) live in the `hint` field only, never in the visible text. A code that is not
+in the table gets the generic sentence, never the code.
+
+| Code | Sentence |
+| --- | --- |
+| `no_space` | 设备空间不够，请先删掉一个设备应用 |
+| `busy`, `link_busy` | 设备正在传输另一个应用，稍后再试 |
+| `device_not_connected` | 设备没连上，请靠近设备并确认蓝牙已开 |
+| `device_info_failed` | 读不到设备的状态，请靠近设备并确认蓝牙已开 |
+| `device_not_found` | 没找到这台设备，请到设备页面确认它还在列表里 |
+| `device_tools_missing`, `device_protocol_mismatch` | 这台设备不支持安装应用，可能需要先升级设备 |
+| `stop_failed` | 设备上的应用停不下来，请在设备上长按确定键退出后再试 |
+| `running` | 设备上的应用还开着，没能替换。请在设备上长按确定键退出后再试 |
+| `call_failed`, `transfer_interrupted`, `too_many_resumes`, `protocol`, `not_executed`, `bad_session`, `offset_mismatch` | 传输中断，设备上原来的应用没有改变。要重试吗？ |
+| `hash_mismatch`, `digest_mismatch` | 内容和你确认的不一致，没有安装，设备上原来的应用没有改变。要重试吗？ |
+| `commit_not_installed`, `not_installed` | 没有装上，设备上原来的应用没有改变。要重试吗？ |
+| `outcome_unknown` | 没能确认设备上有没有装好；请靠近设备并确认蓝牙已开，然后让我再装一次，装不上也不会影响原来的应用 |
+| `too_large`, `forbidden_path`, `invalid_bundle`, `bad_request`, `not_found`, `host_only`, `declined`, `cancelled`, `device_not_authorized` | one plain sentence each (`DeviceAppCustomerText.table`) |
+
+A §9 static-check failure is only for the Bot to fix; its text is a plain reason with the line
+(`检查没通过：用了 f-string（main.py 第 3 行），改好后再检查一次`), and `code`, `path`, `line` stay in the
+fields.
 
 ## 9. Static check (phone) and runtime guard (device)
 
@@ -213,3 +260,21 @@ an interrupted install at boot.
 
 The oracle is a spec checker, not runtime conformance. The phone's validator and the device's guard
 must each run the same file through their real functions.
+
+## 12. Customer-visible text (device-app-v1.4)
+
+- **Approval card.** Title `在「<设备显示名>」上安装「<应用名>」？` (the device's display name from the
+  phone's own device list; `你的设备` when unknown). Body, first line `应用：<应用名>`; then
+  `Bot 写了一个小程序，装好后在设备上运行；会用到：<权限>。装之前请确认。` (permissions `audio`→喇叭,
+  `mic`→麦克风, `battery`→电量; none: `不需要用到设备的喇叭、麦克风等`); then, when the phone knows an
+  app of that name is on the device, `会替换已有的「<名>」并先停止它`; then `共 N 个文件，X KB`. The
+  replace notice is read from phone-side state only (the approval precedes any radio use, §7).
+- **Success.** `已装好「<应用名>」并已在设备上打开。长按确定键退出。` (holding OK 0.7 s sends `back`;
+  the device force-stops the app at 3 s). If `app.run` failed: `已装好，但没能自动打开，请在设备上选「<应用名>」打开。`
+- **Result fields.** Success adds `opened` (boolean), `message`, `hint` (and `run_reason` when `app.run`
+  failed); a failure carries `error.code` (unchanged: `install_failed`, `outcome_unknown`, `busy`,
+  `digest_mismatch`, `permission_denied`, …), `error.reason` (the device or installer code), `message`
+  (the §8.1 sentence), `hint` and a clipped `diagnostic` for the model.
+- **Authoring guide (v2).** Before `DeviceAppStage` the Bot says that a confirmation card will appear
+  and to tap 允许 within 2 minutes; after the install it says the app is open and how to quit; it
+  never says digest, error code or tool name to the customer.

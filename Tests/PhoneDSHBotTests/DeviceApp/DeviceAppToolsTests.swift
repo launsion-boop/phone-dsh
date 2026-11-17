@@ -11,6 +11,14 @@ private actor Recorder {
     var outcome: DeviceAppInstallOutcome?
     var auditFails = false
     var validatorRejects = false
+    var runs: [String] = []
+    var runFailure: String?
+
+    func run(_ device: String, _ name: String) -> String? {
+        runs.append("\(device)/\(name)")
+        return runFailure
+    }
+    func setRunFailure(_ value: String?) { runFailure = value }
 
     func record(_ request: DeviceAppInstallRequest) -> DeviceAppInstallOutcome {
         installs.append(request)
@@ -59,7 +67,8 @@ final class DeviceAppToolsTests: XCTestCase {
             },
             digester: refDigest,
             installer: { await recorder.record($0) },
-            audit: { try await recorder.record($0) })
+            audit: { try await recorder.record($0) },
+            runApp: { await recorder.run($0, $1) })
         await fixture.runtime.setDeviceAppTools(host)
         _ = try await fixture.runtime.issueSession(botId: "bot-a", sessionId: "gb-a", kind: .chat)
         _ = try await fixture.runtime.issueSession(botId: "bot-b", sessionId: "gb-b", kind: .chat)
@@ -185,10 +194,17 @@ final class DeviceAppToolsTests: XCTestCase {
         XCTAssertEqual(requested?.data["alwaysScope"]?.stringValue, "none")
         XCTAssertTrue(try XCTUnwrap(effect["resource"]?.stringValue).contains(d))
         XCTAssertTrue(try XCTUnwrap(effect["resource"]?.stringValue).contains("dev-1"))
+        // The visible text is the customer's: app title first, Chinese permissions, one size line,
+        // no digest, no paths, no Link device id; the binding stays in the resource.
         let detail = try XCTUnwrap(effect["detail"]?.stringValue)
-        for needle in ["dev-1", "counter", "计数器", "main.py", "app.json", "battery", String(d.prefix(8))] {
+        XCTAssertTrue(detail.hasPrefix("应用：计数器\n"), detail)
+        for needle in ["电量", "共 2 个文件，"] {
             XCTAssertTrue(detail.contains(needle), needle)
         }
+        for hidden in ["dev-1", "counter", "main.py", "app.json", "battery", String(d.prefix(8)), d] {
+            XCTAssertFalse(detail.contains(hidden), hidden)
+        }
+        XCTAssertEqual(effect["label"]?.stringValue, "在「你的设备」上安装「计数器」？")
         XCTAssertNil(effect["grantResource"] ?? nil)
     }
 
@@ -325,6 +341,12 @@ final class DeviceAppToolsTests: XCTestCase {
             XCTAssertEqual(result.isError, true, "\(outcome)")
             let audits = await rig.recorder.audits.count
             XCTAssertEqual(audits, 0, "\(outcome)")
+            // The visible text is a plain sentence: no code, no digest, no "app list" homework.
+            let text = result.content.first?["text"]?.stringValue ?? ""
+            for hidden in ["no_space", "outcome_unknown", "install_failed", "digest", "app.", "列表", d] {
+                XCTAssertFalse(text.contains(hidden), "\(hidden) in \(text)")
+            }
+            XCTAssertEqual(result.structuredContent?["message"]?.stringValue, text)
         }
     }
 
@@ -336,8 +358,119 @@ final class DeviceAppToolsTests: XCTestCase {
         XCTAssertNil(result.isError)
         XCTAssertEqual(result.structuredContent?["ok"], .bool(true))
         XCTAssertEqual(result.structuredContent?["audit_recorded"], .bool(false))
+        // Model-facing only: never in the text the customer can see.
         let text = result.content.first?["text"]?.stringValue ?? ""
-        XCTAssertTrue(text.contains("没有写入成功"))
+        XCTAssertFalse(text.contains("留痕"), text)
+        XCTAssertFalse(text.contains("没有写入成功"), text)
+        XCTAssertTrue(result.structuredContent?["hint"]?.stringValue?.contains("没有写入成功") == true)
+    }
+
+    func testFailedInstallKeepsTheMachineCodeAndSpeaksTheCustomerSentence() async throws {
+        let rig = try await makeRig(); defer { rig.fixture.cleanup() }
+        await rig.recorder.setOutcome(.failed(code: "no_space", message: "app.begin 被设备拒绝"))
+        let d = try digest(of: try await stage(rig))
+        let (result, _) = try await install(rig, d, decision: .allowOnce)
+        XCTAssertEqual(result.structuredContent?["error"]?["code"]?.stringValue, "install_failed")
+        XCTAssertEqual(result.structuredContent?["error"]?["reason"]?.stringValue, "no_space")
+        XCTAssertEqual(result.content.first?["text"]?.stringValue, "设备空间不够，请先删掉一个设备应用")
+    }
+
+    func testSuccessOpensTheAppAndReportsTheRealExitGesture() async throws {
+        let rig = try await makeRig(); defer { rig.fixture.cleanup() }
+        let d = try digest(of: try await stage(rig))
+        let (result, _) = try await install(rig, d, decision: .allowOnce)
+        XCTAssertEqual(result.structuredContent?["opened"], .bool(true))
+        XCTAssertEqual(result.content.first?["text"]?.stringValue, "已装好「计数器」并已在设备上打开。长按确定键退出。")
+        let ran = await rig.recorder.runs
+        XCTAssertEqual(ran, ["dev-1/counter"])
+        let text = result.content.first?["text"]?.stringValue ?? ""
+        XCTAssertFalse(text.contains(String(d.prefix(8))))
+    }
+
+    func testRunFailureIsNotAnInstallFailure() async throws {
+        let rig = try await makeRig(); defer { rig.fixture.cleanup() }
+        await rig.recorder.setRunFailure("run_failed")
+        let d = try digest(of: try await stage(rig))
+        let (result, _) = try await install(rig, d, decision: .allowOnce)
+        XCTAssertNil(result.isError)
+        XCTAssertEqual(result.structuredContent?["installed"], .bool(true))
+        XCTAssertEqual(result.structuredContent?["opened"], .bool(false))
+        XCTAssertEqual(result.structuredContent?["run_reason"]?.stringValue, "run_failed")
+        XCTAssertEqual(result.content.first?["text"]?.stringValue, "已装好，但没能自动打开，请在设备上选「计数器」打开。")
+        let audits = await rig.recorder.audits.count
+        XCTAssertEqual(audits, 1)
+    }
+
+    func testDeclineNeverRunsAnything() async throws {
+        let rig = try await makeRig(); defer { rig.fixture.cleanup() }
+        let d = try digest(of: try await stage(rig))
+        let (result, _) = try await install(rig, d, decision: .deny)
+        XCTAssertEqual(result.isError, true)
+        let ran = await rig.recorder.runs
+        XCTAssertEqual(ran, [])
+    }
+
+    func testCardNamesTheDeviceAndSaysItReplacesAnExistingApp() {
+        let entries = [DeviceAppFileEntry(path: "main.py", size: 1200, sha256: String(repeating: "a", count: 64)),
+                       DeviceAppFileEntry(path: "app.json", size: 540, sha256: String(repeating: "c", count: 64))]
+        let m = DeviceAppManifestSummary(name: "focus", title: "专注计时器", version: 2, perms: ["audio", "mic"])
+        let d = String(repeating: "b", count: 64)
+        let effect = DeviceAppToolEffects.installEffect(
+            deviceKey: "AA-BB", deviceName: "AI Passport", replacing: "专注计时器",
+            manifest: m, entries: entries, digest: d)
+        XCTAssertEqual(effect.label, "在「AI Passport」上安装「专注计时器」？")
+        XCTAssertEqual(effect.detail, """
+            应用：专注计时器
+            Bot 写了一个小程序，装好后在设备上运行；会用到：喇叭、麦克风。装之前请确认。
+            会替换已有的「专注计时器」并先停止它
+            共 2 个文件，1.7 KB
+            """)
+        // The binding is untouched: device key, app name and the full digest.
+        XCTAssertEqual(effect.resource, "device-app:install&device=AA-BB&app=focus&digest=\(d)")
+        let plain = DeviceAppToolEffects.installEffect(
+            deviceKey: "AA-BB", deviceName: nil, manifest: DeviceAppManifestSummary(
+                name: "x", title: "T", version: 1, perms: []), entries: entries, digest: d)
+        XCTAssertEqual(plain.label, "在「你的设备」上安装「T」？")
+        XCTAssertFalse(plain.detail.contains("替换"))
+        XCTAssertTrue(plain.detail.contains("不需要用到设备的喇叭、麦克风等"))
+    }
+
+    func testEveryDeviceErrorCodeOfTheSpecHasACustomerSentence() throws {
+        var dir = URL(fileURLWithPath: #filePath)
+        var spec: String?
+        for _ in 0..<8 {
+            dir.deleteLastPathComponent()
+            let url = dir.appendingPathComponent("spec/device/v1/device-app.md")
+            if let text = try? String(contentsOf: url, encoding: .utf8) { spec = text; break }
+        }
+        let text = try XCTUnwrap(spec)
+        let section = try XCTUnwrap(text.components(separatedBy: "## 8. Error codes").dropFirst().first?
+            .components(separatedBy: "\n## ").first)
+        let codes = section.components(separatedBy: "`").enumerated().filter { $0.offset % 2 == 1 }.map(\.element)
+            .filter { $0.range(of: "^[a-z_]+$", options: .regularExpression) != nil && $0 != "phone" }
+        XCTAssertGreaterThanOrEqual(codes.count, 13)
+        for code in codes + ["device_not_authorized", "stop_failed", "device_not_connected", "device_tools_missing",
+                             "device_not_found", "call_failed", "link_busy"] {
+            let sentence = try XCTUnwrap(DeviceAppCustomerText.table[code], code)
+            XCTAssertFalse(sentence.contains(code), code)
+            XCTAssertNil(sentence.range(of: "[A-Za-z_]{3,}", options: .regularExpression), sentence)
+        }
+        XCTAssertEqual(DeviceAppCustomerText.sentence(forCode: "no_space"), "设备空间不够，请先删掉一个设备应用")
+        XCTAssertEqual(DeviceAppCustomerText.sentence(forCode: "busy"), "设备正在传输另一个应用，稍后再试")
+        XCTAssertEqual(DeviceAppCustomerText.sentence(forCode: "device_not_connected"),
+                       "设备没连上，请靠近设备并确认蓝牙已开")
+        XCTAssertEqual(DeviceAppCustomerText.sentence(forCode: "stop_failed"),
+                       "设备上的应用停不下来，请在设备上长按确定键退出后再试")
+        XCTAssertEqual(DeviceAppCustomerText.sentence(forCode: "call_failed"),
+                       "传输中断，设备上原来的应用没有改变。要重试吗？")
+        XCTAssertEqual(DeviceAppCustomerText.sentence(forCode: "never_heard_of_it"), DeviceAppCustomerText.generic)
+    }
+
+    func testValidationFailureTextIsAPlainReasonWithTheLine() {
+        XCTAssertEqual(DeviceAppCustomerText.validation(code: "fstring", path: "main.py", line: 3),
+                       "检查没通过：用了 f-string（main.py 第 3 行），改好后再检查一次")
+        XCTAssertEqual(DeviceAppCustomerText.validation(code: "size", path: "", line: 0),
+                       "检查没通过：文件太大、太多，或缺少 main.py / app.json，改好后再检查一次")
     }
 
     // MARK: effect declaration
@@ -391,8 +524,9 @@ final class DeviceAppToolsTests: XCTestCase {
     func testGuideFitsBudgetPassesCredentialLintAndHasNoDeviceText() async throws {
         let text = DeviceAppAuthoringGuide.text
         XCTAssertLessThanOrEqual(text.unicodeScalars.count, DeviceAppAuthoringGuide.maxScalars)
-        XCTAssertEqual(DeviceAppAuthoringGuide.version, 1)
-        for needle in ["240x320", "GB2312", "back", "audio", "mic", "battery", "f-string", "每次安装", "不可信"] {
+        XCTAssertEqual(DeviceAppAuthoringGuide.version, 2)
+        for needle in ["240x320", "GB2312", "back", "audio", "mic", "battery", "f-string", "每次安装", "不可信",
+                       "2 分钟", "允许", "长按确定键", "不要对用户提"] {
             XCTAssertTrue(text.contains(needle) || text.contains(needle.replacingOccurrences(of: "f-string", with: "f-string")), needle)
         }
         let producer = BotVolatileContextProducer(provider: GuideProvider(text))

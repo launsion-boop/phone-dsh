@@ -24,6 +24,14 @@ public enum DeviceAppInfoResult: Sendable, Equatable {
     case unavailable(String)
 }
 
+/// What `app.info` says about one app name after an install whose commit reply was lost.
+public enum DeviceAppInstalledState: Sendable, Equatable {
+    case installed(digest: String)
+    case absent
+    /// The device could not be read (not connected, no reply).
+    case unreadable
+}
+
 /// Wiring of the P26 device-app host tools to the validator, the digest, the
 /// installer and the durable audit (device-app.md §7, `device-app-v1.1`).
 /// PhoneDSHBot still knows no BLE or Link code: those are closures from the App.
@@ -54,10 +62,10 @@ public enum DeviceAppWiring {
 
     public static func preflight(_ state: DeviceAppLinkState?) -> (code: String, message: String)? {
         guard let state else {
-            return ("device_not_found", "这个 Bot 绑定的设备不是已知的 Link 设备，不能安装设备应用")
+            return ("device_not_found", DeviceAppCustomerText.sentence(forCode: "device_not_found"))
         }
         guard state.connected else {
-            return ("device_not_connected", "设备没有连接，请先连上设备再安装")
+            return ("device_not_connected", DeviceAppCustomerText.sentence(forCode: "device_not_connected"))
         }
         let missing = requiredTools.filter { !state.tools.contains($0) }
         guard missing.isEmpty else {
@@ -89,7 +97,10 @@ public enum DeviceAppWiring {
         linkState: @escaping @Sendable (_ deviceKey: String) async -> DeviceAppLinkState?,
         info: @escaping @Sendable (_ deviceKey: String) async -> DeviceAppInfoResult,
         stopRunning: @escaping @Sendable (_ deviceKey: String) async -> String?,
-        transfer: @escaping @Sendable (DeviceAppInstallRequest) async -> DeviceAppInstallOutcome
+        transfer: @escaping @Sendable (DeviceAppInstallRequest) async -> DeviceAppInstallOutcome,
+        installedState: (@Sendable (_ deviceKey: String, _ appName: String) async -> DeviceAppInstalledState)? = nil,
+        reconnectAttempts: Int = 10, settleAttempts: Int = 4,
+        pauseNanoseconds: UInt64 = 1_500_000_000
     ) -> DeviceAppToolHost.Installer {
         { request in
             if let problem = preflight(await linkState(request.deviceKey)) {
@@ -111,9 +122,52 @@ public enum DeviceAppWiring {
             guard local == request.digest else {
                 return .failed(code: "digest_mismatch", message: "摘要与已批准的不一致，未发送")
             }
-            return await transfer(request)
+            var outcome = await transfer(request)
+            // A transfer cut before `app.commit` was sent (disconnect, device reboot): one automatic
+            // retry after the link is back. Same name and digest, so the device-side resume rules
+            // (§6 rule 1) apply, with a new install id and so new staging journal keys. The commit is
+            // never repeated: the transfer maps a commit that may have been sent to `outcomeUnknown`.
+            if case .failed(let code, _) = outcome, code == interruptedCode {
+                var back = false
+                for attempt in 0..<max(reconnectAttempts, 0) {
+                    if let state = await linkState(request.deviceKey), state.connected { back = true; break }
+                    if attempt + 1 < reconnectAttempts, pauseNanoseconds > 0 {
+                        try? await Task.sleep(nanoseconds: pauseNanoseconds)
+                    }
+                }
+                if back {
+                    let again = DeviceAppInstallRequest(
+                        installID: UUID().uuidString.lowercased(), deviceKey: request.deviceKey,
+                        manifest: request.manifest, files: request.files, entries: request.entries,
+                        digest: request.digest)
+                    outcome = await transfer(again)
+                }
+            }
+            // The commit may have happened: the installer itself reads `app.info` and decides.
+            if case .outcomeUnknown(let message) = outcome, let installedState {
+                var settled: DeviceAppInstallOutcome?
+                for attempt in 0..<max(settleAttempts, 1) {
+                    switch await installedState(request.deviceKey, request.manifest.name) {
+                    case .installed(let digest) where digest == request.digest:
+                        settled = .installed(digest: digest)
+                    case .installed, .absent:
+                        settled = .failed(code: "not_installed",
+                                          message: "app.info 里没有这个摘要的应用：设备上原来的应用没有改变")
+                    case .unreadable:
+                        if attempt + 1 < max(settleAttempts, 1), pauseNanoseconds > 0 {
+                            try? await Task.sleep(nanoseconds: pauseNanoseconds)
+                        }
+                    }
+                    if settled != nil { break }
+                }
+                outcome = settled ?? .outcomeUnknown(message: message)
+            }
+            return outcome
         }
     }
+
+    /// Code the transfer reports when the link broke before `app.commit` was sent.
+    public static let interruptedCode = "transfer_interrupted"
 
     // MARK: - Audit
 
@@ -146,9 +200,13 @@ public enum DeviceAppWiring {
 
     public static func toolHost(deviceKey: @escaping DeviceAppToolHost.DeviceKeyResolver,
                                 installer: @escaping DeviceAppToolHost.Installer,
-                                audit: @escaping DeviceAppToolHost.Auditor) -> DeviceAppToolHost {
+                                audit: @escaping DeviceAppToolHost.Auditor,
+                                deviceName: @escaping DeviceAppToolHost.DeviceNamer = { _ in nil },
+                                existingApp: @escaping DeviceAppToolHost.ExistingApp = { _, _ in nil },
+                                runApp: DeviceAppToolHost.AppRunner? = nil) -> DeviceAppToolHost {
         DeviceAppToolHost(deviceKey: deviceKey, validate: validator, digester: digester,
-                          installer: installer, audit: audit)
+                          installer: installer, audit: audit, deviceName: deviceName,
+                          existingApp: existingApp, runApp: runApp)
     }
 
     private final class Resolver: @unchecked Sendable {
