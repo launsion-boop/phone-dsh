@@ -150,10 +150,6 @@ const BOT_TOOL_DENIAL =
   'Bot sessions run the phone-bot tool surface; this tool is not part of it.'
 
 function isBotTool(name: string): boolean {
-  // `skill` is an official native tool restored on the Bot preset; it is not
-  // added to PHONE_NATIVE_TOOLS because the persona must not teach it as a
-  // phone-native tool. The official skill catalog/tool own its description.
-  if (name === 'skill') return true
   return name.startsWith(BOT_MCP_TOOL_PREFIX)
     || (PHONE_NATIVE_TOOLS as readonly string[]).includes(name)
 }

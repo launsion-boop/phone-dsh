@@ -326,18 +326,9 @@ public actor BotMCPRuntime {
     private var userContentRecordProvider: (@Sendable (String) async -> String?)?
     private var materialTrace: (any BotMaterialTraceRecording)?
     private var permissionRevisionEvaluator: BotPermissionRevisionEvaluator?
-    /// G-2 delivery selection. The host owns the durable draft/revision and
-    /// the pre-send source recheck; the runtime only offers candidates on
-    /// `RequestApproval`, exposes the approved selection to the model and asks
-    /// the same host to confirm before a delivery tool runs.
-    private var deliverySelection: BotDeliverySelectionHost?
     /// Last material block the host handed to each session. Used to bind a
     /// delivery's adopted materials back to the injected block; in-memory only.
     private var activeMaterialBlocks: [String: BotDecisionMaterialBlock] = [:]
-    /// G-3: the composition tells the cloud client when this Bot's routines
-    /// changed so it can re-sync schedules. The runtime is shared by every
-    /// Bot, so the observer receives the calling bot id.
-    private var routineChangeObserver: (@Sendable (String) async -> Void)?
     /// G-2 feedback handler. Registered as a catalog-visible tool, so it is
     /// dispatched from the catalog switch instead of the team-tool seam.
     private var feedbackTools: BotFeedbackTools?
@@ -365,28 +356,6 @@ public actor BotMCPRuntime {
         decisionContext = service
         materialTrace = trace
         permissionRevisionEvaluator = permissionRevision
-    }
-
-    /// Installs the G-2 delivery selection host and binds its approval-digest
-    /// seam to this runtime's coordinator. Called by the App composition after
-    /// the row service exists.
-    public func installDeliverySelection(_ host: BotDeliverySelectionHost) async {
-        deliverySelection = host
-        let approvals = self.approvals
-        await host.installApprovalBridge(BotDeliveryApprovalBridge(
-            pendingDigest: { approvalID in
-                await approvals.pendingDigest(approvalId: approvalID)
-            },
-            rebindDigest: { approvalID, expectedDigest, digest, delivery in
-                await approvals.rebindPendingDigest(
-                    approvalId: approvalID, expectedDigest: expectedDigest,
-                    digest: digest, delivery: delivery)
-            }))
-    }
-
-    /// Installs the G-3 routine-change observer (cloud schedule re-sync).
-    public func setRoutineChangeObserver(_ observer: (@Sendable (String) async -> Void)?) {
-        routineChangeObserver = observer
     }
 
     /// Installs the G-2 feedback handler. It is a catalog tool (not a team
@@ -1620,33 +1589,6 @@ public actor BotMCPRuntime {
                                 call: BotResolvedToolCall) async -> BotMCPCallResult? {
         guard Self.preDeliveryToolNames.contains(name) else { return nil }
         let sessionID = call.sessionId
-        if let deliverySelection {
-            do {
-                // The DSH turn id is a bare number on the wire; the material
-                // block carries the frozen "<session>#<turn>" spelling. Fall
-                // back to the block only when the live turn id is absent (the
-                // library/test seam), so a real new turn still invalidates the
-                // old selection instead of matching its predecessor.
-                let block = activeMaterialBlocks[sessionID]
-                let liveTurn = currentTurnID(sessionId: sessionID)
-                    .map { "\(sessionID)#\($0)" }
-                let confirmation = try await deliverySelection.confirm(
-                    name: name, arguments: arguments, botID: call.principal.botId,
-                    sessionID: sessionID, turnID: liveTurn ?? block?.turnID,
-                    goalDigest: block?.goalDigest,
-                    nowMS: now())
-                if case .rejected(let code, let message) = confirmation {
-                    return .failure(code, message)
-                }
-            } catch {
-                // Storage/parse/recheck failure is a refusal, not "no draft":
-                // once delivery selection is installed, a delivery tool must
-                // not run when the selection cannot be verified.
-                return .failure(
-                    "delivery_selection_unavailable",
-                    "交付选择无法核对，动作没有执行。")
-            }
-        }
         guard let service = decisionContext else { return nil }
         let active = activeMaterialBlocks[sessionID]
         // The DSH turn id is a bare number; the frozen block/turn_id is
@@ -1824,19 +1766,6 @@ public actor BotMCPRuntime {
             // resources the user selected. The refs come from the production
             // workspaceFile derivation; no ref is invented when the file was
             // written outside that path.
-            if let deliverySelection, name == "show_attachment" || name == "show_document" {
-                let block = activeMaterialBlocks[call.sessionId]
-                let liveTurn = currentTurnID(sessionId: call.sessionId)
-                    .map { "\(call.sessionId)#\($0)" }
-                let sources = await deliverySelection.approvedEvidence(
-                    name: name, arguments: arguments, botID: call.principal.botId,
-                    sessionID: call.sessionId, turnID: liveTurn ?? block?.turnID,
-                    goalDigest: block?.goalDigest)
-                if !sources.isEmpty {
-                    fields["evidence"] = .array(sources.map { .string($0.record) })
-                    fields["delivery_sources"] = .array(sources.map(\.json))
-                }
-            }
             _ = try await eventWriter.append(type: "card.presented", principal: call.principal, data: .object(fields))
             if final {
                 // Same seam as ask_user/show_next_steps: a successful wrap-up
@@ -2738,7 +2667,6 @@ public actor BotMCPRuntime {
         if !["get", "list"].contains(action) {
             let type = action == "create" ? "routine.defined" : action == "delete" ? "routine.deleted" : "routine.updated"
             _ = try await eventWriter.append(type: type, principal: call.principal, data: result)
-            await routineChangeObserver?(call.principal.botId)
         }
         return .success(result)
     }
@@ -2788,18 +2716,6 @@ public actor BotMCPRuntime {
                     materialRefs: block.materials.map(\.ref), atMS: now()))
             }
         }
-        if let deliverySelection, let block = activeMaterialBlocks[call.sessionId] {
-            let offer = await deliverySelection.offer(
-                approvalID: approvalID, botID: call.principal.botId,
-                sessionID: call.sessionId, action: action, detail: detail,
-                command: command, materials: block.materials,
-                turnID: block.turnID, goalDigest: block.goalDigest,
-                nowMS: now())
-            if let offer {
-                extraData["delivery"] = offer.deliveryJSON
-                digestOverride = offer.draft.digest
-            }
-        }
         let outcome = await approvals.request(
             call: call, effects: effects, action: action, detail: detail,
             command: command, alwaysScope: alwaysScope,
@@ -2823,23 +2739,6 @@ public actor BotMCPRuntime {
         }
         if let scope = outcome.scope {
             result["scope"] = .string(scope)
-        }
-        if outcome.allowed, let deliverySelection {
-            do {
-                guard let approved = try await deliverySelection.approvedSelectionJSON(
-                    approvalID: approvalID,
-                    botID: call.principal.botId) else {
-                    return .failure(
-                        "delivery_selection_unavailable",
-                        "审批已允许，但交付选择读取失败，动作没有继续。")
-                }
-                result["delivery"] = approved
-            } catch {
-                return .failure(
-                    "delivery_selection_unavailable",
-                    "审批已允许，但交付选择读取失败，动作没有继续。")
-            }
-
         }
         // The model sees this text as the tool result and tends to repeat it
         // verbatim. Lead with the human outcome and keep the structured fields
