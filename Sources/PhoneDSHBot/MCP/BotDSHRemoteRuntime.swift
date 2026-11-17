@@ -198,6 +198,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private let providerName: String
     private let botDataDirectory: String
     private let skillProducer: BotSkillProvenanceProducer?
+    private let skillQueue: BotSkillEventQueue?
     private let onSessionRegistered: (@Sendable (String) -> Void)?
     private let now: @Sendable () -> Int64
     private let ledger: BotLLMLedger
