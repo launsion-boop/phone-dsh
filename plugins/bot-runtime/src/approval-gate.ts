@@ -53,6 +53,11 @@ const AUTO_TOOLS = new Set([
   // effect (alwaysScope=session) while the host classified it as a known read
   // (alwaysScope=until) and rejected the call with `stale:always_scope`.
   'ReadMemory', 'RecallMemory',
+  // Internal read-only status lookup used by the Bot-only skill gate. It is
+  // not model-visible; R calls it through ctx.tools.execute. The host's
+  // effectsForApproval maps skillStatusName to [] as well, so neither side
+  // may emit an unclassified `session` effect and reject the roundtrip.
+  'BotSkillUseStatus',
   'Task', 'AwaitTask', 'StopSubagent', 'UpdateRoutine', 'ListRoutines', 'SendToUser',
   // Team tools are auto-policy but audited by the App: SendToAgent is an
   // external send and CreateTeammate creates a local Bot. Neither asks the

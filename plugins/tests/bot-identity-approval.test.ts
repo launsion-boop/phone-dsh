@@ -713,6 +713,35 @@ test('RecordFeedback is a known structural write, never an unclassified effect',
   assert.equal(effects[0]!.mutability, 'write')
 })
 
+
+test('BotSkillUseStatus is an internal read-only auto tool on both effect sides', async () => {
+  const effects = phoneEffectsForApproval('mcp__phone__BotSkillUseStatus', {
+    schema: 'bot-skill-use-status/v1', name: 'weekly-report',
+  })
+  assert.deepEqual(effects, [])
+  assert.equal(needsStructuralApproval('mcp__phone__BotSkillUseStatus'), true)
+
+  const ctx = await mount(false)
+  let approvals = 0
+  try {
+    botOwnedSessions(ctx).add('gb-main')
+    registerProbe(ctx, 'mcp__phone__BotVolatileContext')
+    registerProbe(ctx, 'mcp__phone__BotSkillUseStatus')
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async () => { approvals += 1; return { ok: true, allowed: true } },
+    })
+    const result = await executeTool(ctx, {
+      callId: ToolCallId('skill-status-auto'),
+      name: 'mcp__phone__BotSkillUseStatus',
+      arguments: { schema: 'bot-skill-use-status/v1', name: 'weekly-report' },
+      signal: new AbortController().signal, agent: agent('gb-main'),
+    })
+    assert.equal(result.isError, false)
+    assert.equal(approvals, 0)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
 test('approval memory effect matches the Swift execution resource and sensitive reads never reach approval', async () => {
   const effects = phoneEffectsForApproval('mcp__phone__UpdateMemory', {
     action: 'forget', scope: 'user', fact: '  private   fact ',
