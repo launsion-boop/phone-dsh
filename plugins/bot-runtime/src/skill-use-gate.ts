@@ -50,6 +50,7 @@ export function skillUseDenialCode(status: string | null): string {
 }
 
 export const SKILL_STATUS_UNAVAILABLE = 'skill-provenance-status-unavailable'
+export const SKILL_CONTENT_UNKNOWN = 'skill-provenance-content-unknown'
 
 const STATUS_FAILURE_DETAIL = /^[a-z0-9:_-]{1,48}$/u
 
@@ -62,23 +63,24 @@ function statusUnavailable(detail?: string): { readonly kind: 'deny'; readonly r
   }
 }
 
-/** Bounded failure classification for the internal status tool result. */
-export function skillStatusFailureCode(result: unknown): string {
-  if (!isRecord(result)) return 'missing-result'
-  if (result.isError === true) {
-    const value = isRecord(result.value) ? result.value : undefined
-    const raw = value?.error ?? value?.code
-    const code = typeof raw === 'string' ? raw.replace(/\s+/gu, '-').slice(0, 40) : ''
-    return code === '' ? 'isError' : `isError:${code}`
+function contentUnknown(): { readonly kind: 'deny'; readonly reason: string } {
+  return {
+    kind: 'deny',
+    reason: `[skill provenance] The skill has no verifiable content source (${SKILL_CONTENT_UNKNOWN}); its instructions were NOT loaded.`,
   }
-  if (!isRecord(result.value)) return 'missing-value'
-  const structured = result.value.structuredContent
-  if (!isRecord(structured)) return 'missing-structured-content'
-  if (structured.schema !== BOT_SKILL_USE_STATUS_SCHEMA) return 'schema'
-  if (structured.ok !== true) return 'not-ok'
-  const raw = structured.status
-  if (raw === null || raw === undefined || typeof raw === 'string') return 'ok'
-  return 'invalid-status'
+}
+
+export function skillUseGateCode(
+  status: string | null,
+  contentBasis: 'known' | 'unknown',
+): string | null {
+  if (status === 'current') {
+    return contentBasis === 'known' ? null : SKILL_CONTENT_UNKNOWN
+  }
+  if (status === 'unknown') {
+    return contentBasis === 'unknown' ? SKILL_CONTENT_UNKNOWN : skillUseDenialCode(status)
+  }
+  return skillUseDenialCode(status)
 }
 
 function denial(status: string | null): { readonly kind: 'deny'; readonly reason: string } {
@@ -95,36 +97,30 @@ function denial(status: string | null): { readonly kind: 'deny'; readonly reason
  * reported as a tracked `unknown`; `null` means L has no tracked identity.
  */
 export type SkillStatusLookup =
-  | { readonly status: string | null }
+  | { readonly status: string | null; readonly contentBasis: 'known' | 'unknown' }
   | { readonly failure: string }
 
-/** Pure lookup with a bounded failure code; it never changes the policy. */
 export function skillStatusLookup(result: unknown): SkillStatusLookup {
-  if (result === undefined) return { failure: 'missing' }
-  if (!isRecord(result)) return { failure: 'missing' }
-  if (result.isError === true) {
-    const value = isRecord(result.value) ? result.value : undefined
-    const structured = value !== undefined && isRecord(value.structuredContent)
-      ? value.structuredContent : undefined
-    const error = structured !== undefined && isRecord(structured.error)
-      ? structured.error : undefined
-    const code = error !== undefined && typeof error.code === 'string'
-      ? error.code.replace(/[^a-z0-9:_-]/giu, '').toLowerCase().slice(0, 24)
-      : 'unknown'
-    return { failure: `isError:${code || 'unknown'}` }
+  if (!isRecord(result) || result.isError === true || !isRecord(result.value)) {
+    return { failure: 'missing' }
   }
-  if (!isRecord(result.value)) return { failure: 'schema' }
   const value = result.value.structuredContent
   if (!isRecord(value) || value.schema !== BOT_SKILL_USE_STATUS_SCHEMA || value.ok !== true) {
     return { failure: 'schema' }
   }
   const raw = value.status
-  if (raw === null || raw === undefined) return { status: null }
-  if (typeof raw === 'string'
+  let status: string | null
+  if (raw === null || raw === undefined) {
+    status = null
+  } else if (typeof raw === 'string'
     && ['current', 'changed', 'unavailable', 'revoked', 'erased', 'unknown'].includes(raw)) {
-    return { status: raw }
+    status = raw
+  } else {
+    return { failure: 'status' }
   }
-  return { failure: 'status' }
+  // G-SCB-1: missing/invalid content_basis is an unknown basis, never known.
+  const contentBasis = value.content_basis === 'known' ? 'known' : 'unknown'
+  return { status, contentBasis }
 }
 
 export function skillStatusFromToolResult(result: unknown): string | null | undefined {
@@ -324,8 +320,12 @@ export default function dshbotSkillUseGate(
         ...exec.agent === undefined ? {} : { agent: exec.agent as never },
       })
       const lookup = skillStatusLookup(batch.results[0]?.result)
-      if ('failure' in lookup) return statusUnavailable(lookup.failure)
+      if ('failure' in lookup) return statusUnavailable()
       status = lookup.status
+      const code = skillUseGateCode(status, lookup.contentBasis)
+      if (code === null) return next()
+      if (code === SKILL_CONTENT_UNKNOWN) return contentUnknown()
+      return denial(status)
     } catch {
       return statusUnavailable('exception')
     }

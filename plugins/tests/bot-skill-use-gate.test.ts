@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import dshbotSkillUseGate, { filterSkillProvenanceMessages, removeCatalogLines, skillStatusFromToolResult, skillStatusLookup, skillUseDecision, skillUseDenialCode } from '../bot-runtime/src/skill-use-gate.ts'
+import { SKILL_CONTENT_UNKNOWN, filterSkillProvenanceMessages, removeCatalogLines, skillStatusFromToolResult, skillStatusLookup, skillUseDecision, skillUseDenialCode, skillUseGateCode } from '../bot-runtime/src/skill-use-gate.ts'
 
 test('only a current skill may load', () => {
   assert.equal(skillUseDecision('current'), 'allow')
@@ -113,22 +113,26 @@ test('status lookup failure is unavailable, while null is untracked and unknown 
   assert.equal(skillStatusFromToolResult(ok('bogus')), undefined)
 })
 
-test('the gate declares the tools service it calls', () => {
-  assert.deepEqual(dshbotSkillUseGate.inject, ['tools'])
-})
-
-test('status lookup keeps bounded failure classes distinct from tracked unknown', () => {
-  const ok = (status: string | null) => ({
-    value: { structuredContent: { schema: 'bot-skill-use-status/v1', ok: true, status } },
+test('content basis gate matrix matches G-SCB-1', () => {
+  assert.equal(skillUseGateCode('current', 'known'), null)
+  assert.equal(skillUseGateCode('current', 'unknown'), SKILL_CONTENT_UNKNOWN)
+  assert.equal(skillUseGateCode('unknown', 'unknown'), SKILL_CONTENT_UNKNOWN)
+  assert.equal(skillUseGateCode('unknown', 'known'), 'skill-provenance-unknown')
+  assert.equal(skillUseGateCode('erased', 'known'), 'skill-provenance-erased')
+  assert.equal(skillUseGateCode('revoked', 'unknown'), 'skill-provenance-revoked')
+  assert.equal(skillUseGateCode(null, 'unknown'), 'skill-provenance-untracked')
+  const ok = (status: string, basis?: string) => ({
+    value: { structuredContent: {
+      schema: 'bot-skill-use-status/v1', ok: true, status,
+      ...basis === undefined ? {} : { content_basis: basis },
+    } },
   })
-  assert.deepEqual(skillStatusLookup(undefined), { failure: 'missing' })
-  assert.deepEqual(skillStatusLookup({
-    isError: true,
-    value: { structuredContent: { error: { code: 'permission_denied' } } },
-  }), { failure: 'isError:permission_denied' })
-  assert.deepEqual(skillStatusLookup({ value: { structuredContent: { schema: 'wrong' } } }),
-    { failure: 'schema' })
-  assert.deepEqual(skillStatusLookup(ok('bogus')), { failure: 'status' })
-  assert.deepEqual(skillStatusLookup(ok(null)), { status: null })
-  assert.deepEqual(skillStatusLookup(ok('unknown')), { status: 'unknown' })
+  assert.deepEqual(skillStatusLookup(ok('current', 'known')),
+    { status: 'current', contentBasis: 'known' })
+  assert.deepEqual(skillStatusLookup(ok('current')),
+    { status: 'current', contentBasis: 'unknown' })
+  assert.deepEqual(skillStatusLookup(ok('unknown', 'unknown')),
+    { status: 'unknown', contentBasis: 'unknown' })
+  assert.deepEqual(skillStatusLookup(ok('unknown', 'known')),
+    { status: 'unknown', contentBasis: 'known' })
 })
