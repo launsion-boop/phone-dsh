@@ -16,6 +16,7 @@ struct TonoAccountPage: View {
     @State private var errorText: String?
 
     private let session = TonoAccountSession.shared
+    @State private var cloudTasks = CloudTaskCenter.shared
 
     var body: some View {
         Form {
@@ -46,11 +47,29 @@ struct TonoAccountPage: View {
                         .foregroundStyle(errorText == nil ? Color.secondary : Color.red)
                 }
             }
+            cloudTaskSection
         }
         .navigationTitle("Tono 账号")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             for await value in await session.states() { state = value }
+        }
+    }
+
+    /// The phone task queue switch (spec/v1/cloud-tasks.md §7), off until the user turns it on.
+    private var cloudTaskSection: some View {
+        Section {
+            Toggle("接收其他设备的任务", isOn: Binding(
+                get: { cloudTasks.enabled },
+                set: { value in Task { await cloudTasks.setEnabled(value) } }))
+                .disabled(cloudTasks.busy)
+                .accessibilityIdentifier("tonoAccount.cloudTasks.toggle")
+            LabeledContent("状态", value: cloudTasks.statusText)
+                .accessibilityIdentifier("tonoAccount.cloudTasks.status")
+        } header: {
+            Text("云端任务")
+        } footer: {
+            Text("开启后，你在其他已登录设备上留给这台手机的任务，会加密保存在云端，直到这台手机取走。任务在这台手机上运行，需要权限时仍会照常询问你。")
         }
     }
 
@@ -92,7 +111,11 @@ struct TonoAccountPage: View {
         busy = true; errorText = nil
         Task {
             defer { busy = false }
+            // The cloud forgets this phone while the token still works; then the session
+            // is cleared and that account's admitted tasks are cancelled.
+            await cloudTasks.accountWillSignOut()
             await session.signOut()
+            await cloudTasks.accountDidSignOut()
         }
     }
 }

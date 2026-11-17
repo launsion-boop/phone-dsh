@@ -17,6 +17,13 @@
 	  credential provider. Both spellings stay in the app's own group:
 	  `$(AppIdentifierPrefix)` is the team identifier Xcode injects at build.
 	-->
+	<!--
+	  Background task pushes (spec/v1/cloud-tasks.md §8). The push carries no
+	  task content; it only makes the phone fetch its queue. A distribution
+	  profile replaces this value with `production` when the app is signed.
+	-->
+	<key>aps-environment</key>
+	<string>development</string>
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)dev.phone-dsh.probe</string>

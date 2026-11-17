@@ -27,6 +27,7 @@ import com.phonedsh.account.TonoDeviceInfo
 import com.phonedsh.platform.SecureLookup
 import com.phonedsh.platform.SecureStore
 import com.phonedsh.platform.android.AndroidSecureStore
+import com.phonedsh.probe.cloudtasks.CloudTaskCenter
 import com.phonedsh.ui.nav.PdshHostAction
 import com.phonedsh.ui.page.TonoAccountFacts
 import java.io.IOException
@@ -63,9 +64,14 @@ internal class SecureStoreTonoAccountStore(private val store: SecureStore) : Ton
 }
 
 internal class TonoAccountHost private constructor(context: Context) {
+    private val appContext: Context = context.applicationContext
+
+    /** The app's Keystore-backed store; the cloud task keys are items of the same store. */
+    val secureStore: SecureStore = AndroidSecureStore(context)
+
     val session: TonoAccountSession = TonoAccountSession(
         client = TonoAccountClient(HttpUrlConnectionTonoAccountTransport()),
-        store = SecureStoreTonoAccountStore(AndroidSecureStore(context)),
+        store = SecureStoreTonoAccountStore(secureStore),
         device = TonoDeviceInfo(
             platform = "android",
             deviceName = "Android",
@@ -98,7 +104,20 @@ internal class TonoAccountHost private constructor(context: Context) {
                 // The number and the code are only needed for this step.
                 challenge = null
             }
-            PdshHostAction.TonoAccountSignOut -> perform { session.signOut() }
+            PdshHostAction.TonoAccountSignOut -> perform {
+                // cloud-tasks.md §2: the cloud forgets this phone while the token still
+                // works; only then is the session cleared, and the account's admitted
+                // records become cancelled (external-admission.md §3).
+                val cloudTasks = CloudTaskCenter.get(appContext)
+                cloudTasks.accountWillSignOut()
+                try {
+                    session.signOut()
+                } finally {
+                    cloudTasks.accountDidSignOut()
+                }
+            }
+            // The 云端任务 switch: its own busy flag and status line, on its own lane.
+            is PdshHostAction.TonoAccountSetCloudTasks -> CloudTaskCenter.get(appContext).setEnabled(action.enabled)
             else -> return
         }
     }

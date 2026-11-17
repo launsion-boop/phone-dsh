@@ -791,6 +791,7 @@ public fun PdshNavHost(
                 onRequestCode = { onHostAction(PdshHostAction.TonoAccountRequestCode(it)) },
                 onSignIn = { onHostAction(PdshHostAction.TonoAccountSignIn(it)) },
                 onSignOut = { onHostAction(PdshHostAction.TonoAccountSignOut) },
+                onSetCloudTasks = { onHostAction(PdshHostAction.TonoAccountSetCloudTasks(it)) },
             )
             is PdshRoute.McpEditor -> McpEditorRoute(route, facts, onBack, onHostAction)
             PdshRoute.Runtime -> RuntimeRoute(facts, onBack, onHostAction, backLevel)

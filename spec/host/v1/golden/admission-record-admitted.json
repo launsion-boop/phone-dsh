@@ -1,0 +1,26 @@
+{
+  "name": "admission-record-admitted",
+  "schema": "schema/admission-record.schema.json",
+  "instance": {
+    "v": 1,
+    "admissionId": "f751a05aed69141c1ab62d77459d2c876bd8d5d91ef277c4669391a5d8b98196",
+    "principal": "local",
+    "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+    },
+    "contentSha256": "854dcc5a6850252bff7ed737ef723a3f62beeb4b6ce57bc60f092de88f09caf5",
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794786400000,
+    "stage": "admitted",
+    "attempts": 0,
+    "text": "现在几点了？"
+  },
+  "notes": "spec/host/v1/external-admission.md:§2 — the record is written before any receipt is given; text is present while pending."
+}

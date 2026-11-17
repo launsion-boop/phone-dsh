@@ -608,12 +608,25 @@ final class BotChatModel: ObservableObject {
              checklist: BotChecklistSend(rowID: row.id, done: done, total: total))
     }
 
-    private func send(text: String, files: [URL], checklist: BotChecklistSend?) {
+    /// External admission (spec/host/v1/external-admission.md §4): hands an admitted request
+    /// to this Bot's ordinary `chat` user action with the journal's `downstreamId` as the
+    /// nonce, and returns that action's settled state. A repeat with the same nonce is
+    /// de-duplicated by the Bot (`duplicate` settles as accepted), never sent as a new message.
+    func sendAdmitted(text: String, nonce: String) async -> BotUIActionState? {
+        guard let task = send(text: text, files: [], checklist: nil, nonce: nonce) else {
+            return nil
+        }
+        await task.value
+        return actionStates["chat:local-\(nonce)"]
+    }
+
+    @discardableResult
+    private func send(text: String, files: [URL], checklist: BotChecklistSend?,
+                      nonce: String = UUID().uuidString) -> Task<Void, Never>? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || !files.isEmpty else { return }
+        guard !trimmed.isEmpty || !files.isEmpty else { return nil }
         noteInteraction()
         runtimeNotice = nil
-        let nonce = UUID().uuidString
         let localID = "local-\(nonce)"
         let messageID = "att-\(Int(Date().timeIntervalSince1970 * 1_000))-\(nonce.prefix(8).lowercased())"
         let drafted = files.compactMap { BotUIAttachment.local(url: $0) }
@@ -627,7 +640,11 @@ final class BotChatModel: ObservableObject {
                                      body: BotUIBody(type: "text", values: values),
                                      eventID: "local:\(nonce)")
         local.provenance.trust = "owner_direct"
-        rows.append(local)
+        // A repeated hand-over of the same nonce keeps the one echo (or the durable row
+        // that already replaced it) instead of drawing the message twice.
+        if !rows.contains(where: { $0.id == localID || $0.chatActionNonce == nonce }) {
+            rows.append(local)
+        }
 
         // A send is also the user's answer to every approval still awaiting a
         // decision: mark them pending synchronously so the header and
@@ -647,7 +664,7 @@ final class BotChatModel: ObservableObject {
         if files.isEmpty, driver == nil, fixtureActions, runningTurnID == nil {
             beginTurn(turnID: "fixture-turn")
         }
-        Task {
+        return Task {
             // One Task on the MainActor awaits each deny to completion before
             // the chat action starts, so the driver observes deny → chat.
             for row in autoDeclines { await autoDeclineApproval(row) }
