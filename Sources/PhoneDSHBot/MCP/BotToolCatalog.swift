@@ -262,7 +262,7 @@ public enum BotToolCatalog {
 
     public static let volatileContextDefinition = BotMCPToolDefinition(
         name: volatileContextName,
-        description: "Return only the caller session's current Bot variant, persona, memory and automation snapshot, plus a small optional index of recent successful bash/read tool-result record:// refs. The index carries refs and short labels only; use phone record read for any body.",
+        description: "Return only the caller session's current Bot variant, persona, memory and automation snapshot.",
         inputSchema: .object([
             "type": .string("object"),
             "required": .array([.string("sessionId")]),

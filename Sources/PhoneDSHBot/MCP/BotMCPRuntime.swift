@@ -449,7 +449,6 @@ public actor BotMCPRuntime {
         taskExecutor: (any BotTaskExecuting)? = nil,
         routineStore: (any RoutineStore)? = nil,
         recordEvidence: (any BotRecordEvidenceResolving)? = nil,
-        toolResultRefs: (any BotToolResultRefReading)? = nil,
         modelImageReader: BotModelImageReader? = nil,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) },
         approvalTimeoutMs: Int64 = BotApprovalCoordinator.defaultTimeoutMilliseconds,
@@ -470,11 +469,7 @@ public actor BotMCPRuntime {
         approvals = BotApprovalCoordinator(
             grants: grants, eventWriter: eventWriter, eventLog: store, now: now,
             approvalTimeoutMs: approvalTimeoutMs, durableExpiryMs: approvalExpiryMs)
-        let toolResultReader = toolResultRefs
-            ?? (recordEvidence as? any BotToolResultRefReading)
-        volatileContext = BotVolatileContextProducer(
-            provider: volatileProvider ?? EmptyBotVolatileContextProvider(),
-            toolResultRefs: toolResultReader)
+        volatileContext = BotVolatileContextProducer(provider: volatileProvider ?? EmptyBotVolatileContextProvider())
         let mainExecutor = taskExecutor ?? UnimplementedBotTaskExecutor()
         tasks = mainExecutor
         taskExecutors = ["main": mainExecutor]
