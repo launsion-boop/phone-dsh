@@ -1765,3 +1765,93 @@ extension BotSourceBaseline {
             grantId: grantId)
     }
 }
+
+// MARK: - Discoverable tool-result refs (G-2 §245)
+
+extension BotRecordService: BotToolResultRefReading {
+    /// Recent successful bash/read result refs for this exact session. The seq
+    /// comes from the real tool/result session line; no body is copied and no
+    /// cache is used, so the next model step sees a just-appended result.
+    public func recentToolResultRefs(botID: String, sessionID: String,
+                                     limit: Int) async -> [BotToolResultRef] {
+        guard limit > 0,
+              (try? await principal(for: sessionID, botID: botID)) != nil,
+              let lines = try? sessionLines(sessionID: sessionID) else { return [] }
+        struct Call { var name: String; var detail: String? }
+        var calls: [String: Call] = [:]
+        var result: [BotToolResultRef] = []
+        for line in lines {
+            guard let object = try? JSONSerialization.jsonObject(
+                with: Data(line.raw.utf8)) as? [String: Any],
+                let data = object["data"] as? [String: Any] else { continue }
+            if line.type == "tool/call" {
+                let callId = data["callId"] as? String ?? ""
+                let name = data["name"] as? String ?? ""
+                guard !callId.isEmpty else { continue }
+                calls[callId] = Call(name: name, detail: Self.toolResultDetail(
+                    tool: name, arguments: data["arguments"]))
+                continue
+            }
+            guard line.type == "tool/result", !line.erased,
+                  let message = data["message"] as? [String: Any],
+                  message["isError"] as? Bool != true,
+                  data["error"] == nil,
+                  let callId = message["toolCallId"] as? String,
+                  let call = calls[callId],
+                  call.name == "bash" || call.name == "read" else { continue }
+            let text = Self.toolResultText(message)
+            guard !text.isEmpty, !Self.isTruncatedOrRedacted(text) else { continue }
+            let ref = "record://session/\(sessionID)#\(line.seq)"
+            guard BotRecordReference.parse(ref)?.canonical == ref else { continue }
+            result.append(BotToolResultRef(
+                record: ref, tool: call.name,
+                label: Self.toolResultLabel(tool: call.name, detail: call.detail)))
+        }
+        return Array(result.suffix(min(limit, 5)))
+    }
+
+    private static func toolResultText(_ message: [String: Any]) -> String {
+        guard let blocks = message["content"] as? [[String: Any]] else {
+            return message["text"] as? String ?? ""
+        }
+        return blocks.compactMap { block -> String? in
+            block["type"] as? String == "text" ? block["text"] as? String : nil
+        }.joined(separator: "\n")
+    }
+
+    private static func isTruncatedOrRedacted(_ text: String) -> Bool {
+        text.contains("[pdsh-redaction") || text.contains("output-truncated")
+            || text.contains("\"truncated\":true") || text.contains("reason=output-truncated")
+    }
+
+    private static func toolResultDetail(tool: String, arguments: Any?) -> String? {
+        var value = arguments
+        if let text = arguments as? String,
+           let data = text.data(using: .utf8),
+           let parsed = try? JSONSerialization.jsonObject(with: data) {
+            value = parsed
+        }
+        guard let object = value as? [String: Any] else { return nil }
+        if let path = (object["file_path"] as? String) ?? (object["path"] as? String) {
+            return path
+        }
+        if tool == "bash", let command = object["command"] as? String {
+            return command
+        }
+        return nil
+    }
+
+    private static func toolResultLabel(tool: String, detail: String?) -> String {
+        var label = tool
+        if let detail, !detail.isEmpty {
+            label += " " + detail
+        }
+        label = label.replacingOccurrences(of: "\n", with: " ")
+        let bounded = String(label.unicodeScalars.prefix(80))
+        if bounded.lowercased().contains("token") || bounded.lowercased().contains("password")
+            || bounded.lowercased().contains("secret") {
+            return tool
+        }
+        return bounded
+    }
+}

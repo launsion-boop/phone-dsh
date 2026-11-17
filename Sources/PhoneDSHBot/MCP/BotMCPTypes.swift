@@ -104,17 +104,47 @@ public struct BotVolatileBlocks: Codable, Sendable, Equatable {
     public static let empty = Self()
 }
 
+
+/// One discoverable canonical ref for a successful tool result. It carries no
+/// body; callers use `phone record read` for the content.
+public struct BotToolResultRef: Codable, Sendable, Equatable {
+    public let record: String
+    public let tool: String
+    public let label: String
+
+    public init(record: String, tool: String, label: String) {
+        self.record = record
+        self.tool = tool
+        self.label = label
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case record, tool, label
+    }
+}
+
+/// Existing-session index of recent successful tool results. The implementation
+/// reads the real session log; it never invents a sequence or copies a body.
+public protocol BotToolResultRefReading: Sendable {
+    func recentToolResultRefs(botID: String, sessionID: String,
+                              limit: Int) async -> [BotToolResultRef]
+}
+
 public struct BotVolatileSnapshot: Codable, Sendable, Equatable {
     public let schemaVersion: Int
     public let sessionId: String
     public let revision: Int
     public let blocks: BotVolatileBlocks
+    /// Optional additive ref index; absent for old snapshots/readers.
+    public let toolResultRefs: [BotToolResultRef]?
 
-    public init(sessionId: String, revision: Int, blocks: BotVolatileBlocks) {
+    public init(sessionId: String, revision: Int, blocks: BotVolatileBlocks,
+                toolResultRefs: [BotToolResultRef]? = nil) {
         schemaVersion = 1
         self.sessionId = sessionId
         self.revision = revision
         self.blocks = blocks
+        self.toolResultRefs = toolResultRefs
     }
 
     public var jsonValue: BotJSONValue {
@@ -123,12 +153,22 @@ public struct BotVolatileSnapshot: Codable, Sendable, Equatable {
         if let persona = blocks.persona { fields["persona"] = .string(persona) }
         if let memory = blocks.memory { fields["memory"] = .string(memory) }
         if let automation = blocks.automation { fields["automation"] = .string(automation) }
-        return .object([
+        var result: [String: BotJSONValue] = [
             "schemaVersion": .number(1),
             "sessionId": .string(sessionId),
             "revision": .number(Double(revision)),
             "blocks": .object(fields),
-        ])
+        ]
+        if let toolResultRefs, !toolResultRefs.isEmpty {
+            result["tool_result_refs"] = .array(toolResultRefs.map { ref in
+                .object([
+                    "record": .string(ref.record),
+                    "tool": .string(ref.tool),
+                    "label": .string(ref.label),
+                ])
+            })
+        }
+        return .object(result)
     }
 }
 

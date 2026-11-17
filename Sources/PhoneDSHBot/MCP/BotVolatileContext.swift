@@ -6,11 +6,15 @@ public actor BotVolatileContextProducer {
     public static let defaultTimeout: TimeInterval = 5
 
     private let provider: any BotVolatileContextProviding
+    private let toolResultRefs: (any BotToolResultRefReading)?
     private let timeout: TimeInterval
     private var revision = 0
 
-    public init(provider: any BotVolatileContextProviding, timeout: TimeInterval = BotVolatileContextProducer.defaultTimeout) {
+    public init(provider: any BotVolatileContextProviding,
+                toolResultRefs: (any BotToolResultRefReading)? = nil,
+                timeout: TimeInterval = BotVolatileContextProducer.defaultTimeout) {
         self.provider = provider
+        self.toolResultRefs = toolResultRefs
         self.timeout = max(0.001, timeout)
     }
 
@@ -28,14 +32,23 @@ public actor BotVolatileContextProducer {
             try await self.provider.snapshot(botId: principal.botId, sessionId: sessionId, kind: principal.kind)
         }
         try Self.validate(blocks: blocks)
-        return BotVolatileSnapshot(sessionId: sessionId, revision: currentRevision, blocks: blocks)
+        var refs: [BotToolResultRef] = []
+        if let toolResultRefs {
+            refs = try await withTimeout {
+                await toolResultRefs.recentToolResultRefs(
+                    botID: principal.botId, sessionID: sessionId, limit: 5)
+            }
+        }
+        try Self.validate(toolResultRefs: refs, sessionID: sessionId)
+        return BotVolatileSnapshot(sessionId: sessionId, revision: currentRevision,
+                                   blocks: blocks, toolResultRefs: refs)
     }
 
-    private func withTimeout(_ operation: @escaping @Sendable () async throws -> BotVolatileBlocks) async throws -> BotVolatileBlocks {
+    private func withTimeout<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T) async throws -> T {
         let task = Task { try await operation() }
         let timeoutTask = Task { try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000)) }
         return try await withCheckedThrowingContinuation { continuation in
-            let gate = BotVolatileTimeoutGate(continuation: continuation, operation: task)
+            let gate = BotVolatileTimeoutGate<T>(continuation: continuation, operation: task)
             Task {
                 try? await timeoutTask.value
                 await gate.timeout()
@@ -65,6 +78,32 @@ public actor BotVolatileContextProducer {
         guard total <= 24_000 else { throw BotMCPError.unavailable("volatile context exceeds its total size limit") }
     }
 
+    private static func validate(toolResultRefs refs: [BotToolResultRef],
+                                 sessionID: String) throws {
+        guard refs.count <= 5 else {
+            throw BotMCPError.unavailable("tool result refs exceed the bounded index")
+        }
+        var total = 0
+        for ref in refs {
+            guard let parsed = BotRecordReference.parse(ref.record),
+                  case let .session(refSession, _) = parsed,
+                  refSession == sessionID,
+                  parsed.canonical == ref.record else {
+                throw BotMCPError.unavailable("tool result ref is not canonical for this session")
+            }
+            guard !ref.tool.isEmpty, ref.tool.unicodeScalars.count <= 80,
+                  !ref.label.isEmpty, ref.label.unicodeScalars.count <= 80,
+                  !containsSecret(ref.label) else {
+                throw BotMCPError.unavailable("tool result ref label is invalid")
+            }
+            total += ref.record.unicodeScalars.count + ref.tool.unicodeScalars.count
+                + ref.label.unicodeScalars.count
+        }
+        guard total <= 1_200 else {
+            throw BotMCPError.unavailable("tool result refs exceed their total size limit")
+        }
+    }
+
     private static func containsSecret(_ text: String) -> Bool {
         let patterns = [
             #"(?i)bearer\s+[A-Za-z0-9._~+/=-]{8,}"#,
@@ -77,17 +116,17 @@ public actor BotVolatileContextProducer {
     }
 }
 
-private final class BotVolatileTimeoutGate: @unchecked Sendable {
+private final class BotVolatileTimeoutGate<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
-    private var continuation: CheckedContinuation<BotVolatileBlocks, Error>?
-    private let operation: Task<BotVolatileBlocks, Error>
+    private var continuation: CheckedContinuation<T, Error>?
+    private let operation: Task<T, Error>
 
-    init(continuation: CheckedContinuation<BotVolatileBlocks, Error>, operation: Task<BotVolatileBlocks, Error>) {
+    init(continuation: CheckedContinuation<T, Error>, operation: Task<T, Error>) {
         self.continuation = continuation
         self.operation = operation
     }
 
-    func finish(_ value: BotVolatileBlocks) {
+    func finish(_ value: T) {
         resume { $0.resume(returning: value) }
     }
 
@@ -100,8 +139,8 @@ private final class BotVolatileTimeoutGate: @unchecked Sendable {
         resume { $0.resume(throwing: BotMCPError.timeout) }
     }
 
-    private func resume(_ body: (CheckedContinuation<BotVolatileBlocks, Error>) -> Void) {
-        let next = lock.withLock { () -> CheckedContinuation<BotVolatileBlocks, Error>? in
+    private func resume(_ body: (CheckedContinuation<T, Error>) -> Void) {
+        let next = lock.withLock { () -> CheckedContinuation<T, Error>? in
             let next = continuation
             continuation = nil
             return next
