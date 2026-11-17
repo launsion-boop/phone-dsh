@@ -1132,6 +1132,15 @@
           maxCharacters: 1600
           maxSnippetCharacters: 240
           deadlineMilliseconds: 1500
+    # G-2 §242/§243: expose this turn's recent successful tool results as
+    # canonical record://session/<id>#<resultSeq> refs in the same
+    # runtime-context snapshot. It is a bounded index, never the result body,
+    # and it never writes memory evidence automatically; the model must cite a
+    # ref explicitly. Failed/truncated/redacted results are omitted.
+    - id: dshbot-tool-result-index
+      name: '@phone-dsh/dsh-bot-runtime/tool-result-index'
+      config:
+        limit: 6
 
 # Stable phone persona. The current Bot name and all volatile blocks arrive from
 # BotVolatileContext instead of being hard-coded in this prefix.
