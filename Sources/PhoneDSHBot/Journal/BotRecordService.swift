@@ -216,12 +216,6 @@ public actor BotRecordService: BotRecordEvidenceResolving, BotSourceStateResolvi
         self.fileRechecks = fileRechecks
     }
 
-    /// The materialized DSH session log this service reads. Recovery uses the
-    /// same authority instead of inventing a second session-log layout.
-    public func sessionLogURL(for sessionID: String) -> URL? {
-        sessionLogLocator(sessionID)
-    }
-
     // MARK: - Command bridge
 
     /// Runs `phone record …` argv (without the leading `phone record` words).
