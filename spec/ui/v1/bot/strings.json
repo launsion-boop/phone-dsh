@@ -7,42 +7,42 @@
     {
       "id": "settlement.dismissed",
       "value": "已关闭",
-      "source": "BotChatModel.swift:489",
+      "source": "BotChatModel.swift:482",
       "expect": "已关闭",
       "note": "question/steps settled by local dismiss id or durable status dismissed"
     },
     {
       "id": "settlement.selected",
       "value": "已选择：{label}",
-      "source": "BotChatModel.swift:505",
+      "source": "BotChatModel.swift:498",
       "expect": "已选择：",
       "note": "durable answered or accepted action; label resolved from optionID"
     },
     {
       "id": "settlement.sent",
       "value": "已送出",
-      "source": "BotChatModel.swift:505",
+      "source": "BotChatModel.swift:498",
       "expect": "已送出",
       "note": "answered/accepted but the option label cannot be resolved"
     },
     {
       "id": "settlement.skipped",
       "value": "已略过",
-      "source": "BotChatModel.swift:540",
+      "source": "BotChatModel.swift:533",
       "expect": "已略过",
       "note": "muted checklist precedes the latest user text and was never handled"
     },
     {
       "id": "settlement.checklistSent",
       "value": "已发送勾选结果",
-      "source": "BotChatModel.swift:537",
+      "source": "BotChatModel.swift:530",
       "expect": "已发送勾选结果",
       "note": "checklist result accepted"
     },
     {
       "id": "settlement.checklistDetail",
       "value": "{title} · 已完成 {done}/{total}",
-      "source": "BotChatModel.swift:535",
+      "source": "BotChatModel.swift:528",
       "expect": "· 已完成",
       "note": "checklist settled detail"
     },
@@ -95,14 +95,14 @@
     {
       "id": "settlement.approvalDefaultAction",
       "value": "操作",
-      "source": "BotChatModel.swift:551",
+      "source": "BotChatModel.swift:544",
       "expect": "操作",
       "note": "fallback when neither the card nor ask carries an action"
     },
     {
       "id": "settlement.stepsSuggestion",
       "value": "建议下一步",
-      "source": "BotChatModel.swift:515",
+      "source": "BotChatModel.swift:508",
       "expect": "建议下一步",
       "note": "steps prompt detail fallback"
     },
@@ -526,31 +526,31 @@
     {
       "id": "chat.drawer.open",
       "value": "打开 Bot 列表",
-      "source": "BotChatPage.swift:180",
+      "source": "BotChatPage.swift:178",
       "expect": "打开 Bot 列表"
     },
     {
       "id": "chat.info.label",
       "value": "Bot 信息",
-      "source": "BotChatPage.swift:216",
+      "source": "BotChatPage.swift:214",
       "expect": "Bot 信息"
     },
     {
       "id": "chat.menu.summary",
       "value": "跟进中 {following} · 需要你处理 {attention}",
-      "source": "BotChatPage.swift:290",
+      "source": "BotChatPage.swift:288",
       "expect": "跟进中"
     },
     {
       "id": "chat.menu.info",
       "value": "Bot 信息与设置",
-      "source": "BotChatPage.swift:292",
+      "source": "BotChatPage.swift:290",
       "expect": "Bot 信息与设置"
     },
     {
       "id": "chat.deeplink.unavailable",
       "value": "这条消息不可用或已过期。",
-      "source": "BotChatModel.swift:1634",
+      "source": "BotChatModel.swift:1482",
       "expect": "这条消息不可用或已过期"
     },
     {
@@ -562,20 +562,20 @@
     {
       "id": "realtime.degraded",
       "value": "实时更新中断，正在重连",
-      "source": "BotChatModel.swift:1742",
+      "source": "BotChatModel.swift:1574",
       "expect": "实时更新中断，正在重连",
       "note": "watch/live supervision degraded banner; cleared when the feed recovers"
     },
     {
       "id": "error.historyFailed",
       "value": "历史加载失败：{error}",
-      "source": "BotChatModel.swift:1627",
+      "source": "BotChatModel.swift:1468",
       "expect": "历史加载失败"
     },
     {
       "id": "error.attachmentFailed",
       "value": "附件「{name}」未附加：{reason}",
-      "source": "BotChatModel.swift:663",
+      "source": "BotChatModel.swift:656",
       "expect": "未附加"
     },
     {
@@ -593,109 +593,109 @@
     {
       "id": "info.rename.empty",
       "value": "Bot 名不能为空。",
-      "source": "BotInfoPage.swift:391",
+      "source": "BotInfoPage.swift:373",
       "expect": "Bot 名不能为空"
     },
     {
       "id": "info.rename.syncFailed",
       "value": "名字已写入对话，但资料同步失败：{error}",
-      "source": "BotInfoPage.swift:401",
+      "source": "BotInfoPage.swift:383",
       "expect": "资料同步失败"
     },
     {
       "id": "info.rename.failed",
       "value": "改名失败：{error}",
-      "source": "BotInfoPage.swift:404",
+      "source": "BotInfoPage.swift:386",
       "expect": "改名失败"
     },
     {
       "id": "info.forget.failed",
       "value": "忘记失败：{error}",
-      "source": "BotInfoPage.swift:413",
+      "source": "BotInfoPage.swift:395",
       "expect": "忘记失败"
     },
     {
       "id": "info.erase.failed",
       "value": "抹除失败：{error}",
-      "source": "BotInfoPage.swift:433",
+      "source": "BotInfoPage.swift:428",
       "expect": "抹除失败"
     },
     {
       "id": "info.eraseShared.failed",
       "value": "抹除共享 user/ 记忆失败：{error}",
-      "source": "BotInfoPage.swift:459",
+      "source": "BotInfoPage.swift:441",
       "expect": "抹除共享"
     },
     {
       "id": "info.maintenance.saveFailed",
       "value": "保存记忆整理开关失败：{error}",
-      "source": "BotInfoPage.swift:470",
+      "source": "BotInfoPage.swift:452",
       "expect": "保存记忆整理开关失败"
     },
     {
       "id": "info.maintenance.rollbackFailed",
       "value": "回滚记忆整理失败：{error}",
-      "source": "BotInfoPage.swift:480",
+      "source": "BotInfoPage.swift:462",
       "expect": "回滚记忆整理失败"
     },
     {
       "id": "info.proactive.saveFailed",
       "value": "打扰设置保存失败：{error}",
-      "source": "BotInfoPage.swift:512",
+      "source": "BotInfoPage.swift:494",
       "expect": "打扰设置保存失败"
     },
     {
       "id": "info.routine.updateFailed",
       "value": "例行任务更新失败：{error}",
-      "source": "BotInfoPage.swift:538",
+      "source": "BotInfoPage.swift:520",
       "expect": "例行任务更新失败"
     },
     {
       "id": "info.routine.cancelFailed",
       "value": "取消运行失败：{error}",
-      "source": "BotInfoPage.swift:563",
+      "source": "BotInfoPage.swift:529",
       "expect": "取消运行失败"
     },
     {
       "id": "info.grant.revokeFailed",
       "value": "撤销授权失败：{error}",
-      "source": "BotInfoPage.swift:572",
+      "source": "BotInfoPage.swift:538",
       "expect": "撤销授权失败"
     },
     {
       "id": "info.reconcile.failed",
       "value": "处理对账失败：{error}",
-      "source": "BotInfoPage.swift:586",
+      "source": "BotInfoPage.swift:552",
       "expect": "处理对账失败"
     },
     {
       "id": "info.readFailed",
       "value": "读取失败",
-      "source": "BotInfoPage.swift:926",
+      "source": "BotInfoPage.swift:911",
       "expect": "读取失败"
     },
     {
       "id": "info.memory.readFailed",
       "value": "记忆读取失败：{error}。这不代表没有记忆。",
-      "source": "BotInfoPage.swift:963",
+      "source": "BotInfoPage.swift:911",
       "expect": "记忆读取失败"
     },
     {
       "id": "info.memory.agentRoot",
       "value": "本 Bot 的记忆",
-      "source": "BotInfoPage.swift:995",
+      "source": "BotInfoPage.swift:943",
       "expect": "本 Bot 的记忆"
     },
     {
       "id": "info.memory.userRoot",
       "value": "所有 Bot 共享的记忆",
-      "source": "BotInfoPage.swift:999",
+      "source": "BotInfoPage.swift:1002",
       "expect": "所有 Bot 共享的记忆"
     },
     {
       "id": "info.memory.forget",
       "value": "忘记",
-      "source": "BotInfoPage.swift:1028",
+      "source": "BotInfoPage.swift:985",
       "expect": "忘记"
     },
     {
@@ -707,79 +707,79 @@
     {
       "id": "info.memory.eraseShared",
       "value": "抹除所有 Bot 共享的记忆（含全部版本）",
-      "source": "BotInfoPage.swift:1045",
+      "source": "BotInfoPage.swift:1046",
       "expect": "抹除所有 Bot 共享的记忆"
     },
     {
       "id": "info.maintenance.title",
       "value": "后台整理",
-      "source": "BotInfoPage.swift:976",
+      "source": "BotInfoPage.swift:924",
       "expect": "后台整理"
     },
     {
       "id": "info.maintenance.rollback",
       "value": "回滚这次整理",
-      "source": "BotInfoPage.swift:1020",
+      "source": "BotInfoPage.swift:968",
       "expect": "回滚这次整理"
     },
     {
       "id": "info.routine.cancel",
       "value": "取消运行",
-      "source": "BotInfoPage.swift:1491",
+      "source": "BotInfoPage.swift:1439",
       "expect": "取消运行"
     },
     {
       "id": "info.reconcile.ack",
       "value": "确认完成",
-      "source": "BotInfoPage.swift:1776",
+      "source": "BotInfoPage.swift:1693",
       "expect": "确认完成"
     },
     {
       "id": "info.reconcile.retry",
       "value": "重试",
-      "source": "BotInfoPage.swift:1779",
+      "source": "BotInfoPage.swift:1696",
       "expect": "重试"
     },
     {
       "id": "info.routine.readFailed",
       "value": "例行任务读取失败：{error}。这不代表没有例行任务。",
-      "source": "BotInfoPage.swift:1452",
+      "source": "BotInfoPage.swift:1400",
       "expect": "例行任务读取失败"
     },
     {
       "id": "info.grant.readFailed",
       "value": "常设授权读取失败：{error}。这不代表没有授权。",
-      "source": "BotInfoPage.swift:1854",
+      "source": "BotInfoPage.swift:1771",
       "expect": "常设授权读取失败"
     },
     {
       "id": "info.approvals.readFailed",
       "value": "审批记录读取失败：{error}。",
-      "source": "BotInfoPage.swift:2038",
+      "source": "BotInfoPage.swift:1955",
       "expect": "审批记录读取失败"
     },
     {
       "id": "glyph.dismissed",
       "value": "xmark.circle",
-      "source": "BotChatModel.swift:489",
+      "source": "BotChatModel.swift:482",
       "expect": "xmark.circle"
     },
     {
       "id": "glyph.accepted",
       "value": "checkmark.circle",
-      "source": "BotChatModel.swift:504",
+      "source": "BotChatModel.swift:497",
       "expect": "checkmark.circle"
     },
     {
       "id": "glyph.approvalAllowed",
       "value": "checkmark.circle.fill",
-      "source": "BotChatModel.swift:566",
+      "source": "BotChatModel.swift:559",
       "expect": "checkmark.circle.fill"
     },
     {
       "id": "glyph.skipped",
       "value": "minus.circle",
-      "source": "BotChatModel.swift:540",
+      "source": "BotChatModel.swift:533",
       "expect": "minus.circle"
     }
   ]
