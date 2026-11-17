@@ -111,3 +111,10 @@ Worker 审批门（`approval-gate.ts` `AUTO_TOOLS`）：`DeviceAppStage`、`Devi
 | 旧 App → 新 Worker | 全调用方列表没有这两个工具，Worker 无从注册；deny 对不存在的名字无效，其他工具面不变（无功能，无副作用） |
 | 新 → 新 | 已绑定 Bot：两工具可见；未绑定的已识别 Bot：被隐藏且调用被拒；无法识别调用方（workbench）：保留全调用方面，宿主仍拒绝未绑定调用 |
 | 旧数据 → 新 / 回滚 | 无持久化变更；回滚 App 即回到「不可见」 |
+
+### 真机观测（device-app-v1.2 之后，无契约变更）
+
+- 安装本身很快：自检 `-pdsh-selftest-device-app` 实测 4 次 Link 调用（begin、2×put、commit）共 1.5 s，`app.info` 往返约 0.5 s；2048 字节的 chunk 上限不是瓶颈，不需要更大的写或流水线。
+- Worker 的 `Request timed out` 来自审批等待，不是传输：`DeviceAppInstall` 在宿主里先等一次性审批（交互审批默认最长 300 s），而 Worker 的 MCP 工具调用超时更短（约 130 s）。用户超过这个时间才点确认时，Worker 已放弃该调用，宿主那一次调用仍会在批准后完成安装（真机：`focus_timer` 摘要 `a6ad8577…` 已在 `/apps/.devapp`）。不允许在批准或完成之前返回（受理 ≠ 已执行），所以不改变返回时机。
+- 重试语义：同一设备上同一 digest 的调用仍在等待确认或在传输时，重试返回错误码 `busy`，消息说明是同一个应用的上一次请求（不重复发起）；不同 digest 仍是原来的「正在安装另一个应用」。错误码集合不变，没有新字段。
+- 剩余风险：用户确认慢于 Worker 超时，会让模型看到 `Request timed out` 而安装随后才发生。缓解办法（缩短交互审批等待、或让 Worker 对该工具放宽超时）需要单独的契约变更，本单未做。

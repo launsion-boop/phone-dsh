@@ -222,6 +222,41 @@ final class DeviceAppToolsTests: XCTestCase {
         XCTAssertEqual(installs, 2)
     }
 
+    func testRetryOfTheSameDigestWhileAwaitingApprovalReportsTheRealState() async throws {
+        let rig = try await makeRig(); defer { rig.fixture.cleanup() }
+        let digestA = try digest(of: try await stage(rig))
+        let digestB = try digest(of: try await stage(rig, "\n# other"))
+        let args: BotJSONValue = .object(["digest": .string(digestA)])
+        let runtime = rig.runtime
+        let first = Task { try await registerAndExecute(runtime, name: "DeviceAppInstall", arguments: args,
+                                                        sessionId: "gb-a", callId: UUID().uuidString) }
+        for _ in 0..<500 {
+            if await runtime.approvals.pendingIDs.first != nil { break }
+            try await Task.sleep(nanoseconds: 2_000_000)
+        }
+        // The same digest again (a retry after the caller's request timed out): the real state.
+        let retry = try await registerAndExecute(runtime, name: "DeviceAppInstall", arguments: args,
+                                                 sessionId: "gb-a", callId: UUID().uuidString)
+        XCTAssertEqual(retry.isError, true)
+        let retryText = retry.content.compactMap { $0["text"]?.stringValue }.joined()
+        XCTAssertTrue(retryText.contains("同一个应用") && retryText.contains("确认"), retryText)
+        // Another digest still gets the generic busy message, and no second approval is raised.
+        let other = try await registerAndExecute(
+            runtime, name: "DeviceAppInstall", arguments: .object(["digest": .string(digestB)]),
+            sessionId: "gb-a", callId: UUID().uuidString)
+        XCTAssertEqual(other.isError, true)
+        XCTAssertTrue(other.content.compactMap { $0["text"]?.stringValue }.joined().contains("另一个应用"))
+        let pending = await runtime.approvals.pendingIDs
+        XCTAssertEqual(pending.count, 1)
+        if let id = pending.first {
+            _ = await runtime.approvals.resolve(
+                approvalId: id, decision: .deny, digest: try BotArgumentsDigest.string(for: args))
+        }
+        _ = try await first.value
+        let installs = await rig.recorder.installs.count
+        XCTAssertEqual(installs, 0)
+    }
+
     func testDeclineInstallsNothingAndRecordsNothing() async throws {
         let rig = try await makeRig(); defer { rig.fixture.cleanup() }
         let d = try digest(of: try await stage(rig))

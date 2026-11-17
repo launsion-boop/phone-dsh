@@ -482,12 +482,23 @@ enum DeviceBotChatSelfTest {
             // The send path the TonoLink voice turn proved on this phone: admit durably (it starts the
             // engine and the Bot's runtime unit), not the page's `send`, which does nothing without UI.
             let requestID = UUID().uuidString.lowercased()
-            let outcome = await ChatModel.shared.admitVoice(
-                prompt, requestID: requestID, target: .bot(botId: botID), boardName: "selftest")
-            log("turn.admitted", ["admitted": outcome?.receipt != nil,
-                                  "result": outcome?.result.rawValue ?? "nil"])
-            let admissionID = outcome?.receipt?.admissionId ?? ""
+            // `admitVoice` returns only once the Bot has accepted the turn, which can be after the
+            // turn already ran into its approval. Keep it off the polling path, otherwise the
+            // approval card would sit unanswered past the Worker's tool-call timeout.
+            let admitTask = Task { @MainActor in
+                await ChatModel.shared.admitVoice(
+                    prompt, requestID: requestID, target: .bot(botId: botID), boardName: "selftest")
+            }
+            final class AdmitBox { var done = false; var receiptMissing = false; var result = "nil" }
+            let admitBox = AdmitBox()
             let monitor = Task { @MainActor [weak self] in
+                let outcome = await admitTask.value
+                admitBox.done = true
+                admitBox.receiptMissing = outcome?.receipt == nil
+                admitBox.result = outcome?.result.rawValue ?? "nil"
+                self?.log("turn.admitted", ["admitted": outcome?.receipt != nil,
+                                            "result": outcome?.result.rawValue ?? "nil"])
+                let admissionID = outcome?.receipt?.admissionId ?? ""
                 var last = ""
                 while !Task.isCancelled {
                     guard let self, !self.finished else { return }
@@ -499,10 +510,6 @@ enum DeviceBotChatSelfTest {
             }
             defer { monitor.cancel() }
             await probeIdentity(botID: botID, label: "after_admit")
-            if outcome?.receipt == nil {
-                turn.failure = "the prompt was not admitted (\(outcome?.result.rawValue ?? "nil"))"
-                return turn
-            }
 
             let begin = Date()
             var reported: [String: String] = [:]      // callID -> last recorded signature
@@ -563,6 +570,9 @@ enum DeviceBotChatSelfTest {
                 if running { sawActivity = true; quietPolls = 0 } else if sawActivity || !turn.calls.isEmpty { quietPolls += 1 }
                 if !running, quietPolls >= 4, let answer = latestAnswer(model, before: before), !answer.isEmpty { break }
                 try? await Task.sleep(for: .milliseconds(500))
+            }
+            if admitBox.done, admitBox.receiptMissing {
+                turn.failure = "the prompt was not admitted (\(admitBox.result))"
             }
             collectCalls(model, into: &turn)
             await probeIdentity(botID: botID, label: "after_turn")
@@ -676,6 +686,9 @@ enum DeviceBotChatSelfTest {
                     }
                 } else if !call.output.isEmpty {
                     entry["output"] = String(call.output.prefix(400))
+                    // The Worker's result row can carry only the text line of a success; the
+                    // board's own `app.info` check below still decides the digest equality.
+                    if !call.isError, call.output.hasPrefix("已在设备上安装") { turn.installOK = true }
                 }
             default:
                 break
