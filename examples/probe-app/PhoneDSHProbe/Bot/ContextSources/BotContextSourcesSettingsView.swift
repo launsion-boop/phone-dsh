@@ -17,15 +17,61 @@ final class BotContextSourcesSettingsModel: ObservableObject {
     /// per-Bot unsubscribe/global revoke).
     @Published private(set) var subscriptions: [BotContextSourceKind: Bool] = [:]
     @Published private(set) var recent: [BotContextObservationViewItem] = []
+    @Published private(set) var fences: [BotContextGeofenceSpec] = []
     @Published private(set) var loading = false
     @Published var actionError: String?
 
     let botID: String
     private let assembly: BotContextSourcesAssembly
 
+    static let fencesDefaultsKey = "phone-dsh.bot.geofences.v1"
+
     init(botID: String, assembly: BotContextSourcesAssembly) {
         self.botID = botID
         self.assembly = assembly
+        if let data = UserDefaults.standard.data(forKey: Self.fencesDefaultsKey),
+           let decoded = try? JSONDecoder().decode([BotContextGeofenceSpec].self, from: data) {
+            self.fences = decoded
+        }
+    }
+
+    /// User-confirmed places only. Coordinates are typed/selected by the user;
+    /// this never asks CoreLocation for the current position.
+    func addFence(label: String, latitude: Double, longitude: Double,
+                  radiusMeters: Double) async {
+        do {
+            let clean = label.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { throw BotContextSourceError.invalidRequest("围栏名称不能为空") }
+            let id = "fence-" + String(UUID().uuidString.prefix(8)).lowercased()
+            let spec = try BotContextGeofenceSpec(
+                id: id, latitude: latitude, longitude: longitude,
+                radiusMeters: radiusMeters, label: clean)
+            var next = fences
+            next.append(spec)
+            try persistFences(next)
+            try await assembly.setGeofences(next)
+            fences = next
+            actionError = nil
+        } catch {
+            actionError = (error as? LocalizedError)?.errorDescription ?? "围栏保存失败"
+        }
+    }
+
+    func removeFence(_ spec: BotContextGeofenceSpec) async {
+        var next = fences
+        next.removeAll { $0.id == spec.id }
+        do {
+            try persistFences(next)
+            try await assembly.setGeofences(next)
+            fences = next
+        } catch {
+            actionError = (error as? LocalizedError)?.errorDescription ?? "围栏移除失败"
+        }
+    }
+
+    private func persistFences(_ next: [BotContextGeofenceSpec]) throws {
+        let data = try JSONEncoder().encode(next)
+        UserDefaults.standard.set(data, forKey: Self.fencesDefaultsKey)
     }
 
     func load() async {
@@ -117,6 +163,10 @@ final class BotContextSourcesSettingsModel: ObservableObject {
 
 struct BotContextSourcesSettingsView: View {
     @StateObject private var model: BotContextSourcesSettingsModel
+    @State private var fenceLabel = ""
+    @State private var fenceLatitude = ""
+    @State private var fenceLongitude = ""
+    @State private var fenceRadius = "200"
 
     init(botID: String, assembly: BotContextSourcesAssembly) {
         _model = StateObject(wrappedValue: BotContextSourcesSettingsModel(
@@ -149,6 +199,48 @@ struct BotContextSourcesSettingsView: View {
                 Text("独立授权")
             } footer: {
                 Text("这里分两层：上面的授权是全局 App/OS 权限；下面的“本 Bot”是当前 Bot 自己的订阅。打开只订阅当前 Bot（复用已有全局授权），关闭只取消当前 Bot，不影响其他 Bot。全局撤权会使所有 Bot 停读并失效旧回调；来源只产生观测和唤醒，不决定是否开口。")
+            }
+
+            Section("位置围栏（用户确认的地点）") {
+                ForEach(model.fences) { fence in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(fence.label ?? fence.id).font(.system(size: 14))
+                            Text(String(format: "%.5f, %.5f · %dm",
+                                        fence.latitude, fence.longitude, Int(fence.radiusMeters)))
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("移除", role: .destructive) {
+                            Task { await model.removeFence(fence) }
+                        }
+                        .accessibilityIdentifier("bot.context.fence.remove.\(fence.id)")
+                    }
+                }
+                TextField("名称（如 公司）", text: $fenceLabel)
+                    .accessibilityIdentifier("bot.context.fence.label")
+                HStack {
+                    TextField("纬度", text: $fenceLatitude).keyboardType(.numbersAndPunctuation)
+                    TextField("经度", text: $fenceLongitude).keyboardType(.numbersAndPunctuation)
+                }
+                TextField("半径（米，10–1000）", text: $fenceRadius).keyboardType(.numberPad)
+                Button("添加围栏") {
+                    guard let lat = Double(fenceLatitude), let lon = Double(fenceLongitude),
+                          let radius = Double(fenceRadius) else {
+                        model.actionError = "请输入有效的纬度和经度"
+                        return
+                    }
+                    Task {
+                        await model.addFence(label: fenceLabel, latitude: lat,
+                                             longitude: lon, radiusMeters: radius)
+                        if model.actionError == nil {
+                            fenceLabel = ""; fenceLatitude = ""; fenceLongitude = ""
+                        }
+                    }
+                }
+                .accessibilityIdentifier("bot.context.fence.add")
+                Text("只使用你在这里确认的地点；不会读取当前定位。配置后真实硬件围栏回调仍需真机授权。")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }
 
             if !model.recent.isEmpty {
