@@ -304,7 +304,12 @@ public actor BotApprovalCoordinator {
         // unknown tools and destructive operations keep the one-shot answer
         // only, and the card's scope says so.
         let offeredScope = effects.allSatisfy(\.canUseStandingGrant) ? alwaysScope : "none"
-        let deferConsumption = effects.allSatisfy { $0.execution != nil }
+        // External-send effects (model image/network) are executed by the
+        // model after the card returns, so the card must not mark the one-shot
+        // grant used. The runtime consumes it when the approved effect runs.
+        let deferConsumption = effects.allSatisfy {
+            $0.execution != nil || $0.mutability == .externalSend
+        }
         if let standing = await standingDecision(
             call: call, effects: effects, deferConsumption: deferConsumption) { return standing }
         // One Bot write already has a pending card for the same host+method.
