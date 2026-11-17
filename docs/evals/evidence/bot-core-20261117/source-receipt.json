@@ -39,5 +39,9 @@
   },
   "scope": "earliest aha-plan-20261116/PLAN.md; iOS Bot core only",
   "ci": "DEFERRED_BY_USER",
-  "release_repeat3": "Pending complete current-core receipt; historical runs are not relabelled."
+  "release_repeat3": "Historical combined three runs: 8 cases 3/3, SILENCE 2/3. Fixed template targeted SILENCE 3/3 and changed-result 1/1. Not a monolithic final-SHA three-round suite.",
+  "latest_receipts": [
+    "silence-bf1559/source-receipt.json",
+    "simulator-text/receipt.json"
+  ]
 }

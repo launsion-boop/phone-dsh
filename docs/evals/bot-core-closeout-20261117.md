@@ -1,6 +1,6 @@
 # iOS Bot 原计划核心交付
 
-本轮按最早计划收口：只升级 Bot 的对话/文件/现有例程最小闭环。产品源码 `9b68ef81afc08f82b1cc95ae4fd61b55abfcc424`，tree `849c2c3655421250e85f3de30772a5513fdf302d`；本文提交只补交付证据。
+本轮按最早计划收口：只升级 Bot 的对话/文件/现有例程最小闭环。产品源码 `9b68ef81afc08f82b1cc95ae4fd61b55abfcc424`，tree `849c2c3655421250e85f3de30772a5513fdf302d`。后续静默控制值模板修复见 `bf1559cce`；最终候选 `fafee9052` 的产品净增量仅为两处一致的模板字符串，根依赖锁文件已恢复基线。
 
 ## 行为与范围
 
@@ -27,18 +27,21 @@
 | 记忆恢复/抹除 | 两个原失败方法 2/2；独立相关回归 8/8。 |
 | Worker/工具面/导入/身份 | Node 21/21 + 69/69。 |
 | 维护质量 | 已有四批真实样例：矛盾修正 2/2、过期修正 2/2；原始引用及独立 judge 已复核。仅代表这些样例，默认 off。 |
+| 真实模拟器文本联调 | PASS：新建决策简报，工作中接纳预算/时长变更，随后追问产物与来源。用户纠正 seq396 在 turn15 结束 seq446 前 15.536 秒进入；交付物采用 46 万/60 分钟，保留文件旧值 48 万/45 分钟，报价 v2 继续待确认。 |
 | iOS App | build-for-testing 成功；App 内外 Worker image hash 一致，root 核对签名与交付目录中的 xctestrun 路径。构建不代表真机通过。 |
 
 [逐场景原始报告与独立评分](evidence/bot-core-20261117/aha-report.md) · [三轮组合表](evidence/bot-core-20261117/repeat2/table.json) · [SILENCE bf1559 报告](evidence/bot-core-20261117/silence-bf1559/silence-report.json) · [变化分支报告](evidence/bot-core-20261117/silence-bf1559/changed-report.json) · [源码/产物/测试收据](evidence/bot-core-20261117/source-receipt.json) · [XCTest 结果行](evidence/bot-core-20261117/swift-test-results.txt) · [SHA-256 清单](evidence/bot-core-20261117/SHA256SUMS.txt)
 
-真实模型使用 core `10b38870b` 的 host 与 Worker `601a5ef4…`。后续生产变化只有 restore 分支：这批实际捕获的 12 次 UpdateMemory 调用没有 restore；restore 已另行验证。构建源 `c2bf96de1` 与交付 `9b68ef81` 在 Sources/plugins/examples/Package 文件零差异，后续只是测试/规范记录。
+真实模型使用 core `10b38870b` 的 host 与 Worker `601a5ef4…`。后续生产变化只有 restore 分支：这批实际捕获的 12 次 UpdateMemory 调用没有 restore；restore 已另行验证。构建源 `c2bf96de1` 与交付 `9b68ef81` 在 Sources/plugins/examples/Package 文件零差异，该阶段后续只是测试/规范记录；静默模板变更另有下述定向证据。
 
 ## 诚实边界
 
 - CI 按用户要求延期，未宣称 CI 全绿。
 - 真机、电量/后台与两周观察不属于最早计划本轮范围；未将模拟器结果外推为这些结果。
 - 历史 repeat=3 的失败保留；当前 core 的三轮证据是“8/9 场景 3/3 + SILENCE 2/3”，另加 bf1559 定向 3/3 + 变化 1 PASS；**不是同一最终 SHA 的全量三轮**，不签 3/3 全 PASS，PR 保留 Draft，不合并、不部署。
-- SIM 真实文本 terminate/relaunch 验收仍 **NOT_RUN**（无 core SIM driver）；entry smoke 为 test-harness INCOMPLETE；整体不作为“已完成”发布。
+- 原计划核心范围已完成本地验收；[模拟器文本验收收据](evidence/bot-core-20261117/simulator-text/receipt.json)、[可见消息和回合证据](evidence/bot-core-20261117/simulator-text/visible-events.json)、[Bot 实际新交付物](evidence/bot-core-20261117/simulator-text/decision-brief.md) 可回查。App 实际模型为 deepseek-flash / high；编排用本机 DSH worker / max，两者不混写。
+- 旧入口测试选错页面、全量回显断言失败，以及重启后未尝试新消息，都不能证明 Bot 无法接纳消息。未经真实复现的恢复补丁已撤回；不把旧测试重新标为通过。调试 App 的动态库搜索路径已指向冻结包内 framework，避免加载另一轮构建；只核 App 可执行文件 hash 不足以证明运行源码。
+- 简报中部分责任人和影响建议属于模型推断；本次验收证明消息接纳、产物更新和关键来源区分，不将整篇建议提升为事实认证。
 - SILENCE bf1559 的模板消歧已验收（3/3 + 变化 1 PASS）；仅代表该定向场景。
 - 第二套 FA-D02 未触发压缩的运行保留为未满足测试前提；不以其替代本表已发生真实压缩的 AHA 证据。
 - 通过这些场景不代表任意模型输出均无错误。历史初稿出现的无依据推断仍作为质量观察保留；可回查引用不自动证明每句话成立。

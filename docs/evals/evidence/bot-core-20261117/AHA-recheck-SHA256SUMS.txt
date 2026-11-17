@@ -13,3 +13,10 @@ bc2734f34399de37678392fddff164737c772b216eb0501c9ad9eb6e7c565213  docs/evals/evi
 39e0ba39833ea7af3a918ab1632e6d4e3cbf550aa7b4f427914dda63e4194250  docs/evals/evidence/bot-core-20261117/silence-bf1559/aha-report.md
 c065bed1e3c925b21d4388b945b22eb0e9876a9bad3a1d09e721fe5d1e7e178d  docs/evals/evidence/bot-core-20261117/silence-bf1559/changed-report.json
 a741cfe7101a1ae9c27cce08263aa119fe8caf74604a06823bd162ec58fa1152  docs/evals/evidence/bot-core-20261117/silence-bf1559/silence-report.json
+3ab60f8747d85e12fe070b76d9f51ea1ae088c21ca56e2286f6f07aa86583c21  docs/evals/evidence/bot-core-20261117/silence-bf1559/source-receipt.json
+c3284ad515b1e0781cf172a2e8c3196d9877f6dc83cb85eae36d139ec4034d7c  docs/evals/evidence/bot-core-20261117/simulator-text/decision-brief.md
+a3f849d459533637310efa705116d909c8a39e894b572336dda81edef57e846f  docs/evals/evidence/bot-core-20261117/simulator-text/inputs/01-项目背景.md
+08f21a7431389d62c029526c5ea9a9a15f9668bdd3548cf7f903d07d4c1e46c4  docs/evals/evidence/bot-core-20261117/simulator-text/inputs/02-资料摘要.md
+e0923b2955f6324ef897cc898868098a0d35c7240a26894c971607d7e729a4ea  docs/evals/evidence/bot-core-20261117/simulator-text/inputs/03-待确认.md
+eb3dda90c1e6ca2bf4ae6731a7c56cf8038088aa5ca4cdffdca3694f45023194  docs/evals/evidence/bot-core-20261117/simulator-text/receipt.json
+90cb4dd645a7bcecfa84d85236ab43776c0ee7eed52e02eb59185741de9ba893  docs/evals/evidence/bot-core-20261117/simulator-text/visible-events.json
