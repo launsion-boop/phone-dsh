@@ -304,11 +304,12 @@ public actor BotApprovalCoordinator {
         // unknown tools and destructive operations keep the one-shot answer
         // only, and the card's scope says so.
         let offeredScope = effects.allSatisfy(\.canUseStandingGrant) ? alwaysScope : "none"
-        // External-send effects (model image/network) are executed by the
-        // model after the card returns, so the card must not mark the one-shot
-        // grant used. The runtime consumes it when the approved effect runs.
+        // Only effects with a known follow-up consumption point may defer the
+        // one-shot grant. The image attach is consumed by BotMCPRuntime before
+        // the model egress; other external effects (BLE link/alert) are
+        // forwarded by native handlers and keep the original card consumption.
         let deferConsumption = effects.allSatisfy {
-            $0.execution != nil || $0.mutability == .externalSend
+            $0.execution != nil || $0.operation == "model.image.attach"
         }
         if let standing = await standingDecision(
             call: call, effects: effects, deferConsumption: deferConsumption) { return standing }
