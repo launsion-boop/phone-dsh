@@ -860,6 +860,14 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// creates or recovers the durable main chat session before the first
     /// message, so the importer can write through the Worker's workspace
     /// import service without owning any session logic.
+    /// The current unit's management transport. The App's attachment
+    /// importer uses this when no foreground ChatModel owns the same Bot page.
+    /// It is the same per-Bot transport the runtime uses for its turns; it is
+    /// never a second Bot/session authority.
+    public func managementTransport() async throws -> any DSHRemoteTransport {
+        transport
+    }
+
     public func ensureMainSessionID() async throws -> String {
         try await ensureMainSession()
     }
