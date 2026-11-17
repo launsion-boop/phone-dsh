@@ -190,7 +190,7 @@ final class BotSkillEventQueueTests: XCTestCase {
             vfs: "/dsh/workspace/.dshbot/agents/bot-a/.dsh/skills/derived.md",
             botID: "bot-a", sessionID: "gb-main",
             sources: [BotDerivationSource(record: "record://event/7",
-                                          role: .evidence)])
+                                          role: .trigger)])
         XCTAssertEqual(captured.get()?.sources.first?.record, "record://event/7")
         XCTAssertEqual(captured.get()?.sources.first?.role, .trigger)
     }
