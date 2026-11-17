@@ -1,6 +1,7 @@
 # External admission journal (P06)
 
-Revision `external-admission-v1`, frozen 2026-11-16. Status: `target` — no end is implemented
+Revision `external-admission-v1.1`, frozen 2026-11-16 (v1.1 rules two implementer change
+requests: an undecodable file under the request's own id, and waiting records in a pass). Status: `target` — no end is implemented
 yet; do not claim it until each end has runtime evidence. Change record:
 [PC-20261116-external-admission](../../../docs/protocol-changes/PC-20261116-external-admission.md).
 
@@ -44,10 +45,11 @@ Admission is one decision followed by one atomic write. The result is one of:
 | `duplicate` | a record with this `admissionId` exists (any stage, including terminal) and its `target` and `contentSha256` equal the request's | nothing written; the existing record is the receipt |
 | `conflict` | same `admissionId`, different `target` or `contentSha256` | nothing written; the existing record is never overwritten |
 | `capacity` | 256 pending records (`admitted` or `dispatching`) already exist, or the directory already holds 2048 entries of any kind | nothing written; the source keeps the request |
-| `storage` | the write failed | no receipt |
+| `storage` | the write failed, or a file named `<admissionId>.json` exists and does not decode as a v1 record | nothing overwritten; no receipt; the source keeps the request |
 | `admitted` | otherwise | record written with `stage: admitted`, `attempts: 0` |
 
-Checks run in the order of the table. A durable receipt exists only for `admitted` and
+Checks run in the order of the table, except that an undecodable file under the request's own
+`admissionId` is decided where `duplicate` would be (before `capacity`). A durable receipt exists only for `admitted` and
 `duplicate`; it carries `admissionId`, `downstreamId` and the current `stage`, never a bare
 boolean. A source must not be told "received" for any other result. Storage availability is the
 result of the write itself, not the lock state (same rule as §10.1).
@@ -85,7 +87,9 @@ until the 14-day rule makes it `unknown`. `linked` is never reported as executed
 ## 4. Dispatch, sweep and limits
 
 - Dispatch is sequential, FIFO by (`admittedAtMs`, `admissionId`), at most 16 records per pass,
-  skipping records whose `nextAttemptAtMs` is in the future. Immediately before each dispatch the
+  skipping records whose `nextAttemptAtMs` is in the future. A record that is only waiting for
+  execution conditions (§3: Bot unit not started, account not signed in, phone locked) is skipped
+  and does not count toward the 16, so waiting records never starve later ones. Immediately before each dispatch the
   host re-checks expiry, that the target still exists and that an `account:` principal is still
   the signed-in account.
 - A `dsh-session` record is handed to the send outbox with `rpcId = downstreamId` and joins the

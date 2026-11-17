@@ -1,5 +1,5 @@
 {
- "revision": "external-admission-v1",
+ "revision": "external-admission-v1.1",
  "contract": "spec/host/v1/external-admission.md",
  "limits": {
   "maxTextBytes": 16384,
@@ -1351,6 +1351,74 @@
     "text": "x"
    },
    "result": "invalid"
+  },
+  {
+   "id": "undecodable-file-under-own-id",
+   "now": 1794700000000,
+   "existing": [],
+   "undecodableOwnFile": true,
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": "现在几点了？"
+   },
+   "result": "storage"
+  },
+  {
+   "id": "undecodable-own-file-wins-over-capacity",
+   "now": 1794700000000,
+   "existing": [],
+   "undecodableOwnFile": true,
+   "pendingCount": 256,
+   "directoryEntries": 2048,
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": "现在几点了？"
+   },
+   "result": "storage"
+  },
+  {
+   "id": "undecodable-own-file-but-request-invalid",
+   "now": 1794700000000,
+   "existing": [],
+   "undecodableOwnFile": true,
+   "request": {
+    "principal": "local",
+    "source": {
+     "kind": "tonolink-voice",
+     "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "target": {
+     "kind": "dsh-session",
+     "sessionId": "gb-main"
+    },
+    "downstreamId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "expiresAtMs": 1794786400000,
+    "text": ""
+   },
+   "result": "invalid"
   }
  ],
  "transitions": [
@@ -2229,6 +2297,257 @@
     "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e",
     "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f",
     "1010101010101010101010101010101010101010101010101010101010101010"
+   ]
+  },
+  {
+   "id": "waiting-records-do-not-use-the-pass",
+   "now": 1794700000100,
+   "records": [
+    {
+     "admissionId": "0101010101010101010101010101010101010101010101010101010101010101",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000001,
+     "expiresAtMs": 1794786400001,
+     "waiting": true
+    },
+    {
+     "admissionId": "0202020202020202020202020202020202020202020202020202020202020202",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000002,
+     "expiresAtMs": 1794786400002,
+     "waiting": true
+    },
+    {
+     "admissionId": "0303030303030303030303030303030303030303030303030303030303030303",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000003,
+     "expiresAtMs": 1794786400003,
+     "waiting": true
+    },
+    {
+     "admissionId": "0404040404040404040404040404040404040404040404040404040404040404",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000004,
+     "expiresAtMs": 1794786400004,
+     "waiting": true
+    },
+    {
+     "admissionId": "0505050505050505050505050505050505050505050505050505050505050505",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000005,
+     "expiresAtMs": 1794786400005,
+     "waiting": true
+    },
+    {
+     "admissionId": "0606060606060606060606060606060606060606060606060606060606060606",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000006,
+     "expiresAtMs": 1794786400006,
+     "waiting": true
+    },
+    {
+     "admissionId": "0707070707070707070707070707070707070707070707070707070707070707",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000007,
+     "expiresAtMs": 1794786400007,
+     "waiting": true
+    },
+    {
+     "admissionId": "0808080808080808080808080808080808080808080808080808080808080808",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000008,
+     "expiresAtMs": 1794786400008,
+     "waiting": true
+    },
+    {
+     "admissionId": "0909090909090909090909090909090909090909090909090909090909090909",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000009,
+     "expiresAtMs": 1794786400009,
+     "waiting": true
+    },
+    {
+     "admissionId": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000010,
+     "expiresAtMs": 1794786400010,
+     "waiting": true
+    },
+    {
+     "admissionId": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000011,
+     "expiresAtMs": 1794786400011,
+     "waiting": true
+    },
+    {
+     "admissionId": "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000012,
+     "expiresAtMs": 1794786400012,
+     "waiting": true
+    },
+    {
+     "admissionId": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000013,
+     "expiresAtMs": 1794786400013,
+     "waiting": true
+    },
+    {
+     "admissionId": "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000014,
+     "expiresAtMs": 1794786400014,
+     "waiting": true
+    },
+    {
+     "admissionId": "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000015,
+     "expiresAtMs": 1794786400015,
+     "waiting": true
+    },
+    {
+     "admissionId": "1010101010101010101010101010101010101010101010101010101010101010",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000016,
+     "expiresAtMs": 1794786400016,
+     "waiting": true
+    },
+    {
+     "admissionId": "1111111111111111111111111111111111111111111111111111111111111111",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000017,
+     "expiresAtMs": 1794786400017,
+     "waiting": true
+    },
+    {
+     "admissionId": "1212121212121212121212121212121212121212121212121212121212121212",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000018,
+     "expiresAtMs": 1794786400018
+    },
+    {
+     "admissionId": "1313131313131313131313131313131313131313131313131313131313131313",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000019,
+     "expiresAtMs": 1794786400019
+    },
+    {
+     "admissionId": "1414141414141414141414141414141414141414141414141414141414141414",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000020,
+     "expiresAtMs": 1794786400020
+    },
+    {
+     "admissionId": "1515151515151515151515151515151515151515151515151515151515151515",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000021,
+     "expiresAtMs": 1794786400021
+    },
+    {
+     "admissionId": "1616161616161616161616161616161616161616161616161616161616161616",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000022,
+     "expiresAtMs": 1794786400022
+    },
+    {
+     "admissionId": "1717171717171717171717171717171717171717171717171717171717171717",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000023,
+     "expiresAtMs": 1794786400023
+    },
+    {
+     "admissionId": "1818181818181818181818181818181818181818181818181818181818181818",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000024,
+     "expiresAtMs": 1794786400024
+    },
+    {
+     "admissionId": "1919191919191919191919191919191919191919191919191919191919191919",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000025,
+     "expiresAtMs": 1794786400025
+    },
+    {
+     "admissionId": "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000026,
+     "expiresAtMs": 1794786400026
+    },
+    {
+     "admissionId": "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000027,
+     "expiresAtMs": 1794786400027
+    },
+    {
+     "admissionId": "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000028,
+     "expiresAtMs": 1794786400028
+    },
+    {
+     "admissionId": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000029,
+     "expiresAtMs": 1794786400029
+    },
+    {
+     "admissionId": "1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000030,
+     "expiresAtMs": 1794786400030
+    },
+    {
+     "admissionId": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000031,
+     "expiresAtMs": 1794786400031
+    },
+    {
+     "admissionId": "2020202020202020202020202020202020202020202020202020202020202020",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000032,
+     "expiresAtMs": 1794786400032
+    },
+    {
+     "admissionId": "2121212121212121212121212121212121212121212121212121212121212121",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000033,
+     "expiresAtMs": 1794786400033
+    },
+    {
+     "admissionId": "2222222222222222222222222222222222222222222222222222222222222222",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000034,
+     "expiresAtMs": 1794786400034
+    },
+    {
+     "admissionId": "2323232323232323232323232323232323232323232323232323232323232323",
+     "stage": "admitted",
+     "admittedAtMs": 1794700000035,
+     "expiresAtMs": 1794786400035
+    }
+   ],
+   "dispatch": [
+    "1212121212121212121212121212121212121212121212121212121212121212",
+    "1313131313131313131313131313131313131313131313131313131313131313",
+    "1414141414141414141414141414141414141414141414141414141414141414",
+    "1515151515151515151515151515151515151515151515151515151515151515",
+    "1616161616161616161616161616161616161616161616161616161616161616",
+    "1717171717171717171717171717171717171717171717171717171717171717",
+    "1818181818181818181818181818181818181818181818181818181818181818",
+    "1919191919191919191919191919191919191919191919191919191919191919",
+    "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+    "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b",
+    "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c",
+    "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+    "1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e",
+    "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+    "2020202020202020202020202020202020202020202020202020202020202020",
+    "2121212121212121212121212121212121212121212121212121212121212121"
    ]
   }
  ]

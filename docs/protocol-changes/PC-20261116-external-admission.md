@@ -99,3 +99,4 @@ Protocol impact: P06; P07; P09; P27; P12: none — 不改 SDK 模块、ABI 或 `
 | revision | 由谁 | 原因 | 通知了哪些端 |
 | --- | --- | --- | --- |
 | external-admission-v1 | 主 agent | 首次冻结 | iOS、Android |
+| external-admission-v1.1 | 主 agent | 裁定 iOS、Android 实现者各自提出的同一条 CONTRACT CHANGE REQUEST：请求自己的 `admissionId` 下已有解不出的文件时结果为 `storage`（§2，新增 3 个 `admit` 用例）；并裁定两端都指出的队头阻塞：只是在等执行条件的记录不占每轮 16 条的额度（§4，新增 1 个 `order` 用例，记录带 `waiting`）。其余条款与既有用例不变 | iOS、Android |

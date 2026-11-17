@@ -102,6 +102,8 @@ def decide_admit(case: dict, schema: dict) -> str:
     ttl = record["expiresAtMs"] - now
     if ttl < MIN_TTL_MS or ttl > MAX_TTL_MS:
         return "invalid"
+    if case.get("undecodableOwnFile"):
+        return "storage"
     for existing in case.get("existing", []):
         if existing["admissionId"] != record["admissionId"]:
             continue
@@ -141,7 +143,8 @@ def dispatch_order(records: list, now: int) -> list:
     ready = [item for item in records
              if item["stage"] in PENDING
              and not (item["stage"] == "admitted" and now >= item["expiresAtMs"])
-             and item.get("nextAttemptAtMs", 0) <= now]
+             and item.get("nextAttemptAtMs", 0) <= now
+             and not item.get("waiting", False)]
     ready.sort(key=lambda item: (item["admittedAtMs"], item["admissionId"]))
     return [item["admissionId"] for item in ready[:PASS_LIMIT]]
 
@@ -202,7 +205,8 @@ class ExternalAdmissionTests(unittest.TestCase):
         for case in self.fixture["admit"]:
             seen.add(case["result"])
             self.assertEqual(decide_admit(case, self.schema), case["result"], case["id"])
-        self.assertEqual(seen, {"admitted", "duplicate", "conflict", "capacity", "invalid"})
+        self.assertEqual(seen, {"admitted", "duplicate", "conflict", "capacity", "invalid",
+                                "storage"})
 
     def test_transition_table_is_total(self) -> None:
         pairs = {(case["from"], case["to"]): case["allowed"]
