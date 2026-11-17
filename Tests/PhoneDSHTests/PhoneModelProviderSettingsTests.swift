@@ -894,19 +894,6 @@ final class PhoneModelProviderSettingsTests: XCTestCase {
         }
         XCTAssertTrue(environment.isEmpty)
     }
-
-    func testUpsertPreservesPerModelImageInput() throws {
-        var value = profile()
-        value.models = [
-            ProviderModelDefinition(id: "deepseek-flash", imageInput: true,
-                                    reasoningEffort: "max"),
-        ]
-        try settings.upsert(value)
-        let loaded = try settings.load().profiles.first
-        XCTAssertEqual(loaded?.models?.first?.id, "deepseek-flash")
-        XCTAssertEqual(loaded?.models?.first?.imageInput, true)
-        XCTAssertEqual(loaded?.models?.first?.reasoningEffort, "max")
-    }
 }
 
 private final class InMemoryModelProviderSecretStore: ModelProviderSecretStore, @unchecked Sendable {

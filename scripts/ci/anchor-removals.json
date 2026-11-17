@@ -1,9 +1,0 @@
-{
-  "removals": [
-    {
-      "id": "settlement.approvalAutoDeclined",
-      "reason": "The '已略过，视为拒绝' settlement was produced only by the implicit-deny-on-send path. L5 removed that path on review item 9, so no product code can render this string; keeping a strings.json source anchor for it would be a false locator.",
-      "evidence": "K-LOCKS L5 181b9f634b4cfecbddc9496faedcebfb158fd2c3 (implicit-deny removal); `grep -rn '已略过，视为拒绝' Sources examples --include=*.swift` returns 0; the strings entry was deleted in L5b 50e86517fe4f877344bacb2084b262e4a63f6e6f."
-    }
-  ]
-}

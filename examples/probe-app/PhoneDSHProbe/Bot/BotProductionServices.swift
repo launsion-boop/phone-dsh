@@ -51,42 +51,6 @@ struct BotProductionContext: Equatable, Sendable {
     var botName: String
 }
 
-/// Cloud scheduling configuration for one install. The base URL is a
-/// deployment fact: `PDSH_CLOUD_BASE_URL` overrides it for the local
-/// integration service, otherwise the existing Tono account origin is used.
-/// The device id is a stable per-install opaque value (never a hard ware id).
-struct BotCloudConfiguration: Sendable {
-    var baseURL: URL
-    var deviceID: String
-    var authorizer: any CloudScheduleAuthorizing
-
-    init(baseURL: URL, deviceID: String,
-         authorizer: any CloudScheduleAuthorizing = CloudScheduleAuthorizer()) {
-        self.baseURL = baseURL
-        self.deviceID = deviceID
-        self.authorizer = authorizer
-    }
-
-    static func production() -> BotCloudConfiguration? {
-        let override = ProcessInfo.processInfo.environment["PDSH_CLOUD_BASE_URL"]
-            .flatMap(URL.init(string:))
-        let fallback = URL(string: "https://account.tonoai.cn")
-        guard let baseURL = override ?? fallback else { return nil }
-        return BotCloudConfiguration(baseURL: baseURL, deviceID: deviceIdentity())
-    }
-
-    /// P18 pending registration: `phone-dsh.bot.cloud.device-id.v1`.
-    static func deviceIdentity() -> String {
-        let key = "phone-dsh.bot.cloud.device-id.v1"
-        if let existing = UserDefaults.standard.string(forKey: key), !existing.isEmpty {
-            return existing
-        }
-        let generated = "dev-" + UUID().uuidString.lowercased()
-        UserDefaults.standard.set(generated, forKey: key)
-        return generated
-    }
-}
-
 struct BotProductionRuntimeContext: Sendable {
     let botID: String
     /// The profile name of this Bot. It is the fallback after the last
@@ -578,33 +542,13 @@ actor BotProductionRowService {
     /// reconnect line survives the poll that threw.
     private var health = BotProductionWatchHealth.healthy
 
-    /// G-2 feedback center. Optional so a host without a durable store keeps
-    /// the UI's explicit "not connected" answer instead of a fake success.
-    let feedbackCenter: BotFeedbackCenter?
-    /// G-1 provenance read model for the source inspector.
-    let provenance: BotProvenanceService?
-    /// G-2 delivery selection host shared with the MCP runtime. nil keeps the
-    /// UI's explicit "not connected" answer instead of a fake success.
-    let deliverySelection: BotDeliverySelectionHost?
-    let clock: @Sendable () -> Int64
-
     init(environment: BotProductionEnvironment, history: BotRowHistory = BotRowHistory(),
          remote: BotDSHRemoteRuntime? = nil,
-         cardAnswerPromptResumer: (any BotCardAnswerPromptResuming)? = nil,
-         feedbackCenter: BotFeedbackCenter? = nil,
-         provenance: BotProvenanceService? = nil,
-         deliverySelection: BotDeliverySelectionHost? = nil,
-         clock: @escaping @Sendable () -> Int64 = {
-             Int64(Date().timeIntervalSince1970 * 1000)
-         }) {
+         cardAnswerPromptResumer: (any BotCardAnswerPromptResuming)? = nil) {
         self.environment = environment
         self.history = history
         self.remote = remote
         self.cardAnswerPromptResumer = cardAnswerPromptResumer
-        self.feedbackCenter = feedbackCenter
-        self.provenance = provenance
-        self.deliverySelection = deliverySelection
-        self.clock = clock
     }
 
     func start() async throws {
@@ -994,11 +938,6 @@ struct BotProductionInfoSnapshot: Sendable {
 /// Read/write view over the same `BotMemory` and `RoutineMachine` the
 /// composition root injected; nothing here opens a second fact store.
 actor BotProductionInfoService {
-    /// Set once by the unit's `make`; nil keeps cloud actions fail-closed.
-    private(set) var cloudWiring: BotCloudScheduleWiring?
-
-    func attachCloudWiring(_ wiring: BotCloudScheduleWiring?) { cloudWiring = wiring }
-
     private let environment: BotProductionEnvironment
     private let scheduler: RoutineScheduler?
     private let settingsStore: ProactiveSettingsStore

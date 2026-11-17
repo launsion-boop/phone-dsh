@@ -278,25 +278,6 @@ public enum BotToolCatalog {
     /// returns only the current session's bounded block; it grants nothing.
     public static let decisionContextName = BotDecisionTool.name
 
-    /// Bot-only skill gate lookup for R's `tools/pre-execute`. Exposed through
-    /// `tools/list` for the Worker, absent from the frozen P26 model catalog.
-    public static let skillStatusName = "BotSkillUseStatus"
-
-    public static let skillStatusDefinition = BotMCPToolDefinition(
-        name: skillStatusName,
-        description: "Return the caller Bot's L provenance status for one skill name. A nil status is returned as null (untracked), never as current.",
-        inputSchema: .object([
-            "type": .string("object"),
-            "required": .array([.string("schema"), .string("name")]),
-            "properties": .object([
-                "schema": .object(["const": .string("bot-skill-use-status/v1")]),
-                "name": .object([
-                    "type": .string("string"), "minLength": .number(1), "maxLength": .number(128),
-                ]),
-            ]),
-            "additionalProperties": .bool(false),
-        ]))
-
     public static let decisionContextDefinition = BotMCPToolDefinition(
         name: decisionContextName,
         description: "Return this session's bounded decision materials for the current turn and step. The host validates the claimed session/turn/step and returns only this session's materials; the call is read-only and grants nothing.",
@@ -377,13 +358,13 @@ public enum BotToolCatalog {
     /// Worker-only `tools/list` view: the frozen P26 model catalog stays
     /// unchanged, while the Bot gate can discover its internal status tool.
     public static var workerDefinitions: [BotMCPToolDefinition] {
-        allDefinitions + [decisionContextDefinition, skillStatusDefinition]
+        allDefinitions + [decisionContextDefinition]
     }
 
     public static func workerDefinitions(roster: BotRoster,
                                          callerBotID: String?) -> [BotMCPToolDefinition] {
         allDefinitions(roster: roster, callerBotID: callerBotID)
-            + [decisionContextDefinition, skillStatusDefinition]
+            + [decisionContextDefinition]
     }
 
     public static func isTeamTool(_ name: String) -> Bool {

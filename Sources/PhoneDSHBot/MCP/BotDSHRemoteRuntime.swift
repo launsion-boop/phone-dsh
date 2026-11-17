@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+import CryptoKit
 import Foundation
 import PhoneDSHAgentCore
 
@@ -197,8 +198,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private let model: String
     private let providerName: String
     private let botDataDirectory: String
-    private let skillProducer: BotSkillProvenanceProducer?
-    private let skillQueue: BotSkillEventQueue?
     private let onSessionRegistered: (@Sendable (String) -> Void)?
     private let now: @Sendable () -> Int64
     private let ledger: BotLLMLedger
@@ -308,8 +307,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         provider: String = "deepseek-official",
         wakeInbox: WakeInbox? = nil,
         botDataDirectory: String = BotWorkspaceLayout.defaultBotDataDirectory,
-        skillProducer: BotSkillProvenanceProducer? = nil,
-        skillQueue: BotSkillEventQueue? = nil,
         onSessionRegistered: (@Sendable (String) -> Void)? = nil,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }
     ) async throws {
@@ -320,9 +317,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         providerName = provider
         self.wakeInbox = wakeInbox
         self.botDataDirectory = botDataDirectory
-        self.skillProducer = skillProducer
-        self.skillQueue = skillQueue
-            ?? skillProducer.map { BotSkillEventQueue(producer: $0) }
         self.onSessionRegistered = onSessionRegistered
         self.now = now
         ledger = BotLLMLedger(eventLog: runtime.store)
@@ -3477,7 +3471,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         var toolNames: [String: String] = [:]
         var toolFinals: [String: Bool] = [:]
         var toolWritePaths: [String: String] = [:]
-        var toolWriteVfsPaths: [String: String] = [:]
         var toolWriteCreatorSHA: [String: String] = [:]
         var toolCallRecordRefs: [String: String] = [:]
         var toolWriteFullContent: [String: Bool] = [:]
@@ -3666,7 +3659,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                    let path = Self.toolWritePath(from: data),
                    let relative = Self.workspaceRelativePath(path, root: botRoot()) {
                     toolWritePaths[callId] = relative
-                    toolWriteVfsPaths[callId] = path
                 }
                 if isContentCardTool(name), let final = contentCardFinal(in: data["arguments"]) {
                     toolFinals[callId] = final
@@ -3682,7 +3674,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 }
                 if name == "write", let content = Self.toolWriteContent(from: data) {
                     toolWriteFullContent[callId] = true
-                    toolWriteCreatorSHA[callId] = BotSkillProvenanceProducer.contentSHA256(content)
+                    toolWriteCreatorSHA[callId] = Self.contentSHA256(content)
                 }
             case "tool/result":
                 let callId = data["message"]?["toolCallId"]?.stringValue ?? ""
@@ -3722,25 +3714,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     resultData = .object(object)
                 }
                 toolWritePaths.removeValue(forKey: callId)
-                let writeVfsPath = toolWriteVfsPaths.removeValue(forKey: callId)
                 let resultCommitSeq = try await appendConversation(
                     type: "conversation.tool_result", sessionId: sessionId, seq: seq,
                     data: resultData, principalKind: kind, time: eventTime, attemptId: attemptId)
-                if !failed, let writeVfsPath, let skillQueue {
-                    // Persist the real action/result before deriving the skill.
-                    // The write call is the author's creator action, not a
-                    // content basis: G-SCB-1 only evidence/basis count. An
-                    // edit carries just a patch, so it stays trigger-only and
-                    // content-unknown until a reconstructable version exists.
-                    let botID = botId
-                    let session = sessionId
-                    await skillQueue.enqueueAndWait {
-                        await skillQueue.runtimeWrite(
-                            vfs: writeVfsPath, botID: botID, sessionID: session,
-                            sources: writeSources, creatorRecord: creatorRecord,
-                            creatorContentSHA256: creatorSHA)
-                    }
-                }
                 toolCallRecordRefs.removeValue(forKey: callId)
                 toolWriteFullContent.removeValue(forKey: callId)
                 toolWriteCreatorSHA.removeValue(forKey: callId)
@@ -3866,6 +3842,14 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// Frozen workspaceFile derivation: artifact id is the relative path, no
     /// monotonic version; the real current user turn is the evidence source.
     /// A missing user source never produces a derivation.
+    /// SHA-256 over the exact write bytes. The deleted skill producer used to
+    /// own this helper; workspace-file derivation still needs the creator
+    /// content digest.
+    private static func contentSHA256(_ text: String) -> String {
+        let digest = SHA256.hash(data: Data(text.utf8))
+        return "sha256:" + digest.map { String(format: "%02x", $0) }.joined()
+    }
+
     static func workspaceFileDerivation(path: String, botID: String,
                                         userRecord: String?,
                                         creatorRecord: String? = nil) -> BotJSONValue {

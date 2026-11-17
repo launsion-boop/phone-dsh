@@ -139,10 +139,4 @@ export type AgentPresetsValue =
 /** Host constructor options; the final profile row may pin the skills root. */
 export interface FeatureAdminConfig {
   readonly skillsRoot?: string
-  /**
-   * Raw operation journal for user skill writes/deletes. Tests inject a fake;
-   * production defaults to the App host bridge. Absent/unavailable fails a
-   * mutation closed before the file is touched.
-   */
-  readonly skillMutations?: import('./mutation-records.ts').SkillMutationJournal
 }

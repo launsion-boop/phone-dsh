@@ -11,7 +11,7 @@ import dshbotApprovalGate, { needsStructuralApproval, phoneEffectsForApproval } 
 import { botOwnedSessions } from '../bot-runtime/src/bot-sessions.ts'
 import { executeTool } from './bot-runtime-test-kit.ts'
 
-const names = ['BotVolatileContext', 'BotDecisionContext', 'BotSkillUseStatus'] as const
+const names = ['BotVolatileContext', 'BotDecisionContext'] as const
 const args: Record<string, Record<string, unknown>> = {
   BotVolatileContext: { sessionId: 'gb-main' },
   BotDecisionContext: {
@@ -21,7 +21,6 @@ const args: Record<string, Record<string, unknown>> = {
       max_materials: 4, max_characters: 1600, max_snippet_characters: 240, deadline_ms: 1500,
     },
   },
-  BotSkillUseStatus: { schema: 'bot-skill-use-status/v1', name: 'weekly-report' },
 }
 
 function probe(ctx: Context, name: string, calls: string[]): void {
@@ -32,7 +31,7 @@ function probe(ctx: Context, name: string, calls: string[]): void {
   }))
 }
 
-test('all three internal reads are empty-effect and execute without an approval ask', async () => {
+test('both internal reads are empty-effect and execute without an approval ask', async () => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt, {})
   await ctx.plugin(ToolRuntime, {})

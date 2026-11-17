@@ -80,8 +80,7 @@ public actor BotMCPHandler {
             let bareName = Self.bareToolName(name)
             let catalogTool = BotToolCatalog.isRegistered(bareName)
             let teamTool = catalogTool ? false : await runtime.handlesTeamTool(bareName)
-            let internalStatusTool = bareName == BotToolCatalog.skillStatusName
-            guard catalogTool || teamTool || internalStatusTool else {
+            guard catalogTool || teamTool else {
                 if let forwarded = await forwardNative(method: method, params: params, id: id,
                                                        headers: headers) {
                     return forwarded

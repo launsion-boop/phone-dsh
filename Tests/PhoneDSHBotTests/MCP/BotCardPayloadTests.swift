@@ -195,7 +195,7 @@ final class BotCardPayloadTests: XCTestCase {
             $0.name == BotFeedbackTools.definition.name
         })
         XCTAssertFalse(BotToolCatalog.allDefinitions.contains {
-            $0.name == BotToolCatalog.decisionContextName || $0.name == BotToolCatalog.skillStatusName
+            $0.name == BotToolCatalog.decisionContextName
         })
         for name in BotToolCatalog.p1TargetNames + ["show_canvas", "show_product", "show_gift", "GenerateImage"] {
             XCTAssertFalse(BotToolCatalog.isRegistered(name))

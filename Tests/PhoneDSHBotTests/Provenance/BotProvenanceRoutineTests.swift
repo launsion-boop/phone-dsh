@@ -80,47 +80,4 @@ final class BotProvenanceRoutineTests: XCTestCase {
         XCTAssertEqual(state.reasons, [.noDerivation])
     }
 
-    func testLatestSkillChangeAndFileRechecker() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("skill-recheck-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let file = "weekly-report.md"
-        let content = Data("weekly body".utf8)
-        try content.write(to: root.appendingPathComponent(file))
-        let hash = "sha256:" + SHA256.hash(data: content)
-            .map { String(format: "%02x", $0) }.joined()
-        let rechecker = BotSkillFileRechecker(root: root)
-        let same = await rechecker.recheckSkill(
-            identity: BotSkillIdentity(name: "weekly-report"),
-            file: file, expectedSHA256: hash)
-        guard case .same = same else { return XCTFail("expected same, got \(same)") }
-        try Data("changed body".utf8).write(to: root.appendingPathComponent(file))
-        let changed = await rechecker.recheckSkill(
-            identity: BotSkillIdentity(name: "weekly-report"),
-            file: file, expectedSHA256: hash)
-        guard case .changed = changed else { return XCTFail("expected changed") }
-        try FileManager.default.removeItem(at: root.appendingPathComponent(file))
-        let missing = await rechecker.recheckSkill(
-            identity: BotSkillIdentity(name: "weekly-report"),
-            file: file, expectedSHA256: hash)
-        guard case .unavailable = missing else { return XCTFail("expected unavailable") }
-        let escaped = await rechecker.recheckSkill(
-            identity: BotSkillIdentity(name: "weekly-report"),
-            file: "../escape.md", expectedSHA256: hash)
-        guard case .notPerformed = escaped else { return XCTFail("expected notPerformed") }
-
-        // Latest carrier info for host reconciliation.
-        let log = BotProvenanceTestLog()
-        let service = BotProvenanceService(eventLog: log)
-        _ = try await service.recordSkillWrite(BotSkillWriteRequest(
-            name: "weekly-report", file: file, revision: 1, action: .write,
-            contentSHA256: hash, bytes: content.count, previousSHA256: nil,
-            author: BotSkillChangeAuthor(kind: "system"), atMS: 1_000, sources: []))
-        let latest = try await service.latestSkillChange(name: "weekly-report")
-        XCTAssertEqual(latest?.revision, 1)
-        XCTAssertEqual(latest?.contentSHA256, hash)
-        XCTAssertEqual(latest?.action, "write")
-        XCTAssertEqual(latest?.carrier, "record://event/1")
-    }
 }

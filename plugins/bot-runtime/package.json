@@ -12,7 +12,6 @@
     "./steering": "./src/steering.ts",
     "./volatile-context": "./src/volatile-context.ts",
     "./decision-context": "./src/decision-context.ts",
-    "./skill-use-gate": "./src/skill-use-gate.ts",
     "./tool-result-index": "./src/tool-result-index.ts",
     "./channel": "./src/channel.ts",
     "./identity-bridge": "./src/identity-bridge.ts",

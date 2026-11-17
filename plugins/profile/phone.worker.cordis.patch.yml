@@ -819,12 +819,6 @@
             name: '@deepseek-ai/dsh-skill-filesystem'
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
-          # Bot-only provenance gate before the official `skill` loader runs.
-          # nil/untracked and all non-current statuses deny; only a real
-          # producer `current` may load. The host answers through
-          # mcp__phone__BotSkillUseStatus.
-          - id: skill-use-gate
-            name: '@phone-dsh/dsh-bot-runtime/skill-use-gate'
           - id: command-goal
             name: '@deepseek-ai/dsh-command-goal'
           - id: tool-goal
@@ -916,12 +910,10 @@
     # keeps `tool-todo` / `tool-goal` and its prompt teaches `todo_write`
     # and the goal tools. phoneDSH therefore keeps those two and drops the
     # rows that would teach capabilities the phone persona does not have:
-    # `tool-schedule` (the App's RoutineMachine owns routines), native
-    # `ask_user` (the phone MCP owns `ask_user`), plan mode, present,
-    # workflow and subagent control. The official `skill-filesystem` and
-    # `tool-skill` rows are kept so a Bot can discover and load its own
-    # project skills plus the global user catalog; writes/deletes are
-    # recorded by the host producer, not by a second skill store.
+    # `tool-schedule` (the App's RoutineMachine owns routines), the
+    # workspace skill catalog (`skill-filesystem` / `tool-skill`; per-Bot
+    # skills arrive in a later PR), native `ask_user` (the phone MCP owns
+    # `ask_user`), plan mode, present, workflow and subagent control.
     # There is deliberately no `persona` row: the Bot inherits the global
     # phone persona from the `system-prompt` row above instead of the
     # generic coding-agent prefix. DSH workbench sessions keep `standard`.
@@ -958,23 +950,6 @@
               sampleOverCapGlobResults: false
           - id: tool-jobs
             name: '@deepseek-ai/dsh-tool-jobs'
-          # Restore the official skill capability on the Bot surface. The
-          # filesystem provider scans the per-Bot project roots
-          # (`<bot-root>/.dsh/skills`, `<bot-root>/.agents/skills`) first and
-          # the global user roots after them, so a private skill with the same
-          # name wins over a global one without a second skill store. The
-          # `skill` loader is the official @deepseek-ai/dsh-tool-skill; R2
-          # records writes/deletes through the host producer.
-          - id: skill-filesystem
-            name: '@deepseek-ai/dsh-skill-filesystem'
-          - id: tool-skill
-            name: '@deepseek-ai/dsh-tool-skill'
-          # Bot-only provenance gate before the official `skill` loader runs.
-          # nil/untracked and all non-current statuses deny; only a real
-          # producer `current` may load. The host answers through
-          # mcp__phone__BotSkillUseStatus.
-          - id: skill-use-gate
-            name: '@phone-dsh/dsh-bot-runtime/skill-use-gate'
           - id: command-goal
             name: '@deepseek-ai/dsh-command-goal'
           - id: tool-goal

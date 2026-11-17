@@ -102,9 +102,6 @@ struct BotRoutineInfo: Identifiable, Equatable {
     var creatorDetail: String?
     /// Raw error behind `lastResult`; display-only, never in the main row.
     var lastResultDetail: String?
-    /// The routine's local cloud-scheduling permission. Enabling requires a
-    /// durable user authorization record; the UI only reflects the host value.
-    var cloudScheduleEnabled: Bool = false
 }
 
 struct BotGrantInfo: Identifiable, Equatable {
@@ -178,12 +175,6 @@ struct BotInfoDriver {
     /// Erases the shared user scope for every Bot; a separate confirmed entry.
     var eraseShared: () async throws -> Void = {}
     var setRoutineEnabled: (String, Bool) async throws -> Void
-    /// Enables/disables cloud scheduling for one routine. The production
-    /// adapter writes the user's authorization event and passes its
-    /// `record://` ref to RoutineMachine before enabling.
-    var setRoutineCloudSchedule: (String, Bool) async throws -> Void = { _, _ in
-        throw BotInfoActionError.cloudScheduleUnavailable
-    }
     var revokeGrant: (String) async throws -> Void = { _ in }
     var cancelRoutine: (String) async throws -> Void = { _ in }
     var resolveReconciliation: (String, String) async throws -> Void = { _, _ in }
@@ -191,15 +182,6 @@ struct BotInfoDriver {
     var saveProactiveSettings: (ProactiveSettings) async throws -> ProactiveSettings = { $0 }
     var setMaintenanceEnabled: (Bool) async throws -> Void = { _ in }
     var rollbackMaintenance: (String) async throws -> Void = { _ in }
-}
-
-enum BotInfoActionError: LocalizedError {
-    case cloudScheduleUnavailable
-    var errorDescription: String? {
-        switch self {
-        case .cloudScheduleUnavailable: return "云端调度接口未连接。"
-        }
-    }
 }
 
 enum BotInfoLoadState: Equatable {
@@ -539,22 +521,6 @@ final class BotInfoModel: ObservableObject {
         }
     }
 
-    func setRoutineCloudSchedule(_ routine: BotRoutineInfo, enabled: Bool) async {
-        // A missing driver is not a successful no-op: the fixture model must
-        // show the same honest failure the production wiring would show.
-        guard let driver else {
-            actionError = "云端调度设置失败：云端调度开关未连接。"
-            return
-        }
-        do {
-            try await driver.setRoutineCloudSchedule(routine.id, enabled)
-            guard let index = routines.firstIndex(where: { $0.id == routine.id }) else { return }
-            routines[index].cloudScheduleEnabled = enabled
-        } catch {
-            actionError = "云端调度设置失败：\(error.localizedDescription)"
-        }
-    }
-
     func cancelRoutine(_ routine: BotRoutineInfo) async {
         do {
             try await driver?.cancelRoutine(routine.id)
@@ -614,8 +580,6 @@ struct BotInfoPage: View {
     /// Fixture/preview override for the profile description. Production reads
     /// `BotProfile.description` through the model and leaves this nil.
     private let descriptionOverride: String?
-    private let contextSources: BotContextSourcesAssembly?
-    private let contextBotID: String?
     /// Fixture-only erasure-confirmation preview; production leaves this nil.
     private let memoryConfirmationPreview: BotMemoryConfirmationPreview?
     @Environment(\.dismiss) private var dismiss
@@ -633,17 +597,13 @@ struct BotInfoPage: View {
          highlightRoutineID: String? = nil,
          onDelete: (() async throws -> Void)? = nil,
          description: String? = nil,
-         memoryConfirmationPreview: BotMemoryConfirmationPreview? = nil,
-         contextSources: BotContextSourcesAssembly? = nil,
-         contextBotID: String? = nil) {
+         memoryConfirmationPreview: BotMemoryConfirmationPreview? = nil) {
         self.model = model
         self.isMainBot = isMainBot
         self.highlightRoutineID = highlightRoutineID
         self.onDelete = onDelete
         self.descriptionOverride = description
         self.memoryConfirmationPreview = memoryConfirmationPreview
-        self.contextSources = contextSources
-        self.contextBotID = contextBotID
         var initialPath = NavigationPath()
         if let initialSection { initialPath.append(initialSection) }
         _path = State(initialValue: initialPath)
@@ -737,18 +697,6 @@ struct BotInfoPage: View {
                     BotDisruptionSection(model: model)
                 } header: {
                     Text("打扰")
-                }
-
-                if let contextSources, let contextBotID {
-                    Section("情境来源") {
-                        NavigationLink {
-                            BotContextSourcesSettingsView(
-                                botID: contextBotID, assembly: contextSources)
-                        } label: {
-                            Label("管理情境来源", systemImage: "dot.radiowaves.left.and.right")
-                        }
-                        .accessibilityIdentifier("bot.info.context-sources")
-                    }
                 }
 
                 Section("数据") {
@@ -1554,8 +1502,6 @@ private struct BotRoutinesPage: View {
                 }
             }
 
-            cloudScheduleBlock(routine)
-
             if routine.urgent {
                 Label("紧急：\(routine.urgentReason ?? "未说明")", systemImage: "exclamationmark")
                     .botCaptionFont()
@@ -1590,35 +1536,6 @@ private struct BotRoutinesPage: View {
             routineDetailDisclosure(routine, reconciliation: reconciliation)
         }
         .padding(.vertical, 4)
-    }
-
-    /// One explicit user choice. The switch is the approval: enabling writes a
-    /// durable authorization event in the host before the routine's cloud
-    /// schedule is turned on. There is no model-initiated self-enable path.
-    @ViewBuilder
-    private func cloudScheduleBlock(_ routine: BotRoutineInfo) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Toggle(isOn: Binding(
-                get: { routine.cloudScheduleEnabled },
-                set: { newValue in
-                    Task { await model.setRoutineCloudSchedule(routine, enabled: newValue) }
-                }
-            )) {
-                Text("允许云端调度")
-                    .botSecondaryFont(weight: .medium)
-                    .foregroundStyle(HomeSpec.textPrimary)
-            }
-            .toggleStyle(.switch)
-            .disabled(!routine.enabled)
-            .accessibilityIdentifier("bot.routine.cloud.\(routine.id)")
-            Text(routine.enabled
-                 ? "设备离线时由云端按时唤醒；开启会留下一条可回查的用户同意记录。"
-                 : "先恢复例行任务，才能开启云端调度。")
-                .font(.system(size: 12))
-                .foregroundStyle(HomeSpec.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.vertical, 2)
     }
 
     private var routineFreeTextSummary: String {

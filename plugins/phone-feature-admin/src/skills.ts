@@ -10,7 +10,7 @@
  * @module @phone-dsh/dsh-feature-admin/skills
  */
 
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { lstat, mkdir, open, readFile, readdir, realpath, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -25,7 +25,7 @@ import { FeatureAdminError, invalidRequest, notFound, unsupported } from './erro
 /** Flat skill file accepted by the DSH filesystem provider. */
 const SKILL_FILE = /^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/u
 /** Defensive cap: a skill is instruction text, not workspace data. */
-export const MAX_SKILL_BYTES = 2 * 1024 * 1024
+const MAX_SKILL_BYTES = 2 * 1024 * 1024
 
 /** How one mutation reached the DSH skills catalog. */
 export type SkillInvalidation = SkillMutationView['invalidation']
@@ -147,19 +147,6 @@ export function invalidateSkillCatalog(ctx: Context): SkillInvalidation {
   return 'catalog'
 }
 
-/** One staged, not-yet-committed flat skill write. */
-export interface StagedSkill {
-  readonly name: string
-  readonly content: string
-  /** Lowercase hex SHA-256 of the exact UTF-8 bytes written to the temp file. */
-  readonly contentSha256: string
-  readonly bytes: number
-  /** Atomically rename the staged temp file to the skill name. */
-  commit(): Promise<SkillMutationView>
-  /** Remove the temp file without touching the skill name. */
-  abort(): Promise<void>
-}
-
 /** Filesystem operations bound to one canonical skills root. */
 export class SkillsStore {
   readonly root: string
@@ -208,19 +195,11 @@ export class SkillsStore {
     return { name: fileName, content: await readFile(target.candidate, 'utf8') }
   }
 
-  /**
-   * Stage one flat skill write in a hidden temp file in the same directory.
-   *
-   * The VFS write creates the existing immutable content-addressed blob for
-   * bodies at or above the host blob threshold, so the requested raw record
-   * can bind `blob://sha256/<digest>` before the final rename. The skill name
-   * itself is not changed until `commit()`.
-   */
-  async stage(name: unknown, content: unknown): Promise<StagedSkill> {
+  /** Atomically create or replace one flat skill and invalidate the catalog. */
+  async write(name: unknown, content: unknown): Promise<SkillMutationView> {
     const fileName = skillFileName(name)
     if (typeof content !== 'string') throw invalidRequest('skill content must be a string')
-    const bytes = Buffer.byteLength(content, 'utf8')
-    if (bytes > MAX_SKILL_BYTES) {
+    if (Buffer.byteLength(content, 'utf8') > MAX_SKILL_BYTES) {
       throw invalidRequest(`skill content exceeds ${String(MAX_SKILL_BYTES)} bytes`)
     }
     const root = await canonicalRoot(this.root, true)
@@ -236,95 +215,22 @@ export class SkillsStore {
       } finally {
         await handle.close()
       }
+      await rename(temporary, target.candidate)
     } catch (error) {
       await unlink(temporary).catch(() => {})
       throw error
     }
-    let state: 'staged' | 'committed' | 'aborted' = 'staged'
-    return {
-      name: fileName,
-      content,
-      contentSha256: createHash('sha256').update(content, 'utf8').digest('hex'),
-      bytes,
-      commit: async (): Promise<SkillMutationView> => {
-        if (state !== 'staged') {
-          throw new FeatureAdminError('conflict', `skill write is no longer staged: ${fileName}`)
-        }
-        try {
-          await rename(temporary, target.candidate)
-          state = 'committed'
-        } catch (error) {
-          await unlink(temporary).catch(() => {})
-          state = 'aborted'
-          throw error
-        }
-        return { name: fileName, invalidation: this.invalidate() }
-      },
-      abort: async (): Promise<void> => {
-        if (state !== 'staged') return
-        state = 'aborted'
-        await unlink(temporary).catch(() => {})
-      },
-    }
-  }
-
-  /** Atomically create or replace one flat skill and invalidate the catalog. */
-  async write(name: unknown, content: unknown): Promise<SkillMutationView> {
-    const staged = await this.stage(name, content)
-    return staged.commit()
+    return { name: fileName, invalidation: this.invalidate() }
   }
 
   /** Remove one flat skill and invalidate the catalog. */
   async delete(name: unknown): Promise<SkillMutationView> {
-    return (await this.deleteWithContent(name)).view
-  }
-
-  /**
-   * Read the exact body, then return a commit that re-reads it and refuses to
-   * unlink when the file changed in the requested-to-delete window. The raw
-   * `requested` fact must be appended between the read and the commit.
-   */
-  async prepareDelete(name: unknown): Promise<{
-    readonly content: string
-    readonly contentSha256: string
-    readonly bytes: number
-    readonly commit: () => Promise<SkillMutationView>
-  }> {
     const fileName = skillFileName(name)
     const root = await canonicalRoot(this.root, false)
     if (root === undefined) throw notFound(`skill does not exist: ${fileName}`)
     const target = await inspectTarget(root, fileName)
     if (!target.exists) throw notFound(`skill does not exist: ${fileName}`)
-    const content = await readFile(target.candidate, 'utf8')
-    return {
-      content,
-      contentSha256: createHash('sha256').update(content, 'utf8').digest('hex'),
-      bytes: Buffer.byteLength(content, 'utf8'),
-      commit: async (): Promise<SkillMutationView> => {
-        const finalContent = await readFile(target.candidate, 'utf8')
-        if (finalContent !== content) {
-          throw new FeatureAdminError(
-            'conflict',
-            `skill content changed before delete; the delete was not applied: ${fileName}`,
-            'content-changed',
-          )
-        }
-        await unlink(target.candidate)
-        return { name: fileName, deleted: true, invalidation: this.invalidate() }
-      },
-    }
-  }
-
-  /**
-   * Remove one flat skill, returning the exact body read immediately before
-   * the unlink. The feature-admin raw record needs the deleted content to bind
-   * what the user actually removed; the plain `delete` stays compatible.
-   */
-  async deleteWithContent(name: unknown): Promise<{
-    readonly view: SkillMutationView
-    readonly content: string
-  }> {
-    const handle = await this.prepareDelete(name)
-    return { view: await handle.commit(), content: handle.content }
+    await unlink(target.candidate)
+    return { name: fileName, deleted: true, invalidation: this.invalidate() }
   }
 }

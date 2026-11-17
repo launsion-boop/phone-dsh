@@ -694,7 +694,7 @@ public actor BotMCPRuntime {
         }
         if let provider = toolCatalogProvider,
            let definitions = await provider(callerBotID) {
-            return definitions + [BotToolCatalog.skillStatusDefinition]
+            return definitions
         }
         return BotToolCatalog.workerDefinitions
     }
@@ -858,7 +858,6 @@ public actor BotMCPRuntime {
         _ = pruneExpiredRegistrationsSync()
         let bareName = bareToolName(name)
         guard BotToolCatalog.isRegistered(bareName)
-                || bareName == BotToolCatalog.skillStatusName
                 || ["bash", "write", "edit", "read_image", "phone"].contains(bareName)
                 || BotDeviceToolProvider.tools.contains(bareName)
                 || handlesTeamTool(bareName) else {
@@ -940,7 +939,6 @@ public actor BotMCPRuntime {
         }
         let bareName = bareToolName(name)
         guard BotToolCatalog.isRegistered(bareName)
-                || bareName == BotToolCatalog.skillStatusName
                 || ["bash", "write", "edit", "phone"].contains(bareName)
                 || BotDeviceToolProvider.tools.contains(bareName)
                 || handlesTeamTool(bareName) else {
@@ -1428,9 +1426,8 @@ public actor BotMCPRuntime {
         let bareName = bareToolName(name)
         let catalogTool = BotToolCatalog.isRegistered(bareName)
         let decisionTool = bareName == BotDecisionTool.name
-        let skillStatusTool = bareName == BotToolCatalog.skillStatusName
         let teamHandler = catalogTool ? nil : teamToolHandler(for: bareName)
-        guard catalogTool || teamHandler != nil || decisionTool || skillStatusTool else {
+        guard catalogTool || teamHandler != nil || decisionTool else {
             return .failure("unknown_tool", "未知工具：\(name)")
         }
         let scope = scopedRuntimeID(context.runtimeId)
@@ -1440,9 +1437,6 @@ public actor BotMCPRuntime {
         }
         if decisionTool {
             return await handleDecisionContext(arguments: arguments, call: call)
-        }
-        if skillStatusTool {
-            return await handleSkillUseStatus(arguments: arguments, call: call)
         }
         // The per-caller catalog is not a display filter: `tools/call` must use
         // the same catalog `tools/list` returns for this principal before any
@@ -1535,31 +1529,6 @@ public actor BotMCPRuntime {
     }
 
     // MARK: - G-2 decision material (host side)
-
-    /// Bot-only skill gate lookup. The caller's principal selects the Bot; the
-    /// name comes from the official `skill` tool arguments. A nil status is
-    /// returned as JSON null (untracked legacy), never as current.
-    private func handleSkillUseStatus(arguments: BotJSONValue,
-                                      call: BotResolvedToolCall) async -> BotMCPCallResult {
-        guard let provenance else {
-            return .failure("skill-provenance-unavailable", "技能来源状态不可用")
-        }
-        guard case .object(let args) = arguments,
-              let name = string(args["name"]), !name.isEmpty,
-              name.unicodeScalars.count <= 128 else {
-            return .failure("invalid-request", "需要技能名")
-        }
-        let status = await provenance.status(forSkillName: name,
-                                             botID: call.principal.botId)
-        let contentBasis = await provenance.contentBasis(
-            forSkillName: name, botID: call.principal.botId)
-        return .success(.object([
-            "schema": .string("bot-skill-use-status/v1"),
-            "ok": .bool(true),
-            "status": status.map { .string($0.rawValue) } ?? .null,
-            "content_basis": .string(contentBasis.rawValue),
-        ]))
-    }
 
     /// The internal additive tool the Worker pre-step provider calls. It is in
     /// the catalog (so `tools/list` exposes it) but outside the frozen P26
@@ -2930,9 +2899,6 @@ public actor BotMCPRuntime {
         // needs an approval card. The model's real action is RequestApproval.
         if name == BotToolCatalog.decisionContextName { return [] }
         if name == BotToolCatalog.volatileContextName { return [] }
-        // The Bot gate reads this internal status tool without user approval;
-        // same read-only contract as the decision/volatile context tools.
-        if name == BotToolCatalog.skillStatusName { return [] }
         let workspace = BotWorkspaceLayout.botRoot(botId: botID)
         if name == "bash" {
             return BotApprovalPatternAnalyzer.effects(

@@ -91,10 +91,7 @@
         "verification.reported",
         "redaction.applied",
         "erasure",
-        "feedback.recorded",
-        "context.observed",
-        "context.consent_changed",
-        "skill.changed"
+        "feedback.recorded"
       ]
     },
     "eventId": {

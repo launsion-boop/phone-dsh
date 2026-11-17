@@ -47,7 +47,7 @@ const UI_TOOLS = new Set([
   'show_checklist', 'show_link', 'RequestApproval',
 ])
 const INTERNAL_READ_TOOLS = new Set([
-  'BotVolatileContext', 'BotDecisionContext', 'BotSkillUseStatus',
+  'BotVolatileContext', 'BotDecisionContext',
 ])
 const AUTO_TOOLS = new Set([
   // Both memory readers are read-only and frozen as `read + auto` in

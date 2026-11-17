@@ -131,9 +131,7 @@ struct BotChatPage: View {
             composerDockHeight = height
         }
         .sheet(item: $sourceRow) { row in
-            BotSourceInspectorSheet(row: row) { request in
-                await model.inspectSources(for: request)
-            }
+            BotSourceSheet(row: row)
         }
         .sheet(item: $documentRow) { row in
             BotDocumentPreview(row: row)
@@ -833,9 +831,8 @@ private struct BotComposerDock: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            approvalHint
             // Failures are reported once, in the activity bubble above this
-            // dock; the composer carries no failure notice of its own.
+            // dock; the composer carries no notice of its own.
             attachmentTray
             // Grok-style composer: one white r26 rounded card with the 36pt
             // attach button leading, the growing text field in the middle,
@@ -1075,31 +1072,8 @@ private struct BotComposerDock: View {
     }
 
     /// Exactly one round button with three states: send (idle, disabled when
-    /// empty), stop (running with an empty draft), send (running with text). The send id is stable so the capture tests can drive it.
-    /// PR #187 review item 9: sending text is no longer an implicit answer to
-    /// a pending approval, so the page must say out loud that the card still
-    /// needs an explicit decision. It never guesses from the text (for example
-    /// "不用了") and never cancels work on its behalf.
-    @ViewBuilder
-    private var approvalHint: some View {
-        if model.pendingApprovalCount > 0 {
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.circle")
-                    .font(.system(size: HomeSpec.listItemSize))
-                Text(model.pendingApprovalCount == 1
-                     ? "还有 1 项等你确认：发送文字不会替你处理，请在卡片上选择。"
-                     : "还有 \(model.pendingApprovalCount) 项等你确认：发送文字不会替你处理，请在卡片上选择。")
-                    .font(.system(size: HomeSpec.listItemSize))
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(NativeParityTokens.warning)
-            .padding(.horizontal, 4)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("bot.composer.approvalHint")
-        }
-    }
-
+    /// empty), stop (running with an empty draft), send-and-steer (running
+    /// with text). The send id is stable so the capture tests can drive it.
     @ViewBuilder
     private var composerActionButton: some View {
         if model.runningTurnID != nil && !canSend {
@@ -1115,7 +1089,7 @@ private struct BotComposerDock: View {
             }
             .buttonStyle(.plain)
             .disabled(!canSend)
-            .accessibilityLabel(model.runningTurnID != nil ? "发送" : "发送消息")
+            .accessibilityLabel(model.runningTurnID != nil ? "发送并 steering" : "发送消息")
             .accessibilityIdentifier("bot.composer.send")
         }
     }
@@ -1240,16 +1214,7 @@ private struct BotTranscriptRow: View {
                     .padding(.horizontal, HomeSpec.contentInset)
                     .padding(.vertical, HomeSpec.blockGap / 2)
             } else if row.body.type == "text" {
-                VStack(alignment: .leading, spacing: 0) {
-                    BotTextRow(row: row)
-                    if let artifact = model.feedbackArtifact(for: row) {
-                        BotFeedbackBar(artifact: artifact, state: model.feedbackState) { verdict, scope in
-                            model.sendFeedback(row: row, verdict: verdict, scope: scope)
-                        }
-                        .padding(.horizontal, HomeSpec.contentInset)
-                        .padding(.bottom, 4)
-                    }
-                }
+                BotTextRow(row: row)
             } else if let card = BotUICardContent.parse(row: row) {
                 BotCardView(row: row, card: card, model: model, actions: actions)
                     .padding(.horizontal, HomeSpec.contentInset)
@@ -1484,6 +1449,33 @@ private struct BotComposerGlyph: View {
     }
 }
 
+private struct BotSourceSheet: View {
+    let row: BotUIRow
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("行") {
+                    LabeledContent("rowID", value: row.id)
+                    LabeledContent("botID", value: row.botID)
+                    LabeledContent("表面", value: BotUIRendering.surface(row))
+                    LabeledContent("序号", value: "\(row.seq) / \(row.updatedSeq)")
+                }
+                Section("来源") {
+                    LabeledContent("信任", value: row.provenance.trust)
+                    LabeledContent("外部内容", value: row.provenance.tainted ? "是" : "否")
+                    ForEach(row.provenance.eventIDs, id: \.self) { eventID in
+                        Text(eventID).textSelection(.enabled)
+                    }
+                }
+            }
+            .homeGroupedList()
+            .navigationTitle("消息来源")
+            .toolbar { Button("完成") { dismiss() } }
+        }
+    }
+}
 
 /// Scroll metrics for the transcript tail. This is a plain reference box, not
 /// `@State`: the tail probe and viewport reader fire during layout, and writing

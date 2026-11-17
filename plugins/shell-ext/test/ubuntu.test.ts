@@ -343,19 +343,6 @@ test('run forwards the trusted session id out of band, never as an argv word', a
   assert.equal(calls[0]?.sessionId, 'sess-test')
 })
 
-test('phone contacts.search carries the trusted tool-call session out of band', async () => {
-  const { shell, calls } = await fixture({ withUbuntu: true })
-  const result = await asToolCall(() =>
-    shell.run(['phone', 'contacts', 'search', '{"query":"A07"}'], { cwd: CWD }))
-  assert.equal(result.exitCode, 0, result.stderr)
-  assert.deepEqual(
-    [...(calls[0]?.argv ?? [])],
-    ['phone', 'contacts', 'search', '{"query":"A07"}'],
-  )
-  assert.equal((calls[0]?.argv ?? []).includes('--session'), false)
-  assert.equal(calls[0]?.sessionId, 'sess-test')
-})
-
 test('a script cannot choose the session: --session is refused by name, not ignored', async () => {
   const { shell, calls } = await fixture({ withUbuntu: true })
   const forged = await asToolCall(() => shell.run(['ubuntu', 'run', '--session', 'sess-forged', '--', 'true'], { cwd: CWD }))

@@ -25,9 +25,6 @@ final class BotInternalReadToolsApprovalTests: XCTestCase {
                 "max_snippet_characters": .number(240), "deadline_ms": .number(1500),
             ]),
         ])),
-        ("BotSkillUseStatus", .object([
-            "schema": .string("bot-skill-use-status/v1"), "name": .string("weekly-report"),
-        ])),
     ]
 
     func testHostAutoAllowsEveryInternalReadWithoutACard() async throws {

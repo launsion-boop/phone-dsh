@@ -1859,56 +1859,6 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         XCTAssertEqual(after.steerTails, 0, "the steer tail must not stay registered")
         XCTAssertEqual(after.cancelledWaiters, 0, "no cancelled waiter may be left behind")
 
-    func testScriptedWriteCarriesCreatorAndFinalHashIntoSkillEvent() async throws {
-        let fixture = try makeBotMCPFixture()
-        defer { fixture.cleanup() }
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("runtime-skill-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let project = root.appendingPathComponent("bot/.dsh/skills", isDirectory: true)
-        let user = root.appendingPathComponent("home/skills", isDirectory: true)
-        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: user, withIntermediateDirectories: true)
-        let body = "RUNTIME_BODY_MARKER"
-        try Data(body.utf8).write(to: project.appendingPathComponent("weekly.md"))
-
-        let log = BotProvenanceTestLog()
-        let service = BotProvenanceService(
-            eventLog: log,
-            skillRechecker: BotProvenanceTestSkillRechecker(outcome: .same(atMS: 2_000)))
-        let producer = BotSkillProvenanceProducer(
-            botRoot: "/dsh/workspace/.dshbot/agents/main",
-            roots: QueueTestRoots(user: user, project: project),
-            recorder: { try await service.recordSkillWrite($0) },
-            latest: { try await service.latestSkillChange(identity: $0) },
-            now: { 1_500 })
-        let queue = BotSkillEventQueue(producer: producer, now: { 1_500 })
-        let arguments = #"{"file_path":"/dsh/workspace/.dshbot/agents/main/.dsh/skills/weekly.md","content":"RUNTIME_BODY_MARKER"}"#
-        let transport = BotScriptedRemoteTransport(scripts: [
-            "gb-main": [[
-                .turn(), .toolCall("write", arguments: arguments),
-                .toolResult(text: "written"), .end(),
-            ]],
-        ])
-        let remote = try await BotDSHRemoteRuntime(
-            transport: transport, runtime: fixture.runtime,
-            skillProducer: producer, skillQueue: queue, now: { 1_000 })
-        _ = try await remote.sendUserMessage("write the weekly skill")
-
-        let events = await log.all()
-        let skill = try XCTUnwrap(events.first { $0.type == "skill.changed" })
-        let sources = skill.data["derivation"]?["sources"]?.arrayValue ?? []
-        let creator = sources.first {
-            $0["role"]?.stringValue == "creator"
-        }
-        XCTAssertNotNil(creator)
-        XCTAssertEqual(creator?["sourceVersion"]?["basis"]?.stringValue, "content-sha256")
-        XCTAssertEqual(creator?["sourceVersion"]?["value"]?.stringValue,
-                       BotSkillProvenanceProducer.contentSHA256(body))
-        XCTAssertFalse(sources.contains {
-            $0["role"]?.stringValue == "evidence"
-        })
-    }
     }
 }
 

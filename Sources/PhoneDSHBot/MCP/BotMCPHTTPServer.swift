@@ -57,17 +57,6 @@ public final class BotMCPHTTPServer: @unchecked Sendable {
     private var lastPort: UInt16?
     private var recoveryInFlight: Task<BotMCPListenerRecovery, Never>?
     private var endpointChangeHandler: (@Sendable (URL) -> Void)?
-    private var featureAdminMutationServer: (any BotFeatureAdminSkillMutationServing)?
-
-    /// Internal, non-model route used by the phone feature-admin Remote. The
-    /// settings page writes through the Worker; this route appends the raw
-    /// requested/applied/failed operation record before any current skill can
-    /// be claimed. Absent keeps the route closed (503), never a fallback write.
-    public var featureAdminSkillMutations: (any BotFeatureAdminSkillMutationServing)? {
-        get { lock.withLock { featureAdminMutationServer } }
-        set { lock.withLock { featureAdminMutationServer = newValue } }
-    }
-
     /// When a long `tools/call` switches to SSE and how often it sends a keepalive
     /// (mcp-endpoint.md §2; golden/mcp-long-call.json). Tests scale these down.
     public struct LongCallTiming: Sendable {
@@ -472,13 +461,6 @@ public final class BotMCPHTTPServer: @unchecked Sendable {
             send(.json(200, reply), on: connection)
         case "/identity/cancel":
             let reply = await handler.cancelIdentity(value)
-            send(.json(200, reply), on: connection)
-        case "/feature-admin/skill-mutation":
-            guard let mutations = featureAdminSkillMutations else {
-                send(.text(503, #"{"error":"feature-admin records unavailable"}"#), on: connection)
-                return
-            }
-            let reply = await mutations.handle(value)
             send(.json(200, reply), on: connection)
         case "/approval":
             // A long approval answers in the SSE form only when the Worker

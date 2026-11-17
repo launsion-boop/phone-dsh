@@ -316,7 +316,6 @@ public final class MCPEgressPolicy: EgressHostAuthorizing, MCPEgressGating,
             ("dshbot-identity-register", "identity/register"),
             ("dshbot-identity-cancel", "identity/cancel"),
             ("dshbot-approval", "approval"),
-            ("dshbot-feature-admin-records", "feature-admin/skill-mutation"),
         ] {
             try grant(serverName: serverName, url: base.appendingPathComponent(path), headers: headers)
         }

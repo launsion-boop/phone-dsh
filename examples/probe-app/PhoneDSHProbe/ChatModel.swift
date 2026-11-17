@@ -1385,26 +1385,6 @@ final class ChatModel {
         try await workspaceBackend.transport()
     }
 
-    /// The only ordinary-session verifier for the shared host contacts bridge.
-    /// It reads the official current `session/projections`; Bot ownership is
-    /// checked first by the bridge. Missing/migration/cache/unknown projections
-    /// are rejected, never treated as ordinary.
-    func isVerifiedOrdinaryContactsSession(_ sessionID: String) async -> Bool {
-        guard !sessionID.isEmpty else { return false }
-        do {
-            let transport = try await transportForManagement()
-            let projection = try await transport.call(
-                "session/projections",
-                args: .object(["request": .object(["sessionId": .string(sessionID)])]))
-            return BotContextContactsSessionBridge.isVerifiedOrdinaryProjection(
-                kind: projection["kind"]?.stringValue,
-                hasAsOfSeq: projection["asOfSeq"]?.intValue != nil,
-                agentPreset: projection["values"]?["agentPreset"]?.stringValue)
-        } catch {
-            return false
-        }
-    }
-
     let workspaceRoot: URL = ChatHostConfiguration.workspaceRoot()
 
     private var materializedWorkspace: URL {
@@ -1657,12 +1637,6 @@ final class ChatModel {
             if let phoneError = error as? PhoneDSHError,
                case .backoffNotElapsed(let deadline) = phoneError {
                 hostEventTask?.cancel(); hostEventTask = nil
-                // A backoff wait is healthy, but the person still needs a
-                // visible manual way out if the persisted window is wrong or
-                // the host cannot resume. Keep the red failure line hidden;
-                // SettingsPage renders the restart row from this flag.
-                failedHost = launch.host
-                engineNeedsReset = true
                 scheduleBackoffRetry(for: deadline)
                 return
             }
@@ -1869,16 +1843,9 @@ final class ChatModel {
             office: OfficeToolBridge(presenter: OfficePresenter()),
             phone: capabilityBridge)
         let recordQuery = botLaunch.map { BotRecordPhoneAdapter(service: $0.composition.recordService) }
-        let botContactsBridge: BotContextContactsSessionBridge? = botLaunch.map { launch in
-            BotContextContactsSessionBridge(composition: launch.composition) { [weak self] sessionID in
-                await self?.isVerifiedOrdinaryContactsSession(sessionID) ?? false
-            }
-        }
         let shell = PDSHShellProvider(materializedWorkspace: materializedWorkspace,
                                       materializedHome: materializedHome,
                                       toolBridge: toolBridge,
-                                      botContactsQuery: botContactsBridge,
-                                      contactsSessionClassifier: botContactsBridge,
                                       recordQuery: recordQuery)
         // `phone record` is a Swift-side read-only bridge; it does not need the
         // linked Rust shell. Advertise `phone` whenever that bridge exists so a
@@ -2958,10 +2925,6 @@ final class ChatModel {
         appIsActive = phase == .active
         transcriptGate.isForeground = isAppForeground
         BotPresenceCenter.shared.update(appActive: appIsActive)
-        if let botRuntime {
-            let generation = botRuntime.nextCloudSceneGeneration()
-            Task { await botRuntime.cloudSceneChanged(appIsActive, generation: generation) }
-        }
         // The scene is the trigger that releases a parked history adoption:
         // this is the one commit, done before any further scene work can paint.
         if appIsActive { adoptDeferredTranscriptIfForeground() }

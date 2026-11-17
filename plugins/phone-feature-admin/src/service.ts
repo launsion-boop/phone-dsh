@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 /** `phone/featureAdmin` Remote: installed capabilities only, no package install. */
 
-import { createHash } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-host-plugin-inventory'
@@ -23,35 +22,10 @@ import {
   type SkillFileView,
   type SkillMutationView,
 } from './contracts.ts'
-import { FeatureAdminError, invalidRequest } from './errors.ts'
+import { FeatureAdminError } from './errors.ts'
 import { proxyAgentPresets } from './agent-presets.ts'
 import { listInstalledPlugins, setInstalledPluginEnabled } from './plugin-toggle.ts'
-import {
-  assertSkillCatalogInvalidation,
-  invalidateSkillCatalog,
-  skillFileName,
-  SkillsStore,
-  type StagedSkill,
-} from './skills.ts'
-import {
-  BLOB_CONTENT_REF_MIN_BYTES,
-  HostSkillMutationJournal,
-  MAX_SKILL_CONTENT_BYTES,
-  newSkillMutationOperationId,
-  skillMutationFailureCode,
-  type SkillMutationBegin,
-  type SkillMutationJournal,
-} from './mutation-records.ts'
-
-/** Inline small bodies; larger bodies reference their existing immutable VFS blob. */
-function recordContent(
-  content: string, contentSha256: string, bytes: number,
-): Pick<SkillMutationBegin, 'content' | 'contentRef' | 'contentSha256' | 'bytes'> {
-  if (bytes > BLOB_CONTENT_REF_MIN_BYTES) {
-    return { contentRef: `blob://sha256/${contentSha256}`, contentSha256, bytes }
-  }
-  return { content, contentSha256, bytes }
-}
+import { assertSkillCatalogInvalidation, invalidateSkillCatalog, SkillsStore } from './skills.ts'
 
 /** Translate any helper failure into the stable browser contract. */
 function failure(error: unknown): FeatureAdminResult<never> {
@@ -85,7 +59,6 @@ async function attempt<Value>(work: () => Value | Promise<Value>): Promise<Featu
  */
 export class PhoneFeatureAdmin extends TypertRemoteService {
   private readonly skills: SkillsStore
-  private readonly mutations: SkillMutationJournal
 
   constructor(ctx: Context, config: FeatureAdminConfig = {}) {
     super(ctx, 'featureAdmin', { namespace: FEATURE_ADMIN_NAMESPACE })
@@ -93,7 +66,6 @@ export class PhoneFeatureAdmin extends TypertRemoteService {
       config.skillsRoot ?? SKILLS_ROOT,
       () => invalidateSkillCatalog(this.ctx),
     )
-    this.mutations = config.skillMutations ?? new HostSkillMutationJournal()
   }
 
   /** Read DSH's own inventory and state the no-install platform boundary. */
@@ -124,137 +96,20 @@ export class PhoneFeatureAdmin extends TypertRemoteService {
     return attempt(() => this.skills.read(name))
   }
 
-  /**
-   * Atomically write one skill, then invalidate the live skills catalog.
-   *
-   * The raw `requested` fact is durable before the file is touched. A real
-   * file success then appends `applied`; only that fact feeds the host's one
-   * `skill.changed`. A request append failure leaves the file untouched.
-   */
+  /** Atomically write one skill, then invalidate the live skills catalog. */
   skillsWrite(name: string, content: string): Promise<FeatureAdminResult<SkillMutationView>> {
-    return attempt(async () => {
+    return attempt(() => {
       assertSkillCatalogInvalidation(this.ctx)
-      const write = this.validateWrite(name, content)
-      const operationId = newSkillMutationOperationId()
-      let view: SkillMutationView
-      if (write.bytes <= BLOB_CONTENT_REF_MIN_BYTES) {
-        // Small bodies stay inline and requested precedes the atomic file.
-        await this.mutations.begin({
-          operationId, action: 'write', file: write.fileName,
-          content: write.content, contentSha256: write.contentSha256,
-          bytes: write.bytes,
-        })
-        try {
-          view = await this.skills.write(write.fileName, write.content)
-        } catch (error) {
-          await this.recordFailed(operationId, error)
-          throw error
-        }
-      } else {
-        // Large bodies: the hidden temp write is what creates the existing
-        // immutable content-addressed blob; requested then binds its ref, and
-        // only the final rename touches the skill name.
-        const staged = await this.skills.stage(write.fileName, write.content)
-        try {
-          await this.mutations.begin({
-            operationId, action: 'write', file: staged.name,
-            ...recordContent(staged.content, staged.contentSha256, staged.bytes),
-          })
-        } catch (error) {
-          await staged.abort()
-          throw error
-        }
-        try {
-          view = await staged.commit()
-        } catch (error) {
-          await this.recordFailed(operationId, error)
-          throw error
-        }
-      }
-      try {
-        await this.mutations.applied(operationId)
-      } catch {
-        throw new FeatureAdminError(
-          'io-error',
-          'the skill file changed but its applied raw record could not be appended; '
-          + 'the change is not indexed. Save again as a new operation to repair it.',
-          'record-not-applied',
-        )
-      }
-      return view
+      return this.skills.write(name, content)
     })
   }
 
-  /**
-   * Delete one skill after its exact body becomes the raw input of the
-   * requested fact. The commit re-reads the file and refuses to unlink a body
-   * that changed during the requested append.
-   */
+  /** Delete one skill, then invalidate the live skills catalog. */
   skillsDelete(name: string): Promise<FeatureAdminResult<SkillMutationView>> {
-    return attempt(async () => {
+    return attempt(() => {
       assertSkillCatalogInvalidation(this.ctx)
-      const fileName = skillFileName(name)
-      const handle = await this.skills.prepareDelete(fileName)
-      if (handle.bytes > MAX_SKILL_CONTENT_BYTES) {
-        throw invalidRequest(
-          `skill content exceeds ${String(MAX_SKILL_CONTENT_BYTES)} bytes; the skill was not deleted`,
-        )
-      }
-      const operationId = newSkillMutationOperationId()
-      await this.mutations.begin({
-        operationId, action: 'delete', file: fileName,
-        ...recordContent(handle.content, handle.contentSha256, handle.bytes),
-      })
-      let view: SkillMutationView
-      try {
-        view = await handle.commit()
-      } catch (error) {
-        await this.recordFailed(operationId, error)
-        throw error
-      }
-      try {
-        await this.mutations.applied(operationId)
-      } catch {
-        throw new FeatureAdminError(
-          'io-error',
-          'the skill file was deleted but its applied raw record could not be appended; '
-          + 'the change is not indexed. Save again as a new operation to repair it.',
-          'record-not-applied',
-        )
-      }
-      return view
+      return this.skills.delete(name)
     })
-  }
-
-  /** Validate before any raw fact exists; a bad page request touches nothing. */
-  private validateWrite(name: unknown, content: unknown): {
-    readonly fileName: string
-    readonly content: string
-    readonly bytes: number
-    readonly contentSha256: string
-  } {
-    const fileName = skillFileName(name)
-    if (typeof content !== 'string') throw invalidRequest('skill content must be a string')
-    const bytes = Buffer.byteLength(content, 'utf8')
-    if (bytes > MAX_SKILL_CONTENT_BYTES) {
-      throw invalidRequest(`skill content exceeds ${String(MAX_SKILL_CONTENT_BYTES)} bytes`)
-    }
-    return {
-      fileName,
-      content,
-      bytes,
-      contentSha256: createHash('sha256').update(content, 'utf8').digest('hex'),
-    }
-  }
-
-  /** A failed file operation is recorded with its bounded code; never applied. */
-  private async recordFailed(operationId: string, error: unknown): Promise<void> {
-    try {
-      await this.mutations.failed(operationId, skillMutationFailureCode(error))
-    } catch {
-      // The requested fact is durable and the file did not change. A missing
-      // failed fact is a bounded repair item, not a false applied/current.
-    }
   }
 
   /**

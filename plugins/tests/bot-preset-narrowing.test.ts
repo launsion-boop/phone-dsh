@@ -136,7 +136,7 @@ function toolsOf(ctx: Context, scope: object): string[] {
   return ctx.tools.definitions(scope as never).map(definition => definition.name).sort()
 }
 
-const EXPECTED = [...PHONE_NATIVE_TOOLS, 'skill', 'mcp__phone__SendToUser', 'mcp__phone__UpdateMemory']
+const EXPECTED = [...PHONE_NATIVE_TOOLS, 'mcp__phone__SendToUser', 'mcp__phone__UpdateMemory']
   .sort()
 
 test('a new phone-bot session hides inherited dsh-base tools', async () => {
@@ -146,11 +146,9 @@ test('a new phone-bot session hides inherited dsh-base tools', async () => {
       agent: fixture.agent as never, source: 'startup',
     })
     assert.deepEqual(toolsOf(fixture.ctx, fixture.agent), EXPECTED,
-      'only the phone-bot contract surface plus the app MCP catalog may stay')
-    assert.ok(toolsOf(fixture.ctx, fixture.agent).includes('skill'))
-    assert.equal((await execute(fixture.ctx, 'skill', fixture.agent))?.isError, false)
+      'only the phone-bot contract surface plus the App MCP catalog may stay')
     assert.equal((await execute(fixture.ctx, 'read', fixture.agent))?.isError, false)
-    for (const hidden of ['subagent', 'working_directory', 'read_image', 'list_mcp_resources']) {
+    for (const hidden of ['subagent', 'skill', 'working_directory', 'read_image', 'list_mcp_resources']) {
       assert.equal((await execute(fixture.ctx, hidden, fixture.agent))?.isError, true, hidden)
     }
 
@@ -189,7 +187,7 @@ test('a resumed standard Bot session is narrowed to the same surface', async () 
       agent: fixture.agent as never, source: 'resume',
     })
     assert.deepEqual(toolsOf(fixture.ctx, fixture.agent), EXPECTED)
-    for (const hidden of ['subagent', 'subagent_fork', 'schedule_create', 'exit_plan_mode']) {
+    for (const hidden of ['subagent', 'subagent_fork', 'schedule_create', 'skill', 'exit_plan_mode']) {
       assert.equal((await execute(fixture.ctx, hidden, fixture.agent))?.isError, true, hidden)
     }
     // The restriction is per agent: an untouched workbench composition still

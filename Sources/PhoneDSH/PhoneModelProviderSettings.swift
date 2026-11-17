@@ -1256,21 +1256,11 @@ public final class PhoneModelProviderSettings {
             throw ModelProviderSettingsError.invalidID("credential reference for \(id) is empty")
         }
         let reasoning = raw.reasoningEffort?.trimmingCharacters(in: .whitespacesAndNewlines)
-        var definitions: [ProviderModelDefinition] = []
-        for definition in raw.models ?? [] {
-            let modelID = definition.id.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !modelID.isEmpty else { throw ModelProviderSettingsError.emptyModel }
-            var normalized = definition
-            normalized.id = modelID
-            normalized.name = definition.name?.trimmingCharacters(in: .whitespacesAndNewlines)
-            definitions.append(normalized)
-        }
         return ProviderProfile(id: id,
                                displayName: displayName,
                                baseURL: baseURL,
                                model: model,
                                reasoningEffort: (reasoning?.isEmpty == true) ? nil : reasoning,
-                               credentialRef: credentialRef,
-                               models: raw.models == nil ? nil : definitions)
+                               credentialRef: credentialRef)
     }
 }

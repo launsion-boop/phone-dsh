@@ -28,42 +28,19 @@ struct BotCardView: View {
 
     var body: some View {
         BotContentWidth {
-            VStack(alignment: .leading, spacing: 0) {
-                Group {
-                    if let settlement {
-                        // No surface: a handled card is just one grey line.
-                        BotCardSettledLine(settlement: settlement)
-                            .transition(.opacity)
-                    } else {
-                        cardContent
-                            .environment(\.botCardTheme, BotCardTheme(appearance: model.appearance))
-                            .tint(BotCardTheme(appearance: model.appearance).accent)
-                            .transition(.opacity)
-                    }
-                }
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: settlement)
-                if settlement == nil, let artifact = model.feedbackArtifact(for: row) {
-                    BotFeedbackBar(artifact: artifact, state: model.feedbackState) { verdict, scope in
-                        model.sendFeedback(row: row, verdict: verdict, scope: scope)
-                    }
-                    .padding(.top, 2)
-                    .padding(.horizontal, 4)
-                }
-                if settlement == nil, card.kind != .approval,
-                   let session = model.deliverySession(for: row),
-                   !session.draft.resources.isEmpty || !session.draft.parameters.isEmpty {
-                    BotCardSurface(category: .work) {
-                        BotSuggestedResourcesSection(
-                            session: session,
-                            onToggle: { resourceID in
-                                model.toggleDeliveryResource(row: row, resourceID: resourceID)
-                            },
-                            onSubmit: { model.submitDeliverySelection(row: row) },
-                            onReset: { model.resetDeliverySelection(row: row) })
-                    }
-                    .padding(.top, 6)
+            Group {
+                if let settlement {
+                    // No surface: a handled card is just one grey line.
+                    BotCardSettledLine(settlement: settlement)
+                        .transition(.opacity)
+                } else {
+                    cardContent
+                        .environment(\.botCardTheme, BotCardTheme(appearance: model.appearance))
+                        .tint(BotCardTheme(appearance: model.appearance).accent)
+                        .transition(.opacity)
                 }
             }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: settlement)
         }
     }
 

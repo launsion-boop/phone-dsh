@@ -239,8 +239,7 @@ function cookieBotMcpRoutes(env: NodeJS.ProcessEnv): string[] {
   }
   if (endpoint.protocol !== 'http:' || endpoint.hostname !== '127.0.0.1'
     || endpoint.port === '' || endpoint.href !== endpoint.origin + '/mcp') return []
-  return ['/mcp', '/identity/register', '/identity/cancel', '/approval',
-    '/feature-admin/skill-mutation'].map(path => endpoint.origin + path)
+  return ['/mcp', '/identity/register', '/identity/cancel', '/approval'].map(path => endpoint.origin + path)
 }
 
 /** The implicit Worker host route on the same loopback origin as the channel. */

@@ -47,16 +47,6 @@ final class BotRuntimeUnit {
     let maintenance: BotMemoryMaintenanceController
     let proactive: ProactiveEngine
     let deviceResults: DeviceTaskResultOutbox
-    /// The one skill mutation queue shared by this unit's observer wiring and
-    /// its runtime write/edit path.
-    let skillQueue: BotSkillEventQueue
-    /// G-3 cloud scheduling client. Optional: an install without a confirmed
-    /// base URL keeps the local-only behaviour instead of faking a caller.
-    let cloudClient: CloudScheduleClient?
-    /// G-3 production scene/credential bridge for the same client.
-    let cloudLifecycle: BotCloudScheduleLifecycle?
-    /// Governs user-authorized enable/revoke and delete-time purge.
-    let cloudWiring: BotCloudScheduleWiring?
     private let routineActivity: BotRoutineActivityFlag
     private let nowProvider: @Sendable () -> Int64
 
@@ -74,10 +64,6 @@ final class BotRuntimeUnit {
                  maintenance: BotMemoryMaintenanceController,
                  proactive: ProactiveEngine,
                  deviceResults: DeviceTaskResultOutbox,
-                 skillQueue: BotSkillEventQueue,
-                 cloudClient: CloudScheduleClient?,
-                 cloudLifecycle: BotCloudScheduleLifecycle?,
-                 cloudWiring: BotCloudScheduleWiring?,
                  routineActivity: BotRoutineActivityFlag,
                  nowProvider: @escaping @Sendable () -> Int64) {
         self.botID = botID
@@ -92,10 +78,6 @@ final class BotRuntimeUnit {
         self.maintenance = maintenance
         self.proactive = proactive
         self.deviceResults = deviceResults
-        self.skillQueue = skillQueue
-        self.cloudClient = cloudClient
-        self.cloudLifecycle = cloudLifecycle
-        self.cloudWiring = cloudWiring
         self.routineActivity = routineActivity
         self.nowProvider = nowProvider
         self.liveFish = BotLiveFishProjection(botID: botID)
@@ -109,7 +91,6 @@ final class BotRuntimeUnit {
                      workspaceRoot: URL = BotProductionPaths.workspaceRoot(),
                      now: (@Sendable () -> Int64)? = nil,
                      sleep: RoutineScheduler.Sleeper? = nil,
-                     cloud: BotCloudConfiguration? = nil,
                      feedback: BotFeedbackCenter? = nil,
                      provenance: BotProvenanceService? = nil) async throws -> BotRuntimeUnit {
         let memory = await runtime.memory(for: botID)
@@ -121,20 +102,11 @@ final class BotRuntimeUnit {
             workspaceRoot: workspaceRoot,
             fallbackName: displayName)
         let inbox = WakeInbox(store: SQLiteWakeInboxStore(domainStore: store, botId: botID))
-        let skillRoots = BotSkillRoots(workspaceRoot: workspaceRoot)
         let botData = BotSessionRegistry.botDataDirectory
-        let skillProducer = BotSkillProvenanceProducer(
-            botRoot: BotWorkspaceLayout.botRoot(botId: botID, dataDirectory: botData),
-            roots: skillRoots,
-            recorder: { request in try await runtime.recordSkillWrite(request) },
-            latest: { identity in try await runtime.latestSkillChange(identity: identity) })
-        let skillQueue = BotSkillEventQueue(producer: skillProducer)
         let remote = try await BotDSHRemoteRuntime(
             transport: UnstartedBotTransport(), runtime: runtime,
             botId: botID, wakeInbox: inbox,
             botDataDirectory: botData,
-            skillProducer: skillProducer,
-            skillQueue: skillQueue,
             onSessionRegistered: { sessionID in
                 Task { @MainActor in BotSessionRegistry.shared.register(sessionID) }
             })
@@ -162,11 +134,7 @@ final class BotRuntimeUnit {
         await runtime.installDeliverySelection(deliverySelection)
         let rows = BotProductionRowService(
             environment: environment, remote: remote,
-            cardAnswerPromptResumer: remote,
-            feedbackCenter: feedback,
-            provenance: provenance,
-            deliverySelection: deliverySelection,
-            clock: resolvedNow)
+            cardAnswerPromptResumer: remote)
         let routineActivity = BotRoutineActivityFlag()
         let settingsStore = ProactiveSettingsStore.shared
         let proactive = ProactiveEngine(
@@ -210,39 +178,6 @@ final class BotRuntimeUnit {
                 approvalId: notice.approvalID, sessionId: notice.principal.sessionId,
                 allowed: notice.allowed, expired: notice.expired,
                 cancelled: notice.cancelled)
-        }
-        let cloudClient: CloudScheduleClient?
-        if let cloud {
-            let transport = CloudScheduleHTTPTransport(
-                configuration: .init(baseURL: cloud.baseURL),
-                tokenProvider: { try await TonoAccountSession.shared.accessToken() })
-            // G-3 A09: re-check the routine's own opt-in and the still-live
-            // authorization_ref before every execution. N source dependency
-            // is not wired in the unit yet; nil means "N not connected", not
-            // "verified no dependency".
-            let refResolver = BotCloudAuthorizationResolver(store: store)
-            let cloudAuthorizer = BotCloudScheduleConsentAuthorizer(
-                base: cloud.authorizer,
-                refCheck: { await refResolver.state(of: $0) == .valid },
-                sourceDependency: nil)
-            cloudClient = CloudScheduleClient(
-                botID: botID, deviceID: cloud.deviceID, transport: transport,
-                machine: machine, scheduler: scheduler,
-                authorizer: cloudAuthorizer,
-                readiness: { [remote] in await remote.isAvailable() },
-                now: resolvedNow,
-                sleep: sleep ?? { milliseconds in
-                    guard milliseconds > 0 else { return }
-                    try? await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
-                })
-        } else {
-            cloudClient = nil
-        }
-        let cloudLifecycle = cloudClient.map { BotCloudScheduleLifecycle(client: $0) }
-        let cloudWiring = cloudClient.map {
-            BotCloudScheduleWiring(
-                store: store, machine: machine, client: $0,
-                botID: botID, now: resolvedNow)
         }
         let maintenance = BotMemoryMaintenanceController(
             store: store, botID: botID, memory: memory, runtime: runtime,
@@ -303,7 +238,6 @@ final class BotRuntimeUnit {
                       await remote.ownsSession(diagnostic.sessionId) else { return nil }
                 return diagnostic
             })
-        await info.attachCloudWiring(cloudWiring)
         let deviceResults = DeviceTaskResultOutbox(domain: store, now: resolvedNow)
         await environment.setRoutineCanceller { [scheduler] routineID in
             await scheduler.cancelRunning(routineId: routineID)
@@ -314,9 +248,6 @@ final class BotRuntimeUnit {
             routineOutbox: routineOutbox, rows: rows, info: info,
             maintenance: maintenance,
             proactive: proactive, deviceResults: deviceResults,
-            skillQueue: skillQueue,
-            cloudClient: cloudClient, cloudLifecycle: cloudLifecycle,
-            cloudWiring: cloudWiring,
             routineActivity: routineActivity, nowProvider: resolvedNow)
     }
 
@@ -398,7 +329,6 @@ final class BotRuntimeUnit {
             "unit.scheduler-start", attempt: attempt, detail: unitDetail
         ) {
             await scheduler.start()
-            await cloudClient?.start()
             await startLiveObservation()
         }
         // App-open, idle opportunity (spec/bot/v2 §4.5). It checks enabled,
@@ -436,7 +366,6 @@ final class BotRuntimeUnit {
     /// Drops the Host-bound half but keeps the unit and its durable data. A
     /// later `start(transport:)` reuses the same remote and scheduler.
     func detach() async {
-        await cloudClient?.stop()
         await scheduler.stop()
         await stopLiveObservation()
         started = false
@@ -576,13 +505,4 @@ final class BotRuntimeUnit {
         liveFish.noteInteraction()
     }
 
-    /// App scene/account lifecycle for this Bot's cloud client. The client is
-    /// the same one the scheduler wires; no second transport or token store.
-    func cloudSceneChanged(_ active: Bool) async {
-        await cloudLifecycle?.scenePhaseChanged(active)
-    }
-
-    func cloudCredentialsChanged(signedIn: Bool) async {
-        await cloudLifecycle?.credentialsDidChange(signedIn: signedIn)
-    }
 }

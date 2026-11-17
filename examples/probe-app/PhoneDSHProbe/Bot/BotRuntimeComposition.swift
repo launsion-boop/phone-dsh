@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import UserNotifications
 import PhoneDSH
-import PhoneDSHLog
 import PhoneDSHAgentCore
 import PhoneDSHBot
 import PhoneDSHDeviceTasks
@@ -193,9 +191,6 @@ final class BotRuntimeComposition {
     struct Launch {
         let composition: BotRuntimeComposition
         let environment: BotProductionEnvironment
-        /// G-2 trace log for the acceptance harness: retrieved/injected/adopted.
-        /// The host is the single carrier; there is no second trace store.
-        let materialTrace: BotMaterialTraceLog
         /// The Worker environment for the next Host build. It is read from the
         /// composition so a listener that healed onto a new port is reflected
         /// without rebuilding the composition.
@@ -232,49 +227,11 @@ final class BotRuntimeComposition {
     /// a controllable clock/sleeper through `prepare(...)`.
     private let schedulerNow: (@Sendable () -> Int64)?
     private let schedulerSleep: RoutineScheduler.Sleeper?
-    private var routineRouter: BotRoutineOutboxRouter?
-    /// G-3 cloud scheduling configuration for this install; nil keeps the
-    /// local-only behaviour (no fake caller).
-    private let cloudConfiguration: BotCloudConfiguration?
-    /// G-3 iOS context sources. Created in `prepare`; started after the first
-    /// successful bind and stopped with the composition.
-    private var contextSources: BotContextSourcesAssembly?
-    private var skillDirectoryObservers: [BotSkillDirectoryObserver] = []
-    private var skillQueue: BotSkillEventQueue?
-    private var skillQueueBotID: String?
-    private var userSkillObserver: BotSkillDirectoryObserver?
-    private let userSkillRouter = BotSkillQueueRouter()
-    /// Stable callback target for the feature-admin raw-record adapter; the
-    /// observer and the applied queue injection share this one router.
-    var featureAdminSkillRouter: BotSkillQueueRouter { userSkillRouter }
-    /// G-3 account credential observation; cancelled with the composition.
-    private var cloudAccountTask: Task<Void, Never>?
-    private var contextStartTask: Task<Void, Never>?
-    private var stopped = false
-    private var latestCloudSceneGeneration = 0
-
-    /// Read-only seam for the Bot info/settings entry and the info driver. The
-    /// assembly remains the sole consent/observation authority.
-    var contextSourcesAssembly: BotContextSourcesAssembly? { contextSources }
-
-    /// Resolve a trusted exec tool-call session through each unit's actual
-    /// Worker ownership. Never use the selected Bot or the last bound unit.
-    func botID(forToolSession sessionID: String) async -> String? {
-        guard !sessionID.isEmpty else { return nil }
-        for (botID, unit) in units {
-            if await unit.remote.ownsSession(sessionID) { return botID }
-        }
-        return nil
-    }
     /// G-1 provenance read model (process-wide, one event log).
     private(set) var provenance: BotProvenanceService?
     /// G-2 feedback center, shared by every unit and the RecordFeedback tool.
     private(set) var feedbackCenter: BotFeedbackCenter?
-    /// Bounded wake-signal log. A context observation may request a wake; the
-    /// related/开口 policy is F/S work, so the host records the signal instead
-    /// of opening an empty visible turn.
-    private var contextWakeLog: [WakeSignal] = []
-    private var contextWakeRouter: BotContextWakeDecisionRouter?
+    private var routineRouter: BotRoutineOutboxRouter?
     private var host: PhoneDSHHost?
     private let hostReference = BotHostReference()
     private let workspaceRoot: URL
@@ -445,9 +402,6 @@ final class BotRuntimeComposition {
         // roster, and the runtime compares it before a delivery side effect.
         let materialTrace = BotMaterialTraceLog()
         let instanceID = UUID().uuidString
-        let contextSources = BotContextSourcesAssembly(
-            dependencies: .init(eventLog: store))
-        let consentRevision = contextSources.consentRevision
         let grantStore = await runtime.grants
         let permissionRevision: BotPermissionRevisionEvaluator = { botID, sessionID, recipient in
             let grantState = await grantStore.list(botId: botID)
@@ -456,32 +410,29 @@ final class BotRuntimeComposition {
             let roster = (try? await profileStore.roster())?.bots.map(\.id).sorted()
                 .joined(separator: ",") ?? ""
             let recipientState = recipient.map { "\($0.kind.rawValue):\($0.id)" } ?? ""
-            let contextState = await consentRevision()
             return BotArgumentsDigest.digest(
-                ofUTF8: "\(instanceID)|\(botID)|\(sessionID)|\(recipientState)|\(grantState)|\(contextState)|\(roster)")
+                ofUTF8: "\(instanceID)|\(botID)|\(sessionID)|\(recipientState)|\(grantState)|\(roster)")
         }
         // G-1 provenance first: the decision material state adapter reads it.
         let fileRechecker = BotFileSourceRechecker(
             locator: BotWorkspaceFileURLResolver(
                 workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot()))
-        // G-1/E7: file + web recheck share one provenance read model; the web
-        // arm reuses the existing cloud /v1/web/fetch endpoint.
-        let productionCloud = BotCloudConfiguration.production()
-        let webRechecker: BotProvenanceRechecking? = productionCloud.map { cloud in
+        // E3 external page freshness reuses the existing account /v1/web/fetch
+        // endpoint. It is not cloud scheduling and adds no new service.
+        let webBaseURL = ProcessInfo.processInfo.environment["PDSH_CLOUD_BASE_URL"]
+            .flatMap(URL.init(string:)) ?? URL(string: "https://account.tonoai.cn")
+        let webRechecker: BotProvenanceRechecking? = webBaseURL.map { baseURL in
             BotProvenanceWebRecheckAdapter(
                 transport: CloudWebRecheckTransport(
-                    configuration: .init(baseURL: cloud.baseURL),
+                    configuration: .init(baseURL: baseURL),
                     tokenProvider: { try await TonoAccountSession.shared.accessToken() }))
         }
-        let skillRoots = BotSkillRoots(
-            workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot())
         let provenance = BotProvenanceService(
             eventLog: store,
             resolver: recordService,
             rechecker: BotProvenanceRecheckerComposite(
                 file: BotProvenanceFileRecheckAdapter(rechecker: fileRechecker),
-                web: webRechecker),
-            skillRechecker: BotSkillFileRechecker(roots: skillRoots))
+                web: webRechecker))
         await runtime.installProvenance(provenance)
         let materialState = BotDecisionMaterialStateAdapter(provenance: provenance)
         let workspaceCatalog = BotWorkspaceDirectoryCatalog(
@@ -521,6 +472,7 @@ final class BotRuntimeComposition {
             workspaceMaterials: workspaceMaterials)
         await runtime.installDecisionContext(
             decisionContext, trace: materialTrace, permissionRevision: permissionRevision)
+
         let handler = BotMCPHandler(runtime: runtime)
         let server = BotMCPHTTPServer(handler: handler)
         let url = try await server.start()
@@ -533,15 +485,9 @@ final class BotRuntimeComposition {
             handler: handler, server: server, rosterModel: rosterModel,
             selectionStore: selectionStore,
             workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot(),
-            schedulerNow: now, schedulerSleep: sleep,
-            cloudConfiguration: productionCloud)
-        composition.contextSources = contextSources
-        composition.startCloudAccountObserver()
+            schedulerNow: now, schedulerSleep: sleep)
         composition.provenance = provenance
         composition.feedbackCenter = feedbackCenter
-        await runtime.setRoutineChangeObserver { [weak composition] botID in
-            await composition?.noteRoutineChanged(botID: botID)
-        }
         // A Worker rebuilt by a foreground resume loses its in-memory
         // credential map. On the first rejected registration the App
         // re-claims that exact session's current token and the Worker retries
@@ -574,108 +520,7 @@ final class BotRuntimeComposition {
         let selectedUnit = try await composition.ensureUnit(
             for: rosterModel.selectedBotID ?? selectedCandidate,
             reason: "prepare")
-        composition.installSkillObservers(
-            botID: rosterModel.selectedBotID ?? selectedCandidate,
-            queue: selectedUnit.skillQueue)
-        // G-FAM-2: the settings page's raw operation records and the one
-        // applied-basis skill event share the user-dsh observer's router/queue.
-        let userSkillRouter = composition.featureAdminSkillRouter
-        let hostRoot = workspaceRoot ?? BotProductionPaths.workspaceRoot()
-        server.featureAdminSkillMutations = BotFeatureAdminSkillMutationRecorder(
-            eventLog: store,
-            userSkillsRoot: skillRoots.root(for: .userDsh, ownerBotID: nil)
-                ?? hostRoot.appendingPathComponent("materialized/home/skills", isDirectory: true),
-            blob: BotFeatureAdminSkillMutationBlob(read: { digest, expectedBytes in
-                // Existing immutable content-addressed VFS blob; no second store.
-                let store = WorkspaceBlobStore(root: hostRoot)
-                return try? store.read(digest: digest, expectedLength: expectedBytes)
-            }),
-            queue: BotFeatureAdminSkillMutationQueue(
-                ready: { userSkillRouter.hasQueue },
-                suppress: { file, action, operationID in
-                    userSkillRouter.suppressObserverMutation(
-                        fileName: file, action: action, operationID: operationID)
-                },
-                clear: { operationID in
-                    userSkillRouter.clearObserverSuppression(operationID: operationID)
-                },
-                emit: { file, action, requestRecord, appliedRecord in
-                    // Pass the real flat file name (`x.md`): the producer
-                    // classifies by file, not by the catalog skill name.
-                    // Return the real producer result; a missing queue or a
-                    // caught producer failure must be `skill_event:false`.
-                    let sources = [
-                        BotDerivationSource(record: appliedRecord, role: .basis),
-                        BotDerivationSource(record: requestRecord, role: .evidence),
-                    ]
-                    switch action {
-                    case .write:
-                        return await userSkillRouter.userWriteAndWait(
-                            file, sources: sources)
-                    case .delete:
-                        return await userSkillRouter.userDeleteAndWait(
-                            file, sources: sources)
-                    }
-                }),
-            now: runtimeClock)
-        composition.contextStartTask = Task { await composition.startContextSourcesIfNeeded() }
-        return Launch(composition: composition, environment: selectedUnit.environment,
-                      materialTrace: materialTrace)
-    }
-
-    /// Install the observers on the selected unit's one queue. The runtime and
-    /// every observer (user-dsh + project roots) therefore share one tail and
-    /// one diagnostics ring.
-    func installSkillObservers(botID: String, queue: BotSkillEventQueue) {
-        if skillQueueBotID == botID, skillQueue === queue { return }
-        // The user-dsh root is shared by every Bot. Keep its observer alive and
-        // atomically retarget its router, so a write during a selection change
-        // cannot fall into a stop→start gap. Project roots are per-Bot and are
-        // stopped/replaced below.
-        userSkillRouter.set(queue)
-        if userSkillObserver == nil {
-            let skillRoots = BotSkillRoots(workspaceRoot: workspaceRoot)
-            let userRoot = skillRoots.skillsRoot(source: "user-dsh", ownerBotID: nil)
-                ?? workspaceRoot.appendingPathComponent(
-                    "materialized/home/skills", isDirectory: true)
-            let observer = BotSkillDirectoryObserver(
-                root: userRoot, label: "bot.skill.user-dsh", createRoot: true,
-                onWritten: { [router = userSkillRouter] name in
-                    router.observeUserWrite(name)
-                },
-                onDeleted: { [router = userSkillRouter] name in
-                    router.observeUserDelete(name)
-                })
-            observer.start()
-            userSkillObserver = observer
-        }
-        for observer in skillDirectoryObservers { observer.stop() }
-        skillDirectoryObservers = []
-        skillQueue = queue
-        let skillRoots = BotSkillRoots(workspaceRoot: workspaceRoot)
-        let botRoot = BotWorkspaceLayout.botRoot(
-            botId: botID, dataDirectory: BotSessionRegistry.botDataDirectory)
-        for (suffix, source) in [(".dsh/skills", "project-dsh"),
-                                 (".agents/skills", "project-agents")] {
-            guard let root = skillRoots.skillsRoot(
-                source: source, ownerBotID: botID) else { continue }
-            let observer = BotSkillDirectoryObserver(
-                root: root, label: "bot.skill.\(source)", createRoot: true,
-                onDeleted: { [queue] name in
-                    // Project roots are per-Bot. Capture this unit's queue, not
-                    // the shared user router: a late callback after selection
-                    // must never contaminate the newly selected Bot's queue.
-                    let vfs = botRoot + "/" + suffix + "/" + name
-                    queue.enqueue { await queue.botDelete(vfs: vfs, botID: botID) }
-                })
-            observer.start()
-            skillDirectoryObservers.append(observer)
-        }
-    }
-
-    /// Unified bounded producer diagnostics from the shared queue.
-    func skillDiagnosticsSnapshot() -> [BotSkillDiagnostic] {
-        skillQueue?.diagnosticsSnapshot() ?? []
+        return Launch(composition: composition, environment: selectedUnit.environment)
     }
 
     private static func legacyRenamedName(domain: SQLiteDomainStore) async -> String? {
@@ -697,8 +542,7 @@ final class BotRuntimeComposition {
                  selectionStore: BotSelectionStore,
                  workspaceRoot: URL,
                  schedulerNow: (@Sendable () -> Int64)?,
-                 schedulerSleep: RoutineScheduler.Sleeper?,
-                 cloudConfiguration: BotCloudConfiguration? = nil) async throws {
+                 schedulerSleep: RoutineScheduler.Sleeper?) async throws {
         self.domain = domain
         self.profileStore = profileStore
         self.runtime = runtime
@@ -710,7 +554,6 @@ final class BotRuntimeComposition {
         self.workspaceRoot = workspaceRoot
         self.schedulerNow = schedulerNow
         self.schedulerSleep = schedulerSleep
-        self.cloudConfiguration = cloudConfiguration
         self.outbox = BotProductionEffectRunner(store: domain)
         let mainBotPointer = BotMainBotPointer(rosterModel.mainBotID)
         self.mainBotPointer = mainBotPointer
@@ -790,42 +633,6 @@ final class BotRuntimeComposition {
 
     func unit(for botID: String) -> BotRuntimeUnit? { units[botID] }
 
-    /// Real App scene lifecycle reaches every Bot's existing cloud client.
-    func cloudSceneChanged(_ active: Bool, generation: Int) async {
-        guard generation == latestCloudSceneGeneration else { return }
-        for unit in units.values {
-            await unit.cloudSceneChanged(active)
-        }
-    }
-
-    func nextCloudSceneGeneration() -> Int {
-        latestCloudSceneGeneration &+= 1
-        return latestCloudSceneGeneration
-    }
-
-    /// Account state changes (including a token refresh) reach every Bot.
-    func cloudCredentialsChanged(signedIn: Bool) async {
-        for unit in units.values {
-            await unit.cloudCredentialsChanged(signedIn: signedIn)
-        }
-    }
-
-    func startCloudAccountObserver() {
-        guard cloudAccountTask == nil else { return }
-        cloudAccountTask = Task { @MainActor [weak self] in
-            for await state in await TonoAccountSession.shared.states() {
-                guard let self else { return }
-                let signedIn: Bool
-                if case .signedIn = state { signedIn = true } else { signedIn = false }
-                await self.cloudCredentialsChanged(signedIn: signedIn)
-            }
-        }
-    }
-
-    deinit {
-        cloudAccountTask?.cancel()
-    }
-
     /// Any typed/poked/tapped page wakes the sidebar's 60 s idle clock for the
     /// same Bot, so the drawer and the open page never disagree.
     func noteInteraction(for botID: String) {
@@ -833,13 +640,6 @@ final class BotRuntimeComposition {
     }
 
     @discardableResult
-    /// A routine create/update/delete asks that Bot's cloud client to re-sync
-    /// its schedules; a Bot without a client keeps the local-only behaviour.
-    func noteRoutineChanged(botID: String) async {
-        guard let unit = units[botID] else { return }
-        await unit.cloudClient?.noteSchedulesChanged()
-    }
-
     func ensureUnit(for botID: String, reason: String = "selected") async throws -> BotRuntimeUnit {
         // Guard: an existing unit is returned untouched. Re-attaching it here
         // (as a selection side effect) would swap a live transport and cut the
@@ -854,8 +654,7 @@ final class BotRuntimeComposition {
             isMainBot: { [mainBotPointer] in mainBotPointer.isMain(botID) },
             workspaceRoot: workspaceRoot,
             now: schedulerNow, sleep: schedulerSleep,
-            cloud: cloudConfiguration, feedback: feedbackCenter,
-            provenance: provenance)
+            feedback: feedbackCenter, provenance: provenance)
         units[botID] = unit
         let eraser = BotSessionEpochEraser(
             remote: unit.remote,
@@ -913,35 +712,7 @@ final class BotRuntimeComposition {
 
     // MARK: - Host binding
 
-    /// Start the context-source registry as soon as the composition exists, so
-    /// the settings surface is not stuck at "unavailable" until a host bind.
-    func startContextSourcesIfNeeded() async {
-        guard !stopped, let contextSources, !contextSources.isStarted() else { return }
-        let router = BotContextWakeDecisionRouter(
-            assembly: contextSources,
-            runner: { [weak self] request in
-                guard let self else { return .failure("composition-unavailable") }
-                let remote = await MainActor.run { self.units[request.botId]?.remote }
-                guard let remote else { return .failure("bot-unit-unavailable") }
-                return await remote.runRoutine(request)
-            })
-        contextWakeRouter = router
-        do {
-            try await contextSources.start { [weak self] signal in
-                Task { @MainActor in
-                    guard let self, !self.stopped else { return }
-                    await router.handle(signal)
-                }
-            }
-        } catch {
-            contextWakeLog.append(WakeSignal(botId: "context-sources",
-                                             reason: "context-source-start-failed",
-                                             at: Int64(Date().timeIntervalSince1970 * 1000)))
-        }
-    }
-
     func start(host newHost: PhoneDSHHost) async throws {
-        stopped = false
         if let current = host, current === newHost, started, !state.isFailure {
             return
         }
@@ -951,37 +722,6 @@ final class BotRuntimeComposition {
         host = newHost
         await hostReference.set(newHost)
         try await bind(to: newHost, recovering: false)
-        await startContextSourcesIfNeeded()
-    }
-
-    /// Bounded host record of context wake requests. Consuming a signal into a
-    /// turn is F/S policy and is not wired yet; the signal is never turned into
-    /// an empty visible turn here.
-    /// Diagnostics only. The real decision path is `contextWakeRouter`.
-    func noteContextWake(_ signal: WakeSignal) {
-        contextWakeLog.append(signal)
-        if contextWakeLog.count > 128 {
-            contextWakeLog.removeFirst(contextWakeLog.count - 128)
-        }
-    }
-
-    func recentContextWakes() -> [WakeSignal] { contextWakeLog }
-
-    /// App/notification entry points for the G-3 context sources. Each is a
-    /// no-op until the assembly started and the source is subscribed.
-    func handleContextOpenURL(_ url: URL) async -> Bool {
-        guard let contextSources else { return false }
-        return await contextSources.handleOpenURL(url)
-    }
-
-    func handleContextUserActivity(_ activity: NSUserActivity) async -> Bool {
-        guard let contextSources else { return false }
-        return await contextSources.handleUserActivity(activity)
-    }
-
-    func handleContextNotificationResponse(_ response: UNNotificationResponse) async -> Bool {
-        guard let contextSources else { return false }
-        return await contextSources.handleNotificationResponse(response)
     }
 
     /// The visible 重试 action. A rebind may still be in flight (the d
@@ -1306,13 +1046,6 @@ final class BotRuntimeComposition {
     }
 
     func stop() async {
-        stopped = true
-        contextStartTask?.cancel()
-        contextStartTask = nil
-        cloudAccountTask?.cancel()
-        cloudAccountTask = nil
-        contextWakeRouter = nil
-        if let contextSources { await contextSources.stopAll() }
         await detachBinding()
         // Interactive cards cannot survive the process; durable todos are
         // deliberate facts and remain for the next launch (spec/bot/v1 §2.7).
@@ -1708,7 +1441,6 @@ final class BotRuntimeComposition {
             },
             BotDeletionStep(name: "clear-routines") { [weak self] in
                 guard let self else { return }
-                await self.units[botID]?.cloudWiring?.purgeCloudSchedules()
                 let machine = await self.runtime.routineMachine
                 let routines = (try? await machine.list(botId: botID)) ?? []
                 for routine in routines {

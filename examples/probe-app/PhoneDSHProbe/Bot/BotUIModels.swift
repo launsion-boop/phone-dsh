@@ -473,23 +473,6 @@ struct BotChatDriver {
     /// The durable presentation (fish state + current-turn activity) projected
     /// by the runtime. Live frames refine it while a turn is running.
     var presentation: () async throws -> BotRuntimePresentation = { BotRuntimePresentation() }
-    /// Current source states for one row. The production adapter resolves the
-    /// row's event ids through lineage + source services; the default fails
-    /// closed and never fabricates a source.
-    var inspectSources: (BotSourceInspectionRequest) async -> BotSourceInspectionResult = { _ in
-        .unavailable(reason: "来源服务未连接")
-    }
-    /// One atomic suggested-resource selection. The phone-only wire action is
-    /// built by the production adapter; the UI never toggles the host one item
-    /// at a time.
-    var selectDeliveryResources: (BotDeliverySelectionIntent) async -> BotUIActionResult = { _ in
-        .rejected(reason: "交付选择接口未连接")
-    }
-    /// One durable feedback record, bound to a real artifact row. The host
-    /// validates the artifact and derives the suppression scope.
-    var recordFeedback: (BotFeedbackIntent) async -> BotUIActionResult = { _ in
-        .rejected(reason: "反馈接口未连接")
-    }
 }
 
 struct BotRuntimeContext: Equatable {
@@ -677,7 +660,7 @@ struct BotUICardContent {
         switch body.type {
         case "widget":
             guard let rawKind = body.cardType, let kind = BotUICardKind(rawValue: rawKind),
-                  [.question, .steps, .task, .attachment, .document, .progress, .checklist, .link].contains(kind) else { return nil }
+                  [.question, .steps, .task, .document, .progress, .checklist, .link].contains(kind) else { return nil }
             return valid(kind: kind, body: body) ? BotUICardContent(kind: kind, body: body) : nil
         case "attachment":
             if let declared = body.cardType, declared != "attachment" { return nil }
