@@ -264,6 +264,7 @@ public struct BotSkillProvenanceProducer: Sendable {
     }
 
     static func contentSHA256(_ data: Data) -> String { sha256(data) }
+    static func contentSHA256(_ text: String) -> String { sha256(Data(text.utf8)) }
 
     private static func sha256(_ data: Data) -> String {
         "sha256:" + SHA256.hash(data: data)
