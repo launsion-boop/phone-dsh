@@ -373,7 +373,7 @@ final class BotRuntimeComposition {
         let mainBotID = roster.mainBotID
         let volatile = BotDomainVolatileContextProvider(
             memory: baseMemory, routines: machine,
-            personaAsync: { botId, _, _ in
+            personaAsync: DeviceAppWiring.decoratePersona { botId, _, _ in
                 let profile = try? await profileStore.profile(id: botId)
                 let name = profile?.name ?? (botId == mainBotID ? "大肥鱼" : botId)
                 return "你的名字是\(name)。用户问起名字时如实回答。"
@@ -515,6 +515,9 @@ final class BotRuntimeComposition {
             selectionStore: selectionStore)
         await runtime.registerTeamTools(BotTeamTools(host: composition))
         await runtime.registerFishActionTool()
+        #if canImport(PhoneDSHBLE) && canImport(UIKit)
+        await DeviceAppLiveWiring.attach(runtime: runtime, domain: store)
+        #endif
         rosterModel.start()
         composition.startRosterObservation()
         let selectedUnit = try await composition.ensureUnit(

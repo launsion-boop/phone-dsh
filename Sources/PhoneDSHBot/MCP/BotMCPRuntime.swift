@@ -266,6 +266,7 @@ public actor BotMCPRuntime {
     private var approvalResolutionHandlerInstalled = false
     private var memories: [String: BotMemory] = [:]
     private var teamToolHandlers: [any BotTeamToolHandling] = []
+    private var deviceApp: DeviceAppToolHost?
     private var toolCatalogProvider: (@Sendable (String?) async -> [BotMCPToolDefinition]?)?
     private var registrations: [String: BotAttribution] = [:]
     private var registrationArguments: [String: BotJSONValue] = [:]
@@ -621,7 +622,7 @@ public actor BotMCPRuntime {
     /// catalog itself is intentionally unchanged in this unit.
     func handlesTeamTool(_ name: String) -> Bool {
         guard !Self.isHostBuiltinToolName(name) else { return false }
-        return teamToolHandlers.contains { $0.handles(name) }
+        return teamToolHandlers.contains { $0.handles(name) } || handlesDeviceAppTool(name)
     }
 
     /// Names the host/Worker already owns outside the Bot catalog (shell, VFS,
@@ -661,11 +662,23 @@ public actor BotMCPRuntime {
         guard let callerBotID, !callerBotID.isEmpty else {
             return BotToolCatalog.workerDefinitions
         }
+        var base = BotToolCatalog.workerDefinitions
         if let provider = toolCatalogProvider,
            let definitions = await provider(callerBotID) {
-            return definitions
+            base = definitions
         }
-        return BotToolCatalog.workerDefinitions
+        // device-app-v1: only a Bot with a device binding lists the two host tools.
+        if let deviceApp, await deviceApp.isBound(botID: callerBotID) {
+            base += DeviceAppToolDefinitions.all
+        }
+        return base
+    }
+
+    /// Installs the device-app host tools (P26, device-app-v1). `nil` removes them.
+    public func setDeviceAppTools(_ host: DeviceAppToolHost?) { deviceApp = host }
+
+    private func handlesDeviceAppTool(_ name: String) -> Bool {
+        deviceApp != nil && DeviceAppToolNames.handles(name)
     }
 
     /// Resolves the caller Bot from the App-minted MCP session identity. This
@@ -1396,7 +1409,7 @@ public actor BotMCPRuntime {
         let catalogTool = BotToolCatalog.isRegistered(bareName)
         let decisionTool = bareName == BotDecisionTool.name
         let teamHandler = catalogTool ? nil : teamToolHandler(for: bareName)
-        guard catalogTool || teamHandler != nil || decisionTool else {
+        guard catalogTool || teamHandler != nil || decisionTool || handlesDeviceAppTool(bareName) else {
             return .failure("unknown_tool", "未知工具：\(name)")
         }
         let scope = scopedRuntimeID(context.runtimeId)
@@ -1442,6 +1455,9 @@ public actor BotMCPRuntime {
                 }
                 let snapshot = try await volatileContext.snapshot(request: arguments, principal: call.principal)
                 return .success(snapshot.jsonValue)
+            }
+            if handlesDeviceAppTool(bareName), let deviceApp {
+                return await executeDeviceApp(bareName, arguments: arguments, call: call, host: deviceApp)
             }
             let effect = BotToolEffectClassifier.effect(for: bareName, arguments: arguments)
             if let reason = await authorize(call: call, effect: effect) {
@@ -1494,6 +1510,32 @@ public actor BotMCPRuntime {
             }
         } catch {
             return .failure("execution_failed", String(describing: error))
+        }
+    }
+
+    /// `DeviceAppInstall` never goes through the generic ask-authorization (its
+    /// effect has no standing grant): it raises its own once-only approval on
+    /// every call, including a user's own turn, before any radio use.
+    private func executeDeviceApp(_ name: String, arguments: BotJSONValue,
+                                  call: BotResolvedToolCall,
+                                  host: DeviceAppToolHost) async -> BotMCPCallResult {
+        if name == DeviceAppToolNames.stage {
+            let effect = BotToolEffectClassifier.effect(for: name, arguments: arguments)
+            if let reason = await authorize(call: call, effect: effect) {
+                return .failure("permission_denied", reason)
+            }
+            return await host.stage(arguments: arguments, principal: call.principal)
+        }
+        let authority = turnAuthority(for: call)
+        let persistence = approvalPersistence(for: call)
+        let approvals = self.approvals
+        return await host.install(
+            arguments: arguments, principal: call.principal, authority: authority
+        ) { effect in
+            await approvals.request(
+                call: call, effects: [effect], action: DeviceAppToolNames.install,
+                detail: effect.detail, command: "", alwaysScope: "none",
+                persistence: persistence, origin: "structural")
         }
     }
 

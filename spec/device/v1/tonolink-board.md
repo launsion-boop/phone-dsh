@@ -158,7 +158,8 @@ Unknown `key=value` members after the known ones are ignored; any other `ev …`
 164 bytes, without Opus and without the last flag, or whose id byte is not the low 8 bits of
 the current turn's id is dropped.
 
-Where the heard text goes: the phone creates one Bot per Link device the first time the device
+Where the heard text goes (the Bot's creation, key, name and lifecycle are owned by
+[device-bot.md](device-bot.md); this section keeps only the voice routing): the phone creates one Bot per Link device the first time the device
 lists its tools, and remembers the pair on the phone (the shared Bot profile is unchanged). The
 board's heard text goes to that Bot, whatever page is open, and its answer is spoken; a paused
 engine is resumed first while the App may execute. When the Bot cannot be reached (no Bot runtime

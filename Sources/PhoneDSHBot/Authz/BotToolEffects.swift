@@ -226,6 +226,11 @@ public enum BotToolEffectClassifier {
                                     ? "把消息发给另一个 Bot，对方回复后会以 agent-comm 行返回；这是对外动作，结果未知时不自动重试。"
                                     : "Sends a message to another Bot and records the reply as an agent-comm row; this is an external action and must not be retried automatically when the outcome is unknown.",
                                  isMcp: isMcp)
+        case DeviceAppToolNames.stage:
+            return DeviceAppToolEffects.stageEffect(isMcp: isMcp)
+        case DeviceAppToolNames.install:
+            return DeviceAppToolEffects.classifierInstallEffect(
+                digest: clip(args["digest"], max: 64), isMcp: isMcp)
         case "CreateTeammate":
             let name = clip(args["name"], max: 80)
             let resource = mergedResource([
