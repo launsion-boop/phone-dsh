@@ -222,6 +222,27 @@ public protocol PhoneToolBridge: Sendable {
     func callTool(name: String, arguments: String) async throws -> String
 }
 
+/// Host owner of the trusted `phone contacts.search` Bot path. The caller
+/// session comes only from `PDSH_TOOL_CALL_SESSION`; botID is resolved by the
+/// App composition, never from model arguments.
+public protocol PhoneBotContactsQuerying: Sendable {
+    func runContactsCommand(arguments: [String], callerSessionID: String) async
+        -> PhoneRecordCommandResult
+}
+
+/// Host-only classification of a trusted tool-call session for
+/// `phone contacts.search`. `.ordinary` must come from a verified ordinary DSH
+/// session, not merely from an unknown/missing id.
+public enum PhoneContactsCaller: Sendable, Equatable {
+    case bot(botID: String)
+    case ordinary
+    case invalid(reason: String)
+}
+
+public protocol PhoneContactsSessionClassifying: Sendable {
+    func classifyContactsCaller(callerSessionID: String) async -> PhoneContactsCaller
+}
+
 public extension PhoneToolBridge {
     /// Generic hosts keep their existing ctx support. A limited bridge must
     /// explicitly decline it instead of advertising an unimplemented tool.

@@ -34,6 +34,10 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
     /// server). `nil` makes those commands fail with exit 69.
     public let toolBridge: (any PhoneToolBridge)?
     public let botContactsQuery: (any PhoneBotContactsQuerying)?
+    /// Optional host-only session classifier. With query+classifier, verified
+    /// ordinary calls keep the old bridge; Bot calls use the Bot assembly;
+    /// missing/unknown sessions fail closed.
+    public let contactsSessionClassifier: (any PhoneContactsSessionClassifying)?
     /// Injected read-only `phone record` owner. `nil` refuses that subcommand
     /// instead of forwarding it to the generic phone bridge.
     public let recordQuery: (any PhoneRecordQuerying)?
@@ -57,12 +61,14 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
                 limits: PDSHShellLimits = .default,
                 toolBridge: (any PhoneToolBridge)? = nil,
                 botContactsQuery: (any PhoneBotContactsQuerying)? = nil,
+                contactsSessionClassifier: (any PhoneContactsSessionClassifying)? = nil,
                 recordQuery: (any PhoneRecordQuerying)? = nil) {
         self.materializedWorkspace = materializedWorkspace
         self.materializedHome = materializedHome
         self.limits = limits
         self.toolBridge = toolBridge
         self.botContactsQuery = botContactsQuery
+        self.contactsSessionClassifier = contactsSessionClassifier
         self.recordQuery = recordQuery
         let mounts = Self.makeMounts(workspace: materializedWorkspace, home: materializedHome)
         self.mounts = mounts
@@ -82,6 +88,7 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
                 limits: PDSHShellLimits = .default,
                 toolBridge: (any PhoneToolBridge)? = nil,
                 botContactsQuery: (any PhoneBotContactsQuerying)? = nil,
+                contactsSessionClassifier: (any PhoneContactsSessionClassifying)? = nil,
                 recordQuery: (any PhoneRecordQuerying)? = nil) {
         self.init(materializedWorkspace: workspaceRoot.appendingPathComponent(
                       "materialized/workspace", isDirectory: true),
@@ -229,6 +236,59 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
         if request.argv.count >= 2, request.argv[0] == "phone", request.argv[1] == "record" {
             return recordStream(request)
         }
+        let contactsSearchStart: Int? = {
+            guard request.argv.count >= 2, request.argv[0] == "phone" else { return nil }
+            if request.argv[1] == "contacts.search" { return 2 }
+            if request.argv[1] == "contacts", request.argv.count >= 3,
+               request.argv[2] == "search" { return 3 }
+            return nil
+        }()
+        if let start = contactsSearchStart, let bridge = botContactsQuery {
+            guard let session = trustedToolCallSession(request) else {
+                return sessionErrorStream(
+                    message: "phone: contacts.search requires a claimed tool-call session; nothing executed")
+            }
+            if let classifier = contactsSessionClassifier {
+                return AsyncThrowingStream { continuation in
+                    let task = Task {
+                        let caller = await classifier.classifyContactsCaller(
+                            callerSessionID: session)
+                        switch caller {
+                        case .bot:
+                            let result = await bridge.runContactsCommand(
+                                arguments: Array(request.argv.dropFirst(start)),
+                                callerSessionID: session)
+                            Self.write(result, to: continuation)
+                        case .ordinary:
+                            if let echo = self.toolBridge {
+                                let arguments = request.argv.dropFirst(start).joined(separator: " ")
+                                do {
+                                    let stdout = try await echo.callTool(
+                                        name: "contacts.search", arguments: arguments)
+                                    Self.write(PhoneRecordCommandResult(stdout: stdout, exitCode: 0),
+                                               to: continuation)
+                                } catch {
+                                    Self.write(PhoneRecordCommandResult(
+                                        stdout: #"{"ok":false,"tool":"contacts.search","error":{"code":"unavailable"}}"#,
+                                        exitCode: 0), to: continuation)
+                                }
+                            } else {
+                                Self.write(PhoneRecordCommandResult(
+                                    stdout: "", stderr: "phone: contacts bridge unavailable\n",
+                                    exitCode: 1), to: continuation)
+                            }
+                        case .invalid(let reason):
+                            Self.write(PhoneRecordCommandResult(
+                                stdout: #"{"ok":false,"tool":"contacts.search","error":{"code":"not_authorized"}}"#,
+                                stderr: "phone: \(reason)\n", exitCode: 1), to: continuation)
+                        }
+                        continuation.finish()
+                    }
+                    continuation.onTermination = { _ in task.cancel() }
+                }
+            }
+            return sessionToolStream(request, bridge: bridge, sessionID: session)
+        }
         return AsyncThrowingStream { continuation in
             continuation.onTermination = { [engine] termination in
                 // A consumer that walks away cancels the underlying command so
@@ -243,7 +303,36 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
         }
     }
 
-    private func contactsStream(_ request: ExecRequest) -> AsyncThrowingStream<ExecEvent, Error> {
+    private func trustedToolCallSession(_ request: ExecRequest) -> String? {
+        guard let raw = request.env[Self.toolCallSessionEnvironmentKey],
+              raw.range(of: #"^[A-Za-z0-9._-]{1,64}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        return raw
+    }
+
+    private static func write(_ result: PhoneRecordCommandResult,
+                             to continuation: AsyncThrowingStream<ExecEvent, Error>.Continuation) {
+        if !result.stdout.isEmpty {
+            continuation.yield(.stdout(seq: 0, data: Data(result.stdout.utf8)))
+        }
+        if !result.stderr.isEmpty {
+            continuation.yield(.stderr(seq: 1, data: Data(result.stderr.utf8)))
+        }
+        continuation.yield(.exit(code: result.exitCode, signal: nil, truncated: false))
+    }
+
+    private func sessionErrorStream(message: String) -> AsyncThrowingStream<ExecEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(.stderr(seq: 0, data: Data((message + "\n").utf8)))
+            continuation.yield(.exit(code: 1, signal: nil, truncated: false))
+            continuation.finish()
+        }
+    }
+
+    private func sessionToolStream(
+        _ request: ExecRequest, bridge: any PhoneBotContactsQuerying, sessionID: String
+    ) -> AsyncThrowingStream<ExecEvent, Error> {
         AsyncThrowingStream { continuation in
             guard let botContactsQuery else {
                 continuation.yield(.stderr(seq: 0, data: Data("phone: contacts bridge is unavailable\n".utf8)))
@@ -321,6 +410,8 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
             && lhs.materializedHome == rhs.materializedHome
             && lhs.limits == rhs.limits
             && (lhs.toolBridge == nil) == (rhs.toolBridge == nil)
+            && (lhs.botContactsQuery == nil) == (rhs.botContactsQuery == nil)
+            && (lhs.contactsSessionClassifier == nil) == (rhs.contactsSessionClassifier == nil)
             && (lhs.recordQuery == nil) == (rhs.recordQuery == nil)
             && (lhs.botContactsQuery == nil) == (rhs.botContactsQuery == nil)
             && lhs.helloCapabilities == rhs.helloCapabilities
