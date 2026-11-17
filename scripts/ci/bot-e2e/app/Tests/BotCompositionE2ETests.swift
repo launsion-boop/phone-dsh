@@ -549,6 +549,12 @@ final class BotCompositionE2ETests: XCTestCase {
         guard FileManager.default.fileExists(atPath: dbPath) else {
             throw XCTSkip("U's real feedback SQLite backup is absent")
         }
+        let proxyHealth = URL(string: "http://127.0.0.1:38471/health")!
+        let healthData = try? await URLSession.shared.data(from: proxyHealth)
+        let healthy = healthData.flatMap { String(data: $0.0, encoding: .utf8) } == "ok"
+        guard healthy else {
+            throw XCTSkip("real-model loopback proxy is not running on 127.0.0.1:38471")
+        }
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("a05-outlet-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -565,11 +571,7 @@ final class BotCompositionE2ETests: XCTestCase {
             workspaceRoot: workspaceRoot, now: { schedulerNow })
         let composition = launch.composition
 
-        let mock = MockModelUpstream()
-        mock.script = .generic(command: "printf A05_B_ROUTINE", toolText: "A05_B_ROUTINE",
-                               finalText: "A05_B_ROUTINE_DONE")
-        let mockURL = try mock.start()
-        defer { mock.stop() }
+        let modelBaseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:38471"))
         guard let worker = Bundle.main.url(forResource: "worker", withExtension: nil) else {
             return XCTFail("the real packed Worker is absent")
         }
@@ -584,14 +586,14 @@ final class BotCompositionE2ETests: XCTestCase {
         let configuration = ChatHostConfiguration.makeProduction(
             workspaceRoot: workspaceRoot,
             bundle: bundle,
-            allowedModelHosts: [mockURL.absoluteString],
+            allowedModelHosts: [modelBaseURL.absoluteString],
             egressAllowHosts: [],
             replaySafeModelEndpoints: PhoneDSHConfiguration.standardModelEndpoints(
-                baseURL: mockURL),
+                baseURL: modelBaseURL),
             credentialProvider: PhoneMCPCredentialProvider(policy: mcpPolicy, base: baseCredentials),
             egressAuthorizer: mcpPolicy,
             workerEnvironment: composition.workerEnvironment.merging([
-                "DEEPSEEK_BASE_URL": mockURL.absoluteString,
+                "DEEPSEEK_BASE_URL": modelBaseURL.absoluteString,
                 "DEEPSEEK_API_KEY": "a05-outlet-placeholder",
                 "DSH_TELEMETRY_DISABLED": "1",
                 "PDSH_LLM_DELIVERY_IDLE_TIMEOUT_MS": "5000",
@@ -608,6 +610,41 @@ final class BotCompositionE2ETests: XCTestCase {
         let b = try await composition.createBot(
             name: "Bot B", description: "A05 outlet Bot", color: nil, hairstyle: nil)
         let unitB = try await composition.ensureUnit(for: b.id, reason: "a05-outlet")
+        let readyDeadline = Date().addingTimeInterval(60)
+        while !(await unitB.remote.isAvailable()), Date() < readyDeadline {
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        let workerReady = await unitB.remote.isAvailable()
+        XCTAssertTrue(workerReady, "Bot B worker did not become available")
+        // Copy the 星桥 project materials into THIS Bot's materialized root
+        // after its host workspace exists; no answer text is in any prompt.
+        let projectFixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("../../fixtures/a05-ui-feedback/project")
+            .standardizedFileURL
+        let catalog = BotWorkspaceDirectoryCatalog(workspaceRoot: workspaceRoot)
+        let botMaterialized = try XCTUnwrap(catalog.directoryURL(forBotID: b.id),
+                                             "the production catalog must expose Bot B's root")
+        func seedProject(into root: URL) throws {
+            let projectRoot = root.appendingPathComponent("星桥产品评审", isDirectory: true)
+            try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+            for file in try FileManager.default.contentsOfDirectory(
+                at: projectFixture, includingPropertiesForKeys: nil) {
+                let target = projectRoot.appendingPathComponent(file.lastPathComponent)
+                if FileManager.default.fileExists(atPath: target.path) { continue }
+                try FileManager.default.copyItem(at: file, to: target)
+            }
+        }
+        try seedProject(into: workspaceRoot)
+        try seedProject(into: workspaceRoot.appendingPathComponent(
+            "materialized/workspace", isDirectory: true))
+        try seedProject(into: botMaterialized)
+        try seedProject(into: workspaceRoot.appendingPathComponent(
+            ".dshbot/agents/\(b.id)", isDirectory: true))
+        let seededFile = botMaterialized
+            .appendingPathComponent("星桥产品评审/11-报价-v2-20261114.md")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: seededFile.path),
+                      "fixture seed missing at \(seededFile.path)")
         let center = try XCTUnwrap(composition.feedbackCenter)
         let preferences = try await center.preferences(botID: b.id, scope: .user)
         let preference = try XCTUnwrap(preferences.active.first {
@@ -632,42 +669,81 @@ final class BotCompositionE2ETests: XCTestCase {
             }.count
         }
         func runRoutine(_ id: String) async throws {
-            mock.script = .generic(command: "printf A05_B_ROUTINE", toolText: "A05_B_ROUTINE",
-                                   finalText: "A05_B_ROUTINE_DONE")
             _ = try await composition.runtime.routineMachine.create(
-                botId: b.id, title: "A05 outlet \(id)", prompt: "生成一次固定结果",
+                botId: b.id, title: "A05 outlet \(id)",
+                prompt: "阅读工作区星桥产品评审的项目简报，用一句话给出当前评审目标。",
                 schedule: .interval(everyMinutes: 1, timezone: "UTC"),
                 delivery: .interrupt, interruptReason: "A05 outlet acceptance",
                 now: schedulerNow - 120_000, id: id)
             let current = try await composition.ensureUnit(for: b.id)
+            await current.scheduler.start()
             try await current.scheduler.tick()
             await current.scheduler.waitForIdle()
         }
+        func waitUntil(_ timeout: TimeInterval = 120,
+                       _ predicate: () async throws -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(timeout)
+            while Date() < deadline {
+                if try await predicate() { return }
+                try await Task.sleep(for: .milliseconds(250))
+            }
+        }
 
+        let probe = ProactiveCandidate(
+            id: "a05-outlet-probe", kind: .routineResult, botId: b.id,
+            dedupeKey: "routine-result:a05-outlet-probe", trigger: "routine.run_finished",
+            createdAt: schedulerNow, routineId: "a05-outlet-probe", delivery: .interrupt)
+        let probeHold = await center.hold(for: probe, botID: b.id, at: schedulerNow)
+        print("A05_OUTLET_PREF=\(preference.id) class=\(preference.classKey) expiry=\(String(describing: preference.expiresAtMS)) probeHeld=\(probeHold.isHeld)")
         let firstHeld = try await heldCount()
         try await runRoutine("a05-outlet-1")
+        try await waitUntil { try await heldCount() >= firstHeld + 1 }
         let heldAfterRun = try await heldCount()
         XCTAssertEqual(heldAfterRun, firstHeld + 1,
                        "the new Bot's routine result must be feedback-held")
+        try await waitUntil { try await finishedCount(routineID: "a05-outlet-1") >= 1 }
         let finished1 = try await finishedCount(routineID: "a05-outlet-1")
         XCTAssertGreaterThanOrEqual(finished1, 1,
                        "the routine itself must still execute and finish")
 
-        mock.script = .generic(command: "printf A05_B_CHAT", toolText: "A05_B_CHAT",
-                               finalText: "A05_B_CHAT_OK")
-        let chat = try await unitB.remote.sendUserMessage("普通用户消息：今天怎么样？")
-        XCTAssertEqual(chat.status, "completed", chat.error ?? "no error")
-        XCTAssertTrue(chat.text.contains("A05_B_CHAT_OK"),
-                      "normal user chat must still answer; text=\(chat.text)")
 
         try await host.plannedRestart(reason: "a05-outlet-restart")
+        let restartReady = Date().addingTimeInterval(60)
+        while Date() < restartReady {
+            let restarted = try await composition.ensureUnit(for: b.id)
+            if await restarted.remote.isAvailable() { break }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        // Restart materialized the workspace; ask the real task now so the
+        // Bot has the seeded project files available.
         let beforeRestartHeld = heldAfterRun
         try await runRoutine("a05-outlet-2")
+        try await waitUntil { try await heldCount() >= beforeRestartHeld + 1 }
+        print("A05_RESTART_EVENTS=\(try await events().filter { $0.principal.botId == b.id && ($0.type == "proactive.considered" || $0.type == "routine.run_finished") }.map { ($0.type, $0.data) })")
         let afterRestartHeld = try await heldCount()
         XCTAssertEqual(afterRestartHeld, beforeRestartHeld + 1,
                        "restart must keep the durable feedback hold")
+        try await waitUntil { try await finishedCount(routineID: "a05-outlet-2") >= 1 }
         let finished2 = try await finishedCount(routineID: "a05-outlet-2")
         XCTAssertGreaterThanOrEqual(finished2, 1)
+
+        try seedProject(into: workspaceRoot)
+        try seedProject(into: workspaceRoot.appendingPathComponent(
+            "materialized/workspace", isDirectory: true))
+        try seedProject(into: botMaterialized)
+        try seedProject(into: workspaceRoot.appendingPathComponent(
+            ".dshbot/agents/\(b.id)", isDirectory: true))
+        let chat = try await unitB.remote.sendUserMessage(
+            "读一下工作区星桥产品评审的报价 v2 和项目简报，指出最需要确认的一个冲突，并给出依据的文件名。")
+        XCTAssertEqual(chat.status, "completed", chat.error ?? "no error")
+        XCTAssertGreaterThan(chat.text.count, 30,
+                             "the normal task must produce a real answer; text=\(chat.text)")
+        print("A05_OUTLET_CHAT=\(chat.text)")
+        XCTAssertFalse(chat.text.contains("没有找到") || chat.text.contains("工作区是空的"),
+                       "the Bot must not report the seeded project as missing; text=\(chat.text)")
+        XCTAssertTrue(chat.text.contains("512") || chat.text.contains("508")
+                      || chat.text.contains("预算") || chat.text.contains("报价总额"),
+                      "the answer must cite the real quote conflict; text=\(chat.text)")
 
         let undo = try await center.undo(
             preference.id, botID: b.id,
