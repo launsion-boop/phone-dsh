@@ -299,3 +299,8 @@ export default function dshbotSkillUseGate(
     return denial(status)
   })
 }
+
+// The gate calls the internal status tool through `ctx.tools.execute`; Cordis
+// requires the service dependency to be declared, otherwise the pre-step
+// lookup throws before the host ever sees the status request.
+dshbotSkillUseGate.inject = ['tools']
