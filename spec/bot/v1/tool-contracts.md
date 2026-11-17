@@ -345,9 +345,10 @@ classification in `golden/tool-effects.phone.json`.
 - `DeviceAppInstall {digest}` (`digest` is 64 lowercase hex, no other property) installs the bundle
   staged earlier in the same session. Effect: `destructive`/`ask`, operation `device.app.install`,
   resource `device-app:install&digest=<digest>`, no `grantResource` (no standing grant is offered).
-- Both tools are listed and callable only for a Bot with a device binding. The device is the one in
+- Both tools are callable only for a Bot with a device binding. The device is the one in
   the binding; it is never an argument. A Bot without a binding does not see them and a call is
-  refused as for any unlisted tool.
+  refused as for any unlisted tool (the host checks the call against the same per-caller catalog
+  `tools/list` returns for that principal).
 - Every `DeviceAppInstall` call raises one once-only approval, also on a user's own turn, **before
   any radio use**, bound to the full digest. A decline or expiry installs nothing.
 - Error codes of the result: `not_staged`, `stale_binding`, `digest_mismatch`, `busy`,
@@ -359,6 +360,17 @@ classification in `golden/tool-effects.phone.json`.
   `ui.system_event{event:"device.app.install", device, name, title, version, digest,
   files:[{path,size,sha256}], author}` where `author` is the same author record as the
   `CreateTeammate` audit (`rpcId`, `turnId`, `sessionId`, `origin`, `authorization`, `approvalID`).
-- These are per-caller additions like `CreateTeammate`'s main-Bot rule: they are appended to the
-  caller's catalog only when the binding exists, and are excluded from the static catalog golden's
-  `p0`/`p1` lists and from the all-callers tool list.
+- Catalog visibility (device-app-v1.2, replaces the earlier "per-caller only" rule). The Worker
+  registers `mcp__phone__*` tools only from the all-callers `tools/list`, so the host lists both
+  tools there whenever a device-app host is installed. The per-caller `tools/list` (the
+  `x-pdsh-bot-session` request) lists them only when the caller has a binding. The Worker's
+  caller catalog is deny-unless-listed for exactly these two names: an identified caller whose
+  per-caller catalog lacks one gets it hidden from its tool surface; a caller that cannot be
+  identified keeps the all-callers surface and the host still refuses an unbound call. They are
+  excluded from the golden's `p0`/`p1` lists and from the static catalog count
+  (`BotToolCatalog.workerDefinitions`), which is what the host returns when no device-app host is
+  installed.
+- The Worker approval gate classifies both bare names (with or without `mcp__phone__`) as
+  App-owned: no Worker effect, no `/approval` round trip. `DeviceAppStage` is the host's
+  `read`/`auto`; `DeviceAppInstall` raises the App's own once-only approval (above). A near name
+  stays `tool.unclassified`.

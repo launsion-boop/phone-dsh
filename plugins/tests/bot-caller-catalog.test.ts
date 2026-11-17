@@ -80,6 +80,7 @@ test('only a catalog with the roster marker is treated as identified', () => {
       SendToAgent: nonMainCatalog.tools[0]?.description,
     },
     includeCreateTeammate: false,
+    deviceAppTools: [],
   })
   assert.deepEqual(planCallerCatalog(mainCatalog), {
     descriptions: {
@@ -87,6 +88,7 @@ test('only a catalog with the roster marker is treated as identified', () => {
       CreateTeammate: mainCatalog.tools[1]?.description,
     },
     includeCreateTeammate: true,
+    deviceAppTools: [],
   })
 })
 
@@ -253,6 +255,83 @@ test('a refresh replaces the scoped surface when the caller becomes the main Bot
       after.tools.find(entry => entry.name === 'mcp__phone__CreateTeammate')?.description,
       mainCatalog.tools[1]?.description,
     )
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+const boundCatalog: CallerCatalog = {
+  tools: [
+    {
+      name: 'SendToAgent',
+      description: 'send\nAvailable bots: Alpha (id: bot-a, main Bot); Xray (id: bot-x).',
+    },
+    { name: 'DeviceAppStage', description: 'stage' },
+    { name: 'DeviceAppInstall', description: 'install' },
+  ],
+}
+
+test('device-app tools are deny-unless-listed per caller', async () => {
+  assert.deepEqual(planCallerCatalog(boundCatalog)?.deviceAppTools, ['DeviceAppStage', 'DeviceAppInstall'])
+  assert.deepEqual(planCallerCatalog(nonMainCatalog)?.deviceAppTools, [])
+  // Only one of the two listed: the other stays hidden (no widening).
+  assert.deepEqual(planCallerCatalog({
+    tools: [boundCatalog.tools[0]!, boundCatalog.tools[1]!],
+  })?.deviceAppTools, ['DeviceAppStage'])
+  // A near-name is never treated as a device-app tool.
+  assert.deepEqual(planCallerCatalog({
+    tools: [boundCatalog.tools[0]!, { name: 'DeviceAppInstallAll', description: 'x' }],
+  })?.deviceAppTools, [])
+
+  const ctx = await mountRuntime()
+  let catalog: CallerCatalog = nonMainCatalog
+  let requests = 0
+  const names = async (agent: Agent): Promise<string[]> =>
+    (await assembleFor(ctx, agent)).tools.map(entry => entry.name).filter(name => name.includes('DeviceApp'))
+  try {
+    registerTeamProbes(ctx)
+    registerProbe(ctx, 'mcp__phone__DeviceAppStage', 'static stage')
+    registerProbe(ctx, 'mcp__phone__DeviceAppInstall', 'static install')
+    await ctx.plugin(dshbotIdentityBridge, {
+      catalog: {
+        cacheTtlMs: 0,
+        request: async sessionId => {
+          requests += 1
+          return sessionId === 'gb-bot-a' ? boundCatalog : catalog
+        },
+      },
+    })
+
+    // Unbound Bot: both tools hidden; its other tools and the team surface stay.
+    const unbound = await createAgent(ctx, 'gb-bot-b')
+    assert.deepEqual(await names(unbound), [])
+    assert.equal((await assembleFor(ctx, unbound)).tools.some(e => e.name === 'mcp__phone__SendToAgent'), true)
+
+    // Bound Bot: both visible.
+    const bound = await createAgent(ctx, 'gb-bot-a')
+    assert.deepEqual(await names(bound), ['mcp__phone__DeviceAppInstall', 'mcp__phone__DeviceAppStage'])
+
+    // Unidentified caller (workbench): the static surface is untouched.
+    const workbench = await createAgent(ctx, 'session-workbench')
+    assert.deepEqual(await names(workbench), ['mcp__phone__DeviceAppInstall', 'mcp__phone__DeviceAppStage'])
+
+    // The binding appears later: a refresh reveals the tools; losing it hides them again.
+    catalog = boundCatalog
+    const before = requests
+    ctx.emit('agent/status', { agent: unbound, status: 'idle' })
+    for (let attempt = 0; attempt < 100 && requests <= before; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 1))
+    }
+    await new Promise(resolve => setTimeout(resolve, 5))
+    assert.deepEqual(await names(unbound), ['mcp__phone__DeviceAppInstall', 'mcp__phone__DeviceAppStage'])
+    catalog = nonMainCatalog
+    const again = requests
+    ctx.emit('agent/status', { agent: unbound, status: 'idle' })
+    for (let attempt = 0; attempt < 100 && requests <= again; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 1))
+    }
+    await new Promise(resolve => setTimeout(resolve, 5))
+    assert.deepEqual(await names(unbound), [])
   } finally {
     await ctx.fiber.dispose()
   }

@@ -701,6 +701,67 @@ test('read-only memory tools are read + auto and never ask for structural approv
   }
 })
 
+test('device app tools are App-owned: the Worker proposes no effect and never calls /approval', async () => {
+  // The host (`BotMCPRuntime.executeDeviceApp`) classifies DeviceAppStage as
+  // read/auto and raises DeviceAppInstall's own once-only digest-bound approval.
+  // A Worker-side `tool.unclassified` effect (alwaysScope=session) would be
+  // rejected as `stale:always_scope` before the call runs.
+  const cases: Array<[string, Record<string, unknown>]> = [
+    ['DeviceAppStage', { files: [{ path: 'main.py', content: 'print(1)' }] }],
+    ['DeviceAppInstall', { digest: '0123456789abcdef'.repeat(4) }],
+  ]
+  for (const [name, args] of cases) {
+    assert.deepEqual(phoneEffectsForApproval(`mcp__phone__${name}`, args), [])
+    assert.deepEqual(phoneEffectsForApproval(name, args), [])
+    assert.equal(needsStructuralApproval(`mcp__phone__${name}`), true)
+  }
+  // No widening: near names stay unclassified (ask, session scope).
+  for (const near of ['DeviceAppStageX', 'DeviceAppInstallAll', 'deviceappstage', 'DeviceApp', 'XDeviceAppInstall']) {
+    for (const full of [near, `mcp__phone__${near}`]) {
+      const effects = phoneEffectsForApproval(full, {})
+      assert.equal(effects.length, 1, full)
+      assert.equal(effects[0]!.operation, 'tool.unclassified', full)
+      assert.equal(effects[0]!.policy, 'ask', full)
+    }
+  }
+
+  const ctx = await mount()
+  const payloads: Record<string, unknown>[] = []
+  let executed = 0
+  try {
+    for (const [name] of cases) {
+      ctx.tools.register(defineTool({
+        name: `mcp__phone__${name}`,
+        description: 'probe',
+        parameters: {},
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+        execute: async () => { executed += 1; return 'ok' },
+      }))
+    }
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async () => ({ ok: true, id: 'registration-device-app' }),
+      cancel: async () => {},
+    })
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async payload => {
+        payloads.push(payload)
+        return { ok: true, allowed: true }
+      },
+    })
+    for (const [name, args] of cases) {
+      const result = await executeTool(ctx, {
+        callId: ToolCallId(`device-app-${name}`), name: `mcp__phone__${name}`,
+        arguments: args, signal: new AbortController().signal, agent: agent(),
+      })
+      assert.equal(result.isError, false, `${name} must reach the host without a Worker approval`)
+    }
+    assert.equal(executed, cases.length)
+    assert.deepEqual(payloads, [], 'the App raises its own approval; the Worker must not')
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
 test('approval memory effect matches the Swift execution resource and sensitive reads never reach approval', async () => {
   const effects = phoneEffectsForApproval('mcp__phone__UpdateMemory', {
     action: 'forget', scope: 'user', fact: '  private   fact ',

@@ -197,6 +197,9 @@ final class DeviceAppWiringTests: XCTestCase {
         let event = try XCTUnwrap(events.first)
         XCTAssertEqual(events.count, 1)
         XCTAssertEqual(event.type, "ui.system_event")
+        // Found on the board: the event used an origin source the store refuses, so the install audit
+        // was never recorded. The event must pass the same validation the store applies.
+        XCTAssertNoThrow(try BotEventEnvelopeCodec.validate(event, mode: .append))
         XCTAssertEqual(event.principal.botId, "bot-a")
         XCTAssertEqual(event.time, 42)
         XCTAssertEqual(event.data["event"]?.stringValue, "device.app.install")

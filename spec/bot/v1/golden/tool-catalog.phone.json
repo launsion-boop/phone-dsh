@@ -236,7 +236,7 @@
     "injectionTotalLimit": 4000
   },
   "deviceApp": {
-    "note": "Per-caller additions listed only for a Bot with a device binding; excluded from p0/p1 and from the static catalog.",
+    "note": "device-app-v1.2: listed in the all-callers tools/list whenever a device-app host is installed, and in the per-caller tools/list only for a Bot with a device binding; the Worker caller catalog hides them for an identified caller whose catalog lacks them. Excluded from p0/p1 and from the static catalog (workerDefinitions).",
     "tools": [
       {
         "name": "DeviceAppStage",

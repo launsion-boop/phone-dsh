@@ -114,7 +114,10 @@ final class DeviceAppToolsTests: XCTestCase {
         let anonymous = await rig.runtime.toolDefinitions(callerBotID: nil).map(\.name)
         XCTAssertTrue(bound.contains("DeviceAppStage") && bound.contains("DeviceAppInstall"))
         XCTAssertFalse(unbound.contains("DeviceAppStage") || unbound.contains("DeviceAppInstall"))
-        XCTAssertFalse(anonymous.contains("DeviceAppInstall"))
+        // All-callers list (the Worker's registration source) carries both tools
+        // when the host is installed; the per-caller catalog above still hides
+        // them from an unbound Bot and `execute` refuses that caller.
+        XCTAssertTrue(anonymous.contains("DeviceAppStage") && anonymous.contains("DeviceAppInstall"))
     }
 
     func testUnboundBotCallIsRefusedAndInstallerNeverRuns() async throws {
