@@ -33,9 +33,15 @@ final class SimContactsCallerUITests: XCTestCase {
         let drawer = app.buttons["打开会话列表"]
         XCTAssertTrue(drawer.waitForExistence(timeout: 30))
         drawer.tap()
-        let create = app.buttons["新建会话"]
-        XCTAssertTrue(create.waitForExistence(timeout: 10))
+        // HomeDrawer's real capsule is "新会话" with identifier
+        // `drawer.new-session`; there is no "新建会话" button.
+        let create = app.buttons["drawer.new-session"]
+        XCTAssertTrue(create.waitForExistence(timeout: 10), "DSH new-session capsule missing")
+        XCTAssertTrue(create.isEnabled, "DSH new-session is disabled")
         create.tap()
+        XCTAssertTrue(app.textViews["chat.composer.field"].firstMatch.waitForExistence(timeout: 20)
+                      || app.textFields["chat.composer.field"].firstMatch.exists,
+                      "DSH composer did not appear after new session")
         sendChat(field: "chat.composer.field", send: "chat.composer.send",
                  text: task("请用 contacts.search 查一下测试联系人"))
         runLoop(seconds: 20)
