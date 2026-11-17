@@ -213,14 +213,6 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
     /// `plugins/shell-ext/src/bridge.ts`). It is never read from argv.
     public static let toolCallSessionEnvironmentKey = "PDSH_TOOL_CALL_SESSION"
 
-    private func trustedToolCallSession(_ request: ExecRequest) -> String? {
-        guard let raw = request.env[Self.toolCallSessionEnvironmentKey],
-              raw.range(of: #"^[A-Za-z0-9._-]{1,64}$"#, options: .regularExpression) != nil else {
-            return nil
-        }
-        return raw
-    }
-
     private func recordSession(_ request: ExecRequest) -> String? {
         guard request.argv.count >= 2, request.argv[0] == "phone", request.argv[1] == "record" else {
             return nil
