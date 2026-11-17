@@ -114,6 +114,8 @@ public protocol BotProvenanceQuerying: Sendable {
         -> [BotSourceStatus]
     func status(forSkillName name: String, botID: String) async
         -> BotProvenanceStatus?
+    func contentBasis(forSkillName name: String, botID: String) async
+        -> BotSkillContentBasis
     func routineDerivationSources(botID: String, sessionID: String) async throws
         -> [BotDerivationSource]
     func derivedRefs(forEventID eventID: String) async throws -> [BotDerivedRef]
@@ -635,6 +637,28 @@ public actor BotProvenanceService: BotProvenanceRecording, BotProvenanceQuerying
             states.append(skillScoped.view(for: artifact, facts: facts).state)
         }
         return states.max(by: { $0.severity < $1.severity })
+    }
+
+    public func contentBasis(forSkillName name: String, botID: String) async
+        -> BotSkillContentBasis {
+        guard !name.isEmpty, !botID.isEmpty else { return .unknown }
+        let scoped: BotProvenanceSnapshot
+        do {
+            (scoped, _) = try await settledScopedSnapshotAndFacts(botID: botID)
+        } catch {
+            return .unknown
+        }
+        let contentRoles: Set<BotDerivationRole> = [.evidence, .basis, .creator]
+        for assertion in scoped.assertions.values.joined() {
+            guard assertion.artifact.kind == .skill, assertion.artifact.id == name else { continue }
+            if assertion.sources.contains(where: { source in
+                guard let role = source.role else { return false }
+                return contentRoles.contains(role)
+            }) {
+                return .known
+            }
+        }
+        return .unknown
     }
 
     public func generation() async throws -> BotProvenanceGeneration {

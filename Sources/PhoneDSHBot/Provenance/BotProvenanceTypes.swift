@@ -810,3 +810,11 @@ public struct BotInvalidationResult: Sendable, Equatable {
 public enum BotProvenanceError: Error, Sendable, Equatable {
     case invalidDerivation(String)
 }
+
+
+/// Whether the skill's derivation has a content-bearing source. This is not
+/// the lifecycle status and never authorizes an action by itself.
+public enum BotSkillContentBasis: String, Codable, Sendable {
+    case known
+    case unknown
+}

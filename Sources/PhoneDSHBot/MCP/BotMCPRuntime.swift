@@ -1551,10 +1551,13 @@ public actor BotMCPRuntime {
         }
         let status = await provenance.status(forSkillName: name,
                                              botID: call.principal.botId)
+        let contentBasis = await provenance.contentBasis(
+            forSkillName: name, botID: call.principal.botId)
         return .success(.object([
             "schema": .string("bot-skill-use-status/v1"),
             "ok": .bool(true),
             "status": status.map { .string($0.rawValue) } ?? .null,
+            "content_basis": .string(contentBasis.rawValue),
         ]))
     }
 
