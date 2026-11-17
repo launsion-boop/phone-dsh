@@ -243,6 +243,9 @@ final class BotRuntimeComposition {
     private var skillQueueBotID: String?
     private var userSkillObserver: BotSkillDirectoryObserver?
     private let userSkillRouter = BotSkillQueueRouter()
+    /// Stable callback target for the feature-admin raw-record adapter; the
+    /// observer and the applied queue injection share this one router.
+    var featureAdminSkillRouter: BotSkillQueueRouter { userSkillRouter }
     /// G-3 account credential observation; cancelled with the composition.
     private var cloudAccountTask: Task<Void, Never>?
     private var contextStartTask: Task<Void, Never>?
@@ -563,6 +566,39 @@ final class BotRuntimeComposition {
         composition.installSkillObservers(
             botID: rosterModel.selectedBotID ?? selectedCandidate,
             queue: selectedUnit.skillQueue)
+        // G-FAM-2: the settings page's raw operation records and the one
+        // applied-basis skill event share the user-dsh observer's router/queue.
+        let userSkillRouter = composition.featureAdminSkillRouter
+        server.featureAdminSkillMutations = BotFeatureAdminSkillMutationRecorder(
+            eventLog: store,
+            userSkillsRoot: skillRoots.root(for: .userDsh, ownerBotID: nil)
+                ?? (workspaceRoot ?? BotProductionPaths.workspaceRoot())
+                    .appendingPathComponent("materialized/home/skills", isDirectory: true),
+            queue: BotFeatureAdminSkillMutationQueue(
+                ready: { userSkillRouter.hasQueue },
+                suppress: { file, action, operationID in
+                    userSkillRouter.suppressObserverMutation(
+                        fileName: file, action: action, operationID: operationID)
+                },
+                clear: { operationID in
+                    userSkillRouter.clearObserverSuppression(operationID: operationID)
+                },
+                emit: { file, action, requestRecord, appliedRecord in
+                    guard userSkillRouter.hasQueue else { return false }
+                    let name = String(file.dropLast(3))
+                    let sources = [
+                        BotDerivationSource(record: appliedRecord, role: .basis),
+                        BotDerivationSource(record: requestRecord, role: .evidence),
+                    ]
+                    switch action {
+                    case .write:
+                        await userSkillRouter.userWriteAndWait(name, sources: sources)
+                    case .delete:
+                        await userSkillRouter.userDeleteAndWait(name, sources: sources)
+                    }
+                    return true
+                }),
+            now: runtimeClock)
         composition.contextStartTask = Task { await composition.startContextSourcesIfNeeded() }
         return Launch(composition: composition, environment: selectedUnit.environment,
                       materialTrace: materialTrace)
