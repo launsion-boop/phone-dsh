@@ -235,9 +235,13 @@ struct BotContextSourcesSettingsView: View {
                     .accessibilityIdentifier("bot.context.fence.label")
                 HStack {
                     TextField("纬度", text: $fenceLatitude).keyboardType(.numbersAndPunctuation)
+                        .accessibilityIdentifier("bot.context.fence.latitude")
                     TextField("经度", text: $fenceLongitude).keyboardType(.numbersAndPunctuation)
+                        .accessibilityIdentifier("bot.context.fence.longitude")
                 }
-                TextField("半径（米，10–1000）", text: $fenceRadius).keyboardType(.numberPad)
+                TextField("半径（米，10–1000）", text: $fenceRadius)
+                    .keyboardType(.numberPad)
+                    .accessibilityIdentifier("bot.context.fence.radius")
                 Button("添加围栏") {
                     guard let lat = Double(fenceLatitude), let lon = Double(fenceLongitude),
                           let radius = Double(fenceRadius) else {
