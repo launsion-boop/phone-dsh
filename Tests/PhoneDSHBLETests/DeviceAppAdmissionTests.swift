@@ -84,7 +84,7 @@ final class DeviceAppAdmissionTests: XCTestCase {
     }
 
     @MainActor
-    private func makeLink(_ transport: LinkTransport) async throws -> (BLEDeviceStore, UUID) {
+    private func makeLink(_ transport: LinkTransport, granting: Bool = true) async throws -> (BLEDeviceStore, UUID) {
         let adapter = BLEDeviceStore.TestAdapter()
         let id = UUID()
         let store = BLEDeviceStore(testAdapter: adapter, testDevices: [.init(id: id, name: "A", rssi: -40)])
@@ -97,7 +97,7 @@ final class DeviceAppAdmissionTests: XCTestCase {
         try await store.discoverLinkTools(id, client: client, bootID: 0) {
             store.testOwner(id) == owner && store.testPhase(id) == "connected"
         }
-        for name in Self.tools { store.grantLinkTool(id, name: name, enabled: true) }
+        for name in Self.tools { store.grantLinkTool(id, name: name, enabled: granting) }
         return (store, id)
     }
 
@@ -158,6 +158,39 @@ final class DeviceAppAdmissionTests: XCTestCase {
             guard case .completed = outcome else { return XCTFail("\(name) must run for the host") }
         }
         XCTAssertEqual(journalFiles(root).count, DeviceAppTools.hostOnly.count)
+    }
+
+    /// device-app-v1.3: the install path needs no Settings grant (the per-install approval is the
+    /// authorization), but only for a user-origin call of the eight app.* tools.
+    @MainActor
+    func testUserOriginInstallToolsNeedNoSettingsGrantButAgentAndOtherToolsStillDo() async throws {
+        let transport = LinkTransport()
+        let (store, id) = try await makeLink(transport, granting: false)
+        XCTAssertTrue(store.devices.first { $0.id == id }?.grantedTools.isEmpty == true)
+        let root = makeRoot()
+        let journal = LinkToolJournal(directory: root.appendingPathComponent("link-intents"))
+        for name in DeviceAppTools.all.sorted() {
+            let outcome = try await callLinkTool(deviceID: id, name: name, arguments: args(for: name),
+                                                 idempotencyKey: "nogrant-\(name)", origin: .user, store: store, journal: journal)
+            guard case .completed = outcome else { return XCTFail("\(name) must run for the host without a grant") }
+        }
+        XCTAssertTrue(store.devices.first { $0.id == id }?.grantedTools.isEmpty == true, "nothing is granted or remembered")
+        let before = journalFiles(root)
+        // Agent origin: refused with or without grants, before journal and radio.
+        for name in DeviceAppTools.all.sorted() {
+            do {
+                _ = try await callLinkTool(deviceID: id, name: name, arguments: args(for: name),
+                                           idempotencyKey: "agent-nogrant-\(name)", origin: .agent, store: store, journal: journal)
+                XCTFail("\(name) must be refused for an agent without a grant")
+            } catch {}
+        }
+        // A user-origin call of any other tool still needs its Settings grant.
+        do {
+            _ = try await callLinkTool(deviceID: id, name: "light.set", arguments: args(for: "light.set"),
+                                       idempotencyKey: "nogrant-light", origin: .user, store: store, journal: journal)
+            XCTFail("light.set must still need its grant")
+        } catch {}
+        XCTAssertEqual(journalFiles(root), before)
     }
 
     @MainActor

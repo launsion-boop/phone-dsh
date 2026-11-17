@@ -123,6 +123,14 @@ through §6, which is the same result.
   The approval is obtained **before** any radio use and is spent by the install; it is never held
   across the transfer.
 - A decline, an expired approval or any validation failure ends with nothing sent to the radio.
+- **Authorization (device-app-v1.3).** The per-install approval above is the user's authorization of
+  the eight `app.*` calls the install makes. The phone therefore does not require the Settings →
+  Bluetooth devices grant for them: the Link entry waives the grant check for a **user-origin** call
+  of exactly the eight device-app-v1 names (`app.info`, `app.begin`, `app.put`, `app.abort`,
+  `app.commit`, `app.run`, `app.stop`, `app.remove`) and nothing is granted or remembered. Every other
+  check (connected, advertised tool, busy, host-only) is unchanged; an agent-origin call keeps the
+  Settings grant requirement and the host-only refusal; any other tool keeps its grant. The App's
+  preflight no longer returns `device_not_authorized` (the code stays reserved, unused).
 - The host then drives begin → put* → commit strictly serially (Link allows one call at a time) with a
   fresh journal key per call derived from the install id and call number, and after the install ends
   prunes that install's staging intents from the phone's Link journal (a staging call must not use

@@ -2458,10 +2458,16 @@ import PhoneDSHAgentCore
         return try await client.query(requestID: requestID)
     }
 
-    public func authorizeLink(_ id: UUID, name: String, arguments: JSONValue?) throws {
+    /// `userApprovedDeviceApp`: set only by `callLinkTool` for a user-origin device-app-v1 `app.*`
+    /// call (the install path, which runs after the user's once-only, digest-bound approval).
+    /// It waives the Settings grant for those eight names only; connection, advertised tool and
+    /// every other check still apply, and nothing is granted or remembered.
+    public func authorizeLink(_ id: UUID, name: String, arguments: JSONValue?,
+                              userApprovedDeviceApp: Bool = false) throws {
         guard poweredOn, owners[id]?.phase == .connected, !Self.isReservedTaskTool(name),
               let device = devices.first(where: { $0.id == id }), linkClients[id] != nil,
-              device.grantedTools.contains(name), device.linkTools.contains(name) else { throw BLEFailure("Authorize this Link tool in Settings → Bluetooth devices") }
+              userApprovedDeviceApp || device.grantedTools.contains(name),
+              device.linkTools.contains(name) else { throw BLEFailure("Authorize this Link tool in Settings → Bluetooth devices") }
         if name == "home.http", let arguments {
             _ = try HomeHTTPPolicy.validate(arguments, allowedOrigins: HomeHTTPPolicy.origins(device.homeOrigins))
         }

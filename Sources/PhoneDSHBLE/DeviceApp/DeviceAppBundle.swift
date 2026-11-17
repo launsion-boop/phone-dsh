@@ -17,6 +17,9 @@ public enum DeviceAppTools {
     /// journal and the radio. `app.info` stays callable by an agent.
     public static let hostOnly: Set<String> = [begin, put, abort, commit, run, stop, remove]
 
+    /// All eight tools of §5 (host-only plus `app.info`).
+    public static let all: Set<String> = hostOnly.union([info])
+
     /// Staging tools write only a staging area and take no durable receipt (§5).
     /// Only their journal intents may be pruned; `app.commit` never is.
     static let staging: Set<String> = [begin, put, abort]

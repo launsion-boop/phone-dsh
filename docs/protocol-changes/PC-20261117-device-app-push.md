@@ -118,3 +118,12 @@ Worker 审批门（`approval-gate.ts` `AUTO_TOOLS`）：`DeviceAppStage`、`Devi
 - Worker 的 `Request timed out` 来自审批等待，不是传输：`DeviceAppInstall` 在宿主里先等一次性审批（交互审批默认最长 300 s），而 Worker 的 MCP 工具调用超时更短（约 130 s）。用户超过这个时间才点确认时，Worker 已放弃该调用，宿主那一次调用仍会在批准后完成安装（真机：`focus_timer` 摘要 `a6ad8577…` 已在 `/apps/.devapp`）。不允许在批准或完成之前返回（受理 ≠ 已执行），所以不改变返回时机。
 - 重试语义：同一设备上同一 digest 的调用仍在等待确认或在传输时，重试返回错误码 `busy`，消息说明是同一个应用的上一次请求（不重复发起）；不同 digest 仍是原来的「正在安装另一个应用」。错误码集合不变，没有新字段。
 - 剩余风险：用户确认慢于 Worker 超时，会让模型看到 `Request timed out` 而安装随后才发生。缓解办法（缩短交互审批等待、或让 Worker 对该工具放宽超时）需要单独的契约变更，本单未做。
+
+## 7. device-app-v1.3：安装不再要求在蓝牙设备设置里手动授权
+
+- 触发：真机上用户批准安装后失败 `device_not_authorized`（「设备的 app.* 还没有在蓝牙设备设置里授权」），用户只能去设置页手动给 8 个 `app.*` 打开授权。此前的 harness 预先授权过，所以没暴露。
+- 选择：不由 App 自动授予（那会留下持久授权记录，之后别的路径也能用），而是在 Link 入口 `callLinkTool` 对 **user 来源**、名字在这 8 个之内的调用放过「设置授权」检查（`authorizeLink(..., userApprovedDeviceApp:)`），不授予、不记忆；其余检查（已连接、设备声明了该工具、busy、host-only）不变。agent 来源仍需要设置授权并被 host-only 拒绝，其他工具仍需各自授权。App 的 preflight 去掉授权检查。
+- 理由：每次安装的一次性、绑定 digest 的审批就是这 8 次调用的授权；放过范围只含 user 来源 + 这 8 个名字，比自动授予小，也不改变任何持久状态。
+- 契约：device-app.md 第 7 节加「Authorization (device-app-v1.3)」一条；没有改共享 golden／向量（授权检查不在其中）；`device_not_authorized` 保留不用。
+- 相容性：新手机 → 旧设备／旧设备 → 新手机无线上变化；旧手机仍要求手动授权（行为更严，不会出错）；回滚即回到要求设置授权。
+- 回归：`DeviceAppAdmissionTests.testUserOriginInstallToolsNeedNoSettingsGrantButAgentAndOtherToolsStillDo`（无授权时 user 来源 8 个全部成功、agent 来源全部拒绝、`light.set` 仍需授权；改动前失败）；`DeviceAppWiringTests.testPreflightCodes` 更新。
