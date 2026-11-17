@@ -55,8 +55,8 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(len(checker.check_registry(self.root)[0]), 1)
 
     def test_real_registry(self):
-        # P28 (PCLink v1) is the 28th registered contract.
-        self.assertEqual(len(checker.check_registry(ROOT)[0]), 28)
+        # P29 (mobile cloud scheduler) is the 29th registered contract.
+        self.assertEqual(len(checker.check_registry(ROOT)[0]), 29)
 
     def test_deleted_source_fails(self):
         (self.root / 'Sources/wire.ts').unlink()

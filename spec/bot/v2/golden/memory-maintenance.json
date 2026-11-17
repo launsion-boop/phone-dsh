@@ -39,8 +39,8 @@
         }
       ],
       "budget": {
-        "run_tokens": 32000,
-        "daily_tokens": 96000
+        "run_tokens": 400000,
+        "daily_tokens": 1000000
       }
     },
     "committed": {
@@ -74,8 +74,8 @@
         "change_budget_within_limit": true
       },
       "budget": {
-        "run_tokens": 32000,
-        "daily_tokens": 96000,
+        "run_tokens": 400000,
+        "daily_tokens": 1000000,
         "tokens_used": 12000,
         "changed_documents": 2,
         "changed_scalars": 300
@@ -108,8 +108,8 @@
         "change_budget_within_limit": true
       },
       "budget": {
-        "run_tokens": 32000,
-        "daily_tokens": 96000,
+        "run_tokens": 400000,
+        "daily_tokens": 1000000,
         "tokens_used": 4000,
         "changed_documents": 1,
         "changed_scalars": 120
@@ -142,8 +142,8 @@
         "change_budget_within_limit": true
       },
       "budget": {
-        "run_tokens": 32000,
-        "daily_tokens": 96000,
+        "run_tokens": 400000,
+        "daily_tokens": 1000000,
         "tokens_used": 9000,
         "changed_documents": 1,
         "changed_scalars": 2400
@@ -254,8 +254,8 @@
         }
       ],
       "budget": {
-        "run_tokens": 32000,
-        "daily_tokens": 96000
+        "run_tokens": 400000,
+        "daily_tokens": 1000000
       }
     },
     "startUnknownTrigger": {
@@ -266,8 +266,8 @@
       "maintainer_session_id": "gb-maintainer-0123456789abcdef0123456789abcdef",
       "candidates": [],
       "budget": {
-        "run_tokens": 32000,
-        "daily_tokens": 96000
+        "run_tokens": 400000,
+        "daily_tokens": 1000000
       }
     },
     "startWrongSessionKind": {
@@ -278,8 +278,8 @@
       "maintainer_session_id": "gb-task-0123456789abcdef0123456789abcdef",
       "candidates": [],
       "budget": {
-        "run_tokens": 32000,
-        "daily_tokens": 96000
+        "run_tokens": 400000,
+        "daily_tokens": 1000000
       }
     },
     "finishedRunningStatus": {
@@ -298,8 +298,8 @@
         "change_budget_within_limit": true
       },
       "budget": {
-        "run_tokens": 32000,
-        "daily_tokens": 96000,
+        "run_tokens": 400000,
+        "daily_tokens": 1000000,
         "tokens_used": 100,
         "changed_documents": 0,
         "changed_scalars": 0
@@ -323,8 +323,8 @@
         "documents_not_longer_than_evidence": true
       },
       "budget": {
-        "run_tokens": 32000,
-        "daily_tokens": 96000,
+        "run_tokens": 400000,
+        "daily_tokens": 1000000,
         "tokens_used": 100,
         "changed_documents": 0,
         "changed_scalars": 0
@@ -349,8 +349,8 @@
         "change_budget_within_limit": true
       },
       "budget": {
-        "run_tokens": 32000,
-        "daily_tokens": 96000,
+        "run_tokens": 400000,
+        "daily_tokens": 1000000,
         "tokens_used": 100,
         "changed_documents": 0,
         "changed_scalars": 0

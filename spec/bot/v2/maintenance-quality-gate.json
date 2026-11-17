@@ -1,0 +1,26 @@
+{
+  "schema": "bot-maintenance-quality-gate/v1",
+  "frozen_by": "G",
+  "gate_revision": "G-1",
+  "default_state": "off",
+  "samples": {
+    "contradiction": 2,
+    "stale_external": 2,
+    "catalog_sha256_policy": "evaluator supplies the catalog SHA-256 in verification_policy; missing/mismatch => NOT_RUN"
+  },
+  "thresholds": {
+    "correction_rate_min": 0.75,
+    "stale_detection_rate_min": 0.75,
+    "mechanical_violations_max": 0,
+    "false_verified_max": 0,
+    "memory_suite_regressions_max": 0,
+    "min_real_batches": 2,
+    "repeat": 1
+  },
+  "judge": "deterministic-independent",
+  "notes": [
+    "PASS is only an enabling input; the maintainer stays off until the user enables it.",
+    "A missing gate file, a sample-count shortfall or a catalog SHA mismatch is NOT_RUN, never a default PASS.",
+    "Thresholds change only with a new contract revision and the same shared fixtures."
+  ]
+}

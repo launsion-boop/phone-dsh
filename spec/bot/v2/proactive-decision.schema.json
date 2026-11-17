@@ -21,8 +21,17 @@
       "type": "string",
       "pattern": "^proactive:[0-9]+:[1-9][0-9]*$"
     },
-    "at": {"type": "integer", "minimum": 0},
-    "decision": {"enum": ["did", "would", "skip"]},
+    "at": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "decision": {
+      "enum": [
+        "did",
+        "would",
+        "skip"
+      ]
+    },
     "reason": {
       "enum": [
         "delivered",
@@ -36,51 +45,119 @@
         "delivery-failed",
         "delivery-unavailable",
         "routine-held",
-        "routine-quiet"
+        "routine-quiet",
+        "feedback-held"
       ]
     },
-    "kind": {"enum": ["task-done", "routine-result", "reminder"]},
-    "botId": {"type": "string", "minLength": 1},
+    "kind": {
+      "enum": [
+        "task-done",
+        "routine-result",
+        "reminder"
+      ]
+    },
+    "botId": {
+      "type": "string",
+      "minLength": 1
+    },
     "dedupeKey": {
       "description": "Stable notification identifier: explicit candidate.dedupeKey trimmed, else <kind>:<botId>:<taskId|runId|reminderId|id>, else <kind>:<botId>:<at>. It is not a suppression window.",
       "type": "string",
       "minLength": 1
     },
-    "mode": {"enum": ["off", "would", "on"]},
-    "channel": {"type": "string", "minLength": 1},
+    "mode": {
+      "enum": [
+        "off",
+        "would",
+        "on"
+      ]
+    },
+    "channel": {
+      "type": "string",
+      "minLength": 1
+    },
     "notification": {
       "type": "object",
-      "required": ["title", "body", "kind", "botId", "dedupeKey", "channel"],
+      "required": [
+        "title",
+        "body",
+        "kind",
+        "botId",
+        "dedupeKey",
+        "channel"
+      ],
       "properties": {
-        "title": {"type": "string", "minLength": 1, "maxLength": 120},
-        "body": {"type": "string", "maxLength": 500},
-        "kind": {"enum": ["task-done", "routine-result", "reminder"]},
-        "botId": {"type": "string", "minLength": 1},
-        "dedupeKey": {"type": "string", "minLength": 1},
-        "channel": {"type": "string", "minLength": 1},
-        "rowId": {"type": "string", "minLength": 1},
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "body": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "kind": {
+          "enum": [
+            "task-done",
+            "routine-result",
+            "reminder"
+          ]
+        },
+        "botId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dedupeKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rowId": {
+          "type": "string",
+          "minLength": 1
+        },
         "deepLink": {
           "type": "string",
           "pattern": "^phonedsh://bot/[^/]+/row/[^/]+$"
         }
       },
       "dependentRequired": {
-        "rowId": ["deepLink"],
-        "deepLink": ["rowId"]
+        "rowId": [
+          "deepLink"
+        ],
+        "deepLink": [
+          "rowId"
+        ]
       },
       "additionalProperties": false
     },
     "delivery": {
       "type": "object",
-      "required": ["delivered", "channel"],
+      "required": [
+        "delivered",
+        "channel"
+      ],
       "properties": {
-        "delivered": {"type": "boolean"},
-        "channel": {"type": "string", "minLength": 1},
-        "error": {"type": "string"}
+        "delivered": {
+          "type": "boolean"
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "error": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     },
-    "commitSeq": {"type": "integer", "minimum": 0}
+    "commitSeq": {
+      "type": "integer",
+      "minimum": 0
+    }
   },
   "additionalProperties": false,
   "$defs": {
@@ -88,32 +165,96 @@
       "title": "BotProactiveCandidate v1",
       "description": "Decision input frozen from ProactiveCandidate. kind, botId and createdAt are required. A nil optional member is omitted; delivery is held/interrupt and only present for routine results.",
       "type": "object",
-      "required": ["kind", "botId", "createdAt"],
+      "required": [
+        "kind",
+        "botId",
+        "createdAt"
+      ],
       "properties": {
-        "id": {"type": "string"},
-        "kind": {"enum": ["task-done", "routine-result", "reminder"]},
-        "botId": {"type": "string", "minLength": 1},
-        "dedupeKey": {"type": "string"},
-        "trigger": {"type": "string"},
-        "sourceEventId": {"type": "string"},
-        "createdAt": {"type": "integer", "minimum": 0},
-        "channel": {"type": "string", "minLength": 1},
-        "title": {"type": "string"},
-        "body": {"type": "string"},
-        "taskId": {"type": "string"},
-        "taskTitle": {"type": "string"},
-        "summary": {"type": "string"},
-        "status": {"type": "string"},
-        "routineId": {"type": "string"},
-        "runId": {"type": "string"},
-        "attempt": {"type": "integer", "minimum": 0},
-        "delivery": {"enum": ["held", "interrupt"]},
-        "quiet": {"type": "boolean"},
-        "resultExcerpt": {"type": "string"},
-        "deliveryKey": {"type": "string"},
-        "rowId": {"type": "string", "minLength": 1},
-        "reminderId": {"type": "string"},
-        "allowDuringDnd": {"type": "boolean"}
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "task-done",
+            "routine-result",
+            "reminder"
+          ]
+        },
+        "botId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dedupeKey": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "sourceEventId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        },
+        "taskTitle": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "routineId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "delivery": {
+          "enum": [
+            "held",
+            "interrupt"
+          ]
+        },
+        "quiet": {
+          "type": "boolean"
+        },
+        "resultExcerpt": {
+          "type": "string"
+        },
+        "deliveryKey": {
+          "type": "string"
+        },
+        "rowId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reminderId": {
+          "type": "string"
+        },
+        "allowDuringDnd": {
+          "type": "boolean"
+        }
       },
       "additionalProperties": false
     }

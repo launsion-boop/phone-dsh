@@ -5,12 +5,14 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "prompt:check": "node scripts/check-prompt.mjs"
+    "prompt:check": "node scripts/check-prompt.mjs && node ../scripts/sync-bot-persona.mjs --check"
   },
   "exports": {
     ".": "./src/index.ts",
     "./steering": "./src/steering.ts",
     "./volatile-context": "./src/volatile-context.ts",
+    "./decision-context": "./src/decision-context.ts",
+    "./tool-result-index": "./src/tool-result-index.ts",
     "./channel": "./src/channel.ts",
     "./identity-bridge": "./src/identity-bridge.ts",
     "./activity-intent": "./src/activity-intent.ts",

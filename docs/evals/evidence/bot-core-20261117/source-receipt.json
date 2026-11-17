@@ -1,0 +1,47 @@
+{
+  "product_source": "9b68ef81afc08f82b1cc95ae4fd61b55abfcc424",
+  "product_tree": "849c2c3655421250e85f3de30772a5513fdf302d",
+  "binary_build_source": "c2bf96de1",
+  "binary_equivalence": "No diff in Sources, plugins, examples, Package.swift or Package.resolved from c2bf to 9b68.",
+  "real_model_run_source": "10b38870b",
+  "real_model_source_delta": "Only restore baseline changes in the subsequently tested product; 12 captured UpdateMemory calls in AHA9 contain no restore action. Restore separately passed 2 targeted + 8 related tests.",
+  "real_model_result": {
+    "scenarios": 9,
+    "repeat": 1,
+    "requests": 81,
+    "overall": "PASS",
+    "independent_scorer": "PASS",
+    "compaction_raw_events": {
+      "compaction/summary": 6,
+      "compact-checkpoint user/message": 6
+    }
+  },
+  "swift": {
+    "executed": 1223,
+    "skipped": 2,
+    "failures": 0,
+    "full_log_sha256": "c9ff9daa2187962211741f54584b3b15040f7283be831105c32c5c79b883e2cf",
+    "skips": [
+      "maintenance real evidence env not supplied in omnibus run; separately verified real batches",
+      "public HTTP loopback env not supplied in omnibus run; separate component evidence only"
+    ]
+  },
+  "node": {
+    "core": 21,
+    "surface_import_identity": 69,
+    "failures": 0
+  },
+  "artifacts": {
+    "app_sha256": "1124e228af26fff811fbd6b86eebd9c604dae9f55d8ed91ca69c89596278fc79",
+    "worker_image_sha256": "601a5ef4a6a876e316ca7121dae0c7176c5463e14830efbec1a08742a1bccbdc",
+    "worker_entry_sha256": "98c89cfab203da4cc0c63a73e6ef2771a28c15ca492db97a5b249280b5c57aff",
+    "dsh_pin": "66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db"
+  },
+  "scope": "earliest aha-plan-20261116/PLAN.md; iOS Bot core only",
+  "ci": "DEFERRED_BY_USER",
+  "release_repeat3": "Historical combined three runs: 8 cases 3/3, SILENCE 2/3. Fixed template targeted SILENCE 3/3 and changed-result 1/1. Not a monolithic final-SHA three-round suite.",
+  "latest_receipts": [
+    "silence-bf1559/source-receipt.json",
+    "simulator-text/receipt.json"
+  ]
+}

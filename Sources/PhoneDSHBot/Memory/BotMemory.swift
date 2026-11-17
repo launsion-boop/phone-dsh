@@ -59,6 +59,14 @@ public struct BotMemoryWriteRequest: Sendable {
     public var expectedVersion: Int
     public var restoreVersion: Int?
     public var evidence: [String]
+    /// Optional writer-recorded check state (spec/bot/v2 §1.5.1). `restore`
+    /// ignores it and inherits the restored version's review instead.
+    public var review: BotMemoryReview?
+    /// G-1 r8 Plan A: a fully-constructed derivation source list from the
+    /// provenance owner (L's `prepareBaseline`). P only validates/persists it;
+    /// it never derives `resource` itself. When supplied, the resolver fallback
+    /// is not used.
+    public var sourceBaselines: [BotSourceBaseline]?
 
     public init(
         action: BotMemoryAction = .write,
@@ -69,7 +77,9 @@ public struct BotMemoryWriteRequest: Sendable {
         to: String? = nil,
         expectedVersion: Int,
         restoreVersion: Int? = nil,
-        evidence: [String] = []
+        evidence: [String] = [],
+        review: BotMemoryReview? = nil,
+        sourceBaselines: [BotSourceBaseline]? = nil
     ) {
         self.action = action
         self.path = path
@@ -80,6 +90,8 @@ public struct BotMemoryWriteRequest: Sendable {
         self.expectedVersion = expectedVersion
         self.restoreVersion = restoreVersion
         self.evidence = evidence
+        self.review = review
+        self.sourceBaselines = sourceBaselines
     }
 }
 
@@ -188,6 +200,15 @@ public actor BotMemory {
     private let botID: String
     private let language: BotMemoryPromptLanguage
     private let now: @Sendable () -> Int64
+    /// Optional source-fact resolver. When present, every write captures the
+    /// write-time source baseline for `evidence ∪ review.refs` in the same
+    /// batch and persists it in the `memory.document_written` event data
+    /// (G-1 §3.2). It never decides current status; L owns that.
+    private let sourceStates: (any BotSourceStateResolving)?
+    /// Optional readable-record reader used by the pre-write
+    /// document-not-longer-than-evidence guard. nil keeps legacy callers
+    /// unchanged; production wiring passes the same real record service.
+    private let recordReading: (any BotMemoryMaintenanceRecordReading)?
     private let prepareMutex = BotMemoryAsyncMutex()
     private var prepared = false
     private var recallIndex = BotMemoryDocumentRecallIndex()
@@ -196,12 +217,16 @@ public actor BotMemory {
         store: any BotMemoryDocumentStore,
         botID: String,
         language: BotMemoryPromptLanguage = .zh,
-        now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }
+        now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) },
+        sourceStates: (any BotSourceStateResolving)? = nil,
+        recordReading: (any BotMemoryMaintenanceRecordReading)? = nil
     ) {
         self.store = store
         self.botID = botID
         self.language = language
         self.now = now
+        self.sourceStates = sourceStates
+        self.recordReading = recordReading
     }
 
     public func documents(scope: BotMemoryScope? = nil) async throws -> [BotMemoryDocument] {
@@ -266,7 +291,59 @@ public actor BotMemory {
             authorKind: context.authorKind, hostRollback: context.isHostRollback) {
             return boundaryFailure(request, code: boundary)
         }
+        if request.action != .restore,
+           let review = request.review,
+           let error = BotMemoryAuthorizer.reviewError(review) {
+            return failure(request, code: error,
+                           error: "这条件记忆的 review 不成立：verified 需要非 model-inference 的依据和至少一条可解析引用，disputed 需要给出冲突双方，引用必须规范且不超过 8 条。")
+        }
         let evidence = request.evidence.isEmpty ? nil : Array(request.evidence.prefix(8))
+        var evidenceRefs: [String] = []
+        var reviewRefs: [String] = []
+        if request.action == .restore, let restoreVersion = request.restoreVersion {
+            // `restore` inherits the restored version's metadata, so the
+            // baseline must describe that version's sources, not the
+            // restore request's (which cannot inject or clear them).
+            let versions = (try? await store.versions(path: request.path)) ?? []
+            if let restored = versions.first(where: { $0.version == restoreVersion }) {
+                evidenceRefs = restored.evidence
+                reviewRefs = restored.review?.refs ?? []
+            }
+        } else if request.action != .delete && request.action != .move {
+            evidenceRefs = evidence ?? []
+            reviewRefs = request.review?.refs ?? []
+        }
+        if let tooLong = try await documentLongerThanEvidenceFailure(
+            request, context: context,
+            evidenceRefs: evidenceRefs, reviewRefs: reviewRefs) {
+            return tooLong
+        }
+        let sourceBaselines: [BotSourceBaseline]?
+        if let supplied = request.sourceBaselines {
+            if let error = Self.sourceBaselineValidationError(
+                supplied, evidenceRefs: evidenceRefs, reviewRefs: reviewRefs) {
+                return failure(request, code: "memory-source-baseline-unavailable", error: error)
+            }
+            sourceBaselines = supplied.isEmpty ? nil : supplied
+        } else if let resolver = sourceStates,
+                  !evidenceRefs.isEmpty || !reviewRefs.isEmpty {
+            do {
+                let states = try await resolver.sourceStates(
+                    for: evidenceRefs + reviewRefs,
+                    callerBotID: botID,
+                    callerSessionID: context.sessionID ?? "")
+                sourceBaselines = try BotSourceBaselineBuilder.baselines(
+                    evidence: evidenceRefs, reviewRefs: reviewRefs, states: states)
+            } catch {
+                // Fail closed: a derived object written without its source
+                // baseline can never prove whether the source changed.
+                return failure(
+                    request, code: "memory-source-baseline-unavailable",
+                    error: "写入前无法核对来源版本；为避免产生无基线的记忆版本，本次写入未执行。")
+            }
+        } else {
+            sourceBaselines = nil
+        }
         let storeRequest = BotMemoryStoreWriteRequest(
             action: request.action,
             path: request.path,
@@ -280,6 +357,9 @@ public actor BotMemory {
             evidence: evidence ?? [],
             trust: context.trust,
             source: context.source,
+            // `restore` inherits from the restored version inside the store.
+            review: request.action == .restore ? nil : request.review,
+            sourceBaselines: sourceBaselines,
             atMS: now(),
             correlationID: context.batchID.map { "memory-maintenance:\($0)" })
         let outcome = try await store.write(storeRequest)
@@ -447,34 +527,47 @@ public actor BotMemory {
 
     public func read(path: String, version: Int? = nil) async throws -> BotMemoryReadResult {
         try await prepare()
-        guard BotMemoryAuthorizer.parse(path, allowRoot: true) != nil else {
+        // Models naturally ask for the root as `user/` or `agent/` when they
+        // want the directory listing. The stored path grammar forbids a
+        // trailing slash, but the read view can normalize it without changing
+        // any document or write rule (D07: a second Bot used `ReadMemory
+        // user/` and was told the path was invalid instead of seeing the
+        // shared documents).
+        var lookupPath = path
+        if version == nil {
+            while lookupPath.count > 1, lookupPath.hasSuffix("/") {
+                lookupPath.removeLast()
+            }
+        }
+        guard BotMemoryAuthorizer.parse(lookupPath, allowRoot: true) != nil else {
             return .failure(code: "memory-path-invalid", error: "记忆路径无效。", path: path)
         }
-        guard let scope = BotMemoryAuthorizer.scope(of: path) else {
+        guard let scope = BotMemoryAuthorizer.scope(of: lookupPath) else {
             return .failure(code: "memory-path-invalid", error: "记忆路径无效。", path: path)
         }
         if let version {
-            let versions = try await store.versions(path: path)
+            let versions = try await store.versions(path: lookupPath)
             guard let found = versions.first(where: { $0.version == version }) else {
                 return .failure(
                     code: "memory-version-not-found",
                     error: "\(path) 没有第 \(version) 版。",
-                    path: path)
+                    path: lookupPath)
             }
             return .document(found)
         }
-        if let document = try await store.document(path: path) {
+        if let document = try await store.document(path: lookupPath) {
             return .document(BotMemoryDocumentVersion(
                 path: document.path, scope: document.scope, version: document.version,
                 content: document.content, updatedAtMS: document.updatedAtMS,
-                author: document.author, evidence: document.evidence, trust: document.trust))
+                author: document.author, evidence: document.evidence, trust: document.trust,
+                source: document.source, review: document.review))
         }
         let documents = try await store.documents(scope: scope)
-        let entries = Self.directoryEntries(documents: documents, path: path)
-        if !entries.isEmpty || path == scope.rawValue {
-            return .directory(path: path, scope: scope, entries: entries)
+        let entries = Self.directoryEntries(documents: documents, path: lookupPath)
+        if !entries.isEmpty || lookupPath == scope.rawValue {
+            return .directory(path: lookupPath, scope: scope, entries: entries)
         }
-        return .failure(code: "memory-not-found", error: "\(path) 下没有文档或目录。", path: path)
+        return .failure(code: "memory-not-found", error: "\(lookupPath) 下没有文档或目录。", path: lookupPath)
     }
 
     public func recall(
@@ -570,14 +663,113 @@ public actor BotMemory {
         }
     }
 
-    private func failure(_ request: BotMemoryWriteRequest, code: String, error: String) -> BotMemoryWriteResult {
+    /// Validates a derivation supplied by the provenance owner (G-1 r8 Plan A).
+    /// P does not invent `resource`; an observation baseline without one is
+    /// rejected, and every effective evidence/review ref must be covered.
+    static func sourceBaselineValidationError(_ baselines: [BotSourceBaseline],
+                                              evidenceRefs: [String],
+                                              reviewRefs: [String]) -> String? {
+        guard baselines.count <= 16 else { return "derivation sources 不能超过 16 条。" }
+        var seen = Set<String>()
+        var records = Set<String>()
+        for baseline in baselines {
+            guard let canonical = BotRecordReference.canonicalize(baseline.record) else {
+                return "derivation 里有非法的 record:// 引用。"
+            }
+            let key = "\(baseline.role?.rawValue ?? "-")|\(canonical)"
+            guard seen.insert(key).inserted else {
+                return "derivation 的 (record, role) 不能重复。"
+            }
+            records.insert(canonical)
+            if let resource = baseline.resource, !resource.isStructurallyValid {
+                return "derivation 的 resource 形状不合法。"
+            }
+            if let grantId = baseline.grantId,
+               grantId.isEmpty || grantId.unicodeScalars.count > 128 {
+                return "derivation 的 grantId 必须是 1...128 scalar。"
+            }
+            if baseline.sourceVersion != nil {
+                guard baseline.resource != nil else {
+                    return "观察来源必须带 resource 身份；本次写入未执行。"
+                }
+            }
+        }
+        let effective = Set((evidenceRefs + reviewRefs).compactMap {
+            BotRecordReference.canonicalize($0) ?? $0
+        })
+        guard effective.isSubset(of: records) else {
+            return "derivation 没有覆盖全部 evidence/review 来源；本次写入未执行。"
+        }
+        return nil
+    }
+
+    /// Generic pre-write version of the maintenance batch check: an authored
+    /// document must not be longer than the readable text it cites. Applies
+    /// only when a real record reader is wired and the write carries
+    /// observation/record evidence (or is a maintainer write); normal user
+    /// writes and evidence-less trigger-only writes are untouched.
+    private func documentLongerThanEvidenceFailure(
+        _ request: BotMemoryWriteRequest,
+        context: BotMemoryWriteContext,
+        evidenceRefs: [String], reviewRefs: [String]
+    ) async throws -> BotMemoryWriteResult? {
+        guard let recordReading, let sessionID = context.sessionID,
+              !evidenceRefs.isEmpty || !reviewRefs.isEmpty,
+              context.authorKind == .maintainer || context.trust == .observation
+        else { return nil }
+        var written: String
+        switch request.action {
+        case .write:
+            written = request.content ?? ""
+        case .append:
+            let current = try await store.document(path: request.path)?.content ?? ""
+            written = current + (request.content ?? "")
+        case .replace:
+            let current = try await store.document(path: request.path)?.content ?? ""
+            guard let find = request.find, !find.isEmpty else { return nil }
+            written = current.replacingOccurrences(
+                of: find, with: request.replace ?? "")
+        case .restore, .move, .delete:
+            return nil
+        }
+        let contentScalars = written.unicodeScalars.count
+        guard contentScalars > 0 else { return nil }
+        var refs: [String] = []
+        var seen = Set<String>()
+        for raw in evidenceRefs + reviewRefs {
+            guard let canonical = BotRecordReference.canonicalize(raw),
+                  seen.insert(canonical).inserted else { continue }
+            refs.append(canonical)
+        }
+        guard !refs.isEmpty else { return nil }
+        var evidenceScalars = 0
+        for ref in refs {
+            guard let text = try? await recordReading.recordText(
+                ref, callerSessionID: sessionID) else {
+                // An unreadable reference is not a reason to invent a limit;
+                // the existing batch check still runs.
+                return nil
+            }
+            evidenceScalars += text.unicodeScalars.count
+        }
+        guard evidenceScalars > 0, contentScalars > evidenceScalars else { return nil }
+        return failure(
+            request, code: "memory-document-longer-than-evidence",
+            error: "文档正文（\(contentScalars) scalar）比它引用的记录原文（\(evidenceScalars) scalar）长；请先改短再写入。",
+            limit: evidenceScalars, actual: contentScalars)
+    }
+
+    private func failure(_ request: BotMemoryWriteRequest, code: String, error: String,
+                         limit: Int? = nil, actual: Int? = nil) -> BotMemoryWriteResult {
         BotMemoryWriteResult(
             ok: false,
             code: code,
             error: error,
             action: request.action,
             path: request.path,
-            scope: BotMemoryAuthorizer.scope(of: request.path))
+            scope: BotMemoryAuthorizer.scope(of: request.path),
+            limit: limit,
+            actual: actual)
     }
 
     private func boundaryFailure(_ request: BotMemoryWriteRequest, code: String) -> BotMemoryWriteResult {

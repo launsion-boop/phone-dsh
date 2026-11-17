@@ -3,33 +3,283 @@
   "title": "BotRoutine v1",
   "description": "One routine record. run_state, quiet_defer, next_run_at and last_result are nullable and may be absent: absent is equivalent to null, and Swift's synthesized encoder omits a nil member (see spec/bot/v2/README.md §2.3). Persistent routine snapshots are wrapped by routine-document.schema.json.",
   "type": "object",
-  "required": ["id", "agentId", "title", "prompt", "schedule", "enabled", "idempotent", "urgent", "urgent_reason", "delivery", "interrupt_reason", "created_at", "attempt"],
+  "required": [
+    "id",
+    "agentId",
+    "title",
+    "prompt",
+    "schedule",
+    "enabled",
+    "idempotent",
+    "urgent",
+    "urgent_reason",
+    "delivery",
+    "interrupt_reason",
+    "created_at",
+    "attempt"
+  ],
   "properties": {
-    "id": {"type": "string", "minLength": 1},
-    "agentId": {"type": "string", "minLength": 1},
-    "title": {"type": "string", "minLength": 1},
-    "prompt": {"type": "string", "minLength": 1},
-    "schedule": {"type": "object", "required": ["kind", "timezone"], "properties": {"kind": {"enum": ["interval", "daily", "weekly", "cron"]}, "everyMinutes": {"type": "integer", "minimum": 1}, "phaseMinutes": {"type": "integer", "minimum": 0}, "time": {"type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"}, "weekdays": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 7}, "uniqueItems": true}, "expr": {"type": "string"}, "timezone": {"type": "string", "minLength": 1}}, "additionalProperties": true},
-    "enabled": {"type": "boolean"},
-    "idempotent": {"type": "boolean"},
-    "urgent": {"type": "boolean"},
-    "urgent_reason": {"type": "string"},
-    "delivery": {"enum": ["held", "interrupt"]},
-    "interrupt_reason": {"type": "string"},
-    "created_at": {"type": "integer", "minimum": 0},
-    "creator": {"type": "object", "required": ["origin", "authorization"], "properties": {"rpcId": {"type": "string", "minLength": 1}, "turnId": {"type": "string", "minLength": 1}, "sessionId": {"type": "string", "minLength": 1}, "origin": {"enum": ["user", "held", "agent", "routine", "task", "task-wake", "unknown"]}, "authorization": {"enum": ["user-turn", "user-confirmed"]}, "approvalID": {"type": "string", "minLength": 1}}, "additionalProperties": true},
-    "completion_criteria": {"type": "string", "maxLength": 2000},
-    "constraints": {"type": "string", "maxLength": 2000},
-    "attempt": {"type": "integer", "minimum": 0},
-    "run_state": {"type": ["object", "null"]},
-    "quiet_defer": {"type": ["object", "null"], "required": ["until", "scheduledFor", "at"], "properties": {"until": {"type": "integer", "minimum": 0}, "scheduledFor": {"type": "integer", "minimum": 0}, "at": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
-    "last_skip": {"type": ["object", "null"]},
-    "skip_count": {"type": "integer", "minimum": 0},
-    "crash_retry": {"type": "boolean"},
-    "last_run_at": {"type": ["integer", "null"], "minimum": 0},
-    "next_run_at": {"type": ["integer", "null"], "minimum": 0},
-    "last_result": {"type": ["object", "null"]}
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agentId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schedule": {
+      "type": "object",
+      "required": [
+        "kind",
+        "timezone"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "interval",
+            "daily",
+            "weekly",
+            "cron"
+          ]
+        },
+        "everyMinutes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "phaseMinutes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "time": {
+          "type": "string",
+          "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+        },
+        "weekdays": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 7
+          },
+          "uniqueItems": true
+        },
+        "expr": {
+          "type": "string"
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "idempotent": {
+      "type": "boolean"
+    },
+    "urgent": {
+      "type": "boolean"
+    },
+    "urgent_reason": {
+      "type": "string"
+    },
+    "delivery": {
+      "enum": [
+        "held",
+        "interrupt"
+      ]
+    },
+    "interrupt_reason": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "creator": {
+      "type": "object",
+      "required": [
+        "origin",
+        "authorization"
+      ],
+      "properties": {
+        "rpcId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "turnId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "origin": {
+          "enum": [
+            "user",
+            "held",
+            "agent",
+            "routine",
+            "task",
+            "task-wake",
+            "unknown"
+          ]
+        },
+        "authorization": {
+          "enum": [
+            "user-turn",
+            "user-confirmed"
+          ]
+        },
+        "approvalID": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "completion_criteria": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "constraints": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "run_state": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "quiet_defer": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "until",
+        "scheduledFor",
+        "at"
+      ],
+      "properties": {
+        "until": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scheduledFor": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "at": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "last_skip": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "skip_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "crash_retry": {
+      "type": "boolean"
+    },
+    "last_run_at": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "next_run_at": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "last_result": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "cloud_schedule": {
+      "type": "object",
+      "description": "Optional cloud scheduling authorization reference (S). absent/enabled=false means no cloud schedule; authorization_ref points at the user consent/approval record. A wake never grants this.",
+      "required": [
+        "enabled",
+        "seq"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "authorization_ref": {
+          "type": "string",
+          "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+          "maxLength": 128
+        }
+      },
+      "additionalProperties": false
+    }
   },
-  "allOf": [{"if": {"properties": {"creator": {"type": "object", "properties": {"authorization": {"const": "user-confirmed"}}, "required": ["authorization"]}}, "required": ["creator"]}, "then": {"properties": {"creator": {"required": ["approvalID"]}}}}],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "creator": {
+            "type": "object",
+            "properties": {
+              "authorization": {
+                "const": "user-confirmed"
+              }
+            },
+            "required": [
+              "authorization"
+            ]
+          }
+        },
+        "required": [
+          "creator"
+        ]
+      },
+      "then": {
+        "properties": {
+          "creator": {
+            "required": [
+              "approvalID"
+            ]
+          }
+        }
+      }
+    }
+  ],
   "additionalProperties": true
 }

@@ -1,0 +1,271 @@
+{
+  "auto_decisions" : [
+
+  ],
+  "budget" : {
+    "max_minutes" : 12,
+    "max_model_requests" : 30
+  },
+  "expect" : "pass",
+  "expectation_met" : true,
+  "finished_at" : "2026-11-17T07:04:39Z",
+  "id" : "AHA-FRESHNESS",
+  "keep_bodies" : true,
+  "model" : {
+    "base_url_host" : "api.deepseek.com",
+    "name" : "deepseek-flash",
+    "real" : true
+  },
+  "repeat" : 2,
+  "repeats" : [
+    {
+      "actions" : [
+        {
+          "bot" : "main",
+          "detail" : "allow_once",
+          "index" : 0,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "approval_policy",
+          "wall_ms" : 0
+        },
+        {
+          "bot" : "main",
+          "index" : 1,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 89,
+              "turn" : 1
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 7054
+        },
+        {
+          "bot" : "main",
+          "index" : 2,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 86,
+              "turn" : 2
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 7034
+        },
+        {
+          "bot" : "main",
+          "detail" : "plannedRestart completed",
+          "index" : 3,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "restart_worker",
+          "wall_ms" : 7063
+        },
+        {
+          "bot" : "main",
+          "index" : 4,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 4,
+              "turn" : 3
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 1640
+        }
+      ],
+      "approval_requests" : {
+
+      },
+      "assertions" : [
+        {
+          "bot" : "main",
+          "detail" : "reply contains \"5000\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "turn" : 3,
+          "type" : "reply_contains"
+        },
+        {
+          "bot" : "main",
+          "detail" : "reply does not contain \"3000\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "turn" : 3,
+          "type" : "reply_not_contains"
+        },
+        {
+          "bot" : "main",
+          "detail" : "found 2 matching memory fact(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "memory_contains"
+        }
+      ],
+      "auto_decisions" : [
+
+      ],
+      "index" : 1,
+      "page_visibility" : {
+        "attached_with_visible_area" : true,
+        "document_visibility_state" : "visible",
+        "is_visible" : true,
+        "window_occlusion_visible" : true
+      },
+      "status" : "PASS",
+      "usage" : {
+        "max_minutes" : 12,
+        "max_model_requests" : 30,
+        "model_requests" : 9,
+        "recorded_model_requests" : 9,
+        "upstream_bytes_in" : 776656,
+        "upstream_bytes_out" : 188088,
+        "upstream_requests" : 9,
+        "wall_s" : 27.195343017578125
+      },
+      "wall_s" : 27.195343017578125
+    },
+    {
+      "actions" : [
+        {
+          "bot" : "main",
+          "detail" : "allow_once",
+          "index" : 0,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "approval_policy",
+          "wall_ms" : 0
+        },
+        {
+          "bot" : "main",
+          "index" : 1,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 74,
+              "turn" : 1
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 6568
+        },
+        {
+          "bot" : "main",
+          "index" : 2,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 96,
+              "turn" : 2
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 7258
+        },
+        {
+          "bot" : "main",
+          "detail" : "plannedRestart completed",
+          "index" : 3,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "restart_worker",
+          "wall_ms" : 7418
+        },
+        {
+          "bot" : "main",
+          "index" : 4,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 4,
+              "turn" : 3
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 1722
+        }
+      ],
+      "approval_requests" : {
+
+      },
+      "assertions" : [
+        {
+          "bot" : "main",
+          "detail" : "reply contains \"5000\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "turn" : 3,
+          "type" : "reply_contains"
+        },
+        {
+          "bot" : "main",
+          "detail" : "reply does not contain \"3000\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "turn" : 3,
+          "type" : "reply_not_contains"
+        },
+        {
+          "bot" : "main",
+          "detail" : "found 2 matching memory fact(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "memory_contains"
+        }
+      ],
+      "auto_decisions" : [
+
+      ],
+      "index" : 2,
+      "page_visibility" : {
+        "attached_with_visible_area" : true,
+        "document_visibility_state" : "visible",
+        "is_visible" : true,
+        "window_occlusion_visible" : true
+      },
+      "status" : "PASS",
+      "usage" : {
+        "max_minutes" : 12,
+        "max_model_requests" : 30,
+        "model_requests" : 9,
+        "recorded_model_requests" : 9,
+        "upstream_bytes_in" : 774995,
+        "upstream_bytes_out" : 180448,
+        "upstream_requests" : 9,
+        "wall_s" : 27.505498051643372
+      },
+      "wall_s" : 27.505498051643372
+    }
+  ],
+  "run_status" : "PASS",
+  "schema_version" : 1,
+  "selftest" : false,
+  "started_at" : "2026-11-17T07:03:44Z",
+  "status" : "PASS",
+  "title" : "a corrected value survives a worker restart",
+  "upstream" : "real",
+  "usage" : {
+    "model_requests" : 18,
+    "upstream_bytes_in" : 1551651,
+    "upstream_bytes_out" : 368536,
+    "wall_s" : 54.700841069221497
+  }
+}

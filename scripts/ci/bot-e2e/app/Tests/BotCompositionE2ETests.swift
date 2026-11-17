@@ -533,6 +533,245 @@ final class BotCompositionE2ETests: XCTestCase {
     }
 
 
+    /// A05 independent outlet acceptance: seed the real UI feedback SQLite
+    /// (U's DB), create a real second Bot + routine through the production
+    /// composition, and prove the user-scope routine-result preference holds
+    /// delivery (feedback-held), the routine still executes, normal chat still
+    /// answers, restart keeps the hold, and undo releases it. No hand-appended
+    /// target events and no reminder kind are used.
+    func testA05UIFeedbackHoldsBotBRoutineAndUndoReleases() async throws {
+        let env = ProcessInfo.processInfo.environment
+        let fixtureDB = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("../../fixtures/a05-ui-feedback/domain.sqlite")
+            .standardizedFileURL
+        let dbPath = env["A05_UI_DB"] ?? fixtureDB.path
+        guard FileManager.default.fileExists(atPath: dbPath) else {
+            throw XCTSkip("U's real feedback SQLite backup is absent")
+        }
+        let proxyHealth = URL(string: "http://127.0.0.1:38471/health")!
+        let healthData = try? await URLSession.shared.data(from: proxyHealth)
+        let healthy = healthData.flatMap { String(data: $0.0, encoding: .utf8) } == "ok"
+        guard healthy else {
+            throw XCTSkip("real-model loopback proxy is not running on 127.0.0.1:38471")
+        }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("a05-outlet-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
+            at: URL(fileURLWithPath: dbPath),
+            to: root.appendingPathComponent("domain.sqlite"))
+        let workspaceRoot = root.appendingPathComponent("workspace", isDirectory: true)
+        let store = try SQLiteDomainStore(fileURL: root.appendingPathComponent("domain.sqlite"))
+        let profileStore = BotProfileStore(directory: root.appendingPathComponent("profiles"))
+        let schedulerNow = Self.deterministicNoon()
+        let launch = try await BotRuntimeComposition.prepare(
+            store: store, profileStore: profileStore,
+            workspaceRoot: workspaceRoot, now: { schedulerNow })
+        let composition = launch.composition
+
+        let modelBaseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:38471"))
+        guard let worker = Bundle.main.url(forResource: "worker", withExtension: nil) else {
+            return XCTFail("the real packed Worker is absent")
+        }
+        let bundle = PhoneDSHBundleLocation(staticDirectory: worker)
+        let mcpPolicy = MCPEgressPolicy()
+        try mcpPolicy.grantBotRuntimeEndpoint(
+            try XCTUnwrap(composition.server.url), token: composition.server.token)
+        let baseCredentials = StaticCredentialProvider([
+            CredentialScope(service: "127.0.0.1"): Credential(
+                kind: .apiKey(header: "x-api-key"), value: "a05-outlet-fixture"),
+        ])
+        let configuration = ChatHostConfiguration.makeProduction(
+            workspaceRoot: workspaceRoot,
+            bundle: bundle,
+            allowedModelHosts: [modelBaseURL.absoluteString],
+            egressAllowHosts: [],
+            replaySafeModelEndpoints: PhoneDSHConfiguration.standardModelEndpoints(
+                baseURL: modelBaseURL),
+            credentialProvider: PhoneMCPCredentialProvider(policy: mcpPolicy, base: baseCredentials),
+            egressAuthorizer: mcpPolicy,
+            workerEnvironment: composition.workerEnvironment.merging([
+                "DEEPSEEK_BASE_URL": modelBaseURL.absoluteString,
+                "DEEPSEEK_API_KEY": "a05-outlet-placeholder",
+                "DSH_TELEMETRY_DISABLED": "1",
+                "PDSH_LLM_DELIVERY_IDLE_TIMEOUT_MS": "5000",
+            ]) { _, new in new },
+            nativeMCP: ADBMCPServer.shared,
+            drainDeadline: 2, helloTimeout: 60)
+        let app = try XCTUnwrap(UIApplication.shared.delegate as? AppDelegate)
+        let engineHolder = BotCompositionEngineHolder()
+        let host = PhoneDSHHost(configuration: configuration) { configuration in
+            await engineHolder.attach(configuration, to: app.anchor)
+        }
+        try await composition.start(host: host)
+
+        let b = try await composition.createBot(
+            name: "Bot B", description: "A05 outlet Bot", color: nil, hairstyle: nil)
+        let unitB = try await composition.ensureUnit(for: b.id, reason: "a05-outlet")
+        let readyDeadline = Date().addingTimeInterval(60)
+        while !(await unitB.remote.isAvailable()), Date() < readyDeadline {
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        let workerReady = await unitB.remote.isAvailable()
+        XCTAssertTrue(workerReady, "Bot B worker did not become available")
+        // Copy the 星桥 project materials into THIS Bot's materialized root
+        // after its host workspace exists; no answer text is in any prompt.
+        let projectFixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("../../fixtures/a05-ui-feedback/project")
+            .standardizedFileURL
+        let catalog = BotWorkspaceDirectoryCatalog(workspaceRoot: workspaceRoot)
+        let botMaterialized = try XCTUnwrap(catalog.directoryURL(forBotID: b.id),
+                                             "the production catalog must expose Bot B's root")
+        func seedProject(into root: URL) throws {
+            let projectRoot = root.appendingPathComponent("星桥产品评审", isDirectory: true)
+            try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+            for file in try FileManager.default.contentsOfDirectory(
+                at: projectFixture, includingPropertiesForKeys: nil) {
+                let target = projectRoot.appendingPathComponent(file.lastPathComponent)
+                if FileManager.default.fileExists(atPath: target.path) { continue }
+                try FileManager.default.copyItem(at: file, to: target)
+            }
+        }
+        try seedProject(into: workspaceRoot)
+        try seedProject(into: workspaceRoot.appendingPathComponent(
+            "materialized/workspace", isDirectory: true))
+        try seedProject(into: botMaterialized)
+        try seedProject(into: workspaceRoot.appendingPathComponent(
+            ".dshbot/agents/\(b.id)", isDirectory: true))
+        let seededFile = botMaterialized
+            .appendingPathComponent("星桥产品评审/11-报价-v2-20261114.md")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: seededFile.path),
+                      "fixture seed missing at \(seededFile.path)")
+        let center = try XCTUnwrap(composition.feedbackCenter)
+        let preferences = try await center.preferences(botID: b.id, scope: .user)
+        let preference = try XCTUnwrap(preferences.active.first {
+            $0.classKey == "proactive:routine-result"
+        }, "U's real UI user-scope routine-result preference must be active")
+
+        func events() async throws -> [BotEvent] {
+            try await BotProductionEventReader.all(domain: store)
+        }
+        func heldCount() async throws -> Int {
+            try await events().filter {
+                $0.type == "proactive.considered"
+                    && $0.principal.botId == b.id
+                    && $0.data["reason"]?.stringValue == "feedback-held"
+            }.count
+        }
+        func finishedCount(routineID: String) async throws -> Int {
+            try await events().filter {
+                $0.type == "routine.run_finished"
+                    && $0.principal.botId == b.id
+                    && $0.data["routineId"]?.stringValue == routineID
+            }.count
+        }
+        func runRoutine(_ id: String) async throws {
+            _ = try await composition.runtime.routineMachine.create(
+                botId: b.id, title: "A05 outlet \(id)",
+                prompt: "阅读工作区星桥产品评审的项目简报，用一句话给出当前评审目标。",
+                schedule: .interval(everyMinutes: 1, timezone: "UTC"),
+                delivery: .interrupt, interruptReason: "A05 outlet acceptance",
+                now: schedulerNow - 120_000, id: id)
+            let current = try await composition.ensureUnit(for: b.id)
+            await current.scheduler.start()
+            try await current.scheduler.tick()
+            await current.scheduler.waitForIdle()
+        }
+        func waitUntil(_ timeout: TimeInterval = 120,
+                       _ predicate: () async throws -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(timeout)
+            while Date() < deadline {
+                if try await predicate() { return }
+                try await Task.sleep(for: .milliseconds(250))
+            }
+        }
+
+        let probe = ProactiveCandidate(
+            id: "a05-outlet-probe", kind: .routineResult, botId: b.id,
+            dedupeKey: "routine-result:a05-outlet-probe", trigger: "routine.run_finished",
+            createdAt: schedulerNow, routineId: "a05-outlet-probe", delivery: .interrupt)
+        let probeHold = await center.hold(for: probe, botID: b.id, at: schedulerNow)
+        print("A05_OUTLET_PREF=\(preference.id) class=\(preference.classKey) expiry=\(String(describing: preference.expiresAtMS)) probeHeld=\(probeHold.isHeld)")
+        let firstHeld = try await heldCount()
+        try await runRoutine("a05-outlet-1")
+        try await waitUntil { try await heldCount() >= firstHeld + 1 }
+        let heldAfterRun = try await heldCount()
+        XCTAssertEqual(heldAfterRun, firstHeld + 1,
+                       "the new Bot's routine result must be feedback-held")
+        try await waitUntil { try await finishedCount(routineID: "a05-outlet-1") >= 1 }
+        let finished1 = try await finishedCount(routineID: "a05-outlet-1")
+        XCTAssertGreaterThanOrEqual(finished1, 1,
+                       "the routine itself must still execute and finish")
+
+
+        try await host.plannedRestart(reason: "a05-outlet-restart")
+        let restartReady = Date().addingTimeInterval(60)
+        while Date() < restartReady {
+            let restarted = try await composition.ensureUnit(for: b.id)
+            if await restarted.remote.isAvailable() { break }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        // Restart materialized the workspace; ask the real task now so the
+        // Bot has the seeded project files available.
+        let beforeRestartHeld = heldAfterRun
+        try await runRoutine("a05-outlet-2")
+        try await waitUntil { try await heldCount() >= beforeRestartHeld + 1 }
+        let afterRestartHeld = try await heldCount()
+        XCTAssertEqual(afterRestartHeld, beforeRestartHeld + 1,
+                       "restart must keep the durable feedback hold")
+        try await waitUntil { try await finishedCount(routineID: "a05-outlet-2") >= 1 }
+        let finished2 = try await finishedCount(routineID: "a05-outlet-2")
+        XCTAssertGreaterThanOrEqual(finished2, 1)
+
+        try seedProject(into: workspaceRoot)
+        try seedProject(into: workspaceRoot.appendingPathComponent(
+            "materialized/workspace", isDirectory: true))
+        try seedProject(into: botMaterialized)
+        try seedProject(into: workspaceRoot.appendingPathComponent(
+            ".dshbot/agents/\(b.id)", isDirectory: true))
+        let chat = try await unitB.remote.sendUserMessage(
+            "读一下工作区星桥产品评审的报价 v2 和项目简报，指出最需要确认的一个冲突，并给出依据的文件名。")
+        XCTAssertEqual(chat.status, "completed", chat.error ?? "no error")
+        XCTAssertGreaterThan(chat.text.count, 30,
+                             "the normal task must produce a real answer; text=\(chat.text)")
+        print("A05_OUTLET_CHAT=\(chat.text)")
+        XCTAssertFalse(chat.text.contains("没有找到") || chat.text.contains("工作区是空的"),
+                       "the Bot must not report the seeded project as missing; text=\(chat.text)")
+        XCTAssertTrue(chat.text.contains("512") || chat.text.contains("508")
+                      || chat.text.contains("预算") || chat.text.contains("报价总额"),
+                      "the answer must cite the real quote conflict; text=\(chat.text)")
+
+        let undo = try await center.undo(
+            preference.id, botID: b.id,
+            origin: BotFeedbackOrigin(kind: .uiAction,
+                                      nonce: "a05-outlet-undo-\(UUID().uuidString)"))
+        XCTAssertEqual(undo.status, .accepted, undo.message ?? "undo rejected")
+        try await runRoutine("a05-outlet-3")
+        let finished3 = try await finishedCount(routineID: "a05-outlet-3")
+        XCTAssertGreaterThanOrEqual(finished3, 1)
+        let afterUndoEvents = try await events()
+        print("A05_OUTLET_UNDO_CONSIDERED=\(afterUndoEvents.filter { $0.type == "proactive.considered" && $0.principal.botId == b.id }.map(\.data))")
+        // The eval simulator has no notification deliverer, so a released
+        // routine can still record `delivery-unavailable`; what matters for
+        // this gate is that undo removed the feedback hold and the candidate
+        // was considered again. The product notification path is outside this
+        // outlet acceptance.
+        let released = afterUndoEvents.contains {
+            $0.type == "proactive.considered"
+                && $0.principal.botId == b.id
+                && $0.data["kind"]?.stringValue == "routine-result"
+                && $0.data["routineId"]?.stringValue == "a05-outlet-3"
+                && $0.data["reason"]?.stringValue != "feedback-held"
+                && $0.data["feedback_id"] == nil
+        }
+        XCTAssertTrue(released, "undo must release the next routine-result delivery")
+        await composition.scheduler.stop()
+        await unitB.scheduler.stop()
+    }
+
     private func post(url: URL, token: String, body: Data) async throws -> (status: Int, json: PhoneDSHBot.BotJSONValue) {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

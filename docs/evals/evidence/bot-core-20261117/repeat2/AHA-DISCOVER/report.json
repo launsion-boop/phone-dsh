@@ -1,0 +1,250 @@
+{
+  "auto_decisions" : [
+
+  ],
+  "budget" : {
+    "max_minutes" : 15,
+    "max_model_requests" : 40
+  },
+  "expect" : "pass",
+  "expectation_met" : true,
+  "finished_at" : "2026-11-17T07:01:24Z",
+  "id" : "AHA-DISCOVER",
+  "keep_bodies" : true,
+  "model" : {
+    "base_url_host" : "api.deepseek.com",
+    "name" : "deepseek-flash",
+    "real" : true
+  },
+  "repeat" : 2,
+  "repeats" : [
+    {
+      "actions" : [
+        {
+          "bot" : "main",
+          "detail" : "allow_once",
+          "index" : 0,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "approval_policy",
+          "wall_ms" : 0
+        },
+        {
+          "bot" : "main",
+          "index" : 1,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 18,
+              "turn" : 1
+            },
+            {
+              "bot" : "main",
+              "chars" : 134,
+              "turn" : 1
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 25396
+        },
+        {
+          "bot" : "main",
+          "index" : 2,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 130,
+              "turn" : 2
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 23626
+        }
+      ],
+      "approval_requests" : {
+
+      },
+      "assertions" : [
+        {
+          "bot" : "main",
+          "detail" : "file exists: reports\/weekly.md",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "file_exists"
+        },
+        {
+          "bot" : "main",
+          "detail" : "file reports\/weekly.md matches \"(?m)^OWNER: 林$\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "file_regex"
+        },
+        {
+          "bot" : "main",
+          "detail" : "file reports\/weekly.md matches \"(?m)^#{1,6}[[:space:]]*.*风险\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "file_regex"
+        },
+        {
+          "bot" : "main",
+          "detail" : "reply does not contain \"OLD_GUIDE_9C1\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "reply_not_contains"
+        },
+        {
+          "bot" : "main",
+          "detail" : "reply does not contain \"周报-{\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "reply_not_contains"
+        }
+      ],
+      "auto_decisions" : [
+
+      ],
+      "index" : 1,
+      "page_visibility" : {
+        "attached_with_visible_area" : true,
+        "document_visibility_state" : "visible",
+        "is_visible" : true,
+        "window_occlusion_visible" : true
+      },
+      "status" : "PASS",
+      "usage" : {
+        "max_minutes" : 15,
+        "max_model_requests" : 40,
+        "model_requests" : 17,
+        "recorded_model_requests" : 17,
+        "upstream_bytes_in" : 1913238,
+        "upstream_bytes_out" : 713301,
+        "upstream_requests" : 17,
+        "wall_s" : 54.608817934989929
+      },
+      "wall_s" : 54.608817934989929
+    },
+    {
+      "actions" : [
+        {
+          "bot" : "main",
+          "detail" : "allow_once",
+          "index" : 0,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "approval_policy",
+          "wall_ms" : 0
+        },
+        {
+          "bot" : "main",
+          "index" : 1,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 166,
+              "turn" : 1
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 14137
+        },
+        {
+          "bot" : "main",
+          "index" : 2,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 156,
+              "turn" : 2
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 8862
+        }
+      ],
+      "approval_requests" : {
+
+      },
+      "assertions" : [
+        {
+          "bot" : "main",
+          "detail" : "file exists: reports\/weekly.md",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "file_exists"
+        },
+        {
+          "bot" : "main",
+          "detail" : "file reports\/weekly.md matches \"(?m)^OWNER: 林$\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "file_regex"
+        },
+        {
+          "bot" : "main",
+          "detail" : "file reports\/weekly.md matches \"(?m)^#{1,6}[[:space:]]*.*风险\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "file_regex"
+        },
+        {
+          "bot" : "main",
+          "detail" : "reply does not contain \"OLD_GUIDE_9C1\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "reply_not_contains"
+        },
+        {
+          "bot" : "main",
+          "detail" : "reply does not contain \"周报-{\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "reply_not_contains"
+        }
+      ],
+      "auto_decisions" : [
+
+      ],
+      "index" : 2,
+      "page_visibility" : {
+        "attached_with_visible_area" : true,
+        "document_visibility_state" : "visible",
+        "is_visible" : true,
+        "window_occlusion_visible" : true
+      },
+      "status" : "PASS",
+      "usage" : {
+        "max_minutes" : 15,
+        "max_model_requests" : 40,
+        "model_requests" : 10,
+        "recorded_model_requests" : 10,
+        "upstream_bytes_in" : 921352,
+        "upstream_bytes_out" : 330277,
+        "upstream_requests" : 10,
+        "wall_s" : 27.460690021514893
+      },
+      "wall_s" : 27.460690021514893
+    }
+  ],
+  "run_status" : "PASS",
+  "schema_version" : 1,
+  "selftest" : false,
+  "started_at" : "2026-11-17T07:00:01Z",
+  "status" : "PASS",
+  "title" : "discover the current guideline instead of the archived one",
+  "upstream" : "real",
+  "usage" : {
+    "model_requests" : 27,
+    "upstream_bytes_in" : 2834590,
+    "upstream_bytes_out" : 1043578,
+    "wall_s" : 82.069507956504822
+  }
+}

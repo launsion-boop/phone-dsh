@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotDerivation v1",
+  "description": "Optional `derivation` member of an existing durable event data object: the writer's structured source assertion for one derived artifact. It is not a new event type and not a second record store. The assertion is carried by the event whose data contains it; do not repeat that event as a `carrier` (its commitSeq is assigned on append and is not known while writing). `sourceVersion` is the write-time baseline; it is absent only for non-observation records. See spec/bot/v2/provenance.md §3.",
+  "type": "object",
+  "required": [
+    "artifact",
+    "sources"
+  ],
+  "properties": {
+    "artifact": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "memory",
+            "review",
+            "routine",
+            "proactive",
+            "notification",
+            "delivery",
+            "suggestion",
+            "draft",
+            "skill",
+            "workspaceFile"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "required": [
+          "record"
+        ],
+        "properties": {
+          "record": {
+            "type": "string",
+            "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+            "maxLength": 128
+          },
+          "role": {
+            "enum": [
+              "evidence",
+              "review",
+              "trigger",
+              "creator",
+              "recipient",
+              "basis"
+            ]
+          },
+          "sourceVersion": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "basis",
+                  "value"
+                ],
+                "properties": {
+                  "basis": {
+                    "enum": [
+                      "content-sha256",
+                      "etag",
+                      "last-modified",
+                      "provider-version"
+                    ]
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "observed_at_ms": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "basis_ref": {
+                    "type": "string",
+                    "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+                    "maxLength": 128
+                  },
+                  "subject": {
+                    "enum": [
+                      "file-bytes",
+                      "record-text"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "record-unresolved",
+                      "record-erased",
+                      "record-without-content",
+                      "source-unversioned",
+                      "invalid-reference"
+                    ]
+                  },
+                  "observed_at_ms": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "basis_ref": {
+                    "type": "string",
+                    "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+                    "maxLength": 128
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "grantId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "resource": {
+            "type": "object",
+            "required": [
+              "kind",
+              "key"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "web-url",
+                  "connector-resource",
+                  "file",
+                  "context-source",
+                  "provider",
+                  "workspace-file"
+                ]
+              },
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "owner": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "scope": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "basis": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    }
+  },
+  "additionalProperties": false
+}

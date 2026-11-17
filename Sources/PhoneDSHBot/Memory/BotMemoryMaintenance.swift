@@ -45,6 +45,10 @@ public enum BotMemoryMaintenanceFailureCode: String, Codable, Sendable {
     case changeBudgetExceeded = "maintenance-change-budget-exceeded"
     case budgetExceeded = "maintenance-budget-exceeded"
     case rollbackConflict = "maintenance-rollback-conflict"
+    case verificationUnrechecked = "maintenance-verification-unrechecked"
+    case conflictNotPreserved = "maintenance-conflict-not-preserved"
+    case userScopeEvidence = "maintenance-user-scope-evidence"
+    case usageUnavailable = "maintenance-usage-unavailable"
 }
 
 public struct BotMemoryMaintenanceCandidate: Codable, Sendable, Equatable {
@@ -89,22 +93,29 @@ public struct BotMemoryMaintenanceChecks: Codable, Sendable, Equatable {
     public var indexWithinLimit: Bool
     public var documentsNotLongerThanEvidence: Bool
     public var changeBudgetWithinLimit: Bool
+    /// Host recheck of the batch's verification claims (G-1). Absent on old
+    /// batches means no verification record existed, never a fabricated pass.
+    public var verificationRechecked: Bool?
 
     public init(referencesResolve: Bool, indexWithinLimit: Bool,
-                documentsNotLongerThanEvidence: Bool, changeBudgetWithinLimit: Bool) {
+                documentsNotLongerThanEvidence: Bool, changeBudgetWithinLimit: Bool,
+                verificationRechecked: Bool? = nil) {
         self.referencesResolve = referencesResolve
         self.indexWithinLimit = indexWithinLimit
         self.documentsNotLongerThanEvidence = documentsNotLongerThanEvidence
         self.changeBudgetWithinLimit = changeBudgetWithinLimit
+        self.verificationRechecked = verificationRechecked
     }
 
     public static let passed = Self(
         referencesResolve: true, indexWithinLimit: true,
-        documentsNotLongerThanEvidence: true, changeBudgetWithinLimit: true)
+        documentsNotLongerThanEvidence: true, changeBudgetWithinLimit: true,
+        verificationRechecked: true)
 
     public var passedAll: Bool {
         referencesResolve && indexWithinLimit
             && documentsNotLongerThanEvidence && changeBudgetWithinLimit
+            && (verificationRechecked ?? true)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -112,6 +123,7 @@ public struct BotMemoryMaintenanceChecks: Codable, Sendable, Equatable {
         case indexWithinLimit = "index_within_limit"
         case documentsNotLongerThanEvidence = "documents_not_longer_than_evidence"
         case changeBudgetWithinLimit = "change_budget_within_limit"
+        case verificationRechecked = "verification_rechecked"
     }
 }
 
@@ -178,11 +190,13 @@ public struct BotMemoryMaintenanceStart: Codable, Sendable, Equatable {
     public var maintainerSessionID: String
     public var candidates: [BotMemoryMaintenanceCandidate]
     public var budget: BotMemoryMaintenanceStartBudget
+    public var verificationPolicy: BotMemoryMaintenanceVerificationPolicy?
 
     public init(batchID: String, botID: String, trigger: BotMemoryMaintenanceTrigger,
                 startedAtMS: Int64, maintainerSessionID: String,
                 candidates: [BotMemoryMaintenanceCandidate],
-                budget: BotMemoryMaintenanceStartBudget) {
+                budget: BotMemoryMaintenanceStartBudget,
+                verificationPolicy: BotMemoryMaintenanceVerificationPolicy? = nil) {
         self.batchID = batchID
         self.botID = botID
         self.trigger = trigger
@@ -190,6 +204,7 @@ public struct BotMemoryMaintenanceStart: Codable, Sendable, Equatable {
         self.maintainerSessionID = maintainerSessionID
         self.candidates = candidates
         self.budget = budget
+        self.verificationPolicy = verificationPolicy
     }
 
     enum CodingKeys: String, CodingKey {
@@ -199,6 +214,7 @@ public struct BotMemoryMaintenanceStart: Codable, Sendable, Equatable {
         case startedAtMS = "started_at_ms"
         case maintainerSessionID = "maintainer_session_id"
         case candidates, budget
+        case verificationPolicy = "verification_policy"
     }
 }
 
@@ -216,6 +232,7 @@ public struct BotMemoryMaintenanceBatch: Codable, Sendable, Equatable {
     public var failureCode: String?
     public var notification: Bool
     public var userScopeOwner: Bool
+    public var verification: BotMaintenanceDurableVerification?
 
     public init(batchID: String, botID: String, status: BotMemoryMaintenanceStatus,
                 trigger: BotMemoryMaintenanceTrigger, startedAtMS: Int64,
@@ -223,7 +240,8 @@ public struct BotMemoryMaintenanceBatch: Codable, Sendable, Equatable {
                 changes: [BotMemoryMaintenanceChange],
                 checks: BotMemoryMaintenanceChecks,
                 budget: BotMemoryMaintenanceBudget, failureCode: String?,
-                notification: Bool, userScopeOwner: Bool) {
+                notification: Bool, userScopeOwner: Bool,
+                verification: BotMaintenanceDurableVerification? = nil) {
         self.batchID = batchID
         self.botID = botID
         self.status = status
@@ -237,6 +255,7 @@ public struct BotMemoryMaintenanceBatch: Codable, Sendable, Equatable {
         self.failureCode = failureCode
         self.notification = notification
         self.userScopeOwner = userScopeOwner
+        self.verification = verification
     }
 
     enum CodingKeys: String, CodingKey {
@@ -248,6 +267,7 @@ public struct BotMemoryMaintenanceBatch: Codable, Sendable, Equatable {
         case maintainerSessionID = "maintainer_session_id"
         case failureCode = "failure_code"
         case userScopeOwner = "user_scope_owner"
+        case verification
     }
 }
 
@@ -322,8 +342,8 @@ public struct BotMemoryMaintenanceSettings: Codable, Sendable, Equatable {
     public var runTokenBudget: Int
     public var dailyTokenBudget: Int
 
-    public init(enabled: Bool = false, runTokenBudget: Int = 32_000,
-                dailyTokenBudget: Int = 96_000) {
+    public init(enabled: Bool = false, runTokenBudget: Int = 400_000,
+                dailyTokenBudget: Int = 1_000_000) {
         self.enabled = enabled
         self.runTokenBudget = max(1, runTokenBudget)
         self.dailyTokenBudget = max(1, dailyTokenBudget)
@@ -387,22 +407,12 @@ public protocol BotMemoryMaintenanceRecordReading: Sendable {
 }
 
 extension BotRecordService: BotMemoryMaintenanceRecordReading {
-    /// Reads one reference through the same read-only command the agent uses.
-    /// Output is JSON (`{"ok":true,"data":{"lines":[{"raw":…}]}}`); the raw
-    /// line is the record's original JSON. The caller session must be claimed.
+    /// Reads one reference through the canonical full record text, not the
+    /// 8k-bounded search/read output. The batch length check must see the
+    /// whole cited text or it would compare a document against a truncated
+    /// source.
     public func recordText(_ reference: String, callerSessionID: String) async throws -> String {
-        let output = await execute(
-            arguments: ["read", reference, "--around", "0"],
-            callerSessionID: callerSessionID)
-        guard output.exitCode == 0,
-              let data = output.stdout.data(using: .utf8),
-              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let payload = root["data"] as? [String: Any],
-              let lines = payload["lines"] as? [[String: Any]],
-              let raw = lines.first?["raw"] as? String else {
-            throw BotMemoryMaintenanceError.recordUnavailable(reference)
-        }
-        return BotMemoryMaintenanceText.readableText(raw: raw)
+        try await canonicalRecordText(reference, callerSessionID: callerSessionID)
     }
 }
 
@@ -480,7 +490,8 @@ enum BotMemoryMaintenanceText {
         candidates: [BotMemoryMaintenanceCandidate],
         trigger: BotMemoryMaintenanceTrigger,
         settings: BotMemoryMaintenanceSettings,
-        userScopeOwner: Bool
+        userScopeOwner: Bool,
+        verificationMaterial: String? = nil
     ) -> String {
         let candidateLines = candidates.map { candidate in
             "- \(candidate.path)（\(candidate.reasons.map(\.rawValue).joined(separator: "、"))）"
@@ -497,9 +508,12 @@ enum BotMemoryMaintenanceText {
         触发原因：\(trigger.rawValue)。单次预算：\(settings.runTokenBudget) token；每日预算：\(settings.dailyTokensDescription)。
         \(userRoot)
 
-        交给你的终态，不是步骤：
+        \(verificationMaterial.map { $0 + "\n\n" } ?? "")交给你的终态，不是步骤：
         - 记忆与原始记录一致；过时或冲突的内容已修正。
         - 判断不了的明确标为不确定，并在文档里保留两种说法和各自的记录引用。
+        - 每篇记忆正文不比它引用的原始记录更长；超长、无依据或引用失效的写入会让整批回滚。
+        - INDEX 只写路径/标题级的短索引，不写事实细节、历史或来源说明；若正文比引用长，补足真实
+          record:// 引用或删到不超过引用原文。
         - 索引在 1,500 字以内；细节下沉到文档。
         - 上次整理以来记录里出现过、没记下来、以后不会再出现的东西，已补上。
         - agent/inbox/ 里的 Task 和 routine 提交已合入（或明确丢弃）。
@@ -538,6 +552,11 @@ public actor BotMemoryMaintenanceController {
     private let remote: any BotMemoryMaintenanceTurnRunning
     private let settingsStore: BotMemoryMaintenanceSettingsStore
     private let recordReading: (any BotMemoryMaintenanceRecordReading)?
+    private let verification: (any BotMemoryMaintenanceVerifying)?
+    private let feedbackReading: (any BotMaintenanceFeedbackReading)?
+    private let invalidationReading: (any BotMaintenanceInvalidationReading)?
+    private let recentContextReading: (any BotMaintenanceRecentContextReading)?
+    private let verificationPolicy: BotMemoryMaintenanceVerificationPolicy?
     private let isMainBot: @Sendable () -> Bool
     private let isAppActive: @Sendable () -> Bool
     private let notify: @Sendable (String) async -> Void
@@ -554,6 +573,11 @@ public actor BotMemoryMaintenanceController {
         remote: any BotMemoryMaintenanceTurnRunning,
         settingsStore: BotMemoryMaintenanceSettingsStore = .shared,
         recordReading: (any BotMemoryMaintenanceRecordReading)? = nil,
+        verification: (any BotMemoryMaintenanceVerifying)? = nil,
+        feedbackReading: (any BotMaintenanceFeedbackReading)? = nil,
+        invalidationReading: (any BotMaintenanceInvalidationReading)? = nil,
+        recentContextReading: (any BotMaintenanceRecentContextReading)? = nil,
+        verificationPolicy: BotMemoryMaintenanceVerificationPolicy? = nil,
         isMainBot: @escaping @Sendable () -> Bool = { true },
         isAppActive: @escaping @Sendable () -> Bool = { true },
         notify: @escaping @Sendable (String) async -> Void = { _ in },
@@ -566,6 +590,15 @@ public actor BotMemoryMaintenanceController {
         self.remote = remote
         self.settingsStore = settingsStore
         self.recordReading = recordReading
+        self.verification = verification
+            ?? BotMemoryMaintenanceVerificationSupport.makeDefault(
+                recordReading: recordReading)
+        self.feedbackReading = feedbackReading
+        self.invalidationReading = invalidationReading
+        self.recentContextReading = recentContextReading
+            ?? BotMemoryMaintenanceVerificationSupport.makeRecentContextReader(
+                recordReading: recordReading)
+        self.verificationPolicy = verificationPolicy
         self.isMainBot = isMainBot
         self.isAppActive = isAppActive
         self.notify = notify
@@ -592,7 +625,7 @@ public actor BotMemoryMaintenanceController {
     /// but each Bot's daily budget is its own (spec/bot/v2 §4.6).
     public func budgetStatus() async -> BotMemoryMaintenanceBudgetStatus {
         let settings = settingsStore.settings()
-        let usage = await budgetUsage(sessionID: "", since: 0, now: now())
+        let usage = await budgetUsage(sessionID: "", sinceCommitSeq: 0, now: now())
         return BotMemoryMaintenanceBudgetStatus(
             dailyTokensUsed: usage.daily,
             dailyTokenLimit: settings.dailyTokenBudget)
@@ -675,8 +708,8 @@ public actor BotMemoryMaintenanceController {
     private func dailyBudgetExhausted(
         settings: BotMemoryMaintenanceSettings
     ) async -> Bool {
-        let usage = await budgetUsage(sessionID: "", since: 0, now: now())
-        return usage.daily >= settings.dailyTokenBudget
+        let usage = await budgetUsage(sessionID: "", sinceCommitSeq: 0, now: now())
+        return !usage.available || usage.daily >= settings.dailyTokenBudget
     }
 
     private func fireTrigger() async -> BotMemoryMaintenanceTrigger? {
@@ -720,24 +753,51 @@ public actor BotMemoryMaintenanceController {
         var beforeVersions: [String: Int] = [:]
         for document in previousLive { beforeVersions[document.path] = document.version }
 
+        // Host recheck of the candidates happens before the model sees them:
+        // the material below is objective source/state evidence, not a step
+        // list and not a user turn.
+        let candidatePaths = Set(candidates.map(\.path))
+        let candidateDocuments = previousLive.filter {
+            candidatePaths.contains($0.path)
+        }
+        let preVerification = await verifyDocuments(
+            candidateDocuments, strictPaths: [], baselines: [:],
+            sessionID: maintainerSession)
+        let recentContext = await recentContext(
+            for: candidateDocuments, sessionID: maintainerSession)
+        var materialParts: [String] = []
+        if let preVerification,
+           let line = BotMemoryMaintenanceVerificationSupport.materialLine(
+                for: preVerification) {
+            materialParts.append(line)
+        }
+        if let line = BotMemoryMaintenanceVerificationSupport.recentMaterialLine(
+            recentContext) {
+            materialParts.append(line)
+        }
+        let material = materialParts.isEmpty ? nil : materialParts.joined(
+            separator: "\n\n")
+
         let start = BotMemoryMaintenanceStart(
             batchID: batchID, botID: botID, trigger: trigger,
             startedAtMS: startedAt, maintainerSessionID: maintainerSession,
             candidates: candidates,
             budget: BotMemoryMaintenanceStartBudget(
                 runTokens: settings.runTokenBudget,
-                dailyTokens: settings.dailyTokenBudget))
-        guard (try? await append(
+                dailyTokens: settings.dailyTokenBudget),
+            verificationPolicy: verificationPolicy)
+        guard let startCommitSeq = try? await append(
             type: "memory.maintenance_started",
             eventID: "memory.maintenance_started:\(batchID)",
             data: start, at: startedAt, batchID: batchID,
-            sessionID: maintainerSession)) != nil else {
+            sessionID: maintainerSession) else {
             return nil
         }
 
         let prompt = BotMemoryMaintenanceText.prompt(
             batchID: batchID, botID: botID, candidates: candidates,
-            trigger: trigger, settings: settings, userScopeOwner: userScopeOwner)
+            trigger: trigger, settings: settings, userScopeOwner: userScopeOwner,
+            verificationMaterial: material)
         let turnResult: BotRemoteTurnResult?
         do {
             turnResult = try await remote.runMaintenanceTurn(
@@ -763,6 +823,27 @@ public actor BotMemoryMaintenanceController {
         }
         let writtenScalars = lastContent.values
             .reduce(0) { $0 + BotMemoryMaintenanceText.scalarCount($1) }
+
+        // Host recheck after the turn, on the live changed documents. A
+        // committed batch may not keep a `verified` that this recheck does not
+        // back; the whole batch rolls back.
+        var changedDocuments: [BotMemoryDocument] = []
+        for change in changes where !change.deleted {
+            if case .document(let version)? = try? await memory.read(path: change.path) {
+                changedDocuments.append(BotMemoryDocument(
+                    path: version.path, scope: version.scope,
+                    content: version.content, version: version.version,
+                    updatedAtMS: version.updatedAtMS, author: version.author,
+                    evidence: version.evidence, trust: version.trust,
+                    source: version.source, review: version.review))
+            }
+        }
+        let baselines = BotMemoryMaintenanceVerificationSupport.baselines(
+            in: afterEvents, batchID: batchID)
+        let postVerification = await verifyDocuments(
+            changedDocuments,
+            strictPaths: Set(changedDocuments.map(\.path)),
+            baselines: baselines, sessionID: maintainerSession)
 
         var checks = BotMemoryMaintenanceChecks(
             referencesResolve: false, indexWithinLimit: false,
@@ -792,6 +873,12 @@ public actor BotMemoryMaintenanceController {
         checks.changeBudgetWithinLimit =
             changes.count <= Self.maximumChangedDocuments
             && writtenScalars <= Self.maximumChangedScalars
+        // Check 5: every changed document's verification claim is backed by
+        // this host recheck (G-1). Without a verifier the check stays absent;
+        // production passes one, so a missing dependency fails closed there.
+        if verification != nil {
+            checks.verificationRechecked = postVerification?.blocking == 0
+        }
 
         if !checks.referencesResolve {
             failure = .evidenceUnresolved
@@ -802,17 +889,33 @@ public actor BotMemoryMaintenanceController {
         } else if !checks.changeBudgetWithinLimit {
             failure = .changeBudgetExceeded
         }
+        if failure == nil, verification != nil {
+            if postVerification == nil {
+                failure = .verificationUnrechecked
+            } else if let verificationFailure =
+                BotMemoryMaintenanceVerificationSupport.failureCode(
+                    for: postVerification) {
+                failure = verificationFailure
+            }
+        }
 
-        // Budget: per-run usage reads the ledger under the maintenance purpose.
+        // Budget: the run window is the durable event sequence after
+        // `memory.maintenance_started` (ledger timestamps can be in a
+        // different clock domain from the injected host clock); the daily
+        // window stays the UTC day. Tokens are input + output + cache read +
+        // cache write, read from the ledger, never from the model.
         let usage = await budgetUsage(
-            sessionID: maintainerSession, since: startedAt, now: now())
+            sessionID: maintainerSession, sinceCommitSeq: startCommitSeq,
+            now: now())
         var budget = BotMemoryMaintenanceBudget(
             runTokens: settings.runTokenBudget,
             dailyTokens: settings.dailyTokenBudget,
             tokensUsed: usage.run,
             changedDocuments: changes.count,
             changedScalars: writtenScalars)
-        if failure == nil, usage.run > settings.runTokenBudget
+        if !usage.available {
+            if failure == nil { failure = .usageUnavailable }
+        } else if failure == nil, usage.run > settings.runTokenBudget
             || usage.daily > settings.dailyTokenBudget {
             failure = .budgetExceeded
         }
@@ -854,7 +957,8 @@ public actor BotMemoryMaintenanceController {
             maintainerSessionID: maintainerSession, changes: changes,
             checks: checks, budget: budget,
             failureCode: failure?.rawValue,
-            notification: shouldNotify, userScopeOwner: userScopeOwner)
+            notification: shouldNotify, userScopeOwner: userScopeOwner,
+            verification: Self.merged(preVerification, postVerification)?.durable())
         _ = try? await append(
             type: "memory.maintenance_finished",
             eventID: "memory.maintenance_finished:\(batchID)",
@@ -985,6 +1089,118 @@ public actor BotMemoryMaintenanceController {
         return record
     }
 
+    // MARK: Host verification
+
+    private func recentContext(
+        for documents: [BotMemoryDocument], sessionID: String
+    ) async -> [BotMaintenanceRecentContext] {
+        guard let recentContextReading else { return [] }
+        var refs: [String] = []
+        for document in documents {
+            refs.append(contentsOf: document.evidence)
+            refs.append(contentsOf: document.review?.refs ?? [])
+        }
+        let unique = Array(Set(refs)).filter { $0.hasPrefix("record://session/") }
+        guard !unique.isEmpty else { return [] }
+        return (try? await recentContextReading.recentContext(
+            after: unique, callerSessionID: sessionID,
+            lineLimit: 6, characterLimit: 2_000)) ?? []
+    }
+
+    private func verifyDocuments(
+        _ documents: [BotMemoryDocument],
+        strictPaths: Set<String>,
+        baselines: [String: BotMaintenanceSourceBaseline],
+        sessionID: String
+    ) async -> BotMaintenanceVerificationSummary? {
+        guard let verification, !documents.isEmpty else { return nil }
+        let paths = documents.map(\.path)
+        var disputed: [String: [String]] = [:]
+        if let feedbackReading,
+           let value = try? await feedbackReading.disputedReferences(forPaths: paths) {
+            disputed = value
+        }
+        var references: [String] = []
+        for document in documents {
+            references.append(contentsOf: document.evidence)
+            references.append(contentsOf: document.review?.refs ?? [])
+        }
+        var invalidated: [String: BotMaintenanceDependencyStatus] = [:]
+        if let invalidationReading, !documents.isEmpty {
+            // Query per artifact with the real Bot id and version; a bare global
+            // ref list is not enough to distinguish one Bot's baseline/scope.
+            for document in documents {
+                var refs: [String] = []
+                refs.append(contentsOf: document.evidence)
+                refs.append(contentsOf: document.review?.refs ?? [])
+                let unique = Array(Set(refs))
+                guard !unique.isEmpty else { continue }
+                let request = BotMaintenanceInvalidationRequest(
+                    botID: botID,
+                    artifact: BotMaintenanceArtifactReference(
+                        path: document.path, version: document.version,
+                        scope: document.scope.rawValue),
+                    references: unique)
+                guard let value = try? await invalidationReading
+                    .invalidationStatuses(for: request) else { continue }
+                for (reference, status) in value {
+                    if let existing = invalidated[reference] {
+                        invalidated[reference] = Self.worse(existing, status)
+                    } else {
+                        invalidated[reference] = status
+                    }
+                }
+            }
+        }
+        do {
+            return try await verification.verify(BotMaintenanceVerificationRequest(
+                documents: documents, callerBotID: botID,
+                callerSessionID: sessionID, checkedAtMS: now(),
+                baselines: baselines, strictPaths: strictPaths,
+                disputedReferences: disputed,
+                invalidatedReferences: invalidated,
+                feedbackComplete: feedbackReading != nil,
+                invalidationComplete: invalidationReading != nil))
+        } catch {
+            // A failed recheck is not a pass: the caller maps nil to
+            // maintenance-verification-unrechecked when a verifier exists.
+            return nil
+        }
+    }
+
+    static func worse(
+        _ lhs: BotMaintenanceDependencyStatus,
+        _ rhs: BotMaintenanceDependencyStatus
+    ) -> BotMaintenanceDependencyStatus {
+        func rank(_ state: BotMaintenanceDependencyStatus.State) -> Int {
+            switch state {
+            case .live: return 0
+            case .unknown: return 1
+            case .changed: return 2
+            case .revoked: return 3
+            case .erased: return 4
+            }
+        }
+        return rank(rhs.state) > rank(lhs.state) ? rhs : lhs
+    }
+
+    static func merged(
+        _ pre: BotMaintenanceVerificationSummary?,
+        _ post: BotMaintenanceVerificationSummary?
+    ) -> BotMaintenanceVerificationSummary? {
+        guard pre != nil || post != nil else { return nil }
+        var order: [String] = []
+        var byPath: [String: BotMaintenanceDocumentVerification] = [:]
+        for summary in [pre, post].compactMap({ $0 }) {
+            for finding in summary.findings {
+                if byPath[finding.path] == nil { order.append(finding.path) }
+                byPath[finding.path] = finding
+            }
+        }
+        return BotMaintenanceVerificationSummary(
+            findings: order.compactMap { byPath[$0] })
+    }
+
     // MARK: Candidates
 
     /// Host-selected candidates, never a full scan. The order and caps are the
@@ -1056,14 +1272,19 @@ public actor BotMemoryMaintenanceController {
             add(path, .mostChanged)
         }
 
-        // Least verified: evidence-bearing documents the most recent
-        // successfully committed batch did not verify, oldest first.
-        let verified = Set(Self.batches(in: events)
-            .last { $0.status == .committed }?
-            .changes.map(\.path) ?? [])
+        // Least verified: every evidence-bearing document, oldest first, with
+        // a writer-recorded `verified` only ranking it *after* the unverified
+        // ones. `review` is the writer's assertion, not an independent check
+        // (§1.5.1), so it must never exempt a document from maintenance
+        // forever; the candidate cap still bounds how many are examined.
         let leastVerified = documents
-            .filter { !$0.evidence.isEmpty && !verified.contains($0.path) }
-            .sorted { $0.updatedAtMS < $1.updatedAtMS }
+            .filter { !$0.evidence.isEmpty }
+            .sorted { lhs, rhs in
+                let lhsVerified = lhs.review?.state == .verified
+                let rhsVerified = rhs.review?.state == .verified
+                if lhsVerified != rhsVerified { return !lhsVerified }
+                return lhs.updatedAtMS < rhs.updatedAtMS
+            }
         for document in leastVerified { add(document.path, .leastVerified) }
 
         // Overlong.
@@ -1083,13 +1304,42 @@ public actor BotMemoryMaintenanceController {
 
     // MARK: Checks
 
-    private static func referencesResolve(
+    static func referencesResolve(
         _ writes: [BotEvent], botID: String, sessionID: String,
         reading: any BotMemoryMaintenanceRecordReading
     ) async -> Bool {
         for event in writes {
             let evidence = event.data["evidence"]?.arrayValue?
                 .compactMap(\.stringValue) ?? []
+            // A persisted `review` must still be coherent and its refs must
+            // still resolve; a verified claim whose basis vanished fails the
+            // batch. Review refs are checked separately from `evidence` so they
+            // never change the trust re-derivation below.
+            // A missing key means "no recorded judgment" and is allowed. A
+            // present key that no longer decodes (unknown enum value, extra
+            // member, wrong shape) is corruption and must fail the batch
+            // instead of silently skipping the review checks.
+            var review: BotMemoryReview?
+            if let rawReview = event.data["review"] {
+                // Fail closed on a known-shape failure (unknown enum value,
+                // wrong type, refs not an array). Unknown extra members stay
+                // ignored: that is the long-standing Codable compatibility
+                // rule for old data, not a security boundary.
+                guard let decoded = decode(BotMemoryReview.self, from: rawReview) else {
+                    return false
+                }
+                review = decoded
+            }
+            if let review {
+                if BotMemoryAuthorizer.reviewError(review) != nil { return false }
+                if !review.refs.isEmpty {
+                    guard (try? await reading.resolveEvidence(
+                        review.refs, callerBotID: botID,
+                        callerSessionID: sessionID)) != nil else {
+                        return false
+                    }
+                }
+            }
             guard !evidence.isEmpty else { continue }
             guard let derived = try? await reading.resolveEvidence(
                 evidence, callerBotID: botID, callerSessionID: sessionID) else {
@@ -1148,29 +1398,40 @@ public actor BotMemoryMaintenanceController {
     // MARK: Ledger
 
     /// Per-run and UTC-day token usage for the dedicated maintenance purpose.
-    /// Read from the LLM ledger, never from the model's self-report.
-    private func budgetUsage(sessionID: String, since: Int64, now: Int64)
-        async -> (run: Int, daily: Int) {
+    /// Read from the LLM ledger, never from the model's self-report. The run
+    /// window is the batch's durable event range so a test/eval host clock
+    /// cannot silently produce a zero-cost run.
+    private func budgetUsage(sessionID: String, sinceCommitSeq: Int, now: Int64)
+        async -> (run: Int, daily: Int, available: Bool) {
         let ledger = BotLLMLedger(eventLog: store)
-        guard let records = try? await ledger.records(limit: 100_000) else {
-            return (0, 0)
+        guard let all = try? await ledger.records(limit: 100_000),
+              let afterStart = try? await ledger.records(
+                after: sinceCommitSeq, limit: 100_000) else {
+            return (0, 0, false)
         }
         let nowDate = Date(timeIntervalSince1970: Double(now) / 1_000)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
         let dayStart = Int64((calendar.startOfDay(for: nowDate).timeIntervalSince1970 * 1_000).rounded())
+        func tokens(_ record: BotLLMLedgerRecord) -> Int {
+            record.inputTokens + record.outputTokens
+                + record.cacheReadTokens + record.cacheWriteTokens
+        }
         var run = 0
+        for record in afterStart
+        where record.purpose == .memoryMaintenance
+            && record.botId == botID
+            && record.sessionId == sessionID {
+            run += tokens(record)
+        }
         var daily = 0
-        for record in records
+        for record in all
         where record.purpose == .memoryMaintenance && record.botId == botID {
             guard let date = BotLLMLedgerRecord.date(from: record.ts) else { continue }
             let at = Int64((date.timeIntervalSince1970 * 1_000).rounded())
-            let tokens = record.inputTokens + record.outputTokens
-                + record.cacheReadTokens + record.cacheWriteTokens
-            if at >= dayStart, at <= now { daily += tokens }
-            if record.sessionId == sessionID, at >= since, at <= now { run += tokens }
+            if at >= dayStart, at <= now { daily += tokens(record) }
         }
-        return (run, daily)
+        return (run, daily, true)
     }
 
     // MARK: Event helpers

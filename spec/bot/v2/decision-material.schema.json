@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotDecisionMaterialBlock v1",
+  "description": "One pre-step/pre-delivery material block. It is a request-side artifact, not an instruction block: closed members, no role/instruction/system text, no current-user-turn claim. state uses the G-1 enum only. See spec/bot/v2/decision-context.md §1.",
+  "type": "object",
+  "required": [
+    "block_id",
+    "turn_id",
+    "session_id",
+    "bot_id",
+    "stage",
+    "authorization_revision",
+    "query_digest",
+    "retrieved_at_ms",
+    "materials",
+    "limits",
+    "truncated",
+    "canceled"
+  ],
+  "properties": {
+    "block_id": {
+      "type": "string",
+      "pattern": "^dm:[A-Za-z0-9._:-]{1,128}$"
+    },
+    "turn_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "bot_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "stage": {
+      "enum": [
+        "pre_step",
+        "pre_delivery"
+      ]
+    },
+    "authorization_revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "query_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "goal_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "retrieved_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "materials": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "required": [
+          "material_id",
+          "ref",
+          "path",
+          "scope",
+          "version",
+          "updated_at_ms",
+          "snippet",
+          "evidence",
+          "selection_reason",
+          "state"
+        ],
+        "properties": {
+          "material_id": {
+            "type": "string",
+            "pattern": "^mat:[A-Za-z0-9._:-]{1,128}$"
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "path": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 200
+          },
+          "scope": {
+            "enum": [
+              "user",
+              "agent"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "updated_at_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "snippet": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "evidence": {
+            "type": "array",
+            "maxItems": 2,
+            "items": {
+              "type": "string",
+              "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+              "maxLength": 128
+            }
+          },
+          "selection_reason": {
+            "enum": [
+              "match",
+              "recipient",
+              "goal",
+              "recency"
+            ]
+          },
+          "state": {
+            "enum": [
+              "current",
+              "changed",
+              "unavailable",
+              "revoked",
+              "erased",
+              "unknown"
+            ]
+          },
+          "reason": {
+            "enum": [
+              "record-unresolved",
+              "record-erased",
+              "grant-revoked",
+              "source-changed",
+              "newer-observation-unversioned",
+              "revision-basis-mismatch",
+              "no-baseline",
+              "source-version-unknown",
+              "cycle-detected",
+              "scan-limit-exceeded",
+              "feedback-disputed"
+            ]
+          },
+          "source_version": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "basis",
+                  "value"
+                ],
+                "properties": {
+                  "basis": {
+                    "enum": [
+                      "content-sha256",
+                      "etag",
+                      "last-modified",
+                      "provider-version"
+                    ]
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "observed_at_ms": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "basis_ref": {
+                    "type": "string",
+                    "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+                    "maxLength": 128
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "record-unresolved",
+                      "record-erased",
+                      "record-without-content",
+                      "source-unversioned",
+                      "invalid-reference"
+                    ]
+                  },
+                  "observed_at_ms": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "basis_ref": {
+                    "type": "string",
+                    "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+                    "maxLength": 128
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "max_materials",
+        "max_characters",
+        "max_snippet_characters",
+        "deadline_ms"
+      ],
+      "properties": {
+        "max_materials": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        },
+        "max_characters": {
+          "type": "integer",
+          "minimum": 240,
+          "maximum": 2400
+        },
+        "max_snippet_characters": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 300
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 3000
+        }
+      },
+      "additionalProperties": false
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "canceled": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

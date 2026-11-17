@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotUserAction phone extension v1",
+  "description": "Current phone-only user action: feedback (adopt/correct/suppress/undo). A04 deliverySelection is a parked reference and is not a current wire action (see spec/bot/v2/parked/delivery-selection.md).",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "nonce",
+        "botID",
+        "kind",
+        "rowID",
+        "verdict"
+      ],
+      "properties": {
+        "nonce": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "kind": {
+          "const": "feedback"
+        },
+        "rowID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "verdict": {
+          "enum": [
+            "adopt",
+            "correct",
+            "suppress"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "nonce",
+        "botID",
+        "kind",
+        "rowID",
+        "verdict",
+        "feedbackID"
+      ],
+      "properties": {
+        "nonce": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "kind": {
+          "const": "feedback"
+        },
+        "rowID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "verdict": {
+          "const": "undo"
+        },
+        "feedbackID": {
+          "type": "string",
+          "pattern": "^feedback:[A-Za-z0-9._:-]{1,128}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

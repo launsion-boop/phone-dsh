@@ -1,0 +1,77 @@
+{
+  "schema": "phone-dsh.bot-full-acceptance/core-aha-final/v1",
+  "run_source": "10b38870b (E overlay)",
+  "core_candidate": "370ab20f / spec-only successors",
+  "worker_image": "601a5ef4a6a876e316ca7121dae0c7176c5463e14830efbec1a08742a1bccbdc",
+  "host_source_note": "10b vs 370 product delta only UpdateMemory restore; AHA 9 paths do not use restore; same worker image",
+  "aha": [
+    {
+      "scenario": "AHA-BOUNDARY",
+      "status": "PASS",
+      "requests": 4,
+      "wall_s": 11.888548016548157
+    },
+    {
+      "scenario": "AHA-ERASURE",
+      "status": "PASS",
+      "requests": 7,
+      "wall_s": 23.506783962249756
+    },
+    {
+      "scenario": "AHA-INJECTION",
+      "status": "PASS",
+      "requests": 5,
+      "wall_s": 10.380756974220276
+    },
+    {
+      "scenario": "AHA-CONTINUOUS",
+      "status": "PASS",
+      "requests": 3,
+      "wall_s": 14.143760085105896
+    },
+    {
+      "scenario": "AHA-FRESHNESS",
+      "status": "PASS",
+      "requests": 10,
+      "wall_s": 32.50581502914429
+    },
+    {
+      "scenario": "AHA-DISCOVER",
+      "status": "PASS",
+      "requests": 13,
+      "wall_s": 44.86009895801544
+    },
+    {
+      "scenario": "AHA-SILENCE",
+      "status": "PASS",
+      "requests": 14,
+      "wall_s": 20.682396054267883
+    },
+    {
+      "scenario": "AHA-SOURCE",
+      "status": "PASS",
+      "requests": 6,
+      "wall_s": 15.490995049476624
+    },
+    {
+      "scenario": "AHA-COMPACT-REUSE",
+      "status": "PASS",
+      "requests": 20,
+      "wall_s": 60.286630034446716
+    }
+  ],
+  "boundary_patched": {
+    "status": "PASS",
+    "requests": 5
+  },
+  "memory_review": {
+    "source": "CORE c3d2976f (restore fix)",
+    "result": "30/0 PASS"
+  },
+  "historical": "5aba FAILs and D01 contract-only retained; BOUNDARY old count-only not rejudged",
+  "not_covered": [
+    "final 9b68 spec-only binary rebuild not needed",
+    "feedback/maintainer/recovery separate existing evidence",
+    "device/14-day"
+  ]
+}

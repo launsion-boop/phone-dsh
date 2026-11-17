@@ -90,7 +90,9 @@ final class BotRuntimeUnit {
                      isMainBot: @escaping @Sendable () -> Bool = { true },
                      workspaceRoot: URL = BotProductionPaths.workspaceRoot(),
                      now: (@Sendable () -> Int64)? = nil,
-                     sleep: RoutineScheduler.Sleeper? = nil) async throws -> BotRuntimeUnit {
+                     sleep: RoutineScheduler.Sleeper? = nil,
+                     feedback: BotFeedbackCenter? = nil,
+                     provenance: BotProvenanceService? = nil) async throws -> BotRuntimeUnit {
         let memory = await runtime.memory(for: botID)
         let machine = await runtime.routineMachine
         let grants = await runtime.grants
@@ -100,28 +102,33 @@ final class BotRuntimeUnit {
             workspaceRoot: workspaceRoot,
             fallbackName: displayName)
         let inbox = WakeInbox(store: SQLiteWakeInboxStore(domainStore: store, botId: botID))
+        let botData = BotSessionRegistry.botDataDirectory
         let remote = try await BotDSHRemoteRuntime(
             transport: UnstartedBotTransport(), runtime: runtime,
             botId: botID, wakeInbox: inbox,
-            botDataDirectory: BotSessionRegistry.botDataDirectory,
+            botDataDirectory: botData,
             onSessionRegistered: { sessionID in
                 Task { @MainActor in BotSessionRegistry.shared.register(sessionID) }
             })
+        await runtime.installUserContentRecordProvider { sessionID in
+            await remote.userContentRecordRef(sessionId: sessionID)
+        }
         let planner = BotRemoteActionPlanner(
             remote: remote, runtime: runtime, handler: handler,
             store: store, botID: botID, wakeInbox: inbox)
         let routineOutbox = BotRoutineOutbox(store: store, machine: machine, botID: botID)
+        let resolvedNow = now ?? { Int64(Date().timeIntervalSince1970 * 1000) }
         let rows = BotProductionRowService(
             environment: environment, remote: remote,
             cardAnswerPromptResumer: remote)
         let routineActivity = BotRoutineActivityFlag()
-        let resolvedNow = now ?? { Int64(Date().timeIntervalSince1970 * 1000) }
         let settingsStore = ProactiveSettingsStore.shared
         let proactive = ProactiveEngine(
             settings: { settingsStore.settings() },
             now: resolvedNow,
             deliverer: BotRuntimeUnit.proactiveDelivery(),
             eventLog: store,
+            feedback: feedback,
             deliveryKinds: [.routineResult])
         let notificationScheduling = BotRuntimeUnit.notificationScheduling()
         let scheduler = RoutineScheduler(
@@ -161,6 +168,18 @@ final class BotRuntimeUnit {
         let maintenance = BotMemoryMaintenanceController(
             store: store, botID: botID, memory: memory, runtime: runtime,
             remote: remote, recordReading: recordService,
+            feedbackReading: feedback.map { BotFeedbackDisputeAdapter(query: $0) },
+            invalidationReading: provenance.map { service in
+                BotProvenanceInvalidationAdapter(scopedQuery: { request in
+                    let artifact = BotDerivedRef(
+                        kind: .memory, id: request.artifact.path,
+                        version: request.artifact.version)
+                    let statuses = try await service.sourceStatuses(
+                        for: artifact, botID: request.botID)
+                    return Dictionary(statuses.map { ($0.ref, $0) },
+                                      uniquingKeysWith: { first, _ in first })
+                })
+            },
             isMainBot: isMainBot,
             isAppActive: {
 #if canImport(UIKit)
@@ -471,4 +490,5 @@ final class BotRuntimeUnit {
     func noteInteraction() {
         liveFish.noteInteraction()
     }
+
 }

@@ -48,6 +48,7 @@ targets:
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRebindDiagnostics.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotProductionServices.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeComposition.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotWorkspaceModelImage.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeUnit.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeState.swift
@@ -94,7 +95,11 @@ targets:
       - path: TestsChatModel/BotChatModelTests.swift
       - path: TestsChatModel/BotChatModelTestShims.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotChatModel.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotApprovalOffer.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotUIModels.swift
+      # C-owned integration: the chat model now drives the source inspector,
+      # delivery selection and feedback actions, so the hostless model tests
+      # must compile the same model types.
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotApprovalOffer.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotLiveTurn.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimePresentation.swift

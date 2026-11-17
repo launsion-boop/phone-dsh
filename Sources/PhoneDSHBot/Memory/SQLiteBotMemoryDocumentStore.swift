@@ -18,9 +18,10 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
         let evidence: [String]
         let trust: String?
         let source: BotMemorySource?
+        let review: BotMemoryReview?
 
         enum CodingKeys: String, CodingKey {
-            case path, scope, version, at, reason, author, evidence, trust, source
+            case path, scope, version, at, reason, author, evidence, trust, source, review
             case expectedVersion = "expected_version"
         }
     }
@@ -36,9 +37,15 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
         let evidence: [String]
         let trust: String?
         let source: BotMemorySource?
+        let review: BotMemoryReview?
+        /// Write-time source baseline for this version (G-1 §3.3). Optional so
+        /// events written before the freeze still replay; it is never copied
+        /// into `BotMemoryDocument`.
+        let derivation: BotMemoryDerivation?
 
         enum CodingKeys: String, CodingKey {
-            case path, scope, content, version, author, evidence, trust, source
+            case path, scope, content, version, author, evidence, trust, source, review
+            case derivation
             case expectedVersion = "expected_version"
             case updatedAtMS = "updated_at_ms"
         }
@@ -47,7 +54,7 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             BotMemoryDocument(
                 path: path, scope: scope, content: content, version: version,
                 updatedAtMS: updatedAtMS, author: author, evidence: evidence,
-                trust: trust, source: source)
+                trust: trust, source: source, review: review)
         }
     }
 
@@ -165,6 +172,18 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             var writtenContent: String?
             var replacedCount: Int?
             var targetPath = request.path
+            // `restore` (and the maintainer rollback that uses it) inherits the
+            // restored version's metadata; the request cannot inject or clear
+            // it (spec/bot/v2 §1.5.1).
+            var evidence = request.evidence
+            var trust = request.trust
+            // Raw string form: a legacy version may carry `import`/`system`,
+            // which the narrower `BotRecordTrust` enum cannot represent. The
+            // restored version's value must be inherited verbatim, not
+            // narrowed or defaulted.
+            var inheritedTrust: String?
+            var source = request.source
+            var review = request.review
             switch request.action {
             case .write:
                 writtenContent = request.content ?? ""
@@ -186,6 +205,10 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                     return .versionNotFound(version: version)
                 }
                 writtenContent = restored.content
+                evidence = restored.evidence
+                inheritedTrust = restored.trust
+                source = restored.source
+                review = restored.review
             case .move:
                 guard let current else { return .notFound(path: request.path) }
                 guard let destination = request.to else { return .notFound(path: request.path) }
@@ -205,7 +228,8 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                     updatedAtMS: request.atMS,
                     author: request.author,
                     evidence: request.evidence,
-                    trust: request.trust?.rawValue)
+                    trust: request.trust?.rawValue,
+                    review: request.review)
                 let event = try deletionEvent(
                     deletion, expectedVersion: request.expectedVersion,
                     data: deletionData(deletion, expectedVersion: request.expectedVersion),
@@ -231,12 +255,23 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 version: version,
                 updatedAtMS: request.atMS,
                 author: request.author,
-                evidence: request.evidence,
-                trust: request.trust?.rawValue ?? (scope == .user ? "user" : "assistant"),
-                source: request.source)
+                evidence: evidence,
+                // `restore` inherits, so a restored version that never carried
+                // a trust must stay missing instead of being assigned a
+                // default. Ordinary writes keep the existing fallback.
+                trust: request.action == .restore
+                    ? inheritedTrust
+                    : (trust?.rawValue ?? (scope == .user ? "user" : "assistant")),
+                source: source,
+                review: review)
             let targetExpected = snapshot.live[targetPath]?.version ?? 0
+            let derivation = request.sourceBaselines.map {
+                BotMemoryDerivation.memory(
+                    path: document.path, version: document.version, sources: $0)
+            }
             let writeEvent = try writtenEvent(
                 document, expectedVersion: targetExpected,
+                derivation: derivation,
                 correlationID: request.correlationID)
 
             if request.action == .move {
@@ -254,7 +289,8 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                     updatedAtMS: request.atMS,
                     author: request.author,
                     evidence: request.evidence,
-                    trust: request.trust?.rawValue)
+                    trust: request.trust?.rawValue,
+                    review: nil)
                 let deleteEvent = try deletionEvent(
                     deletion,
                     expectedVersion: sourceVersion,
@@ -618,22 +654,99 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
     /// token rule catches a unique marker copied into a conversation while a
     /// plain English line still needs the line/full-text match; short common
     /// words are never needles.
-    private static func erasureNeedles(in content: String) -> Set<String> {
+    static func erasureNeedles(in content: String) -> Set<String> {
         var result = Set<String>()
+        // Content match is the contract's baseline ("与版本文本相同", v1 §4.6 /
+        // v2 §1.8): the whole trimmed text and each line at >= 8 scalars. It is
+        // language-agnostic and is not a marker rule.
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.unicodeScalars.count >= 8 { result.insert(trimmed) }
         for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
             let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if value.unicodeScalars.count >= 8 { result.insert(value) }
         }
-        let separators = Set(",;:!?()[]{}<>\"'".map { $0 })
-        for token in content.split(whereSeparator: { $0.isWhitespace || separators.contains($0) }) {
-            let value = String(token)
-            guard value.unicodeScalars.count >= 8 else { continue }
-            if value.contains("_") || value.contains(where: { $0.isNumber }) {
-                result.insert(value)
+        // Distinctive identifiers: the original rule (token >= 8 scalars that
+        // contains '_' or a digit), generalised only in how tokens are found.
+        result.formUnion(Self.identifierCandidates(in: content))
+        return result
+    }
+
+    /// Splits on Unicode whitespace/separator/punctuation/control scalars while
+    /// keeping the identifier characters `_`, `.` and `-` inside the token, and
+    /// adds a generic ASCII-identifier <-> non-ASCII-letter boundary so a Latin
+    /// identifier embedded in CJK/Kana/Hangul prose is isolated without any
+    /// script table. A token is a candidate only when it has >= 8 scalars,
+    /// contains a letter, and carries an identifier marker ('_' or an ASCII
+    /// letter); digits alone are not distinctive, so a Han date such as
+    /// "2026年11月16日" and unadorned natural-language words never become
+    /// erasure targets.
+    static func identifierCandidates(in content: String) -> Set<String> {
+        enum TokenKind { case ascii, nonASCII }
+        func isNumber(_ scalar: Unicode.Scalar) -> Bool {
+            switch scalar.properties.generalCategory {
+            case .decimalNumber, .letterNumber, .otherNumber: return true
+            default: return false
             }
         }
+        var token: [Unicode.Scalar] = []
+        var kind: TokenKind?
+        var previousAllowsScriptSwitch = false
+        var result = Set<String>()
+
+        func flush() {
+            defer {
+                token.removeAll(keepingCapacity: true)
+                kind = nil
+                previousAllowsScriptSwitch = false
+            }
+            guard token.count >= 8 else { return }
+            guard token.contains(where: { $0.properties.isAlphabetic }) else { return }
+            let text = String(String.UnicodeScalarView(token))
+            // Distinctiveness needs an identifier marker, not just digits. A
+            // Han/Kana/Hangul run with digits is prose (for example the date
+            // "2026年11月16日"); treating it as an identifier would make it a
+            // substring needle that erases unrelated records mentioning it.
+            guard text.contains("_")
+                || (token.contains(where: isNumber)
+                    && token.contains(where: { $0.value < 0x80 && $0.properties.isAlphabetic }))
+            else { return }
+            result.insert(text)
+        }
+
+        for scalar in content.unicodeScalars {
+            let value = scalar.value
+            let isASCIILetter = (0x41...0x5A).contains(value) || (0x61...0x7A).contains(value)
+            let isNonASCIILetter = scalar.properties.isAlphabetic && !isASCIILetter
+            let isIdentifierNeutral = scalar == "_" || scalar == "." || scalar == "-"
+                || isNumber(scalar)
+                || scalar.properties.generalCategory == .nonspacingMark
+                || scalar.properties.generalCategory == .spacingMark
+                || scalar.properties.generalCategory == .enclosingMark
+            if isASCIILetter {
+                if kind == .nonASCII, !previousAllowsScriptSwitch { flush() }
+                kind = .ascii
+                token.append(scalar)
+                previousAllowsScriptSwitch = false
+            } else if isNonASCIILetter {
+                if kind == .ascii, !previousAllowsScriptSwitch { flush() }
+                kind = .nonASCII
+                token.append(scalar)
+                previousAllowsScriptSwitch = false
+            } else if isIdentifierNeutral {
+                token.append(scalar)
+                // Only a connector (`_`, `.`, `-`) or a combining mark lets the
+                // identifier continue across a script change; a digit alone
+                // does not, so "QUOKKA_AHA_9D2" stays separate from CJK text.
+                previousAllowsScriptSwitch = scalar == "_" || scalar == "."
+                    || scalar == "-"
+                    || scalar.properties.generalCategory == .nonspacingMark
+                    || scalar.properties.generalCategory == .spacingMark
+                    || scalar.properties.generalCategory == .enclosingMark
+            } else {
+                flush()
+            }
+        }
+        flush()
         return result
     }
 
@@ -779,7 +892,9 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             updatedAtMS: document.updatedAtMS,
             author: document.author,
             evidence: document.evidence,
-            trust: document.trust)
+            trust: document.trust,
+            source: document.source,
+            review: document.review)
         state.latestVersion[document.path] = document.version
         _ = eventID
     }
@@ -807,7 +922,9 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             updatedAtMS: data.at,
             author: data.author,
             evidence: data.evidence,
-            trust: data.trust)
+            trust: data.trust,
+            source: data.source,
+            review: data.review)
         state.versions[data.path, default: [:]][data.version] = version
         state.live.removeValue(forKey: data.path)
         state.latestVersion[data.path] = data.version
@@ -824,6 +941,7 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
     private func writtenEvent(
         _ document: BotMemoryDocument,
         expectedVersion: Int,
+        derivation: BotMemoryDerivation? = nil,
         correlationID: String? = nil
     ) throws -> BotEvent {
         let data = WrittenData(
@@ -836,7 +954,9 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             author: document.author,
             evidence: document.evidence,
             trust: document.trust,
-            source: document.source)
+            source: document.source,
+            review: document.review,
+            derivation: derivation)
         return try makeEvent(
             type: "memory.document_written",
             eventID: Self.stableEventID(Self.writtenEventPrefix, [
@@ -883,7 +1003,8 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             author: version.author,
             evidence: version.evidence,
             trust: version.trust,
-            source: nil)
+            source: nil,
+            review: version.review)
     }
 
     private func makeEvent(

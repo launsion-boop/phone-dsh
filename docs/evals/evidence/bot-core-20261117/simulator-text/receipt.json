@@ -1,0 +1,39 @@
+{
+  "status": "PASS_LOCAL_SIMULATOR_TEXT_FLOW",
+  "app_source": "bf1559ccece2ec8b1747b8a66d14c2967dc31431",
+  "accepted_product_source": "fafee9052d37cf48dc3570034d6d3967f0d2ed7b",
+  "source_delta": "Recovery patch reverted; dependency lock restored; runtime net delta from published 9bd is only two routine prompt strings.",
+  "app_sha256": "6b8a1c343870143b7d1db2fa7f11fc8e9f6f6b670ce963bbc4f79f164e70e2d4",
+  "bot_framework_sha256": "7fd72abd1987410f5af2330a7cbeff0cfda57886670285f3446286ce31399527",
+  "raw_session_sha256": "c4605e5e57ff3113455782c3ef113464fbb284bda2aed1a15fdbf9876e300159",
+  "session_excerpt": "Only text messages, user inputs, turn boundaries and model config from seq376–463. Reasoning and full headers omitted.",
+  "model": {
+    "provider": "deepseek-official",
+    "model": "deepseek-flash",
+    "reasoningEffort": "high"
+  },
+  "worker_orchestration": "Local DSH workers use max; the App model config above is separate.",
+  "assertions": {
+    "mid_turn_correction": {
+      "start_seq": 376,
+      "input_seq": 396,
+      "end_seq": 446,
+      "correction_ms_before_end": 15536
+    },
+    "new_deliverable": "decision-brief.md; old draft preserved",
+    "new_values": "460000 CNY including tax / 60 minutes",
+    "old_source_values": "480000 / 45 preserved as old file values",
+    "uncertainty": "quote v2 remains unconfirmed",
+    "followup": "turn16 completed, explained new user values versus original file values"
+  },
+  "test_log": "/tmp/core-final-midwork.log",
+  "xcresult": "/tmp/core-final-midwork.xcresult",
+  "ui_test": "1 executed / 0 failures, 67.331 seconds",
+  "limitations": [
+    "Local simulator only; no device/background/production claim",
+    "Earlier 6f8e diagnostic test is excluded",
+    "Stale-turn restart problem was not established by the prior driver; speculative recovery patch rejected",
+    "Some role/impact suggestions in the brief are model inferences, not independently verified facts"
+  ],
+  "ci": "DEFERRED_BY_USER"
+}

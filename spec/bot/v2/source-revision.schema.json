@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotSourceRevision v1",
+  "description": "Version of one record:// source at observation time. Exactly one of `basis`+`value` or `reason` is present. basis is content-digest (value sha256:<64 lowercase hex>), native-revision (value rev:<opaque>=) or etag (value etag:<opaque>). Never reuse a memory document version, a record seq or updated_at_ms. See spec/bot/v2/provenance.md §2.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "basis",
+        "value"
+      ],
+      "properties": {
+        "basis": {
+          "enum": [
+            "content-sha256",
+            "etag",
+            "last-modified",
+            "provider-version"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "observed_at_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "basis_ref": {
+          "type": "string",
+          "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+          "maxLength": 128
+        },
+        "subject": {
+          "enum": [
+            "file-bytes",
+            "record-text"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "enum": [
+            "record-unresolved",
+            "record-erased",
+            "record-without-content",
+            "source-unversioned",
+            "invalid-reference"
+          ]
+        },
+        "observed_at_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "basis_ref": {
+          "type": "string",
+          "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+          "maxLength": 128
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

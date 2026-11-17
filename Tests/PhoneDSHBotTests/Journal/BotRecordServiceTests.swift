@@ -57,6 +57,42 @@ final class BotRecordServiceTests: XCTestCase {
     }
 
 
+    /// G-2 §242/§243: the context index emits the same canonical session ref
+    /// the model later cites. A `tool/result` line (not the preceding
+    /// `tool/call`) must be readable through `phone record read`.
+    func testToolResultSessionRefFromContextIndexIsReadable() async throws {
+        let header: [String: Any] = [
+            "type": "session", "version": 4, "id": "gb-main",
+            "createdAt": 1_760_000_000_000, "isSeeded": false, "delegationDepth": 0,
+        ]
+        let events: [[String: Any]] = [
+            ["type": "tool/call", "seq": 19, "time": 1_760_000_001_000,
+             "data": ["turn": 1, "step": 1,
+                      "callId": "call_guide", "name": "bash",
+                      "arguments": "{\"command\":\"cat docs/report-guide-v2.md\"}"],
+            ],
+            ["type": "tool/result", "seq": 20, "time": 1_760_000_001_001,
+             "data": ["turn": 1, "step": 1,
+                      "message": ["role": "tool", "toolCallId": "call_guide",
+                                  "content": [["type": "text", "text": "GUIDE_BODY_9F2"]],
+                                  "isError": false]]],
+        ]
+        try writeLog(sessionID: "gb-main", header: header, events: events)
+
+        let read = await service.execute(
+            arguments: ["read", "record://session/gb-main#20"], callerSessionID: "gb-main")
+        XCTAssertEqual(read.exitCode, 0, read.stdout)
+        let line = try line(read.stdout, ref: "record://session/gb-main#20")
+        XCTAssertTrue((line["raw"] as? String ?? "").contains("GUIDE_BODY_9F2"))
+
+        // The preceding call seq is not the result body: reading it must not
+        // return the tool result content.
+        let call = await service.execute(
+            arguments: ["read", "record://session/gb-main#19"], callerSessionID: "gb-main")
+        XCTAssertEqual(call.exitCode, 0, call.stdout)
+        XCTAssertFalse(call.stdout.contains("GUIDE_BODY_9F2"))
+    }
+
     func testErasedSessionLineReturnsRecordErasedAndSearchSkipsIt() async throws {
         let header: [String: Any] = [
             "type": "session", "version": 4, "id": "gb-main",

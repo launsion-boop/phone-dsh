@@ -46,6 +46,9 @@ const UI_TOOLS = new Set([
   'ask_user', 'show_next_steps', 'show_attachment', 'show_document', 'show_progress',
   'show_checklist', 'show_link', 'RequestApproval',
 ])
+const INTERNAL_READ_TOOLS = new Set([
+  'BotVolatileContext', 'BotDecisionContext',
+])
 const AUTO_TOOLS = new Set([
   // Both memory readers are read-only and frozen as `read + auto` in
   // spec/bot/v1/golden/tool-effects{,.phone}.json. ReadMemory was added after
@@ -280,7 +283,14 @@ export function phoneEffectsForApproval(
   if (bare === 'write' || bare === 'edit') {
     return fileEffect(bare, args, context.workspaceRoot ?? '/dsh/workspace')
   }
-  if (bare === 'BotVolatileContext' || UI_TOOLS.has(bare) || AUTO_TOOLS.has(bare)) return []
+  // The host classifies both internal context reads as read-only/auto-policy
+  // (`BotMCPRuntime.effectsForApproval` returns an empty effect list). This
+  // table must agree: an unclassified effect would send `alwaysScope=session`
+  // for a tool the host expects as `until`, so the host rejects the call with
+  // `stale:always_scope` before its auto-policy can run. `agent/pre-step` then
+  // loses its decision materials with no approval card and no visible error.
+  if (INTERNAL_READ_TOOLS.has(bare)
+      || UI_TOOLS.has(bare) || AUTO_TOOLS.has(bare)) return []
   if (BLE_TOOLS.has(bare)) return [bleEffect(bare, args)]
   if (bare === 'attach_to_model') return [modelImageEffect(name, args)]
   // DSH's built-in read_image is a model-egress path too: without this gate
@@ -292,6 +302,19 @@ export function phoneEffectsForApproval(
     const scope = String(args.scope ?? 'agent')
     if (action === 'forget' && scope === 'user') return [memoryForgetEffect(args)]
     return []
+  }
+  if (bare === 'RecordFeedback') {
+    // A05: the host classifies this as a known write (`until` scope), so the
+    // Worker must not emit an unclassified `session` effect. The resource is
+    // fixed and never carries the user's words, ids or paths.
+    return [{
+      tool: name, operation: 'dshbot.RecordFeedback',
+      resource: 'dshbot:record-feedback', target: 'feedback',
+      mutability: 'write', policy: 'ask',
+      label: 'Record user feedback',
+      detail: 'Binds one host-verified feedback action to a concrete artifact.',
+      ui: false, execution: 'feedback', known: true, isMcp: true,
+    }]
   }
   return [unclassifiedEffect(name, args)]
 }

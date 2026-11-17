@@ -248,12 +248,12 @@ final class BotProductionHub {
         model.watchHealthProvider = { BotFeedHealth(await unit.rows.watchHealth()) }
         if let initial = try? await driver.watch(0) { model.apply(initial) }
         await model.refreshPresentation()
-        if let chat = currentChat, let transport = try? await chat.transportForManagement() {
-            let remote = unit.remote
-            model.attachmentImporter = BotWorkspaceAttachmentImporter(
-                transport: transport,
-                sessionID: { try await remote.ensureMainSessionID() })
-        }
+        let remote = unit.remote
+        // Bind one importer that resolves transport + session atomically from
+        // the unit runtime on every send. A restart must not reuse an old
+        // transport with a newly created main session.
+        model.attachmentImporter = BotWorkspaceAttachmentImporter(
+            context: { try await remote.attachmentImportContext() })
         let infoDriver = await unit.info.infoDriver()
         let info = BotInfoModel(driver: infoDriver, profileCenter: center)
         if let profile {

@@ -20,6 +20,17 @@ final class BotEvalCompositionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(files.count, 10,
             "the eval target must link the production Bot sources")
         for file in files {
+            if file.lastPathComponent == "BotWorkspaceModelImage+macOS.swift" {
+                // The only non-symlink source: a documented macOS-only shim
+                // for the iOS UIKit/Photos image bridge. It must stay guarded
+                // and fail closed; no other copied source is allowed.
+                let text = try String(contentsOf: file, encoding: .utf8)
+                XCTAssertTrue(text.contains("#if !canImport(UIKit)"),
+                              "the macOS shim must be compiled only without UIKit")
+                XCTAssertTrue(text.contains("BotWorkspaceModelImage"),
+                              "the shim must provide the production call shape")
+                continue
+            }
             let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
             XCTAssertEqual(attributes[.type] as? FileAttributeType, .typeSymbolicLink,
                            "\(file.lastPathComponent) must be a symlink, not a copied source")

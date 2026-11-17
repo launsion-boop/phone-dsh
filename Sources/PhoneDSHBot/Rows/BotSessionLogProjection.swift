@@ -683,6 +683,41 @@ public struct BotSessionLogProjector: Sendable {
                                   ]), trust: BotRowProvenance.model)
                 result.append(.upsert(draft, order))
             default:
+                if event.type == "routine.defined" || event.type == "routine.updated" {
+                    // A newly defined routine has no run yet, but its durable
+                    // definition is the row the user can suppress for future
+                    // deliveries (G-2 r8/r9). The snapshot event nests the
+                    // document; the live event has the routine at the root.
+                    var entries: [[String: BotJSONValue]] = []
+                    if let document = event.data["document"]?.objectValue,
+                       let routines = document["routines"]?.arrayValue {
+                        entries.append(contentsOf: routines.compactMap(objectValue))
+                    }
+                    if event.data["id"]?.stringValue != nil || event.data["routineID"]?.stringValue != nil {
+                        entries.append(event.data)
+                    }
+                    for routine in entries {
+                        guard let automationID = nonEmpty(routine, "id") ?? nonEmpty(routine, "routineID"),
+                              let name = nonEmpty(routine, "title") ?? nonEmpty(routine, "name") else { continue }
+                        var fields = fieldsFrom(routine)
+                        fields["routineID"] = .string(automationID)
+                        fields["title"] = .string(name)
+                        fields["status"] = .string((routine["enabled"]?.boolValue ?? true) ? "active" : "paused")
+                        fields["automationStatus"] = fields["status"]
+                        fields["automation"] = .object(routine.merging([
+                            "automationId": .string(automationID),
+                            "name": .string(name),
+                            "status": fields["status"] ?? .string("active"),
+                        ]) { _, new in new })
+                        let draft = draft(
+                            id: "e-\(botID)-routine-\(automationID)",
+                            event: event, kind: .message, role: nil,
+                            body: BotRowBody(type: .automation, additionalProperties: fields),
+                            trust: BotRowProvenance.model)
+                        result.append(.upsert(draft, order))
+                    }
+                    continue
+                }
                 if event.type.hasPrefix("automation/") || event.type.hasPrefix("routine/") {
                     let run = objectValue(event.data["automation"]) ?? objectValue(event.data["routine"])
                         ?? objectValue(event.data["run"]) ?? [:]
@@ -730,6 +765,44 @@ public struct BotSessionLogProjector: Sendable {
                                                                            trust: BotRowProvenance.projector, tainted: false),
                                               createdAt: event.time)
                 result.append(.delete(id, placeholder, order))
+                continue
+            }
+            if event.type == "routine.defined" || event.type == "routine.updated" {
+                // Durable BotEvent routine definitions (snapshot document or
+                // live root) become stable automation rows the UI can suppress
+                // before the first delivery.
+                var entries: [[String: BotJSONValue]] = []
+                if let document = objectValue(data["document"]),
+                   let routines = document["routines"]?.arrayValue {
+                    entries.append(contentsOf: routines.compactMap(objectValue))
+                }
+                if data["id"]?.stringValue != nil || data["routineID"]?.stringValue != nil {
+                    entries.append(data)
+                }
+                for routine in entries {
+                    guard let routineID = nonEmpty(routine, "id") ?? nonEmpty(routine, "routineID"),
+                          let title = nonEmpty(routine, "title") ?? nonEmpty(routine, "name") else { continue }
+                    var fields = fieldsFrom(routine)
+                    fields["routineID"] = .string(routineID)
+                    fields["title"] = .string(title)
+                    let status = (routine["enabled"]?.boolValue ?? true) ? "active" : "paused"
+                    fields["status"] = .string(status)
+                    fields["automationStatus"] = .string(status)
+                    fields["automation"] = .object(routine.merging([
+                        "automationId": .string(routineID),
+                        "name": .string(title),
+                        "status": .string(status),
+                    ]) { _, new in new })
+                    let placeholder = BotRowDraft(
+                        id: "e-\(botID)-routine-\(routineID)",
+                        seq: entrySeq(event.time, event.commitSeq ?? 0),
+                        kind: .message, role: nil,
+                        body: BotRowBody(type: .automation, additionalProperties: fields),
+                        provenance: BotRowProvenance(eventIDs: [event.eventId],
+                                                     trust: BotRowProvenance.model, tainted: false),
+                        createdAt: event.time)
+                    result.append(.upsert(placeholder, order))
+                }
                 continue
             }
             let supported = ["card.presented", "ui.send_to_user", "ui.notice", "ui.system_event",

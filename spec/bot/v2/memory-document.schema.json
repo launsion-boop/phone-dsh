@@ -3,7 +3,15 @@
   "title": "BotMemoryDocument v2",
   "description": "One live Markdown document version. Paths are rooted at user/ or agent/; INDEX.md is the only per-turn injected document of each root.",
   "type": "object",
-  "required": ["path", "scope", "content", "version", "updated_at_ms", "author", "evidence"],
+  "required": [
+    "path",
+    "scope",
+    "content",
+    "version",
+    "updated_at_ms",
+    "author",
+    "evidence"
+  ],
   "properties": {
     "path": {
       "type": "string",
@@ -11,7 +19,10 @@
       "maxLength": 200
     },
     "scope": {
-      "enum": ["agent", "user"]
+      "enum": [
+        "agent",
+        "user"
+      ]
     },
     "content": {
       "type": "string"
@@ -26,7 +37,9 @@
     },
     "author": {
       "type": "object",
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "properties": {
         "bot_id": {
           "type": "string",
@@ -37,7 +50,18 @@
           "minLength": 1
         },
         "kind": {
-          "enum": ["chat", "task", "routine", "team", "proactive", "watchdog", "maintainer", "ui", "migration", "system"]
+          "enum": [
+            "chat",
+            "task",
+            "routine",
+            "team",
+            "proactive",
+            "watchdog",
+            "maintainer",
+            "ui",
+            "migration",
+            "system"
+          ]
         }
       },
       "additionalProperties": false
@@ -52,14 +76,29 @@
       }
     },
     "trust": {
-      "enum": ["user", "observation", "assistant", "import", "system"]
+      "enum": [
+        "user",
+        "observation",
+        "assistant",
+        "import",
+        "system"
+      ]
     },
     "source": {
       "type": "object",
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "properties": {
         "kind": {
-          "enum": ["user-turn", "hidden-wake", "agent-message", "routine", "task", "maintenance"]
+          "enum": [
+            "user-turn",
+            "hidden-wake",
+            "agent-message",
+            "routine",
+            "task",
+            "maintenance"
+          ]
         },
         "sessionId": {
           "type": "string"
@@ -67,6 +106,50 @@
         "turnId": {}
       },
       "additionalProperties": true
+    },
+    "review": {
+      "type": "object",
+      "required": [
+        "state",
+        "basis"
+      ],
+      "description": "Writer-recorded check state (a model verification assertion with a resolvable basis, not a host certification of truth). Absent means no recorded judgment. verified requires a non-model basis and at least one resolvable ref; disputed requires the conflicting sides cited in refs. trust stays the separate question of who said it.",
+      "properties": {
+        "basis": {
+          "enum": [
+            "user-statement",
+            "observation",
+            "record-recheck",
+            "model-inference"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "at_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "refs": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+            "maxLength": 128
+          }
+        },
+        "state": {
+          "enum": [
+            "verified",
+            "unverified",
+            "disputed"
+          ]
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

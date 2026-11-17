@@ -1358,8 +1358,8 @@ struct BotProductionInfoDriver {
 /// A refused or failed file is reported by name and skipped; the successful
 /// subset and the text still send.
 final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked Sendable {
-    private let transport: any DSHRemoteTransport
-    private let sessionID: @Sendable () async throws -> String
+    private let context: @Sendable () async throws
+        -> (transport: any DSHRemoteTransport, sessionID: String)
     /// Bot data root the runtime also passes to `session/create`. The import
     /// service scopes writes to the session cwd, so this must match.
     private let botDataDirectory: String
@@ -1367,8 +1367,17 @@ final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked S
     init(transport: any DSHRemoteTransport,
          sessionID: @escaping @Sendable () async throws -> String,
          botDataDirectory: String = BotDataRoot.path) {
-        self.transport = transport
-        self.sessionID = sessionID
+        self.context = { (transport, try await sessionID()) }
+        self.botDataDirectory = botDataDirectory
+    }
+
+    /// Preferred: the runtime returns transport + session from one host
+    /// incarnation, so a restart cannot pair an old transport with a new
+    /// session.
+    init(context: @escaping @Sendable () async throws
+            -> (transport: any DSHRemoteTransport, sessionID: String),
+         botDataDirectory: String = BotDataRoot.path) {
+        self.context = context
         self.botDataDirectory = botDataDirectory
     }
 
@@ -1408,14 +1417,15 @@ final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked S
         }
 
         guard !prepared.isEmpty else { return BotAttachmentImportResult(items: [], errors: errors) }
-        let session: String
+        let context: (transport: any DSHRemoteTransport, sessionID: String)
         do {
-            session = try await sessionID()
+            context = try await self.context()
         } catch {
-            let reason = "Bot 会话尚未就绪：\(error.localizedDescription)"
+            let reason = "Bot 会话/transport 尚未就绪：\(error.localizedDescription)"
             errors.append(contentsOf: prepared.map { (name: $0.safeName, reason: reason) })
             return BotAttachmentImportResult(items: [], errors: errors)
         }
+        let session = context.sessionID
 
         let botRoot = BotWorkspaceLayout.botRoot(
             botId: botID, dataDirectory: botDataDirectory)
@@ -1426,11 +1436,13 @@ final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked S
             directories: [],
             files: prepared.map { WebEngineDirectoryImportFile(path: $0.safeName, size: $0.data.count) },
             totalBytes: prepared.reduce(0) { $0 + $1.data.count })
-        let sink = PhoneDSHWorkspaceImportSink(transport: transport)
+        let sink = PhoneDSHWorkspaceImportSink(transport: context.transport)
         var importID: String?
+        var stage = "导入 begin"
         do {
             let started = try await sink.begin(manifest)
             importID = started
+            stage = "写入工作区"
             let chunk = 1024 * 1024
             for file in prepared {
                 var offset = 0
@@ -1441,6 +1453,7 @@ final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked S
                     offset = end
                 }
             }
+            stage = "导入 commit"
             let result = try await sink.commit(importID: started)
             let items = prepared.map { file in
                 BotAttachment(
@@ -1454,7 +1467,7 @@ final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked S
         } catch {
             if let importID { await sink.abort(importID: importID) }
             errors.append(contentsOf: prepared.map {
-                (name: $0.safeName, reason: "写入工作区失败：\(error.localizedDescription)")
+                (name: $0.safeName, reason: "\(stage)失败：\(error.localizedDescription)")
             })
             return BotAttachmentImportResult(items: [], errors: errors)
         }

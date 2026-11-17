@@ -73,8 +73,10 @@ struct EvalPlan: Decodable {
     }
 
     static let knownActions: Set<String> = [
-        "create_bot", "user_message", "agent_message", "ui_action", "approval_policy",
+        "create_bot", "user_message", "concurrent_user_message", "agent_message",
+        "ui_action", "approval_policy",
         "advance_clock", "seed_held_item", "restart_worker", "run_maintenance",
+        "delivery_select", "concurrent_delivery_select",
     ]
     static let knownAssertions: Set<String> = [
         "file_exists", "no_file", "file_contains", "file_regex", "file_json_path",
@@ -83,7 +85,8 @@ struct EvalPlan: Decodable {
         "bot_event", "no_bot_event", "tool_called", "no_tool_call",
         "memory_contains", "memory_absent", "approval_count", "echo_requests",
         "tool_surface", "session_log_absent", "session_event", "no_session_event",
-        "card_count", "card_placement", "card_file_exists",
+        "card_count", "card_placement", "card_file_exists", "event_count",
+        "model_request_count", "model_request_contains", "model_request_absent", "model_request_section_contains", "provenance",
     ]
 }
 
@@ -232,6 +235,7 @@ struct EvalAction: Decodable {
     var taskID: String?
     var threadID: String?
     var seconds: Int?
+    var delayMs: Int?
     var title: String?
     var fromAgentID: String?
     var fromAgentName: String?
@@ -245,6 +249,11 @@ struct EvalAction: Decodable {
     var timeoutS: Double?
     var policyDefault: String?
     var policyRules: [EvalApprovalRule]?
+    var select: String?
+    var rowID: String?
+    var draftID: String?
+    var expectedRevision: Int?
+    var selectedResourceIDs: [String]?
 
     enum CodingKeys: String, CodingKey {
         case type, index, bot, text, name, description, alias, kind, card
@@ -259,6 +268,7 @@ struct EvalAction: Decodable {
         case taskID = "task_id"
         case threadID = "thread_id"
         case seconds
+        case delayMs = "delay_ms"
         case title
         case fromAgentID = "from_agent_id"
         case fromAgentName = "from_agent_name"
@@ -268,6 +278,11 @@ struct EvalAction: Decodable {
         case policyDefault = "default"
         case policyRules = "rules"
         case fromBot = "from_bot"
+        case rowID = "row_id"
+        case draftID = "draft_id"
+        case expectedRevision = "expected_revision"
+        case selectedResourceIDs = "selected_resource_ids"
+        case select
     }
 
     init(from decoder: Decoder) throws {
@@ -294,6 +309,7 @@ struct EvalAction: Decodable {
         taskID = try container.decodeIfPresent(String.self, forKey: .taskID)
         threadID = try container.decodeIfPresent(String.self, forKey: .threadID)
         seconds = try container.decodeIfPresent(Int.self, forKey: .seconds)
+        delayMs = try container.decodeIfPresent(Int.self, forKey: .delayMs)
         title = try container.decodeIfPresent(String.self, forKey: .title)
         fromAgentID = try container.decodeIfPresent(String.self, forKey: .fromAgentID)
         fromAgentName = try container.decodeIfPresent(String.self, forKey: .fromAgentName)
@@ -305,6 +321,11 @@ struct EvalAction: Decodable {
         timeoutS = try container.decodeIfPresent(Double.self, forKey: .timeoutS)
         policyDefault = try container.decodeIfPresent(String.self, forKey: .policyDefault)
         policyRules = try container.decodeIfPresent([EvalApprovalRule].self, forKey: .policyRules)
+        select = try container.decodeIfPresent(String.self, forKey: .select)
+        rowID = try container.decodeIfPresent(String.self, forKey: .rowID)
+        draftID = try container.decodeIfPresent(String.self, forKey: .draftID)
+        expectedRevision = try container.decodeIfPresent(Int.self, forKey: .expectedRevision)
+        selectedResourceIDs = try container.decodeIfPresent([String].self, forKey: .selectedResourceIDs)
     }
 }
 
@@ -350,6 +371,10 @@ struct EvalAssertion: Decodable {
     var terminal: Bool
     /// DSH session-log surface placement filter for `session_event`.
     var surfaceOp: String?
+    /// `provenance` minimum derivative count and optional kind filter.
+    var minItems: Int?
+    var kinds: [String]?
+    var section: String?
 
     enum CodingKeys: String, CodingKey {
         case type, bot, value, path, command, turn, event, name, scope, tier, source, method, equals, max
@@ -368,6 +393,9 @@ struct EvalAssertion: Decodable {
         case afterReply = "after_reply"
         case terminal
         case surfaceOp = "surface_op"
+        case minItems = "min_items"
+        case kinds
+        case section
     }
 
     init(type: String, bot: String? = nil, expectOK: Bool = true,
@@ -383,7 +411,8 @@ struct EvalAssertion: Decodable {
          medianMax: Int? = nil, eachMax: Int? = nil, allowNoReply: Bool = false,
          cardTypes: [String]? = nil, excludeCardTypes: [String]? = nil,
          tool: String? = nil, afterReply: Bool = false, terminal: Bool = false,
-         surfaceOp: String? = nil) {
+         surfaceOp: String? = nil, minItems: Int? = nil, kinds: [String]? = nil,
+         section: String? = nil) {
         self.type = type
         self.bot = bot
         self.expectOK = expectOK
@@ -418,6 +447,9 @@ struct EvalAssertion: Decodable {
         self.afterReply = afterReply
         self.terminal = terminal
         self.surfaceOp = surfaceOp
+        self.minItems = minItems
+        self.kinds = kinds
+        self.section = section
     }
 
     init(from decoder: Decoder) throws {
@@ -456,5 +488,8 @@ struct EvalAssertion: Decodable {
         afterReply = try container.decodeIfPresent(Bool.self, forKey: .afterReply) ?? false
         terminal = try container.decodeIfPresent(Bool.self, forKey: .terminal) ?? false
         surfaceOp = try container.decodeIfPresent(String.self, forKey: .surfaceOp)
+        minItems = try container.decodeIfPresent(Int.self, forKey: .minItems)
+        kinds = try container.decodeIfPresent([String].self, forKey: .kinds)
+        section = try container.decodeIfPresent(String.self, forKey: .section)
     }
 }
