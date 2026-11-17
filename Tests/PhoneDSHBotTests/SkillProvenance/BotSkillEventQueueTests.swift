@@ -5,7 +5,7 @@ import Foundation
 import XCTest
 @testable import PhoneDSHBot
 
-private struct QueueTestRoots: BotSkillRootResolving {
+struct QueueTestRoots: BotSkillRootResolving {
     var user: URL
     var project: URL
     func root(for source: BotSkillSource, ownerBotID: String?) -> URL? {
