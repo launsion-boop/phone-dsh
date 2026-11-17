@@ -533,6 +533,170 @@ final class BotCompositionE2ETests: XCTestCase {
     }
 
 
+    /// A05 independent outlet acceptance: seed the real UI feedback SQLite
+    /// (U's DB), create a real second Bot + routine through the production
+    /// composition, and prove the user-scope routine-result preference holds
+    /// delivery (feedback-held), the routine still executes, normal chat still
+    /// answers, restart keeps the hold, and undo releases it. No hand-appended
+    /// target events and no reminder kind are used.
+    func testA05UIFeedbackHoldsBotBRoutineAndUndoReleases() async throws {
+        let env = ProcessInfo.processInfo.environment
+        let fixtureDB = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("../../fixtures/a05-ui-feedback/domain.sqlite")
+            .standardizedFileURL
+        let dbPath = env["A05_UI_DB"] ?? fixtureDB.path
+        guard FileManager.default.fileExists(atPath: dbPath) else {
+            throw XCTSkip("U's real feedback SQLite backup is absent")
+        }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("a05-outlet-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
+            at: URL(fileURLWithPath: dbPath),
+            to: root.appendingPathComponent("domain.sqlite"))
+        let workspaceRoot = root.appendingPathComponent("workspace", isDirectory: true)
+        let store = try SQLiteDomainStore(fileURL: root.appendingPathComponent("domain.sqlite"))
+        let profileStore = BotProfileStore(directory: root.appendingPathComponent("profiles"))
+        let schedulerNow = Self.deterministicNoon()
+        let launch = try await BotRuntimeComposition.prepare(
+            store: store, profileStore: profileStore,
+            workspaceRoot: workspaceRoot, now: { schedulerNow })
+        let composition = launch.composition
+
+        let mock = MockModelUpstream()
+        mock.script = .generic(command: "printf A05_B_ROUTINE", toolText: "A05_B_ROUTINE",
+                               finalText: "A05_B_ROUTINE_DONE")
+        let mockURL = try mock.start()
+        defer { mock.stop() }
+        guard let worker = Bundle.main.url(forResource: "worker", withExtension: nil) else {
+            return XCTFail("the real packed Worker is absent")
+        }
+        let bundle = PhoneDSHBundleLocation(staticDirectory: worker)
+        let mcpPolicy = MCPEgressPolicy()
+        try mcpPolicy.grantBotRuntimeEndpoint(
+            try XCTUnwrap(composition.server.url), token: composition.server.token)
+        let baseCredentials = StaticCredentialProvider([
+            CredentialScope(service: "127.0.0.1"): Credential(
+                kind: .apiKey(header: "x-api-key"), value: "a05-outlet-fixture"),
+        ])
+        let configuration = ChatHostConfiguration.makeProduction(
+            workspaceRoot: workspaceRoot,
+            bundle: bundle,
+            allowedModelHosts: [mockURL.absoluteString],
+            egressAllowHosts: [],
+            replaySafeModelEndpoints: PhoneDSHConfiguration.standardModelEndpoints(
+                baseURL: mockURL),
+            credentialProvider: PhoneMCPCredentialProvider(policy: mcpPolicy, base: baseCredentials),
+            egressAuthorizer: mcpPolicy,
+            workerEnvironment: composition.workerEnvironment.merging([
+                "DEEPSEEK_BASE_URL": mockURL.absoluteString,
+                "DEEPSEEK_API_KEY": "a05-outlet-placeholder",
+                "DSH_TELEMETRY_DISABLED": "1",
+                "PDSH_LLM_DELIVERY_IDLE_TIMEOUT_MS": "5000",
+            ]) { _, new in new },
+            nativeMCP: ADBMCPServer.shared,
+            drainDeadline: 2, helloTimeout: 60)
+        let app = try XCTUnwrap(UIApplication.shared.delegate as? AppDelegate)
+        let engineHolder = BotCompositionEngineHolder()
+        let host = PhoneDSHHost(configuration: configuration) { configuration in
+            await engineHolder.attach(configuration, to: app.anchor)
+        }
+        try await composition.start(host: host)
+
+        let b = try await composition.createBot(
+            name: "Bot B", description: "A05 outlet Bot", color: nil, hairstyle: nil)
+        let unitB = try await composition.ensureUnit(for: b.id, reason: "a05-outlet")
+        let center = try XCTUnwrap(composition.feedbackCenter)
+        let preferences = try await center.preferences(botID: b.id, scope: .user)
+        let preference = try XCTUnwrap(preferences.active.first {
+            $0.classKey == "proactive:routine-result"
+        }, "U's real UI user-scope routine-result preference must be active")
+
+        func events() async throws -> [BotEvent] {
+            try await BotProductionEventReader.all(domain: store)
+        }
+        func heldCount() async throws -> Int {
+            try await events().filter {
+                $0.type == "proactive.considered"
+                    && $0.principal.botId == b.id
+                    && $0.data["reason"]?.stringValue == "feedback-held"
+            }.count
+        }
+        func finishedCount(routineID: String) async throws -> Int {
+            try await events().filter {
+                $0.type == "routine.run_finished"
+                    && $0.principal.botId == b.id
+                    && $0.data["routineId"]?.stringValue == routineID
+            }.count
+        }
+        func runRoutine(_ id: String) async throws {
+            mock.script = .generic(command: "printf A05_B_ROUTINE", toolText: "A05_B_ROUTINE",
+                                   finalText: "A05_B_ROUTINE_DONE")
+            _ = try await composition.runtime.routineMachine.create(
+                botId: b.id, title: "A05 outlet \(id)", prompt: "生成一次固定结果",
+                schedule: .interval(everyMinutes: 1, timezone: "UTC"),
+                delivery: .interrupt, interruptReason: "A05 outlet acceptance",
+                now: schedulerNow - 120_000, id: id)
+            let current = try await composition.ensureUnit(for: b.id)
+            try await current.scheduler.tick()
+            await current.scheduler.waitForIdle()
+        }
+
+        let firstHeld = try await heldCount()
+        try await runRoutine("a05-outlet-1")
+        let heldAfterRun = try await heldCount()
+        XCTAssertEqual(heldAfterRun, firstHeld + 1,
+                       "the new Bot's routine result must be feedback-held")
+        let finished1 = try await finishedCount(routineID: "a05-outlet-1")
+        XCTAssertGreaterThanOrEqual(finished1, 1,
+                       "the routine itself must still execute and finish")
+
+        mock.script = .generic(command: "printf A05_B_CHAT", toolText: "A05_B_CHAT",
+                               finalText: "A05_B_CHAT_OK")
+        let chat = try await unitB.remote.sendUserMessage("普通用户消息：今天怎么样？")
+        XCTAssertEqual(chat.status, "completed", chat.error ?? "no error")
+        XCTAssertTrue(chat.text.contains("A05_B_CHAT_OK"),
+                      "normal user chat must still answer; text=\(chat.text)")
+
+        try await host.plannedRestart(reason: "a05-outlet-restart")
+        let beforeRestartHeld = heldAfterRun
+        try await runRoutine("a05-outlet-2")
+        let afterRestartHeld = try await heldCount()
+        XCTAssertEqual(afterRestartHeld, beforeRestartHeld + 1,
+                       "restart must keep the durable feedback hold")
+        let finished2 = try await finishedCount(routineID: "a05-outlet-2")
+        XCTAssertGreaterThanOrEqual(finished2, 1)
+
+        let undo = try await center.undo(
+            preference.id, botID: b.id,
+            origin: BotFeedbackOrigin(kind: .uiAction,
+                                      nonce: "a05-outlet-undo-\(UUID().uuidString)"))
+        XCTAssertEqual(undo.status, .accepted, undo.message ?? "undo rejected")
+        try await runRoutine("a05-outlet-3")
+        let finished3 = try await finishedCount(routineID: "a05-outlet-3")
+        XCTAssertGreaterThanOrEqual(finished3, 1)
+        let afterUndoEvents = try await events()
+        print("A05_OUTLET_UNDO_CONSIDERED=\(afterUndoEvents.filter { $0.type == "proactive.considered" && $0.principal.botId == b.id }.map(\.data))")
+        // The eval simulator has no notification deliverer, so a released
+        // routine can still record `delivery-unavailable`; what matters for
+        // this gate is that undo removed the feedback hold and the candidate
+        // was considered again. The product notification path is outside this
+        // outlet acceptance.
+        let released = afterUndoEvents.contains {
+            $0.type == "proactive.considered"
+                && $0.principal.botId == b.id
+                && $0.data["kind"]?.stringValue == "routine-result"
+                && $0.data["routineId"]?.stringValue == "a05-outlet-3"
+                && $0.data["reason"]?.stringValue != "feedback-held"
+                && $0.data["feedback_id"] == nil
+        }
+        XCTAssertTrue(released, "undo must release the next routine-result delivery")
+        await composition.scheduler.stop()
+        await unitB.scheduler.stop()
+    }
+
     private func post(url: URL, token: String, body: Data) async throws -> (status: Int, json: PhoneDSHBot.BotJSONValue) {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

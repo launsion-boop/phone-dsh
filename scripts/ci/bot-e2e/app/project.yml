@@ -48,6 +48,8 @@ targets:
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRebindDiagnostics.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotProductionServices.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeComposition.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotWorkspaceModelImage.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotSkillRoots.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/ContextSources
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeUnit.swift
