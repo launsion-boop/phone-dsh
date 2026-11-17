@@ -161,6 +161,19 @@ final class BotContextSourcesSettingsModel: ObservableObject {
     }
 
     func clearError() { actionError = nil }
+
+#if DEBUG
+    /// Test seam for the deterministic late-result ordering check. Production
+    /// load()/readStates() use the same counter and guards.
+    func beginGenerationForTesting() -> Int {
+        loadGeneration += 1
+        return loadGeneration
+    }
+
+    func isCurrentGenerationForTesting(_ generation: Int) -> Bool {
+        generation == loadGeneration
+    }
+#endif
 }
 
 struct BotContextSourcesSettingsView: View {
