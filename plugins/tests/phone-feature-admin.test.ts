@@ -15,6 +15,12 @@ import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import type { FeatureAdminSessionView } from '../phone-feature-admin/src/contracts.ts'
+import type {
+  SkillMutationBegin,
+  SkillMutationJournal,
+  SkillMutationRecord,
+} from '../phone-feature-admin/src/mutation-records.ts'
+import { FeatureAdminError } from '../phone-feature-admin/src/errors.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PLUGIN_ROOT = resolve(HERE, '..')
@@ -189,6 +195,30 @@ function inventoryOf(entries: readonly FakeInventoryRow[], managementAvailable =
   }
 }
 
+/** In-memory stand-in for the App host raw-record bridge in unit tests. */
+class MemorySkillMutationJournal implements SkillMutationJournal {
+  readonly begins: SkillMutationBegin[] = []
+  readonly appliedOperations: string[] = []
+  readonly failedOperations: { operationId: string; code: string }[] = []
+
+  async begin(input: SkillMutationBegin): Promise<SkillMutationRecord> {
+    this.begins.push(input)
+    return { operationId: input.operationId, record: `record://event/${this.begins.length}` }
+  }
+
+  async applied(operationId: string): Promise<SkillMutationRecord> {
+    this.appliedOperations.push(operationId)
+    return {
+      operationId,
+      record: `record://event/${this.begins.length + this.appliedOperations.length}`,
+    }
+  }
+
+  async failed(operationId: string, failureCode: string): Promise<void> {
+    this.failedOperations.push({ operationId, code: failureCode })
+  }
+}
+
 /** Create a real Cordis context with only the optional services a test supplies. */
 function adminWith(options: {
   profile?: Profile
@@ -198,6 +228,8 @@ function adminWith(options: {
   agents?: object
   typert?: object
   skillsRoot?: string
+  /** Raw-record fake; defaults to an in-memory journal. */
+  skillsJournal?: SkillMutationJournal
   /** Real attached Sessions created in a real SessionStore for this context. */
   sessionIds?: readonly string[]
   /** Create the subagent rows too; the Host list keeps their real origin. */
@@ -236,7 +268,10 @@ function adminWith(options: {
   if (options.agentPresets !== undefined) ctx.provide('agentPresets', options.agentPresets)
   if (options.agents !== undefined) ctx.provide('agents', options.agents)
   if (options.typert !== undefined) ctx.provide('typert', options.typert)
-  const service = new PhoneFeatureAdmin(ctx, options.skillsRoot === undefined ? {} : { skillsRoot: options.skillsRoot })
+  const service = new PhoneFeatureAdmin(ctx, {
+    ...options.skillsRoot === undefined ? {} : { skillsRoot: options.skillsRoot },
+    skillMutations: options.skillsJournal ?? new MemorySkillMutationJournal(),
+  })
   return { ctx, service }
 }
 
@@ -884,7 +919,10 @@ test('skills write/delete go through the real SkillRegistry invalidator', async 
   const root = join(home, 'skills')
   const ctx = new Context()
   new SkillRegistry(ctx)
-  const service = new PhoneFeatureAdmin(ctx, { skillsRoot: root })
+  const service = new PhoneFeatureAdmin(ctx, {
+    skillsRoot: root,
+    skillMutations: new MemorySkillMutationJournal(),
+  })
   t.after(async () => { await ctx.fiber.dispose() })
   assert.equal(typeof (ctx.get('skills') as any)?.invalidateCache, 'function')
 
@@ -1184,4 +1222,152 @@ test('the browser caller uses the existing /api phone namespace and surfaces car
     callFeatureAdmin(failed as never, 'skillsList'),
     (error: any) => error.code === 'gateway/internal' && /transport down/.test(error.message),
   )
+})
+
+test('feature-admin write appends requested before the file and applied after it', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'pdsh-feature-records-write-'))
+  t.after(() => { rmSync(home, { recursive: true, force: true }) })
+  const root = join(home, 'skills')
+  mkdirSync(root, { recursive: true })
+  const seen: string[] = []
+  const journal: SkillMutationJournal = {
+    async begin(input) {
+      seen.push(`requested:${String(existsSync(join(root, input.file)))}`)
+      return { operationId: input.operationId, record: 'record://event/1' }
+    },
+    async applied(operationId) {
+      seen.push(`applied:${String(existsSync(join(root, 'weekly.md')))}`)
+      return { operationId, record: 'record://event/2' }
+    },
+    async failed() { seen.push('failed') },
+  }
+  const { ctx, service } = adminWith({
+    skills: { invalidateCache() {} }, skillsRoot: root, skillsJournal: journal,
+  })
+  t.after(async () => { await ctx.fiber.dispose() })
+
+  const written = await service.skillsWrite('weekly.md', 'body')
+  assert.equal(written.ok, true, JSON.stringify(written))
+  assert.deepEqual(seen, ['requested:false', 'applied:true'])
+  assert.equal(readFileSync(join(root, 'weekly.md'), 'utf8'), 'body')
+})
+
+test('feature-admin delete appends the exact body before the unlink and applied after it', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'pdsh-feature-records-delete-'))
+  t.after(() => { rmSync(home, { recursive: true, force: true }) })
+  const root = join(home, 'skills')
+  mkdirSync(root, { recursive: true })
+  writeFileSync(join(root, 'weekly.md'), 'exact body\n')
+  const journal = new MemorySkillMutationJournal()
+  const { ctx, service } = adminWith({
+    skills: { invalidateCache() {} }, skillsRoot: root, skillsJournal: journal,
+  })
+  t.after(async () => { await ctx.fiber.dispose() })
+
+  const deleted = await service.skillsDelete('weekly.md')
+  assert.equal(deleted.ok, true, JSON.stringify(deleted))
+  assert.equal(journal.begins.length, 1)
+  assert.equal(journal.begins[0]?.action, 'delete')
+  assert.equal(journal.begins[0]?.content, 'exact body\n')
+  assert.equal(journal.appliedOperations.length, 1)
+  assert.equal(journal.failedOperations.length, 0)
+  assert.equal(existsSync(join(root, 'weekly.md')), false)
+})
+
+test('a requested append failure leaves the skill file untouched and never applies', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'pdsh-feature-records-beginfail-'))
+  t.after(() => { rmSync(home, { recursive: true, force: true }) })
+  const root = join(home, 'skills')
+  mkdirSync(root, { recursive: true })
+  let applied = 0
+  const journal: SkillMutationJournal = {
+    async begin() {
+      throw new FeatureAdminError('io-error', 'host bridge down')
+    },
+    async applied(operationId) {
+      applied += 1
+      return { operationId, record: 'record://event/2' }
+    },
+    async failed() {},
+  }
+  const { ctx, service } = adminWith({
+    skills: { invalidateCache() {} }, skillsRoot: root, skillsJournal: journal,
+  })
+  t.after(async () => { await ctx.fiber.dispose() })
+
+  const written = await service.skillsWrite('weekly.md', 'must not land')
+  assert.equal(written.ok, false, JSON.stringify(written))
+  assert.equal(applied, 0)
+  assert.equal(existsSync(join(root, 'weekly.md')), false)
+})
+
+test('a real file failure appends failed with the bounded code and never applies', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'pdsh-feature-records-filefail-'))
+  t.after(() => { rmSync(home, { recursive: true, force: true }) })
+  const root = join(home, 'skills')
+  const outsideDir = join(home, 'outside')
+  mkdirSync(root, { recursive: true })
+  mkdirSync(outsideDir, { recursive: true })
+  writeFileSync(join(outsideDir, 'outside.md'), 'outside\n')
+  symlinkSync(join(outsideDir, 'outside.md'), join(root, 'link.md'))
+  const journal = new MemorySkillMutationJournal()
+  const { ctx, service } = adminWith({
+    skills: { invalidateCache() {} }, skillsRoot: root, skillsJournal: journal,
+  })
+  t.after(async () => { await ctx.fiber.dispose() })
+
+  const written = await service.skillsWrite('link.md', 'replace\n')
+  assert.equal(written.ok, false, JSON.stringify(written))
+  assert.equal(written.code, 'conflict')
+  assert.equal(journal.begins.length, 1)
+  assert.equal(journal.appliedOperations.length, 0)
+  assert.equal(journal.failedOperations.length, 1)
+  assert.equal(journal.failedOperations[0]?.code, 'conflict')
+  assert.equal(readFileSync(join(outsideDir, 'outside.md'), 'utf8'), 'outside\n')
+})
+
+test('a successful file write with a failed applied append is reported as not indexed', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'pdsh-feature-records-applyfail-'))
+  t.after(() => { rmSync(home, { recursive: true, force: true }) })
+  const root = join(home, 'skills')
+  mkdirSync(root, { recursive: true })
+  const journal: SkillMutationJournal = {
+    async begin(input) {
+      return { operationId: input.operationId, record: 'record://event/1' }
+    },
+    async applied() {
+      throw new FeatureAdminError('io-error', 'applied append failed')
+    },
+    async failed() {},
+  }
+  const { ctx, service } = adminWith({
+    skills: { invalidateCache() {} }, skillsRoot: root, skillsJournal: journal,
+  })
+  t.after(async () => { await ctx.fiber.dispose() })
+
+  const written = await service.skillsWrite('weekly.md', 'real file')
+  assert.equal(written.ok, false, JSON.stringify(written))
+  assert.equal(written.code, 'io-error')
+  assert.equal(written.domainCode, 'record-not-applied')
+  assert.equal(readFileSync(join(root, 'weekly.md'), 'utf8'), 'real file')
+})
+
+test('the raw-record content bound is refused before requested or file I/O', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'pdsh-feature-records-bound-'))
+  t.after(() => { rmSync(home, { recursive: true, force: true }) })
+  const root = join(home, 'skills')
+  mkdirSync(root, { recursive: true })
+  const journal = new MemorySkillMutationJournal()
+  const { ctx, service } = adminWith({
+    skills: { invalidateCache() {} }, skillsRoot: root, skillsJournal: journal,
+  })
+  t.after(async () => { await ctx.fiber.dispose() })
+
+  const large = 'a'.repeat(64 * 1024 + 1)
+  const written = await service.skillsWrite('large.md', large)
+  assert.equal(written.ok, false, JSON.stringify(written))
+  assert.equal(written.code, 'invalid-request')
+  assert.equal(written.domainCode, 'record-content-too-large')
+  assert.equal(journal.begins.length, 0)
+  assert.equal(existsSync(join(root, 'large.md')), false)
 })

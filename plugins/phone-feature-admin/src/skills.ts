@@ -25,7 +25,7 @@ import { FeatureAdminError, invalidRequest, notFound, unsupported } from './erro
 /** Flat skill file accepted by the DSH filesystem provider. */
 const SKILL_FILE = /^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/u
 /** Defensive cap: a skill is instruction text, not workspace data. */
-const MAX_SKILL_BYTES = 2 * 1024 * 1024
+export const MAX_SKILL_BYTES = 2 * 1024 * 1024
 
 /** How one mutation reached the DSH skills catalog. */
 export type SkillInvalidation = SkillMutationView['invalidation']
@@ -225,12 +225,51 @@ export class SkillsStore {
 
   /** Remove one flat skill and invalidate the catalog. */
   async delete(name: unknown): Promise<SkillMutationView> {
+    return (await this.deleteWithContent(name)).view
+  }
+
+  /**
+   * Read the exact body, then return a commit that re-reads it and refuses to
+   * unlink when the file changed in the requested-to-delete window. The raw
+   * `requested` fact must be appended between the read and the commit.
+   */
+  async prepareDelete(name: unknown): Promise<{
+    readonly content: string
+    readonly commit: () => Promise<SkillMutationView>
+  }> {
     const fileName = skillFileName(name)
     const root = await canonicalRoot(this.root, false)
     if (root === undefined) throw notFound(`skill does not exist: ${fileName}`)
     const target = await inspectTarget(root, fileName)
     if (!target.exists) throw notFound(`skill does not exist: ${fileName}`)
-    await unlink(target.candidate)
-    return { name: fileName, deleted: true, invalidation: this.invalidate() }
+    const content = await readFile(target.candidate, 'utf8')
+    return {
+      content,
+      commit: async (): Promise<SkillMutationView> => {
+        const finalContent = await readFile(target.candidate, 'utf8')
+        if (finalContent !== content) {
+          throw new FeatureAdminError(
+            'conflict',
+            `skill content changed before delete; the delete was not applied: ${fileName}`,
+            'content-changed',
+          )
+        }
+        await unlink(target.candidate)
+        return { name: fileName, deleted: true, invalidation: this.invalidate() }
+      },
+    }
+  }
+
+  /**
+   * Remove one flat skill, returning the exact body read immediately before
+   * the unlink. The feature-admin raw record needs the deleted content to bind
+   * what the user actually removed; the plain `delete` stays compatible.
+   */
+  async deleteWithContent(name: unknown): Promise<{
+    readonly view: SkillMutationView
+    readonly content: string
+  }> {
+    const handle = await this.prepareDelete(name)
+    return { view: await handle.commit(), content: handle.content }
   }
 }
