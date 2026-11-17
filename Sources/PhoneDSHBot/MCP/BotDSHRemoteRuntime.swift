@@ -3677,8 +3677,12 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     // sees the same durable `skill.changed`.
                     let botID = botId
                     let session = sessionId
+                    // A skill write is derived from the real user turn when
+                    // one exists; without it the event honestly has no
+                    // content source. Erasure/revocation can then target the
+                    // exact record instead of a synthetic ref.
                     let sources = currentUserSourceRef.map {
-                        [BotDerivationSource(record: $0, role: .creator)]
+                        [BotDerivationSource(record: $0, role: .evidence)]
                     } ?? []
                     await skillQueue.enqueueAndWait {
                         await skillQueue.runtimeWrite(

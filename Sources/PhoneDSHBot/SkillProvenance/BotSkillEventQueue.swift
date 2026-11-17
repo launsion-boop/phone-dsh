@@ -119,7 +119,8 @@ public final class BotSkillEventQueue: @unchecked Sendable {
                              sources: [BotDerivationSource] = []) async {
         do {
             _ = try await producer.recordBotWrite(
-                vfsPath: vfs, botID: botID, sessionID: sessionID, sources: sources)
+                vfsPath: vfs, botID: botID, sessionID: sessionID,
+                sources: sources)
             record(action: "runtime-write", key: vfs, outcome: .recorded, detail: nil)
         } catch {
             record(action: "runtime-write", key: vfs, outcome: .failed,

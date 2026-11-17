@@ -165,4 +165,34 @@ final class BotSkillEventQueueTests: XCTestCase {
         XCTAssertEqual(q2.diagnosticsSnapshot().first?.key, "missing.md")
     }
 
+
+    func testRuntimeWritePassesTheRealUserSource() async throws {
+        final class Captured: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value: BotSkillWriteRequest?
+            func set(_ request: BotSkillWriteRequest) { lock.lock(); value = request; lock.unlock() }
+            func get() -> BotSkillWriteRequest? { lock.lock(); defer { lock.unlock() }; return value }
+        }
+        let captured = Captured()
+        let file = project.appendingPathComponent("derived.md")
+        try Data("derived".utf8).write(to: file)
+        let producer = BotSkillProvenanceProducer(
+            botRoot: "/dsh/workspace/.dshbot/agents/bot-a",
+            roots: QueueTestRoots(user: user, project: project),
+            recorder: { request in
+                captured.set(request)
+                return BotDerivedRef(kind: .skill, id: request.name,
+                                     version: request.revision)
+            },
+            latest: { _ in nil }, now: { 1 })
+        let queue = BotSkillEventQueue(producer: producer, now: { 1 })
+        await queue.runtimeWrite(
+            vfs: "/dsh/workspace/.dshbot/agents/bot-a/.dsh/skills/derived.md",
+            botID: "bot-a", sessionID: "gb-main",
+            sources: [BotDerivationSource(record: "record://event/7",
+                                          role: .evidence)])
+        XCTAssertEqual(captured.get()?.sources.first?.record, "record://event/7")
+        XCTAssertEqual(captured.get()?.sources.first?.role, .evidence)
+    }
+
 }

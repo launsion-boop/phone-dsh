@@ -238,4 +238,35 @@ final class BotSkillProvenanceProducerTests: XCTestCase {
         "sha256:" + SHA256.hash(data: data)
             .map { String(format: "%02x", $0) }.joined()
     }
+
+    func testEraseOfRealSourcePropagatesToSkillStatus() async throws {
+        let log = BotProvenanceTestLog()
+        let source = try await log.append(ProvenanceTest.event(
+            type: "conversation.user_message", eventId: "skill-source",
+            data: .object(["text": .string("source")]), botID: "bot-a"))
+        let service = BotProvenanceService(
+            eventLog: log,
+            skillRechecker: BotProvenanceTestSkillRechecker(outcome: .same(atMS: 2_000)))
+        let producer = BotSkillProvenanceProducer(
+            botRoot: "/dsh/workspace/.dshbot/agents/bot-a",
+            roots: QueueTestRoots(user: user, project: project),
+            recorder: { try await service.recordSkillWrite($0) },
+            latest: { try await service.latestSkillChange(identity: $0) },
+            now: { 1_500 })
+        let file = project.appendingPathComponent("derived.md")
+        try Data("derived".utf8).write(to: file)
+        _ = try await producer.recordBotWrite(
+            vfsPath: "/dsh/workspace/.dshbot/agents/bot-a/.dsh/skills/derived.md",
+            botID: "bot-a", sessionID: "gb-a",
+            sources: [BotDerivationSource(
+                record: "record://event/\(source)", role: .evidence)])
+        let current = await service.status(forSkillName: "derived", botID: "bot-a")
+        XCTAssertEqual(current, .current)
+        _ = try await log.append(ProvenanceTest.erasureEvent(
+            erasureId: "skill-source-erase",
+            eventRecords: ["record://event/\(source)"]))
+        let erased = await service.status(forSkillName: "derived", botID: "bot-a")
+        XCTAssertEqual(erased, .erased)
+    }
+
 }
