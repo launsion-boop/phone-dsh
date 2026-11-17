@@ -147,6 +147,7 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
             source.resume()
             started = true
             didStart = true
+            NSLog("[BOT_SKILL_OBSERVER] start root=%@", root.path)
         }
         return didStart
     }
@@ -168,8 +169,12 @@ public final class BotSkillDirectoryObserver: @unchecked Sendable {
         if case .missing = current { previous = [:] }
         for change in changes {
             switch change {
-            case .written(let name): onWritten?(name)
-            case .deleted(let name): onDeleted?(name)
+            case .written(let name):
+                NSLog("[BOT_SKILL_OBSERVER] written name=%@", name)
+                onWritten?(name)
+            case .deleted(let name):
+                NSLog("[BOT_SKILL_OBSERVER] deleted name=%@", name)
+                onDeleted?(name)
             }
         }
     }
