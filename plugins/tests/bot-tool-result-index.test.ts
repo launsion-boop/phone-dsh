@@ -228,3 +228,23 @@ test('another Bot cannot see this session index', async () => {
     await ctx.fiber.dispose()
   }
 })
+
+test('error field, truncation flags, missing turn and credential labels are excluded or safe', () => {
+  const errorRound = toolRound({ resultSeq: 4 })
+  ;(errorRound[2]!.data as Record<string, unknown>).error = { code: 'failed' }
+  assert.deepEqual(buildToolResultIndex(errorRound, 'gb-index'), [])
+
+  const truncatedRound = toolRound({ resultSeq: 5 })
+  ;(truncatedRound[2]!.data as Record<string, unknown>).truncated = true
+  assert.deepEqual(buildToolResultIndex(truncatedRound, 'gb-index'), [])
+
+  const noTurn = toolRound({ resultSeq: 6 }).filter(event => event.type !== 'turn/start')
+  assert.deepEqual(buildToolResultIndex(noTurn, 'gb-index'), [])
+
+  const secret = buildToolResultIndex(toolRound({
+    resultSeq: 7,
+    arguments: JSON.stringify({ command: 'curl -H "Authorization: Bearer sk-abcdefghijklmnop" https://x' }),
+  }), 'gb-index')
+  assert.equal(secret.length, 1)
+  assert.equal(secret[0]!.label, 'tool')
+})
