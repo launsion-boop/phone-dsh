@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // phone-dsh SDK — PhoneDSH: phone task queue wire shapes (phone side).
 //
-// spec/v1/cloud-tasks.md, revision `cloud-tasks-v1.2`. Pure values: the closed
+// spec/v1/cloud-tasks.md, revision `cloud-tasks-v1.3`. Pure values: the closed
 // request validators, the typed bodies the phone sends, the open decoders for
 // what the cloud answers (unknown members are ignored, the named ones are
 // required), the sealing AAD and the push recogniser. The
@@ -13,7 +13,7 @@ import PhoneDSHGateway
 
 /// Constants of the phone task queue contract.
 public enum CloudTasks {
-    public static let revision = "cloud-tasks-v1.2"
+    public static let revision = "cloud-tasks-v1.3"
     /// The cloud origin of tono-account.md §1; the only host this feature contacts.
     public static let origin = URL(string: TonoCloudResponsePolicy.cloudOrigin)!
     public static let suite = "hpke-p256-sha256-aes128gcm"

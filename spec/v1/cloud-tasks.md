@@ -1,8 +1,9 @@
 # Phone task queue (cloud ↔ phone)
 
-Revision `cloud-tasks-v1.2`, frozen 2026-11-16 (v1.1 rules three implementer change requests:
+Revision `cloud-tasks-v1.3`, frozen 2026-11-16 (v1.1 rules three implementer change requests:
 response openness, device takeover, terminal reason mapping; v1.2 makes the oracle and two new
-cases agree that openness reaches nested `target` and `sealed`). Status: `target` — no end is implemented yet.
+cases agree that openness reaches nested `target` and `sealed`; v1.3 names the ack for sealed
+bytes that open but are not a task text). Status: `target` — no end is implemented yet.
 Owner: P05. Change record:
 [PC-20261116-cloud-task-queue](../../docs/protocol-changes/PC-20261116-cloud-task-queue.md).
 Shared cases: [golden/cloud-tasks/cases.json](golden/cloud-tasks/cases.json), the judge where this
@@ -187,7 +188,8 @@ The phone keeps such terminal acks and re-sends them after it registers again.
 
 For each pulled task the phone, in order: checks `expires_at_ms − now ≥ 1000` (else ack
 `expired`), finds the private key for `key_id` (else `rejected` / `key_unknown`), opens `sealed`
-with the §3 `aad` (else `rejected` / `decrypt_failed`), checks that the target exists (else
+with the §3 `aad` (else `rejected` / `decrypt_failed`; the same when the opened bytes are not
+1–16384 bytes of valid UTF-8), checks that the target exists (else
 `rejected` / `target_missing`), then admits with
 
 - `principal = "account:" + <signed-in user id>`, `source = {kind:"cloud-task", id: device_id}`,

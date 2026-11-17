@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// spec/v1/cloud-tasks.md (cloud-tasks-v1.2), phone side. The shared cases judge
+// spec/v1/cloud-tasks.md (cloud-tasks-v1.3), phone side. The shared cases judge
 // the real validators, body encoders, AAD builder, HPKE open and push
 // recogniser. Nothing here contacts pdsh.tonoai.cn. The private scalars come
 // from the shared vectors and are test-only values.

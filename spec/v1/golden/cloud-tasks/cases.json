@@ -1,6 +1,6 @@
 {
  "contract": "spec/v1/cloud-tasks.md",
- "revision": "cloud-tasks-v1.2",
+ "revision": "cloud-tasks-v1.3",
  "note": "Private scalars here are test-only values; never use them outside these vectors.",
  "constants": {
   "suite": "hpke-p256-sha256-aes128gcm",
@@ -927,6 +927,36 @@
     "sealed": {
      "enc": "BOJm3f3BJmjbMNTKPo93SUMsQWBE8tK4wQvz1AEq7_qKv6hkBKLp_-Z9R8WH73qXp_RWuGO00Cz8aSiXOrWxyzk",
      "ct": "7zt_60qStHnzMsuVD0CQn7WJPymt3a3YPr37t3fa94ca4QOlXKN70s4_YA"
+    }
+   }
+  ],
+  "not_text": [
+   {
+    "id": "invalid-utf8-continuation",
+    "recipient_private_scalar": "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721",
+    "aad": "pdsh-phone-task/v1\ndev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a\nk-1\nreq-1\ndsh-session\ngb-main\n1794786400000",
+    "plaintext_hex": "e695b4fffe",
+    "sealed": {
+     "enc": "BAkhCqh_LtF8lLalI-8c6GZtTCq9kf402hfP3Gym9CSofzb_kdDkD7CBPXimHNZwS1_vrPfHByb2CyFAZM8NZJw",
+     "ct": "6pf8OwFqqKDNKxThwJRn3zt-1wYd"
+    },
+    "ack": {
+     "state": "rejected",
+     "reason": "decrypt_failed"
+    }
+   },
+   {
+    "id": "empty-plaintext",
+    "recipient_private_scalar": "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721",
+    "aad": "pdsh-phone-task/v1\ndev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a\nk-1\nreq-1\ndsh-session\ngb-main\n1794786400000",
+    "plaintext_hex": "",
+    "sealed": {
+     "enc": "BApZbBnPkCSwwIJlJuhMU56Jjq9lgjFLwSyZQYs5z97HbQt_lnh4p_qRDpoix0wZlnsy6OgzAzMhUpceFHZHCKo",
+     "ct": "Vm-3r2vmLrVKbDsj6kaW6w"
+    },
+    "ack": {
+     "state": "rejected",
+     "reason": "decrypt_failed"
     }
    }
   ]

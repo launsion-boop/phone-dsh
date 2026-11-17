@@ -409,6 +409,20 @@ class CloudTaskTests(unittest.TestCase):
                 open_sealed(case["recipient_private_scalar"], b64url_decode(case["sealed"]["enc"]),
                             b64url_decode(case["sealed"]["ct"]), case["aad"].encode("utf-8"))
 
+    @unittest.skipUnless(HAVE_CRYPTO, "cryptography package not installed")
+    def test_opened_bytes_that_are_not_a_task_text(self) -> None:
+        self.assertGreaterEqual(len(self.cases["sealing"]["not_text"]), 2)
+        for case in self.cases["sealing"]["not_text"]:
+            opened = open_sealed(case["recipient_private_scalar"], b64url_decode(case["sealed"]["enc"]),
+                                 b64url_decode(case["sealed"]["ct"]), case["aad"].encode("utf-8"))
+            self.assertEqual(opened.hex(), case["plaintext_hex"], case["id"])
+            try:
+                is_text = 1 <= len(opened) <= 16384 and bool(opened.decode("utf-8"))
+            except UnicodeDecodeError:
+                is_text = False
+            self.assertFalse(is_text, case["id"])
+            self.assertEqual(case["ack"], {"state": "rejected", "reason": "decrypt_failed"})
+
     def test_submit_decisions(self) -> None:
         seen = set()
         for case in self.cases["submit"]:
