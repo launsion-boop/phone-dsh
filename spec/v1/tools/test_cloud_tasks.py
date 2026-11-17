@@ -304,6 +304,47 @@ def phone_ack(case):
     return None
 
 
+def terminal_ack(stage, reason=None):
+    """The ack the phone sends for a terminal admission record (cloud-tasks.md §7)."""
+    if stage in ("completed", "unknown"):
+        return {"state": stage}
+    if stage in ("expired", "cancelled"):
+        return {"state": "failed", "reason": stage}
+    if reason in ("target_missing", "not_authorized", "retry_exhausted"):
+        return {"state": "failed", "reason": reason}
+    return {"state": "failed", "reason": "run_failed"}
+
+
+def decode_pull_element(element):
+    """Raise ValueError unless a pulled task element has every member the phone needs."""
+    if not isinstance(element, dict):
+        raise ValueError("not an object")
+    for name in ("task_id", "request_id", "key_id"):
+        _id(element.get(name))
+    _target(element.get("target"))
+    _int(element.get("expires_at_ms"))
+    _int(element.get("created_at_ms"))
+    _sealed(element.get("sealed"))
+    lease = element.get("lease")
+    if not isinstance(lease, dict):
+        raise ValueError("lease")
+    _id(lease.get("lease_id"))
+    _int(lease.get("attempt"), 1)
+    _int(lease.get("expires_at_ms"))
+
+
+def pull_element_ack(element):
+    """(decodes, ack) for one element of a pull response."""
+    try:
+        decode_pull_element(element)
+        return True, None
+    except ValueError:
+        task_id = element.get("task_id") if isinstance(element, dict) else None
+        if isinstance(task_id, str) and ID.match(task_id):
+            return False, {"state": "rejected", "reason": "invalid"}
+        return False, None
+
+
 class CloudTaskTests(unittest.TestCase):
     def setUp(self) -> None:
         self.cases = json.loads(CASES.read_text(encoding="utf-8"))
@@ -393,6 +434,27 @@ class CloudTaskTests(unittest.TestCase):
             self.assertEqual(ack, case["ack"], case["id"])
         self.assertEqual(outcomes, {None, "admitted", "expired", "key_unknown", "decrypt_failed",
                                     "target_missing", "invalid", "conflict"})
+
+
+    def test_terminal_mapping(self) -> None:
+        states = set()
+        for case in self.cases["terminal"]:
+            ack = terminal_ack(case["stage"], case.get("reason"))
+            states.add(ack.get("reason", ack["state"]))
+            self.assertEqual(ack, case["ack"], case)
+            check_message({"schema": "phone-task-ack/v1",
+                           "device_id": "dev-6f1c2a9e-0b7d-4c1e-9a55-2f3e4d5c6b7a",
+                           "acks": [dict(ack, task_id="t-1")]})
+        self.assertEqual(states, {"completed", "unknown", "expired", "cancelled", "target_missing",
+                                  "not_authorized", "retry_exhausted", "run_failed"})
+
+    def test_pull_elements(self) -> None:
+        kinds = set()
+        for case in self.cases["pull_elements"]:
+            decodes, ack = pull_element_ack(case["element"])
+            kinds.add("ok" if decodes else ("rejected" if ack else "skipped"))
+            self.assertEqual((decodes, ack), (case["decodes"], case["ack"]), case["id"])
+        self.assertEqual(kinds, {"ok", "rejected", "skipped"})
 
 
 if __name__ == "__main__":

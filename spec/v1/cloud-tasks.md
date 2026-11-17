@@ -1,6 +1,7 @@
 # Phone task queue (cloud ↔ phone)
 
-Revision `cloud-tasks-v1`, frozen 2026-11-16. Status: `target` — no end is implemented yet.
+Revision `cloud-tasks-v1.1`, frozen 2026-11-16 (v1.1 rules three implementer change requests:
+response openness, device takeover, terminal reason mapping). Status: `target` — no end is implemented yet.
 Owner: P05. Change record:
 [PC-20261116-cloud-task-queue](../../docs/protocol-changes/PC-20261116-cloud-task-queue.md).
 Shared cases: [golden/cloud-tasks/cases.json](golden/cloud-tasks/cases.json), the judge where this
@@ -27,8 +28,10 @@ never does. This is the producer **and** consumer contract: the cloud service
 - Origin: the cloud origin of tono-account.md §1 (`https://pdsh.tonoai.cn`). Credential:
   `Authorization: Bearer <tono access token>` only; an API key (`pdsk_…`) is answered `403
   credential_not_allowed` on every route here. Refresh and re-send follow tono-account.md §5.
-- Routes are add-only under `/v1/phone/**`. Every JSON body is a closed object: an unknown member
-  is `400 invalid_request`. Every response carries `server_time_ms`.
+- Routes are add-only under `/v1/phone/**`. Every JSON **request** body is a closed object: an
+  unknown member is `400 invalid_request`. Every response carries `server_time_ms`. **Responses
+  are open**: the receiver ignores members it does not know, at every level, and still requires
+  the members named here with the stated types.
 - Opaque ids (`device_id`, `request_id`, `key_id`, target `id`) match `[A-Za-z0-9._:-]{1,128}`.
   `task_id` is chosen by the cloud and matches the same pattern. Another account's device or task
   is `404 not_found`, never `403`.
@@ -55,6 +58,12 @@ uses; one install has one cloud device id).
 - The call replaces the registration. Registering a different `key_id` makes tasks sealed to the
   old key undeliverable: the cloud marks each such `pending` task `rejected` / `key_replaced`.
 - At most 8 devices per account: `409 device_limit`.
+- Takeover: a `PUT` for a `device_id` that is registered to **another** account moves the
+  registration to the caller. The previous account's registration is removed and each of its
+  `pending` tasks for that device becomes `cancelled` / `device_removed`; its tasks past
+  `pending` are unchanged and can no longer be acknowledged (they reach `unknown` by the §6
+  21-day rule). The response is the ordinary `200`. This is the one exception to the `404` rule
+  of §1 and exists because an install has one device id across sign-outs.
 - Response `200 {"schema":"phone-device-ack/v1","device_id","key_id","server_time_ms"}`.
 
 `GET /v1/phone/devices` → `{"schema":"phone-device-list/v1","devices":[{"device_id","platform",
@@ -127,6 +136,10 @@ no `pending` task names it.
 
 A lease only spaces out redelivery; it is not an execution right.
 
+A `tasks` element the phone cannot decode (a required member missing or of the wrong type or
+form) does not fail the pull: when its `task_id` is a valid id the phone acks it `rejected` /
+`invalid`, otherwise it is skipped without an ack. The other elements are processed normally.
+
 `POST /v1/phone/tasks/ack`
 
 ```json
@@ -181,6 +194,10 @@ Admission results map to: `admitted` / `duplicate` → ack `admitted` with the r
 `capacity` / `storage` → no ack. The ack is sent only after the journal write returned.
 Terminal acks are produced from the admission record's stage and are re-sent until accepted; the
 phone keeps the pairing `task_id ↔ admissionId` in the record itself (`sourceRequestId`).
+The mapping is total: `completed` → `completed`; `unknown` → `unknown`; `expired` → `failed` /
+`expired`; `cancelled` → `failed` / `cancelled`; `failed` → `failed` with the record's `reason`
+when it is `target_missing`, `not_authorized` or `retry_exhausted`, and `run_failed` for any
+other or absent reason. (A record that expired or was cancelled was already acked `admitted`.)
 
 The phone pulls when it becomes active, after sign-in, after a push, and after an ack that
 returned work; never on a timer while idle. The feature is off until the user enables it (preference key

@@ -91,3 +91,4 @@ P16: none — Worker 启动与 wire 不变; P24: none — 不新增包依赖，�
 | revision | 由谁 | 原因 | 通知了哪些端 |
 | --- | --- | --- | --- |
 | cloud-tasks-v1 | 主 agent | 首次冻结 | 云端、iOS、Android |
+| cloud-tasks-v1.1 | 主 agent | 裁定 iOS 库实现者的三条 CONTRACT CHANGE REQUEST：(1) 终态确认的原因映射补全（§7，未列出的 `failed` 原因一律 `run_failed`，新增 `terminal` 用例）；(2) 请求封闭、响应开放，单个解不出的拉取元素不拖垮整次拉取（§1、§5，新增 `pull_elements` 用例）；(3) 另一账号对同一 `device_id` 的 `PUT` 视为接管（§2）。v1 的其余条款与既有用例不变 | 云端、iOS、Android |
