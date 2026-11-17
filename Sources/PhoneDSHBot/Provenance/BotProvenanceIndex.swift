@@ -616,13 +616,11 @@ public struct BotProvenanceSnapshot: Sendable {
                     recheckState = .current
                 }
                 if contentViews.isEmpty {
-                    // A skill.changed event without derivation is allowed by
-                    // G-4: the file itself is the content. Its recheck still
-                    // cannot override a failed upstream.
-                    state = contentUpstream.isEmpty
-                        ? recheckState
-                        : BotProvenanceStatus.worst([recheckState]
-                            + contentUpstream.map(\.state))
+                    // A trigger-only or empty derivation says why the Bot
+                    // wrote the file, not that the user supplied its content.
+                    // File recheck cannot turn that into content truth.
+                    state = .unknown
+                    reasonSet.insert(.noDerivation)
                 } else {
                     state = BotProvenanceStatus.worst(
                         [recheckState] + contentStates)
