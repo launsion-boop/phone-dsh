@@ -163,6 +163,56 @@ final class SimPartnerChatDriver: XCTestCase {
         attach("provider-hierarchy")
     }
 
+
+    /// Brings the already-open Calendar subscription sheet to the front and
+    /// prints its hierarchy so the fixture step can use real labels. This does
+    /// not change the app under test and does not touch personal calendars.
+    func testCalendarHierarchy() throws {
+        let cal = XCUIApplication(bundleIdentifier: "com.apple.mobilecal")
+        cal.activate()
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for label in ["不允许", "Don’t Allow", "Don't Allow"] {
+            let button = springboard.alerts.buttons[label]
+            if button.exists { button.tap(); break }
+        }
+        print("SIM_CALENDAR_HIERARCHY_BEGIN")
+        print(cal.debugDescription)
+        print("SIM_CALENDAR_HIERARCHY_END")
+        attach("calendar-hierarchy")
+    }
+
+    /// Adds the controlled ICS feed through the real Calendar UI already opened
+    /// by simctl openurl. The URL is supplied by the host, never personal data.
+    func testCalendarSubscribe() throws {
+        let url = ProcessInfo.processInfo.environment["SIM_CALENDAR_URL"] ?? "http://127.0.0.1:8766/sim-calendar.ics"
+        let cal = XCUIApplication(bundleIdentifier: "com.apple.mobilecal")
+        cal.activate()
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for label in ["不允许", "Don’t Allow", "Don't Allow"] {
+            let button = springboard.alerts.buttons[label]
+            if button.exists { button.tap(); break }
+        }
+        let field = cal.textFields.firstMatch
+        if field.waitForExistence(timeout: 10) {
+            field.tap()
+            if let value = field.value as? String, !value.isEmpty, value != url {
+                field.press(forDuration: 1.0)
+                if cal.menuItems["全选"].exists { cal.menuItems["全选"].tap() } else if cal.menuItems["Select All"].exists { cal.menuItems["Select All"].tap() }
+                field.typeText(url)
+            } else if (field.value as? String)?.isEmpty ?? true {
+                field.typeText(url)
+            }
+        }
+        for label in ["订阅", "Subscribe", "添加", "Add"] {
+            let button = cal.buttons[label]
+            if button.exists { button.tap(); break }
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(5))
+        attach("calendar-after-subscribe")
+    }
+
     /// Sends task one, terminates, relaunches, verifies the durable transcript
     /// is still visible and appends task two in the same session.
     func testRelaunchThenContinue() throws {
