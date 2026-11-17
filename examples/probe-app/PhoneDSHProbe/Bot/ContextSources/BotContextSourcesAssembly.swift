@@ -365,6 +365,23 @@ public final class BotContextSourcesAssembly {
 
     public func isStarted() -> Bool { started }
 
+    /// Bounded wait for the composition's background context-start task. The
+    /// settings model must read states only after the registry has registered
+    /// sources; otherwise every source is nil (shown as unavailable/off) even
+    /// though the OS grant exists. Returns false on timeout; never prompts.
+    public func waitUntilStarted(timeoutMilliseconds: Int = 3_000) async -> Bool {
+        if started { return true }
+        let deadline = max(0, timeoutMilliseconds)
+        let step = 20
+        var elapsed = 0
+        while elapsed < deadline {
+            try? await Task.sleep(nanoseconds: UInt64(step) * 1_000_000)
+            elapsed += step
+            if started { return true }
+        }
+        return started
+    }
+
     /// Real G-1 r5 recheck for the requested sources. Used by the decision-time
     /// material/source panel; a revoked source returns refresh-denied without
     /// an adapter call.
