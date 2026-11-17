@@ -38,6 +38,7 @@ public final class BotSkillEventQueue: @unchecked Sendable {
     private let producer: BotSkillProvenanceProducer
     private let lock = NSLock()
     private var tail: Task<Void, Never> = Task {}
+    private var suppressedUserFiles: Set<String> = []
     private var diagnostics: [BotSkillDiagnostic] = []
     private let now: @Sendable () -> Int64
 
@@ -74,6 +75,30 @@ public final class BotSkillEventQueue: @unchecked Sendable {
         tail = next
         lock.unlock()
         return next
+    }
+
+    /// A feature-admin mutation owns this file from `requested` through
+    /// `applied`; the filesystem observer must not add a second, unsourced
+    /// event for that one operation. Bounded to file names and released by the
+    /// caller; deletes stay observed for every other file.
+    public func suppressUserObservation(file: String) {
+        lock.lock(); suppressedUserFiles.insert(file); lock.unlock()
+    }
+
+    public func releaseUserObservation(file: String) {
+        lock.lock(); suppressedUserFiles.remove(file); lock.unlock()
+    }
+
+    public func userWriteObserved(_ name: String) async {
+        lock.lock(); let suppressed = suppressedUserFiles.contains(name); lock.unlock()
+        guard !suppressed else { return }
+        await userWrite(name)
+    }
+
+    public func userDeleteObserved(_ name: String) async {
+        lock.lock(); let suppressed = suppressedUserFiles.contains(name); lock.unlock()
+        guard !suppressed else { return }
+        await userDelete(name)
     }
 
     public func userWrite(_ name: String) async {
