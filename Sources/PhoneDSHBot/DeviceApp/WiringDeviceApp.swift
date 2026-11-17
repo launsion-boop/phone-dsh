@@ -64,11 +64,8 @@ public enum DeviceAppWiring {
             return ("device_tools_missing",
                     "设备的工具列表缺少 \(missing.joined(separator: "、"))，它不是设备应用的安装目标")
         }
-        let denied = requiredTools.filter { !state.granted.contains($0) }
-        guard denied.isEmpty else {
-            return ("device_not_authorized",
-                    "设备的 \(denied.joined(separator: "、")) 还没有在蓝牙设备设置里授权")
-        }
+        // device-app-v1.3: no Settings-grant check. The user's once-only approval of this exact
+        // install is the authorization; the Link entry waives the grant for user-origin app.* only.
         return nil
     }
 

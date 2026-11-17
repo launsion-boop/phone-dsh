@@ -476,6 +476,17 @@ enum DeviceBotChatSelfTest {
                     log("archive.unarchived", ["archived_count_after": after.count])
                 }
             } else { log("archive.diag", ["unavailable": true]) }
+            // device-app-v1.3: prove the install needs no Settings grant. Revoke the eight app.*
+            // grants for this device first (a DEBUG test setup; the product never does this).
+            if !ProcessInfo.processInfo.arguments.contains("-pdsh-selftest-keep-grants") {
+                for name in DeviceAppWiring.requiredTools {
+                    BLEDeviceStore.shared.grantLinkTool(device.id, name: name, enabled: false)
+                }
+                try? await Task.sleep(for: .milliseconds(500))
+                let left = BLEDeviceStore.shared.devices.first { $0.id == device.id }?.grantedTools
+                    .filter { DeviceAppWiring.requiredTools.contains($0) }.sorted() ?? ["?"]
+                log("grants.revoked", ["app_grants_left": left])
+            }
             let before = Set(model.rows.map(\.id))
             facts["prompt_sha256"] = Self.sha256(prompt)
             log("turn.send", ["prompt_chars": prompt.count, "rows_before": before.count])

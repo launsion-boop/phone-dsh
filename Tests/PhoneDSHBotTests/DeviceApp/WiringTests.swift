@@ -84,8 +84,9 @@ final class DeviceAppWiringTests: XCTestCase {
                                                        granted: Set(Self.allTools)))?.code, "device_not_connected")
         XCTAssertEqual(DeviceAppWiring.preflight(.init(connected: true, tools: ["app.info", "app.begin"],
                                                        granted: Set(Self.allTools)))?.code, "device_tools_missing")
-        XCTAssertEqual(DeviceAppWiring.preflight(.init(connected: true, tools: Self.allTools,
-                                                       granted: ["app.info"]))?.code, "device_not_authorized")
+        // device-app-v1.3: a missing Settings grant is not a preflight failure.
+        XCTAssertNil(DeviceAppWiring.preflight(.init(connected: true, tools: Self.allTools, granted: [])))
+        XCTAssertNil(DeviceAppWiring.preflight(.init(connected: true, tools: Self.allTools, granted: ["app.info"])))
         XCTAssertNil(DeviceAppWiring.preflight(.init(connected: true, tools: Self.allTools,
                                                      granted: Set(Self.allTools))))
     }
