@@ -34,6 +34,14 @@ struct MCPServerSummary: Identifiable, Equatable {
     var authorizedURL: String? { grant?.url }
 }
 
+/// What a save changed about one server's endpoint grant, for observers that decide on
+/// "grant and credential both saved" (the device-bot LAN trigger). The credential is the stored
+/// `Authorization` header (lan-mcp.md); only its presence is reported, never a value.
+struct MCPSavedEndpointState: Equatable {
+    let url: String
+    let hasCredential: Bool
+}
+
 struct MCPHeaderSummary: Identifiable, Equatable {
     let name: String
     let envName: String
@@ -119,6 +127,9 @@ final class MCPSettingsModel {
     private let isHostRunning: @MainActor () -> Bool
     private let makeTransport: @MainActor () async throws -> any DSHRemoteTransport
     private let refreshPolicyAction: @MainActor () -> Void
+    /// Called once per user save whose grant was committed: (state before the save, state after,
+    /// server name). Never called on load/refresh/remove.
+    private let didSaveGrant: @MainActor (MCPSavedEndpointState?, MCPSavedEndpointState, String) -> Void
     /// Server names whose durable staging could not be marked ownerless yet.
     /// Keeping them in the model (instead of `try?`-dropping the failure) lets
     /// the next refresh retry, so a transient document-store error cannot leave
@@ -133,7 +144,10 @@ final class MCPSettingsModel {
     init(settings: PhoneMCPAccessSettings,
          isHostRunning: @escaping @MainActor () -> Bool,
          makeTransport: @escaping @MainActor () async throws -> any DSHRemoteTransport,
-         refreshPolicy: @escaping @MainActor () -> Void) {
+         refreshPolicy: @escaping @MainActor () -> Void,
+         didSaveGrant: @escaping @MainActor (MCPSavedEndpointState?, MCPSavedEndpointState, String) -> Void
+            = { _, _, _ in }) {
+        self.didSaveGrant = didSaveGrant
         self.settings = settings
         self.isHostRunning = isHostRunning
         self.makeTransport = makeTransport
@@ -227,6 +241,20 @@ final class MCPSettingsModel {
             : "请稍后刷新 MCP 列表再试。"
     }
 
+    private func savedState(serverName: String) -> MCPSavedEndpointState? {
+        guard let grant = (try? settings.load())?.grants.first(where: { $0.serverName == serverName }) else {
+            return nil
+        }
+        let credential = settings.storedHeaderNames(serverName: serverName)
+            .contains { $0.lowercased() == "authorization" }
+        return MCPSavedEndpointState(url: grant.url, hasCredential: credential)
+    }
+
+    private func notifyGrantSaved(before: MCPSavedEndpointState?, serverName: String) {
+        guard let after = savedState(serverName: serverName) else { return }
+        didSaveGrant(before, after, serverName)
+    }
+
     func save(_ draft: MCPServerDraft) async {
         errorText = nil
         notice = nil
@@ -267,6 +295,7 @@ final class MCPSettingsModel {
             errorText = "MCP 认证头名称无效。"
             return
         }
+        let stateBefore = savedState(serverName: trimmedName)
         do {
             let grant = try settings.grant(serverName: trimmedName,
                                            url: normalizedURL.absoluteString,
@@ -307,6 +336,7 @@ final class MCPSettingsModel {
                     _ = keepStagingOwnerless([grant.serverName])
                 }
                 refreshHostPolicy()
+                notifyGrantSaved(before: stateBefore, serverName: trimmedName)
                 notice = cleanupPending
                     ? "已保存“\(trimmedName)”；旧密钥清理暂未完成，已保留可恢复记录并在下次读取时重试。"
                     : "已保存“\(trimmedName)”；网络授权与密钥只作用于这个精确 URL。"
@@ -319,6 +349,7 @@ final class MCPSettingsModel {
                 // persisted staging for the next reconcile/host start.
                 _ = await resolveUpsertFailure(serverName: trimmedName,
                                                grant: grant,
+                                               stateBefore: stateBefore,
                                                originalError: error)
                 return
             }
@@ -335,6 +366,7 @@ final class MCPSettingsModel {
     /// Returns true when the registry proves the write already committed.
     private func resolveUpsertFailure(serverName: String,
                                       grant: PhoneMCPAccessGrant,
+                                      stateBefore: MCPSavedEndpointState?,
                                       originalError: Error) async -> Bool {
         let snapshot: JSONValue
         do {
@@ -370,6 +402,7 @@ final class MCPSettingsModel {
                 _ = keepStagingOwnerless([serverName])
             }
             refreshHostPolicy()
+            notifyGrantSaved(before: stateBefore, serverName: serverName)
             notice = cleanupPending
                 ? "MCP 保存已在 Worker 生效；旧密钥清理暂未完成，已保留可恢复记录并在下次读取时重试。"
                 : "MCP 保存已在 Worker 生效；已提交精确授权与设备密钥。"

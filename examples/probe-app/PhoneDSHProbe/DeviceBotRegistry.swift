@@ -121,6 +121,23 @@ final class DeviceBotRegistry {
                                    description: DeviceBotText.boardDescription))
     }
 
+    // MARK: Explicit-grant triggers (device-bot.md §4). Entry points only; call sites are the
+    // user's grant actions in the BLE device page and the MCP settings save path.
+
+    /// Standard GATT: the user turned on a read or alert grant for this peripheral.
+    func gattGrantTurnedOn(peripheralUUID: String, name: String, profiles: [String]) {
+        guard let key = DeviceBotKey.gatt(peripheralUUID: peripheralUUID) else { return }
+        Task { await run(DeviceBotRequest(key: key, rawName: name,
+                                          description: DeviceBotText.gattDescription(profiles: profiles))) }
+    }
+
+    /// LAN MCP: the user saved the exact-URL grant and the credential for this endpoint.
+    func lanGrantSaved(host: String, port: Int, name: String) {
+        guard let key = DeviceBotKey.lan(host: host, port: port) else { return }
+        Task { await run(DeviceBotRequest(key: key, rawName: name,
+                                          description: DeviceBotText.lanDescription(host: host))) }
+    }
+
     private func ensureLink(_ device: BLEDeviceStore.Device) async {
         guard let key = DeviceBotKey.link(deviceID: device.linkDeviceID) else { return }
         let isBoard = TonoLinkPhoneControlSection.applies(to: device.name)

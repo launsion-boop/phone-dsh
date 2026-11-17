@@ -66,6 +66,19 @@ struct BluetoothDevicesPage: View {
         .onDisappear { legacyInspection.cancelAndClear(); store.stopScan() }
     }
 
+    /// device-bot-v1 §4: only an explicit off-to-on toggle here can create a standard GATT Bot.
+    private func userGrant(_ device: BLEDeviceStore.Device, read: Bool? = nil, alert: Bool? = nil) {
+        #if PDSH_PROBE_HOSTLESS_TESTS
+        // The hostless test targets compile neither the TonoLink section nor the Bot registry.
+        store.grant(device.id, read: read, alert: alert)
+        #else
+        let isBoard = TonoLinkPhoneControlSection.applies(to: device.name)
+        guard let trigger = store.userGrant(device.id, read: read, alert: alert, isBoard: isBoard) else { return }
+        DeviceBotRegistry.shared.gattGrantTurnedOn(peripheralUUID: trigger.peripheralUUID,
+                                                   name: trigger.name, profiles: trigger.profiles)
+        #endif
+    }
+
     @ViewBuilder
     private func deviceSection(_ device: BLEDeviceStore.Device) -> some View {
         Section {
@@ -87,12 +100,12 @@ struct BluetoothDevicesPage: View {
                     .accessibilityIdentifier("ble-device-reauthorize-\(device.id.uuidString)")
                 Toggle("允许读取标准数据", isOn: Binding(get: {
                     store.devices.first(where: { $0.id == device.id })?.allowRead ?? false
-                }, set: { store.grant(device.id, read: $0) }))
+                }, set: { userGrant(device, read: $0) }))
                 .accessibilityIdentifier("ble-device-grant-read-\(device.id.uuidString)")
                 if device.profiles.contains(.alert) {
                     Toggle("允许提醒控制（蜂鸣 / 震动）", isOn: Binding(get: {
                         store.devices.first(where: { $0.id == device.id })?.allowAlert ?? false
-                    }, set: { store.grant(device.id, alert: $0) }))
+                    }, set: { userGrant(device, alert: $0) }))
                     .accessibilityIdentifier("ble-device-grant-alert-\(device.id.uuidString)")
                     ForEach(0...2, id: \.self) { level in
                         Button(["停止提醒", "轻度提醒", "高度提醒"][level]) {

@@ -4,9 +4,9 @@
 Status: Link devices and the TonoLink board are `implemented` on iOS in the earlier form of
 [PC-20261114-device-bot](../../../docs/protocol-changes/PC-20261114-device-bot.md); the rules
 below that tighten that behaviour (§3 key space, §4 trigger, §5 name and description, §6
-idempotent creation) and the standard GATT and LAN classes are `target` until the iOS change in
-[PC-20261117-device-bot-contract](../../../docs/protocol-changes/PC-20261117-device-bot-contract.md)
-lands. Android is `target` for every class and stays blocked by GAP-20 and the Android half of
+idempotent creation) are `implemented` on iOS (PC-20261117-device-bot-contract). The standard GATT
+and LAN triggers are `implemented` on iOS at the call sites below (unit-tested on the real decision
+functions; no real GATT peripheral or LAN device run). Android is `target` for every class and stays blocked by GAP-20 and the Android half of
 [device-panel](device-panel.md). No real-device run covers GATT or LAN.
 Owner: P07 (device trigger, key, text); the persisted map is P18.
 
@@ -130,7 +130,7 @@ Consequences, each exercised by a vector:
 
 | End | State |
 | --- | --- |
-| iOS | Link and board: `implemented` in the earlier form; the rest of this file `target` |
+| iOS | Link, board, standard GATT and LAN: `implemented`; GATT/LAN not run on a real peripheral or LAN device |
 | Android | `target`; blocked by GAP-20 and device-panel's Android half; no platform branch may stand in |
 | Desktop | no change; sees an ordinary Bot |
 
@@ -145,3 +145,19 @@ Consequences, each exercised by a vector:
 The oracle is a spec checker, not runtime conformance. The iOS registry must be moved into a
 library target and run the same file through its real functions; Android must do the same when it
 implements this file.
+
+## 9. iOS trigger call sites and recorded decisions
+
+- **Standard GATT:** the trigger fires only from the user's off→on toggle of a read or alert grant in
+  the BLE device page (`BLEDeviceStore.userGrant`, decision `GattBotTrigger.decide`), compared after
+  the grant ran. A bare connection, scan, trust restore or the `trustConnectedDevices` default never
+  fires. A Link device or the TonoLink board is not a GATT class device. A read grant on a device with
+  no discovered profile still fires, with an empty profile list. Known edge: a toggle made before the
+  Link identity or `tools/list` arrives can create a `gatt:` Bot first and a Link Bot later (two keys
+  for one device; recorded, not prevented).
+- **LAN MCP:** the trigger fires when the user saves the grant and the `Authorization` credential for
+  an endpoint (MCP settings save path, decision `LANGrantTrigger.newlySaved`). Decision: only
+  `https://H[:port]/mcp` with a canonical host, no userinfo, query or fragment counts; `http` never
+  does. lan-mcp.md has no rule that separates a LAN host from a public one, so any such HTTPS endpoint
+  counts. Narrowing to private or `.local` hosts is a separate contract change. Re-saving an unchanged
+  endpoint does not fire; adding the credential later, or changing host or port, does.
