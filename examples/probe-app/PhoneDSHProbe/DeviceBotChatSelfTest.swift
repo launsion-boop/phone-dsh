@@ -36,6 +36,11 @@ enum DeviceBotChatSelfTest {
     static let promptArgument = "-pdsh-selftest-prompt"
     static let nameArgument = "-pdsh-selftest-name"
     static let approveArgument = "-pdsh-selftest-approve"
+    /// `-pdsh-selftest-scenario list|remove` (default: the install journey). `list` asserts a DeviceAppList
+    /// result naming every app on the board; `remove` (with `-pdsh-selftest-remove-name <name>`) asserts a
+    /// DeviceAppRemove call, a customer-worded approval card and the app gone from the board.
+    static let scenarioArgument = "-pdsh-selftest-scenario"
+    static let removeNameArgument = "-pdsh-selftest-remove-name"
     static let totalCap: TimeInterval = 780
     static let turnCap: TimeInterval = 600
     static let defaultPrompt = "请为你这台设备的屏幕做一个简单的专注计时小应用（比如 25 分钟倒计时，按键开始、暂停、返回），写好检查后装到设备上。"
@@ -169,6 +174,10 @@ enum DeviceBotChatSelfTest {
             if let reason = turn.failure { fail(reason) }
 
             // 5. app.info.
+            let scenario = DeviceAppSelfTest.argumentValue(DeviceBotChatSelfTest.scenarioArgument) ?? "install"
+            if scenario != "install" {
+                return await verdictForListRemove(scenario: scenario, deviceID: deviceID, turn: turn)
+            }
             turn.digestMatches = await checkInstalled(deviceID: deviceID, turn: turn)
             writeAppFiles(turn)
 
@@ -181,6 +190,54 @@ enum DeviceBotChatSelfTest {
             facts["verdict"] = ["stage_ok": turn.stageOK, "approval_raised": turn.approvalID != nil,
                                 "install_ok": turn.installOK, "digest_equal": turn.digestMatches]
             log("final", facts["verdict"] as? [String: Any] ?? [:])
+            return ok
+        }
+
+        /// `list` / `remove` scenarios: the model's tool outputs against the board's own `app.info`.
+        func verdictForListRemove(scenario: String, deviceID: UUID, turn: Turn) async -> Bool {
+            var boardNames: [String] = []
+            do {
+                let outcome = try await callLinkTool(
+                    deviceID: deviceID, name: "app.info", arguments: .object([:]),
+                    idempotencyKey: "selftest.botchat.info.\(UUID().uuidString.lowercased())", origin: .user)
+                if case .completed(_, let reply) = outcome, let result = reply["result"], result["ok"]?.boolValue == true {
+                    boardNames = (result["apps"]?.arrayValue ?? []).compactMap { $0["name"]?.stringValue }
+                }
+            } catch { fail("app.info: \(error)") }
+            if boardNames.isEmpty { fail("app.info returned no apps") }
+            var ok = !boardNames.isEmpty
+            var verdict: [String: Any] = ["scenario": scenario, "board_apps": boardNames.count]
+            func decodedNames(_ text: String) -> [String] {
+                (jsonObject(text)?["apps"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []
+            }
+            if scenario == "list" {
+                let names = decodedNames(turn.listOutput)
+                let missing = boardNames.filter { !names.contains($0) }
+                verdict["list_called"] = !turn.listOutput.isEmpty
+                verdict["list_names"] = names.count
+                verdict["list_missing_from_result"] = missing
+                if turn.listOutput.isEmpty { ok = false; fail("the model never called DeviceAppList") }
+                else if !missing.isEmpty { ok = false; fail("DeviceAppList result misses board apps: \(missing)") }
+            } else if scenario == "remove" {
+                let wanted = DeviceAppSelfTest.argumentValue(DeviceBotChatSelfTest.removeNameArgument) ?? ""
+                verdict["remove_name"] = turn.removeName
+                verdict["remove_output"] = String(turn.removeOutput.prefix(300))
+                verdict["approval_detail"] = turn.approvalDetail
+                verdict["app_gone_from_board"] = !wanted.isEmpty && !boardNames.contains(wanted)
+                if turn.removeName.isEmpty { ok = false; fail("the model never called DeviceAppRemove") }
+                else if !wanted.isEmpty, turn.removeName != wanted { ok = false; fail("DeviceAppRemove named \(turn.removeName), wanted \(wanted)") }
+                if turn.approvalID == nil { ok = false; fail("no approval row was raised for the removal") }
+                let detail = turn.approvalDetail
+                let hex64 = detail.range(of: "[0-9a-f]{64}", options: .regularExpression) != nil
+                let uuid = detail.range(of: "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-", options: .regularExpression) != nil
+                if hex64 || uuid || detail.contains("/apps") || detail.contains("app.remove") {
+                    ok = false; fail("the removal card leaks a digest, id or path: \(detail)")
+                }
+                if !detail.contains("应用：") || !detail.contains("不能恢复") { ok = false; fail("the removal card lacks the customer wording: \(detail)") }
+                if wanted.isEmpty || boardNames.contains(wanted) { ok = false; fail("the app \(wanted) is still on the board") }
+            }
+            facts["verdict"] = verdict
+            log("final", verdict)
             return ok
         }
 
@@ -389,6 +446,11 @@ enum DeviceBotChatSelfTest {
             var stageFiles: [(path: String, content: String)] = []
             var finalText = ""
             var failure: String?
+            var baselineIDs: Set<String> = []     // tool calls that existed before this prompt
+            var listOutput = ""
+            var removeName = ""
+            var removeOutput = ""
+            var approvalDetail = ""
         }
 
         func bare(_ name: String) -> String { name.components(separatedBy: "__").last ?? name }
@@ -488,6 +550,7 @@ enum DeviceBotChatSelfTest {
                 log("grants.revoked", ["app_grants_left": left])
             }
             let before = Set(model.rows.map(\.id))
+            do { var base = Turn(); collectCalls(model, into: &base); turn.baselineIDs = Set(base.calls.keys) }
             facts["prompt_sha256"] = Self.sha256(prompt)
             log("turn.send", ["prompt_chars": prompt.count, "rows_before": before.count])
             // The send path the TonoLink voice turn proved on this phone: admit durably (it starts the
@@ -546,7 +609,7 @@ enum DeviceBotChatSelfTest {
                     let approvalID = row.body.string("approvalID", "requestId", "id") ?? ""
                     let digest = row.body["digest"]?.string ?? ""
                     let detail = row.body.string("detail", "command", "text") ?? ""
-                    guard status == "pending", !digest.isEmpty, detail.contains("设备") else {
+                    guard status == "pending", !digest.isEmpty else {
                         if status != "pending", resolvedRows.contains(row.id) {
                             log("approval.status", ["row": row.id, "status": status])
                         }
@@ -555,6 +618,7 @@ enum DeviceBotChatSelfTest {
                     guard !resolvedRows.contains(row.id) else { continue }
                     resolvedRows.insert(row.id)
                     turn.approvalID = approvalID
+                    turn.approvalDetail = detail
                     turn.approvalRowID = row.id
                     let digest8 = String(turn.approvedDigest.prefix(8))
                     log("approval.raised", [
@@ -699,8 +763,18 @@ enum DeviceBotChatSelfTest {
                     entry["output"] = String(call.output.prefix(400))
                     // The Worker's result row can carry only the text line of a success; the
                     // board's own `app.info` check below still decides the digest equality.
-                    if !call.isError, call.output.hasPrefix("已在设备上安装") { turn.installOK = true }
+                    if !call.isError, (call.output.hasPrefix("已在设备上安装") || call.output.hasPrefix("已装好")) { turn.installOK = true }
                 }
+            case DeviceAppToolNames.list where !turn.baselineIDs.contains(call.id):
+                entry["output"] = String(call.output.prefix(1500))
+                if !call.output.isEmpty { turn.listOutput = call.output }
+            case DeviceAppToolNames.remove where !turn.baselineIDs.contains(call.id):
+                if let args = jsonObject(call.argsRaw), let name = args["name"] as? String {
+                    turn.removeName = name
+                    entry["name_arg"] = name
+                }
+                entry["output"] = String(call.output.prefix(600))
+                if !call.output.isEmpty { turn.removeOutput = call.output }
             default:
                 break
             }

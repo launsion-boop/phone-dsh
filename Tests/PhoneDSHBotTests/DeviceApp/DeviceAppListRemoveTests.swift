@@ -142,7 +142,11 @@ final class DeviceAppListRemoveTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(apps[2]["title"]?.stringValue).contains("\n"))
         let message = try XCTUnwrap(result.structuredContent?["message"]?.stringValue)
         XCTAssertTrue(message.hasPrefix("设备上现在有 3 个设备应用：\n「专注计时器」（正在运行）\n「counter」"), message)
-        XCTAssertEqual(text(result), message)
+        // The model reads the text content, not structuredContent: it must decode to the whole
+        // object so the model sees each `name` that DeviceAppRemove needs.
+        let decoded = try JSONDecoder().decode(BotJSONValue.self, from: Data(text(result).utf8))
+        XCTAssertEqual(decoded["message"]?.stringValue, message)
+        XCTAssertEqual(decoded["apps"]?.arrayValue?.compactMap { $0["name"]?.stringValue }, ["focus_timer", "counter", "evil"])
         XCTAssertNotNil(result.structuredContent?["hint"]?.stringValue)
         // Read-only: no card, no audit, the device is the binding.
         let pending = await rig.runtime.approvals.pendingIDs
@@ -157,7 +161,8 @@ final class DeviceAppListRemoveTests: XCTestCase {
         let rig = try await makeRig(); defer { rig.fixture.cleanup() }
         let result = try await registerAndExecute(rig.runtime, name: "DeviceAppList", sessionId: "gb-a")
         XCTAssertEqual(result.structuredContent?["count"]?.intValue, 0)
-        XCTAssertEqual(text(result), "设备上现在没有设备应用。")
+        XCTAssertEqual(result.structuredContent?["message"]?.stringValue, "设备上现在没有设备应用。")
+        XCTAssertTrue(text(result).contains("设备上现在没有设备应用。"))
     }
 
     func testListNeverTakesADeviceOrAnyArgumentFromTheModel() async throws {
@@ -483,10 +488,10 @@ final class DeviceAppListRemoveTests: XCTestCase {
 
     func testAuthoringGuideTellsTheBotItCanListAndRemove() {
         let text = DeviceAppAuthoringGuide.text
-        XCTAssertEqual(DeviceAppAuthoringGuide.version, 3)
+        XCTAssertEqual(DeviceAppAuthoringGuide.version, 4)
         XCTAssertLessThanOrEqual(text.unicodeScalars.count, DeviceAppAuthoringGuide.maxScalars)
-        for needle in ["【设备应用作者指南 v3】", "DeviceAppList", "DeviceAppRemove", "2 分钟", "允许",
-                       "不能恢复", "name"] {
+        for needle in ["【设备应用作者指南 v4】", "DeviceAppList", "DeviceAppRemove", "2 分钟", "允许",
+                       "不能恢复", "name", "绝不要用 DeviceAppStage+DeviceAppInstall", "卸载"] {
             XCTAssertTrue(text.contains(needle), needle)
         }
     }
