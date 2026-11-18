@@ -398,6 +398,8 @@ internal fun HostShell(
     val permissionDefaults by engine.permissionDefaults.collectAsState()
     val configurationFacts by engine.configuration.collectAsState()
     val agentPresetFacts by engine.agentPresets.collectAsState()
+    val dshApprovals by engine.dshApprovals.collectAsState()
+    val nextStepsUsage by engine.nextStepsUsage.collectAsState()
     val context = LocalContext.current
     // The composition root owns the Bot driver/store/channel; this shell only
     // passes plain values into `:lib`. A construction failure leaves the tab
@@ -1113,7 +1115,20 @@ internal fun HostShell(
             cloudTasksBusy = cloudTaskFacts.busy,
         ),
         lan = lanFacts,
+        // The two local stores behind the phone-permissions page's 常用授权 and
+        // 建议卡使用 sections (iOS reads them on appear).
+        phonePermissions = facts.phonePermissions.copy(
+            dshApprovals = dshApprovals,
+            nextStepsUsage = nextStepsUsage,
+        ),
     )
+    LaunchedEffect(nav.current) {
+        // Grants expire after 24 hours and Bot turns add usage in the background:
+        // re-read both whenever a page that shows them comes up.
+        if (nav.current == PdshRoute.PhonePermissions || nav.current == PdshRoute.Settings ||
+            nav.current == PdshRoute.SettingsMore
+        ) engine.refreshLocalPermissionFacts()
+    }
     LaunchedEffect(chatUi.commandExecution?.id) {
         if (chatUi.commandExecution != null) pushRoute(PdshRoute.CommandResult)
     }
@@ -1287,6 +1302,7 @@ internal fun HostShell(
                         nav = nav,
                         facts = shownFacts,
                         botDriver = botPlatform?.driver,
+                        botNextSteps = engine.botNextSteps,
                         botContext = botPlatform?.context
                             ?: com.phonedsh.ui.bot.state.BotUiContext(
                                 botID = "main",
@@ -1557,6 +1573,8 @@ internal fun HostShell(
                         // it (see `HostPhonePermissions.kt`).
                         onPhonePermissionRequest = onPhonePermissionRequest,
                         onPhonePermissionSettings = onPhonePermissionSettings,
+                        onPhoneDshApprovalsClear = engine::clearDshApprovals,
+                        onPhoneNextStepsUsageClear = engine::clearNextStepsUsage,
                         // PCLink C5: the two PC routes render the controller's
                         // snapshot; the scanner is a host composable because :lib
                         // carries no camera dependency.
@@ -1738,6 +1756,9 @@ internal fun HostShell(
                         },
                         permissionDenyAvailability = com.phonedsh.ui.nav.PdshActionAvailability.Available { pending ->
                             engine.answerChatPermission(pending, false)
+                        },
+                        permissionAlwaysAvailability = com.phonedsh.ui.nav.PdshActionAvailability.Available { pending ->
+                            engine.answerChatPermissionAlways(pending)
                         },
                         chatSubpages = com.phonedsh.ui.page.ChatSubpageFacts(
                             commandExecution = chatUi.commandExecution,

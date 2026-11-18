@@ -37,6 +37,8 @@ public object UiTags {
 
     public const val APPROVAL_PRIMARY: String = "pdsh.approval.primary"
     public const val APPROVAL_SECONDARY: String = "pdsh.approval.secondary"
+    /** The 总是允许 control (iOS `chat.permission.always`). */
+    public const val APPROVAL_ALWAYS: String = "pdsh.approval.always"
 
     public const val BANNER_RETRY: String = "pdsh.banner.retry"
     public const val BANNER_DISMISS: String = "pdsh.banner.dismiss"

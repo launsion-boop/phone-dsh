@@ -73,6 +73,7 @@
 // baseline's `PageSection` uses. Nothing here re-types a dp, an sp or a colour.
 package com.phonedsh.ui.page
 
+import com.phonedsh.ui.bot.state.BotNextStepsMetrics
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -492,6 +493,21 @@ public data class PhonePermissionsFacts(
     public val requesting: PhoneCapability? = null,
     public val audit: List<PhoneCapabilityAuditRecord>? = null,
     public val grantRoutes: Map<PhoneCapability, PhoneGrantRoute> = emptyMap(),
+    /** Active DSH "always allow" grants, newest first; `null` when the host did not report them. */
+    public val dshApprovals: List<DshApprovalGrantRow>? = null,
+    /** Local next-steps card usage; `null` when the host did not report it. */
+    public val nextStepsUsage: BotNextStepsMetrics.Snapshot? = null,
+)
+
+/**
+ * One standing DSH approval (iOS `DSHApprovalGrant`): a session plus a scope such
+ * as `bash:read-only` or `tool:read`, decided at [decidedAtMs].
+ */
+@Immutable
+public data class DshApprovalGrantRow(
+    public val sessionID: String,
+    public val scope: String,
+    public val decidedAtMs: Long,
 )
 
 // ---------------------------------------------------------------------------
@@ -594,6 +610,10 @@ public data class PhonePermissionsScreenState(
     public val disableNoticeBody: String? = null,
     /** The audit rows, or `null` when the host did not report an audit. */
     public val audit: List<PhoneCapabilityAuditRowState>? = null,
+    /** Active DSH "always allow" grants, or `null` when the host did not report them. */
+    public val dshApprovals: List<DshApprovalGrantRow>? = null,
+    /** Local next-steps card usage, or `null` when the host did not report it. */
+    public val nextStepsUsage: BotNextStepsMetrics.Snapshot? = null,
 ) {
     public companion object {
         /** The baseline shows the last 20 records (`PhonePermissionsPage.swift:91`). */
@@ -637,6 +657,8 @@ public data class PhonePermissionsScreenState(
                                 "egress ${record.egress}",
                         )
                     },
+                dshApprovals = facts.dshApprovals,
+                nextStepsUsage = facts.nextStepsUsage,
             )
         }
 
@@ -799,6 +821,8 @@ public fun PhonePermissionsPage(
     onCancelConfirmation: () -> Unit = {},
     onAcknowledgeDisable: () -> Unit = {},
     onDismissDisable: () -> Unit = {},
+    onClearDshApprovals: () -> Unit = {},
+    onClearNextStepsUsage: () -> Unit = {},
 ) {
     if (embedded) {
         // The settings shell owns the bar and the segmented picker, so the tab body
@@ -818,6 +842,8 @@ public fun PhonePermissionsPage(
                 onToggleCapability = onToggleCapability,
                 onOpenSettings = onOpenSettings,
                 onManagePhotos = onManagePhotos,
+                onClearDshApprovals = onClearDshApprovals,
+                onClearNextStepsUsage = onClearNextStepsUsage,
             )
         }
     } else {
@@ -839,6 +865,8 @@ public fun PhonePermissionsPage(
                 onToggleCapability = onToggleCapability,
                 onOpenSettings = onOpenSettings,
                 onManagePhotos = onManagePhotos,
+                onClearDshApprovals = onClearDshApprovals,
+                onClearNextStepsUsage = onClearNextStepsUsage,
             )
         }
     }
@@ -872,6 +900,8 @@ private fun PhonePermissionsBody(
     onToggleCapability: (PhoneCapability, Boolean) -> Unit,
     onOpenSettings: (PhoneCapability) -> Unit,
     onManagePhotos: () -> Unit,
+    onClearDshApprovals: () -> Unit,
+    onClearNextStepsUsage: () -> Unit,
 ) {
     val tokens = LocalUiTokens.current
     LazyColumn(
@@ -898,6 +928,20 @@ private fun PhonePermissionsBody(
                     onManagePhotos = onManagePhotos,
                 )
             }
+        }
+        // PhonePermissionsPage.swift `permissionList`: capability groups, then the
+        // DSH standing approvals, the next-steps usage, and last the audit.
+        item(key = "dsh-approvals-header") {
+            SessionSectionLabel(UiStrings.PHONE_PERMISSIONS_DSH_APPROVALS_SECTION)
+        }
+        item(key = "dsh-approvals") {
+            DshApprovalsCard(state.dshApprovals, onClear = onClearDshApprovals)
+        }
+        item(key = "next-steps-header") {
+            SessionSectionLabel(UiStrings.PHONE_PERMISSIONS_NEXT_STEPS_SECTION)
+        }
+        item(key = "next-steps") {
+            NextStepsUsageCard(state.nextStepsUsage, onClear = onClearNextStepsUsage)
         }
         item(key = "audit-header") {
             SessionSectionLabel(UiStrings.PHONE_PERMISSIONS_AUDIT_SECTION)
@@ -1089,6 +1133,115 @@ private fun AuditCard(audit: List<PhoneCapabilityAuditRowState>?) {
     }
 }
 
+/**
+ * PhonePermissionsPage.swift `dshApprovalSection`: each active grant (scope in code
+ * type, the session's first 28 characters, how long ago), then 清空 DSH 常用授权.
+ */
+@Composable
+private fun DshApprovalsCard(grants: List<DshApprovalGrantRow>?, onClear: () -> Unit) {
+    val tokens = LocalUiTokens.current
+    val type = LocalUiType.current
+    PermissionsInfoCard(tag = UiPageTags.PHONE_PERMISSIONS_DSH_APPROVALS) {
+        when {
+            grants == null -> BasicText(
+                text = UiStrings.PHONE_PERMISSIONS_DSH_APPROVALS_UNKNOWN,
+                style = type.caption.copy(color = tokens.colors.tertiary),
+            )
+            grants.isEmpty() -> BasicText(
+                text = UiStrings.PHONE_PERMISSIONS_DSH_APPROVALS_EMPTY,
+                style = type.secondary.copy(color = tokens.colors.secondary),
+            )
+            else -> {
+                val now = System.currentTimeMillis()
+                grants.forEach { grant ->
+                    Column(verticalArrangement = Arrangement.spacedBy(tokens.spacing.badgeInsetV)) {
+                        BasicText(grant.scope, style = type.code.copy(color = tokens.colors.primary))
+                        BasicText(
+                            UiStrings.PHONE_PERMISSIONS_DSH_APPROVALS_SESSION.format(grant.sessionID.take(28)),
+                            style = type.caption.copy(color = tokens.colors.secondary),
+                        )
+                        BasicText(
+                            android.text.format.DateUtils.getRelativeTimeSpanString(
+                                grant.decidedAtMs, now, android.text.format.DateUtils.MINUTE_IN_MILLIS,
+                            ).toString(),
+                            style = type.caption.copy(color = tokens.colors.secondary),
+                        )
+                    }
+                }
+                SessionTextAction(
+                    label = UiStrings.PHONE_PERMISSIONS_DSH_APPROVALS_CLEAR,
+                    onClick = onClear,
+                    tone = SessionActionTone.DANGER,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * PhonePermissionsPage.swift `nextStepsUsageSection`: eligible turns, turns with a
+ * steps card and the usage rate (accent at ≥90 %, warning below), then 清空本地统计.
+ */
+@Composable
+private fun NextStepsUsageCard(usage: BotNextStepsMetrics.Snapshot?, onClear: () -> Unit) {
+    val tokens = LocalUiTokens.current
+    val type = LocalUiType.current
+    PermissionsInfoCard(tag = UiPageTags.PHONE_PERMISSIONS_NEXT_STEPS) {
+        when {
+            usage == null -> BasicText(
+                text = UiStrings.PHONE_PERMISSIONS_NEXT_STEPS_UNKNOWN,
+                style = type.caption.copy(color = tokens.colors.tertiary),
+            )
+            usage.turnsWithOptions == 0 -> BasicText(
+                text = UiStrings.PHONE_PERMISSIONS_NEXT_STEPS_EMPTY,
+                style = type.secondary.copy(color = tokens.colors.secondary),
+            )
+            else -> {
+                BasicText(
+                    UiStrings.PHONE_PERMISSIONS_NEXT_STEPS_OPTIONS.format(usage.turnsWithOptions),
+                    style = type.body.copy(color = tokens.colors.primary),
+                )
+                BasicText(
+                    UiStrings.PHONE_PERMISSIONS_NEXT_STEPS_CARDS.format(usage.turnsWithStepsCard),
+                    style = type.body.copy(color = tokens.colors.primary),
+                )
+                BasicText(
+                    UiStrings.PHONE_PERMISSIONS_NEXT_STEPS_RATE.format(Math.round(usage.usageRate * 100).toInt()),
+                    style = type.secondary.copy(
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                        color = if (usage.usageRate >= 0.9) tokens.colors.accent else tokens.colors.warning,
+                    ),
+                )
+                SessionTextAction(
+                    label = UiStrings.PHONE_PERMISSIONS_NEXT_STEPS_CLEAR,
+                    onClick = onClear,
+                    tone = SessionActionTone.DANGER,
+                )
+            }
+        }
+    }
+}
+
+/** The hairline card the audit uses, shared by the two local-state sections. */
+@Composable
+private fun PermissionsInfoCard(tag: String, content: @Composable () -> Unit) {
+    val tokens = LocalUiTokens.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(tag)
+            .border(
+                width = tokens.stroke.hairline,
+                color = tokens.colors.border,
+                shape = RoundedCornerShape(tokens.radius.card),
+            )
+            .padding(tokens.spacing.cardInset),
+        verticalArrangement = Arrangement.spacedBy(tokens.spacing.cardInset),
+    ) {
+        content()
+    }
+}
+
 /** One audit record: the tool and its outcome, then the capability and the time. */
 @Composable
 private fun AuditRow(record: PhoneCapabilityAuditRowState) {
@@ -1259,6 +1412,7 @@ internal object PhonePermissionsPageTokens {
         UiTokenNames.COLORS_SUCCESS,
         UiTokenNames.COLORS_WARNING,
         UiTokenNames.COLORS_DANGER,
+        UiTokenNames.COLORS_ACCENT,
         UiTokenNames.TYPOGRAPHY_HEADLINE,
         UiTokenNames.TYPOGRAPHY_SUBHEADLINE,
         UiTokenNames.TYPOGRAPHY_SECONDARY,

@@ -1580,6 +1580,37 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
 
     /** The resolved preferences; a write publishes a new value. */
     internal val preferenceState: StateFlow<Preferences> = preferenceStore.state
+    /**
+     * The app-local DSH "always allow" (iOS `DSHApprovalMemory`) and the Bot
+     * next-steps usage counts (iOS `BotNextStepsMetrics`): both only live on this
+     * phone and both are listed, and cleared, on the phone-permissions page.
+     */
+    private val dshApprovalMemory = DshApprovalMemory(SharedPreferencesDshApprovalFile(application))
+    private val mutableDshApprovals = MutableStateFlow(dshApprovalMemory.activeGrants())
+    internal val dshApprovals: StateFlow<List<com.phonedsh.ui.page.DshApprovalGrantRow>> = mutableDshApprovals.asStateFlow()
+    private val nextStepsStore = SharedPreferencesBotNextStepsCountStore(application)
+    internal val botNextSteps = com.phonedsh.ui.bot.state.BotNextStepsMetrics(nextStepsStore)
+    private val mutableNextStepsUsage = MutableStateFlow(botNextSteps.snapshot())
+    internal val nextStepsUsage: StateFlow<com.phonedsh.ui.bot.state.BotNextStepsMetrics.Snapshot> = mutableNextStepsUsage.asStateFlow()
+
+    /** Re-reads both local stores; the page calls this when it opens and after a write. */
+    internal fun refreshLocalPermissionFacts() {
+        mutableDshApprovals.value = dshApprovalMemory.activeGrants()
+        mutableNextStepsUsage.value = botNextSteps.snapshot()
+    }
+
+    /** 清空 DSH 常用授权 (iOS `DSHApprovalMemory.clearAll()`). */
+    internal fun clearDshApprovals() {
+        dshApprovalMemory.clearAll()
+        refreshLocalPermissionFacts()
+    }
+
+    /** 清空本地统计 (iOS `BotNextStepsMetrics.clear()`). */
+    internal fun clearNextStepsUsage() {
+        botNextSteps.clear()
+        refreshLocalPermissionFacts()
+    }
+
     private val mutablePermissionDefaults = MutableStateFlow(PermissionDefaultsHostState())
     internal val permissionDefaults: StateFlow<PermissionDefaultsHostState> = mutablePermissionDefaults.asStateFlow()
     private val defaultPermissionGateway = DefaultPermissionGateway(mutablePermissionDefaults)
@@ -3190,12 +3221,81 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     ) {
         if (mutableChat.value.chatId != chatId) return
         chatResponders[request.eventID] = ChatResponder(request, responder)
-        val node = pendingRequestNode(chatId, request)
+        var node = pendingRequestNode(chatId, request)
+        // iOS `ChatPermission.alwaysGrantKey` + `presentPermission`: a permission
+        // carries the scope a standing grant would cover (or none), and a live
+        // grant for this session+scope is answered without asking again.
+        val approval = if (request.eventKind == "approval/request") approvalScope(chatId, request) else null
+        if (approval != null) {
+            node = node.copy(props = JsonObject(node.props.members + mapOf(
+                "alwaysScope" to JsonString(approval.scope),
+                "alwaysSession" to JsonString(approval.session),
+                "alwaysOffered" to JsonBool(approval.offered),
+            )))
+        }
         mutableChat.update { current ->
             if (current.chatId != chatId) current else current.copy(
                 pendingNodes = current.pendingNodes.filterNot { it.nodeID == node.nodeID } + node,
             )
         }
+        // A sandbox escalation is never answered from memory (stricter than iOS,
+        // which only hides the button): the user confirms each one.
+        if (approval != null && approval.offered && dshApprovalMemory.isAllowed(approval.session, approval.scope)) {
+            // The wire still says allowed-once; the standing answer is local.
+            submitChatAnswer(request.eventID, permissionOutcome(allowed = true))
+        }
+    }
+
+    /**
+     * The standing-grant facts of one permission request.
+     *
+     * @param scope iOS `ChatPermission.alwaysGrantKey`: what a standing grant would cover.
+     * @param offered whether 总是允许 may be offered (and a live grant applied):
+     *   false for a sandbox escalation, whose existing grant is still forgotten on
+     *   allow-once / deny exactly like iOS.
+     */
+    private data class ApprovalScope(val session: String, val scope: String, val offered: Boolean)
+
+    /**
+     * The standing-grant facts for a permission request, or `null` when it must
+     * stay one-shot. The tool's arguments are the latest call of that tool in this
+     * transcript, exactly like iOS `recentToolArguments[request.tool]`. Without a
+     * DSH session id there is no grant key at all: a chat-wide key would be wider
+     * than the iOS session key.
+     */
+    private fun approvalScope(
+        chatId: String,
+        request: com.phonedsh.dsh.turn.PendingRemoteRequest,
+    ): ApprovalScope? {
+        val body = request.request as? JsonObject ?: return null
+        val tool = (body["toolName"] as? JsonString)?.value ?: return null
+        val reason = (body["reason"] as? JsonString)?.value.orEmpty()
+        val current = mutableChat.value
+        if (current.chatId != chatId) return null
+        val session = current.workerSessionId?.takeIf { it.isNotEmpty() } ?: return null
+        val arguments = current.nodes.lastOrNull { node ->
+            node.kind == com.phonedsh.ui.projection.UiStateKind.TOOL_ROW &&
+                (node.props["name"] as? JsonString)?.value == tool &&
+                node.props["arguments"] != null
+        }?.let { DshApprovalPolicy.flattenArguments(it.props["arguments"]) }.orEmpty()
+        val scope = DshApprovalPolicy.grantKey(tool, arguments) ?: return null
+        val offered = DshApprovalPolicy.offeredScope(tool, reason, arguments) != null
+        return ApprovalScope(session, scope, offered)
+    }
+
+    private fun permissionOutcome(allowed: Boolean): JsonObject = JsonObject(mapOf(
+        "kind" to JsonString("result"),
+        "value" to JsonString(if (allowed) "allowed-once" else "rejected"),
+    ))
+
+    private fun pendingApprovalScope(requestId: String): ApprovalScope? {
+        val node = mutableChat.value.pendingNodes.firstOrNull {
+            (it.props["requestId"] as? JsonString)?.value == requestId
+        } ?: return null
+        val scope = (node.props["alwaysScope"] as? JsonString)?.value ?: return null
+        val session = (node.props["alwaysSession"] as? JsonString)?.value ?: return null
+        val offered = (node.props["alwaysOffered"] as? JsonBool)?.value == true
+        return ApprovalScope(session, scope, offered)
     }
 
     private fun removeChatRequest(requestId: String) {
@@ -3212,10 +3312,22 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     }
 
     internal fun answerChatPermission(pending: com.phonedsh.ui.state.PendingAnswer, allowed: Boolean) {
-        submitChatAnswer(pending.requestId, JsonObject(mapOf(
-            "kind" to JsonString("result"),
-            "value" to JsonString(if (allowed) "allowed-once" else "rejected"),
-        )))
+        // iOS `respond(to:decision:)`: once or deny must not leave an older
+        // standing grant behind; the next request asks again.
+        pendingApprovalScope(pending.requestId)?.let { (session, scope) ->
+            dshApprovalMemory.forget(session, scope)
+            refreshLocalPermissionFacts()
+        }
+        submitChatAnswer(pending.requestId, permissionOutcome(allowed))
+    }
+
+    /** 总是允许: remember session+scope for 24 hours, then answer allowed-once. */
+    internal fun answerChatPermissionAlways(pending: com.phonedsh.ui.state.PendingAnswer) {
+        val approval = pendingApprovalScope(pending.requestId) ?: return
+        if (!approval.offered) return
+        dshApprovalMemory.remember(approval.session, approval.scope)
+        refreshLocalPermissionFacts()
+        submitChatAnswer(pending.requestId, permissionOutcome(allowed = true))
     }
 
     internal fun dismissChatQuestion(pending: com.phonedsh.ui.state.PendingAnswer) {

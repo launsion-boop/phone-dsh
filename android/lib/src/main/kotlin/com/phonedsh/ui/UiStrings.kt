@@ -50,6 +50,8 @@ public object UiStrings {
 
     // Pending answers
     public const val ALLOW_ONCE: String = "允许一次"
+    /** ChatPage.swift `PermissionCardView`: the standing grant, only for a safe scope. */
+    public const val ALLOW_ALWAYS: String = "总是允许"
     public const val DENY: String = "拒绝"
     public const val SUBMIT_ANSWER: String = "提交"
     public const val MORE_PENDING: String = "还有 1 个待确认"
@@ -1463,8 +1465,8 @@ public object UiStrings {
     public const val MARKDOWN_LINK_OPEN_FAILED: String = "打不开这个链接"
 
     // Transcript chrome (ChatPage.swift `transcript`).
-    public const val LOAD_EARLIER: String = "加载更早消息"
-    public const val LOADING_EARLIER: String = "正在加载…"
+    public const val LOAD_EARLIER: String = "上滑加载更早消息"
+    public const val LOADING_EARLIER: String = "正在加载更早消息"
     public const val TRANSCRIPT_CACHED: String = "显示上次对话 · 引擎后台启动中…"
     public const val BACK_TO_LATEST: String = "回到最新"
 
@@ -1759,6 +1761,19 @@ public object UiStrings {
     public const val PHONE_PERMISSIONS_AUDIT_SECTION: String = "最近使用审计"
     public const val PHONE_PERMISSIONS_AUDIT_EMPTY: String = "暂无使用记录"
     public const val PHONE_PERMISSIONS_AUDIT_UNKNOWN: String = "宿主没有报告使用审计，暂不判断有没有记录。"
+    // PhonePermissionsPage.swift `dshApprovalSection` / `nextStepsUsageSection`.
+    public const val PHONE_PERMISSIONS_DSH_APPROVALS_SECTION: String = "DSH 会话常用授权"
+    public const val PHONE_PERMISSIONS_DSH_APPROVALS_EMPTY: String = "暂无。只有在 DSH 会话里点过「总是允许」才会出现；24 小时后自动失效。"
+    public const val PHONE_PERMISSIONS_DSH_APPROVALS_UNKNOWN: String = "宿主没有报告常用授权，暂不判断有没有记录。"
+    public const val PHONE_PERMISSIONS_DSH_APPROVALS_SESSION: String = "会话 %s"
+    public const val PHONE_PERMISSIONS_DSH_APPROVALS_CLEAR: String = "清空 DSH 常用授权"
+    public const val PHONE_PERMISSIONS_NEXT_STEPS_SECTION: String = "建议卡使用（本地）"
+    public const val PHONE_PERMISSIONS_NEXT_STEPS_EMPTY: String = "还没有足够的数据。此统计只留在本机，不上传。"
+    public const val PHONE_PERMISSIONS_NEXT_STEPS_UNKNOWN: String = "宿主没有报告建议卡统计。"
+    public const val PHONE_PERMISSIONS_NEXT_STEPS_OPTIONS: String = "含 2–4 个下一步的回合：%d"
+    public const val PHONE_PERMISSIONS_NEXT_STEPS_CARDS: String = "其中出现建议卡：%d"
+    public const val PHONE_PERMISSIONS_NEXT_STEPS_RATE: String = "使用率：%d%%"
+    public const val PHONE_PERMISSIONS_NEXT_STEPS_CLEAR: String = "清空本地统计"
     public const val PHONE_PERMISSIONS_CONFIRM_TITLE: String = "允许使用这项能力？"
     public const val PHONE_PERMISSIONS_CONTINUE: String = "继续"
     public const val PHONE_PERMISSIONS_DISABLE_TITLE: String = "已停用应用内使用"
