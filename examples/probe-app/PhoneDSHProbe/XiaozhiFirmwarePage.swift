@@ -492,4 +492,64 @@ struct XiaozhiFirmwarePage: View {
         }
     }
 }
+
+/// Headless end-to-end hook (spec §8): `PDSH_XIAOZHI_E2E=<mac>` starts the relay, creates the device Bot,
+/// builds the reference firmware on the phone and stages it for `<mac>` on the relay — the whole phone side
+/// of a flash, minus the UI approval. Writes Documents/xiaozhi-e2e.json. A Wi-Fi client (or the board) then
+/// sees an `offer` from the relay and downloads the image. Used by the device E2E; never in Release.
+@MainActor enum XiaozhiE2EDiagnostics {
+    static let environmentKey = "PDSH_XIAOZHI_E2E"
+
+    static func run(mac: String) async {
+        let output = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("xiaozhi-e2e.json")
+        var report: [String: Any] = ["mac": mac, "status": "running"]
+        func save() { if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: output, options: .atomic) } }
+        save()
+        try? await Task.sleep(for: .seconds(2))
+        let model = XiaozhiFirmwareModel.shared
+        await model.startRelayForDiagnostics()
+        report["relay_on"] = model.relay.isOn
+        report["ota_url"] = model.relay.otaURL as Any
+        guard model.relay.isOn else { report["status"] = "failed"; report["error"] = "relay not listening (no Wi-Fi?)"; save(); return }
+        let botID = await DeviceBotRegistry.shared.xiaozhiTrusted(mac: mac)
+        report["bot_id"] = botID as Any
+        guard botID != nil else { report["status"] = "failed"; report["error"] = "could not create the device Bot (bad MAC or runtime not ready)"; save(); return }
+
+        // Edit mode: append a comment to the first editable C/C++ source so the build's ELF differs from the
+        // board's current firmware (the relay then offers it instead of holding). A comment is a safe no-op.
+        var overrides: [String: Data] = [:]
+        if ProcessInfo.processInfo.environment["PDSH_XIAOZHI_E2E_EDIT"] != nil {
+            switch model.editableSources() {
+            case .failure(let error): report["status"] = "failed"; report["error"] = "edit: \(error.code) \(error.message)"; save(); return
+            case .success(let value):
+                guard let target = value.files.first(where: { $0.relativePath.hasSuffix(".cc") || $0.relativePath.hasSuffix(".c") }),
+                      let original = try? FirmwareBuilderSources.read(target) else {
+                    report["status"] = "failed"; report["error"] = "edit: no editable C/C++ source"; save(); return
+                }
+                // Prepend, so every code line below shifts: the debug line table changes and the ELF digest
+                // differs from the board's current firmware (a trailing comment leaves the ELF byte-identical).
+                let marker = "// phoneDSH xiaozhi OTA e2e \(Int(Date().timeIntervalSince1970))\n"
+                overrides[target.relativePath] = Data(marker.utf8) + original
+                report["edited_file"] = target.relativePath
+            }
+        }
+
+        report["status"] = "building"; save()
+        let builder = FirmwareBuilderModel.shared
+        let ok = await builder.build(overrides: overrides)
+        guard ok, let image = builder.image else {
+            report["status"] = "failed"; report["error"] = "build failed: \(builder.result)"; report["build"] = builder.report; save(); return
+        }
+        report["image"] = ["bytes": image.data.count, "sha256": builder.imageSHA256, "elf_sha256": image.elfSHA256,
+                           "version": image.version, "matches_reference": builder.matchesReference as Any]
+        report["status"] = "staging"; save()
+        do {
+            let staged = try model.relay.stage(mac: mac, image: image.data, elfSha256: image.elfSHA256)
+            report["staged"] = ["sha256": staged.sha256, "elf_sha256": staged.elfSha256, "url": staged.url]
+            report["status"] = "passed"; save()
+        } catch {
+            report["status"] = "failed"; report["error"] = "stage: \(error.localizedDescription)"; save()
+        }
+    }
+}
 #endif
