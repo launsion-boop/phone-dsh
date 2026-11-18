@@ -30,6 +30,7 @@ struct PhoneDSHProbeApp: App {
     init() {
         #if DEBUG
         DebugEngineQuarantine.runIfRequested()   // DEBUG recovery: moves chat-host aside, then exits
+        DebugChannel.shared.install()            // DEBUG developer control channel (spec/dev/debug-channel.md)
         #endif
         // P09 main-thread bound: start the hang evidence first, before any
         // scene work. The monitor writes through the same off-main status log
