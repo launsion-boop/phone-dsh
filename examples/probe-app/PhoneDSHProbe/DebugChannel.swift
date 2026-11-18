@@ -11,6 +11,7 @@ import PhoneDSHAgentCore
 import PhoneDSHBLE
 import PhoneDSHBot
 import PhoneDSHLoopback
+import SwiftUI
 import UIKit
 
 @MainActor
@@ -148,6 +149,7 @@ final class DebugChannel {
         case ("GET", "/grants"): return (200, Self.json(grants(device: request.query["device"])))
         case ("POST", "/grants"): return setGrants(args)
         case ("POST", "/link"): return await link(args)
+        case ("GET", "/ui/deviceapps.png"): return await renderDeviceApps(width: Double(request.query["width"] ?? "") ?? 390)
         case ("GET", "/deviceapps"): return await deviceApps(device: request.query["device"], action: nil, name: nil)
         case ("POST", "/deviceapps/act"): return await deviceApps(device: args["device"] as? String, action: args["action"] as? String, name: args["name"] as? String)
         case ("POST", "/devices/connect"): return connectDevice(args)
@@ -157,7 +159,7 @@ final class DebugChannel {
         case ("GET", "/turn"): return await turn(wait: Double(request.query["wait"] ?? "") ?? 0)
         default: return (404, Self.json(["error": "unknown route", "routes": [
             "GET /info", "GET /bots", "GET /devices", "GET /logs?name=voice|status&lines=", "GET /approvals?bot=",
-            "POST /approve", "GET|POST /grants", "POST /link", "GET /deviceapps?device=", "POST /deviceapps/act", "POST /devices/connect", "POST /bots/create", "POST /bots/delete", "POST /chat", "GET /turn?wait="]]))
+            "POST /approve", "GET|POST /grants", "POST /link", "GET /ui/deviceapps.png?width=", "GET /deviceapps?device=", "POST /deviceapps/act", "POST /devices/connect", "POST /bots/create", "POST /bots/delete", "POST /chat", "GET /turn?wait="]]))
         }
     }
 
@@ -195,6 +197,35 @@ final class DebugChannel {
             ["id": $0.id.uuidString, "name": $0.name, "state": $0.state, "link_state": $0.linkState,
              "link_device_id": $0.linkDeviceID, "tools": $0.linkTools, "granted_tools": $0.grantedTools.sorted(), "rssi": $0.rssi]
         }
+    }
+
+    /// DEBUG layout check: renders `DeviceAppsPage` over a stubbed link (long title, duplicate titles, a running
+    /// app, a unique short title) with `ImageRenderer` and returns the PNG as base64 JSON. No device is touched.
+    private func renderDeviceApps(width: Double) async -> (Int, Data) {
+        func app(_ name: String, _ title: String, _ version: Int, _ running: Bool) -> JSONValue {
+            .object(["name": .string(name), "title": .string(title), "version": .number(Double(version)),
+                     "running": .bool(running), "digest": .string(String(repeating: "a", count: 64))])
+        }
+        let apps: [JSONValue] = [
+            app("breathe", "呼吸 4-4-6", 2, true), app("clock", "时钟", 0, false),
+            app("focus", "专注计时", 1, false), app("focus_timer", "专注计时", 2, false),
+            app("long_one", "这是一个名字特别特别长的设备应用用来检查换行和裁切是否正常", 1, false),
+            app("minesweeper", "扫雷", 1, false), app("woodfish", "电子木鱼", 1, true),
+        ]
+        let link = DeviceAppsLink(
+            connected: { true },
+            info: { .reply(.object(["ok": .bool(true), "apps": .array(apps), "free_bytes": .number(4_730_880)])) },
+            run: { _ in nil }, stop: { nil }, remove: { _ in nil })
+        let model = DeviceAppsPageModel(link: link)
+        await model.refresh()
+        let view = DeviceAppsPage(model: model, scrolls: false)
+            .frame(width: width, alignment: .topLeading)
+            .background(Color(.systemGroupedBackground))
+            .environment(\.colorScheme, .light)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 2
+        guard let png = renderer.uiImage?.pngData() else { return (500, Self.json(["error": "render failed"])) }
+        return (200, Self.json(["width": width, "bytes": png.count, "png_base64": png.base64EncodedString()]))
     }
 
     /// The device-apps page's own model (DeviceAppsPageModel over the real user-origin Link path): what the

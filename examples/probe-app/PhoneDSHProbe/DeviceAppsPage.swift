@@ -50,57 +50,31 @@ enum DeviceAppsLinkFactory {
 /// The page itself.
 struct DeviceAppsPage: View {
     @StateObject private var model: DeviceAppsPageModel
-    private let device: BLEDeviceStore.Device
-    private let store: BLEDeviceStore
+    private let device: BLEDeviceStore.Device?
+    private let store: BLEDeviceStore?
+    /// false only for the DEBUG layout render (ImageRenderer draws no ScrollView content).
+    private let scrolls: Bool
 
     init(device: BLEDeviceStore.Device, store: BLEDeviceStore) {
         self.device = device
         self.store = store
+        self.scrolls = true
         _model = StateObject(wrappedValue: DeviceAppsPageModel(link: DeviceAppsLinkFactory.make(deviceID: device.id, store: store)))
     }
 
+    /// A page over a given model (DEBUG layout rendering with a stubbed link; no device behind it).
+    init(model: DeviceAppsPageModel, scrolls: Bool = true) {
+        self.device = nil
+        self.store = nil
+        self.scrolls = scrolls
+        _model = StateObject(wrappedValue: model)
+    }
+
     var body: some View {
-        List {
-            if let banner = model.banner {
-                Section {
-                    Text(banner.text)
-                        .font(.subheadline)
-                        .foregroundStyle(banner.isError ? Color.red : Color.green)
-                        .accessibilityIdentifier("device-apps-banner")
-                }
-            }
-            switch model.phase {
-            case .loading:
-                Section { ProgressView("正在读取设备上的应用…") }
-            case .notConnected:
-                Section { Text(DeviceAppCustomerText.pageNotConnected).foregroundStyle(.secondary) }
-                    .accessibilityIdentifier("device-apps-not-connected")
-            case .failed(let text):
-                Section { Text(text).foregroundStyle(.secondary) }
-            case .ready:
-                if let free = model.freeSpace {
-                    Section { Text(free).font(.footnote).foregroundStyle(.secondary) }
-                }
-                if model.rows.isEmpty {
-                    Section { Text(DeviceAppCustomerText.emptyDevice).foregroundStyle(.secondary) }
-                        .accessibilityIdentifier("device-apps-empty")
-                } else {
-                    Section {
-                        ForEach(model.rows) { row in rowView(row) }
-                    } header: { Text("设备上的应用") }
-                }
-            }
-            Section {
-                DisclosureGroup("高级") {
-                    NavigationLink {
-                        DevicePanelPage(device: device, store: store)
-                    } label: {
-                        Text("设备的原始面板")
-                    }
-                    .accessibilityIdentifier("device-apps-advanced-panel")
-                }
-            }
+        Group {
+            if scrolls { ScrollView { content.padding(16) } } else { content.padding(16) }
         }
+        .background(Color(.systemGroupedBackground))
         .navigationTitle("设备应用")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.refresh() }
@@ -114,30 +88,95 @@ struct DeviceAppsPage: View {
         }
     }
 
-    @ViewBuilder
-    private func rowView(_ row: DeviceAppsRow) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(row.title).font(.body)
-                if row.running {
-                    Text("运行中")
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Color.green.opacity(0.15), in: Capsule())
-                        .foregroundStyle(Color.green)
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let banner = model.banner {
+                Text(banner.text)
+                    .font(.subheadline)
+                    .foregroundStyle(banner.isError ? Color.red : Color.green)
+                    .accessibilityIdentifier("device-apps-banner")
+            }
+            switch model.phase {
+            case .loading:
+                ProgressView("正在读取设备上的应用…").frame(maxWidth: .infinity)
+            case .notConnected:
+                Text(DeviceAppCustomerText.pageNotConnected).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("device-apps-not-connected")
+            case .failed(let text):
+                Text(text).foregroundStyle(.secondary)
+            case .ready:
+                if let free = model.freeSpace {
+                    Text(free).font(.footnote).foregroundStyle(.secondary)
+                }
+                if model.rows.isEmpty {
+                    Text(DeviceAppCustomerText.emptyDevice).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("device-apps-empty")
+                } else {
+                    Text("设备上的应用").font(.footnote).foregroundStyle(.secondary)
+                    // Grid (not LazyVGrid): a row's two cards get the same height, and 22 cards are cheap.
+                    Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                        ForEach(Array(stride(from: 0, to: model.rows.count, by: 2)), id: \.self) { start in
+                            GridRow {
+                                rowView(model.rows[start])
+                                if start + 1 < model.rows.count { rowView(model.rows[start + 1]) } else { Color.clear }
+                            }
+                        }
+                    }
                 }
             }
-            if let detail = row.detail { Text(detail).font(.footnote).foregroundStyle(.secondary) }
-            HStack(spacing: 12) {
-                Button("打开") { Task { await model.open(row) } }
-                if row.running { Button("停止") { Task { await model.stop(row) } } }
-                Button("删除", role: .destructive) { model.requestDelete(row) }
+            DisclosureGroup("高级") {
+                if let device, let store {
+                    NavigationLink {
+                        DevicePanelPage(device: device, store: store)
+                    } label: {
+                        Text("设备的原始面板")
+                    }
+                    .accessibilityIdentifier("device-apps-advanced-panel")
+                }
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(model.busy)
+            .padding(.top, 8)
         }
-        .padding(.vertical, 4)
+    }
+
+    /// One app as a card in the two-column grid: tapping the card opens the app; the menu holds
+    /// 停止 (only while it runs) and 删除.
+    @ViewBuilder
+    private func rowView(_ row: DeviceAppsRow) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top) {
+                Text(row.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 4)
+                Menu {
+                    if row.running { Button("停止") { Task { await model.stop(row) } } }
+                    Button("删除", role: .destructive) { model.requestDelete(row) }
+                } label: {
+                    Image(systemName: "ellipsis.circle").font(.title3).foregroundStyle(.secondary)
+                }
+                .accessibilityLabel("更多")
+                .accessibilityIdentifier("device-app-more")
+            }
+            if row.running {
+                Text("运行中")
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.green.opacity(0.15), in: Capsule())
+                    .foregroundStyle(Color.green)
+            }
+            if let detail = row.detail { Text(detail).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
+            Spacer(minLength: 0)
+            Button("打开") { Task { await model.open(row) } }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(minHeight: 110)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .disabled(model.busy)
         .accessibilityIdentifier("device-app-row")
     }
 }

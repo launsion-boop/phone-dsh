@@ -8,6 +8,7 @@
   pdsh-debug.py approvals [--bot ID]      pending approval cards
   pdsh-debug.py approve --bot ID [--deny] [--row ROW]
   pdsh-debug.py deviceapps [DEVICE] [open|stop NAME]   the device-apps page's model on the real Link
+  pdsh-debug.py render-deviceapps OUT.png [WIDTH]   PNG of the device-apps page over stub data
   pdsh-debug.py connect DEVICE            scan and connect a BLE device (id or name)
   pdsh-debug.py create-bot NAME           a plain unbound Bot (for testing delete/chat)
   pdsh-debug.py delete-bot ID [ID...] [--full]
@@ -117,6 +118,11 @@ def main():
         dev = a0[0] if a0 and a0[0] not in ("open", "stop") else None
         rest = a0[1:] if dev else a0
         out = go("POST", "/deviceapps/act", {"device": dev, "action": rest[0], "name": rest[1]}) if len(rest) >= 2 else go("GET", "/deviceapps" + ("?device=" + dev if dev else ""))
+    elif c == "render-deviceapps":
+        import base64
+        r = go("GET", "/ui/deviceapps.png?width=%s" % (a.args[1] if len(a.args) > 1 else "390"))
+        open(a.args[0], "wb").write(base64.b64decode(r["png_base64"]))
+        out = {"saved": a.args[0], "bytes": r["bytes"]}
     elif c == "connect": out = go("POST", "/devices/connect", {"device": a.args[0]})
     elif c == "create-bot": out = go("POST", "/bots/create", {"name": a.args[0] if a.args else "debug-bot"})
     elif c == "delete-bot": out = go("POST", "/bots/delete", {"ids": a.args, "full": a.full})

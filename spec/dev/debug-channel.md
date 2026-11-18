@@ -33,6 +33,7 @@ Unknown route → `404` with the route list. Malformed request → `400`.
 | `GET /bots` | roster `{id,name,description,created_ms,device_key,main}`, `bindings` (`deviceBots.v1`), `intents` |
 | `GET /devices` | BLE devices `{id,name,state,link_state,link_device_id,tools,granted_tools,rssi}` |
 | `GET /deviceapps?device=` / `POST /deviceapps/act {device?,action:"open"\|"stop",name}` | the device-apps page's own model (`DeviceAppsPageModel` over the real user-origin Link path): rows `{name,title,detail,running}`, free space, phase; open/stop only, never delete (that confirmation is the user's tap) |
+| `GET /ui/deviceapps.png?width=` | layout check: `DeviceAppsPage` over stub data (long title, duplicate titles, running apps) rendered with `ImageRenderer` as base64 PNG JSON; no device is touched (menus and some controls draw as placeholders in this renderer) |
 | `POST /devices/connect {device}` | scan and connect a device by id or name |
 | `GET /logs?name=voice\|status&lines=N` | tail of `tonolink-voice.log` / `chat-status.log` (token line removed) |
 | `POST /bots/create {name,description?}` | a plain unbound Bot (for testing) |
