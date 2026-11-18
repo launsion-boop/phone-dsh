@@ -236,6 +236,15 @@ public enum BotToolEffectClassifier {
         case DeviceAppToolNames.install:
             return DeviceAppToolEffects.classifierInstallEffect(
                 digest: clip(args["digest"], max: 64), isMcp: isMcp)
+        case XiaozhiFirmwareToolNames.export:
+            return XiaozhiFirmwareToolEffects.exportEffect(isMcp: isMcp)
+        case XiaozhiFirmwareToolNames.build:
+            return XiaozhiFirmwareToolEffects.buildEffect(isMcp: isMcp)
+        case XiaozhiFirmwareToolNames.status:
+            return XiaozhiFirmwareToolEffects.statusEffect(isMcp: isMcp)
+        case XiaozhiFirmwareToolNames.flash:
+            return XiaozhiFirmwareToolEffects.classifierFlashEffect(
+                elfSha256: clip(args["elfSha256"], max: 64), isMcp: isMcp)
         case "CreateTeammate":
             let name = clip(args["name"], max: 80)
             let resource = mergedResource([

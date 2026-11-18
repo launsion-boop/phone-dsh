@@ -53,8 +53,9 @@ final class BotGoldenVectorTests: XCTestCase {
         XCTAssertEqual(vector.source.checkout, "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6")
         // 29 upstream vectors + DeviceAppStage and DeviceAppInstall (device-app-v1.1 overlay)
         // + DeviceAppList, DeviceAppRemove and two invalid-argument DeviceAppRemove vectors
-        // (device-app-v1.5 overlay) = 35.
-        XCTAssertEqual(vector.valid.count + vector.invalid.count, 35)
+        // (device-app-v1.5 overlay) + XiaozhiSourceExport, XiaozhiFirmwareBuild,
+        // XiaozhiFirmwareStatus and XiaozhiFirmwareFlash (xiaozhi-firmware-v1) = 39.
+        XCTAssertEqual(vector.valid.count + vector.invalid.count, 39)
         for call in vector.valid + vector.invalid {
             let actual = BotToolEffectClassifier.effect(for: call.name, arguments: call.args, language: .zh)
             XCTAssertEqual(BotToolEffectClassifier.policy(for: call.name, arguments: call.args),

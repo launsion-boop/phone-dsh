@@ -71,6 +71,10 @@ const AUTO_TOOLS = new Set([
   // device-app-v1.5: List is the host's `read + auto` (no card); Remove raises the
   // App's own once-only card exactly like Install, so it never gets a Worker card.
   'DeviceAppStage', 'DeviceAppInstall', 'DeviceAppList', 'DeviceAppRemove',
+  // xiaozhi-firmware-v1 tools are App-owned (`XiaozhiFirmwareToolHost`): export/build/status
+  // are host-classified auto effects; Flash raises the App's own once-only card. A Worker
+  // effect would be rejected as `stale:always_scope`.
+  'XiaozhiSourceExport', 'XiaozhiFirmwareBuild', 'XiaozhiFirmwareStatus', 'XiaozhiFirmwareFlash',
 ])
 // PR59's native-MCP "BLE tools" (`spec/v1/native-mcp.md`), forwarded by the
 // Bot server as `mcp__phone__ble_*`. PR59's per-connection grant is the real

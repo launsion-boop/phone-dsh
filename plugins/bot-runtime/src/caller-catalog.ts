@@ -25,6 +25,14 @@ export const CALLER_CATALOG_TOOL_NAMES = Object.freeze(['SendToAgent', 'CreateTe
 export const CALLER_CATALOG_DEVICE_APP_TOOL_NAMES = Object.freeze([
   'DeviceAppStage', 'DeviceAppInstall', 'DeviceAppList', 'DeviceAppRemove',
 ])
+/**
+ * xiaozhi-firmware-v1 host tools (spec/device/v1/xiaozhi-firmware.md section 6).
+ * Same deny-unless-listed rule: only a Bot bound to a `xiaozhi:` device key has
+ * them in its per-caller catalog (DEBUG builds with the host installed).
+ */
+export const CALLER_CATALOG_XIAOZHI_TOOL_NAMES = Object.freeze([
+  'XiaozhiSourceExport', 'XiaozhiFirmwareBuild', 'XiaozhiFirmwareStatus', 'XiaozhiFirmwareFlash',
+])
 
 const PHONE_TOOL_PREFIX = 'mcp__phone__'
 const DEFAULT_TIMEOUT_MS = 2_000
@@ -73,6 +81,8 @@ export interface CallerToolPlan {
   readonly includeCreateTeammate: boolean
   /** Device-app host tools the App lists for this caller (device-bound Bot). */
   readonly deviceAppTools: readonly string[]
+  /** Xiaozhi firmware host tools the App lists for this caller (`xiaozhi:`-bound Bot). */
+  readonly xiaozhiTools: readonly string[]
 }
 
 /** Derive the `/mcp` endpoint from the identity-register URL. */
@@ -180,6 +190,7 @@ export function planCallerCatalog(catalog: CallerCatalog | undefined): CallerToo
     descriptions: Object.freeze(descriptions),
     includeCreateTeammate: byName.has('CreateTeammate'),
     deviceAppTools: Object.freeze(CALLER_CATALOG_DEVICE_APP_TOOL_NAMES.filter(name => byName.has(name))),
+    xiaozhiTools: Object.freeze(CALLER_CATALOG_XIAOZHI_TOOL_NAMES.filter(name => byName.has(name))),
   })
 }
 
@@ -293,6 +304,9 @@ export function installCallerCatalog(ctx: Context, config: CallerCatalogConfig =
     if (!plan.includeCreateTeammate) denied.add(`${PHONE_TOOL_PREFIX}CreateTeammate`)
     for (const name of CALLER_CATALOG_DEVICE_APP_TOOL_NAMES) {
       if (!plan.deviceAppTools.includes(name)) denied.add(`${PHONE_TOOL_PREFIX}${name}`)
+    }
+    for (const name of CALLER_CATALOG_XIAOZHI_TOOL_NAMES) {
+      if (!plan.xiaozhiTools.includes(name)) denied.add(`${PHONE_TOOL_PREFIX}${name}`)
     }
     for (const [publicName, dispose] of [...state.restrictions]) {
       if (denied.has(publicName)) continue

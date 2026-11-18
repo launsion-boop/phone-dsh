@@ -81,6 +81,7 @@ test('only a catalog with the roster marker is treated as identified', () => {
     },
     includeCreateTeammate: false,
     deviceAppTools: [],
+    xiaozhiTools: [],
   })
   assert.deepEqual(planCallerCatalog(mainCatalog), {
     descriptions: {
@@ -89,6 +90,7 @@ test('only a catalog with the roster marker is treated as identified', () => {
     },
     includeCreateTeammate: true,
     deviceAppTools: [],
+    xiaozhiTools: [],
   })
 })
 
@@ -272,6 +274,58 @@ const boundCatalog: CallerCatalog = {
     { name: 'DeviceAppRemove', description: 'remove' },
   ],
 }
+
+const xiaozhiNames = ['XiaozhiSourceExport', 'XiaozhiFirmwareBuild', 'XiaozhiFirmwareStatus', 'XiaozhiFirmwareFlash']
+const xiaozhiCatalog: CallerCatalog = {
+  tools: [
+    {
+      name: 'SendToAgent',
+      description: 'send\nAvailable bots: Alpha (id: bot-a, main Bot); Xray (id: bot-x).',
+    },
+    ...xiaozhiNames.map(name => ({ name, description: name })),
+  ],
+}
+
+test('xiaozhi firmware tools are deny-unless-listed per caller', async () => {
+  assert.deepEqual(planCallerCatalog(xiaozhiCatalog)?.xiaozhiTools, xiaozhiNames)
+  // A xiaozhi-bound Bot is not a device-app Bot.
+  assert.deepEqual(planCallerCatalog(xiaozhiCatalog)?.deviceAppTools, [])
+  // Unbound / device-app-bound callers never get the xiaozhi tools.
+  assert.deepEqual(planCallerCatalog(nonMainCatalog)?.xiaozhiTools, [])
+  assert.deepEqual(planCallerCatalog(boundCatalog)?.xiaozhiTools, [])
+  // Only some listed: the others stay hidden; near names are never xiaozhi tools.
+  assert.deepEqual(planCallerCatalog({
+    tools: [xiaozhiCatalog.tools[0]!, xiaozhiCatalog.tools[4]!],
+  })?.xiaozhiTools, ['XiaozhiFirmwareFlash'])
+  assert.deepEqual(planCallerCatalog({
+    tools: [xiaozhiCatalog.tools[0]!, { name: 'XiaozhiFirmwareFlashAll', description: 'x' },
+      { name: 'xiaozhifirmwarebuild', description: 'x' }],
+  })?.xiaozhiTools, [])
+
+  const ctx = await mountRuntime()
+  let catalog: CallerCatalog = nonMainCatalog
+  const names = async (agent: Agent): Promise<string[]> =>
+    (await assembleFor(ctx, agent)).tools.map(entry => entry.name).filter(name => name.includes('Xiaozhi'))
+  try {
+    registerTeamProbes(ctx)
+    for (const name of xiaozhiNames) registerProbe(ctx, `mcp__phone__${name}`, `static ${name}`)
+    await ctx.plugin(dshbotIdentityBridge, {
+      catalog: {
+        cacheTtlMs: 0,
+        request: async sessionId => sessionId === 'gb-bot-x' ? xiaozhiCatalog : catalog,
+      },
+    })
+    const unbound = await createAgent(ctx, 'gb-bot-b')
+    assert.deepEqual(await names(unbound), [])
+    const bound = await createAgent(ctx, 'gb-bot-x')
+    assert.deepEqual(await names(bound), xiaozhiNames.map(name => `mcp__phone__${name}`).sort())
+    // Unidentified caller (workbench): the static surface is untouched.
+    const workbench = await createAgent(ctx, 'session-workbench')
+    assert.deepEqual(await names(workbench), xiaozhiNames.map(name => `mcp__phone__${name}`).sort())
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
 
 test('device-app tools are deny-unless-listed per caller', async () => {
   assert.deepEqual(planCallerCatalog(boundCatalog)?.deviceAppTools,
