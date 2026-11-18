@@ -3,20 +3,21 @@
   "page": "DeviceAppsPage",
   "pageId": "device-apps",
   "structure": "swiftui-view",
-  "sectionModel": "section",
+  "sectionModel": "unmodeled",
   "sectionNote": null,
   "title": {
     "text": "设备应用",
-    "provenance": "DeviceAppsPage.swift:104",
+    "provenance": "DeviceAppsPage.swift:78",
     "anchor": ".navigationTitle(\"设备应用\")"
   },
   "source": {
     "file": "DeviceAppsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/DeviceAppsPage.swift",
-    "lines": 164,
+    "lines": 203,
     "structLine": 51,
     "renderedFrom": [
       "body",
+      "content",
       "rowView"
     ],
     "sectionOrder": "declaration order inside the page struct"
@@ -28,269 +29,18 @@
   },
   "sections": [
     {
-      "id": "section-65",
+      "id": "region-51",
+      "kind": "implicit",
       "title": null,
       "titleTemplate": null,
-      "dynamicTitle": false,
-      "titleExpression": null,
       "titleSource": "absent",
-      "condition": "let banner = model.banner",
+      "condition": null,
       "collection": null,
       "rows": [
         {
-          "id": "text-66",
+          "id": "custom-75",
           "label": null,
-          "labelExpr": "banner.text",
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "DeviceAppsPage.swift:66",
-          "anchor": "Text(banner.text)",
-          "extraction": "manual"
-        }
-      ],
-      "provenance": "DeviceAppsPage.swift:65",
-      "anchor": "Section {",
-      "extraction": "syntax",
-      "criterion": {
-        "kind": "first-row-expression",
-        "labelExpr": "banner.text",
-        "provenance": "DeviceAppsPage.swift:66"
-      }
-    },
-    {
-      "id": "section-74",
-      "title": null,
-      "titleTemplate": null,
-      "dynamicTitle": false,
-      "titleExpression": null,
-      "titleSource": "absent",
-      "condition": null,
-      "collection": null,
-      "rows": [
-        {
-          "id": "正在读取设备上的应用",
-          "label": "正在读取设备上的应用…",
-          "labelExpr": null,
-          "kind": "loading",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "DeviceAppsPage.swift:74",
-          "anchor": "Section { ProgressView(\"正在读取设备上的应用…\") }",
-          "extraction": "syntax"
-        }
-      ],
-      "provenance": "DeviceAppsPage.swift:74",
-      "anchor": "Section { ProgressView(\"正在读取设备上的应用…\") }",
-      "extraction": "syntax",
-      "criterion": {
-        "kind": "first-row",
-        "label": "正在读取设备上的应用…",
-        "provenance": "DeviceAppsPage.swift:74"
-      }
-    },
-    {
-      "id": "section-76",
-      "title": null,
-      "titleTemplate": null,
-      "dynamicTitle": false,
-      "titleExpression": null,
-      "titleSource": "absent",
-      "condition": null,
-      "collection": null,
-      "rows": [
-        {
-          "id": "设备没连上-请靠近设备并确认蓝牙已开",
-          "label": "设备没连上，请靠近设备并确认蓝牙已开",
-          "labelExpr": null,
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "DeviceAppsPage.swift:76",
-          "anchor": "Section { Text(DeviceAppCustomerText.pageNotConnected).foregroundStyle(.secondar",
-          "extraction": "syntax",
-          "labelSource": "DeviceAppCustomerText.swift:146"
-        }
-      ],
-      "provenance": "DeviceAppsPage.swift:76",
-      "anchor": "Section { Text(DeviceAppCustomerText.pageNotConnected).foregroundStyle(.secondar",
-      "extraction": "syntax",
-      "criterion": {
-        "kind": "first-row",
-        "label": "设备没连上，请靠近设备并确认蓝牙已开",
-        "provenance": "DeviceAppsPage.swift:76"
-      }
-    },
-    {
-      "id": "section-79",
-      "title": null,
-      "titleTemplate": null,
-      "dynamicTitle": false,
-      "titleExpression": null,
-      "titleSource": "absent",
-      "condition": null,
-      "collection": null,
-      "rows": [
-        {
-          "id": "text-79",
-          "label": null,
-          "labelExpr": "text",
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "DeviceAppsPage.swift:79",
-          "anchor": "Section { Text(text).foregroundStyle(.secondary) }",
-          "extraction": "manual"
-        }
-      ],
-      "provenance": "DeviceAppsPage.swift:79",
-      "anchor": "Section { Text(text).foregroundStyle(.secondary) }",
-      "extraction": "syntax",
-      "criterion": {
-        "kind": "first-row-expression",
-        "labelExpr": "text",
-        "provenance": "DeviceAppsPage.swift:79"
-      }
-    },
-    {
-      "id": "section-82",
-      "title": null,
-      "titleTemplate": null,
-      "dynamicTitle": false,
-      "titleExpression": null,
-      "titleSource": "absent",
-      "condition": "let free = model.freeSpace",
-      "collection": null,
-      "rows": [
-        {
-          "id": "text-82",
-          "label": null,
-          "labelExpr": "free",
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "DeviceAppsPage.swift:82",
-          "anchor": "Section { Text(free).font(.footnote).foregroundStyle(.secondary) }",
-          "extraction": "manual"
-        }
-      ],
-      "provenance": "DeviceAppsPage.swift:82",
-      "anchor": "Section { Text(free).font(.footnote).foregroundStyle(.secondary) }",
-      "extraction": "syntax",
-      "criterion": {
-        "kind": "first-row-expression",
-        "labelExpr": "free",
-        "provenance": "DeviceAppsPage.swift:82"
-      }
-    },
-    {
-      "id": "section-85",
-      "title": null,
-      "titleTemplate": null,
-      "dynamicTitle": false,
-      "titleExpression": null,
-      "titleSource": "absent",
-      "condition": "model.rows.isEmpty",
-      "collection": null,
-      "rows": [
-        {
-          "id": "设备上还没有应用-让-bot-给你做一个吧",
-          "label": "设备上还没有应用。让 Bot 给你做一个吧。",
-          "labelExpr": null,
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "DeviceAppsPage.swift:85",
-          "anchor": "Section { Text(DeviceAppCustomerText.emptyDevice).foregroundStyle(.secondary) }",
-          "extraction": "syntax",
-          "labelSource": "DeviceAppCustomerText.swift:145"
-        }
-      ],
-      "provenance": "DeviceAppsPage.swift:85",
-      "anchor": "Section { Text(DeviceAppCustomerText.emptyDevice).foregroundStyle(.secondary) }",
-      "extraction": "syntax",
-      "criterion": {
-        "kind": "first-row",
-        "label": "设备上还没有应用。让 Bot 给你做一个吧。",
-        "provenance": "DeviceAppsPage.swift:85"
-      }
-    },
-    {
-      "id": "设备上的应用",
-      "title": "设备上的应用",
-      "titleTemplate": null,
-      "dynamicTitle": false,
-      "titleExpression": null,
-      "titleSource": "header",
-      "condition": null,
-      "collection": null,
-      "rows": [
-        {
-          "id": "dynamic-89",
-          "label": null,
-          "labelExpr": "rowView(row)",
-          "kind": "dynamic",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "DeviceAppsPage.swift:89",
-          "anchor": "ForEach(model.rows) { row in rowView(row) }",
-          "extraction": "manual",
-          "templateLabels": [
-            "运行中",
-            "打开",
-            "停止",
-            "删除"
-          ],
-          "collection": "model.rows"
-        }
-      ],
-      "provenance": "DeviceAppsPage.swift:90",
-      "anchor": "} header: { Text(\"设备上的应用\") }",
-      "extraction": "syntax",
-      "hasHeader": true
-    },
-    {
-      "id": "section-93",
-      "title": null,
-      "titleTemplate": null,
-      "dynamicTitle": false,
-      "titleExpression": null,
-      "titleSource": "absent",
-      "condition": null,
-      "collection": null,
-      "rows": [
-        {
-          "id": "高级",
-          "label": "高级",
-          "labelExpr": null,
+          "labelExpr": "content.padding",
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -298,25 +48,24 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "DeviceAppsPage.swift:94",
-          "anchor": "DisclosureGroup(\"高级\") {",
-          "extraction": "syntax",
-          "template": "DisclosureGroup"
+          "provenance": "DeviceAppsPage.swift:75",
+          "anchor": "if scrolls { ScrollView { content.padding(16) } } else { content.padding(16) }",
+          "extraction": "manual",
+          "template": "content.padding"
         }
       ],
-      "provenance": "DeviceAppsPage.swift:93",
-      "anchor": "Section {",
-      "extraction": "syntax",
+      "provenance": "DeviceAppsPage.swift:51",
+      "anchor": "struct DeviceAppsPage: View {",
+      "extraction": "manual",
       "criterion": {
-        "kind": "first-row",
-        "label": "高级",
-        "provenance": "DeviceAppsPage.swift:94"
-      }
+        "kind": "implicit"
+      },
+      "note": "no Section/PageSection/GroupBox/header Text found: the whole body is one region, so a human must say what the group is (or the page has none)"
     }
   ],
   "actions": [
     {
-      "id": "gesture-106",
+      "id": "gesture-80",
       "label": null,
       "labelExpr": null,
       "kind": "gesture",
@@ -325,7 +74,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "DeviceAppsPage.swift:106",
+      "provenance": "DeviceAppsPage.swift:80",
       "anchor": ".refreshable { await model.refresh() }",
       "extraction": "syntax"
     },
@@ -339,10 +88,10 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "DeviceAppsPage.swift:110",
+      "provenance": "DeviceAppsPage.swift:84",
       "anchor": "Button(\"删除\", role: .destructive) { Task { await model.confirmDelete() } }",
       "extraction": "syntax",
-      "deadPresentation": "alert-108"
+      "deadPresentation": "alert-82"
     },
     {
       "id": "取消",
@@ -354,10 +103,38 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "DeviceAppsPage.swift:111",
+      "provenance": "DeviceAppsPage.swift:85",
       "anchor": "Button(\"取消\", role: .cancel) { model.cancelDelete() }",
       "extraction": "syntax",
-      "deadPresentation": "alert-108"
+      "deadPresentation": "alert-82"
+    },
+    {
+      "id": "停止",
+      "label": "停止",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ Task { await model.stop(row) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DeviceAppsPage.swift:153",
+      "anchor": "if row.running { Button(\"停止\") { Task { await model.stop(row) } } }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "删除",
+      "label": "删除",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ model.requestDelete(row)",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "DeviceAppsPage.swift:154",
+      "anchor": "Button(\"删除\", role: .destructive) { model.requestDelete(row) }",
+      "extraction": "syntax"
     },
     {
       "id": "打开",
@@ -369,42 +146,28 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "DeviceAppsPage.swift:132",
+      "provenance": "DeviceAppsPage.swift:170",
       "anchor": "Button(\"打开\") { Task { await model.open(row) } }",
       "extraction": "syntax"
     },
     {
-      "id": "停止",
-      "label": "停止",
+      "id": "更多",
+      "label": "更多",
       "labelExpr": null,
-      "kind": "button",
+      "kind": "menu",
       "trigger": "tap",
-      "semantic": "{ Task { await model.stop(row) }",
-      "writes": true,
-      "destination": null,
-      "condition": null,
-      "provenance": "DeviceAppsPage.swift:133",
-      "anchor": "if row.running { Button(\"停止\") { Task { await model.stop(row) } } }",
-      "extraction": "syntax"
-    },
-    {
-      "id": "删除",
-      "label": "删除",
-      "labelExpr": null,
-      "kind": "button",
-      "trigger": "tap",
-      "semantic": "{ model.requestDelete(row)",
+      "semantic": null,
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "DeviceAppsPage.swift:134",
-      "anchor": "Button(\"删除\", role: .destructive) { model.requestDelete(row) }",
+      "provenance": "DeviceAppsPage.swift:158",
+      "anchor": ".accessibilityLabel(\"更多\")",
       "extraction": "syntax"
     }
   ],
   "presentations": [
     {
-      "id": "alert-108",
+      "id": "alert-82",
       "kind": "alert",
       "title": "删除「\\(model.pendingDelete?.title ??",
       "destination": null,
@@ -413,10 +176,10 @@
         "pendingDelete"
       ],
       "span": [
-        108,
-        112
+        82,
+        86
       ],
-      "provenance": "DeviceAppsPage.swift:108",
+      "provenance": "DeviceAppsPage.swift:82",
       "anchor": ".alert(\"删除「\\(model.pendingDelete?.title ?? \"\")」？\", isPresented: Binding(",
       "triggered": false,
       "deadUi": true,
@@ -430,7 +193,7 @@
       "empty": [],
       "data": [
         {
-          "renders": "untitled section at 65 | untitled section at 74 | untitled section at 76 | untitled section at 79 | untitled section at 82 | untitled section at 85 | 设备上的应用 | untitled section at 93",
+          "renders": "untitled section at 51",
           "when": null,
           "provenance": "DeviceAppsPage.swift:51",
           "anchor": "struct DeviceAppsPage: View {",
@@ -443,14 +206,14 @@
         {
           "renders": "正在读取设备上的应用…",
           "when": null,
-          "provenance": "DeviceAppsPage.swift:74",
-          "anchor": "Section { ProgressView(\"正在读取设备上的应用…\") }"
+          "provenance": "DeviceAppsPage.swift:101",
+          "anchor": "ProgressView(\"正在读取设备上的应用…\").frame(maxWidth: .infinity)"
         },
         {
           "renders": "ProgressView",
           "when": null,
-          "provenance": "DeviceAppsPage.swift:74",
-          "anchor": "Section { ProgressView(\"正在读取设备上的应用…\") }"
+          "provenance": "DeviceAppsPage.swift:101",
+          "anchor": "ProgressView(\"正在读取设备上的应用…\").frame(maxWidth: .infinity)"
         }
       ]
     },
@@ -470,20 +233,20 @@
   "subpages": [
     {
       "name": "DeviceEntryPage",
-      "line": 147,
+      "line": 186,
       "private": false,
       "embedded": false,
       "sections": [],
-      "provenance": "DeviceAppsPage.swift:147"
+      "provenance": "DeviceAppsPage.swift:186"
     }
   ],
   "unreachable": [],
   "extraction": {
     "tool": "extract_ios_pages.py",
     "mode": "syntax",
-    "sectionKeywordsInPage": 8,
+    "sectionKeywordsInPage": 0,
     "regionsExtracted": 0,
-    "sectionsExtracted": 8,
+    "sectionsExtracted": 1,
     "warnings": []
   }
 }

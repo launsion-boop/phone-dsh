@@ -199,5 +199,6 @@ Worker 审批门（`approval-gate.ts` `AUTO_TOOLS`）：`DeviceAppStage`、`Devi
   页面契约 `spec/ui/v1/pages/device-apps.json`、`device-entry.json`（`extract_ios_pages.py` 生成）。Android 无实现（GAP-20）。
 - Protocol impact：P07（设备面板与 Link 用户来源调用，规则文本）、P26（device-app 客户文案与动作）、P09（页面契约）；
   无 wire、无新错误码。
+- 版式（v1.6 后续）：页面改为两列卡片网格（同一行卡片等高，标题最多两行），卡片上是「打开」，「停止」（仅运行中）与「删除」在卡片「…」菜单；契约文本与页面契约 `device-apps.json` 同步更新。无 wire、模型或授权变化；Protocol impact 不变（P07、P26、P09）。
 - 相容性：旧 App 仍打开通用面板（无新页）；新 App ↔ 旧固件：没有这八个工具的设备仍走通用面板；回滚即回到通用面板。
 

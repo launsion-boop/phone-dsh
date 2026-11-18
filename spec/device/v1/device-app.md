@@ -369,8 +369,11 @@ generic panel; the page has a collapsed 「高级」 item that opens it.
   title get a second line `版本 N（名称）` so they can be told apart; a unique title has no second line. An
   empty device says `设备上还没有应用。让 Bot 给你做一个吧。`; a device that is not connected says
   `设备没连上，请靠近设备并确认蓝牙已开` and sends nothing.
-- **Actions.** Per row: 打开 (`app.run {name}`), 停止 (`app.stop`, only on the running row), 删除 (`app.remove {name}`;
-  a running app is stopped first). Each is a deliberate tap of the user and is the authorization: the calls go
+- **Layout.** Each app is a card in a two-column grid (equal card heights within a row, title up to two lines):
+  the card shows the title, the 运行中 mark, the second line, and a prominent 打开 button; 停止 (only while the
+  app runs) and 删除 are in the card's 「…」 menu.
+- **Actions.** Per card: 打开 (`app.run {name}`), 停止 (`app.stop`, only on the running card, in the menu), 删除
+  (`app.remove {name}`, in the menu; a running app is stopped first). Each is a deliberate tap of the user and is the authorization: the calls go
   out as the **user origin**, which the v1.3 waiver of §7 covers for exactly these eight names, so no
   Bot, approval card, standing grant or new switch is involved. 删除 asks one confirmation:
   `删除后不能恢复，需要的话让 Bot 重新做一个。` Nothing is sent before the user confirms.
