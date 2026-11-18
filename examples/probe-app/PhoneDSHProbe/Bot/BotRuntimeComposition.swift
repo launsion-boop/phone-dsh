@@ -518,6 +518,9 @@ final class BotRuntimeComposition {
         #if canImport(PhoneDSHBLE) && canImport(UIKit)
         await DeviceAppLiveWiring.attach(runtime: runtime, domain: store)
         #endif
+        #if DEBUG
+        await XiaozhiFirmwareWiring.attach(runtime: runtime)
+        #endif
         rosterModel.start()
         composition.startRosterObservation()
         let selectedUnit = try await composition.ensureUnit(

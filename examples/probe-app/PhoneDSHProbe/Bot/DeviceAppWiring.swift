@@ -49,6 +49,8 @@ enum DeviceAppLiveWiring {
         await MainActor.run {
             let registry = DeviceBotRegistry.shared
             guard registry.boardName(forBot: botID) == nil else { return nil }
+            // xiaozhi-firmware.md §4: a xiaozhi device Bot gets the §6 tools, never the device-app tools.
+            guard registry.xiaozhiMAC(forBot: botID) == nil else { return nil }
             return registry.deviceID(forBot: botID)
         }
     }

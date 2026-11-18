@@ -92,11 +92,16 @@ struct FirmwareBuilderPack: Equatable {
     var imageName: String
     /// The TonoLink board firmware page can only flash the ESP32-S3 TonoLink image.
     var flashableOverUSB: Bool { target == "esp32s3" }
+    /// `manifest.sources_root` (spec/device/v1/xiaozhi-firmware.md §5): the pack's absolute directory whose
+    /// `project.bin` files a build may override. nil: the pack has no editable sources.
+    var sourcesRoot: String?
 }
 
 struct FirmwareBuilderError: LocalizedError {
     var message: String
-    init(_ message: String) { self.message = message }
+    /// `not_editable` when an override named a file the pack does not allow editing; nil otherwise.
+    var code: String?
+    init(_ message: String, code: String? = nil) { self.message = message; self.code = code }
     var errorDescription: String? { message }
 }
 
@@ -117,6 +122,8 @@ struct FirmwareBuilderError: LocalizedError {
     private(set) var imageSHA256 = ""
     private(set) var matchesReference: Bool?
     private(set) var seconds = 0.0
+    /// The error of the last failed `build`, with its `code` when the page reported one.
+    private(set) var failure: FirmwareBuilderError?
 
     @ObservationIgnored private var webView: WKWebView?
     @ObservationIgnored private var bridge: FirmwareBuilderBridge?
@@ -146,9 +153,11 @@ struct FirmwareBuilderError: LocalizedError {
             bytes += actual
         }
         let reference = (manifest["reference"] as? [String: Any])?["image_sha256"] as? String ?? ""
+        let root = (manifest["sources_root"] as? String).flatMap { $0.hasPrefix("/") && $0.count > 1 ? $0 : nil }
         return .success(FirmwareBuilderPack(project: manifest["project"] as? String ?? "", target: manifest["target"] as? String ?? "",
                                             toolchain: manifest["toolchain"] as? String ?? "", bytes: bytes, referenceImageSHA256: reference,
-                                            imageName: Self.safeImageName(manifest["image"] as? String)))
+                                            imageName: Self.safeImageName(manifest["image"] as? String),
+                                            sourcesRoot: root.map { $0.hasSuffix("/") ? String($0.dropLast()) : $0 }))
     }
 
     /// A plain `*.bin` file name, or agent_s3.bin when the manifest names none.
@@ -163,17 +172,20 @@ struct FirmwareBuilderError: LocalizedError {
     }
 
     /// Compiles, links and writes the image. Returns false with `result` set on failure.
+    /// `overrides` maps a path relative to the pack's `sources_root` to new bytes (spec §5); a path that is
+    /// not an editable project file fails the build with `failure.code == "not_editable"`. Empty: the
+    /// pack's reference build.
     @discardableResult
-    func build() async -> Bool {
+    func build(overrides: [String: Data] = [:]) async -> Bool {
         guard !running else { return false }
-        running = true; stage = "start"; done = 0; total = 0; log = []; result = ""; report = [:]; image = nil; imageSHA256 = ""; matchesReference = nil
+        running = true; stage = "start"; done = 0; total = 0; log = []; result = ""; report = [:]; image = nil; imageSHA256 = ""; matchesReference = nil; failure = nil
         UIApplication.shared.isIdleTimerDisabled = true
         let started = Date()
         defer { running = false; seconds = Date().timeIntervalSince(started); UIApplication.shared.isIdleTimerDisabled = false; tearDown() }
         do {
             let pack = try Self.pack().get()
             try await openPage()
-            let reply = try await run()
+            let reply = try await run(overrides: overrides)
             guard let encoded = reply["imageBase64"] as? String, let data = Data(base64Encoded: encoded) else { throw FirmwareBuilderError("the page returned no image") }
             report = reply["report"] as? [String: Any] ?? [:]
             let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -190,6 +202,7 @@ struct FirmwareBuilderError: LocalizedError {
             return true
         } catch {
             stage = "failed"
+            failure = (error as? FirmwareBuilderError) ?? FirmwareBuilderError(error.localizedDescription)
             result = NativeText("失败：", "Failed: ") + error.localizedDescription
             return false
         }
@@ -226,12 +239,17 @@ struct FirmwareBuilderError: LocalizedError {
         }
     }
 
-    private func run() async throws -> [String: Any] {
+    private func run(overrides: [String: Data]) async throws -> [String: Any] {
         guard let webView else { throw FirmwareBuilderError("the builder page is gone") }
         let count = max(1, min(4, workers))
+        var options: [String: Any] = ["workers": count]
+        if !overrides.isEmpty { options["overrides"] = overrides.mapValues { $0.base64EncodedString() } }
+        guard let json = (try? JSONSerialization.data(withJSONObject: options)).flatMap({ String(data: $0, encoding: .utf8) }) else {
+            throw FirmwareBuilderError("could not encode the build options")
+        }
         return try await withCheckedThrowingContinuation { continuation in
             pending = continuation
-            webView.evaluateJavaScript("window.fwbStart({workers: \(count)}); true") { [weak self] _, error in
+            webView.evaluateJavaScript("window.fwbStart(\(json)); true") { [weak self] _, error in
                 if let error { Task { @MainActor in self?.finish(.failure(error)) } }
             }
             Task { @MainActor [weak self] in
@@ -250,7 +268,10 @@ struct FirmwareBuilderError: LocalizedError {
             done = message["done"] as? Int ?? done
             total = message["total"] as? Int ?? total
         case "done": finish(.success(message))
-        case "error": finish(.failure(FirmwareBuilderError(message["message"] as? String ?? "build failed")))
+        case "error":
+            let text = message["message"] as? String ?? "build failed"
+            // builder-worker.js reports an override outside the editable files as "not_editable: <path>".
+            finish(.failure(FirmwareBuilderError(text, code: text.hasPrefix("not_editable:") ? "not_editable" : nil)))
         default: break
         }
     }
@@ -272,6 +293,65 @@ struct FirmwareBuilderError: LocalizedError {
         webView?.removeFromSuperview()
         webView = nil; bridge = nil; schemeHandler = nil
         finishLoad(.failure(CancellationError())); finish(.failure(CancellationError()))
+    }
+}
+
+/// One `project.bin` file the pack allows editing (spec/device/v1/xiaozhi-firmware.md §5).
+struct FirmwareEditableSource: Equatable {
+    /// Path relative to `sources_root`, `/`-separated.
+    var relativePath: String
+    /// The path inside the pack (`sources_root + "/" + relativePath`).
+    var packPath: String
+    /// Absolute offset of the bytes inside `project.bin`.
+    var offset: Int
+    var length: Int
+}
+
+/// Lists and reads the editable files of the staged pack straight from `project.bin`'s header
+/// (u32le header length, JSON header with `files: [[path, offset, length]]`, then the file bytes), the
+/// same layout `FirmwareBuilder/core.js` `loadBundle` reads. No web view is needed.
+enum FirmwareBuilderSources {
+    static func projectURL() -> URL? { FirmwareBuilderSchemeHandler.packDirectory?.appendingPathComponent("project.bin") }
+
+    /// The editable files for `root` from header files `[(path, absolute offset, length)]`, sorted by relative path.
+    static func editable(root: String?, files: [(path: String, offset: Int, length: Int)]) -> [FirmwareEditableSource] {
+        guard var root, root.hasPrefix("/") else { return [] }
+        while root.hasSuffix("/") { root.removeLast() }
+        guard !root.isEmpty else { return [] }
+        let prefix = root + "/"
+        return files.filter { $0.path.hasPrefix(prefix) && $0.path.count > prefix.count }
+            .map { FirmwareEditableSource(relativePath: String($0.path.dropFirst(prefix.count)), packPath: $0.path, offset: $0.offset, length: $0.length) }
+            .sorted { $0.relativePath < $1.relativePath }
+    }
+
+    /// The staged pack's editable files; empty when the pack has no `sources_root`.
+    static func list(pack: FirmwareBuilderPack) throws -> [FirmwareEditableSource] {
+        guard pack.sourcesRoot != nil, let url = projectURL() else { return [] }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        guard let lengthBytes = try handle.read(upToCount: 4), lengthBytes.count == 4 else { throw FirmwareBuilderError("project.bin is truncated") }
+        let headerLength = lengthBytes.withUnsafeBytes { Int($0.loadUnaligned(as: UInt32.self).littleEndian) }
+        guard headerLength > 0, headerLength < 64 << 20, let header = try handle.read(upToCount: headerLength), header.count == headerLength,
+              let object = try JSONSerialization.jsonObject(with: header) as? [String: Any], let rows = object["files"] as? [[Any]] else {
+            throw FirmwareBuilderError("project.bin has no file table")
+        }
+        let base = 4 + headerLength
+        let files: [(path: String, offset: Int, length: Int)] = rows.compactMap { row in
+            guard row.count == 3, let path = row[0] as? String, let offset = row[1] as? Int, let length = row[2] as? Int else { return nil }
+            return (path, base + offset, length)
+        }
+        return editable(root: pack.sourcesRoot, files: files)
+    }
+
+    /// The pack's original bytes of one editable file.
+    static func read(_ source: FirmwareEditableSource) throws -> Data {
+        guard let url = projectURL() else { throw FirmwareBuilderError("the pack is not staged") }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: UInt64(source.offset))
+        let data = try handle.read(upToCount: source.length) ?? Data()
+        guard data.count == source.length else { throw FirmwareBuilderError("project.bin is truncated: \(source.packPath)") }
+        return data
     }
 }
 

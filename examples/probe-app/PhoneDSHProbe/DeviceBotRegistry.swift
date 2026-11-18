@@ -139,6 +139,28 @@ final class DeviceBotRegistry {
                                           description: DeviceBotText.lanDescription(host: host))) }
     }
 
+    // MARK: Xiaozhi (xiaozhi-firmware.md §4). DEBUG only; the trigger is the user's tap on
+    // 「信任并创建 Bot」 in the 小智固件 page, never a bare OTA check.
+
+    /// The Bot bound to this xiaozhi board's MAC, if any.
+    func xiaozhiBotID(mac: String) -> String? {
+        XiaozhiBotSDK.key(mac: mac).flatMap { store.bindings[$0] }
+    }
+
+    /// The MAC of the xiaozhi board this Bot manages, if it is a xiaozhi device Bot.
+    func xiaozhiMAC(forBot botID: String) -> String? {
+        keys(forBot: botID).lazy.compactMap { XiaozhiBotSDK.mac(inKey: $0) }.first
+    }
+
+    /// The user trusted this recorded device: create (or find) its Bot. Returns the Bot id, nil when the
+    /// key is invalid or the Bot runtime is not ready. Idempotent (`DeviceBotBinder.ensure`).
+    @discardableResult
+    func xiaozhiTrusted(mac: String) async -> String? {
+        guard let request = XiaozhiBotSDK.request(mac: mac) else { return nil }
+        await run(request)
+        return store.bindings[request.key]
+    }
+
     private func ensureLink(_ device: BLEDeviceStore.Device) async {
         guard let key = DeviceBotKey.link(deviceID: device.linkDeviceID) else { return }
         let isBoard = TonoLinkPhoneControlSection.applies(to: device.name)
@@ -233,5 +255,38 @@ private final class ProbeDeviceBotHost: DeviceBotHost {
                 ]),
             ]))
         _ = try await composition.domain.append(event)
+    }
+}
+
+/// The xiaozhi device-Bot key, name and description come from the SDK (`DeviceBotKey.xiaozhi(mac:)`,
+/// `DeviceBotText`, Sources/PhoneDSHBot/DeviceBot, spec xiaozhi-firmware.md §4) so this app never writes
+/// that text itself. INTEGRATION: the SDK ends are built in another worktree; once they are merged,
+/// delete the `#if XIAOZHI_SDK` lines (keep the SDK branch) and reconcile the three symbol names below.
+private enum XiaozhiBotSDK {
+    static let keyPrefix = "xiaozhi:"
+
+    static func key(mac: String) -> String? {
+        #if XIAOZHI_SDK
+        return DeviceBotKey.xiaozhi(mac: mac)
+        #else
+        return nil
+        #endif
+    }
+
+    /// The MAC inside a `xiaozhi:<mac>` key (spec §4 key grammar), nil for any other key.
+    static func mac(inKey key: String) -> String? {
+        guard key.hasPrefix(keyPrefix) else { return nil }
+        let mac = String(key.dropFirst(keyPrefix.count))
+        return mac.isEmpty ? nil : mac
+    }
+
+    static func request(mac: String) -> DeviceBotRequest? {
+        #if XIAOZHI_SDK
+        guard let key = DeviceBotKey.xiaozhi(mac: mac) else { return nil }
+        return DeviceBotRequest(key: key, rawName: DeviceBotText.xiaozhiName(mac: mac),
+                                description: DeviceBotText.xiaozhiDescription(mac: mac))
+        #else
+        return nil
+        #endif
     }
 }
