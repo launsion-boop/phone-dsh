@@ -13,7 +13,9 @@ python3 - "$tmp" <<'PY'
 import hashlib, json, os, sys
 root = sys.argv[1]
 manifest = json.load(open(os.path.join(root, "manifest.json")))
-required = ["cc1.wasm", "as.wasm", "ar.wasm", "ld.wasm", "sdk.bin", "project.bin"]
+required = ["as.wasm", "ar.wasm", "ld.wasm", "sdk.bin", "project.bin"]
+if not ({"cc1.wasm", "cc1plus.wasm"} & set(manifest["files"])): sys.exit("manifest.json lists no compiler (cc1.wasm / cc1plus.wasm)")
+required = sorted(set(required) | set(manifest["files"]))
 for name in required:
     entry = manifest["files"].get(name)
     if entry is None: sys.exit(f"manifest.json does not list {name}")
@@ -21,6 +23,9 @@ for name in required:
     if len(data) != entry["bytes"] or hashlib.sha256(data).hexdigest() != entry["sha256"]:
         sys.exit(f"{name} does not match manifest.json")
 print(f"pack ok: {manifest.get('project')} ({manifest.get('target')}), {sum(manifest['files'][n]['bytes'] for n in required)} bytes")
+open(os.path.join(root, ".files"), "w").write("\n".join(required + ["manifest.json"]) + "\n")
 PY
-for name in cc1.wasm as.wasm ar.wasm ld.wasm sdk.bin project.bin manifest.json; do cp "$tmp/$name" "$dest/$name"; done
+# Replace the previous pack completely so a C3 pack never inherits an S3 cc1.wasm (or the reverse).
+find "$dest" -maxdepth 1 -type f \( -name '*.wasm' -o -name '*.bin' -o -name manifest.json \) -delete
+while read -r name; do cp "$tmp/$name" "$dest/$name"; done < "$tmp/.files"
 echo "staged into $dest"

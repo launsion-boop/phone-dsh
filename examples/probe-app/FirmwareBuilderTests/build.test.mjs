@@ -12,7 +12,7 @@ import { MemFS } from "../FirmwareBuilder/wasi-mem.js"
 import { elf2image } from "../FirmwareBuilder/elf2image.js"
 import { sha256, hex } from "../FirmwareBuilder/sha256.js"
 
-const pack = new URL("../Bundle/firmware-builder/", import.meta.url)
+const pack = process.env.FWB_PACK ? new URL(`file://${process.env.FWB_PACK.replace(/\/?$/, "/")}`) : new URL("../Bundle/firmware-builder/", import.meta.url)
 const have = existsSync(new URL("manifest.json", pack))
 const ab = n => { const b = readFileSync(new URL(n, pack)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) }
 const nodeSha = b => createHash("sha256").update(b).digest("hex")
@@ -28,15 +28,16 @@ test("elf2image rejects input that is not a 32-bit little-endian ELF", () => {
   assert.throws(() => elf2image(new Uint8Array(64), new Uint8Array(32)), /not a 32-bit little-endian ELF/)
 })
 
-test("pack builds the reference firmware byte for byte", { skip: have ? false : "artifact pack not staged", timeout: 600_000 }, async () => {
+test("pack builds the reference firmware byte for byte", { skip: have ? false : "artifact pack not staged", timeout: 1_800_000 }, async () => {
   const manifest = JSON.parse(readFileSync(new URL("manifest.json", pack), "utf8"))
   for (const [name, f] of Object.entries(manifest.files)) assert.equal(nodeSha(readFileSync(new URL(name, pack))), f.sha256, `${name} sha256`)
-  const [cc1, as, ar, ld] = await Promise.all(["cc1.wasm", "as.wasm", "ar.wasm", "ld.wasm"].map(n => WebAssembly.compile(ab(n))))
+  const wasm = n => manifest.files[n] ? WebAssembly.compile(ab(n)) : undefined
+  const [cc1, cc1plus, as, ar, ld] = await Promise.all(["cc1.wasm", "cc1plus.wasm", "as.wasm", "ar.wasm", "ld.wasm"].map(wasm))
   const { fs, jobs } = loadBundle(ab("project.bin")); const objs = new Map()
-  for (const j of jobs) { const { r, obj } = runJob(fs, j, cc1, as); assert.ok(obj, `compile ${r.src}: ${r.err || r.trap}`); objs.set(j.n, obj) }
-  const linkFs = new MemFS(); const { out, elf } = linkFirmware(linkFs, loadLink(ab("sdk.bin"), linkFs), objs, ar, ld)
+  for (const j of jobs) { const { r, obj } = runJob(fs, j, cc1, as, cc1plus); assert.ok(obj, `compile ${r.src}: ${r.err || r.trap}`); objs.set(j.n, obj) }
+  const linkFs = new MemFS(), plan = loadLink(ab("sdk.bin"), linkFs); const { out, elf } = linkFirmware(linkFs, plan, objs, ar, ld)
   assert.equal(out.ldExit, 0, out.ldErr)
   const elfSha = sha256(elf); assert.equal(hex(elfSha), manifest.reference.elf_sha256)
-  const r = elf2image(elf, elfSha); r.image.set(sha256(r.image.subarray(0, r.bodyLength)), r.bodyLength)
+  const r = elf2image(elf, elfSha, { chip: plan.chip || "esp32s3" }); r.image.set(sha256(r.image.subarray(0, r.bodyLength)), r.bodyLength)
   assert.equal(hex(sha256(r.image)), manifest.reference.image_sha256)
 })

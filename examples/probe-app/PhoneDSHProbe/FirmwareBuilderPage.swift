@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT
-// Builds the TonoLink ESP32-S3 firmware on this iPhone: GCC cc1, GNU as, ar and
-// ld compiled to WebAssembly run in a hidden WKWebView (Web Workers, in-memory
+// Builds ESP32 firmware on this iPhone: GCC cc1 / cc1plus, GNU as, ar and ld
+// compiled to WebAssembly run in a hidden WKWebView (Web Workers, in-memory
 // WASI host), then a JavaScript elf2image writes the flashable image. Nothing
 // leaves the phone and no computer is contacted. The tools and the prebuilt SDK
 // pack are app resources (`firmware-builder/`); the page code is `FirmwareBuilder/`.
 //
-// What it can and cannot do is fixed by the pack: one target (ESP32-S3), one
-// project, and the pack's own list of sources and flags. It recompiles the
-// project's sources; it does not run CMake and does not rebuild ESP-IDF.
-// DEBUG only, like the board firmware page it hands the image to.
+// What it can and cannot do is fixed by the pack: one target (ESP32-S3 for
+// TonoLink, ESP32-C3 for xiaozhi on the AI Passport), one project, and the pack's
+// own list of sources and flags. It recompiles the project's sources; it does not
+// run CMake and does not rebuild ESP-IDF. Only a TonoLink (ESP32-S3) image can be
+// handed to the board firmware page. DEBUG only.
 #if DEBUG
 import CryptoKit
 import SwiftUI
@@ -87,6 +88,10 @@ struct FirmwareBuilderPack: Equatable {
     var toolchain: String
     var bytes: Int
     var referenceImageSHA256: String
+    /// File name of the app image the pack builds (`manifest.image`); older packs build agent_s3.bin.
+    var imageName: String
+    /// The TonoLink board firmware page can only flash the ESP32-S3 TonoLink image.
+    var flashableOverUSB: Bool { target == "esp32s3" }
 }
 
 struct FirmwareBuilderError: LocalizedError {
@@ -97,7 +102,8 @@ struct FirmwareBuilderError: LocalizedError {
 
 @MainActor @Observable final class FirmwareBuilderModel {
     static let shared = FirmwareBuilderModel()
-    static let required = ["cc1.wasm", "as.wasm", "ar.wasm", "ld.wasm", "sdk.bin", "project.bin"]
+    /// Always present; the pack also lists cc1.wasm and/or cc1plus.wasm for its C and C++ sources.
+    static let required = ["as.wasm", "ar.wasm", "ld.wasm", "sdk.bin", "project.bin"]
 
     var workers = 3
     private(set) var running = false
@@ -128,8 +134,11 @@ struct FirmwareBuilderError: LocalizedError {
               let files = manifest["files"] as? [String: [String: Any]] else {
             return .failure(FirmwareBuilderError(NativeText("没有安装工具链和 SDK 包（见 Bundle/firmware-builder/README.md）", "The toolchain and SDK pack are not staged (see Bundle/firmware-builder/README.md)")))
         }
+        guard files["cc1.wasm"] != nil || files["cc1plus.wasm"] != nil else {
+            return .failure(FirmwareBuilderError(NativeText("包里没有编译器（cc1.wasm / cc1plus.wasm）", "The pack has no compiler (cc1.wasm / cc1plus.wasm)")))
+        }
         var bytes = 0
-        for name in required {
+        for name in Set(required).union(files.keys.filter { $0.hasSuffix(".wasm") }).sorted() {
             guard let expected = files[name]?["bytes"] as? Int,
                   let actual = (try? directory.appendingPathComponent(name).resourceValues(forKeys: [.fileSizeKey]))?.fileSize, actual == expected else {
                 return .failure(FirmwareBuilderError(NativeText("包文件缺失或大小不符：\(name)", "Pack file missing or wrong size: \(name)")))
@@ -138,11 +147,19 @@ struct FirmwareBuilderError: LocalizedError {
         }
         let reference = (manifest["reference"] as? [String: Any])?["image_sha256"] as? String ?? ""
         return .success(FirmwareBuilderPack(project: manifest["project"] as? String ?? "", target: manifest["target"] as? String ?? "",
-                                            toolchain: manifest["toolchain"] as? String ?? "", bytes: bytes, referenceImageSHA256: reference))
+                                            toolchain: manifest["toolchain"] as? String ?? "", bytes: bytes, referenceImageSHA256: reference,
+                                            imageName: Self.safeImageName(manifest["image"] as? String)))
     }
 
-    static var outputURL: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("firmware-builder/agent_s3.bin")
+    /// A plain `*.bin` file name, or agent_s3.bin when the manifest names none.
+    static func safeImageName(_ name: String?) -> String {
+        guard let name, name.hasSuffix(".bin"), !name.hasPrefix("."),
+              name.allSatisfy({ $0.isLetter || $0.isNumber || "._-".contains($0) }) else { return "agent_s3.bin" }
+        return name
+    }
+
+    static func outputURL(_ pack: FirmwareBuilderPack) -> URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("firmware-builder/\(pack.imageName)")
     }
 
     /// Compiles, links and writes the image. Returns false with `result` set on failure.
@@ -163,8 +180,9 @@ struct FirmwareBuilderError: LocalizedError {
             let claimed = (report["link"] as? [String: Any])?["imageSha256"] as? String
             guard claimed == digest else { throw FirmwareBuilderError("image digest changed between the page and the app") }
             let parsed = try TonoLinkFirmwareImage(data: data)
-            try FileManager.default.createDirectory(at: Self.outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: Self.outputURL, options: .atomic)
+            let output = Self.outputURL(pack)
+            try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: output, options: .atomic)
             image = parsed; imageSHA256 = digest
             matchesReference = pack.referenceImageSHA256.isEmpty ? nil : pack.referenceImageSHA256 == digest
             stage = "done"
@@ -264,8 +282,8 @@ struct FirmwareBuilderPage: View {
     var body: some View {
         List {
             Section {
-                Text(NativeText("在这台 iPhone 上把工程源码编译、链接成 ESP32-S3 固件，全程不联网、不需要电脑。预编译的 ESP-IDF 库和编译清单来自随应用安装的 SDK 包，所以只能重编包里已有的源文件。构建期间请保持应用在前台。",
-                                "Compiles and links the project into ESP32-S3 firmware on this iPhone, offline and without a computer. The prebuilt ESP-IDF libraries and the build recipe come from the SDK pack installed with the app, so only the sources already in the pack are rebuilt. Keep the app in the foreground while it builds."))
+                Text(NativeText("在这台 iPhone 上把工程源码编译、链接成 ESP32 固件，全程不联网、不需要电脑。目标芯片、预编译的 ESP-IDF 库和编译清单都来自随应用安装的 SDK 包，所以只能重编包里已有的源文件。构建期间请保持应用在前台。",
+                                "Compiles and links the project into ESP32 firmware on this iPhone, offline and without a computer. The target chip, the prebuilt ESP-IDF libraries and the build recipe come from the SDK pack installed with the app, so only the sources already in the pack are rebuilt. Keep the app in the foreground while it builds."))
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section(NativeText("工具链和 SDK 包", "Toolchain and SDK pack")) {
@@ -305,9 +323,15 @@ struct FirmwareBuilderPage: View {
                               systemImage: matches ? "checkmark.seal" : "exclamationmark.triangle")
                             .font(.footnote)
                     }
-                    NavigationLink(NativeText("刷到板子（USB）", "Flash to the board (USB)")) { TonoLinkUSBOTAPage() }
-                        .simultaneousGesture(TapGesture().onEnded { model.handOffToBoardPage() })
-                        .disabled(board.running)
+                    if (try? FirmwareBuilderModel.pack().get())?.flashableOverUSB == true {
+                        NavigationLink(NativeText("刷到板子（USB）", "Flash to the board (USB)")) { TonoLinkUSBOTAPage() }
+                            .simultaneousGesture(TapGesture().onEnded { model.handOffToBoardPage() })
+                            .disabled(board.running)
+                    } else {
+                        Text(NativeText("镜像已存到“文件 › Phone DSH › firmware-builder”。这个芯片的板子不能从本页刷写，请用电脑上的 esptool 刷入。",
+                                        "The image is saved in Files › Phone DSH › firmware-builder. This chip's board cannot be flashed from this page; flash it with esptool on a computer."))
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
                 }
             }
             if !model.log.isEmpty {
@@ -322,8 +346,8 @@ struct FirmwareBuilderPage: View {
 
 /// Headless entry for device verification: `PDSH_FIRMWARE_BUILD=build|build-flash`
 /// (optional `PDSH_FIRMWARE_BUILD_WORKERS`). The report goes to
-/// Documents/firmware-builder.json and the image to Documents/firmware-builder/agent_s3.bin.
-/// `build-flash` then runs the board page's USB update with the built image.
+/// Documents/firmware-builder.json and the image to Documents/firmware-builder/<manifest image>.
+/// `build-flash` then runs the board page's USB update with the built image (TonoLink packs only).
 @MainActor enum FirmwareBuilderDiagnostics {
     static let environmentKey = "PDSH_FIRMWARE_BUILD"
 
@@ -347,6 +371,9 @@ struct FirmwareBuilderPage: View {
         report["image"] = ["bytes": image.data.count, "sha256": model.imageSHA256, "elf_sha256": image.elfSHA256, "version": image.version,
                            "matches_reference": model.matchesReference.map { $0 as Any } ?? NSNull()]
         guard mode == "build-flash" else { report["status"] = "passed"; save(); return }
+        guard (try? FirmwareBuilderModel.pack().get())?.flashableOverUSB == true else {
+            report["status"] = "failed"; report["error"] = "this pack's image cannot be flashed over the TonoLink USB link"; save(); return
+        }
         report["status"] = "flashing"; save()
         model.handOffToBoardPage()
         let board = TonoLinkUSBOTAModel.shared

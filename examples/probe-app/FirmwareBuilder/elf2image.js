@@ -1,15 +1,22 @@
 // SPDX-License-Identifier: MIT
-// ESP32-S3 application image writer: the subset of `esptool elf2image` the IDF build uses
+// ESP application image writer: the subset of `esptool elf2image` the IDF build uses
 // (--flash-mode dio --flash-freq 80m --flash-size 8MB --elf-sha256-offset 0xb0
-//  --flash-mmu-page-size 64KB --min-rev-full 0 --max-rev-full 99). Pure JS; sha256 is injected.
-const IROM_ALIGN = 0x10000, SEG_HDR = 8, CHIP_ID_ESP32S3 = 9
-const MEMORY_MAP = [[0x00000000, 0x00010000, "PADDING"], [0x3C000000, 0x3D000000, "DROM"], [0x3D000000, 0x3E000000, "EXTRAM_DATA"], [0x600FE000, 0x60100000, "RTC_DRAM"], [0x3FC88000, 0x3FD00000, "BYTE_ACCESSIBLE"], [0x3FC88000, 0x403E2000, "MEM_INTERNAL"], [0x3FC88000, 0x3FD00000, "DRAM"], [0x40000000, 0x4001A100, "IROM_MASK"], [0x40370000, 0x403E0000, "IRAM"], [0x600FE000, 0x60100000, "RTC_IRAM"], [0x42000000, 0x42800000, "IROM"], [0x50000000, 0x50002000, "RTC_DATA"]]
-const memType = a => MEMORY_MAP.filter(r => r[0] <= a && a < r[1]).map(r => r[2]).join(",")
-const isFlash = a => (a >= 0x42000000 && a < 0x44000000) || (a >= 0x3C000000 && a < 0x3E000000)
+//  --flash-mmu-page-size 64KB --min-rev[-full] / --max-rev-full per chip). Pure JS; sha256 is injected.
+// Chip tables copy esptool's targets/<chip>.py (IMAGE_CHIP_ID, MEMORY_MAP, IROM/DROM map ranges).
+const IROM_ALIGN = 0x10000, SEG_HDR = 8
+export const CHIPS = {
+  esp32s3: { chipId: 9, irom: [0x42000000, 0x44000000], drom: [0x3C000000, 0x3E000000], minRev: 0, minRevFull: 0, maxRevFull: 99,
+    memoryMap: [[0x00000000, 0x00010000, "PADDING"], [0x3C000000, 0x3D000000, "DROM"], [0x3D000000, 0x3E000000, "EXTRAM_DATA"], [0x600FE000, 0x60100000, "RTC_DRAM"], [0x3FC88000, 0x3FD00000, "BYTE_ACCESSIBLE"], [0x3FC88000, 0x403E2000, "MEM_INTERNAL"], [0x3FC88000, 0x3FD00000, "DRAM"], [0x40000000, 0x4001A100, "IROM_MASK"], [0x40370000, 0x403E0000, "IRAM"], [0x600FE000, 0x60100000, "RTC_IRAM"], [0x42000000, 0x42800000, "IROM"], [0x50000000, 0x50002000, "RTC_DATA"]] },
+  esp32c3: { chipId: 5, irom: [0x42000000, 0x42800000], drom: [0x3C000000, 0x3C800000], minRev: 3, minRevFull: 3, maxRevFull: 199,
+    memoryMap: [[0x00000000, 0x00010000, "PADDING"], [0x3C000000, 0x3C800000, "DROM"], [0x3FC80000, 0x3FCE0000, "DRAM"], [0x3FC88000, 0x3FD00000, "BYTE_ACCESSIBLE"], [0x3FF00000, 0x3FF20000, "DROM_MASK"], [0x40000000, 0x40060000, "IROM_MASK"], [0x42000000, 0x42800000, "IROM"], [0x4037C000, 0x403E0000, "IRAM"], [0x50000000, 0x50002000, "RTC_IRAM"], [0x50000000, 0x50002000, "RTC_DRAM"], [0x600FE000, 0x60100000, "MEM_INTERNAL2"]] },
+}
 const pad4 = d => { const n = (4 - d.length % 4) % 4; if (!n) return d; const o = new Uint8Array(d.length + n); o.set(d); return o }
 const cat = (a, b) => { const o = new Uint8Array(a.length + b.length); o.set(a); o.set(b, a.length); return o }
 export function elf2image(elf, sha256, opt = {}) {
-  const o = { flashMode: 2, flashSizeFreq: 0x3f, elfSha256Offset: 0xb0, minRevFull: 0, maxRevFull: 99, ...opt }
+  const chip = CHIPS[opt.chip || "esp32s3"]; if (!chip) throw new Error(`unsupported chip ${opt.chip}`)
+  const o = { flashMode: 2, flashSizeFreq: 0x3f, elfSha256Offset: 0xb0, minRev: chip.minRev, minRevFull: chip.minRevFull, maxRevFull: chip.maxRevFull, ...opt }
+  const memType = a => chip.memoryMap.filter(r => r[0] <= a && a < r[1]).map(r => r[2]).join(",")
+  const isFlash = a => (a >= chip.irom[0] && a < chip.irom[1]) || (a >= chip.drom[0] && a < chip.drom[1])
   const v = new DataView(elf.buffer, elf.byteOffset, elf.byteLength)
   if (v.getUint32(0, false) !== 0x7f454c46 || elf[4] !== 1 || elf[5] !== 1) throw new Error("not a 32-bit little-endian ELF")
   const entry = v.getUint32(24, true), shoff = v.getUint32(32, true), shentsize = v.getUint16(46, true), shnum = v.getUint16(48, true), shstrndx = v.getUint16(50, true)
@@ -30,7 +37,7 @@ export function elf2image(elf, sha256, opt = {}) {
   const write = b => { out.push(b); pos += b.length }
   const head = new Uint8Array(24), hv = new DataView(head.buffer)
   head[0] = 0xe9; head[2] = o.flashMode; head[3] = o.flashSizeFreq; hv.setUint32(4, entry, true)
-  head[8] = 0xee; hv.setUint16(12, CHIP_ID_ESP32S3, true); head[14] = 0; hv.setUint16(15, o.minRevFull, true); hv.setUint16(17, o.maxRevFull, true); head[23] = 1
+  head[8] = 0xee; hv.setUint16(12, chip.chipId, true); head[14] = o.minRev; hv.setUint16(15, o.minRevFull, true); hv.setUint16(17, o.maxRevFull, true); head[23] = 1
   write(head)
   const saveSegment = s => { let d = pad4(s.data)
     if (o.elfSha256Offset >= pos && o.elfSha256Offset < pos + d.length) { const p = o.elfSha256Offset - pos
