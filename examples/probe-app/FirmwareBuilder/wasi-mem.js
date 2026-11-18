@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Minimal in-memory WASI preview1 host: one preopen "/", lexical path resolution.
-// Enough for GCC cc1 and GNU as (their full import list is implemented or ENOSYS).
+// Enough for GCC cc1/cc1plus and GNU as/ar/ld (their full import list is implemented or ENOSYS).
 export class MemFS {
   constructor() { this.files = new Map(); this.dirs = new Set(["/"]); this.ino = new Map(); this.nextIno = 2 }
   norm(p) { const o = []; for (const s of p.split("/")) { if (s === "" || s === ".") continue; if (s === "..") o.pop(); else o.push(s) } return "/" + o.join("/") }
@@ -62,6 +62,8 @@ export function runWasi(module, fs, argv, env) {
       for (let i = 0; i < n; i++) { const p = v.getUint32(iovs + i * 8, true), l = v.getUint32(iovs + i * 8 + 4, true); const k = Math.min(l, f.node.len - pos); if (k <= 0) break; u8().set(f.node.buf.subarray(pos, pos + k), p); pos += k; total += k; if (k < l) break }
       v.setUint32(out, total, true); return 0 },
     path_filestat_set_times: () => 0,
+    path_create_directory: (fd, p, l) => { const path = resolve(fd, p, l); if (path === null) return E.BADF; if (fs.dirs.has(path) || fs.files.has(path)) return E.EXIST
+      const parent = path.slice(0, path.lastIndexOf("/")) || "/"; if (!fs.dirs.has(parent)) return E.NOENT; fs.dirs.add(path); return 0 },
     path_remove_directory: () => E.NOENT,
     path_rename: (fd, p, l, fd2, p2, l2) => { const a = resolve(fd, p, l), b = resolve(fd2, p2, l2); if (a === null || b === null) return E.BADF; const node = fs.files.get(a); if (!node) return E.NOENT; fs.files.set(b, node); fs.files.delete(a); return 0 },
     poll_oneoff: () => E.NOSYS,

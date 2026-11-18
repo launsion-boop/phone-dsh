@@ -7,14 +7,14 @@
   "sectionNote": null,
   "title": {
     "text": "固件构建",
-    "provenance": "FirmwareBuilderPage.swift:319",
+    "provenance": "FirmwareBuilderPage.swift:343",
     "anchor": ".navigationTitle(NativeText(\"固件构建\", \"Firmware builder\"))"
   },
   "source": {
     "file": "FirmwareBuilderPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/FirmwareBuilderPage.swift",
-    "lines": 361,
-    "structLine": 260,
+    "lines": 388,
+    "structLine": 278,
     "renderedFrom": [
       "body"
     ],
@@ -27,7 +27,7 @@
   },
   "sections": [
     {
-      "id": "section-266",
+      "id": "section-284",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -37,8 +37,8 @@
       "collection": null,
       "rows": [
         {
-          "id": "在这台-iphone-上把工程源码编译-链接成-esp32-s3-固件-全程不联网-不需要电脑-预编译的-esp-idf-库和编译清单来自随应用安装的-sdk-包-所以只能重编包里已有的源文件-构建期间请保持应用在前台",
-          "label": "在这台 iPhone 上把工程源码编译、链接成 ESP32-S3 固件，全程不联网、不需要电脑。预编译的 ESP-IDF 库和编译清单来自随应用安装的 SDK 包，所以只能重编包里已有的源文件。构建期间请保持应用在前台。",
+          "id": "在这台-iphone-上把工程源码编译-链接成-esp32-固件-全程不联网-不需要电脑-目标芯片-预编译的-esp-idf-库和编译清单都来自随应用安装的-sdk-包-所以只能重编包里已有的源文件-构建期间请保持应用在前台",
+          "label": "在这台 iPhone 上把工程源码编译、链接成 ESP32 固件，全程不联网、不需要电脑。目标芯片、预编译的 ESP-IDF 库和编译清单都来自随应用安装的 SDK 包，所以只能重编包里已有的源文件。构建期间请保持应用在前台。",
           "labelExpr": null,
           "kind": "text",
           "value": null,
@@ -47,18 +47,18 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "FirmwareBuilderPage.swift:267",
-          "anchor": "Text(NativeText(\"在这台 iPhone 上把工程源码编译、链接成 ESP32-S3 固件，全程不联网、不需要电脑。预编译的 ESP-IDF 库和",
+          "provenance": "FirmwareBuilderPage.swift:285",
+          "anchor": "Text(NativeText(\"在这台 iPhone 上把工程源码编译、链接成 ESP32 固件，全程不联网、不需要电脑。目标芯片、预编译的 ESP-IDF ",
           "extraction": "syntax"
         }
       ],
-      "provenance": "FirmwareBuilderPage.swift:266",
+      "provenance": "FirmwareBuilderPage.swift:284",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row",
-        "label": "在这台 iPhone 上把工程源码编译、链接成 ESP32-S3 固件，全程不联网、不需要电脑。预编译的 ESP-IDF 库和编译清单来自随应用安装的 SDK 包，所以只能重编包里已有的源文件。构建期间请保持应用在前台。",
-        "provenance": "FirmwareBuilderPage.swift:267"
+        "label": "在这台 iPhone 上把工程源码编译、链接成 ESP32 固件，全程不联网、不需要电脑。目标芯片、预编译的 ESP-IDF 库和编译清单都来自随应用安装的 SDK 包，所以只能重编包里已有的源文件。构建期间请保持应用在前台。",
+        "provenance": "FirmwareBuilderPage.swift:285"
       }
     },
     {
@@ -71,7 +71,7 @@
       "condition": null,
       "collection": null,
       "rows": [],
-      "provenance": "FirmwareBuilderPage.swift:271",
+      "provenance": "FirmwareBuilderPage.swift:289",
       "anchor": "Section(NativeText(\"工具链和 SDK 包\", \"Toolchain and SDK pack\")) {",
       "extraction": "syntax"
     },
@@ -96,7 +96,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "FirmwareBuilderPage.swift:283",
+          "provenance": "FirmwareBuilderPage.swift:301",
           "anchor": "Stepper(NativeText(\"并行编译：\\(model.workers) 路\", \"Parallel compiles: \\(model.worker",
           "extraction": "manual",
           "template": "Stepper",
@@ -113,12 +113,12 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "FirmwareBuilderPage.swift:284",
+          "provenance": "FirmwareBuilderPage.swift:302",
           "anchor": "Button(NativeText(\"构建固件\", \"Build firmware\")) { Task { await model.build() } }",
           "extraction": "syntax"
         },
         {
-          "id": "loading-288",
+          "id": "loading-306",
           "label": null,
           "labelExpr": null,
           "kind": "loading",
@@ -128,12 +128,12 @@
           "destination": null,
           "writes": false,
           "condition": "model.stage == \"compile\", model.total > 0",
-          "provenance": "FirmwareBuilderPage.swift:288",
+          "provenance": "FirmwareBuilderPage.swift:306",
           "anchor": "ProgressView(value: Double(model.done), total: Double(model.total)) { Text(Nativ",
           "extraction": "manual"
         },
         {
-          "id": "loading-290",
+          "id": "loading-308",
           "label": null,
           "labelExpr": null,
           "kind": "loading",
@@ -143,12 +143,12 @@
           "destination": null,
           "writes": false,
           "condition": "!(model.stage == \"compile\", model.total > 0)",
-          "provenance": "FirmwareBuilderPage.swift:290",
+          "provenance": "FirmwareBuilderPage.swift:308",
           "anchor": "ProgressView { Text(model.stage == \"link\" ? NativeText(\"链接中…\", \"Linking…\") : Nat",
           "extraction": "manual"
         },
         {
-          "id": "text-293",
+          "id": "text-311",
           "label": null,
           "labelExpr": "model.result",
           "kind": "text",
@@ -158,12 +158,12 @@
           "destination": null,
           "writes": false,
           "condition": "!model.result.isEmpty",
-          "provenance": "FirmwareBuilderPage.swift:293",
+          "provenance": "FirmwareBuilderPage.swift:311",
           "anchor": "if !model.result.isEmpty { Text(model.result).font(.callout) }",
           "extraction": "manual"
         }
       ],
-      "provenance": "FirmwareBuilderPage.swift:282",
+      "provenance": "FirmwareBuilderPage.swift:300",
       "anchor": "Section(NativeText(\"构建\", \"Build\")) {",
       "extraction": "syntax"
     },
@@ -188,7 +188,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "FirmwareBuilderPage.swift:297",
+          "provenance": "FirmwareBuilderPage.swift:315",
           "anchor": "LabeledContent(NativeText(\"大小\", \"Size\"), value: \"\\(image.data.count) B\")",
           "extraction": "syntax"
         },
@@ -203,7 +203,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "FirmwareBuilderPage.swift:298",
+          "provenance": "FirmwareBuilderPage.swift:316",
           "anchor": "LabeledContent(NativeText(\"版本\", \"Version\"), value: image.version)",
           "extraction": "syntax"
         },
@@ -218,7 +218,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "FirmwareBuilderPage.swift:299",
+          "provenance": "FirmwareBuilderPage.swift:317",
           "anchor": "LabeledContent(\"ELF SHA-256\", value: String(image.elfSHA256.prefix(16)) + \"…\")",
           "extraction": "syntax"
         },
@@ -233,7 +233,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "FirmwareBuilderPage.swift:300",
+          "provenance": "FirmwareBuilderPage.swift:318",
           "anchor": "LabeledContent(NativeText(\"镜像 SHA-256\", \"Image SHA-256\"), value: String(model.im",
           "extraction": "syntax"
         },
@@ -248,7 +248,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "FirmwareBuilderPage.swift:301",
+          "provenance": "FirmwareBuilderPage.swift:319",
           "anchor": "LabeledContent(NativeText(\"耗时\", \"Time\"), value: String(format: \"%.0f s\", model.s",
           "extraction": "syntax"
         },
@@ -263,7 +263,7 @@
           "destination": null,
           "writes": false,
           "condition": "let matches = model.matchesReference",
-          "provenance": "FirmwareBuilderPage.swift:303",
+          "provenance": "FirmwareBuilderPage.swift:321",
           "anchor": "Label(matches ? NativeText(\"与电脑上的参考构建逐字节一致\", \"Byte-identical to the reference bu",
           "extraction": "syntax"
         },
@@ -277,13 +277,28 @@
           "clickable": true,
           "destination": "TonoLinkUSBOTAPage",
           "writes": false,
-          "condition": null,
-          "provenance": "FirmwareBuilderPage.swift:308",
+          "condition": "(try? FirmwareBuilderModel.pack().get())?.flashableOverUSB == true",
+          "provenance": "FirmwareBuilderPage.swift:327",
           "anchor": "NavigationLink(NativeText(\"刷到板子（USB）\", \"Flash to the board (USB)\")) { TonoLinkUS",
+          "extraction": "syntax"
+        },
+        {
+          "id": "镜像已存到-文件-phone-dsh-firmware-builder-这个芯片的板子不能从本页刷写-请用电脑上的-esptool-刷入",
+          "label": "镜像已存到“文件 › Phone DSH › firmware-builder”。这个芯片的板子不能从本页刷写，请用电脑上的 esptool 刷入。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!((try? FirmwareBuilderModel.pack().get())?.flashableOverUSB == true)",
+          "provenance": "FirmwareBuilderPage.swift:331",
+          "anchor": "Text(NativeText(\"镜像已存到“文件 › Phone DSH › firmware-builder”。这个芯片的板子不能从本页刷写，请用电脑上的 ",
           "extraction": "syntax"
         }
       ],
-      "provenance": "FirmwareBuilderPage.swift:296",
+      "provenance": "FirmwareBuilderPage.swift:314",
       "anchor": "Section(NativeText(\"产物\", \"Output\")) {",
       "extraction": "syntax"
     },
@@ -298,7 +313,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-315",
+          "id": "text-339",
           "label": null,
           "labelExpr": "$0.element",
           "kind": "text",
@@ -308,13 +323,13 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "FirmwareBuilderPage.swift:315",
+          "provenance": "FirmwareBuilderPage.swift:339",
           "anchor": "ForEach(Array(model.log.enumerated()), id: \\.offset) { Text($0.element).font(.ca",
           "extraction": "manual",
           "collection": "Array(model.log.enumerated()), id: \\.offset"
         }
       ],
-      "provenance": "FirmwareBuilderPage.swift:314",
+      "provenance": "FirmwareBuilderPage.swift:338",
       "anchor": "Section(NativeText(\"过程\", \"Steps\")) {",
       "extraction": "syntax"
     }
@@ -330,7 +345,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "FirmwareBuilderPage.swift:284",
+      "provenance": "FirmwareBuilderPage.swift:302",
       "anchor": "Button(NativeText(\"构建固件\", \"Build firmware\")) { Task { await model.build() } }",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -345,7 +360,7 @@
       "writes": false,
       "destination": "TonoLinkUSBOTAPage",
       "condition": null,
-      "provenance": "FirmwareBuilderPage.swift:308",
+      "provenance": "FirmwareBuilderPage.swift:327",
       "anchor": "NavigationLink(NativeText(\"刷到板子（USB）\", \"Flash to the board (USB)\")) { TonoLinkUS",
       "extraction": "syntax"
     }
@@ -358,9 +373,9 @@
       "empty": [],
       "data": [
         {
-          "renders": "untitled section at 266 | 工具链和 SDK 包 | 构建 | 产物 | 过程",
+          "renders": "untitled section at 284 | 工具链和 SDK 包 | 构建 | 产物 | 过程",
           "when": null,
-          "provenance": "FirmwareBuilderPage.swift:260",
+          "provenance": "FirmwareBuilderPage.swift:278",
           "anchor": "struct FirmwareBuilderPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -371,7 +386,7 @@
         {
           "renders": "ProgressView",
           "when": "model.stage == \"compile\", model.total > 0",
-          "provenance": "FirmwareBuilderPage.swift:288",
+          "provenance": "FirmwareBuilderPage.swift:306",
           "anchor": "ProgressView(value: Double(model.done), total: Double(model.total)) { Text(Nativ"
         }
       ]
@@ -398,7 +413,7 @@
     "regionsExtracted": 0,
     "sectionsExtracted": 5,
     "warnings": [
-      "unsupported control flow at FirmwareBuilderPage.swift:272: switch FirmwareBuilderModel.pack() { case .success(let pack)"
+      "unsupported control flow at FirmwareBuilderPage.swift:290: switch FirmwareBuilderModel.pack() { case .success(let pack)"
     ]
   }
 }
