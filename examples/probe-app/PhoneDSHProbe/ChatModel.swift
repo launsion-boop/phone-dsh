@@ -49,7 +49,7 @@ enum ChatSettings {
     /// Keep the agent running in the background with a silent audio session
     /// (instead of parking the host). On by default.
     static var backgroundKeepAlive: Bool {
-        get { UserDefaults.standard.object(forKey: keepAliveKey) as? Bool ?? true }
+        get { SilentAudioKeepAlive.isConfigured && (UserDefaults.standard.object(forKey: keepAliveKey) as? Bool ?? true) }
         set { UserDefaults.standard.set(newValue, forKey: keepAliveKey) }
     }
 }

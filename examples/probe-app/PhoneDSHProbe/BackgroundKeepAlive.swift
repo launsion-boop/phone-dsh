@@ -22,6 +22,10 @@ final class SilentAudioKeepAlive {
     /// The app's single keep-alive (ios-audio-session.md §1). Callers name themselves; rendering
     /// starts with the first owner and stops when the last one leaves.
     static let shared = SilentAudioKeepAlive()
+    nonisolated static var isConfigured: Bool {
+        let modes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String]
+        return modes?.contains("audio") == true
+    }
     private var owners: Set<String> = []
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
@@ -52,6 +56,7 @@ final class SilentAudioKeepAlive {
     /// Activates the session and starts rendering silence. Registers the lease
     /// before activation so a failed start rolls it back. Idempotent.
     func start(owner: String = "chat") throws {
+        guard Self.isConfigured else { throw CocoaError(.featureUnsupported) }
         let added = owners.insert(owner).inserted
         guard !isActive else { return }
         do { try startRendering() } catch { if added { owners.remove(owner) }; throw error }
