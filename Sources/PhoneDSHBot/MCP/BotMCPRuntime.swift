@@ -267,6 +267,7 @@ public actor BotMCPRuntime {
     private var memories: [String: BotMemory] = [:]
     private var teamToolHandlers: [any BotTeamToolHandling] = []
     private var deviceApp: DeviceAppToolHost?
+    private var xiaozhiFirmware: XiaozhiFirmwareToolHost?
     private var toolCatalogProvider: (@Sendable (String?) async -> [BotMCPToolDefinition]?)?
     private var registrations: [String: BotAttribution] = [:]
     private var registrationArguments: [String: BotJSONValue] = [:]
@@ -623,6 +624,7 @@ public actor BotMCPRuntime {
     func handlesTeamTool(_ name: String) -> Bool {
         guard !Self.isHostBuiltinToolName(name) else { return false }
         return teamToolHandlers.contains { $0.handles(name) } || handlesDeviceAppTool(name)
+            || handlesXiaozhiTool(name)
     }
 
     /// Names the host/Worker already owns outside the Bot catalog (shell, VFS,
@@ -660,18 +662,25 @@ public actor BotMCPRuntime {
     /// installed by `registerTeamTools`; the App needs no extra wiring.
     public func toolDefinitions(callerBotID: String?) async -> [BotMCPToolDefinition] {
         guard let callerBotID, !callerBotID.isEmpty else {
-            // device-app-v1: the all-callers list the Worker registers its tools
-            // from carries the two host tools whenever the host is installed;
-            // the Worker hides them per caller and `execute` refuses an unbound
+            // device-app-v1 / xiaozhi-firmware-v1 r2: the all-callers list the Worker
+            // registers its tools from carries each host's tools whenever that host is
+            // installed; the Worker hides them per caller and `execute` refuses an unbound
             // caller against the per-caller catalog below.
-            return deviceApp == nil
-                ? BotToolCatalog.workerDefinitions
-                : BotToolCatalog.workerDefinitions + DeviceAppToolDefinitions.all
+            var all = BotToolCatalog.workerDefinitions
+            if deviceApp != nil { all += DeviceAppToolDefinitions.all }
+            if xiaozhiFirmware != nil { all += XiaozhiFirmwareToolDefinitions.all }
+            return all
         }
         var base = BotToolCatalog.workerDefinitions
         if let provider = toolCatalogProvider,
            let definitions = await provider(callerBotID) {
             base = definitions
+        }
+        // xiaozhi-firmware-v1 §4/§6: a Bot bound to a `xiaozhi:` key lists only the four firmware
+        // tools (and only while the app installed the host); the device-app tools are not
+        // listed for it. Any other bound Bot keeps the device-app tools.
+        if let xiaozhiFirmware, await xiaozhiFirmware.isBound(botID: callerBotID) {
+            return base + XiaozhiFirmwareToolDefinitions.all
         }
         // device-app-v1: only a Bot with a device binding lists the two host tools.
         if let deviceApp, await deviceApp.isBound(botID: callerBotID) {
@@ -685,6 +694,15 @@ public actor BotMCPRuntime {
 
     private func handlesDeviceAppTool(_ name: String) -> Bool {
         deviceApp != nil && DeviceAppToolNames.handles(name)
+    }
+
+    /// Installs the xiaozhi firmware host tools (P26, xiaozhi-firmware-v1; DEBUG app builds with
+    /// a staged pack that has `sources_root`). `nil` removes them. Listed in the all-callers list
+    /// when installed (r2), and per caller for a `xiaozhi:` Bot.
+    public func setXiaozhiFirmwareTools(_ host: XiaozhiFirmwareToolHost?) { xiaozhiFirmware = host }
+
+    private func handlesXiaozhiTool(_ name: String) -> Bool {
+        xiaozhiFirmware != nil && XiaozhiFirmwareToolNames.handles(name)
     }
 
     /// Resolves the caller Bot from the App-minted MCP session identity. This
@@ -1415,7 +1433,8 @@ public actor BotMCPRuntime {
         let catalogTool = BotToolCatalog.isRegistered(bareName)
         let decisionTool = bareName == BotDecisionTool.name
         let teamHandler = catalogTool ? nil : teamToolHandler(for: bareName)
-        guard catalogTool || teamHandler != nil || decisionTool || handlesDeviceAppTool(bareName) else {
+        guard catalogTool || teamHandler != nil || decisionTool || handlesDeviceAppTool(bareName)
+                || handlesXiaozhiTool(bareName) else {
             return .failure("unknown_tool", "未知工具：\(name)")
         }
         let scope = scopedRuntimeID(context.runtimeId)
@@ -1463,7 +1482,14 @@ public actor BotMCPRuntime {
                 return .success(snapshot.jsonValue)
             }
             if handlesDeviceAppTool(bareName), let deviceApp {
+                // A `xiaozhi:`-bound Bot is not a device-app Bot (xiaozhi-firmware.md §4).
+                if let xiaozhiFirmware, await xiaozhiFirmware.isBound(botID: call.principal.botId) {
+                    return .failure("permission_denied", "这个 Bot 绑定的是小智设备，不能使用设备应用工具")
+                }
                 return await executeDeviceApp(bareName, arguments: arguments, call: call, host: deviceApp)
+            }
+            if handlesXiaozhiTool(bareName), let xiaozhiFirmware {
+                return await executeXiaozhi(bareName, arguments: arguments, call: call, host: xiaozhiFirmware)
             }
             let effect = BotToolEffectClassifier.effect(for: bareName, arguments: arguments)
             if let reason = await authorize(call: call, effect: effect) {
@@ -1555,6 +1581,40 @@ public actor BotMCPRuntime {
                 call: call, effects: [effect], action: DeviceAppToolNames.install,
                 detail: effect.detail, command: "", alwaysScope: "none",
                 persistence: persistence, origin: "structural")
+        }
+    }
+
+    /// The four xiaozhi firmware tools. Export/build/status are classified like any read or write
+    /// and authorized as `auto`; Flash never goes through the generic ask-authorization (its
+    /// effect has no standing grant): the host raises its own once-only approval on every call,
+    /// before any side effect.
+    private func executeXiaozhi(_ name: String, arguments: BotJSONValue,
+                                call: BotResolvedToolCall,
+                                host: XiaozhiFirmwareToolHost) async -> BotMCPCallResult {
+        if name == XiaozhiFirmwareToolNames.flash {
+            let authority = turnAuthority(for: call)
+            let persistence = approvalPersistence(for: call)
+            let approvals = self.approvals
+            return await host.flash(
+                arguments: arguments, principal: call.principal, authority: authority
+            ) { effect in
+                await approvals.request(
+                    call: call, effects: [effect], action: XiaozhiFirmwareToolNames.flash,
+                    detail: effect.detail, command: "", alwaysScope: "none",
+                    persistence: persistence, origin: "structural")
+            }
+        }
+        let effect = BotToolEffectClassifier.effect(for: name, arguments: arguments)
+        if let reason = await authorize(call: call, effect: effect) {
+            return .failure("permission_denied", reason)
+        }
+        switch name {
+        case XiaozhiFirmwareToolNames.export:
+            return await host.export(arguments: arguments, principal: call.principal)
+        case XiaozhiFirmwareToolNames.build:
+            return await host.build(arguments: arguments, principal: call.principal)
+        default:
+            return await host.status(arguments: arguments, principal: call.principal)
         }
     }
 

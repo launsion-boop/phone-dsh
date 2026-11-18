@@ -5,13 +5,16 @@ import { loadBundle, runJob, loadLink, linkFirmware } from "./core.js"
 import { MemFS } from "./wasi-mem.js"
 import { elf2image } from "./elf2image.js"
 import { sha256, hex } from "./sha256.js"
+import { applyOverrides, decodeOverrides, OverrideError } from "./overrides.js"
 const bytes = u => fetch(u).then(r => { if (!r.ok) throw new Error(`${u}: HTTP ${r.status}`); return r.arrayBuffer() })
 const say = (type, data, transfer) => self.postMessage({ type, ...data }, transfer || [])
 let st
 self.onmessage = async ({ data }) => {
   try {
     if (data.cmd === "init") {
-      const project = await bytes(data.project); const { fs, jobs } = loadBundle(project)
+      const project = await bytes(data.project); const { fs, jobs, paths } = loadBundle(project)
+      // spec xiaozhi-firmware.md §5: overrides land after loadBundle and before the first compile job.
+      if (data.overrides && Object.keys(data.overrides).length) applyOverrides(fs, data.sourcesRoot, paths, decodeOverrides(data.overrides))
       const tools = new Set(jobs.map(j => j.tool || "cc1")); tools.add("as")
       const names = [...tools], bins = await Promise.all(names.map(n => bytes(`artifacts/${n}.wasm`)))
       const t = performance.now(); const mods = Object.fromEntries(await Promise.all(names.map(async (n, i) => [n, await WebAssembly.compile(bins[i])])))
@@ -31,5 +34,5 @@ self.onmessage = async ({ data }) => {
       out.imageMs = Math.round(performance.now() - t); out.elfBytes = elf.length; out.elfSha256 = hex(elfSha); out.imageBytes = r.image.length; out.imageSha256 = hex(sha256(r.image))
       say("linked", { out, image: r.image.buffer }, [r.image.buffer])
     }
-  } catch (e) { say("fatal", { msg: String(e && e.stack || e) }) }
+  } catch (e) { say("fatal", e instanceof OverrideError ? { msg: e.message, code: e.code, path: e.path } : { msg: String(e && e.stack || e) }) }
 }

@@ -160,6 +160,15 @@ struct PhoneDSHProbeApp: App {
                 .task {
                     if let mode = ProcessInfo.processInfo.environment[FirmwareBuilderDiagnostics.environmentKey] { await FirmwareBuilderDiagnostics.run(mode) }
                 }
+                .task {
+                    // DEBUG device-test hook (spec/device/v1/xiaozhi-firmware.md §8): start the OTA relay so a
+                    // board (or a test client on the Wi-Fi) can reach it headlessly. The wiring installs the
+                    // SDK relay when a pack with sources_root is staged; this just switches it on.
+                    if ProcessInfo.processInfo.environment["PDSH_XIAOZHI_RELAY"] == "on" {
+                        try? await Task.sleep(for: .seconds(2))
+                        await XiaozhiFirmwareModel.shared.startRelayForDiagnostics()
+                    }
+                }
                 #endif
         }
     }

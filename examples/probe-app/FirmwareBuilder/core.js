@@ -4,7 +4,7 @@ export function loadBundle(buf) {
   const u = new Uint8Array(buf), n = new DataView(buf).getUint32(0, true), head = JSON.parse(new TextDecoder().decode(u.subarray(4, 4 + n))), base = 4 + n
   const fs = new MemFS(); for (const d of head.dirs) fs.mkdirp(d)
   for (const [p, off, len] of head.files) fs.put(p, u.subarray(base + off, base + off + len))
-  return { fs, jobs: head.jobs }
+  return { fs, jobs: head.jobs, paths: head.files.map(f => f[0]) }
 }
 // A job compiles one source: `tool` (cc1, or cc1plus for C++) writes j.s, then as writes j.o.
 // Packs made before cc1plus existed have no `tool`; their jobs are C.

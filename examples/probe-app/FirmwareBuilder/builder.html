@@ -14,6 +14,11 @@ window.fwbStart = async opts => {
   const W = Math.max(1, Math.min(4, Number(opts && opts.workers) || 3)), project = (opts && opts.project) || "artifacts/project.bin"
   const report = { workers: W, results: [] }
   try {
+    // opts.overrides = {path relative to manifest.sources_root: base64}; absent = the pack's reference build.
+    const overrides = opts && opts.overrides && Object.keys(opts.overrides).length ? opts.overrides : undefined
+    let sourcesRoot
+    if (overrides) { const m = await fetch("artifacts/manifest.json").then(r => r.json()); sourcesRoot = m.sources_root
+      send({ type: "log", message: `${Object.keys(overrides).length} source override(s)` }) }
     const T0 = performance.now(); const objs = new Map(); let queue = null, total = 0
     await new Promise((res, rej) => { let live = 0
       for (let k = 0; k < W; k++) { const w = new Worker("builder-worker.js", { type: "module" }); live++
@@ -25,7 +30,7 @@ window.fwbStart = async opts => {
             if (!data.obj) return rej(new Error(`compile failed: ${data.r.src}: ${data.r.err || data.r.trap || "exit " + data.r.cc1Exit}`))
             objs.set(data.r.n, data.obj); send({ type: "progress", stage: "compile", done: objs.size, total }); next() }
           else if (data.type === "fatal") rej(new Error(data.msg)) }
-        w.postMessage({ cmd: "init", project }) } })
+        w.postMessage({ cmd: "init", project, overrides, sourcesRoot }) } })
     report.compileMs = Math.round(performance.now() - T0); report.cc1PeakMiB = Math.max(...report.results.map(r => r.cc1PeakMiB))
     send({ type: "log", message: `compiled ${objs.size} sources in ${report.compileMs} ms` }); send({ type: "progress", stage: "link", done: 0, total: 1 })
     const T1 = performance.now()

@@ -712,6 +712,11 @@ test('device app tools are App-owned: the Worker proposes no effect and never ca
     // device-app-v1.5: list is a host read/auto; remove raises the App's own once-only card.
     ['DeviceAppList', {}],
     ['DeviceAppRemove', { name: 'focus_timer' }],
+    // xiaozhi-firmware-v1: export/build/status are host auto effects; Flash raises the App's own card.
+    ['XiaozhiSourceExport', {}],
+    ['XiaozhiFirmwareBuild', { directory: '/ws/imports/xiaozhi-src' }],
+    ['XiaozhiFirmwareStatus', {}],
+    ['XiaozhiFirmwareFlash', { elfSha256: '1'.repeat(64) }],
   ]
   for (const [name, args] of cases) {
     assert.deepEqual(phoneEffectsForApproval(`mcp__phone__${name}`, args), [])
@@ -720,7 +725,8 @@ test('device app tools are App-owned: the Worker proposes no effect and never ca
   }
   // No widening: near names stay unclassified (ask, session scope).
   for (const near of ['DeviceAppStageX', 'DeviceAppInstallAll', 'deviceappstage', 'DeviceApp', 'XDeviceAppInstall',
-    'DeviceAppListX', 'DeviceAppRemoveAll', 'deviceappremove', 'XDeviceAppList']) {
+    'DeviceAppListX', 'DeviceAppRemoveAll', 'deviceappremove', 'XDeviceAppList',
+    'XiaozhiFirmwareFlashAll', 'xiaozhifirmwareflash', 'XiaozhiFirmware', 'XXiaozhiSourceExport']) {
     for (const full of [near, `mcp__phone__${near}`]) {
       const effects = phoneEffectsForApproval(full, {})
       assert.equal(effects.length, 1, full)

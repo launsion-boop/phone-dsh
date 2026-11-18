@@ -36,6 +36,26 @@ public enum DeviceBotKey {
 
     public static let legacyTonoLinkPrefix = "tonolink:"
 
+    /// xiaozhi-firmware-v1 §4: `xiaozhi:` + the recorded MAC, which must be lowercase
+    /// `aa:bb:cc:dd:ee:ff`; any other spelling has no key.
+    public static func xiaozhi(mac: String) -> String? {
+        isCanonicalMAC(mac) ? "xiaozhi:" + mac : nil
+    }
+
+    /// Lowercase `aa:bb:cc:dd:ee:ff`, six hex pairs separated by `:`.
+    public static func isCanonicalMAC(_ value: String) -> Bool {
+        let scalars = Array(value.unicodeScalars)
+        guard scalars.count == 17 else { return false }
+        for (index, scalar) in scalars.enumerated() {
+            if index % 3 == 2 {
+                if scalar != ":" { return false }
+            } else if !DeviceBotText.isLowerHex(scalar) {
+                return false
+            }
+        }
+        return true
+    }
+
     /// The BLE name inside a legacy key; `nil` for any other key.
     public static func tonolinkName(inKey key: String) -> String? {
         key.hasPrefix(legacyTonoLinkPrefix) ? String(key.dropFirst(legacyTonoLinkPrefix.count)) : nil
@@ -157,6 +177,19 @@ public enum DeviceBotText {
 
     public static func lanDescription(host: String) -> String {
         "管理一台局域网设备" + (isCanonicalHost(host) ? "（\(host)）" : "") + "。"
+    }
+
+    /// xiaozhi-firmware-v1 §4: raw name `小智 ` + the last two octets upper-cased without the
+    /// colon; the caller still runs `name(_:rosterNames:)`. nil for a non-canonical MAC.
+    public static func xiaozhiRawName(mac: String) -> String? {
+        guard DeviceBotKey.isCanonicalMAC(mac) else { return nil }
+        return "小智 " + mac.suffix(5).replacingOccurrences(of: ":", with: "").uppercased()
+    }
+
+    /// xiaozhi-firmware-v1 §4: the fixed description; no device-supplied text enters it.
+    public static func xiaozhiDescription(mac: String) -> String? {
+        guard DeviceBotKey.isCanonicalMAC(mac) else { return nil }
+        return "管理一台小智设备（\(mac)）：可以导出和修改固件源码、在这台 iPhone 上编译，并通过 Wi-Fi 刷入新固件。刷入前会先问你。"
     }
 
     /// `^[a-z0-9_.-]{1,64}$`, strict (no trailing-newline allowance).

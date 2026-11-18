@@ -177,6 +177,7 @@ struct SettingsPage: View {
             #if DEBUG
             link(NativeText("板子固件（USB）", "Board firmware (USB)"), icon: "cable.connector") { TonoLinkUSBOTAPage() }
             link(NativeText("固件构建", "Firmware builder"), icon: "hammer") { FirmwareBuilderPage() }
+            link(NativeText("小智固件（仅 DEBUG）", "Xiaozhi firmware (DEBUG)"), icon: "antenna.radiowaves.left.and.right") { XiaozhiFirmwarePage() }
             #endif
         }
     }

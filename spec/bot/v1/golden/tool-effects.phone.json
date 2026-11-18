@@ -678,6 +678,84 @@
         "known": true,
         "isMcp": false
       }
+    },
+    {
+      "name": "XiaozhiSourceExport",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "XiaozhiSourceExport",
+        "operation": "device.xiaozhi.export",
+        "resource": "xiaozhi:export",
+        "target": "xiaozhi:export",
+        "mutability": "write",
+        "policy": "auto",
+        "label": "导出小智固件源码",
+        "detail": "把可修改的固件源码复制到这个 Bot 的工作区，不向设备发送任何内容。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "XiaozhiFirmwareBuild",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "XiaozhiFirmwareBuild",
+        "operation": "device.xiaozhi.build",
+        "resource": "xiaozhi:build",
+        "target": "xiaozhi:build",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "编译小智固件",
+        "detail": "在这台 iPhone 上编译固件，不向设备发送任何内容。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "XiaozhiFirmwareStatus",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "XiaozhiFirmwareStatus",
+        "operation": "device.xiaozhi.status",
+        "resource": "xiaozhi:status",
+        "target": "xiaozhi:status",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "查看小智固件状态",
+        "detail": "只读取编译任务、设备上报和中继状态。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "XiaozhiFirmwareFlash",
+      "args": {
+        "elfSha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "XiaozhiFirmwareFlash",
+        "operation": "device.xiaozhi.flash",
+        "resource": "xiaozhi:flash&elf=1111111111111111111111111111111111111111111111111111111111111111",
+        "target": "xiaozhi:flash&elf=1111111111111111111111111111111111111111111111111111111111111111",
+        "mutability": "destructive",
+        "policy": "ask",
+        "label": "给小智刷入固件",
+        "detail": "把这次编译的固件放到手机的 OTA 中继上，小智下次开机检查更新时会下载并刷入，替换它现在的固件。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
     }
   ],
   "invalid": [

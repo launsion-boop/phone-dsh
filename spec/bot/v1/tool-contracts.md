@@ -395,3 +395,23 @@ classification in `golden/tool-effects.phone.json`.
   host's `read`/`auto`; `DeviceAppInstall` and `DeviceAppRemove` raise the App's own once-only
   approval (above). A near name
   stays `tool.unclassified`.
+
+## 11. Xiaozhi firmware tools (phone-only, DEBUG, Bots bound to a `xiaozhi:` key)
+
+Owned by P26 for the Bot surface; the relay, device record, build inputs and approval text are owned
+by [xiaozhi-firmware.md](../../device/v1/xiaozhi-firmware.md) (§2–§6). Names, descriptions and
+inputs are frozen in the `xiaozhiFirmware` section of `golden/tool-catalog.phone.json`; the
+classification in `golden/tool-effects.phone.json`.
+
+- `XiaozhiSourceExport {}`: `write`/`auto`, operation `device.xiaozhi.export`; writes only the
+  calling Bot's workspace through the P13 import RPCs.
+- `XiaozhiFirmwareBuild {directory?}`: `read`/`auto`, operation `device.xiaozhi.build`; local compute,
+  waits at most 100 s (under the 130 s Worker MCP timeout) and otherwise returns `state:"running"`.
+- `XiaozhiFirmwareStatus {jobId?}`: `read`/`auto`, operation `device.xiaozhi.status`.
+- `XiaozhiFirmwareFlash {elfSha256}`: `destructive`/`ask`, operation `device.xiaozhi.flash`, resource
+  `xiaozhi:flash&elf=<elfSha256>`; approval once only (no standing grant).
+- All four are App-owned tools in the all-callers list (hidden per caller, like §10): the Worker
+  lists them in `AUTO_TOOLS` and in the caller catalog's xiaozhi set, so it raises no effect or card
+  of its own. The device-app tools (§10) are not
+  listed for a `xiaozhi:` Bot.
+
