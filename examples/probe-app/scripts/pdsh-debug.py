@@ -7,6 +7,7 @@
   pdsh-debug.py turn [--wait 60]          continue waiting for the last chat
   pdsh-debug.py approvals [--bot ID]      pending approval cards
   pdsh-debug.py approve --bot ID [--deny] [--row ROW]
+  pdsh-debug.py deviceapps [DEVICE] [open|stop NAME]   the device-apps page's model on the real Link
   pdsh-debug.py connect DEVICE            scan and connect a BLE device (id or name)
   pdsh-debug.py create-bot NAME           a plain unbound Bot (for testing delete/chat)
   pdsh-debug.py delete-bot ID [ID...] [--full]
@@ -111,6 +112,11 @@ def main():
     elif c == "turn": out = go("GET", "/turn?wait=%s" % (a.wait or 60))
     elif c == "approvals": out = go("GET", "/approvals" + ("?bot=" + a.bot if a.bot else ""))
     elif c == "approve": out = go("POST", "/approve", {"bot": a.bot, "decision": "deny" if a.deny else "allow", **({"row": a.row} if a.row else {})})
+    elif c == "deviceapps":
+        a0 = a.args
+        dev = a0[0] if a0 and a0[0] not in ("open", "stop") else None
+        rest = a0[1:] if dev else a0
+        out = go("POST", "/deviceapps/act", {"device": dev, "action": rest[0], "name": rest[1]}) if len(rest) >= 2 else go("GET", "/deviceapps" + ("?device=" + dev if dev else ""))
     elif c == "connect": out = go("POST", "/devices/connect", {"device": a.args[0]})
     elif c == "create-bot": out = go("POST", "/bots/create", {"name": a.args[0] if a.args else "debug-bot"})
     elif c == "delete-bot": out = go("POST", "/bots/delete", {"ids": a.args, "full": a.full})

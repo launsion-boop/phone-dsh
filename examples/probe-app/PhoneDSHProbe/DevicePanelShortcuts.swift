@@ -53,7 +53,7 @@ struct DevicePanelShortcuts: View {
                     ForEach(entries) { entry in
                         NavigationLink {
                             if let device = store.devices.first(where: { $0.id == entry.deviceID }) {
-                                DevicePanelPage(device: device, store: store)
+                                DeviceEntryPage(device: device, store: store)
                             } else {
                                 BluetoothDevicesPage()
                             }

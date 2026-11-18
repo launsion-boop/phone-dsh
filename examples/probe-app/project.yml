@@ -287,6 +287,7 @@ targets:
       # is ChatModel-bound; DevicePanelPage.swift hides that reference behind
       # PDSH_PROBE_HOSTLESS_TESTS (this target does not compile ChatModel.swift).
       - path: PhoneDSHProbe/DevicePanelPage.swift
+      - path: PhoneDSHProbe/DeviceAppsPage.swift
       # The PCLink connection owner is UI-free except for the debug identity
       # store; the simulator suite drives its foreground wake-through.
       - path: PhoneDSHProbe/PCLinkWorkspace.swift
@@ -464,6 +465,7 @@ targets:
       # is ChatModel-bound; DevicePanelPage.swift hides that reference behind
       # PDSH_PROBE_HOSTLESS_TESTS (this target does not compile ChatModel.swift).
       - path: PhoneDSHProbe/DevicePanelPage.swift
+      - path: PhoneDSHProbe/DeviceAppsPage.swift
       - path: PhoneDSHProbe/PCLinkWorkspace.swift
       # The App-side Bot MCP listener supervisor is host-free and links the
       # real PhoneDSHBot recovery result, so the three lifecycle timings run

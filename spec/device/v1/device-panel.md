@@ -168,7 +168,7 @@ Agent 不会被告知面板操作，它要了解设备状态只能自己调用�
 
 | 端 | 状态 |
 | --- | --- |
-| iOS（Swift） | `implemented`：分类器、求值器、存储、准入与面板页；共享向量通过；面板 model 有 fake source 测试和一条真机测试（真实 BLE Link，`DevicePanelHardwareDeviceTests`）；没有触控级 UI 测试 |
+| iOS（Swift） | `implemented`（设备应用页见 §9）：分类器、求值器、存储、准入与面板页；共享向量通过；面板 model 有 fake source 测试和一条真机测试（真实 BLE Link，`DevicePanelHardwareDeviceTests`）；没有触控级 UI 测试 |
 | Android（Kotlin） | `target`，未实现，且受 GAP-20 阻塞：普通 Link 通道没有工具 RPC、持久意图与用户授权（[BLE Link](ble-link.md)「Android Link channel target」）。在该通道落地并有两端 runtime 证据之前，Android 不渲染面板，不调用 Link 工具，也不放置全部禁用的占位页 |
 | 固件（C） | 不变。本文不要求设备新增字段、工具或行为 |
 
@@ -199,3 +199,15 @@ python3 -m unittest discover -s spec/v1/tools -p 'test_device_panel_golden.py'
 该检查器固定向量内容、按 schema 校验，并用一份依本文写成的参考实现重放每一行。它是规范检查，不是 runtime 一致性：
 每一端必须让真实的分类器和求值器读这两份文件。调用路径的回归（`not_executed`、`outcome_unknown`、断线、撤销授权、
 并发准入）必须经真实的设备 store 与 journal，复用 [golden/pdsh-link.jsonl](golden/pdsh-link.jsonl)。
+
+## 9. 设备应用页（device-app-v1.6，iOS）
+
+一台设备的 Link 工具表同时含 `app.info`、`app.begin`、`app.put`、`app.abort`、`app.commit`、`app.run`、
+`app.stop`、`app.remove` 这八个名字（逐字相等，不做前缀或大小写匹配；与 [device-bot.md](device-bot.md) §5、
+[device-app.md](device-app.md) 同一条规则）时，设备的入口（Bot 信息页的设备行、蓝牙设备页的设备行、设备面板快捷
+入口）打开原生的「设备应用」页，而不是本文 §2 的通用面板。其他设备入口不变，仍是本文的面板。
+
+- 页面规则、动作与确认见 [device-app.md](device-app.md) §13。页面内有一个默认折叠的「高级」项，进入本文的通用面板
+  （原始 `tools/list`）；这条入口不是默认入口。
+- 页面读取与动作都走本文 §3 的调用路径（用户来源），不改 Link 的 wire、opcode、能力位、工具表或错误。
+- 页面不显示工具名、摘要、路径或错误码。

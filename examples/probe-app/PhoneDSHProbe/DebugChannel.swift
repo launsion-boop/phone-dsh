@@ -148,6 +148,8 @@ final class DebugChannel {
         case ("GET", "/grants"): return (200, Self.json(grants(device: request.query["device"])))
         case ("POST", "/grants"): return setGrants(args)
         case ("POST", "/link"): return await link(args)
+        case ("GET", "/deviceapps"): return await deviceApps(device: request.query["device"], action: nil, name: nil)
+        case ("POST", "/deviceapps/act"): return await deviceApps(device: args["device"] as? String, action: args["action"] as? String, name: args["name"] as? String)
         case ("POST", "/devices/connect"): return connectDevice(args)
         case ("POST", "/bots/create"): return await createBot(args)
         case ("POST", "/bots/delete"): return await deleteBots(args)
@@ -155,7 +157,7 @@ final class DebugChannel {
         case ("GET", "/turn"): return await turn(wait: Double(request.query["wait"] ?? "") ?? 0)
         default: return (404, Self.json(["error": "unknown route", "routes": [
             "GET /info", "GET /bots", "GET /devices", "GET /logs?name=voice|status&lines=", "GET /approvals?bot=",
-            "POST /approve", "GET|POST /grants", "POST /link", "POST /devices/connect", "POST /bots/create", "POST /bots/delete", "POST /chat", "GET /turn?wait="]]))
+            "POST /approve", "GET|POST /grants", "POST /link", "GET /deviceapps?device=", "POST /deviceapps/act", "POST /devices/connect", "POST /bots/create", "POST /bots/delete", "POST /chat", "GET /turn?wait="]]))
         }
     }
 
@@ -193,6 +195,31 @@ final class DebugChannel {
             ["id": $0.id.uuidString, "name": $0.name, "state": $0.state, "link_state": $0.linkState,
              "link_device_id": $0.linkDeviceID, "tools": $0.linkTools, "granted_tools": $0.grantedTools.sorted(), "rssi": $0.rssi]
         }
+    }
+
+    /// The device-apps page's own model (DeviceAppsPageModel over the real user-origin Link path): what the
+    /// page would show, and the open/stop actions (the delete confirmation is the user's tap, never driven here).
+    private func deviceApps(device key: String?, action: String?, name: String?) async -> (Int, Data) {
+        guard let device = BLEDeviceStore.shared.devices.first(where: { $0.id.uuidString == key || $0.name == key })
+                ?? BLEDeviceStore.shared.devices.first(where: { DeviceAppsPageModel.isDeviceAppTarget(tools: $0.linkTools) }) else {
+            return (400, Self.json(["error": "no device-app capable device"]))
+        }
+        let model = DeviceAppsPageModel(link: DeviceAppsLinkFactory.make(deviceID: device.id, store: BLEDeviceStore.shared))
+        await model.refresh()
+        var acted: [String: Any] = [:]
+        if let action, let name, let row = model.rows.first(where: { $0.id == name }) {
+            switch action {
+            case "open": await model.open(row)
+            case "stop": await model.stop(row)
+            default: return (400, Self.json(["error": "action must be open or stop"]))
+            }
+            acted = ["action": action, "banner": model.banner?.text ?? "", "banner_is_error": model.banner?.isError ?? false]
+        } else if action != nil { return (200, Self.json(["error": "no such app on the page"])) }
+        let phase: String
+        switch model.phase { case .loading: phase = "loading"; case .notConnected: phase = "not_connected"; case .failed(let t): phase = "failed: \(t)"; case .ready: phase = "ready" }
+        return (200, Self.json(["device": device.name, "phase": phase, "free_space": model.freeSpace ?? NSNull(),
+                                "rows": model.rows.map { ["name": $0.id, "title": $0.title, "detail": $0.detail ?? NSNull(), "running": $0.running] as [String: Any] },
+                                "acted": acted]))
     }
 
     /// Starts a scan and connects the named device (id or BLE name); poll `GET /devices` for the link state.

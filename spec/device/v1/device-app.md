@@ -356,3 +356,28 @@ must each run the same file through their real functions.
   come from the list, the confirmation card appears, only `ok` means done). Before `DeviceAppStage` the Bot says that a confirmation card will appear
   and to tap 允许 within 2 minutes; after the install it says the app is open and how to quit; it
   never says digest, error code or tool name to the customer.
+
+## 13. The device-apps page (device-app-v1.6, iOS)
+
+For a device whose Link tools contain all eight names of §5 (exact equality), the phone shows a native
+「设备应用」 page ([device-panel.md](device-panel.md) §9 says which entries lead to it). Other devices keep the
+generic panel; the page has a collapsed 「高级」 item that opens it.
+
+- **List.** The page reads `app.info` (user origin) on appear and on pull-to-refresh and shows, per app, the
+  device-reported `title` as plain, clipped (40 scalars) text, a 「运行中」 mark when `running`, and once at
+  the top the free space in customer words (`设备剩余空间约 4.5 MB`, from `free_bytes`). Two apps with the same
+  title get a second line `版本 N（名称）` so they can be told apart; a unique title has no second line. An
+  empty device says `设备上还没有应用。让 Bot 给你做一个吧。`; a device that is not connected says
+  `设备没连上，请靠近设备并确认蓝牙已开` and sends nothing.
+- **Actions.** Per row: 打开 (`app.run {name}`), 停止 (`app.stop`, only on the running row), 删除 (`app.remove {name}`;
+  a running app is stopped first). Each is a deliberate tap of the user and is the authorization: the calls go
+  out as the **user origin**, which the v1.3 waiver of §7 covers for exactly these eight names, so no
+  Bot, approval card, standing grant or new switch is involved. 删除 asks one confirmation:
+  `删除后不能恢复，需要的话让 Bot 重新做一个。` Nothing is sent before the user confirms.
+- **Results** use the customer sentences of §12 and the remove/list tables of §8.2:
+  `已打开「<名>」。长按确定键退出。`, `已停止「<名>」。`, `已删除「<名>」。`; failures use
+  `DeviceAppCustomerText` (run/stop have their own tables). After every action the list is read again.
+- **Never shown:** tool names, digests, file paths, error codes, `outcome_unknown`.
+- No wire, tool, error-code or grant change; the page is the `device-panel` page spec's sibling
+  (`spec/ui/v1/pages/device-apps.json`, `device-entry.json`).
+

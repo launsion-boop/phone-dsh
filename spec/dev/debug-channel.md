@@ -32,6 +32,7 @@ Unknown route → `404` with the route list. Malformed request → `400`.
 | `GET /info` | bundle id/version/build, app state, whether the Bot runtime is up, Worker bundle record |
 | `GET /bots` | roster `{id,name,description,created_ms,device_key,main}`, `bindings` (`deviceBots.v1`), `intents` |
 | `GET /devices` | BLE devices `{id,name,state,link_state,link_device_id,tools,granted_tools,rssi}` |
+| `GET /deviceapps?device=` / `POST /deviceapps/act {device?,action:"open"\|"stop",name}` | the device-apps page's own model (`DeviceAppsPageModel` over the real user-origin Link path): rows `{name,title,detail,running}`, free space, phase; open/stop only, never delete (that confirmation is the user's tap) |
 | `POST /devices/connect {device}` | scan and connect a device by id or name |
 | `GET /logs?name=voice\|status&lines=N` | tail of `tonolink-voice.log` / `chat-status.log` (token line removed) |
 | `POST /bots/create {name,description?}` | a plain unbound Bot (for testing) |

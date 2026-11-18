@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
 import PhoneDSHBLE
+import PhoneDSHBot
 
 @MainActor
 struct BluetoothDevicesPage: View {
@@ -129,9 +130,9 @@ struct BluetoothDevicesPage: View {
                 // Tools v1 has no panel. There is no placeholder page either.
                 if !device.linkTools.isEmpty {
                     NavigationLink {
-                        DevicePanelPage(device: device, store: store)
+                        DeviceEntryPage(device: device, store: store)
                     } label: {
-                        Label("设备面板", systemImage: "slider.horizontal.3")
+                        Label(DeviceAppsPageModel.isDeviceAppTarget(tools: device.linkTools) ? "设备应用" : "设备面板", systemImage: "slider.horizontal.3")
                     }
                     .accessibilityIdentifier("ble-device-panel-\(device.id.uuidString)")
                 }

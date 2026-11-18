@@ -186,3 +186,18 @@ Worker 审批门（`approval-gate.ts` `AUTO_TOOLS`）：`DeviceAppStage`、`Devi
 - 现象：真机上模型调用 `DeviceAppList` 后无法删除应用。证据：模型会话里该工具的结果文本只有「设备上现在有 22 个设备应用：「呼吸 4-4-6」…」，没有 `apps[].name`；模型读的是 text content，不是 `structuredContent`。（同一次走查中两次「列出/删除」测试实际都发出了旧的呼吸提示词——shell 里 `sed` 没替换成功——所以模型的「重装」行为是对错误提示词的正确反应，不是它不会删除。）
 - 修正：`DeviceAppList` 成功时的 text content 就是整个对象的 JSON（含 `apps[].name`、`message`、`hint`），结构不变；作者指南升到 v4，明确「删除/卸载/移除 → DeviceAppRemove，不用 Stage+Install」并说明从 List 的 JSON 取 `name`。tool-contracts.md §10 补一句。回归：`DeviceAppListRemoveTests.testListReturnsCustomerTextAndMachineFieldsWithoutAnApproval` 现用真解码器解析 text 并断言 `name`。
 
+## 10. device-app-v1.6：原生「设备应用」页
+
+- 触发：用户反馈 AI Passport 的「小程序」入口打开的是通用设备面板，显示 8 个原始工具名（app.begin、app.put …）、
+  「仅 Agent 可用」和「未设置」。客户要的是：板子上有哪些应用，能打开、停止、删除。
+- 契约：[device-panel.md](../../spec/device/v1/device-panel.md) §9（哪些设备走新页、入口、「高级」折叠项）与
+  [device-app.md](../../spec/device/v1/device-app.md) §13（列表、动作、用户来源、一次删除确认、不显示原始名称）。无 wire、
+  工具、错误码或授权变化；动作是用户来源的 `app.run` / `app.stop` / `app.remove`，由 v1.3 的免设置授权覆盖。
+- 实现端：iOS `Sources/PhoneDSHBot/DeviceApp/Page/DeviceAppsPageModel.swift`（无 SwiftUI 的逻辑）、
+  `examples/probe-app/PhoneDSHProbe/DeviceAppsPage.swift`（页面与 Link 适配）、三个入口
+  （`BotInfoPage`、`BluetoothDevicesPage`、`DevicePanelShortcuts`）；`DeviceAppCustomerText` 增加 run/stop 的客户文案。
+  页面契约 `spec/ui/v1/pages/device-apps.json`、`device-entry.json`（`extract_ios_pages.py` 生成）。Android 无实现（GAP-20）。
+- Protocol impact：P07（设备面板与 Link 用户来源调用，规则文本）、P26（device-app 客户文案与动作）、P09（页面契约）；
+  无 wire、无新错误码。
+- 相容性：旧 App 仍打开通用面板（无新页）；新 App ↔ 旧固件：没有这八个工具的设备仍走通用面板；回滚即回到通用面板。
+
