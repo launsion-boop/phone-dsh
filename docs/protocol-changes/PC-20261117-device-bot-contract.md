@@ -141,3 +141,4 @@ P27 随即触发，本单须重发。
 | draft-2 | 主 agent | 用户按倾向定下 Q1–Q4（§5） | 未通知；待 freeze |
 | device-bot-v1 | 主 agent | 写出 device-bot.md、schema、golden 与 checker，冻结；`contracts` 去掉 P09（本单不改页面） | iOS 实现者待指派；Android 不通知（GAP-20） |
 | device-bot-v1.1 | 主 agent（contract editor） | 客户看到原始 BLE 名（PDSH-xxxx）与带安装管线工具名的描述：Link 设备具备全部 8 个 device-app 工具时描述改为固定客户语句；技术 id 形名字回落 `设备助手`（§5）。仅文本；键、decide、complete 不变，不改名存量 Bot。golden 新增 15 条 name、7 条 description 向量（正反例），checker 哈希钉更新为 be43586e…37bf9 | iOS：DeviceBotBinding.swift 与测试同改；probe `ensureLink` 无需改动（沿用 `linkDescription(tools:)`/`name`）；Android 不通知（GAP-20） |
+| device-bot-v1.2 | 主 agent（contract editor） | 真机：审计行 `teammate.created` 一直被拒（`origin.source` 无效），每 3 s 轮询建一个 Bot，40 分钟泄漏 125 个「PDSH Passport N」。新增 §6「Atomic creation and bounded retry」：创建原子（审计失败则删除刚建的 profile）、按 key 的退避与失败上限；`decide`／`complete`／golden 不变 | iOS BotMCP/DeviceBot 与示例 App 宿主（本次已改）；Android 尚未实现设备 Bot（GAP-20），无需通知 |

@@ -30,6 +30,7 @@ final class DeviceBotRegistry {
     private let store: DeviceBotMapStore
     private let binder: DeviceBotBinder
     private var watcher: Task<Void, Never>?
+    private var lastFailure: [String: String] = [:]
 
     init(defaults: UserDefaults = .standard) {
         let store = DeviceBotMapStore(defaults: defaults)
@@ -157,10 +158,12 @@ final class DeviceBotRegistry {
     private func run(_ request: DeviceBotRequest) async {
         let outcome = await binder.ensure(request)
         switch outcome {
-        case .existing, .busy: break
+        case .existing, .busy, .backingOff: break
         case .bound(let bot): trace("\(request.key): bound \(bot)")
         case .created(let bot): trace("\(request.key): created \(bot)")
-        case .failed(let reason): trace("\(request.key): \(reason)")
+        case .failed(let reason):
+            // One line per distinct failure, not one per 3 s poll (the "gave up" line repeats).
+            if lastFailure[request.key] != reason { lastFailure[request.key] = reason; trace("\(request.key): \(reason)") }
         }
     }
 }
@@ -193,8 +196,19 @@ private final class ProbeDeviceBotHost: DeviceBotHost {
 
     func createDeviceBot(name: String, description: String, key: String, creationID: String) async throws -> String {
         guard let composition else { throw NoRuntime() }
-        let profile = try await composition.createBot(
-            name: name, description: description, color: nil, hairstyle: nil, author: nil)
+        // device-bot.md §6: the Bot and its `teammate.created` row exist together or not at all.
+        return try await DeviceBotCreation.createAtomically(
+            create: {
+                try await composition.createBot(
+                    name: name, description: description, color: nil, hairstyle: nil, author: nil).id
+            },
+            audit: { botID in try await Self.appendCreatedRow(composition: composition, botID: botID, key: key, creationID: creationID) },
+            discard: { botID in try? await composition.deleteBot(botID) })
+    }
+
+    private static func appendCreatedRow(composition: BotRuntimeComposition, botID: String, key: String, creationID: String) async throws {
+        let profile = try await composition.profileStore.roster().bots.first { $0.id == botID }
+        guard let profile else { throw NoRuntime() }
         // CCR (device-bot-v1 §6): `BotTeammateAuthor` has no device kind, key or creation id, and
         // the audit event is encoded in BotRuntimeComposition. Until the contract owner extends
         // that path, the registry appends the same `teammate.created` row itself, with the author
@@ -219,6 +233,5 @@ private final class ProbeDeviceBotHost: DeviceBotHost {
                 ]),
             ]))
         _ = try await composition.domain.append(event)
-        return profile.id
     }
 }

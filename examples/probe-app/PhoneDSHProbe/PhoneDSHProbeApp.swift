@@ -146,6 +146,10 @@ struct PhoneDSHProbeApp: App {
                     await DeviceAppSelfTest.runIfRequested()
                 }
                 .task {
+                    // DEBUG only, launch argument `-pdsh-cleanup-leaked-bots dry|run` (one-shot, see the file).
+                    await DeviceBotLeakCleanup.runIfRequested()
+                }
+                .task {
                     // DEBUG only, launch argument `-pdsh-selftest-device-bot-chat 1`; auto-approves the install approval.
                     await DeviceBotChatSelfTest.runIfRequested()
                 }
