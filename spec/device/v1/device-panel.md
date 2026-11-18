@@ -161,7 +161,7 @@ Agent 不会被告知面板操作，它要了解设备状态只能自己调用�
 
 目前只有一个：蓝牙名以 `PhoneAgent` 开头的 TonoLink 板子，区块名为「手机控制」（iOS
 `TonoLinkPhoneControlSection`）。手机可以被 Agent 控制时，它只显示一行「就绪」；否则只列出缺少的
-条件和怎么补。它也是机主保存锁屏密码的唯一入口，密码保存即同意自动解锁
+条件和怎么补。机主通过 iOS 解锁手机。该区块只检查手机控制的准备条件
 （[tonolink-board.md](tonolink-board.md) §4.4）。
 
 ## 5. 平台
