@@ -27,6 +27,8 @@ public enum DeviceAppCustomerText {
         "forbidden_path": "这个应用里有设备不允许的文件，我改一下再装",
         "too_large": "这个应用太大，设备放不下，我把它做小一点再装",
         "no_space": "设备空间不够，请先删掉一个设备应用",
+        // phone-internal: the device answered `no_space` with an "out of memory" message (RAM, not flash).
+        "no_memory": "设备现在装不下，请重启设备再试一次；设备上已有的应用都还在",
         "busy": "设备正在传输另一个应用，稍后再试",
         "bad_session": interrupted,
         "offset_mismatch": interrupted,

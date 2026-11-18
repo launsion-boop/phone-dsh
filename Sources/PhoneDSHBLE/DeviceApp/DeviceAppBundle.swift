@@ -50,6 +50,12 @@ public enum DeviceAppRules {
     public static let maxFileBytes = 12288
     public static let maxAppBytes = 24576
     public static let maxChunkBytes = 2048
+    /// The size this phone actually sends per `app.put` (the device's `chunk_max` is only a ceiling).
+    /// Measured on a real Passport: one Link exchange has a 3 s response window and a put takes about
+    /// 1.2 s at 256 B, 1.7 s at 512 B, 2.9 s at 1024 B and times out at 2048 B, so 512 keeps a margin.
+    public static let transferChunkBytes = 512
+    /// A lost put halves the chunk down to this floor before the next try.
+    public static let minChunkBytes = 128
 
     public static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()

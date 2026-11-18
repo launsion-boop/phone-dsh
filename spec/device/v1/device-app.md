@@ -74,6 +74,12 @@ Link receipt. **Durable** tools follow the Link receipt, idempotency and `outcom
 tool's name and by `app.info`; an old phone treats a missing receipt as `outcome_unknown` and recovers
 through §6, which is the same result.
 
+**Put size (revision v1.6, host behaviour, no wire change).** One Link exchange has a 3 s response window
+(measured on the board: 512 raw bytes 1.7 s, 1024 bytes 2.9 s, 2048 bytes time out). The host sends at
+most 512 raw bytes per `app.put` (`chunk_max` stays only a ceiling the device announces) and halves the
+size, down to 128, after a put that gets no reply. A device that announces a smaller `chunk_max` is
+obeyed. Old and new hosts and devices interoperate in both directions.
+
 ## 6. Session rules
 
 1. `app.begin` validates name, paths, sizes, extensions, totals against §2, that the sum of file
@@ -220,6 +226,7 @@ in the table gets the generic sentence, never the code.
 | Code | Sentence |
 | --- | --- |
 | `no_space` | 设备空间不够，请先删掉一个设备应用 |
+| `no_memory` (phone-internal, not on the wire: the device answered `no_space` with an out-of-memory message) | 设备现在装不下，请重启设备再试一次；设备上已有的应用都还在 |
 | `busy`, `link_busy` | 设备正在传输另一个应用，稍后再试 |
 | `device_not_connected` | 设备没连上，请靠近设备并确认蓝牙已开 |
 | `device_info_failed` | 读不到设备的状态，请靠近设备并确认蓝牙已开 |
