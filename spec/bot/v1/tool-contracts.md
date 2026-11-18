@@ -348,6 +348,8 @@ classification in `golden/tool-effects.phone.json`.
 - `DeviceAppList {}` (no property at all) reads the installed device apps of the bound device:
   success `{ok:true, count, apps:[{name,title,version?,running}], message, hint}`. Effect:
   `read`/`auto`, operation `device.app.list`, resource `device-app:list`; no approval.
+  The result's text content is that whole object serialized as JSON (the model reads the text, not
+  `structuredContent`; a sentence-only text hides `name`, which `DeviceAppRemove` needs).
 - `DeviceAppRemove {name}` (`name` matches `^[a-z][a-z0-9_]{0,23}$`, no other property; a path is
   never accepted) stops the app if it runs and removes it. Effect: `destructive`/`ask`, operation
   `device.app.remove`, resource `device-app:remove&app=<name>` (just `device-app:remove` when `name`

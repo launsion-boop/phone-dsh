@@ -180,3 +180,9 @@ Worker 审批门（`approval-gate.ts` `AUTO_TOOLS`）：`DeviceAppStage`、`Devi
 - 未验证：真机 `app.remove` 的回复形状与耗时、删除运行中应用时 `app.stop` 与 `app.remove` 之间的设备行为、probe-app 接线只通过 iOS 模拟器编译（未运行、未上真机）；`app.remove` 是 durable 调用，回复丢失后的 `app.info` 定论逻辑只由宿主测试覆盖。
 - 回归（改动前失败）：`DeviceAppListRemoveTests`（可见性：已绑定/未绑定/全调用方；未绑定拒绝且读取与删除都不执行；列表客户文字与机器字段、不弹审批、设备取自绑定；`DeviceAppRemove` 批准前不执行、拒绝或取消不执行、每次调用各自审批、路径与坏名字在审批前拒绝、忙守卫、失败与未知不当作成功、审计事件）、`DeviceAppListRemoveWiringTests`（预检失败不读不发、只停运行中的目标、`stop_failed` 之后不发删除、丢失回复由 info 定论且只发一次）、措辞表覆盖测试（规格 §8 / §8.2 每个码都有句子，不含「安装」）、`BotGoldenVectorTests`（35）、`BotApprovalNotificationTests` 之外的删除提醒；Worker `bot-identity-approval.test.ts`、`bot-caller-catalog.test.ts`。
 - 顺带修正：`DeviceAppToolsTests.testEveryDeviceErrorCodeOfTheSpecHasACustomerSentence` 在 v1.4 之后就不通过（它把 §8.1 里反引号括起的字段名 `reason`、`message`、`hint` 也当成设备错误码）；现在只读 §8 标题下的错误码段落，没有放宽任何断言。
+
+### 真机观测：DeviceAppList 文本缺 name（device-app-v1.5 修订，无新字段）
+
+- 现象：真机上模型调用 `DeviceAppList` 后无法删除应用。证据：模型会话里该工具的结果文本只有「设备上现在有 22 个设备应用：「呼吸 4-4-6」…」，没有 `apps[].name`；模型读的是 text content，不是 `structuredContent`。（同一次走查中两次「列出/删除」测试实际都发出了旧的呼吸提示词——shell 里 `sed` 没替换成功——所以模型的「重装」行为是对错误提示词的正确反应，不是它不会删除。）
+- 修正：`DeviceAppList` 成功时的 text content 就是整个对象的 JSON（含 `apps[].name`、`message`、`hint`），结构不变；作者指南升到 v4，明确「删除/卸载/移除 → DeviceAppRemove，不用 Stage+Install」并说明从 List 的 JSON 取 `name`。tool-contracts.md §10 补一句。回归：`DeviceAppListRemoveTests.testListReturnsCustomerTextAndMachineFieldsWithoutAnApproval` 现用真解码器解析 text 并断言 `name`。
+

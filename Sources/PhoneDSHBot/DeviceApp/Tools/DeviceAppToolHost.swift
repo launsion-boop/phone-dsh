@@ -364,7 +364,10 @@ public actor DeviceAppToolHost {
                 }),
                 "message": .string(sentence), "hint": .string(Self.listHint),
             ]
-            return .success(.object(fields), text: sentence)
+            // The model reads the text content of the result, not `structuredContent`: the text must
+            // carry the whole object, or it never sees the `name` DeviceAppRemove needs (real-model
+            // finding: with sentence-only text it could not name an app to remove).
+            return .success(.object(fields))
         }
     }
 

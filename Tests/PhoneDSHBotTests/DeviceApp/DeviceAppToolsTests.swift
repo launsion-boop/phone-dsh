@@ -526,7 +526,7 @@ final class DeviceAppToolsTests: XCTestCase {
     func testGuideFitsBudgetPassesCredentialLintAndHasNoDeviceText() async throws {
         let text = DeviceAppAuthoringGuide.text
         XCTAssertLessThanOrEqual(text.unicodeScalars.count, DeviceAppAuthoringGuide.maxScalars)
-        XCTAssertEqual(DeviceAppAuthoringGuide.version, 3)
+        XCTAssertEqual(DeviceAppAuthoringGuide.version, 4)
         for needle in ["240x320", "GB2312", "back", "audio", "mic", "battery", "f-string", "每次安装", "不可信",
                        "2 分钟", "允许", "长按确定键", "不要对用户提"] {
             XCTAssertTrue(text.contains(needle) || text.contains(needle.replacingOccurrences(of: "f-string", with: "f-string")), needle)
