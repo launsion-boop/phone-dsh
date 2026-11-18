@@ -30,8 +30,6 @@ import ProbeKit
     /// The ctrl link carries one command at a time, so light changes run one after another and the
     /// next `listen` waits for them (a light must never make a turn fail).
     private var lightChain: Task<Void, Never>?
-    /// The unlock started at this turn's wake, if the phone was locked.
-    private var pendingUnlock: Task<Void, Never>?
     private var holdsKeepAlive = false
     private let player = VoicePCMPlayer()
     private let tts = CloudTTSClient()
@@ -151,6 +149,7 @@ import ProbeKit
     private func setKeepAlive(_ on: Bool) {
         guard on != holdsKeepAlive else { return }
         if on {
+            guard SilentAudioKeepAlive.isConfigured else { return }
             do { try SilentAudioKeepAlive.shared.start(owner: Self.keepAliveOwner); holdsKeepAlive = true }
             catch { state += "（后台保活失败：\(error.localizedDescription)）" }
         } else {
@@ -215,32 +214,11 @@ import ProbeKit
                 self?.endBackgroundTask()
             }
         }
-        // A locked phone cannot run the chat engine: unlock (tonolink-board.md §4.4) while the turn
-        // already records, so a command said right after 你好小智 is not lost (measured: the unlock
-        // takes about 7.5 s). The heard text waits for it before it goes to the chat.
-        pendingUnlock = Task { [weak self] in await self?.unlockForTurn() }
         turn = Task { [weak self] in
             let speaker = self?.acquireSpeaker()
             await self?.runTurn(id: id, audio: stream, request: request, requestID: requestID)
             if let speaker { PhoneAudioSessionLease.releaseSpeakerOutput(speaker) }
             self?.turnEnded(id)
-        }
-    }
-
-    /// tonolink-board.md §4.4 at the wake: the phone is locked, so type the owner's passcode now,
-    /// over this host's ctrl link (one command at a time, after any light command).
-    private func unlockForTurn() async {
-        let locked = PhoneLockState.isLocked
-        log("wake lock check: locked=\(locked) protected=\(UIApplication.shared.isProtectedDataAvailable) saved=\(TonoLinkUnlockStore.shared.hasPasscode)")
-        guard locked else { return }
-        let started = Date()
-        do {
-            // A ctrl link of its own: on this host's link the turn's `listen` would queue behind
-            // the unlock's keys and miss the start of the command.
-            try await IPhoneAgentHost.shared.unlockIfLocked()
-            log("unlock ok ms=\(Int(Date().timeIntervalSince(started) * 1000)) app=\(UIApplication.shared.applicationState.rawValue)")
-        } catch {
-            log("unlock failed: \(error)")
         }
     }
 
@@ -376,10 +354,6 @@ import ProbeKit
     /// (PC-20261116-external-admission §2.1), then speaks only this request's completed turn.
     private func answer(_ text: String, request: NativeVoiceRequest?, requestID: String,
                         credential: String, start: Date) async {
-        if let unlock = pendingUnlock {
-            await unlock.value
-            note("unlock_wait_ms", Int(Date().timeIntervalSince(start) * 1000))
-        }
         guard !Task.isCancelled else { return }
         if let direction = TonoLinkVolumeIntent.direction(for: text) {
             await answerVolumeCommand(direction, credential: credential, start: start)

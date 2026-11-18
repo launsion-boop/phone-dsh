@@ -782,12 +782,8 @@ public final class WebEngineNativePreview: NSObject, WKScriptMessageHandler {
 
     private func send(_ result: WebEngineNativePreviewResult, to webView: WKWebView) {
         guard let script = result.javaScriptCall() else { return }
-        // The SDK's completion-handler overload names the content world with a
-        // second `in:` label: evaluateJavaScript(_:in:in:completionHandler:).
-        // `contentWorld:` belongs to the async overload, which takes no
-        // completion handler, so a trailing closure there does not type-check.
-        // This overload's handler receives one `Result`, not `(value, error)`.
-        webView.evaluateJavaScript(script, in: nil, in: .page) { _ in }
+        // The default evaluation context is the main frame's page world.
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     private static func replyIdentifier(in body: Any) -> String? {

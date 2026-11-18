@@ -763,9 +763,9 @@ public final class WebEngine: NSObject {
     private func runJITProbeOnUI() async throws -> WebEngineJITProbeResult {
         let result: Any?
         do {
-            result = try await view.evaluateJavaScript(WebEngineScripts.jitBenchmark,
-                                                       in: nil,
-                                                       contentWorld: .page)
+            // This overload runs in the main frame's page world and avoids
+            // loading the Swift WebKit overlay on older iOS versions.
+            result = try await view.evaluateJavaScript(WebEngineScripts.jitBenchmark)
         } catch {
             throw WebEngineError.scriptEvaluationFailed(error.localizedDescription)
         }
