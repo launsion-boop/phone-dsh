@@ -90,6 +90,8 @@ ID 是 review 與交接的索引，**不是 wire 欄位或能力名稱**。「�
 
 登記表不宣稱窮盡。新增或發現未登記的公共邊界時，**先補一行**（權威、兩端、證據），再分派實作。
 
+**開發者工具面（非產品協議，不編 P 號）。** [dev/debug-channel.md](dev/debug-channel.md)（`DEV-01`）是 DEBUG 構建內的開發者控制通道，只被 Mac 端腳本讀取，不進任何已發布 wire 協議，也不在 registry 內；它的 spec、解碼測試與使用頁（[docs/debug-channel.md](../docs/debug-channel.md)）就是它的全部契約。
+
 ## 4. 路徑 → 契約觸發表
 
 diff 觸及下列任一路徑，就必須逐 ID 聲明 `Protocol impact`：例如
