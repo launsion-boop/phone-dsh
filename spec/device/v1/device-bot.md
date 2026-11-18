@@ -121,6 +121,15 @@ The decision function `decide(state, key, new_creation_id, alias?)` over the sta
 `intents[key]`. The creation passes author kind `device`, the key and the creation id to the
 audited create path, so `teammate.created` carries them; the Bot profile gets no new field.
 
+**Atomic creation and bounded retry (device-bot-v1.2).** The create path is atomic: the Bot profile
+and its `teammate.created` row exist together, or the host deletes the just-created profile and
+fails the create. A Bot without its creation row must never be left behind, because step 4 would
+create another for the same intent on every retry (real device: 125 Bots in 40 minutes when the
+audit append kept being rejected). The host's per-key retry after a failed create waits
+`min(base × 2^(n−1), cap)` seconds (reference: base 6 s, cap 300 s) and stops after `maxFailures`
+(reference: 8) consecutive failures until the process restarts, with one visible trace line per
+distinct failure. `decide` and `complete` are unchanged, so the golden vectors are unchanged.
+
 **Names and descriptions never identify a Bot.** A Bot with the same name and description as a
 device's template is not that device's Bot.
 

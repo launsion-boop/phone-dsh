@@ -234,6 +234,29 @@ final class BotRosterTests: XCTestCase {
         XCTAssertEqual(main, only.id)
     }
 
+    func testBatchDeleteRemovesManyWithOneWriteKeepsOrderAndNeverTheLastBot() async throws {
+        let directory = try ProfileTestSupport.temporaryDirectory("batch-delete")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = makeStore(at: directory)
+        var ids: [String] = []
+        for name in ["甲", "乙", "丙", "丁", "戊"] {
+            ids.append(try await store.createBot(name: name, fishColor: nil, fishHairstyle: nil, description: nil).id)
+        }
+        try await store.setMainBotID(ids[1])
+        let result = try await store.deleteBots(ids: [ids[1], ids[3], "agent-missing"])
+        XCTAssertEqual(Set(result.removed.map(\.id)), [ids[1], ids[3]])
+        XCTAssertEqual(result.unknown, ["agent-missing"])
+        let rest = try await store.profiles().map(\.id)
+        XCTAssertEqual(rest, [ids[0], ids[2], ids[4]], "insertion order kept")
+        XCTAssertEqual(result.mainBotID, ids[0], "the main pointer moves off a removed main Bot")
+        do {
+            _ = try await store.deleteBots(ids: Set(rest))
+            XCTFail("the roster must keep at least one Bot")
+        } catch let error as BotProfileStoreError { XCTAssertEqual(error, .lastBot) }
+        let count = try await store.profiles().count
+        XCTAssertEqual(count, 3)
+    }
+
     func testDeleteUnknownBotIsRejected() async throws {
         let directory = try ProfileTestSupport.temporaryDirectory("delete-unknown")
         defer { try? FileManager.default.removeItem(at: directory) }

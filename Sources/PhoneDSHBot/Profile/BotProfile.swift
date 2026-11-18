@@ -329,6 +329,47 @@ public actor BotProfileStore {
         return (removed, newMain)
     }
 
+    /// Removes several Bots with ONE read and ONE durable write of the roster (same rules as
+    /// `deleteBot(id:)`: the last Bot is never removed; the main pointer moves to the first
+    /// remaining Bot when the main Bot is among them). Unknown ids are skipped and reported.
+    /// Profile record only: the caller owns any per-Bot cascade (sessions, memory, caches).
+    @discardableResult
+    public func deleteBots(ids: Set<String>) throws -> (removed: [BotProfile], unknown: [String], mainBotID: String?) {
+        let snapshot = readIndex()
+        guard snapshot.writable else { throw BotProfileStoreError.unreadableFile(indexURL.path) }
+        let settings = readSettings()
+        guard settings.writable else { throw BotProfileStoreError.unreadableFile(settingsURL.path) }
+        var removed: [BotProfile] = []
+        var kept: [BotJSONValue] = []
+        var seen = Set<String>()
+        for value in snapshot.agents {
+            if case .object(let object) = value, let profile = makeProfile(from: object), ids.contains(profile.id) {
+                removed.append(profile); seen.insert(profile.id)
+            } else {
+                kept.append(value)
+            }
+        }
+        let remaining = kept.compactMap { value -> BotProfile? in
+            guard case .object(let object) = value else { return nil }
+            return makeProfile(from: object)
+        }
+        guard !remaining.isEmpty else { throw BotProfileStoreError.lastBot }
+        let all = snapshot.agents.compactMap { value -> BotProfile? in
+            guard case .object(let object) = value else { return nil }
+            return makeProfile(from: object)
+        }
+        let oldMain = resolveMainID(in: all, stored: settings.mainAgentID)
+        let newMain: String?
+        if let oldMain, remaining.contains(where: { $0.id == oldMain }) { newMain = oldMain }
+        else { newMain = remaining.first?.id }
+        var agents = kept
+        if let newMain { _ = pinRecord(id: newMain, in: &agents) }
+        try writeIndex(snapshot, agents: agents)
+        if newMain != settings.mainAgentID { try writeSettings(settings, mainAgentID: newMain, timestamp: now()) }
+        publishCurrentRoster()
+        return (removed, ids.subtracting(seen).sorted(), newMain)
+    }
+
     /// Hide or unhide a Bot. Hidden Bots stay in `roster().bots` and are
     /// excluded from `visibleBots`.
     public func setHidden(id: String, hidden: Bool) throws {

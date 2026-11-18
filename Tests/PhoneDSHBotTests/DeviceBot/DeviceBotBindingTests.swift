@@ -160,7 +160,9 @@ final class DeviceBotFlowTests: XCTestCase {
         let host = FakeHost()
         await host.setFailNext()
         var counter = 0
-        let binder = DeviceBotBinder(store: store, host: host, makeCreationID: { counter += 1; return "c\(counter)" })
+        let binder = DeviceBotBinder(store: store, host: host,
+                                     retry: DeviceBotRetryPolicy(baseSeconds: 0, capSeconds: 0, maxFailures: 8),
+                                     makeCreationID: { counter += 1; return "c\(counter)" })
         let failed = await binder.ensure(request())
         guard case .failed = failed else { return XCTFail("expected failure") }
         XCTAssertEqual(store.intents, ["k1": "c1"])
@@ -240,4 +242,123 @@ final class DeviceBotFlowTests: XCTestCase {
 
 extension FakeHost {
     func setCreated(_ map: [String: String]) { createdMap = map }
+}
+
+
+/// device-bot.md §6: a creation whose audit row can never be appended must not grow the roster.
+private actor AuditFailingHost: DeviceBotHost {
+    var bots: [(id: String, name: String)] = []
+    var profilesEverCreated = 0
+    private let compensate: Bool
+
+    init(compensate: Bool) { self.compensate = compensate }
+
+    func roster() async throws -> [(id: String, name: String)] { bots }
+    func createdBots() async throws -> [String: String] { [:] }   // the audit row never lands
+    func createDeviceBot(name: String, description: String, key: String, creationID: String) async throws -> String {
+        struct AuditRejected: Error {}
+        if compensate {
+            return try await DeviceBotCreation.createAtomically(
+                create: { await self.addProfile(name) },
+                audit: { _ in throw AuditRejected() },
+                discard: { await self.removeProfile($0) })
+        }
+        _ = addProfile(name)
+        throw AuditRejected()
+    }
+    private func addProfile(_ name: String) -> String {
+        profilesEverCreated += 1
+        let id = "bot-\(profilesEverCreated)"
+        bots.append((id, name))
+        return id
+    }
+    private func removeProfile(_ id: String) { bots.removeAll { $0.id == id } }
+    func counts() -> (roster: Int, created: Int) { (bots.count, profilesEverCreated) }
+}
+
+final class DeviceBotCreationBoundTests: XCTestCase {
+    private final class Clock: @unchecked Sendable {
+        var now = Date(timeIntervalSince1970: 1_000_000)
+    }
+    private func store() -> DeviceBotMapStore {
+        let suite = "device-bot-bound-\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: suite)!
+        d.removePersistentDomain(forName: suite)
+        return DeviceBotMapStore(defaults: d)
+    }
+    private let request = DeviceBotRequest(key: "k1", rawName: "PDSH Passport",
+                                           description: DeviceBotText.linkDescription(tools: ["a"]))
+
+    func testFailingAuditWithCompensationNeverGrowsTheRosterAndStopsRetrying() async {
+        let clock = Clock()
+        let host = AuditFailingHost(compensate: true)
+        let binder = DeviceBotBinder(store: store(), host: host, now: { clock.now })
+        var attempts = 0, backingOff = 0, gaveUp = 0
+        // 600 polls, 3 s apart (30 minutes of the registry's watcher).
+        for _ in 0..<600 {
+            switch await binder.ensure(request) {
+            case .failed(let reason):
+                if reason.hasPrefix("gave up") { gaveUp += 1 } else { attempts += 1 }
+            case .backingOff: backingOff += 1
+            default: XCTFail("a failing audit must never bind or create")
+            }
+            clock.now.addTimeInterval(3)
+            let counts = await host.counts()
+            XCTAssertLessThanOrEqual(counts.roster, 0, "the compensated Bot is deleted")
+        }
+        let counts = await host.counts()
+        XCTAssertEqual(counts.roster, 0)
+        XCTAssertEqual(attempts, DeviceBotRetryPolicy().maxFailures, "stops after the limit")
+        XCTAssertLessThanOrEqual(counts.created, DeviceBotRetryPolicy().maxFailures)
+        XCTAssertGreaterThan(backingOff, 0, "the retries back off")
+        XCTAssertGreaterThan(gaveUp, 0)
+    }
+
+    func testHostWithoutCompensationIsStillBoundedByTheRetryLimitAndBackoff() async {
+        let clock = Clock()
+        let host = AuditFailingHost(compensate: false)
+        let binder = DeviceBotBinder(store: store(), host: host, now: { clock.now })
+        for _ in 0..<600 {
+            _ = await binder.ensure(request)
+            clock.now.addTimeInterval(3)
+        }
+        let counts = await host.counts()
+        XCTAssertEqual(counts.roster, DeviceBotRetryPolicy().maxFailures,
+                       "old behaviour leaked 600; the limit keeps it to maxFailures")
+    }
+
+    func testBackoffGrowsAndIsCapped() {
+        let policy = DeviceBotRetryPolicy()
+        XCTAssertEqual(policy.delay(afterFailures: 1), 6)
+        XCTAssertEqual(policy.delay(afterFailures: 2), 12)
+        XCTAssertEqual(policy.delay(afterFailures: 6), 192)
+        XCTAssertEqual(policy.delay(afterFailures: 7), 300)
+        XCTAssertEqual(policy.delay(afterFailures: 20), 300)
+    }
+
+    func testASuccessfulCreateClearsTheFailureState() async {
+        let clock = Clock()
+        let host = FakeHost2()
+        let binder = DeviceBotBinder(store: store(), host: host, now: { clock.now })
+        await host.setFailNext()
+        guard case .failed = await binder.ensure(request) else { return XCTFail("first create fails") }
+        guard case .backingOff = await binder.ensure(request) else { return XCTFail("backs off") }
+        clock.now.addTimeInterval(7)
+        guard case .created = await binder.ensure(request) else { return XCTFail("retries after the wait") }
+    }
+}
+
+private actor FakeHost2: DeviceBotHost {
+    var bots: [(id: String, name: String)] = []
+    var created: [String: String] = [:]
+    var failNext = false
+    func setFailNext() { failNext = true }
+    func roster() async throws -> [(id: String, name: String)] { bots }
+    func createdBots() async throws -> [String: String] { created }
+    func createDeviceBot(name: String, description: String, key: String, creationID: String) async throws -> String {
+        if failNext { failNext = false; throw NSError(domain: "t", code: 1) }
+        let id = "bot-\(bots.count + 1)"
+        bots.append((id, name)); created[creationID] = id
+        return id
+    }
 }

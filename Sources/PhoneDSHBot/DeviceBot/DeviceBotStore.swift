@@ -74,6 +74,42 @@ public enum DeviceBotOutcome: Equatable, Sendable {
     case failed(String)
     /// Another call for the same key is already in flight.
     case busy
+    /// An earlier create for this key failed; the next attempt is not due yet (device-bot.md §6).
+    case backingOff(retryAfter: TimeInterval)
+}
+
+/// device-bot.md §6 retry rule: a failed create for a key waits `min(base * 2^(n-1), cap)` seconds
+/// before the next attempt and stops after `maxFailures` failures until the process restarts.
+public struct DeviceBotRetryPolicy: Equatable, Sendable {
+    public var baseSeconds: TimeInterval
+    public var capSeconds: TimeInterval
+    public var maxFailures: Int
+    public init(baseSeconds: TimeInterval = 6, capSeconds: TimeInterval = 300, maxFailures: Int = 8) {
+        self.baseSeconds = baseSeconds
+        self.capSeconds = capSeconds
+        self.maxFailures = maxFailures
+    }
+    public func delay(afterFailures count: Int) -> TimeInterval {
+        min(capSeconds, baseSeconds * pow(2, Double(max(0, count - 1))))
+    }
+}
+
+/// device-bot.md §6 atomic creation: the Bot and its `teammate.created` row are both there or the
+/// Bot is discarded and the error is thrown. A Bot without its creation row would be created
+/// again by every retry.
+public enum DeviceBotCreation {
+    public static func createAtomically(
+        create: () async throws -> String,
+        audit: (String) async throws -> Void,
+        discard: (String) async -> Void
+    ) async throws -> String {
+        let bot = try await create()
+        do { try await audit(bot) } catch {
+            await discard(bot)
+            throw error
+        }
+        return bot
+    }
 }
 
 public actor DeviceBotBinder {
@@ -81,11 +117,18 @@ public actor DeviceBotBinder {
     private let host: DeviceBotHost
     private let makeCreationID: @Sendable () -> String
     private var inFlight: Set<String> = []
+    private let retry: DeviceBotRetryPolicy
+    private let now: @Sendable () -> Date
+    private var failures: [String: (count: Int, next: Date)] = [:]
 
     public init(store: DeviceBotMapStore, host: DeviceBotHost,
+                retry: DeviceBotRetryPolicy = DeviceBotRetryPolicy(),
+                now: @escaping @Sendable () -> Date = { Date() },
                 makeCreationID: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() }) {
         self.store = store
         self.host = host
+        self.retry = retry
+        self.now = now
         self.makeCreationID = makeCreationID
     }
 
@@ -93,6 +136,13 @@ public actor DeviceBotBinder {
         let key = request.key
         guard inFlight.insert(key).inserted else { return .busy }
         defer { inFlight.remove(key) }
+        if let failed = failures[key] {
+            if failed.count >= retry.maxFailures {
+                return .failed("gave up after \(failed.count) failed creations; restart the app to retry")
+            }
+            let wait = failed.next.timeIntervalSince(now())
+            if wait > 0 { return .backingOff(retryAfter: wait) }
+        }
         let roster: [(id: String, name: String)]
         do { roster = try await host.roster() } catch { return .failed("roster unavailable: \(error)") }
         // Fast path: a live binding needs nothing else (the common poll must not read the log).
@@ -126,10 +176,14 @@ public actor DeviceBotBinder {
                 let after = DeviceBotBinding.complete(
                     DeviceBotState(bindings: store.bindings, intents: store.intents), key: key, bot: bot)
                 store.write(bindings: after.bindings, intents: after.intents)
+                failures[key] = nil
                 return .created(bot: bot)
             } catch {
-                // The intent stays; the next trigger retries with the same creation id.
-                return .failed("create failed: \(error)")
+                // The intent stays; the next trigger retries with the same creation id, after a
+                // growing wait and at most `maxFailures` times.
+                let count = (failures[key]?.count ?? 0) + 1
+                failures[key] = (count, now().addingTimeInterval(retry.delay(afterFailures: count)))
+                return .failed("create failed (\(count)/\(retry.maxFailures)): \(error)")
             }
         }
     }
