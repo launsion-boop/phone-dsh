@@ -310,7 +310,7 @@ struct FirmwareEditableSource: Equatable {
 /// Lists and reads the editable files of the staged pack straight from `project.bin`'s header
 /// (u32le header length, JSON header with `files: [[path, offset, length]]`, then the file bytes), the
 /// same layout `FirmwareBuilder/core.js` `loadBundle` reads. No web view is needed.
-enum FirmwareBuilderSources {
+@MainActor enum FirmwareBuilderSources {
     static func projectURL() -> URL? { FirmwareBuilderSchemeHandler.packDirectory?.appendingPathComponent("project.bin") }
 
     /// The editable files for `root` from header files `[(path, absolute offset, length)]`, sorted by relative path.

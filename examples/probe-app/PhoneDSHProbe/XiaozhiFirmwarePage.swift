@@ -8,6 +8,7 @@
 #if DEBUG
 import Foundation
 import PhoneDSH
+import PhoneDSHAgentCore
 import PhoneDSHBot
 import PhoneDSHEngine
 import SwiftUI
@@ -242,6 +243,47 @@ struct XiaozhiStatusSnapshot: Equatable {
         }
         return .success(jobs[id] ?? job)
     }
+
+    /// Kicks off a build and returns the running job at once, without the §6.2 wait. The Bot tool
+    /// host owns the 100 s wait (it polls `job(id:)`), so the firmware-build tool must not block here
+    /// too. Shares every guard and the override collection with `startBuild`.
+    func beginBuild(directory: String?) -> Result<XiaozhiBuildJob, XiaozhiToolError> {
+        let files: [FirmwareEditableSource]
+        switch editableSources() {
+        case .success(let value): files = value.files
+        case .failure(let error): return .failure(error)
+        }
+        if let running = runningJob {
+            return .failure(XiaozhiToolError(code: "busy", message: "a firmware build is already running", jobID: running.id))
+        }
+        guard !builder.running else { return .failure(XiaozhiToolError(code: "busy", message: "the firmware builder page is building")) }
+        var overrides: [String: Data] = [:]
+        var changed: [String] = [], ignored: [String] = []
+        if let directory {
+            switch Self.collectOverrides(directory: directory, editable: files) {
+            case .success(let value): overrides = value.overrides; changed = value.changed; ignored = value.ignored
+            case .failure(let error): return .failure(error)
+            }
+        }
+        let id = "xzb-" + String(UUID().uuidString.lowercased().prefix(8))
+        let job = XiaozhiBuildJob(id: id, state: .running, changed: changed, ignored: ignored)
+        jobs[id] = job
+        latestJobID = id
+        buildTask = Task { [weak self] in await self?.runBuild(id: id, overrides: overrides) }
+        return .success(job)
+    }
+
+    /// The job with `id`, or the latest job when `id` is nil.
+    func job(id: String?) -> XiaozhiBuildJob? {
+        if let id { return jobs[id] }
+        return latestJobID.flatMap { jobs[$0] }
+    }
+
+    /// Whether a finished build of this app session produced an image with that ELF SHA-256.
+    func hasBuiltImage(elfSha256: String) -> Bool { builtImages[elfSha256] != nil }
+
+    /// The bytes of a finished build's image, for staging on the relay.
+    func builtImage(elfSha256: String) -> Data? { builtImages[elfSha256] }
 
     private func runBuild(id: String, overrides: [String: Data]) async {
         let ok = await builder.build(overrides: overrides)

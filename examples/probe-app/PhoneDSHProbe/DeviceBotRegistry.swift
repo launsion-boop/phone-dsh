@@ -259,19 +259,12 @@ private final class ProbeDeviceBotHost: DeviceBotHost {
 }
 
 /// The xiaozhi device-Bot key, name and description come from the SDK (`DeviceBotKey.xiaozhi(mac:)`,
-/// `DeviceBotText`, Sources/PhoneDSHBot/DeviceBot, spec xiaozhi-firmware.md §4) so this app never writes
-/// that text itself. INTEGRATION: the SDK ends are built in another worktree; once they are merged,
-/// delete the `#if XIAOZHI_SDK` lines (keep the SDK branch) and reconcile the three symbol names below.
+/// `DeviceBotText.xiaozhiRawName` / `xiaozhiDescription`, Sources/PhoneDSHBot/DeviceBot, spec
+/// xiaozhi-firmware.md §4) so this app never writes that text itself.
 private enum XiaozhiBotSDK {
     static let keyPrefix = "xiaozhi:"
 
-    static func key(mac: String) -> String? {
-        #if XIAOZHI_SDK
-        return DeviceBotKey.xiaozhi(mac: mac)
-        #else
-        return nil
-        #endif
-    }
+    static func key(mac: String) -> String? { DeviceBotKey.xiaozhi(mac: mac) }
 
     /// The MAC inside a `xiaozhi:<mac>` key (spec §4 key grammar), nil for any other key.
     static func mac(inKey key: String) -> String? {
@@ -281,12 +274,9 @@ private enum XiaozhiBotSDK {
     }
 
     static func request(mac: String) -> DeviceBotRequest? {
-        #if XIAOZHI_SDK
-        guard let key = DeviceBotKey.xiaozhi(mac: mac) else { return nil }
-        return DeviceBotRequest(key: key, rawName: DeviceBotText.xiaozhiName(mac: mac),
-                                description: DeviceBotText.xiaozhiDescription(mac: mac))
-        #else
-        return nil
-        #endif
+        guard let key = DeviceBotKey.xiaozhi(mac: mac),
+              let rawName = DeviceBotText.xiaozhiRawName(mac: mac),
+              let description = DeviceBotText.xiaozhiDescription(mac: mac) else { return nil }
+        return DeviceBotRequest(key: key, rawName: rawName, description: description)
     }
 }

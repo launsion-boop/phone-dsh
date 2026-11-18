@@ -1,93 +1,142 @@
 // SPDX-License-Identifier: MIT
 // App side of xiaozhi-firmware-v1 Bot tools (spec/device/v1/xiaozhi-firmware.md §6, §7), DEBUG only.
-// Parallel to `DeviceAppLiveWiring`; it binds the SDK's `XiaozhiFirmwareToolHost` (Sources/PhoneDSHBot/Xiaozhi)
-// to `XiaozhiFirmwareModel`. The device is never taken from model arguments: it is the MAC of the
-// `xiaozhi:` key `DeviceBotRegistry` bound to the calling Bot.
-//
-// Everything that does not need an SDK symbol is implemented and compiles on its own
-// (`XiaozhiFirmwareBackend`). The few lines that name SDK types written by the other ends
-// (`XiaozhiOTARelayServer`, `XiaozhiStagedImages`, `XiaozhiFirmwareToolHost`,
-// `BotMCPRuntime.setXiaozhiFirmwareTools`) sit behind `#if XIAOZHI_SDK` and are marked INTEGRATION:
-// the integrator deletes the conditional and reconciles the exact initializers.
+// Parallel to `DeviceAppLiveWiring`. It drives the SDK's `XiaozhiFirmwareToolHost` (Sources/PhoneDSHBot,
+// which owns the tool JSON, the device binding and the Flash approval) from `XiaozhiFirmwareModel`
+// (the app's relay + on-phone builder), and installs the SDK OTA relay (Sources/PhoneDSHBLE) behind the
+// app's `XiaozhiRelayControlling` protocol. The device is never taken from model arguments: the host
+// resolves the `xiaozhi:` key of the calling Bot through `DeviceBotRegistry`.
 #if DEBUG
 import Foundation
 import PhoneDSHBLE
 import PhoneDSHBot
 
-/// What the Bot tools need from the app, in the app's own value types (no SDK type involved). The tool
-/// host adapter maps these to the tool JSON of spec §6 and runs the approval for flash itself.
-struct XiaozhiFirmwareBackend {
-    var export: (_ botID: String) async -> Result<XiaozhiExportResult, XiaozhiToolError>
-    var build: (_ directory: String?) async -> Result<XiaozhiBuildJob, XiaozhiToolError>
-    var status: (_ jobID: String?, _ mac: String) async -> Result<XiaozhiStatusSnapshot, XiaozhiToolError>
-    /// Stages the finished build for the device. Call only after the user approved (spec §6.4).
-    var stageImage: (_ elfSha256: String, _ mac: String) async -> Result<XiaozhiStagedView, XiaozhiToolError>
-    /// The MAC of the xiaozhi board this Bot is bound to, nil for any other Bot.
-    var boundMAC: (_ botID: String) async -> String?
-    var relayOn: () async -> Bool
-    /// The device record the relay holds for `mac`.
-    var deviceRecord: (_ mac: String) async -> XiaozhiDeviceView?
+/// `XiaozhiRelayControlling` backed by the SDK relay server (spec §2, §3, §7): one NWListener on
+/// port 8781, the device records it keeps and the per-MAC staged images.
+@MainActor final class XiaozhiSDKRelayAdapter: XiaozhiRelayControlling {
+    private let server = XiaozhiOTARelayServer(relay: XiaozhiOTARelay())
 
-    @MainActor static func live(model: XiaozhiFirmwareModel = .shared) -> XiaozhiFirmwareBackend {
-        XiaozhiFirmwareBackend(
-            export: { botID in await model.export(botID: botID) },
-            build: { directory in await model.startBuild(directory: directory) },
-            status: { jobID, mac in await model.status(jobID: jobID, mac: mac) },
-            stageImage: { elfSha256, mac in await model.flash(elfSha256: elfSha256, mac: mac) },
-            boundMAC: { botID in await MainActor.run { DeviceBotRegistry.shared.xiaozhiMAC(forBot: botID) } },
-            relayOn: { await MainActor.run { model.relay.isOn } },
-            deviceRecord: { mac in await MainActor.run { model.relay.devices.first { $0.mac == mac } } })
+    var isOn: Bool { server.isRunning }
+
+    func setOn(_ on: Bool) async {
+        if on { try? server.start() } else { server.stop() }
+    }
+
+    var otaURL: String? {
+        TonoLinkNetworkInfo.wifiIPv4().map { "http://\($0):\(XiaozhiOTARelay.port)/xiaozhi/ota/" }
+    }
+
+    var devices: [XiaozhiDeviceView] {
+        server.records.all.map {
+            XiaozhiDeviceView(mac: $0.mac, version: $0.version, elfSha256: $0.elfSha256,
+                              boardType: $0.boardType, lastSeen: $0.lastSeen, lastDecision: $0.lastDecision.rawValue)
+        }
+    }
+
+    func staged(mac: String) -> XiaozhiStagedView? {
+        server.images.staged(forMAC: mac).map(Self.view)
+    }
+
+    func stage(mac: String, image: Data, elfSha256: String) throws -> XiaozhiStagedView {
+        guard let staged = server.images.stage(mac: mac, imageData: image, elfSha256: elfSha256) else {
+            throw XiaozhiToolError(code: "relay_off", message: "could not stage the image (mac or elf not canonical)")
+        }
+        return Self.view(staged)
+    }
+
+    /// The firmware download URL (spec §2.5) the board is told to fetch.
+    private static func view(_ staged: PhoneDSHBLE.XiaozhiStagedImage) -> XiaozhiStagedView {
+        let url = TonoLinkNetworkInfo.wifiIPv4().map { "http://\($0):\(XiaozhiOTARelay.port)/xiaozhi/firmware/\(staged.sha256).bin" } ?? ""
+        return XiaozhiStagedView(sha256: staged.sha256, elfSha256: staged.elfSha256, url: url)
     }
 }
 
 @MainActor
 enum XiaozhiFirmwareWiring {
-    /// Installs the relay adapter and the tool host. A no-op without a staged pack that has `sources_root`
-    /// (spec §6: the tools are listed only when the app installed the host).
+    /// Installs the SDK relay adapter into the model and the four Bot tools into the runtime. A no-op
+    /// without a staged pack that has `sources_root` (spec §6: the tools are listed only when the host
+    /// is installed), so a build with the old TonoLink-only pack registers nothing.
     static func attach(runtime: BotMCPRuntime) async {
         let model = XiaozhiFirmwareModel.shared
         guard model.hasEditableSources else { return }
-        let backend = XiaozhiFirmwareBackend.live(model: model)
-        #if XIAOZHI_SDK
-        // INTEGRATION (A: Sources/PhoneDSHBLE/Xiaozhi): wrap the SDK relay. The adapter below is the one
-        // place that names `XiaozhiOTARelayServer` / `XiaozhiStagedImages`; adjust to their final API.
         if !(model.relay is XiaozhiSDKRelayAdapter) { model.relay = XiaozhiSDKRelayAdapter() }
-        // INTEGRATION (B: Sources/PhoneDSHBot/Xiaozhi): build the host from the backend closures and install it.
-        // The host owns the JSON of spec §6, the `deviceKey` resolution from the calling Bot and the
-        // 「给小智刷入固件」 approval; `backend.stageImage` runs only after that approval.
-        await runtime.setXiaozhiFirmwareTools(XiaozhiFirmwareToolHost(
-            boundMAC: backend.boundMAC, export: backend.export, build: backend.build,
-            status: backend.status, stageImage: backend.stageImage))
-        #else
-        _ = (runtime, backend)
-        #endif
+        await runtime.setXiaozhiFirmwareTools(Self.makeHost(model: model))
     }
-}
 
-#if XIAOZHI_SDK
-/// INTEGRATION: `XiaozhiRelayControlling` over the SDK relay (spec §2, §3, §7). Names follow spec §7;
-/// the members used here are guesses until the SDK end is merged.
-@MainActor @Observable
-final class XiaozhiSDKRelayAdapter: XiaozhiRelayControlling {
-    private let server = XiaozhiOTARelayServer()
-    private let images = XiaozhiStagedImages()
+    /// Builds the SDK tool host from the app model. Each closure hops to the main actor to touch the
+    /// `@MainActor` model, then maps the app's value types to the SDK's (spec §7).
+    static func makeHost(model: XiaozhiFirmwareModel) -> XiaozhiFirmwareToolHost {
+        XiaozhiFirmwareToolHost(
+            deviceKey: { botID in
+                await MainActor.run { DeviceBotRegistry.shared.xiaozhiMAC(forBot: botID).flatMap(DeviceBotKey.xiaozhi) }
+            },
+            exportSources: { request in
+                let result = await model.export(botID: request.principal.botId)
+                switch result {
+                case .success(let value):
+                    return .exported(directory: value.directory, files: value.files, bytes: value.bytes,
+                                     project: value.project, target: value.target)
+                case .failure(let error):
+                    return .failed(code: error.code == "no_editable_sources" ? "no_editable_sources" : "export_failed",
+                                   message: error.message)
+                }
+            },
+            startBuild: { request in
+                let started = await MainActor.run { model.beginBuild(directory: request.directory) }
+                switch started {
+                case .success(let job): return .started(Self.job(job))
+                case .failure(let error):
+                    if error.code == "busy" { return .busy(jobId: error.jobID ?? "") }
+                    return .failed(code: error.code, message: error.message)
+                }
+            },
+            pollBuild: { jobID in
+                await MainActor.run { model.job(id: jobID).map(Self.job) }
+            },
+            deviceRecord: { mac in
+                await MainActor.run {
+                    model.relay.devices.first { $0.mac == mac }.map {
+                        XiaozhiDeviceRecord(mac: $0.mac, version: $0.version, elfSha256: $0.elfSha256,
+                                            lastSeen: $0.lastSeen, lastDecision: $0.lastDecision)
+                    }
+                }
+            },
+            stagedImage: { mac in
+                await MainActor.run {
+                    model.relay.staged(mac: mac).map {
+                        PhoneDSHBot.XiaozhiStagedImage(sha256: $0.sha256, elfSha256: $0.elfSha256, url: $0.url)
+                    }
+                }
+            },
+            relayState: {
+                await MainActor.run { XiaozhiRelayState(on: model.relay.isOn, otaURL: model.relay.otaURL) }
+            },
+            buildExists: { elf in
+                await MainActor.run { model.hasBuiltImage(elfSha256: elf) }
+            },
+            stageImage: { request in
+                let result = await MainActor.run { model.flash(elfSha256: request.elfSha256, mac: request.mac) }
+                switch result {
+                case .success(let view):
+                    return .staged(PhoneDSHBot.XiaozhiStagedImage(sha256: view.sha256, elfSha256: view.elfSha256, url: view.url))
+                case .failure(let error):
+                    switch error.code {
+                    case "no_build": return .noBuild
+                    case "relay_off": return .relayOff
+                    default: return .failed(code: error.code, message: error.message)
+                    }
+                }
+            })
+    }
 
-    var isOn: Bool { server.isListening }
-    func setOn(_ on: Bool) async { on ? await server.start() : await server.stop() }
-    var otaURL: String? { TonoLinkNetworkInfo.wifiIPv4().map { "http://\($0):8781/xiaozhi/ota/" } }
-    var devices: [XiaozhiDeviceView] {
-        server.records.map {
-            XiaozhiDeviceView(mac: $0.mac, version: $0.version, elfSha256: $0.elfSha256, boardType: $0.boardType,
-                              lastSeen: $0.lastSeen, lastDecision: $0.lastDecision.rawValue)
+    /// Maps the app's build job to the SDK's (spec §6.2). Pure; callable from the @Sendable closures.
+    private nonisolated static func job(_ j: XiaozhiBuildJob) -> PhoneDSHBot.XiaozhiBuildJob {
+        let state: XiaozhiJobState = j.state == .done ? .done : (j.state == .failed ? .failed : .running)
+        let image = j.image.map {
+            XiaozhiImageInfo(bytes: $0.bytes, sha256: $0.sha256, elfSha256: $0.elfSha256,
+                             version: $0.version, matchesReference: $0.matchesReference ?? false)
         }
-    }
-    func staged(mac: String) -> XiaozhiStagedView? {
-        images.staged(mac: mac).map { XiaozhiStagedView(sha256: $0.sha256, elfSha256: $0.elfSha256, url: $0.url) }
-    }
-    func stage(mac: String, image: Data, elfSha256: String) throws -> XiaozhiStagedView {
-        let staged = try images.stage(mac: mac, image: image, elfSha256: elfSha256)
-        return XiaozhiStagedView(sha256: staged.sha256, elfSha256: staged.elfSha256, url: staged.url)
+        return PhoneDSHBot.XiaozhiBuildJob(jobId: j.id, state: state, changed: j.changed,
+                                           ignored: j.ignored, error: j.error?.message, image: image)
     }
 }
-#endif
 #endif

@@ -128,9 +128,10 @@ final class XiaozhiFirmwareToolsTests: XCTestCase {
         let unbound = await rig.runtime.toolDefinitions(callerBotID: "bot-n").map(\.name)
         XCTAssertTrue(Set(unbound).isDisjoint(with: XiaozhiFirmwareToolNames.all))
         XCTAssertFalse(unbound.contains("DeviceAppStage"))
-        // Absent from the all-callers list (spec §6).
+        // Present in the all-callers list while the host is installed (spec §6 r2), like the
+        // device-app tools: the Worker registers from this list and hides them per caller.
         let anonymous = await rig.runtime.toolDefinitions(callerBotID: nil).map(\.name)
-        XCTAssertTrue(Set(anonymous).isDisjoint(with: XiaozhiFirmwareToolNames.all))
+        XCTAssertTrue(XiaozhiFirmwareToolNames.all.allSatisfy(anonymous.contains))
     }
 
     func testNothingIsListedWithoutTheHost() async throws {

@@ -662,13 +662,14 @@ public actor BotMCPRuntime {
     /// installed by `registerTeamTools`; the App needs no extra wiring.
     public func toolDefinitions(callerBotID: String?) async -> [BotMCPToolDefinition] {
         guard let callerBotID, !callerBotID.isEmpty else {
-            // device-app-v1: the all-callers list the Worker registers its tools
-            // from carries the two host tools whenever the host is installed;
-            // the Worker hides them per caller and `execute` refuses an unbound
+            // device-app-v1 / xiaozhi-firmware-v1 r2: the all-callers list the Worker
+            // registers its tools from carries each host's tools whenever that host is
+            // installed; the Worker hides them per caller and `execute` refuses an unbound
             // caller against the per-caller catalog below.
-            return deviceApp == nil
-                ? BotToolCatalog.workerDefinitions
-                : BotToolCatalog.workerDefinitions + DeviceAppToolDefinitions.all
+            var all = BotToolCatalog.workerDefinitions
+            if deviceApp != nil { all += DeviceAppToolDefinitions.all }
+            if xiaozhiFirmware != nil { all += XiaozhiFirmwareToolDefinitions.all }
+            return all
         }
         var base = BotToolCatalog.workerDefinitions
         if let provider = toolCatalogProvider,
@@ -696,8 +697,8 @@ public actor BotMCPRuntime {
     }
 
     /// Installs the xiaozhi firmware host tools (P26, xiaozhi-firmware-v1; DEBUG app builds with
-    /// a staged pack that has `sources_root`). `nil` removes them. They are listed per caller
-    /// only, never in the all-callers list.
+    /// a staged pack that has `sources_root`). `nil` removes them. Listed in the all-callers list
+    /// when installed (r2), and per caller for a `xiaozhi:` Bot.
     public func setXiaozhiFirmwareTools(_ host: XiaozhiFirmwareToolHost?) { xiaozhiFirmware = host }
 
     private func handlesXiaozhiTool(_ name: String) -> Bool {
