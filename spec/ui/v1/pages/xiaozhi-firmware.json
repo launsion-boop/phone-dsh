@@ -1,0 +1,382 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "XiaozhiFirmwarePage",
+  "pageId": "xiaozhi-firmware",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "小智固件",
+    "provenance": "XiaozhiFirmwarePage.swift:413",
+    "anchor": ".navigationTitle(NativeText(\"小智固件\", \"Xiaozhi firmware\"))"
+  },
+  "source": {
+    "file": "XiaozhiFirmwarePage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/XiaozhiFirmwarePage.swift",
+    "lines": 495,
+    "structLine": 398,
+    "renderedFrom": [
+      "body",
+      "relaySection",
+      "devicesSection",
+      "deviceRow",
+      "packSection"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "XiaozhiFirmwarePage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "section-403",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "把使用小智固件-78-xiaozhi-esp32-的板子的-ota-地址指向这台-iphone-板子检查更新时先经过手机-手机转发给官方服务器-之后-bot-可以导出并修改源码-在这台-iphone-上编译-经你批准后通过-wi-fi-刷入-仅-debug-构建",
+          "label": "把使用小智固件（78/xiaozhi-esp32）的板子的 OTA 地址指向这台 iPhone。板子检查更新时先经过手机，手机转发给官方服务器；之后 Bot 可以导出并修改源码、在这台 iPhone 上编译，经你批准后通过 Wi-Fi 刷入。仅 DEBUG 构建。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "XiaozhiFirmwarePage.swift:404",
+          "anchor": "Text(NativeText(\"把使用小智固件（78/xiaozhi-esp32）的板子的 OTA 地址指向这台 iPhone。板子检查更新时先经过手机，手机",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "XiaozhiFirmwarePage.swift:403",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row",
+        "label": "把使用小智固件（78/xiaozhi-esp32）的板子的 OTA 地址指向这台 iPhone。板子检查更新时先经过手机，手机转发给官方服务器；之后 Bot 可以导出并修改源码、在这台 iPhone 上编译，经你批准后通过 Wi-Fi 刷入。仅 DEBUG 构建。",
+        "provenance": "XiaozhiFirmwarePage.swift:404"
+      }
+    },
+    {
+      "id": "section-411",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": "!model.trustNote.isEmpty",
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-411",
+          "label": null,
+          "labelExpr": "model.trustNote",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "XiaozhiFirmwarePage.swift:411",
+          "anchor": "if !model.trustNote.isEmpty { Section { Text(model.trustNote).font(.callout) } }",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "XiaozhiFirmwarePage.swift:411",
+      "anchor": "if !model.trustNote.isEmpty { Section { Text(model.trustNote).font(.callout) } }",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row-expression",
+        "labelExpr": "model.trustNote",
+        "provenance": "XiaozhiFirmwarePage.swift:411"
+      }
+    },
+    {
+      "id": "ota-中继",
+      "title": "OTA 中继",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "开启-ota-中继-端口-8781",
+          "label": "开启 OTA 中继（端口 8781）",
+          "labelExpr": null,
+          "kind": "control",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "XiaozhiFirmwarePage.swift:418",
+          "anchor": "Toggle(NativeText(\"开启 OTA 中继（端口 8781）\", \"OTA relay on (port 8781)\"),",
+          "extraction": "syntax"
+        },
+        {
+          "id": "在板子上填写的-ota-地址",
+          "label": "在板子上填写的 OTA 地址",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let url = model.relay.otaURL",
+          "provenance": "XiaozhiFirmwarePage.swift:422",
+          "anchor": "Text(NativeText(\"在板子上填写的 OTA 地址\", \"OTA URL to type into the board\")).font(.capti",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-423",
+          "label": null,
+          "labelExpr": "url",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let url = model.relay.otaURL",
+          "provenance": "XiaozhiFirmwarePage.swift:423",
+          "anchor": "Text(url).font(.system(.callout, design: .monospaced)).textSelection(.enabled)",
+          "extraction": "manual"
+        },
+        {
+          "id": "没有-wi-fi-ipv4-地址-连上-wi-fi-后再来",
+          "label": "没有 Wi-Fi IPv4 地址，连上 Wi-Fi 后再来。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!(let url = model.relay.otaURL)",
+          "provenance": "XiaozhiFirmwarePage.swift:426",
+          "anchor": "Text(NativeText(\"没有 Wi-Fi IPv4 地址，连上 Wi-Fi 后再来。\", \"No Wi-Fi IPv4 address; join a",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "XiaozhiFirmwarePage.swift:417",
+      "anchor": "Section(NativeText(\"OTA 中继\", \"OTA relay\")) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "已检查更新的设备",
+      "title": "已检查更新的设备",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "还没有设备来检查更新",
+          "label": "还没有设备来检查更新。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "devices.isEmpty",
+          "provenance": "XiaozhiFirmwarePage.swift:436",
+          "anchor": "Text(NativeText(\"还没有设备来检查更新。\", \"No device has checked in yet.\")).font(.footnote)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "dynamic-438",
+          "label": null,
+          "labelExpr": "deviceRow(device)",
+          "kind": "dynamic",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "XiaozhiFirmwarePage.swift:438",
+          "anchor": "ForEach(devices) { device in deviceRow(device) }",
+          "extraction": "manual",
+          "templateLabels": [
+            "板型",
+            "Board",
+            "版本",
+            "Version",
+            "ELF SHA-256",
+            "最近一次"
+          ],
+          "collection": "devices"
+        }
+      ],
+      "provenance": "XiaozhiFirmwarePage.swift:433",
+      "anchor": "Section(NativeText(\"已检查更新的设备\", \"Devices that checked in\")) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "固件源码与构建",
+      "title": "固件源码与构建",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "固件构建页",
+          "label": "固件构建页",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "FirmwareBuilderPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "XiaozhiFirmwarePage.swift:491",
+          "anchor": "NavigationLink(NativeText(\"固件构建页\", \"Firmware builder page\")) { FirmwareBuilderPa",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "XiaozhiFirmwarePage.swift:476",
+      "anchor": "Section(NativeText(\"固件源码与构建\", \"Sources and build\")) {",
+      "extraction": "syntax"
+    }
+  ],
+  "actions": [
+    {
+      "id": "开启-ota-中继-端口-8781",
+      "label": "开启 OTA 中继（端口 8781）",
+      "labelExpr": null,
+      "kind": "toggle",
+      "trigger": "tap",
+      "semantic": "binding:Binding(get: { model.relay.isOn }, set: { on in Task { await model.relay.setOn(on) } })",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "XiaozhiFirmwarePage.swift:418",
+      "anchor": "Toggle(NativeText(\"开启 OTA 中继（端口 8781）\", \"OTA relay on (port 8781)\"),",
+      "extraction": "syntax"
+    },
+    {
+      "id": "固件构建页",
+      "label": "固件构建页",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:FirmwareBuilderPage",
+      "writes": false,
+      "destination": "FirmwareBuilderPage",
+      "condition": null,
+      "provenance": "XiaozhiFirmwarePage.swift:491",
+      "anchor": "NavigationLink(NativeText(\"固件构建页\", \"Firmware builder page\")) { FirmwareBuilderPa",
+      "extraction": "syntax"
+    },
+    {
+      "id": "信任并创建-bot",
+      "label": "信任并创建 Bot",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await model.trust(mac: device.mac) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "XiaozhiFirmwarePage.swift:456",
+      "anchor": "Button(NativeText(\"信任并创建 Bot\", \"Trust and create Bot\")) { Task { await model.tru",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "没有 Wi-Fi IPv4 地址，连上 Wi-Fi 后再来。",
+          "when": null,
+          "provenance": "XiaozhiFirmwarePage.swift:426",
+          "anchor": "Text(NativeText(\"没有 Wi-Fi IPv4 地址，连上 Wi-Fi 后再来。\", \"No Wi-Fi IPv4 address; join a"
+        },
+        {
+          "renders": "还没有设备来检查更新。",
+          "when": "devices.isEmpty",
+          "provenance": "XiaozhiFirmwarePage.swift:436",
+          "anchor": "Text(NativeText(\"还没有设备来检查更新。\", \"No device has checked in yet.\")).font(.footnote)"
+        }
+      ],
+      "data": [
+        {
+          "renders": "untitled section at 403 | untitled section at 411 | OTA 中继 | 已检查更新的设备 | 固件源码与构建",
+          "when": null,
+          "provenance": "XiaozhiFirmwarePage.swift:398",
+          "anchor": "struct XiaozhiFirmwarePage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [
+        {
+          "renders": "—",
+          "when": null,
+          "provenance": "XiaozhiFirmwarePage.swift:446",
+          "anchor": "LabeledContent(NativeText(\"版本\", \"Version\"), value: device.version ?? \"—\")"
+        },
+        {
+          "renders": "—",
+          "when": null,
+          "provenance": "XiaozhiFirmwarePage.swift:447",
+          "anchor": "LabeledContent(\"ELF SHA-256\", value: device.elfSha256.map { String($0.prefix(12)"
+        },
+        {
+          "renders": "—",
+          "when": null,
+          "provenance": "XiaozhiFirmwarePage.swift:469",
+          "anchor": "default: decision = \"—\""
+        }
+      ],
+      "loading": []
+    },
+    "absent": [
+      "failure",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 2,
+      "data": 1,
+      "failure": 0,
+      "unknown": 3,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 5,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 5,
+    "warnings": [
+      "unsupported control flow at XiaozhiFirmwarePage.swift:477: switch model.editableSources() { case .success(let value): L"
+    ]
+  }
+}

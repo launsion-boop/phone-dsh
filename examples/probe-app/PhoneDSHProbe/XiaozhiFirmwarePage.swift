@@ -151,6 +151,14 @@ struct XiaozhiStatusSnapshot: Equatable {
     /// True when the app should offer the Bot tools: a DEBUG build with a staged pack that has `sources_root`.
     var hasEditableSources: Bool { (try? editableSources().get()) != nil }
 
+    /// Device-test hook (spec §8): installs the SDK relay if needed and switches it on, so a board or a
+    /// Wi-Fi test client can reach `http://<Wi-Fi IPv4>:8781/xiaozhi/ota/` without the page UI.
+    func startRelayForDiagnostics() async {
+        guard hasEditableSources else { return }
+        if !(relay is XiaozhiSDKRelayAdapter) { relay = XiaozhiSDKRelayAdapter() }
+        await relay.setOn(true)
+    }
+
     // MARK: Export (spec §6.1)
 
     /// Copies every editable file into `botID`'s workspace through the import RPCs: target directory the Bot

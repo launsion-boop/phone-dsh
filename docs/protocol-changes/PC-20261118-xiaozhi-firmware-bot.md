@@ -3,7 +3,7 @@
 ```yaml
 change: PC-20261118-xiaozhi-firmware-bot
 contracts: [P07, P26, P09]
-status: frozen
+status: implemented
 breaking: false
 base: 88a9b4c4a1d39fc23b0881640bf9f5878a8739ee
 contract_revision: spec/device/v1/xiaozhi-firmware.md at the commit that introduces this record
@@ -69,4 +69,6 @@ Only the coordinator edits `spec/**` during the task (UI page contract regenerat
 
 ## Revisions
 
-- r1 (this commit): frozen.
+- r1: frozen.
+- r2: §6 tools listed in the all-callers tools/list (Worker registration); see spec r2.
+- implemented: relay, Bot tools and app integrated at one head; unit/golden/worker tests green, device Debug build + install verified; real-board OTA round-trip not yet run.

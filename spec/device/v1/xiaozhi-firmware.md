@@ -1,7 +1,11 @@
 <!-- SPDX-License-Identifier: MIT -->
 # Xiaozhi firmware Bot v1 (`xiaozhi-firmware-v1`)
 
-Status: `target` on iOS, **DEBUG builds only** (PC-20261118-xiaozhi-firmware-bot; frozen, implementation in progress). Android is
+Status: `implemented` on iOS, **DEBUG builds only** (PC-20261118-xiaozhi-firmware-bot). The relay,
+rewrite, report parser, device Bot key/text, the four Bot tools and the on-phone build with source
+overrides are unit- and golden-tested and the probe app builds and installs on device; no real board
+has fetched an offered image over the relay yet (the board's OTA URL must be repointed at the phone
+first). Android is `target` (GAP-20). Android is
 `target` (GAP-20). Owners: P07 (OTA relay, device record, device-Bot key and trigger, §2–§5),
 P26 (Bot tools, §6), P18 (none: nothing in this contract is persisted in UserDefaults).
 
