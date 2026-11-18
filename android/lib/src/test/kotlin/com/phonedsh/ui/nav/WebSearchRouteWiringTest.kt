@@ -9,6 +9,11 @@
 package com.phonedsh.ui.nav
 
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -21,6 +26,7 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.page.LocalWebSearchSavedBase
 import com.phonedsh.ui.page.FactState
 import com.phonedsh.ui.page.UiPageTags
 import com.phonedsh.ui.page.WebSearchFacts
@@ -44,17 +50,24 @@ class WebSearchRouteWiringTest {
 
     private fun mount(webSearch: WebSearchFacts) {
         compose.setContent {
+            var liveFacts by remember { mutableStateOf(webSearch) }
+            var savedBase by remember { mutableStateOf<String?>("") }
             PdshTheme(darkTheme = false) {
+                CompositionLocalProvider(LocalWebSearchSavedBase provides savedBase) {
                 PdshNavHost(
                     nav = PdshNavState(listOf(PdshRoute.Home, PdshRoute.WebSearch)),
-                    facts = PdshNavFacts(webSearch = webSearch),
+                    facts = PdshNavFacts(webSearch = liveFacts),
                     onNavigate = {},
                     onBack = {},
                     onHome = {},
-                    onHostAction = { actions += it },
+                    onHostAction = {
+                        actions += it
+                        if (it is PdshHostAction.CommitWebSearchAddress) savedBase = it.address
+                    },
                     home = { BasicText(text = "home") },
                     webSurface = {},
                 )
+                }
             }
         }
         compose.waitForIdle()

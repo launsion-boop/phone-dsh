@@ -955,6 +955,7 @@ val generateUiTokens = tasks.register("generateUiTokens") {
 }
 
 android.sourceSets.getByName("main").java.srcDir(generatedTokensDir)
+android.sourceSets.getByName("androidTest").assets.srcDir(repoRoot.resolve("spec/ui/v1/fixtures"))
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
     dependsOn(generateUiTokens)

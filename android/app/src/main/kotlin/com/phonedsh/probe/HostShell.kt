@@ -58,6 +58,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -635,6 +636,7 @@ internal fun HostShell(
     LaunchedEffect(state is EngineHostState.Running, chatUi.workerSessionId) {
         if (state is EngineHostState.Running) engine.refreshAutomation()
     }
+    val searchBase = remember(settingsRevision) { webSearchSavedBase(WebSearchSettingsStore.active()) }
     val facts: PdshNavFacts = remember(
         state,
         // The runtime page's 最近出錯 reads the D14 failure, so a host-state
@@ -1280,6 +1282,7 @@ internal fun HostShell(
                         // above it must not pad for it a second time.
                         .then(if (showTabBar) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier),
                 ) {
+                    CompositionLocalProvider(com.phonedsh.ui.page.LocalWebSearchSavedBase provides searchBase) {
                     PdshNavHost(
                         nav = nav,
                         facts = shownFacts,
@@ -1452,8 +1455,10 @@ internal fun HostShell(
                                     onStart = onStart,
                                     onStop = onStop,
                                     onSettingsChanged = { settingsRevision++ },
+                                    expectedWebSearchBase = searchBase,
                                 )
-                                if (feedback != null) notice = feedback
+                                if (feedback != null || action is PdshHostAction.SetWebSearchMode ||
+                                    action is PdshHostAction.CommitWebSearchAddress) notice = feedback
                             }
                         },
                         // Settings writes reach their real stores: ordinary choices
@@ -1776,6 +1781,7 @@ internal fun HostShell(
                         // it which of those files this session's turns wrote.
                         artifacts = artifactFacts,
                     )
+                    }
                 }
                 if (showTabBar) {
                     HomeTabBar(
@@ -2225,14 +2231,16 @@ private fun handleHostAction(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onSettingsChanged: () -> Unit = {},
+    expectedWebSearchBase: String? = null,
 ): String? {
     // The label is token-free: an action never carries user text into the log.
     Log.i(TAG_NAV, "host action handed off: ${action.wire}")
     // 网页搜索's five writes land in the independent Search/Fetch store. Its
     // line never contains the key; a write that changed nothing re-reads nothing.
-    handleWebSearchAction(action, WebSearchSettingsStore.active())?.let { result ->
+    handleWebSearchAction(action, WebSearchSettingsStore.active(), expectedWebSearchBase)?.let { result ->
         if (result.changed) onSettingsChanged()
-        return result.message
+        val localFeedback = action is PdshHostAction.SetWebSearchMode || action is PdshHostAction.CommitWebSearchAddress
+        return if (localFeedback && (result.changed || result.message?.startsWith("地址没有变化") == true)) null else result.message
     }
     return when (action) {
         PdshHostAction.StopRuntime -> {
