@@ -177,6 +177,7 @@ KINDS = (
 # extractor verifies at that callsite. No other helper provenance is accepted.
 CHAT_HELPER_ACTION_SOURCES = {
     "允许一次": "ChatPage.swift",
+    "总是允许": "ChatPage.swift",
     "拒绝": "ChatPage.swift",
     "要求修改": "NativePlanReviewCard.swift",
     "同意执行": "NativePlanReviewCard.swift",
