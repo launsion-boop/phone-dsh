@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Physical-device measurements for unlocking the phone through the TonoLink board. The phone is
 // locked through AssistiveTouch (设备 → 锁定屏幕); what still works while it is locked is then
-// recorded: iOS's lock state, the board's BLE ctrl line, its USB HTTP, the AirPlay mirror and
+// recorded: iOS protected-data availability, the board's BLE ctrl line, its USB HTTP, the AirPlay mirror and
 // the picture. No passcode is typed by these tests: unlocking with the real passcode is the
 // owner's to do. They leave the phone locked.
 import AVFoundation
 import UIKit
-import notify
 import ProbeKit
 import XCTest
 @testable import PhoneDSHBLE
@@ -32,12 +31,12 @@ final class TonoLinkLockDeviceTests: XCTestCase {
         add(attachment)
     }
 
-    /// One line of state: iOS lock state, USB HTTP, the board's mirror flag, the newest frame.
+    /// One line of state: iOS protected-data availability, USB HTTP, the board's mirror flag, the newest frame.
     private func sample(_ host: IPhoneAgentHost, _ label: String) async {
-        let unlocked = UIApplication.shared.isProtectedDataAvailable
+        let protectedDataAvailable = UIApplication.shared.isProtectedDataAvailable
         let status = try? await host.hands.call("GET", "/v1/phone/status", timeout: 3)
         let mirror = await host.hands.mirrorActive()
-        note("\(label): protected_data=\(unlocked) usb=\(status == nil ? "down" : "up") mirror=\(mirror) frames=\(host.screen.frameCount)")
+        note("\(label): protected_data=\(protectedDataAvailable) usb=\(status == nil ? "down" : "up") mirror=\(mirror) frames=\(host.screen.frameCount)")
     }
 
     private func shot(_ host: IPhoneAgentHost, _ name: String) async {
@@ -129,50 +128,37 @@ final class TonoLinkLockDeviceTests: XCTestCase {
         await sample(host, "end")
     }
 
-    /// Without the owner's consent (自动解锁 off, or no passcode saved) a locked phone is not
-    /// unlocked: the task stops with an explanation and nothing is typed.
-    func testLockedPhoneIsNotUnlockedWithoutConsent() async throws {
+    func testProtectedDataUnavailableStopsAgentPreflight() async throws {
         try requireFixture()
-        let store = TonoLinkUnlockStore.shared
-        try XCTSkipIf(store.hasPasscode, "a passcode is saved (automatic unlock on): this test would type it")
         let host = IPhoneAgentHost.shared
         host.screen.start()
         try await host.prepare()
         try await lockPhone(host)
         for _ in 0..<20 where UIApplication.shared.isProtectedDataAvailable { try await Task.sleep(for: .seconds(1)) }
-        let locked = !UIApplication.shared.isProtectedDataAvailable
-        note("locked=\(locked)")
-        try XCTSkipUnless(locked, "iOS still reports protected data available")
+        try XCTSkipIf(UIApplication.shared.isProtectedDataAvailable, "iOS still reports protected data available")
         do {
             try await host.prepare()
-            XCTFail("prepare() went on with the phone locked")
+            XCTFail("prepare() went on with protected data unavailable")
         } catch {
             note("prepare refused: \(error)")
-            XCTAssertTrue("\(error)".contains("手机锁着"), "\(error)")
+            XCTAssertTrue("\(error)".contains("请先解锁手机"), "\(error)")
         }
     }
 
     /// Reads the signals a locked phone gives the app while it is locked and in the background:
-    /// SpringBoard's lock-state notification, protected data, the audio route, and whether the
+    /// protected-data availability, the audio route, and whether the
     /// speaker can be taken. Types nothing; leaves the phone locked.
     func testLockSignals() async throws {
         try requireFixture()
         let host = IPhoneAgentHost.shared
         host.screen.start()
         try await host.prepare()
-        var token: Int32 = 0
-        let registered = notify_register_check("com.apple.springboard.lockstate", &token)
-        func lockState() -> String {
-            var state: UInt64 = 0
-            let status = notify_get_state(token, &state)
-            return status == NOTIFY_STATUS_OK ? "\(state)" : "err\(status)"
-        }
         func outputs() -> String { AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portType.rawValue).joined(separator: ",") }
-        note("registered=\(registered) lockstate=\(lockState()) protected=\(UIApplication.shared.isProtectedDataAvailable) app=\(UIApplication.shared.applicationState.rawValue) out=\(outputs())")
+        note("before protected=\(UIApplication.shared.isProtectedDataAvailable) app=\(UIApplication.shared.applicationState.rawValue) out=\(outputs())")
         try await lockPhone(host)
         for second in stride(from: 3, through: 30, by: 3) {
             try await Task.sleep(for: .seconds(3))
-            note("+\(second)s lockstate=\(lockState()) protected=\(UIApplication.shared.isProtectedDataAvailable) app=\(UIApplication.shared.applicationState.rawValue) out=\(outputs())")
+            note("+\(second)s protected=\(UIApplication.shared.isProtectedDataAvailable) app=\(UIApplication.shared.applicationState.rawValue) out=\(outputs())")
         }
         do {
             let speaker = try PhoneAudioSessionLease.acquireSpeakerOutput()

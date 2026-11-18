@@ -180,11 +180,13 @@ this registration.
 
 ### 4.1.1 iOS voice admission and playback
 
-The native voice consumer snapshots its existing local DSH session at wake, before ASR, and allocates one lowercase UUIDv4 request ID. Recognized non-volume text enters
-that session's existing durable SendOutbox (§10 of the host contract) using the same ID. A
-missing target or unavailable protected storage produces no acceptance and is spoken as a
-failure; durably admitted work defers when protected data is unavailable or the execution lane is ineligible, and resumes under the host delivery rules. The board wake counter
-is not a globally stable task ID. No new BLE frame, permission or authentication is introduced.
+The native voice consumer snapshots its existing local DSH session at wake, before ASR, and
+allocates one lowercase UUIDv4 request ID. Recognized non-volume text enters that session's
+existing durable SendOutbox (§10 of the host contract) using the same ID. A missing target or
+unavailable protected storage produces no acceptance and is spoken as a failure. Durably
+admitted work defers when protected data is unavailable or execution is ineligible, and resumes
+under the host delivery rules. The board wake counter is not a globally stable task ID. No new
+BLE frame, permission or authentication is introduced.
 The saved-work acknowledgement follows durable enqueue and is spoken only when execution
 cannot start now (deferred, or no engine within the admission bound); work that executes speaks
 only its answer, with the LED showing it running.
