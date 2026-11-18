@@ -139,9 +139,10 @@ parsing.
 
 ## 6. Bot tools (P26)
 
-Listed in the per-caller `tools/list` only for a Bot bound to a `xiaozhi:` key, and only when the
-app installed the xiaozhi firmware host (DEBUG builds with a staged pack that has `sources_root`).
-They are absent from the all-callers list, the static catalog and p0/p1. Names, descriptions and
+Listed in the all-callers `tools/list` whenever the app installed the xiaozhi firmware host (DEBUG
+builds with a staged pack that has `sources_root`), and in the per-caller `tools/list` only for a
+Bot bound to a `xiaozhi:` key; the Worker caller catalog hides them for an identified caller whose
+catalog lacks them, like the device-app tools. They are absent from the static catalog and p0/p1. Names, descriptions and
 input schemas are frozen in the `xiaozhiFirmware` section of `spec/bot/v1/golden/tool-catalog.phone.json`;
 classifications in `tool-effects.phone.json`. All are App-owned tools (Worker `AUTO_TOOLS`).
 
@@ -199,6 +200,12 @@ Effect: `destructive`/`ask`, operation `device.xiaozhi.flash`.
 | relay (SDK) | `Sources/PhoneDSHBLE/Xiaozhi/` | `XiaozhiDeviceReport.parse(headers:body:)`, `XiaozhiOTARewrite.apply(...)`, `XiaozhiOTARelayServer` (NWListener, §2), `XiaozhiStagedImages` |
 | Bot tools (SDK) | `Sources/PhoneDSHBot/Xiaozhi/`, `BotMCPRuntime` slot `setXiaozhiFirmwareTools(_:)`, `DeviceBotKey.xiaozhi(mac:)`, `DeviceBotText` | `XiaozhiFirmwareToolHost` (closures injected by the app) |
 | app (probe) | `FirmwareBuilder/`, `FirmwareBuilderPage.swift`, `XiaozhiFirmwarePage.swift`, `Bot/XiaozhiFirmwareWiring.swift`, `DeviceBotRegistry.swift` | build with overrides, source export, page, wiring |
+
+## Revisions (owning spec)
+
+- r2 (this commit): §6 lists the four tools in the all-callers `tools/list` when the host is
+  installed, hidden per caller, matching how the Worker registers and gates `mcp__phone__*` tools
+  (device-app precedent). r1 said "absent from the all-callers list", which left them unregisterable.
 
 ## 8. Verification
 

@@ -410,7 +410,8 @@ classification in `golden/tool-effects.phone.json`.
 - `XiaozhiFirmwareStatus {jobId?}`: `read`/`auto`, operation `device.xiaozhi.status`.
 - `XiaozhiFirmwareFlash {elfSha256}`: `destructive`/`ask`, operation `device.xiaozhi.flash`, resource
   `xiaozhi:flash&elf=<elfSha256>`; approval once only (no standing grant).
-- All four are App-owned tools: the Worker lists them in `AUTO_TOOLS` and in the caller catalog's
-  device-bound set, so it raises no effect or card of its own. The device-app tools (§10) are not
+- All four are App-owned tools in the all-callers list (hidden per caller, like §10): the Worker
+  lists them in `AUTO_TOOLS` and in the caller catalog's xiaozhi set, so it raises no effect or card
+  of its own. The device-app tools (§10) are not
   listed for a `xiaozhi:` Bot.
 

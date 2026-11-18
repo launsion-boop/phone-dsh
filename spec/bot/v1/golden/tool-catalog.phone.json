@@ -322,7 +322,7 @@
     ]
   },
   "xiaozhiFirmware": {
-    "note": "xiaozhi-firmware-v1 (spec/device/v1/xiaozhi-firmware.md §6): DEBUG builds only. Listed in the per-caller tools/list only for a Bot bound to a xiaozhi: device key while the app has installed the xiaozhi firmware host; absent from the all-callers list, the static catalog (workerDefinitions) and p0/p1. App-owned (Worker AUTO_TOOLS).",
+    "note": "xiaozhi-firmware-v1 (spec/device/v1/xiaozhi-firmware.md §6): DEBUG builds only. Listed in the all-callers tools/list whenever the app has installed the xiaozhi firmware host, and in the per-caller tools/list only for a Bot bound to a xiaozhi: device key; the Worker caller catalog hides them for an identified caller whose catalog lacks them. Absent from the static catalog (workerDefinitions) and p0/p1. App-owned (Worker AUTO_TOOLS).",
     "tools": [
       {
         "name": "XiaozhiSourceExport",
