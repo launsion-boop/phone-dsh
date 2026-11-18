@@ -46,6 +46,7 @@ A key is derived once from the device class and is never edited afterwards.
 | standard GATT | `gatt:` + lowercase CoreBluetooth peripheral UUID | UUID in 8-4-4-4-12 form. |
 | LAN MCP | `lan:` + canonical hostname `H` of the granted URL, plus `:<port>` unless the port is 443 | `H` is already in the canonical form of [lan-mcp.md](lan-mcp.md); a non-canonical host is rejected, not repaired. Port 1…65535. Changing host or port is an endpoint change and therefore a new key. |
 | TonoLink board (legacy) | `tonolink:` + lowercase BLE name | Existing key for the board's voice link; kept readable. Never created for a board that already has a Link key. |
+| xiaozhi board (Wi-Fi OTA) | `xiaozhi:` + the lowercase MAC `aa:bb:cc:dd:ee:ff` the board reported | Owned by [xiaozhi-firmware.md](xiaozhi-firmware.md) §4 with its own vectors (`golden/xiaozhi-ota.jsonl`); DEBUG builds only. |
 
 An input that does not fit its row has no key and creates nothing. Two devices never share a key;
 one device may hold a legacy key and a Link key, see §6 alias.
@@ -60,6 +61,7 @@ A Bot may be created only by one of these events, each after the device's own ad
 | TonoLink board voice link | the voice link is up (legacy key, until `tools/list` gives a Link key) |
 | standard GATT | the user turns on a read grant or an alert grant for that peripheral |
 | LAN MCP | the user saved the exact-URL grant and the credential for that endpoint |
+| xiaozhi board | the user tapped 「信任并创建 Bot」 for a board that checked in through the OTA relay ([xiaozhi-firmware.md](xiaozhi-firmware.md) §4); a check-in alone creates nothing |
 
 Revoking a grant, disconnecting, losing Bluetooth or forgetting the device never creates, hides or
 deletes a Bot.

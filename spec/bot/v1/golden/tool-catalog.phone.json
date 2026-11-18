@@ -321,6 +321,69 @@
       }
     ]
   },
+  "xiaozhiFirmware": {
+    "note": "xiaozhi-firmware-v1 (spec/device/v1/xiaozhi-firmware.md §6): DEBUG builds only. Listed in the per-caller tools/list only for a Bot bound to a xiaozhi: device key while the app has installed the xiaozhi firmware host; absent from the all-callers list, the static catalog (workerDefinitions) and p0/p1. App-owned (Worker AUTO_TOOLS).",
+    "tools": [
+      {
+        "name": "XiaozhiSourceExport",
+        "visibility": "device-bound",
+        "description": "Copy the xiaozhi firmware sources you may edit into your workspace. Returns the directory (an absolute workspace path) and the file count. Edit files there, then pass the directory to XiaozhiFirmwareBuild. Only existing files can be changed; new or deleted files are not built.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "XiaozhiFirmwareBuild",
+        "visibility": "device-bound",
+        "description": "Build the xiaozhi firmware on this iPhone (about a minute). Pass directory (from XiaozhiSourceExport) to build your edits; omit it for the unmodified reference build. Waits up to 100 s; if state is running, call XiaozhiFirmwareStatus with the jobId. A finished build returns the image's elfSha256 for XiaozhiFirmwareFlash.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "directory": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "XiaozhiFirmwareStatus",
+        "visibility": "device-bound",
+        "description": "Show a firmware build job (the latest when jobId is omitted), what the bound xiaozhi board last reported (version, running elfSha256, last OTA check), the staged image and whether the OTA relay is on.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "XiaozhiFirmwareFlash",
+        "visibility": "device-bound",
+        "description": "Flash a firmware built in this app session onto the bound xiaozhi board over Wi-Fi. Pass elfSha256 from XiaozhiFirmwareBuild. Asks the user first. Stages the image on the phone's OTA relay; the board installs it at its next boot, so tell the user to restart the board, then confirm with XiaozhiFirmwareStatus.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "elfSha256"
+          ],
+          "properties": {
+            "elfSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    ]
+  },
   "delta": [
     "content-card final flag: show_attachment / show_document / show_progress / show_checklist / show_link accept an optional boolean final (default false). A successful final:true call suppresses later assistant text and SendToUser until turn/end, like ask_user/show_next_steps; a failed call and a missing/false final do not suppress. Mid-task updates under the same cardKey omit final.",
     "The five p0 entries replace their upstream counterparts only to add that property and state the conditional turn-end; every other field and the upstream tool-catalog.json are unchanged.",
