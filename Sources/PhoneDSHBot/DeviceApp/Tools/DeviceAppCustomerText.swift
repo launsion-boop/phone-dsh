@@ -115,6 +115,36 @@ public enum DeviceAppCustomerText {
 
     public static func listSentence(forCode code: String) -> String { listTable[code] ?? listGeneric }
 
+    // MARK: - Device-apps page (device-app-v1.6): open / stop
+
+    static let runGeneric = "没能打开，请确认设备在附近后再试一次"
+    static let stopGeneric = "没能停止，请在设备上长按确定键退出后再试"
+
+    public static let runTable: [String: String] = [
+        "device_not_found": table["device_not_found"]!,
+        "device_not_connected": notConnected,
+        "device_tools_missing": notSupported,
+        "not_found": "设备上找不到这个应用，可能已经删掉了",
+        "busy": removeBusy,
+        "link_busy": removeBusy,
+        "host_only": table["host_only"]!,
+        "run_failed": runGeneric,
+        "call_failed": runGeneric,
+        "not_executed": runGeneric,
+        "outcome_unknown": "没能确认应用有没有打开，请看一下设备屏幕",
+    ]
+
+    public static func runSentence(forCode code: String) -> String { runTable[code] ?? runGeneric }
+    public static func stopSentence(forCode code: String) -> String {
+        ["device_not_connected": notConnected, "link_busy": removeBusy, "busy": removeBusy][code] ?? stopGeneric
+    }
+    public static func opened(title: String) -> String { "已打开「\(title)」。" + exitHint }
+    public static func stopped(title: String) -> String { "已停止「\(title)」。" }
+    public static func deleted(title: String) -> String { "已删除「\(title)」。" }
+    public static let deleteConfirmation = "删除后不能恢复，需要的话让 Bot 重新做一个。"
+    public static let emptyDevice = "设备上还没有应用。让 Bot 给你做一个吧。"
+    public static let pageNotConnected = "设备没连上，请靠近设备并确认蓝牙已开"
+
     public static func removed(title: String, wasRunning: Bool) -> String {
         wasRunning ? "已把「\(title)」停掉并从设备上删除。" : "已从设备上删除「\(title)」。"
     }
