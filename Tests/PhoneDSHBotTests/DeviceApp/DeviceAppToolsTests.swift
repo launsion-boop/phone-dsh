@@ -458,6 +458,9 @@ final class DeviceAppToolsTests: XCTestCase {
             XCTAssertNil(sentence.range(of: "[A-Za-z_]{3,}", options: .regularExpression), sentence)
         }
         XCTAssertEqual(DeviceAppCustomerText.sentence(forCode: "no_space"), "设备空间不够，请先删掉一个设备应用")
+        let memory = DeviceAppCustomerText.sentence(forCode: "no_memory")
+        XCTAssertEqual(memory, "设备现在装不下，请重启设备再试一次；设备上已有的应用都还在")
+        XCTAssertFalse(memory.contains("删"), "RAM is not fixed by deleting an app")
         XCTAssertEqual(DeviceAppCustomerText.sentence(forCode: "busy"), "设备正在传输另一个应用，稍后再试")
         XCTAssertEqual(DeviceAppCustomerText.sentence(forCode: "device_not_connected"),
                        "设备没连上，请靠近设备并确认蓝牙已开")

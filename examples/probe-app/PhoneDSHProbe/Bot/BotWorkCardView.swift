@@ -373,13 +373,16 @@ private struct BotApprovalCardView: View {
         }
     }
 
+    /// No standing or session scope is offered: the card has "允许" and "拒绝" only.
+    private var onceOnlyCard: Bool { standingScope == nil && offeredScope != "session" }
+
     private var allowOnceButton: some View {
         Button {
             model.decide(row: row, decision: .allowOnce)
         } label: {
             HStack(spacing: 5) {
                 if busy { ProgressView().tint(HomeSpec.textPrimary) }
-                Text("允许一次").lineLimit(1).minimumScaleFactor(0.8)
+                Text(onceOnlyCard ? "允许" : "允许一次").lineLimit(1).minimumScaleFactor(0.8)
             }
         }
         .buttonStyle(BotCardButtonStyle(kind: .secondary))
@@ -392,14 +395,9 @@ private struct BotApprovalCardView: View {
                 .lineLimit(1).minimumScaleFactor(0.8)
                 .buttonStyle(BotCardButtonStyle(kind: .primary, tint: theme.accent))
                 .accessibilityIdentifier("bot.approval.always")
-        } else {
-            Button("始终允许") { }
-                .lineLimit(1).minimumScaleFactor(0.8)
-                .buttonStyle(BotCardButtonStyle(kind: .secondary))
-                .disabled(true)
-                .accessibilityHint("此操作仅支持单次授权")
-                .accessibilityIdentifier("bot.approval.always.disabled")
         }
+        // Once-only operations (for example installing an app on a device) show no "始终允许": a
+        // control that can never be pressed reads as broken. The note under the buttons says why.
     }
 
     private var denyButton: some View {

@@ -49,35 +49,43 @@ public struct DeviceAppInstallResult: Equatable, Sendable {
 public struct DeviceAppInstaller: Sendable {
     public typealias CallTool = @Sendable (_ name: String, _ arguments: JSONValue, _ idempotencyKey: String) async throws -> LinkCallOutcome
     public typealias PruneStaging = @Sendable (_ keys: [String]) -> Void
+    /// One line per refused or lost Link call (tool, code, the device's own message); for a trace only.
+    public typealias Diagnostic = @Sendable (_ line: String) -> Void
 
     let callTool: CallTool
     let pruneStaging: PruneStaging
+    let diagnostic: Diagnostic
     public let installID: UUID
     public let maxResumes: Int
     public let infoAttempts: Int
 
     public init(installID: UUID = UUID(), maxResumes: Int = 8, infoAttempts: Int = 3,
                 pruneStaging: @escaping PruneStaging = { _ in },
+                diagnostic: @escaping Diagnostic = { _ in },
                 callTool: @escaping CallTool) {
         self.installID = installID
         self.maxResumes = maxResumes
         self.infoAttempts = infoAttempts
         self.pruneStaging = pruneStaging
+        self.diagnostic = diagnostic
         self.callTool = callTool
     }
 
     /// The installer bound to the real Link entry as the user origin (device panel / host).
     /// Staging intents are pruned from the same journal at the end of every install.
-    public static func live(deviceID: UUID, installID: UUID = UUID()) -> DeviceAppInstaller {
-        live(deviceID: deviceID, installID: installID, store: nil, journal: nil)
+    public static func live(deviceID: UUID, installID: UUID = UUID(),
+                            diagnostic: @escaping Diagnostic = { _ in }) -> DeviceAppInstaller {
+        live(deviceID: deviceID, installID: installID, store: nil, journal: nil, diagnostic: diagnostic)
     }
 
     static func live(deviceID: UUID, installID: UUID,
-                     store: BLEDeviceStore?, journal: LinkToolJournal?) -> DeviceAppInstaller {
+                     store: BLEDeviceStore?, journal: LinkToolJournal?,
+                     diagnostic: @escaping Diagnostic = { _ in }) -> DeviceAppInstaller {
         let journal = journal ?? LinkToolStorage.defaultJournal
         return DeviceAppInstaller(
             installID: installID,
             pruneStaging: { _ = journal.removeStagingIntents(keys: $0) },
+            diagnostic: diagnostic,
             callTool: { name, arguments, key in
                 if let store {
                     return try await callLinkTool(deviceID: deviceID, name: name, arguments: arguments,
@@ -123,7 +131,9 @@ public struct DeviceAppInstaller: Sendable {
         var number = 0
         var stagingKeys: [String] = []
         var session: String?
-        var chunk = DeviceAppRules.maxChunkBytes
+        var chunk = DeviceAppRules.transferChunkBytes
+        /// Lowered when a put gets no reply: the Link response window is short and the cause is the size.
+        var ceiling = DeviceAppRules.transferChunkBytes
         var resumes = 0
         var calls = 0
         var committed = false
@@ -151,29 +161,45 @@ public struct DeviceAppInstaller: Sendable {
                 throw DeviceAppInstallError.callFailed(tool: tool, message: String(describing: error))
             }
             switch outcome {
-            case .outcomeUnknown, .running:
+            case .outcomeUnknown(_, let message):
+                installer.diagnostic("lost tool=\(tool) outcome_unknown message=\(String(message.prefix(120)))")
+                return .lost
+            case .running:
+                installer.diagnostic("lost tool=\(tool) still running")
                 return .lost
             case .notExecuted(_, let stage, let status):
                 throw DeviceAppInstallError.notExecuted(tool: tool, stage: stage, status: status)
             case .completed(_, let reply):
                 switch reply["status"]?.stringValue {
                 case "outcome_unknown":
+                    installer.diagnostic("lost tool=\(tool) reply=outcome_unknown")
                     return .lost
                 case "completed":
                     guard let result = reply["result"], case .object = result, let ok = result["ok"]?.boolValue else {
                         throw DeviceAppInstallError.protocolViolation("\(tool): result is not an object with ok")
                     }
                     if ok { return .ok(result) }
-                    return .refused(code: result["code"]?.stringValue ?? "bad_request")
+                    let refusedCode = Self.refusalCode(result["code"]?.stringValue, message: result["message"]?.stringValue)
+                    installer.diagnostic("refused tool=\(tool) code=\(result["code"]?.stringValue ?? "?") message=\(String((result["message"]?.stringValue ?? "").prefix(120)))")
+                    return .refused(code: refusedCode)
                 case "failed":
                     if let result = reply["result"], result["ok"]?.boolValue == false {
-                        return .refused(code: result["code"]?.stringValue ?? "bad_request")
+                        return .refused(code: Self.refusalCode(result["code"]?.stringValue, message: result["message"]?.stringValue))
                     }
                     return .refused(code: "bad_request")
                 default:
                     throw DeviceAppInstallError.protocolViolation("\(tool): unknown reply status")
                 }
             }
+        }
+
+        /// The device uses `no_space` for both a full flash and a MemoryError ("out of memory" in the
+        /// message). The phone keeps them apart with its own code so the customer is not told to delete apps
+        /// when RAM is the cause. The wire code is unchanged.
+        static func refusalCode(_ code: String?, message: String?) -> String {
+            let code = code ?? "bad_request"
+            if code == "no_space", (message ?? "").lowercased().contains("memory") { return "no_memory" }
+            return code
         }
 
         func fileList() -> JSONValue {
@@ -207,7 +233,7 @@ public struct DeviceAppInstaller: Sendable {
                         next[file.path] = offset
                     }
                     session = id
-                    chunk = max
+                    chunk = min(max, ceiling)
                     return next
                 }
             }
@@ -239,6 +265,7 @@ public struct DeviceAppInstaller: Sendable {
                     }
                     next[file.path] = end
                 case .lost:
+                    ceiling = Swift.max(DeviceAppRules.minChunkBytes, ceiling / 2)
                     try spendResume()
                     next = try await establish()
                 case .refused(let code) where code == "bad_session":

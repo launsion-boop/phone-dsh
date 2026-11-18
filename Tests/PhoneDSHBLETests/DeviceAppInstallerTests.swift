@@ -33,8 +33,9 @@ final class DeviceAppInstallerTests: XCTestCase {
         XCTAssertNil(device.session)
         XCTAssertEqual(device.maxInFlight, 1, "calls are strictly serial")
         let chunks = putOffsets(device)
-        XCTAssertTrue(chunks.allSatisfy { $0.2 <= 2048 && $0.2 > 0 })
-        XCTAssertEqual(chunks.filter { $0.0 == "main.py" }.map(\.1), [0, 2048, 4096])
+        // Real Passport: one Link exchange has a 3 s window; a 512 B put takes ~1.7 s, 2048 B times out.
+        XCTAssertTrue(chunks.allSatisfy { $0.2 <= DeviceAppRules.transferChunkBytes && $0.2 > 0 })
+        XCTAssertEqual(chunks.filter { $0.0 == "main.py" }.map(\.1), Array(stride(from: 0, to: 5000, by: 512)))
         XCTAssertEqual(device.calls("app.begin"), 1)
         XCTAssertEqual(device.calls("app.commit"), 1)
         XCTAssertEqual(device.calls("app.abort"), 0)
@@ -68,7 +69,9 @@ final class DeviceAppInstallerTests: XCTestCase {
         XCTAssertEqual(result.resumes, 1)
         XCTAssertEqual(device.calls("app.begin"), 2, "a lost staging reply is repaired by app.begin, not by repeating the put")
         let offsets = putOffsets(device).filter { $0.0 == "main.py" }.map(\.1)
-        XCTAssertEqual(offsets, [0, 2048, 4096], "the applied chunk is not sent a second time")
+        XCTAssertEqual(offsets, offsets.sorted(), "offsets only grow")
+        XCTAssertEqual(Set(offsets).count, offsets.count, "the applied chunk is not sent a second time")
+        XCTAssertEqual(offsets.first, 0)
         XCTAssertEqual(device.installed["clock"]?.digest, bundle.digest)
     }
 
@@ -79,8 +82,12 @@ final class DeviceAppInstallerTests: XCTestCase {
         let result = try await installer(device).install(bundle)
 
         XCTAssertEqual(result.resumes, 1)
-        let offsets = putOffsets(device).filter { $0.0 == "main.py" }.map(\.1)
-        XCTAssertEqual(offsets, [0, 2048, 2048, 4096], "the unapplied chunk is re-sent at the device's next offset")
+        let puts = putOffsets(device).filter { $0.0 == "main.py" }
+        let offsets = puts.map(\.1)
+        XCTAssertEqual(offsets.count - Set(offsets).count, 1, "exactly the unapplied chunk is re-sent, at the device's next offset")
+        let repeated = try XCTUnwrap(offsets.firstIndex { o in offsets.filter { $0 == o }.count == 2 })
+        let again = puts.indices.last { puts[$0].1 == offsets[repeated] } ?? 0
+        XCTAssertLessThan(puts[again].2, puts[repeated].2, "a put that got no reply is retried with a smaller chunk")
         XCTAssertEqual(device.installed["clock"]?.files["main.py"], bundle.files[0].bytes)
     }
 
@@ -102,7 +109,8 @@ final class DeviceAppInstallerTests: XCTestCase {
         XCTAssertEqual(result.resumes, 1)
         let sessions = device.args("app.put").compactMap { $0["session"]?.stringValue }
         XCTAssertEqual(Set(sessions).count, 2, "the device dropped the stage, so a new session was opened")
-        XCTAssertEqual(putOffsets(device).filter { $0.0 == "main.py" }.map(\.1), [0, 2048, 0, 2048, 4096])
+        let restart = putOffsets(device).filter { $0.0 == "main.py" }.map(\.1)
+        XCTAssertEqual(Array(restart.prefix(3)), [0, 512, 0], "the new session starts again from 0")
         XCTAssertEqual(device.installed["clock"]?.digest, bundle.digest)
     }
 
@@ -127,14 +135,44 @@ final class DeviceAppInstallerTests: XCTestCase {
         }
         XCTAssertNotNil(device.session, "the stage survives because the abort was lost")
         let staged = try XCTUnwrap(device.session?.files["main.py"]?.data.count)
-        XCTAssertEqual(staged, 4096)
+        XCTAssertEqual(staged, 1024, "two 512 B chunks landed before the third put failed")
 
         let putsBefore = device.calls("app.put")
         let result = try await installer(device).install(bundle)
         XCTAssertEqual(result.resumes, 0)
         let resumed = putOffsets(device).dropFirst(putsBefore).filter { $0.0 == "main.py" }.map(\.1)
-        XCTAssertEqual(resumed, [4096], "continues from the device's next offset, not from zero")
+        XCTAssertEqual(resumed.first, 1024, "continues from the device's next offset, not from zero")
+        XCTAssertEqual(resumed, resumed.sorted())
         XCTAssertEqual(device.installed["clock"]?.files["main.py"], bundle.files[0].bytes)
+    }
+
+    /// The real failure on the user's phone: a 4489 B main.py (3 puts of 2048 B) timed out because one Link
+    /// exchange has a 3 s window. The installer now sends at most 512 B and halves after a put with no reply.
+    func testMinesSizedBundleNeverSendsMoreThan512BytesPerPutAndShrinksAfterATimeout() async throws {
+        let device = FakeAppDevice()
+        device.inject("app.put", nth: 3, .lostRequest)
+        let bundle = makeAppBundle(mainSize: 4489)
+        let result = try await installer(device).install(bundle)
+        XCTAssertEqual(result.resumes, 1)
+        let sizes = putOffsets(device).map(\.2)
+        XCTAssertTrue(sizes.allSatisfy { $0 <= 512 }, "\(sizes)")
+        XCTAssertTrue(sizes.contains(256), "after the lost put the chunk is halved: \(sizes)")
+        XCTAssertEqual(device.installed["clock"]?.files["main.py"], bundle.files[0].bytes)
+        XCTAssertGreaterThanOrEqual(DeviceAppRules.minChunkBytes, 1)
+    }
+
+    /// Real board: `app.commit` answered `no_space` with the message "out of memory" while flash was free.
+    func testNoSpaceWithAnOutOfMemoryMessageIsToldApartFromAFullFlash() async throws {
+        let ram = FakeAppDevice()
+        ram.inject("app.commit", nth: 1, .refuse("no_space:out of memory"))
+        do { try await installer(ram).install(makeAppBundle()); XCTFail("must fail") } catch {
+            XCTAssertEqual(error as? DeviceAppInstallError, .deviceRefused(tool: "app.commit", code: "no_memory"))
+        }
+        let flash = FakeAppDevice()
+        flash.inject("app.commit", nth: 1, .refuse("no_space:flash full"))
+        do { try await installer(flash).install(makeAppBundle()); XCTFail("must fail") } catch {
+            XCTAssertEqual(error as? DeviceAppInstallError, .deviceRefused(tool: "app.commit", code: "no_space"))
+        }
     }
 
     func testTooManyResumesFailsAndAborts() async throws {

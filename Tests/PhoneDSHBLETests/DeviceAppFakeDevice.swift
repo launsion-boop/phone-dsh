@@ -66,7 +66,12 @@ final class FakeAppDevice: @unchecked Sendable {
         switch fault {
         case .lostRequest?: return lost()
         case .disconnect?: session = nil; return lost()
-        case .refuse(let code)?: return reply(fail(code))
+        case .refuse(let code)?:
+            // "code:message" lets a test give the refusal the device's own message.
+            let parts = code.split(separator: ":", maxSplits: 1).map(String.init)
+            var result = fail(parts[0])
+            if parts.count > 1, case .object(var o) = result { o["message"] = .string(parts[1]); result = .object(o) }
+            return reply(result)
         default: break
         }
         let result = dispatch(tool, arguments)

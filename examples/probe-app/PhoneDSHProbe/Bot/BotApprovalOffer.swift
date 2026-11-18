@@ -38,7 +38,7 @@ enum BotApprovalOffer {
     }
 
     /// The one-line limitation under the buttons of a one-shot-only card.
-    static let onceOnlyNote = "此类操作只能允许一次，下次会重新询问"
+    static let onceOnlyNote = "此类操作每次都会先问你"
 
     /// The standing scope the projected row offers, or `nil` when it can only
     /// be allowed once. Absent, `"none"`, `"once"` and unknown values all mean

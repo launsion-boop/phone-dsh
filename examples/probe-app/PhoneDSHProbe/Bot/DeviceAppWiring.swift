@@ -186,7 +186,21 @@ enum DeviceAppLiveWiring {
         }
     }
 
+    /// Every failed install leaves one DEBUG trace line with the real step, tool, code and message (the
+    /// customer text maps several codes to one sentence). No file content, no secrets.
     private static func transfer(_ request: DeviceAppInstallRequest) async -> DeviceAppInstallOutcome {
+        let began = Date()
+        let outcome = await transferOnce(request)
+        let seconds = String(format: "%.1f", Date().timeIntervalSince(began))
+        switch outcome {
+        case .installed: TonoLinkVoiceHost.shared.log("device-app install ok name=\(request.manifest.name) digest8=\(request.digest.prefix(8)) bytes=\(request.files.reduce(0) { $0 + $1.data.count }) seconds=\(seconds)")
+        case .failed(let code, let message): TonoLinkVoiceHost.shared.log("device-app install failed name=\(request.manifest.name) digest8=\(request.digest.prefix(8)) code=\(code) message=\(message.prefix(200)) seconds=\(seconds)")
+        case .outcomeUnknown(let message): TonoLinkVoiceHost.shared.log("device-app install unknown name=\(request.manifest.name) digest8=\(request.digest.prefix(8)) message=\(message.prefix(200)) seconds=\(seconds)")
+        }
+        return outcome
+    }
+
+    private static func transferOnce(_ request: DeviceAppInstallRequest) async -> DeviceAppInstallOutcome {
         guard let id = await deviceID(request.deviceKey) else {
             return .failed(code: "device_not_found", message: "设备不可用")
         }
@@ -230,7 +244,8 @@ enum DeviceAppLiveWiring {
     /// The installer bound to the real Link entry as the user origin; it prunes the install's
     /// staging intents from the Link journal when the install ends (device-app.md §7).
     private static func installer(deviceID: UUID, installID: UUID?) -> DeviceAppInstaller {
-        DeviceAppInstaller.live(deviceID: deviceID, installID: installID ?? UUID())
+        DeviceAppInstaller.live(deviceID: deviceID, installID: installID ?? UUID(),
+                                diagnostic: { line in Task { @MainActor in TonoLinkVoiceHost.shared.log("device-app link \(line)") } })
     }
 }
 

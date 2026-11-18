@@ -50,7 +50,7 @@ final class BotApprovalOfferTests: XCTestCase {
 
     func testOneShotCardExplainsWhyThereIsNoStandingAnswer() {
         XCTAssertFalse(BotApprovalOffer.onceOnlyNote.isEmpty)
-        XCTAssertEqual(BotApprovalOffer.onceOnlyNote, "此类操作只能允许一次，下次会重新询问")
+        XCTAssertEqual(BotApprovalOffer.onceOnlyNote, "此类操作每次都会先问你")
     }
 
     // MARK: - A stale `.always` request degrades to once
