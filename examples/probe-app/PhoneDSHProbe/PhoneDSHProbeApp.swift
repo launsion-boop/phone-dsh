@@ -169,6 +169,9 @@ struct PhoneDSHProbeApp: App {
                         await XiaozhiFirmwareModel.shared.startRelayForDiagnostics()
                     }
                 }
+                .task {
+                    if let mac = ProcessInfo.processInfo.environment[XiaozhiE2EDiagnostics.environmentKey] { await XiaozhiE2EDiagnostics.run(mac: mac) }
+                }
                 #endif
         }
     }
