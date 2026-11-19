@@ -128,7 +128,7 @@ struct BotChatPage: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            transcript.modifier(XiaozhiChatProgressSlot(botID: model.context.botID))
+            transcript.modifier(XiaozhiChatProgressSlot(botID: model.context.botID)).modifier(BotSignInBannerSlot())
             activityBubbleBand
             composerDock
         }
