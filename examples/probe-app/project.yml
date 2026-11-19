@@ -244,6 +244,8 @@ targets:
       # The native Daily Brief presentation model is UI-free and lets the suite
       # exercise add → refresh → persist → offline reload against ProbeKit.
       - path: PhoneDSHProbe/DailyBriefModel.swift
+      # The Bot chat's Tono sign-in rule (pure; the banner view stays out of the suite).
+      - path: PhoneDSHProbe/Bot/BotSignInRequirement.swift
       # NativeConversationModels / NativeTranscriptProjector moved into
       # ProbeKit/Transcript, and the perf helpers into ProbeKit/Perf;
       # the test targets import ProbeKit instead.
