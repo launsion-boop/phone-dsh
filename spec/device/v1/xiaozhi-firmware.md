@@ -99,6 +99,13 @@ decision. Rules, first match wins:
 `200`, `Content-Type: application/octet-stream` and `Content-Length`. No staged image with that
 digest: `404`. Range requests are not supported (the whole image is returned).
 
+The listener writes the head and then the body in 32 KiB chunks. The bytes on the wire are exactly
+the single response above; chunking only lets the relay count, per MAC, the body bytes the local
+TCP stack has accepted (`XiaozhiDownloads`: `sending`, `complete` or `aborted`, newest download
+wins). That count is for the progress UI (§9) only: it never changes a response, a rewrite decision
+or a device record, no Bot tool returns it, and "complete" is not proof the board wrote the image —
+only the next check-in on the staged ELF (§2.4 `hold`) is.
+
 ## 3. Device record (P07)
 
 From each version check the relay records, in memory, per MAC:
@@ -205,7 +212,29 @@ Effect: `destructive`/`ask`, operation `device.xiaozhi.flash`.
 | Bot tools (SDK) | `Sources/PhoneDSHBot/Xiaozhi/`, `BotMCPRuntime` slot `setXiaozhiFirmwareTools(_:)`, `DeviceBotKey.xiaozhi(mac:)`, `DeviceBotText` | `XiaozhiFirmwareToolHost` (closures injected by the app) |
 | app (probe) | `FirmwareBuilder/`, `FirmwareBuilderPage.swift`, `XiaozhiFirmwarePage.swift`, `Bot/XiaozhiFirmwareWiring.swift`, `DeviceBotRegistry.swift` | build with overrides, source export, page, wiring |
 
+## 9. Progress UI (P09; probe app, DEBUG)
+
+Derived, never sent anywhere. Inputs: the staging time of the device's image (§6.4), the device
+record (§3), the latest download (§2.5) and the builder's compile counters.
+
+- **Build:** preparing → compiling `done/total` → linking, with the elapsed time; then
+  finished (image size, first 8 hex of the ELF SHA-256) or failed (the job error).
+- **Flash**, from the staging time: `waitingForReboot` (no check-in since staging) → `offered`
+  (a check-in got `offer`) → `downloading` (bytes/total) → `installing` (all bytes sent, no check-in
+  since) → `done` (a check-in after staging reports the staged ELF). `stalled`: no bytes for 20 s.
+  `failed`: the download aborted with no later `offer`, or a check-in after a complete download
+  reports another ELF.
+- **Where:** the 「小智固件」 page (build in 「固件源码与构建」, flash per device row), and a strip
+  directly above the activity band in the chat of a Bot bound to a `xiaozhi:` key (id
+  `bot.xiaozhi.progress`). The strip shows a running build first, else an active flash, else a build
+  finished in the last 2 minutes until its image is staged, else a flash done in the last 2 minutes or
+  failed in the last 10. It can be closed (`bot.xiaozhi.progress.close`) only when nothing is in
+  progress. Other Bots' pages are unchanged.
+
 ## Revisions (owning spec)
+
+- r3 (PC-20261119-xiaozhi-progress): §2.5 chunked send and download count; §9 progress UI. No wire,
+  tool, schema or golden change.
 
 - r2 (this commit): §6 lists the four tools in the all-callers `tools/list` when the host is
   installed, hidden per caller, matching how the Worker registers and gates `mcp__phone__*` tools

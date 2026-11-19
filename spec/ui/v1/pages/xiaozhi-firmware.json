@@ -7,14 +7,14 @@
   "sectionNote": null,
   "title": {
     "text": "小智固件",
-    "provenance": "XiaozhiFirmwarePage.swift:413",
+    "provenance": "XiaozhiFirmwarePage.swift:581",
     "anchor": ".navigationTitle(NativeText(\"小智固件\", \"Xiaozhi firmware\"))"
   },
   "source": {
     "file": "XiaozhiFirmwarePage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/XiaozhiFirmwarePage.swift",
-    "lines": 495,
-    "structLine": 398,
+    "lines": 965,
+    "structLine": 566,
     "renderedFrom": [
       "body",
       "relaySection",
@@ -31,7 +31,7 @@
   },
   "sections": [
     {
-      "id": "section-403",
+      "id": "section-571",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -51,22 +51,22 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "XiaozhiFirmwarePage.swift:404",
+          "provenance": "XiaozhiFirmwarePage.swift:572",
           "anchor": "Text(NativeText(\"把使用小智固件（78/xiaozhi-esp32）的板子的 OTA 地址指向这台 iPhone。板子检查更新时先经过手机，手机",
           "extraction": "syntax"
         }
       ],
-      "provenance": "XiaozhiFirmwarePage.swift:403",
+      "provenance": "XiaozhiFirmwarePage.swift:571",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row",
         "label": "把使用小智固件（78/xiaozhi-esp32）的板子的 OTA 地址指向这台 iPhone。板子检查更新时先经过手机，手机转发给官方服务器；之后 Bot 可以导出并修改源码、在这台 iPhone 上编译，经你批准后通过 Wi-Fi 刷入。仅 DEBUG 构建。",
-        "provenance": "XiaozhiFirmwarePage.swift:404"
+        "provenance": "XiaozhiFirmwarePage.swift:572"
       }
     },
     {
-      "id": "section-411",
+      "id": "section-579",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -76,7 +76,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-411",
+          "id": "text-579",
           "label": null,
           "labelExpr": "model.trustNote",
           "kind": "text",
@@ -86,18 +86,18 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "XiaozhiFirmwarePage.swift:411",
+          "provenance": "XiaozhiFirmwarePage.swift:579",
           "anchor": "if !model.trustNote.isEmpty { Section { Text(model.trustNote).font(.callout) } }",
           "extraction": "manual"
         }
       ],
-      "provenance": "XiaozhiFirmwarePage.swift:411",
+      "provenance": "XiaozhiFirmwarePage.swift:579",
       "anchor": "if !model.trustNote.isEmpty { Section { Text(model.trustNote).font(.callout) } }",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row-expression",
         "labelExpr": "model.trustNote",
-        "provenance": "XiaozhiFirmwarePage.swift:411"
+        "provenance": "XiaozhiFirmwarePage.swift:579"
       }
     },
     {
@@ -121,7 +121,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "XiaozhiFirmwarePage.swift:418",
+          "provenance": "XiaozhiFirmwarePage.swift:586",
           "anchor": "Toggle(NativeText(\"开启 OTA 中继（端口 8781）\", \"OTA relay on (port 8781)\"),",
           "extraction": "syntax"
         },
@@ -136,12 +136,12 @@
           "destination": null,
           "writes": false,
           "condition": "let url = model.relay.otaURL",
-          "provenance": "XiaozhiFirmwarePage.swift:422",
+          "provenance": "XiaozhiFirmwarePage.swift:590",
           "anchor": "Text(NativeText(\"在板子上填写的 OTA 地址\", \"OTA URL to type into the board\")).font(.capti",
           "extraction": "syntax"
         },
         {
-          "id": "text-423",
+          "id": "text-591",
           "label": null,
           "labelExpr": "url",
           "kind": "text",
@@ -151,7 +151,7 @@
           "destination": null,
           "writes": false,
           "condition": "let url = model.relay.otaURL",
-          "provenance": "XiaozhiFirmwarePage.swift:423",
+          "provenance": "XiaozhiFirmwarePage.swift:591",
           "anchor": "Text(url).font(.system(.callout, design: .monospaced)).textSelection(.enabled)",
           "extraction": "manual"
         },
@@ -166,12 +166,12 @@
           "destination": null,
           "writes": false,
           "condition": "!(let url = model.relay.otaURL)",
-          "provenance": "XiaozhiFirmwarePage.swift:426",
+          "provenance": "XiaozhiFirmwarePage.swift:594",
           "anchor": "Text(NativeText(\"没有 Wi-Fi IPv4 地址，连上 Wi-Fi 后再来。\", \"No Wi-Fi IPv4 address; join a",
           "extraction": "syntax"
         }
       ],
-      "provenance": "XiaozhiFirmwarePage.swift:417",
+      "provenance": "XiaozhiFirmwarePage.swift:585",
       "anchor": "Section(NativeText(\"OTA 中继\", \"OTA relay\")) {",
       "extraction": "syntax"
     },
@@ -196,12 +196,12 @@
           "destination": null,
           "writes": false,
           "condition": "devices.isEmpty",
-          "provenance": "XiaozhiFirmwarePage.swift:436",
+          "provenance": "XiaozhiFirmwarePage.swift:604",
           "anchor": "Text(NativeText(\"还没有设备来检查更新。\", \"No device has checked in yet.\")).font(.footnote)",
           "extraction": "syntax"
         },
         {
-          "id": "dynamic-438",
+          "id": "dynamic-606",
           "label": null,
           "labelExpr": "deviceRow(device)",
           "kind": "dynamic",
@@ -211,7 +211,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "XiaozhiFirmwarePage.swift:438",
+          "provenance": "XiaozhiFirmwarePage.swift:606",
           "anchor": "ForEach(devices) { device in deviceRow(device) }",
           "extraction": "manual",
           "templateLabels": [
@@ -225,7 +225,7 @@
           "collection": "devices"
         }
       ],
-      "provenance": "XiaozhiFirmwarePage.swift:433",
+      "provenance": "XiaozhiFirmwarePage.swift:601",
       "anchor": "Section(NativeText(\"已检查更新的设备\", \"Devices that checked in\")) {",
       "extraction": "syntax"
     },
@@ -240,6 +240,22 @@
       "collection": null,
       "rows": [
         {
+          "id": "custom-656",
+          "label": null,
+          "labelExpr": "TimelineView",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let progress = model.buildProgress",
+          "provenance": "XiaozhiFirmwarePage.swift:656",
+          "anchor": "TimelineView(.periodic(from: .now, by: 1)) { context in",
+          "extraction": "manual",
+          "template": "TimelineView"
+        },
+        {
           "id": "固件构建页",
           "label": "固件构建页",
           "labelExpr": null,
@@ -250,12 +266,12 @@
           "destination": "FirmwareBuilderPage",
           "writes": false,
           "condition": null,
-          "provenance": "XiaozhiFirmwarePage.swift:491",
+          "provenance": "XiaozhiFirmwarePage.swift:667",
           "anchor": "NavigationLink(NativeText(\"固件构建页\", \"Firmware builder page\")) { FirmwareBuilderPa",
           "extraction": "syntax"
         }
       ],
-      "provenance": "XiaozhiFirmwarePage.swift:476",
+      "provenance": "XiaozhiFirmwarePage.swift:647",
       "anchor": "Section(NativeText(\"固件源码与构建\", \"Sources and build\")) {",
       "extraction": "syntax"
     }
@@ -271,7 +287,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "XiaozhiFirmwarePage.swift:418",
+      "provenance": "XiaozhiFirmwarePage.swift:586",
       "anchor": "Toggle(NativeText(\"开启 OTA 中继（端口 8781）\", \"OTA relay on (port 8781)\"),",
       "extraction": "syntax"
     },
@@ -285,7 +301,7 @@
       "writes": false,
       "destination": "FirmwareBuilderPage",
       "condition": null,
-      "provenance": "XiaozhiFirmwarePage.swift:491",
+      "provenance": "XiaozhiFirmwarePage.swift:667",
       "anchor": "NavigationLink(NativeText(\"固件构建页\", \"Firmware builder page\")) { FirmwareBuilderPa",
       "extraction": "syntax"
     },
@@ -299,7 +315,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "XiaozhiFirmwarePage.swift:456",
+      "provenance": "XiaozhiFirmwarePage.swift:627",
       "anchor": "Button(NativeText(\"信任并创建 Bot\", \"Trust and create Bot\")) { Task { await model.tru",
       "extraction": "syntax"
     }
@@ -313,21 +329,21 @@
         {
           "renders": "没有 Wi-Fi IPv4 地址，连上 Wi-Fi 后再来。",
           "when": null,
-          "provenance": "XiaozhiFirmwarePage.swift:426",
+          "provenance": "XiaozhiFirmwarePage.swift:594",
           "anchor": "Text(NativeText(\"没有 Wi-Fi IPv4 地址，连上 Wi-Fi 后再来。\", \"No Wi-Fi IPv4 address; join a"
         },
         {
           "renders": "还没有设备来检查更新。",
           "when": "devices.isEmpty",
-          "provenance": "XiaozhiFirmwarePage.swift:436",
+          "provenance": "XiaozhiFirmwarePage.swift:604",
           "anchor": "Text(NativeText(\"还没有设备来检查更新。\", \"No device has checked in yet.\")).font(.footnote)"
         }
       ],
       "data": [
         {
-          "renders": "untitled section at 403 | untitled section at 411 | OTA 中继 | 已检查更新的设备 | 固件源码与构建",
+          "renders": "untitled section at 571 | untitled section at 579 | OTA 中继 | 已检查更新的设备 | 固件源码与构建",
           "when": null,
-          "provenance": "XiaozhiFirmwarePage.swift:398",
+          "provenance": "XiaozhiFirmwarePage.swift:566",
           "anchor": "struct XiaozhiFirmwarePage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -337,19 +353,19 @@
         {
           "renders": "—",
           "when": null,
-          "provenance": "XiaozhiFirmwarePage.swift:446",
+          "provenance": "XiaozhiFirmwarePage.swift:614",
           "anchor": "LabeledContent(NativeText(\"版本\", \"Version\"), value: device.version ?? \"—\")"
         },
         {
           "renders": "—",
           "when": null,
-          "provenance": "XiaozhiFirmwarePage.swift:447",
+          "provenance": "XiaozhiFirmwarePage.swift:615",
           "anchor": "LabeledContent(\"ELF SHA-256\", value: device.elfSha256.map { String($0.prefix(12)"
         },
         {
           "renders": "—",
           "when": null,
-          "provenance": "XiaozhiFirmwarePage.swift:469",
+          "provenance": "XiaozhiFirmwarePage.swift:640",
           "anchor": "default: decision = \"—\""
         }
       ],
@@ -376,7 +392,7 @@
     "regionsExtracted": 0,
     "sectionsExtracted": 5,
     "warnings": [
-      "unsupported control flow at XiaozhiFirmwarePage.swift:477: switch model.editableSources() { case .success(let value): L"
+      "unsupported control flow at XiaozhiFirmwarePage.swift:648: switch model.editableSources() { case .success(let value): L"
     ]
   }
 }

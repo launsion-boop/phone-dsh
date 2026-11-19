@@ -50,6 +50,51 @@ public final class XiaozhiStagedImages: @unchecked Sendable {
     }
 }
 
+/// One firmware download the relay served (§2.5), for the progress UI only: it never changes a
+/// response, a rewrite decision or a device record, and nothing reads it back into the protocol.
+public struct XiaozhiDownload: Equatable, Sendable {
+    public enum State: String, Equatable, Sendable { case sending, complete, aborted }
+    /// Image SHA-256 that was requested.
+    public var sha256: String
+    /// The MAC the image is staged for.
+    public var mac: String
+    /// Body bytes acknowledged by the local TCP stack so far (not proof the board wrote them).
+    public var sent: Int
+    public var total: Int
+    public var startedAt: Date
+    public var updatedAt: Date
+    public var state: State
+}
+
+/// Latest download per MAC. Lost when the app quits.
+public final class XiaozhiDownloads: @unchecked Sendable {
+    private let lock = NSLock()
+    private var byMAC: [String: XiaozhiDownload] = [:]
+
+    public init() {}
+
+    public func begin(sha256: String, mac: String, total: Int, at date: Date) {
+        lock.lock(); defer { lock.unlock() }
+        byMAC[mac] = XiaozhiDownload(sha256: sha256, mac: mac, sent: 0, total: total,
+                                     startedAt: date, updatedAt: date, state: total == 0 ? .complete : .sending)
+    }
+
+    /// Records progress of the download started at `startedAt`; a newer download for the MAC wins.
+    public func update(mac: String, startedAt: Date, sent: Int, state: XiaozhiDownload.State, at date: Date) {
+        lock.lock(); defer { lock.unlock() }
+        guard var download = byMAC[mac], download.startedAt == startedAt, download.state == .sending else { return }
+        download.sent = min(max(download.sent, sent), download.total)
+        download.state = state
+        download.updatedAt = date
+        byMAC[mac] = download
+    }
+
+    public func latest(forMAC mac: String) -> XiaozhiDownload? {
+        lock.lock(); defer { lock.unlock() }
+        return byMAC[mac.lowercased()]
+    }
+}
+
 public enum XiaozhiRelayDecision: String, Equatable, Sendable {
     case passthrough, hold, offer
     case upstreamFailed = "upstream_failed"

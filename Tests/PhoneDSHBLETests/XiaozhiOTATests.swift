@@ -232,5 +232,34 @@ final class XiaozhiOTATests: XCTestCase {
         XCTAssertTrue(text.contains("Connection: close\r\n"))
         XCTAssertTrue(text.contains("Cache-Control: no-store\r\n"))
     }
+
+    /// The chunked firmware send writes the same bytes as `encode` (§2.5 is unchanged).
+    func testFirmwareHeadPlusBodyIsTheEncodedResponse() {
+        let response = XiaozhiHTTPResponse(status: 200, contentType: "application/octet-stream",
+                                           body: Data((0..<70_000).map { UInt8($0 & 0xff) }))
+        XCTAssertEqual(XiaozhiHTTP.encodeHead(response) + response.body, XiaozhiHTTP.encode(response))
+        XCTAssertTrue(String(decoding: XiaozhiHTTP.encodeHead(response), as: UTF8.self).hasSuffix("\r\n\r\n"))
+    }
+
+    func testDownloadProgressKeepsTheNewestTransferAndNeverGoesBack() {
+        let downloads = XiaozhiDownloads()
+        let mac = "98:c3:77:f4:ff:38", t0 = Date(timeIntervalSince1970: 100), t1 = Date(timeIntervalSince1970: 200)
+        downloads.begin(sha256: "a", mac: mac, total: 100, at: t0)
+        downloads.update(mac: mac, startedAt: t0, sent: 40, state: .sending, at: t0)
+        downloads.update(mac: mac, startedAt: t0, sent: 10, state: .sending, at: t0)
+        XCTAssertEqual(downloads.latest(forMAC: mac)?.sent, 40)
+        downloads.update(mac: mac, startedAt: t0, sent: 500, state: .complete, at: t0)
+        XCTAssertEqual(downloads.latest(forMAC: mac)?.sent, 100)
+        XCTAssertEqual(downloads.latest(forMAC: mac)?.state, .complete)
+        // A finished transfer is final; a late chunk callback cannot reopen it.
+        downloads.update(mac: mac, startedAt: t0, sent: 0, state: .aborted, at: t0)
+        XCTAssertEqual(downloads.latest(forMAC: mac)?.state, .complete)
+        // A retry replaces it, and callbacks of the old connection are ignored.
+        downloads.begin(sha256: "a", mac: mac, total: 100, at: t1)
+        downloads.update(mac: mac, startedAt: t0, sent: 90, state: .sending, at: t1)
+        XCTAssertEqual(downloads.latest(forMAC: mac)?.sent, 0)
+        downloads.update(mac: mac, startedAt: t1, sent: 30, state: .aborted, at: t1)
+        XCTAssertEqual(downloads.latest(forMAC: mac.uppercased())?.state, .aborted)
+    }
 }
 #endif

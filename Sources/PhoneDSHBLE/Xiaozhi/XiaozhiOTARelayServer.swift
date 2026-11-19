@@ -17,6 +17,7 @@ import Network
 
     public var records: XiaozhiDeviceRecords { relay.records }
     public var images: XiaozhiStagedImages { relay.images }
+    public var downloads: XiaozhiDownloads { relay.downloads }
     public var isRunning: Bool { running }
 
     public init(relay: XiaozhiOTARelay, port: UInt16 = XiaozhiOTARelay.port) {
@@ -97,7 +98,13 @@ import Network
                     if buffer.count - start >= length {
                         request.body = Data(buffer[(buffer.startIndex + start)..<(buffer.startIndex + start + length)])
                         let response = await self.relay.handle(peerHost: peer, request)
-                        self.reply(connection, response)
+                        if response.status == 200, request.method == "GET",
+                           let sha = XiaozhiOTARelay.firmwareDigest(path: request.path),
+                           let image = self.relay.images.image(sha256: sha) {
+                            self.sendFirmware(connection, response, mac: image.mac, sha256: sha)
+                        } else {
+                            self.reply(connection, response)
+                        }
                     } else if error != nil || complete {
                         connection.cancel()
                     } else {
@@ -106,6 +113,48 @@ import Network
                 }
             }
         }
+    }
+
+    /// Body chunk size of a firmware download. The bytes on the wire are exactly `XiaozhiHTTP.encode`;
+    /// sending in chunks only lets the relay count what the TCP stack has taken (`XiaozhiDownloads`).
+    static let firmwareChunk = 32 * 1024
+
+    private func sendFirmware(_ connection: NWConnection, _ response: XiaozhiHTTPResponse, mac: String, sha256: String) {
+        let started = relay.now()
+        let downloads = relay.downloads
+        downloads.begin(sha256: sha256, mac: mac, total: response.body.count, at: started)
+        let body = response.body
+        connection.send(content: XiaozhiHTTP.encodeHead(response), completion: .contentProcessed { [weak self] error in
+            Task { @MainActor in
+                guard let self else { connection.cancel(); return }
+                if error != nil {
+                    downloads.update(mac: mac, startedAt: started, sent: 0, state: .aborted, at: self.relay.now())
+                    connection.cancel(); return
+                }
+                self.sendChunk(connection, body: body, offset: 0, mac: mac, started: started)
+            }
+        })
+    }
+
+    private func sendChunk(_ connection: NWConnection, body: Data, offset: Int, mac: String, started: Date) {
+        let downloads = relay.downloads
+        guard offset < body.count else {
+            downloads.update(mac: mac, startedAt: started, sent: body.count, state: .complete, at: relay.now())
+            connection.cancel(); return
+        }
+        let end = min(body.count, offset + Self.firmwareChunk)
+        let chunk = body.subdata(in: (body.startIndex + offset)..<(body.startIndex + end))
+        connection.send(content: chunk, completion: .contentProcessed { [weak self] error in
+            Task { @MainActor in
+                guard let self else { connection.cancel(); return }
+                if error != nil {
+                    downloads.update(mac: mac, startedAt: started, sent: offset, state: .aborted, at: self.relay.now())
+                    connection.cancel(); return
+                }
+                downloads.update(mac: mac, startedAt: started, sent: end, state: .sending, at: self.relay.now())
+                self.sendChunk(connection, body: body, offset: end, mac: mac, started: started)
+            }
+        })
     }
 
     private func reply(_ connection: NWConnection, _ response: XiaozhiHTTPResponse) {

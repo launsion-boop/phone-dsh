@@ -122,6 +122,8 @@ struct FirmwareBuilderError: LocalizedError {
     private(set) var imageSHA256 = ""
     private(set) var matchesReference: Bool?
     private(set) var seconds = 0.0
+    /// When the running (or last) build started; the Xiaozhi progress strip shows the elapsed time.
+    private(set) var startedAt: Date?
     /// The error of the last failed `build`, with its `code` when the page reported one.
     private(set) var failure: FirmwareBuilderError?
 
@@ -181,6 +183,7 @@ struct FirmwareBuilderError: LocalizedError {
         running = true; stage = "start"; done = 0; total = 0; log = []; result = ""; report = [:]; image = nil; imageSHA256 = ""; matchesReference = nil; failure = nil
         UIApplication.shared.isIdleTimerDisabled = true
         let started = Date()
+        startedAt = started
         defer { running = false; seconds = Date().timeIntervalSince(started); UIApplication.shared.isIdleTimerDisabled = false; tearDown() }
         do {
             let pack = try Self.pack().get()
