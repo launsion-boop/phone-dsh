@@ -79,6 +79,112 @@ struct XiaozhiStatusSnapshot: Equatable {
     var otaURL: String?
 }
 
+/// One firmware download the relay served (progress UI only).
+struct XiaozhiDownloadView: Equatable {
+    enum State: Equatable { case sending, complete, aborted }
+    var sha256: String
+    var sent: Int
+    var total: Int
+    var startedAt: Date
+    var updatedAt: Date
+    var state: State
+}
+
+/// The on-phone build as the progress UI shows it.
+struct XiaozhiBuildProgress: Equatable {
+    enum Phase: Equatable { case preparing, compiling(done: Int, total: Int), linking }
+    var jobID: String
+    var phase: Phase
+    var startedAt: Date?
+
+    /// 0…1; compile is 90 % of the bar, link the rest.
+    var fraction: Double? {
+        switch phase {
+        case .preparing: return nil
+        case .compiling(let done, let total): return total > 0 ? 0.9 * Double(done) / Double(total) : nil
+        case .linking: return 0.95
+        }
+    }
+}
+
+/// Where a flash stands for one device, from what the relay saw after the image was staged
+/// (spec §2.4: offer → download → reboot → hold). Derived only; nothing here changes a response.
+enum XiaozhiFlashPhase: Equatable {
+    /// Staged; the board has not checked for updates since. It checks at boot.
+    case waitingForReboot
+    /// The relay offered the image; the board has not started the download yet.
+    case offered
+    case downloading(sent: Int, total: Int)
+    /// The download stalled: no bytes taken for `stallAfter`.
+    case stalled(sent: Int, total: Int)
+    /// All bytes sent; the board is writing, verifying and rebooting.
+    case installing
+    /// The board checked in running the staged ELF.
+    case done
+    /// The download broke off, or the board came back on another ELF after a full download.
+    case failed(String)
+
+    var isActive: Bool {
+        switch self {
+        case .done, .failed: return false
+        default: return true
+        }
+    }
+}
+
+struct XiaozhiFlashProgress: Equatable {
+    var mac: String
+    var elfSha256: String
+    var stagedAt: Date
+    var phase: XiaozhiFlashPhase
+    /// When the phase was last confirmed (staging, the last check-in or the last bytes sent).
+    var updatedAt: Date
+
+    static let stallAfter: TimeInterval = 20
+
+    /// Pure: the phase from the staging time, the device record and the latest download.
+    static func resolve(mac: String, staged: XiaozhiStagedView, stagedAt: Date, device: XiaozhiDeviceView?,
+                        download: XiaozhiDownloadView?, now: Date) -> XiaozhiFlashProgress {
+        func make(_ phase: XiaozhiFlashPhase, _ at: Date) -> XiaozhiFlashProgress {
+            XiaozhiFlashProgress(mac: mac, elfSha256: staged.elfSha256, stagedAt: stagedAt, phase: phase, updatedAt: at)
+        }
+        let seen = device?.lastSeen.flatMap { $0 >= stagedAt ? $0 : nil }
+        let transfer = download.flatMap { $0.sha256 == staged.sha256 && $0.startedAt >= stagedAt ? $0 : nil }
+        // A check-in on the staged ELF after staging is the only proof the flash took.
+        if let seen, device?.elfSha256 == staged.elfSha256 { return make(.done, seen) }
+        if let transfer {
+            switch transfer.state {
+            case .aborted:
+                if let seen, seen > transfer.updatedAt, device?.lastDecision == "offer" {
+                    return make(.offered, seen) // the board asks again and will retry
+                }
+                return make(.failed(NativeText("下载中断（\(Self.percent(transfer.sent, transfer.total))），重启小智会重试",
+                                               "Download broke off at \(Self.percent(transfer.sent, transfer.total)); restart the board to retry")),
+                            transfer.updatedAt)
+            case .sending:
+                if now.timeIntervalSince(transfer.updatedAt) > stallAfter {
+                    return make(.stalled(sent: transfer.sent, total: transfer.total), transfer.updatedAt)
+                }
+                return make(.downloading(sent: transfer.sent, total: transfer.total), transfer.updatedAt)
+            case .complete:
+                if let seen, seen > transfer.updatedAt {
+                    // Back after a full download but not on the staged ELF: the board rejected the image.
+                    return make(.failed(NativeText("小智下载完后没有换上新固件（仍在跑 \(device?.elfSha256.map { String($0.prefix(8)) } ?? "旧固件")）",
+                                                   "The board downloaded the image but did not switch to it")), seen)
+                }
+                return make(.installing, transfer.updatedAt)
+            }
+        }
+        if let seen, device?.lastDecision == "offer" { return make(.offered, seen) }
+        return make(.waitingForReboot, stagedAt)
+    }
+
+    static func percent(_ sent: Int, _ total: Int) -> String {
+        guard total > 0 else { return "0%" }
+        return "\(Int((Double(sent) / Double(total) * 100).rounded(.down)))%"
+    }
+}
+
 /// The SDK relay as the app model sees it. INTEGRATION: `XiaozhiFirmwareWiring` supplies an adapter over
 /// `XiaozhiOTARelayServer` + `XiaozhiStagedImages` (Sources/PhoneDSHBLE/Xiaozhi); until then
 /// `XiaozhiRelayUnavailable` keeps the page and the build/export logic usable on their own.
@@ -91,6 +197,8 @@ struct XiaozhiStatusSnapshot: Equatable {
     func staged(mac: String) -> XiaozhiStagedView?
     /// Stages `image` for `mac`, replacing any earlier staged image for it (spec §6.4).
     func stage(mac: String, image: Data, elfSha256: String) throws -> XiaozhiStagedView
+    /// The latest firmware download the relay served for `mac` (progress UI only).
+    func download(mac: String) -> XiaozhiDownloadView?
 }
 
 @MainActor final class XiaozhiRelayUnavailable: XiaozhiRelayControlling {
@@ -102,6 +210,7 @@ struct XiaozhiStatusSnapshot: Equatable {
     func stage(mac: String, image: Data, elfSha256: String) throws -> XiaozhiStagedView {
         throw XiaozhiToolError(code: "relay_off", message: "the OTA relay is not installed in this build")
     }
+    func download(mac: String) -> XiaozhiDownloadView? { nil }
 }
 
 // MARK: - Model
@@ -117,9 +226,17 @@ struct XiaozhiStatusSnapshot: Equatable {
     var relay: any XiaozhiRelayControlling = XiaozhiRelayUnavailable()
     private(set) var jobs: [String: XiaozhiBuildJob] = [:]
     private(set) var latestJobID: String?
+    /// When each job finished, so the chat strip can fade a finished build out.
+    private(set) var finishedAt: [String: Date] = [:]
     /// Last message of the trust action, shown on the page.
     private(set) var trustNote = ""
     @ObservationIgnored private var builtImages: [String: Data] = [:]
+    /// When each MAC's current image was staged (spec §6.4), the start of its flash timeline.
+    private(set) var stagedAt: [String: Date] = [:]
+    /// Flash timelines the user closed in the chat strip, by MAC → the staging time they closed.
+    private(set) var dismissedFlash: [String: Date] = [:]
+    /// The build job the user closed in the chat strip.
+    private(set) var dismissedJobID: String?
     @ObservationIgnored private var buildTask: Task<Void, Never>?
     @ObservationIgnored private let builder = FirmwareBuilderModel.shared
 
@@ -308,6 +425,7 @@ struct XiaozhiStatusSnapshot: Equatable {
                                          message: failure?.message ?? builder.result)
         }
         jobs[id] = job
+        finishedAt[id] = Date()
     }
 
     /// The directory's files as overrides: a file whose relative path is editable and whose bytes differ from
@@ -376,9 +494,59 @@ struct XiaozhiStatusSnapshot: Equatable {
         guard let image = builtImages[elfSha256] else {
             return .failure(XiaozhiToolError(code: "no_build", message: "no finished build in this app session has that elfSha256"))
         }
-        do { return .success(try relay.stage(mac: mac, image: image, elfSha256: elfSha256)) }
+        do {
+            let staged = try relay.stage(mac: mac, image: image, elfSha256: elfSha256)
+            stagedAt[mac] = Date()
+            return .success(staged)
+        }
         catch let error as XiaozhiToolError { return .failure(error) }
         catch { return .failure(XiaozhiToolError(code: "relay_off", message: error.localizedDescription)) }
+    }
+
+    // MARK: Progress (UI only)
+
+    /// The running build with the builder's live compile counters; nil when no Bot build runs.
+    var buildProgress: XiaozhiBuildProgress? {
+        guard let job = runningJob else { return nil }
+        let phase: XiaozhiBuildProgress.Phase
+        switch builder.stage {
+        case "compile" where builder.total > 0: phase = .compiling(done: builder.done, total: builder.total)
+        case "link": phase = .linking
+        default: phase = .preparing
+        }
+        return XiaozhiBuildProgress(jobID: job.id, phase: phase, startedAt: builder.startedAt)
+    }
+
+    /// The flash timeline of `mac` since its image was staged in this app session.
+    func flashProgress(mac: String, now: Date = Date()) -> XiaozhiFlashProgress? {
+        guard let staged = relay.staged(mac: mac), let at = stagedAt[mac] else { return nil }
+        return XiaozhiFlashProgress.resolve(mac: mac, staged: staged, stagedAt: at,
+                                            device: relay.devices.first { $0.mac == mac },
+                                            download: relay.download(mac: mac), now: now)
+    }
+
+    /// The latest job if the chat strip should still show it: running, or finished within 2 minutes.
+    func stripJob(now: Date = Date()) -> XiaozhiBuildJob? {
+        guard let job = job(id: nil), job.id != dismissedJobID else { return nil }
+        if job.state == .running { return job }
+        guard let finished = finishedAt[job.id], now.timeIntervalSince(finished) < 120 else { return nil }
+        return job
+    }
+
+    /// The flash timeline if the chat strip should still show it: active, done within 2 minutes or
+    /// failed within 10 minutes, and not closed by the user.
+    func stripFlash(mac: String, now: Date = Date()) -> XiaozhiFlashProgress? {
+        guard let progress = flashProgress(mac: mac, now: now), dismissedFlash[mac] != progress.stagedAt else { return nil }
+        switch progress.phase {
+        case .done: return now.timeIntervalSince(progress.updatedAt) < 120 ? progress : nil
+        case .failed: return now.timeIntervalSince(progress.updatedAt) < 600 ? progress : nil
+        default: return progress
+        }
+    }
+
+    func dismissStrip(mac: String?) {
+        if let job = job(id: nil), job.state != .running { dismissedJobID = job.id }
+        if let mac, let at = stagedAt[mac], flashProgress(mac: mac)?.phase.isActive == false { dismissedFlash[mac] = at }
     }
 
     // MARK: Device Bot trigger (spec §4)
@@ -406,7 +574,7 @@ struct XiaozhiFirmwarePage: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             relaySection
-            TimelineView(.periodic(from: .now, by: 2)) { _ in devicesSection }
+            TimelineView(.periodic(from: .now, by: 1)) { _ in devicesSection }
             packSection
             if !model.trustNote.isEmpty { Section { Text(model.trustNote).font(.callout) } }
         }
@@ -446,6 +614,9 @@ struct XiaozhiFirmwarePage: View {
             LabeledContent(NativeText("版本", "Version"), value: device.version ?? "—")
             LabeledContent("ELF SHA-256", value: device.elfSha256.map { String($0.prefix(12)) + "…" } ?? "—")
             LabeledContent(NativeText("最近一次", "Last check"), value: Self.describe(device))
+            if let progress = model.flashProgress(mac: device.mac) {
+                XiaozhiProgressContent.flash(progress, now: Date())
+            }
             if let staged = model.relay.staged(mac: device.mac) {
                 LabeledContent(NativeText("已暂存镜像", "Staged image"), value: "ELF " + String(staged.elfSha256.prefix(12)) + "…")
                 Text(staged.url).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
@@ -481,6 +652,11 @@ struct XiaozhiFirmwarePage: View {
             case .failure(let error):
                 Text(error.message).font(.footnote).foregroundStyle(.secondary)
             }
+            if let progress = model.buildProgress {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    XiaozhiProgressContent.build(progress, now: context.date)
+                }
+            }
             if let job = model.latestJobID.flatMap({ model.jobs[$0] }) {
                 LabeledContent(NativeText("最近的构建", "Latest build"), value: job.id)
                 LabeledContent(NativeText("状态", "State"), value: job.state.rawValue)
@@ -490,6 +666,230 @@ struct XiaozhiFirmwarePage: View {
             }
             NavigationLink(NativeText("固件构建页", "Firmware builder page")) { FirmwareBuilderPage() }
         }
+    }
+}
+
+// MARK: - Progress views (UI only; the chat strip and the page share them)
+
+enum XiaozhiProgressText {
+    static func elapsed(since start: Date?, now: Date) -> String? {
+        guard let start else { return nil }
+        let seconds = max(0, Int(now.timeIntervalSince(start)))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    static func bytes(_ count: Int) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .file)
+    }
+}
+
+/// One progress row: icon, title, trailing figure, an optional bar and a hint line.
+struct XiaozhiProgressContent: View {
+    var icon: String
+    var tint: Color
+    var title: String
+    var trailing: String?
+    /// nil: no bar; .some(nil): indeterminate bar.
+    var bar: Double??
+    var hint: String?
+    var steps: (current: Int, failed: Bool)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).foregroundStyle(tint).font(.system(size: 15, weight: .semibold))
+                Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Spacer(minLength: 4)
+                if let trailing {
+                    Text(trailing).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }
+            if let bar {
+                if let value = bar {
+                    ProgressView(value: min(1, max(0, value))).tint(tint)
+                } else {
+                    ProgressView().progressViewStyle(.linear).tint(tint)
+                }
+            }
+            if let steps { XiaozhiFlashSteps(current: steps.current, failed: steps.failed) }
+            if let hint {
+                Text(hint).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// 放出 → 下载 → 安装 → 完成, the four checkpoints the relay can see.
+struct XiaozhiFlashSteps: View {
+    static let labels = [NativeText("放出", "Staged"), NativeText("下载", "Download"),
+                         NativeText("安装", "Install"), NativeText("完成", "Done")]
+    var current: Int
+    var failed: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(Self.labels.enumerated()), id: \.offset) { index, label in
+                let reached = index < current || (index == current && !failed && current == Self.labels.count - 1)
+                let here = index == current
+                HStack(spacing: 3) {
+                    Image(systemName: reached ? "checkmark.circle.fill"
+                          : (here ? (failed ? "xmark.circle.fill" : "circle.dotted") : "circle"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(reached ? Color.green : (here ? (failed ? Color.red : Color.accentColor) : Color.secondary.opacity(0.5)))
+                    Text(label).font(.caption2)
+                        .foregroundStyle(here || reached ? Color.primary : Color.secondary)
+                }
+                if index < Self.labels.count - 1 {
+                    Rectangle().fill(index < current ? Color.green.opacity(0.6) : Color.secondary.opacity(0.25))
+                        .frame(height: 1).frame(maxWidth: .infinity)
+                }
+            }
+        }
+    }
+}
+
+extension XiaozhiProgressContent {
+    static func build(_ progress: XiaozhiBuildProgress, now: Date) -> XiaozhiProgressContent {
+        let title: String
+        switch progress.phase {
+        case .preparing: title = NativeText("准备编译固件…", "Preparing the build…")
+        case .compiling(let done, let total): title = NativeText("编译固件 \(done)/\(total)", "Compiling \(done)/\(total)")
+        case .linking: title = NativeText("链接固件…", "Linking…")
+        }
+        return XiaozhiProgressContent(icon: "hammer.fill", tint: .accentColor, title: title,
+                                      trailing: XiaozhiProgressText.elapsed(since: progress.startedAt, now: now),
+                                      bar: .some(progress.fraction),
+                                      hint: NativeText("在这台 iPhone 上编译，通常几分钟；请保持应用在前台。",
+                                                       "Building on this iPhone, usually a few minutes; keep the app in the foreground."))
+    }
+
+    static func finished(_ job: XiaozhiBuildJob, seconds: Double?) -> XiaozhiProgressContent {
+        let time = seconds.map { String(format: "%d:%02d", Int($0) / 60, Int($0) % 60) }
+        if job.state == .failed {
+            return XiaozhiProgressContent(icon: "exclamationmark.triangle.fill", tint: .red,
+                                          title: NativeText("编译失败", "Build failed"), trailing: time, bar: nil,
+                                          hint: job.error?.message)
+        }
+        return XiaozhiProgressContent(icon: "checkmark.seal.fill", tint: .green,
+                                      title: NativeText("编译完成", "Build finished"), trailing: time, bar: nil,
+                                      hint: job.image.map { NativeText("固件 \(XiaozhiProgressText.bytes($0.bytes)) · ELF \($0.elfSha256.prefix(8))，确认后即可刷入",
+                                                                       "Image \(XiaozhiProgressText.bytes($0.bytes)) · ELF \($0.elfSha256.prefix(8)); ready to flash after you approve") })
+    }
+
+    static func flash(_ progress: XiaozhiFlashProgress, now: Date) -> XiaozhiProgressContent {
+        let elapsed = XiaozhiProgressText.elapsed(since: progress.stagedAt, now: now)
+        switch progress.phase {
+        case .waitingForReboot:
+            return XiaozhiProgressContent(icon: "arrow.clockwise.circle.fill", tint: .orange,
+                                          title: NativeText("固件已放出，等小智重启", "Image staged; restart the board"),
+                                          trailing: elapsed, bar: nil,
+                                          hint: NativeText("按复位键或断电重开小智，它开机检查更新时会自动下载。",
+                                                           "Press reset or power-cycle the board; it downloads the image when it checks for updates at boot."),
+                                          steps: (0, false))
+        case .offered:
+            return XiaozhiProgressContent(icon: "arrow.down.circle", tint: .accentColor,
+                                          title: NativeText("小智收到更新，准备下载", "The board got the update; starting the download"),
+                                          trailing: elapsed, bar: .some(nil), hint: nil, steps: (1, false))
+        case .downloading(let sent, let total):
+            return XiaozhiProgressContent(icon: "arrow.down.circle.fill", tint: .accentColor,
+                                          title: NativeText("小智下载中 \(XiaozhiFlashProgress.percent(sent, total))",
+                                                            "Downloading \(XiaozhiFlashProgress.percent(sent, total))"),
+                                          trailing: "\(XiaozhiProgressText.bytes(sent)) / \(XiaozhiProgressText.bytes(total))",
+                                          bar: .some(total > 0 ? Double(sent) / Double(total) : nil),
+                                          hint: NativeText("下载期间别给小智断电。", "Do not power off the board while it downloads."),
+                                          steps: (1, false))
+        case .stalled(let sent, let total):
+            return XiaozhiProgressContent(icon: "pause.circle.fill", tint: .orange,
+                                          title: NativeText("下载停住了 \(XiaozhiFlashProgress.percent(sent, total))",
+                                                            "Download stalled at \(XiaozhiFlashProgress.percent(sent, total))"),
+                                          trailing: "\(XiaozhiProgressText.bytes(sent)) / \(XiaozhiProgressText.bytes(total))",
+                                          bar: .some(total > 0 ? Double(sent) / Double(total) : nil),
+                                          hint: NativeText("确认小智和手机在同一个 Wi-Fi，信号够好；断了的话重启小智会重试。",
+                                                           "Check the board and the phone share a Wi-Fi with good signal; restarting the board retries."),
+                                          steps: (1, true))
+        case .installing:
+            return XiaozhiProgressContent(icon: "cpu.fill", tint: .accentColor,
+                                          title: NativeText("下载完成，小智正在写入并重启", "Downloaded; the board is writing and rebooting"),
+                                          trailing: elapsed, bar: .some(nil),
+                                          hint: NativeText("一般几十秒；它重新上线时会自动确认新固件。",
+                                                           "Usually under a minute; the new firmware is confirmed when it checks in again."),
+                                          steps: (2, false))
+        case .done:
+            return XiaozhiProgressContent(icon: "checkmark.seal.fill", tint: .green,
+                                          title: NativeText("刷入成功，小智已在运行新固件", "Flashed; the board runs the new firmware"),
+                                          trailing: elapsed, bar: nil,
+                                          hint: "ELF \(progress.elfSha256.prefix(12))", steps: (3, false))
+        case .failed(let reason):
+            return XiaozhiProgressContent(icon: "exclamationmark.triangle.fill", tint: .red,
+                                          title: NativeText("刷入没有完成", "The flash did not finish"),
+                                          trailing: elapsed, bar: nil, hint: reason, steps: (2, true))
+        }
+    }
+}
+
+/// Where `BotChatPage` puts the strip: directly below the transcript, above the activity band. Only a
+/// Bot bound to a `xiaozhi:` key gets one; every other Bot's page is unchanged.
+struct XiaozhiChatProgressSlot: ViewModifier {
+    let botID: String
+
+    func body(content: Content) -> some View {
+        VStack(spacing: 0) {
+            content
+            if let mac = DeviceBotRegistry.shared.xiaozhiMAC(forBot: botID) {
+                XiaozhiChatProgressStrip(mac: mac)
+            }
+        }
+    }
+}
+
+/// Pinned above the composer in a `xiaozhi:` device Bot's chat while a build or a flash is under way, and
+/// briefly after it ends, so the user sees compile counters and the board's download without asking the
+/// Bot. The relay is not observable, so the strip re-reads it once a second while it is on screen.
+struct XiaozhiChatProgressStrip: View {
+    let mac: String
+    @State private var model = XiaozhiFirmwareModel.shared
+    @State private var builder = FirmwareBuilderModel.shared
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            if let content = content(now: context.date) {
+                HStack(alignment: .top, spacing: 8) {
+                    content.0
+                    if content.1 {
+                        Button { model.dismissStrip(mac: mac) } label: {
+                            Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(HomeSpec.textTertiary).frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(NativeText("关闭进度", "Close progress"))
+                        .accessibilityIdentifier("bot.xiaozhi.progress.close")
+                    }
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(HomeSpec.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
+                .padding(.horizontal, HomeSpec.contentInset)
+                .padding(.top, 6)
+                .accessibilityIdentifier("bot.xiaozhi.progress")
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: model.runningJob?.id)
+    }
+
+    /// The row to show and whether it can be closed (only once nothing is in progress).
+    private func content(now: Date) -> (XiaozhiProgressContent, Bool)? {
+        if let build = model.buildProgress { return (.build(build, now: now), false) }
+        let flash = model.stripFlash(mac: mac, now: now)
+        if let flash, flash.phase.isActive { return (.flash(flash, now: now), false) }
+        // A finished build is shown only until an image of it is staged.
+        if let job = model.stripJob(now: now), job.state != .running,
+           flash == nil || (model.finishedAt[job.id] ?? .distantPast) > (flash?.stagedAt ?? .distantPast) {
+            return (.finished(job, seconds: builder.seconds), true)
+        }
+        if let flash { return (.flash(flash, now: now), true) }
+        return nil
     }
 }
 
@@ -551,5 +951,15 @@ struct XiaozhiFirmwarePage: View {
             report["status"] = "failed"; report["error"] = "stage: \(error.localizedDescription)"; save()
         }
     }
+}
+#endif
+
+#if !DEBUG
+import SwiftUI
+
+/// Release builds have no xiaozhi firmware feature: the Bot page slot is a no-op.
+struct XiaozhiChatProgressSlot: ViewModifier {
+    let botID: String
+    func body(content: Content) -> some View { content }
 }
 #endif

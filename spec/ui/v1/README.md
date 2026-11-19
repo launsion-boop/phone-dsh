@@ -75,7 +75,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | VisionSettingsPage | UI-Venus 视觉模型：HTTPS OpenAI 兼容接口、模型名与密钥（Keychain），列出服务端模型；`iphone_agent_run` 读取此配置，见 [TonoLink 板子](../../device/v1/tonolink-board.md) | 设置 › 权限与隐私 › 视觉模型 | push；保存立即生效，换接口必须重填密钥 | later |
 | TonoLinkUSBOTAPage | **仅 DEBUG**：TonoLink 板子 USB/BLE 固件更新与开发者 Wi-Fi relay（无认证，见 [TonoLink 板子 §5](../../device/v1/tonolink-board.md)）；Release 不编译 | 设置 › 权限与隐私 › 板子固件（USB）（仅 DEBUG） | push；relay 只在打开开关期间监听 | later |
 | FirmwareBuilderPage | **仅 DEBUG**：在本机把包里工程的源码编译、链接成 ESP32 固件（WebAssembly 版 GCC cc1／cc1plus 与 binutils 跑在隐藏 WebView 中，离线）；目标由包决定：TonoLink（ESP32-S3）或 AI Passport 上的小智（ESP32-C3）；工具链与 SDK 包是未入库的应用资源（`examples/probe-app/Bundle/firmware-builder/README.md`），缺包时只显示原因；镜像存入 Documents/firmware-builder，只有 ESP32-S3（TonoLink）产物显示“刷到板子（USB）”并交给 TonoLinkUSBOTAPage，其他芯片显示用 esptool 刷写的说明；Release 不编译 | 设置 › 权限与隐私 › 固件构建（仅 DEBUG） | push；构建期间需保持前台，离开页面不取消构建 | later |
-| XiaozhiFirmwarePage | **仅 DEBUG**：小智固件 OTA 中继（Wi-Fi 8781）开关与 `http://<Wi-Fi IPv4>:8781/xiaozhi/ota/` 地址、来查询过的设备列表（MAC／版本／ELF／决策）、每台设备的「信任并创建 Bot」和已暂存镜像；产物由 FirmwareBuilderModel 在本机编译。Android 缺失 | 设置 › 小智固件（仅 DEBUG） | push；中继仅在开启且前台时监听 | later |
+| XiaozhiFirmwarePage | **仅 DEBUG**：小智固件 OTA 中继（Wi-Fi 8781）开关与 `http://<Wi-Fi IPv4>:8781/xiaozhi/ota/` 地址、来查询过的设备列表（MAC／版本／ELF／决策）、每台设备的「信任并创建 Bot」、已暂存镜像与刷入进度（放出／下载／安装／完成）、手机编译进度；产物由 FirmwareBuilderModel 在本机编译。Android 缺失 | 设置 › 小智固件（仅 DEBUG） | push；中继仅在开启且前台时监听 | later |
 | SessionArtifactsPage | 本会话产物、未归属产物与预览 | 页头 `⋯` →「产物」 | sheet；预览子页 SessionArtifactPreviewPage | must |
 | SessionArtifactPreviewPage | 单个产物的内容预览 | SessionArtifactsPage 的行点击 | 内嵌 sheet，不单独成页 | must |
 | NativeDeviceConnectionPage | 已配对的真机连接与传输能力 | 页头设备按钮 →「设备连接」 | sheet；行打开 NativeDeviceSessionPage | must |

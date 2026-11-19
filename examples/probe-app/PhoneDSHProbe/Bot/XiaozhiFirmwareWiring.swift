@@ -43,6 +43,19 @@ import PhoneDSHBot
         return Self.view(staged)
     }
 
+    func download(mac: String) -> XiaozhiDownloadView? {
+        server.downloads.latest(forMAC: mac).map {
+            let state: XiaozhiDownloadView.State
+            switch $0.state {
+            case .sending: state = .sending
+            case .complete: state = .complete
+            case .aborted: state = .aborted
+            }
+            return XiaozhiDownloadView(sha256: $0.sha256, sent: $0.sent, total: $0.total,
+                                       startedAt: $0.startedAt, updatedAt: $0.updatedAt, state: state)
+        }
+    }
+
     /// The firmware download URL (spec §2.5) the board is told to fetch.
     private static func view(_ staged: PhoneDSHBLE.XiaozhiStagedImage) -> XiaozhiStagedView {
         let url = TonoLinkNetworkInfo.wifiIPv4().map { "http://\($0):\(XiaozhiOTARelay.port)/xiaozhi/firmware/\(staged.sha256).bin" } ?? ""

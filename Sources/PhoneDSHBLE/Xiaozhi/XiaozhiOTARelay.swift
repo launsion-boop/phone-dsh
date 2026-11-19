@@ -68,11 +68,16 @@ public enum XiaozhiHTTP {
     }
 
     public static func encode(_ response: XiaozhiHTTPResponse) -> Data {
+        encodeHead(response) + response.body
+    }
+
+    /// The status line and headers of `encode(_:)`, without the body.
+    public static func encodeHead(_ response: XiaozhiHTTPResponse) -> Data {
         let reason = HTTPURLResponse.localizedString(forStatusCode: response.status).capitalized
         var head = "HTTP/1.1 \(response.status) \(reason)\r\n"
         if let type = response.contentType { head += "Content-Type: \(type)\r\n" }
         head += "Content-Length: \(response.body.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
-        return Data(head.utf8) + response.body
+        return Data(head.utf8)
     }
 }
 
@@ -114,8 +119,10 @@ public final class XiaozhiURLSessionUpstream: XiaozhiUpstream {
 
     public let images: XiaozhiStagedImages
     public let records: XiaozhiDeviceRecords
+    /// Firmware downloads, for the progress UI only (never read back into a response).
+    public let downloads = XiaozhiDownloads()
     private let upstream: XiaozhiUpstream
-    private let now: @Sendable () -> Date
+    let now: @Sendable () -> Date
     private let wifiIPv4: @Sendable () -> String?
     public private(set) var served = 0
 
@@ -147,7 +154,7 @@ public final class XiaozhiURLSessionUpstream: XiaozhiUpstream {
     }
 
     /// `<sha>` of `/xiaozhi/firmware/<sha>.bin` when it is 64 lowercase hex.
-    static func firmwareDigest(path: String) -> String? {
+    public static func firmwareDigest(path: String) -> String? {
         let prefix = "/xiaozhi/firmware/", suffix = ".bin"
         guard path.hasPrefix(prefix), path.hasSuffix(suffix), path.count == prefix.count + 64 + suffix.count else { return nil }
         let digest = String(path.dropFirst(prefix.count).dropLast(suffix.count))
