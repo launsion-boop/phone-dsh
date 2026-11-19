@@ -2193,6 +2193,20 @@ class PageExtractor:
                         add(source, label, pos, writes_value=True,
                             semantic=f"{handler} forwards to ChatPage.respond",
                             condition="pending permission card")
+                # 总是允许 is optional on the card: ChatPage mounts it with
+                # `onAllowAlways: { respond(.allowAlways) }` and the card shows it
+                # only for a request with a safe standing scope.
+                if re.search(r"onAllowAlways\s*:\s*\{\s*respond\(\.allowAlways\)\s*\}", self.source.masked):
+                    button = re.search(r"Button\s*\{\s*onAllowAlways\(\)\s*\}\s*label\s*:\s*\{", body)
+                    if button:
+                        label_open = helper_start + button.end() - 1
+                        label_close = match_delim(source.masked, label_open, "{", "}")
+                        text = next(((value, pos) for value, pos in source.literals(label_open, label_close)
+                                     if unescape(value) == "总是允许"), None)
+                        if text:
+                            add(source, "总是允许", text[1], writes_value=True,
+                                semantic="onAllowAlways forwards to ChatPage.respond",
+                                condition="pending permission card with a safe standing scope")
 
         # A pending plan-review question mounts NativePlanReviewCard with both
         # mutation callbacks; its optional full-plan action is intentionally

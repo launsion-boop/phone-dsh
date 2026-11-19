@@ -86,9 +86,53 @@
    "owner": "ui-contract",
    "reviewBy": "2027-06-30",
    "kind": "missing-action",
-   "name": "设备面板",
+   "name": "设备应用",
    "id": "bluetooth-devices-open-device-panel-ios-only",
-   "reason": "The panel entry exists only where PDSH Link tools are callable; Android Link tool RPC is blocked by GAP-20."
+   "reason": "The device entry (labelled 设备应用 for device-app targets, 设备面板 otherwise; one NavigationLink to DeviceEntryPage) exists only where PDSH Link tools are callable; Android Link tool RPC is blocked by GAP-20."
+  },
+  {
+   "page": "device-apps",
+   "kind": "missing-section",
+   "name": "<android-screen>",
+   "id": "device-apps-ios-only",
+   "reason": "Native 设备应用 page (device-panel.md §9, device-app-v1.6): every action is a user-origin PDSH Link tool call, which Android cannot make until GAP-20 closes; Android must not render it or a disabled placeholder.",
+   "side": "ios-only",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30",
+   "platformRef": "platform.device-panel-ios"
+  },
+  {
+   "page": "device-entry",
+   "kind": "missing-section",
+   "name": "<android-screen>",
+   "id": "device-entry-ios-only",
+   "reason": "DeviceEntryPage only routes a device entry to DeviceAppsPage or DevicePanelPage by its Link tools/list; both targets are absent on Android while GAP-20 is open.",
+   "side": "ios-only",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30",
+   "platformRef": "platform.device-panel-ios"
+  },
+  {
+   "page": "firmware-builder",
+   "kind": "missing-section",
+   "name": "<android-screen>",
+   "id": "firmware-builder-ios-only",
+   "reason": "DEBUG-only on-device build of the TonoLink board firmware, handed to the board firmware (USB) page; the Android host drives the phone through ADB and has no board.",
+   "side": "ios-only",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30",
+   "platformRef": "platform.tonolink-iphone-agent"
+  },
+  {
+   "page": "settings",
+   "kind": "missing-action",
+   "name": "固件构建",
+   "id": "settings-firmware-builder-ios-only",
+   "reason": "DEBUG-only entry to the TonoLink firmware builder page.",
+   "side": "ios-only",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30",
+   "platformRef": "platform.tonolink-iphone-agent"
   }
  ]
 }
