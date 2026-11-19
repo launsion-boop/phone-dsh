@@ -74,6 +74,13 @@ public enum class PdshIcon(
     DEVICE("iphone"),
     DEVICE_RADIO("dot.radiowaves.left.and.right"),
     CHAT_BUBBLE("bubble.left"),
+    /** 发现 › Gmail tile (`ConnectorsPage.swift`, `envelope.fill`). */
+    MAIL("envelope.fill"),
+    /**
+     * 发现 › GitHub tile. GitHub's mark, MIT-licensed by GitHub Inc.
+     * (`examples/probe-app/PhoneDSHProbe/GitHubMark-LICENSE.txt`).
+     */
+    GITHUB_MARK("circle", sourceOwner = "Assets.xcassets/GitHubMark.imageset/GitHubMark.svg"),
     TERMINAL("terminal", sourceOwner = "Assets.xcassets/DSHTerminal.imageset/DSHTerminal.svg"),
     SEND("arrow.up"),
     WARNING("exclamationmark.triangle"),
@@ -226,6 +233,14 @@ public object PdshIcons {
         PdshIcon.DEVICE to listOf(IconPath("M7 2.8h10c1 0 1.8.8 1.8 1.8v14.8c0 1-.8 1.8-1.8 1.8H7c-1 0-1.8-.8-1.8-1.8V4.6c0-1 .8-1.8 1.8-1.8ZM10 5.5h4M10.5 18h3")),
         PdshIcon.DEVICE_RADIO to listOf(IconPath("M12 13v.1M8.5 9.5a5 5 0 0 0 0 7M15.5 9.5a5 5 0 0 1 0 7M5.5 6.5a9.2 9.2 0 0 0 0 13M18.5 6.5a9.2 9.2 0 0 1 0 13")),
         PdshIcon.CHAT_BUBBLE to listOf(IconPath("M4 5.5c0-1.1.9-2 2-2h12c1.1 0 2 .9 2 2v9c0 1.1-.9 2-2 2h-8l-5 4v-4.2c-.6-.4-1-1-1-1.8v-9Z")),
+        PdshIcon.MAIL to listOf(
+            IconPath("M3.2 5.25H20.8L12 11.3Z", filled = true),
+            IconPath("M2.25 7.1 12 13.8 21.75 7.1V17.25a1.5 1.5 0 0 1-1.5 1.5H3.75a1.5 1.5 0 0 1-1.5-1.5Z", filled = true),
+        ),
+        // GitHubMark.svg, scaled from its 16pt viewBox to this registry's 24pt viewport.
+        PdshIcon.GITHUB_MARK to listOf(
+            IconPath("M 10.149 16.992 c -3.0945 -0.375 -5.274 -2.601 -5.274 -5.484 0 -1.1715 0.4215 -2.4375 1.125 -3.282 -0.3045 -0.7725 -0.258 -2.4135 0.0945 -3.093 0.9375 -0.117 2.202 0.375 2.952 1.0545 0.891 -0.2805 1.8285 -0.4215 2.9775 -0.4215 1.1475 0 2.085 0.141 2.9295 0.3975 0.726 -0.6555 2.016 -1.1475 2.9535 -1.0305 0.327 0.633 0.375 2.2725 0.069 3.0705 0.75 0.8895 1.149 2.085 1.149 3.3045 0 2.883 -2.1795 5.0625 -5.3205 5.46 0.7965 0.516 1.335 1.641 1.335 2.931 v 2.4375 c 0 0.702 0.5865 1.101 1.29 0.8205 C 20.6715 21.5385 24 17.295 24 12.045 24 5.415 18.609 0 11.976 0 5.3445 0 0 5.415 0 12.0465 a 11.82 11.82 0 0 0 7.758 11.133 c 0.633 0.234 1.242 -0.1875 1.242 -0.8205 v -1.875 c -0.3285 0.141 -0.75 0.234 -1.125 0.234 -1.5465 0 -2.46 -0.843 -3.117 -2.4135 -0.258 -0.633 -0.54 -1.008 -1.0785 -1.0785 -0.2805 -0.0225 -0.375 -0.1395 -0.375 -0.2805 0 -0.282 0.4695 -0.492 0.9375 -0.492 0.6795 0 1.266 0.4215 1.875 1.29 0.4695 0.678 0.96 0.9825 1.5465 0.9825 s 0.9615 -0.21 1.5 -0.75 c 0.399 -0.3975 0.705 -0.75 0.9855 -0.984", filled = true),
+        ),
         PdshIcon.SEND to listOf(IconPath("M12 19V5M6.5 10.5 12 5l5.5 5.5")),
         PdshIcon.WARNING to listOf(IconPath("M10.3 4.2 2.8 17.5c-.6 1 .1 2.2 1.3 2.2h15.8c1.2 0 1.9-1.2 1.3-2.2L13.7 4.2a2 2 0 0 0-3.4 0Z"), IconPath("M12 9v4M12 16.5h.01")),
         PdshIcon.TRASH to listOf(IconPath("M4 6.5h16M9 6.5V4h6v2.5M6.5 6.5l1 14h9l1-14M10 10v7M14 10v7")),

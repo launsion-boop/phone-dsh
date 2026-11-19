@@ -120,6 +120,17 @@
       backup that carried either off the device would be a leak. The two rule
       files remain as the second layer for the day someone flips the switch.
     -->
+    <!-- 发现 › GitHub: find the default browser so the authorization URL (it
+         carries the attempt's state and challenge) goes to that browser and not
+         to an app that claims github.com links (PC-20261119-android-connectors). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:extractNativeLibs="true"
@@ -175,6 +186,27 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 发现 › GitHub: the fixed OAuth callback phonedsh-github://oauth/callback
+             (spec/v1/github-oauth.md, PC-20261119-android-connectors). No UI: it
+             hands the URI to the pending attempt and returns to MainActivity. -->
+        <activity
+            android:name="com.phonedsh.probe.connectors.GitHubOAuthCallbackActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="phonedsh-github"
+                    android:host="oauth"
+                    android:path="/callback" />
             </intent-filter>
         </activity>
     </application>

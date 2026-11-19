@@ -474,6 +474,23 @@ android {
         ndk {
             abiFilters += "arm64-v8a"
         }
+
+        // 发现 › GitHub / Gmail (PC-20261119-android-connectors). The GitHub
+        // broker origin, client id and app slug are deployment inputs, read from
+        // Gradle properties and validated at runtime exactly as on iOS; empty
+        // values show the page's unconfigured state. Gmail's OAuth client is
+        // registered by package and signing certificate, so the build only says
+        // whether that registration exists.
+        fun quoted(name: String): String =
+            "\"" + providers.gradleProperty(name).getOrElse("").replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        buildConfigField("String", "PDSH_GITHUB_OAUTH_ORIGIN", quoted("pdsh.github.oauthOrigin"))
+        buildConfigField("String", "PDSH_GITHUB_OAUTH_CLIENT_ID", quoted("pdsh.github.oauthClientId"))
+        buildConfigField("String", "PDSH_GITHUB_APP_SLUG", quoted("pdsh.github.appSlug"))
+        buildConfigField(
+            "boolean",
+            "PDSH_GMAIL_ENABLED",
+            (providers.gradleProperty("pdsh.gmail.enabled").getOrElse("false") == "true").toString(),
+        )
     }
 
     signingConfigs {
@@ -720,6 +737,9 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.zxing.core)
+    // 发现 › Gmail: Google Identity Services AuthorizationClient for the
+    // gmail.readonly grant (PC-20261119-android-connectors). `:app` only.
+    implementation("com.google.android.gms:play-services-auth:21.4.0")
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.espresso.core)

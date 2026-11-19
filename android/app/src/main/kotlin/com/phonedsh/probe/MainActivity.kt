@@ -220,6 +220,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 发现 › Gmail / GitHub: the consent launcher must be registered before STARTED.
+        com.phonedsh.probe.connectors.ConnectorActivityBridge.attach(this)
         textToSpeech = TextToSpeech(this) { status ->
             speechReady = status == TextToSpeech.SUCCESS
         }
@@ -347,6 +349,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        com.phonedsh.probe.connectors.ConnectorActivityBridge.detach(this)
         textToSpeech?.stop()
         textToSpeech?.shutdown()
         textToSpeech = null

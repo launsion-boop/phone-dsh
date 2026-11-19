@@ -459,6 +459,11 @@ internal fun HostShell(
     // Tono 账号: the process-owned cloud account session (tono-account.md).
     val tonoAccount = remember { TonoAccountHost.get(context) }
     val tonoAccountFacts by tonoAccount.facts.collectAsState()
+    // 发现 › Gmail / GitHub (PC-20261119-android-connectors): process-owned like iOS `.shared`.
+    val gmailConnector = remember { com.phonedsh.probe.connectors.GmailConnectorHost.get(context) }
+    val gmailFacts by gmailConnector.facts.collectAsState()
+    val githubConnector = remember { com.phonedsh.probe.connectors.GitHubConnectorHost.get(context) }
+    val githubFacts by githubConnector.facts.collectAsState()
     // 云端任务: the process-owned phone task queue (cloud-tasks.md §7); the page shows
     // its switch and status line inside the Tono account facts.
     val cloudTasks = remember { com.phonedsh.probe.cloudtasks.CloudTaskCenter.get(context) }
@@ -1115,6 +1120,8 @@ internal fun HostShell(
             cloudTasksBusy = cloudTaskFacts.busy,
         ),
         lan = lanFacts,
+        gmail = gmailFacts,
+        github = githubFacts,
         // The two local stores behind the phone-permissions page's 常用授权 and
         // 建议卡使用 sections (iOS reads them on appear).
         phonePermissions = facts.phonePermissions.copy(
@@ -1345,6 +1352,15 @@ internal fun HostShell(
                             } else if (action.wire.startsWith("androidAdb.")) {
                                 // The page owns its 连接状态 line; no host note.
                                 androidAdb.handle(action)
+                            } else if (action is PdshHostAction.GmailConnector) {
+                                // The page owns its notices; no host note.
+                                com.phonedsh.probe.connectors.GmailConnectorHost.languageId =
+                                    facts.settings.preferences.language?.id
+                                gmailConnector.handle(action.action)
+                            } else if (action is PdshHostAction.GitHubConnector) {
+                                com.phonedsh.probe.connectors.GmailConnectorHost.languageId =
+                                    facts.settings.preferences.language?.id
+                                githubConnector.handle(action.action)
                             } else if (action.wire.startsWith("tonoAccount.")) {
                                 // The page owns its status line; no host note.
                                 tonoAccount.handle(action)
@@ -2417,6 +2433,8 @@ private fun actionLabel(action: PdshHostAction): String = when (action) {
     PdshHostAction.AndroidAdbScan -> "扫描局域网电视"
     is PdshHostAction.AndroidAdbConnect -> "连接发现的电视"
     PdshHostAction.AndroidAdbCancelConnect -> "取消电视连接"
+    is PdshHostAction.GmailConnector -> "Gmail"
+    is PdshHostAction.GitHubConnector -> "GitHub"
     is PdshHostAction.TonoAccountRequestCode -> "获取 Tono 验证码"
     is PdshHostAction.TonoAccountSignIn -> "登录 Tono 账号"
     PdshHostAction.TonoAccountSignOut -> "退出 Tono 账号"
@@ -2473,6 +2491,8 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
     PdshRoute.GitHubAgent -> null
     PdshRoute.AndroidAdb -> null
     PdshRoute.TonoAccount -> null
+    // The connector pages print their own notices.
+    PdshRoute.GmailConnector, PdshRoute.GitHubConnector -> null
 
     PdshRoute.Configuration -> null
     PdshRoute.Automation -> null

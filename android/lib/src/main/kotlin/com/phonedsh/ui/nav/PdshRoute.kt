@@ -197,6 +197,16 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
+    /** 发现 › Gmail; push (`GmailConnectorPage`, PC-20261119-android-connectors). */
+    public data object GmailConnector : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
+    /** 发现 › GitHub; push (`GitHubConnectorPage`, spec/v1/github-oauth.md). */
+    public data object GitHubConnector : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
     /** 设置行「Tono 账号」; §1: push. SMS sign-in for the cloud service (tono-account.md). */
     public data object TonoAccount : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH

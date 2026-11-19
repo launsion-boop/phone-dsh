@@ -3,8 +3,8 @@
 // ConnectorsPage: the 发现 tab (`examples/probe-app/PhoneDSHProbe/ConnectorsPage.swift`).
 //
 // A first-level page listing the outside connections DSH has today — devices, web
-// search and custom MCP servers — plus Gmail as an example of a service connector
-// that cannot connect yet. Phone data (calendar, contacts…) is a permission, not a
+// search and custom MCP servers — plus the Gmail and GitHub account connectors
+// (PC-20261119-android-connectors). Phone data (calendar, contacts…) is a permission, not a
 // connector, and lives in 我的 › 手机权限. Picking a connector opens its detail
 // sheet; the sheet's one action pushes the setup page once the sheet has gone, so
 // the dismissal and the push never run over each other (`:94-108`).
@@ -84,32 +84,33 @@ public enum class DiscoverConnector(
     /** The tile's glyph ink, the baseline's per-connector tint (`:24-31`). */
     internal val tint: Color,
 ) {
-    GMAIL(PdshIcon.CHAT_BUBBLE, Color(0xFFEB4236)),
+    GMAIL(PdshIcon.MAIL, Color(0xFFEB4236)),
+    GITHUB(PdshIcon.GITHUB_MARK, Color(0xFF21262E)),
     DEVICES(PdshIcon.DEVICE_RADIO, Color(0xFF30B0C7)),
     WEB_SEARCH(PdshIcon.GLOBE, Color(0xFF33C759)),
     MCP(PdshIcon.DATABASE, Color.Unspecified),
     ;
-
-    /** The example connector shows the pattern but cannot connect yet (`:61`). */
-    public val isExample: Boolean get() = this == GMAIL
 
     internal fun title(languageId: String?): String = when (this) {
         DEVICES -> UiStrings.settingsNativeText(languageId, "设备", "Devices")
         WEB_SEARCH -> UiStrings.settingsNativeText(languageId, "网页搜索", "Web search")
         MCP -> UiStrings.settingsNativeText(languageId, "自定义 MCP 服务", "Custom MCP server")
         GMAIL -> "Gmail"
+        GITHUB -> "GitHub"
     }
 
     internal fun subtitle(languageId: String?): String = when (this) {
         DEVICES -> UiStrings.settingsNativeText(languageId, "通过蓝牙连接外设", "Peripherals over Bluetooth")
         WEB_SEARCH -> UiStrings.settingsNativeText(languageId, "让 DSH 搜索和读取网页", "Let DSH search and read the web")
         MCP -> UiStrings.settingsNativeText(languageId, "添加你自己的服务地址", "Add your own server")
-        GMAIL -> UiStrings.settingsNativeText(languageId, "读取、撰写和发送邮件", "Read, write and send mail")
+        GMAIL -> UiStrings.settingsNativeText(languageId, "连接账号、搜索和阅读邮件", "Connect an account, search and read mail")
+        GITHUB -> UiStrings.settingsNativeText(languageId, "浏览已授权的仓库", "Browse authorized repositories")
     }
 
     /** The gray pill on the row, naming what the sheet's action does (`:52-58`). */
     internal fun pillTitle(languageId: String?): String = when (this) {
-        DEVICES, GMAIL -> UiStrings.settingsNativeText(languageId, "连接", "Connect")
+        DEVICES -> UiStrings.settingsNativeText(languageId, "连接", "Connect")
+        GMAIL, GITHUB -> UiStrings.settingsNativeText(languageId, "打开", "Open")
         WEB_SEARCH -> UiStrings.settingsNativeText(languageId, "设置", "Set up")
         MCP -> UiStrings.settingsNativeText(languageId, "添加", "Add")
     }
@@ -119,7 +120,8 @@ public enum class DiscoverConnector(
         DEVICES -> UiStrings.settingsNativeText(languageId, "连接设备", "Connect a device")
         WEB_SEARCH -> UiStrings.settingsNativeText(languageId, "设置网页搜索", "Set up web search")
         MCP -> UiStrings.settingsNativeText(languageId, "添加服务", "Add a server")
-        GMAIL -> UiStrings.settingsNativeText(languageId, "连接", "Connect")
+        GMAIL -> UiStrings.settingsNativeText(languageId, "打开 Gmail", "Open Gmail")
+        GITHUB -> UiStrings.settingsNativeText(languageId, "打开 GitHub", "Open GitHub")
     }
 
     internal fun summary(languageId: String?): String = when (this) {
@@ -140,8 +142,13 @@ public enum class DiscoverConnector(
         )
         GMAIL -> UiStrings.settingsNativeText(
             languageId,
-            "让 DSH 读取和搜索你的邮件，帮你整理收件箱、撰写和发送邮件。暂时还不能连接。",
-            "Let DSH read and search your mail, tidy your inbox, write and send mail. Not available yet.",
+            "连接 Google 账号后，可以在手机上搜索和阅读 Gmail 邮件。",
+            "Connect a Google account to search and read Gmail on this phone.",
+        )
+        GITHUB -> UiStrings.settingsNativeText(
+            languageId,
+            "连接 GitHub 账号后，可以在手机上查看你选择的仓库。",
+            "Connect a GitHub account to browse the repositories you choose on this phone.",
         )
     }
 
@@ -179,11 +186,18 @@ public enum class DiscoverConnector(
             )
             GMAIL -> listOf(
                 t("读取和搜索邮件", "Read and search mail") to
-                    t("按发件人、主题或时间查找邮件，整理要点。",
-                        "Find mail by sender, subject or date and pull out what matters."),
-                t("撰写和发送邮件", "Write and send mail") to
-                    t("按你的意思写新邮件或回复，直接发送。",
-                        "Write new mail or replies the way you want and send them."),
+                    t("按发件人、主题或时间查找邮件，点开查看正文。",
+                        "Find mail by sender, subject or date and open the message to read it."),
+                t("只读授权", "Read-only access") to
+                    t("你可以随时断开 Google 账号。", "You can disconnect your Google account at any time."),
+            )
+            GITHUB -> listOf(
+                t("只读仓库元数据", "Read-only repository metadata") to
+                    t("只读取你选择的仓库名称和链接，不下载仓库内容。",
+                        "Reads only the names and links of repositories you choose; no repository content is downloaded."),
+                t("GitHub 授权", "GitHub authorization") to
+                    t("在 GitHub 授权。你可以随时断开连接，或到 GitHub 管理授权。",
+                        "Authorize on GitHub. You can disconnect here or manage access on GitHub."),
             )
         }
     }
@@ -204,7 +218,7 @@ public object ConnectorsPageTags {
  *
  * @param onOpen a connector's sheet action was taken; the host pushes that
  *   connector's setup page (设备 → 蓝牙设备, 网页搜索 → 网页搜索设置,
- *   自定义 MCP 服务 → MCP). The example connector never calls it.
+ *   自定义 MCP 服务 → MCP, Gmail → Gmail, GitHub → GitHub).
  * @param onOpenPluginsTools 更多 › 插件与工具 (`NativeConfigurationPage`).
  * @param languageId the stored language preference, for the bilingual copy.
  */
@@ -407,8 +421,7 @@ private fun ConnectorLinkRow(
 
 /**
  * One connector's sheet: icon, name, the one action, what it is for, then
- * 关于此连接器 (`ConnectorDetailSheet`, `:191`). The example connector's action
- * is a disabled 即将支持.
+ * 关于此连接器 (`ConnectorDetailSheet`, `:191`).
  */
 @Composable
 private fun ConnectorDetailSheet(
@@ -432,29 +445,17 @@ private fun ConnectorDetailSheet(
             style = type.headline.copy(color = tokens.colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = ConnectorsMetrics.sheetTitleSize),
             modifier = Modifier.padding(top = ConnectorsMetrics.sheetTitleTop),
         )
-        if (connector.isExample) {
-            Button(
-                onClick = {},
-                enabled = false,
-                modifier = Modifier.padding(top = ConnectorsMetrics.sheetActionTop)
-                    .widthIn(max = ConnectorsMetrics.sheetActionMaxWidth).fillMaxWidth()
-                    .testTag(ConnectorsPageTags.SHEET_ACTION),
-            ) {
-                Text(text = UiStrings.settingsNativeText(languageId, "即将支持", "Coming soon"))
-            }
-        } else {
-            Button(
-                onClick = onOpen,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = tokens.colors.textPrimary,
-                    contentColor = tokens.colors.page,
-                ),
-                modifier = Modifier.padding(top = ConnectorsMetrics.sheetActionTop)
-                    .widthIn(max = ConnectorsMetrics.sheetActionMaxWidth).fillMaxWidth()
-                    .testTag(ConnectorsPageTags.SHEET_ACTION),
-            ) {
-                Text(text = connector.actionTitle(languageId))
-            }
+        Button(
+            onClick = onOpen,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = tokens.colors.textPrimary,
+                contentColor = tokens.colors.page,
+            ),
+            modifier = Modifier.padding(top = ConnectorsMetrics.sheetActionTop)
+                .widthIn(max = ConnectorsMetrics.sheetActionMaxWidth).fillMaxWidth()
+                .testTag(ConnectorsPageTags.SHEET_ACTION),
+        ) {
+            Text(text = connector.actionTitle(languageId))
         }
         Column(
             modifier = Modifier

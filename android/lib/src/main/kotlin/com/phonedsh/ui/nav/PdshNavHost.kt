@@ -774,8 +774,8 @@ public fun PdshNavHost(
                         com.phonedsh.ui.page.DiscoverConnector.DEVICES -> onNavigate(PdshRoute.Bluetooth)
                         com.phonedsh.ui.page.DiscoverConnector.WEB_SEARCH -> onNavigate(PdshRoute.WebSearch)
                         com.phonedsh.ui.page.DiscoverConnector.MCP -> onNavigate(PdshRoute.Mcp)
-                        // The example connector's sheet action is a disabled 即将支持.
-                        com.phonedsh.ui.page.DiscoverConnector.GMAIL -> Unit
+                        com.phonedsh.ui.page.DiscoverConnector.GMAIL -> onNavigate(PdshRoute.GmailConnector)
+                        com.phonedsh.ui.page.DiscoverConnector.GITHUB -> onNavigate(PdshRoute.GitHubConnector)
                     }
                 },
                 onOpenPluginsTools = { onNavigate(PdshRoute.Configuration) },
@@ -809,6 +809,24 @@ public fun PdshNavHost(
                 onConnect = { onHostAction(PdshHostAction.AndroidAdbConnect(it)) },
                 onCancelConnection = { onHostAction(PdshHostAction.AndroidAdbCancelConnect) },
             )
+            PdshRoute.GmailConnector -> com.phonedsh.ui.page.GmailConnectorPage(
+                facts = facts.gmail,
+                onBack = onBack,
+                onAction = { onHostAction(PdshHostAction.GmailConnector(it)) },
+                languageId = facts.settings.preferences.language?.id,
+            )
+            PdshRoute.GitHubConnector -> {
+                val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+                com.phonedsh.ui.page.GitHubConnectorPage(
+                    facts = facts.github,
+                    onBack = onBack,
+                    onAction = { onHostAction(PdshHostAction.GitHubConnector(it)) },
+                    // Only host-supplied github.com URLs reach here; a browser that
+                    // cannot be found is the platform's failure, not a crash.
+                    onOpenUrl = { url -> runCatching { uriHandler.openUri(url) } },
+                    languageId = facts.settings.preferences.language?.id,
+                )
+            }
             PdshRoute.TonoAccount -> com.phonedsh.ui.page.TonoAccountPage(
                 facts = facts.tonoAccount,
                 onBack = onBack,
