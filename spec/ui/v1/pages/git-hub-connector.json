@@ -28,8 +28,8 @@
   },
   "android": {
     "screen": "GitHubConnectorPage",
-    "file": null,
-    "match": "missing"
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/GitHubConnectorPage.kt",
+    "match": "composable"
   },
   "sections": [
     {

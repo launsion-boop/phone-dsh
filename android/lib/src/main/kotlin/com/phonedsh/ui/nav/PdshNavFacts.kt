@@ -119,6 +119,10 @@ public data class PdshNavFacts(
     public val androidAdb: com.phonedsh.ui.page.AndroidAdbFacts = com.phonedsh.ui.page.AndroidAdbFacts(),
     /** Tono 账号: the session facts (phone hint, re-verification date), host-owned. */
     public val tonoAccount: com.phonedsh.ui.page.TonoAccountFacts = com.phonedsh.ui.page.TonoAccountFacts(),
+    /** 发现 › Gmail: the account, the results and the open message, host-owned. */
+    public val gmail: com.phonedsh.ui.page.GmailConnectorFacts = com.phonedsh.ui.page.GmailConnectorFacts(),
+    /** 发现 › GitHub: the connection and the authorized repositories, host-owned. */
+    public val github: com.phonedsh.ui.page.GitHubConnectorFacts = com.phonedsh.ui.page.GitHubConnectorFacts(),
     public val runtime: RuntimeFacts = RuntimeFacts(),
     public val egress: EgressAllowListFacts = EgressAllowListFacts(),
     public val automation: AutomationFacts = AutomationFacts(),
@@ -544,6 +548,16 @@ public sealed interface PdshHostAction {
     /** 取消 one candidate's connection attempt; a cancelled attempt is never reported as success. */
     public data object AndroidAdbCancelConnect : PdshHostAction {
         override val wire: String = "androidAdb.cancelconnect"
+    }
+
+    /** One tap on the Gmail page; the search draft is hidden by the action's `toString`. */
+    public data class GmailConnector(public val action: com.phonedsh.ui.page.GmailConnectorAction) : PdshHostAction {
+        override val wire: String = "gmail.connector"
+    }
+
+    /** One tap on the GitHub page. */
+    public data class GitHubConnector(public val action: com.phonedsh.ui.page.GitHubConnectorAction) : PdshHostAction {
+        override val wire: String = "github.connector"
     }
 
     /** Tono 账号 获取验证码 for the drafted number; `toString` hides it. */
