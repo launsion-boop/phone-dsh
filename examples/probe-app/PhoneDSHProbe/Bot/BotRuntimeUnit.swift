@@ -33,6 +33,17 @@ actor BotRoutineActivityFlag {
     func isRunning() -> Bool { count > 0 }
 }
 
+/// One lifecycle attempt of a ``BotRuntimeUnit`` startup.
+///
+/// ``BotRuntimeUnit/beginStart()`` mints a lease synchronously and advances the
+/// unit's generation, so every older attempt is invalid before it can run its
+/// next awaited step. ``BotRuntimeUnit/detach()`` advances the same generation.
+/// The lease carries no resources; it is only the identity a start re-checks
+/// after each suspension together with the composition's outer bind.
+struct BotUnitStartLease: Equatable, Sendable {
+    fileprivate let generation: UInt64
+}
+
 @MainActor
 final class BotRuntimeUnit {
     let botID: String
@@ -51,6 +62,12 @@ final class BotRuntimeUnit {
     private let nowProvider: @Sendable () -> Int64
 
     private(set) var started = false
+    /// Monotonic unit-local lifecycle fence. `beginStart` and `detach` advance
+    /// it synchronously, before their first suspension, so a start suspended in
+    /// one of its awaited steps can never resume to restart the scheduler,
+    /// subscribe the live observer or publish `started` after a newer
+    /// lifecycle took over.
+    private var lifecycleGeneration: UInt64 = 0
     private var liveSubscription: BotLiveFrameSubscription?
     private var liveFish: BotLiveFishProjection
     private var liveRunning = false
@@ -237,6 +254,33 @@ final class BotRuntimeUnit {
             routineActivity: routineActivity, nowProvider: resolvedNow)
     }
 
+    /// Invalidates every older, possibly suspended, start and returns the
+    /// lease for a new one. This is synchronous on the unit actor, so the
+    /// invalidation happens before the caller can reach its first `await`.
+    func beginStart() -> BotUnitStartLease {
+        lifecycleGeneration &+= 1
+        return BotUnitStartLease(generation: lifecycleGeneration)
+    }
+
+    /// Whether `lease` is still this unit's newest lifecycle attempt.
+    func isCurrentStart(_ lease: BotUnitStartLease) -> Bool {
+        lease.generation == lifecycleGeneration
+    }
+
+    /// The fence every start step uses. It rejects caller cancellation, a
+    /// detach/newer start and a superseded composition bind in that order, so
+    /// a stale attempt throws `CancellationError` before it can run another
+    /// externally visible effect.
+    private func ensureCurrentStart(
+        _ lease: BotUnitStartLease,
+        _ isOuterBindCurrent: @MainActor () -> Bool
+    ) throws {
+        try Task.checkCancellation()
+        guard isCurrentStart(lease), isOuterBindCurrent() else {
+            throw CancellationError()
+        }
+    }
+
     /// Rebinds this Bot's private remote to a fresh Host transport. The shared
     /// engine session id and environment are maintained in the same order as
     /// the single-Bot composition: invalidate the replaced Worker first (the
@@ -248,20 +292,40 @@ final class BotRuntimeUnit {
     /// was attached, before the main session/scheduler came back) must not be
     /// reported as a live+started unit by ``rebindState``, or the next bind
     /// would keep it and never retry `start`.
+    ///
+    /// Every attempt carries a ``BotUnitStartLease`` and the composition's
+    /// outer bind validity. ``beginStart()`` invalidated every older attempt
+    /// before this call's first suspension, and after every await — including
+    /// the multi-await closures and the swallowed `try?` step below — the
+    /// attempt re-checks caller cancellation, its lease and the outer bind. A
+    /// stale attempt therefore throws `CancellationError` before it can run
+    /// another externally visible effect or publish `started`.
     func start(transport: any DSHRemoteTransport, attempt: Int,
-               channelDetail: String = "") async throws {
+               channelDetail: String = "",
+               lease: BotUnitStartLease,
+               isOuterBindCurrent: @escaping @MainActor () -> Bool) async throws {
+        // Check before touching `started`: a superseded attempt must not clear
+        // the newer attempt's flag on its way out.
+        try ensureCurrentStart(lease, isOuterBindCurrent)
         started = false
         let unitDetail = "bot=\(botID)" + (channelDetail.isEmpty ? "" : " " + channelDetail)
         try await BotRebindDiagnostics.run(
             "unit.attach-transport", attempt: attempt, detail: unitDetail
         ) {
+            try ensureCurrentStart(lease, isOuterBindCurrent)
             await remote.attachTransport(transport)
+            try ensureCurrentStart(lease, isOuterBindCurrent)
         }
+        try ensureCurrentStart(lease, isOuterBindCurrent)
         let sessionID = try await BotRebindDiagnostics.run(
             "unit.start-main-session", attempt: attempt, detail: unitDetail
         ) {
-            try await remote.startMainSession()
+            try ensureCurrentStart(lease, isOuterBindCurrent)
+            let sessionID = try await remote.startMainSession()
+            try ensureCurrentStart(lease, isOuterBindCurrent)
+            return sessionID
         }
+        try ensureCurrentStart(lease, isOuterBindCurrent)
         // A foreground resume parks the host and boots a fresh Worker; its
         // in-memory credential map is empty. Re-claim every session this Bot
         // still owns before the next turn, so the first tool call after the
@@ -271,63 +335,102 @@ final class BotRuntimeUnit {
         _ = try await BotRebindDiagnostics.run(
             "unit.reclaim-sessions", attempt: attempt, detail: unitDetail
         ) {
-            await remote.reclaimOwnedSessions()
+            try ensureCurrentStart(lease, isOuterBindCurrent)
+            let reclaimed = await remote.reclaimOwnedSessions()
+            try ensureCurrentStart(lease, isOuterBindCurrent)
+            return reclaimed
         }
+        try ensureCurrentStart(lease, isOuterBindCurrent)
         try await BotRebindDiagnostics.run(
             "unit.environment-connect", attempt: attempt, detail: unitDetail
         ) {
+            try ensureCurrentStart(lease, isOuterBindCurrent)
             try await environment.connect(BotProductionComposition(
                 sessionID: sessionID, planner: planner,
                 turnStopping: BotRuntimeTurnStopper(remote: remote)))
+            try ensureCurrentStart(lease, isOuterBindCurrent)
         }
+        try ensureCurrentStart(lease, isOuterBindCurrent)
         _ = try await BotRebindDiagnostics.run(
             "unit.scheduler-recover", attempt: attempt, detail: unitDetail
         ) {
-            try await scheduler.recover()
+            try ensureCurrentStart(lease, isOuterBindCurrent)
+            let actions = try await scheduler.recover()
+            try ensureCurrentStart(lease, isOuterBindCurrent)
+            return actions
         }
+        try ensureCurrentStart(lease, isOuterBindCurrent)
         try await BotRebindDiagnostics.run(
             "unit.approvals", attempt: attempt, detail: unitDetail
         ) {
-            for entry in await scheduler.waitingApprovalEntries() {
+            try ensureCurrentStart(lease, isOuterBindCurrent)
+            let waiting = await scheduler.waitingApprovalEntries()
+            try ensureCurrentStart(lease, isOuterBindCurrent)
+            for entry in waiting {
                 let status = await remote.approvalStatus(approvalId: entry.approvalID)
+                try ensureCurrentStart(lease, isOuterBindCurrent)
                 switch status {
                 case .allowed, .denied, .expired, .cancelled:
                     await scheduler.approvalResolved(
                         approvalId: entry.approvalID, sessionId: entry.sessionID,
                         allowed: status == .allowed, expired: status == .expired,
                         cancelled: status == .cancelled)
+                    try ensureCurrentStart(lease, isOuterBindCurrent)
                 case .pending, .unknown:
                     break
                 }
             }
         }
+        try ensureCurrentStart(lease, isOuterBindCurrent)
         _ = try await BotRebindDiagnostics.run(
             "unit.interrupted-wakes", attempt: attempt, detail: unitDetail
         ) {
-            await remote.deliverInterruptedTaskWakes()
+            try ensureCurrentStart(lease, isOuterBindCurrent)
+            let delivered = await remote.deliverInterruptedTaskWakes()
+            try ensureCurrentStart(lease, isOuterBindCurrent)
+            return delivered
         }
+        try ensureCurrentStart(lease, isOuterBindCurrent)
+        // The device-result redelivery is best effort (`try?` below), so its
+        // inner CancellationError is swallowed on purpose. The explicit check
+        // after the wrapper is what stops a stale attempt here.
         _ = try? await BotRebindDiagnostics.run(
             "unit.device-results", attempt: attempt, detail: unitDetail
         ) {
+            try ensureCurrentStart(lease, isOuterBindCurrent)
             try await deviceResults.redeliver(botID: botID, in: wakeInbox)
+            try ensureCurrentStart(lease, isOuterBindCurrent)
         }
+        try ensureCurrentStart(lease, isOuterBindCurrent)
         try await BotRebindDiagnostics.run(
             "unit.scheduler-start", attempt: attempt, detail: unitDetail
         ) {
+            try ensureCurrentStart(lease, isOuterBindCurrent)
             await scheduler.start()
-            await startLiveObservation()
+            try ensureCurrentStart(lease, isOuterBindCurrent)
+            try await startLiveObservation(
+                lease: lease, isOuterBindCurrent: isOuterBindCurrent)
+            try ensureCurrentStart(lease, isOuterBindCurrent)
         }
-        // App-open, idle opportunity (spec/bot/v2 §4.5). It checks enabled,
-        // main-chat idle, pending approvals and triggers itself.
-        Task { await maintenance.maybeRun(reason: "foreground") }
+        try ensureCurrentStart(lease, isOuterBindCurrent)
         started = true
+        // App-open, idle opportunity (spec/bot/v2 §4.5). It checks enabled,
+        // main-chat idle, pending approvals and triggers itself. The task is
+        // detached like before; it re-checks the lease when it runs so a
+        // superseded start cannot trigger maintenance later.
+        Task { @MainActor [weak self, maintenance, lease] in
+            guard let self, self.isCurrentStart(lease), isOuterBindCurrent() else { return }
+            await maintenance.maybeRun(reason: "foreground")
+        }
         // A newly created Bot has its opening instruction in the durable
         // WakeInbox before its first unit starts. Only the onboarding item may
         // open a turn here; ordinary agent/routine held items keep their old
         // wait-for-user behavior. If the user already opened a turn, the item
         // stays pending and folds into that turn instead.
         if await BotOnboarding.hasPending(in: wakeInbox) {
+            try ensureCurrentStart(lease, isOuterBindCurrent)
             try? await remote.wakeWithHeldMessages()
+            try ensureCurrentStart(lease, isOuterBindCurrent)
         }
     }
 
@@ -351,13 +454,35 @@ final class BotRuntimeUnit {
 
     /// Drops the Host-bound half but keeps the unit and its durable data. A
     /// later `start(transport:)` reuses the same remote and scheduler.
-    func detach() async {
+    ///
+    /// The detach invalidates every older start synchronously, before its first
+    /// suspension. Each later teardown step re-checks the generation: if a
+    /// newer start took over while this detach was suspended on the scheduler
+    /// or remote actor, the detach stops instead of tearing that newer start
+    /// down. Returns `true` only when this call owned the teardown from start
+    /// to finish.
+    @discardableResult
+    func detach() async -> Bool {
+        lifecycleGeneration &+= 1
+        let generation = lifecycleGeneration
         await scheduler.stop()
+        guard generation == lifecycleGeneration else { return false }
         await stopLiveObservation()
+        guard generation == lifecycleGeneration else { return false }
         started = false
         liveRunning = false
         liveFish = BotLiveFishProjection(botID: botID)
         await remote.attachTransport(UnstartedBotTransport())
+        return generation == lifecycleGeneration
+    }
+
+    /// Detaches only when `lease` is still the unit's newest lifecycle attempt.
+    /// A late cleanup from a failed or superseded start cannot tear down a start
+    /// that replaced it.
+    @discardableResult
+    func detach(ifCurrent lease: BotUnitStartLease) async -> Bool {
+        guard isCurrentStart(lease) else { return false }
+        return await detach()
     }
 
     func wakeHeldMessages() async throws {
@@ -442,7 +567,11 @@ final class BotRuntimeUnit {
 
     // MARK: - Live observation
 
-    private func startLiveObservation() async {
+    private func startLiveObservation(
+        lease: BotUnitStartLease,
+        isOuterBindCurrent: @escaping @MainActor () -> Bool
+    ) async throws {
+        try ensureCurrentStart(lease, isOuterBindCurrent)
         guard liveSubscription == nil else { return }
         liveGeneration += 1
         let generation = liveGeneration
@@ -453,6 +582,16 @@ final class BotRuntimeUnit {
                 guard let self, self.liveGeneration == generation else { return }
                 self.receive(frame)
             }
+        }
+        do {
+            // The subscribe hop is an await. A detach or newer start that ran
+            // while it was outstanding owns the live observer now, so drop the
+            // subscription this stale attempt just installed.
+            try ensureCurrentStart(lease, isOuterBindCurrent)
+            guard liveGeneration == generation else { throw CancellationError() }
+        } catch {
+            await remote.unsubscribeLiveFrames(subscription)
+            throw error
         }
         liveSubscription = subscription
     }

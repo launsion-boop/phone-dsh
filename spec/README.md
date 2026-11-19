@@ -244,6 +244,7 @@ GAP-12／GAP-13 是同一批實作要修的 iOS 缺口，不是合約變更。
 | GAP-46／P01、P26（`ble_*` 审批在缺少身份登记时的行为，owner P26，open） | 真机联调观测到 `mcp__phone__ble_*` 工具的审批请求在 Worker 身份登记缺失或过期时的处置没有共享 fixture：Worker 结构审批门（`BLE_TOOLS`）会出审批请求，而宿主是否因缺身份登记而拒绝、拒绝码是什么，两端没有同一份正反例约束。仅登记，未验证具体路径，未修。 |
 | GAP-47／P02（异常终止后 WAL_CORRUPT，owner P02，open） | 真机观测：App 在 harness 反复被 `--terminate-existing` 杀掉后，引擎状态出现 WAL 损坏（`WAL_CORRUPT`），DEBUG 的 `DebugEngineQuarantine` 把整个 `chat-host` 目录移走才恢复。没有最小复现与 power-loss 证据；wal.md 的恢复路径是否应自愈未验证。 |
 | GAP-48／P26 设备端（NimBLE／GIL 卡死，由硬件看门狗兜底，owner Passport 固件，open） | 真机观测：App 被杀后 Passport 板偶发卡在 NimBLE／GIL 上不再广播，约 45 s 内由硬件 WDT 复位恢复；根因未修，只是被 WDT 限制了影响。不得把 WDT 复位当作协议层的重连保证。 |
+| GAP-49／P04、P06、P27（Worker ready 归属，owner recovery，open） | Worker 的 `ready` 控制台阶段只含 scope／phase／耗时，`PhoneDSHBootPhase` 和恢复调度器都拿不到该信号所属的 Worker 身份；HELLO 与控制台日志经不同路径到达。若旧 Worker 的 ready 在新 HELLO 后晚到，当前代码无法证明它属于新 Worker，可能提前启动重绑。此交错尚未在真机或真实双进程重现，不应称已发生，也不能把现有模拟器通过当成消除此风险。 | P04/P06/P27 owner 先确定两个信号的关联方式、旧版兼容及双方状态，再冻结协议和共享正反例；由真实生产者／消费者验证乱序和旧版回退，真机覆盖后关闭。不得仅凭名字或时间推断身份。 |
 
 
 | GAP-44／P05、P09、P18（网页搜索地址编辑与视觉差异，owner android-parity／P05；partial，open） | iOS 和 Android 对地址输入、失焦、返回保存和密钥保护存在差异；本次按共享契约对齐无密钥地址的编辑及已存密钥保护。 | Android 尚不支持与 iOS 相同的已有地址和新密钥的原子替换；不得将新密钥写到旧地址。继续验证不同尺寸、深色、大字号、真机及实际搜索服务；URL 准入差异须按 P05 修订，不得单边放宽。 |

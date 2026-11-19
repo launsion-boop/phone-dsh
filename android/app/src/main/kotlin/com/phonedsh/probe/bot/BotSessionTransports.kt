@@ -491,9 +491,10 @@ class LocalBotSessionTransport(
     }
 
     /**
-     * Persist one live event in the session journal and hand it to the newest
-     * still-open follow for that session. A history reader's snapshot-only
-     * follow is never mistaken for the turn's stream.
+     * Persist one live event in the session journal once and hand it to every
+     * still-open follow bound to that session. A follow bound to another
+     * session, or not yet bound, never receives it; the history reader's
+     * snapshot-only follow and the live turn follow both observe the event.
      */
     private fun enqueueToSession(sessionId: String, value: JsonObject) {
         val event = (value["value"] as? JsonObject)?.get("event") as? JsonObject
@@ -501,9 +502,9 @@ class LocalBotSessionTransport(
             if (event != null) {
                 journals.getOrPut(sessionId) { mutableListOf() } += event
             }
-            val target = follows.lastOrNull { it.sessionId == sessionId }
-                ?: follows.lastOrNull { it.sessionId == null }
-            target?.enqueue(value)
+            follows.forEach { follow ->
+                if (follow.sessionId == sessionId) follow.enqueue(value)
+            }
         }
     }
 

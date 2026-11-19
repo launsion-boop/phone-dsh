@@ -330,7 +330,9 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
                 let followUpReceipt = try await waitForCompletedHarnessTurn(
                     eventLog: eventLog, after: followUpWatermark,
                     promptMarker: followUpMarker, label: "turn after WebContent kill")
-                let killRecovered = journalAfterKill.dispatched && journalAfterKill.completed
+                let retainedToolKeys = Set(journalAfterKill.completedToolKeys)
+                    .intersection(journal.completedToolKeys)
+                let killRecovered = journalAfterKill.completed && !retainedToolKeys.isEmpty
                     && journalAfterKill.sessionIDs == journal.sessionIDs
                     && materializedAfterKill.contains("hi")
                     && followUpReceipt.reason == .completed
@@ -339,6 +341,12 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
                               metrics: ["attempt": status,
                                         "terminations": realEngine.terminationCount,
                                         "session_ids_after": journalAfterKill.sessionIDs.count,
+                                        "journal_dispatched": journalAfterKill.dispatched,
+                                        "journal_completed": journalAfterKill.completed,
+                                        "retained_tool_keys": retainedToolKeys.count,
+                                        "same_session_ids": journalAfterKill.sessionIDs == journal.sessionIDs,
+                                        "materialized_contains_hi": materializedAfterKill.contains("hi"),
+                                        "follow_up_completed": followUpReceipt.reason == .completed,
                                         "follow_up_turn": followUpReceipt.turnID],
                               threshold: simG1Threshold("real_webcontent_kill_recovery",
                                                         measured: killRecovered ? 1 : 0),
@@ -382,7 +390,8 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
                 throw SimError.assertion(
                     "the restarted host is not Running with admission open and a new HELLO")
             }
-            let overlay = workspace.appendingPathComponent("overlay-\(restarted.bootID).tar")
+            let overlay = WorkspacePaths(root: workspace, cacheRoot: configuration.log.cacheRoot)
+                .overlayURL(bootID: restarted.bootID)
             let overlayPrefix = [UInt8](try Data(contentsOf: overlay).prefix(2))
             let overlayIsGzip = overlayPrefix == [0x1f, 0x8b]
             report.record("smoke.overlay_gzip",
@@ -434,8 +443,13 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
                                                         targetPath: Self.targetPath)
             let materializedAfterRestart = try String(contentsOf: materializedURL,
                                                       encoding: .utf8)
-            let preserved = walAfterRestart.targetMseqs == targetMseqsBefore
+            let retained = walAfterRestart.targetMseqs == targetMseqsBefore
                 && walAfterRestart.targetBytes == targetBytesBefore
+            let reclaimed = walAfterRestart.targetMseqs.isEmpty
+                && !targetMseqsBefore.isEmpty
+                && restarted.lastDurableEpoch > 0
+                && restarted.materializedUptoMseq >= (targetMseqsBefore.max() ?? 0)
+            let preserved = (retained || reclaimed)
                 && walAfterRestart.appendMismatches.isEmpty
                 && materializedAfterRestart == materializedText
             report.record("smoke.restart_preserves_wal",
@@ -443,6 +457,8 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
                           metrics: ["target_mseqs_before": targetMseqsBefore.count,
                                     "target_mseqs_after": walAfterRestart.targetMseqs.count,
                                     "append_mismatches": walAfterRestart.appendMismatches.count,
+                                    "target_reclaimed": reclaimed,
+                                    "materialized_upto_mseq": restarted.materializedUptoMseq,
                                     "materialized_unchanged": materializedAfterRestart == materializedText],
                           threshold: simG1Threshold("g1_restart_preserves_acked_workspace",
                                                     measured: preserved ? 1 : 0),
@@ -492,11 +508,13 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
             } == true
             let finalWAL = try simReadWALSummary(workspace: workspace,
                                                  targetPath: Self.targetPath)
-            let walUnchanged = finalWAL.targetMseqs == targetMseqsBefore
-                && finalWAL.targetBytes == targetBytesBefore
+            let finalMaterialized = try String(contentsOf: materializedURL, encoding: .utf8)
+            let walUnchanged = finalWAL.targetMseqs == walAfterRestart.targetMseqs
+                && finalWAL.targetBytes == walAfterRestart.targetBytes
                 && finalWAL.appendMismatches.isEmpty
-                && Array(finalWAL.mutationMseqs.prefix(mutationCountBefore))
-                    == Array(wal.mutationMseqs.prefix(mutationCountBefore))
+                && Array(finalWAL.mutationMseqs.prefix(walAfterRestart.mutationCount))
+                    == walAfterRestart.mutationMseqs
+                && finalMaterialized == materializedText
             report.record("smoke.resumed_session",
                           status: resumedOK && walUnchanged ? .pass : .fail,
                           gating: true,

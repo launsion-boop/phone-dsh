@@ -84,8 +84,13 @@ public enum RoutinePresencePolicy {
 /// keep-alive active". The App writes the two flags from its scene-phase and
 /// keep-alive owners; the information service reads them without importing the
 /// App's ChatModel (the macOS eval harness compiles the same production files).
-@MainActor
-public final class BotPresenceCenter {
+///
+/// The boundary is process-local and actor-neutral: the scene-phase and
+/// keep-alive owners write it, the Bot information service reads it, and
+/// neither belongs to one actor. The lock makes one `update` atomic and makes
+/// `context()` one coherent pair; the separate flag getters stay independent
+/// reads. No wire or persisted representation is involved.
+public final class BotPresenceCenter: @unchecked Sendable {
     public struct Context: Sendable, Equatable {
         public var appActive: Bool
         public var keepingAlive: Bool
@@ -100,15 +105,38 @@ public final class BotPresenceCenter {
 
     public static let shared = BotPresenceCenter()
 
-    public private(set) var appActive = true
-    public private(set) var keepingAlive = false
+    private let lock = NSLock()
+    private var state = Context(appActive: true, keepingAlive: false)
 
-    public func update(appActive: Bool? = nil, keepingAlive: Bool? = nil) {
-        if let appActive { self.appActive = appActive }
-        if let keepingAlive { self.keepingAlive = keepingAlive }
+    /// The foreground flag on its own. It is an independent read; pair it with
+    /// `context()` when both flags are meaningful together.
+    public var appActive: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return state.appActive
     }
 
+    /// The silent-audio keep-alive flag on its own. It is an independent read;
+    /// pair it with `context()` when both flags are meaningful together.
+    public var keepingAlive: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return state.keepingAlive
+    }
+
+    /// Applies one update. Omitted arguments keep their current value; a call
+    /// that writes both flags changes the pair atomically.
+    public func update(appActive: Bool? = nil, keepingAlive: Bool? = nil) {
+        lock.lock()
+        defer { lock.unlock() }
+        if let appActive { state.appActive = appActive }
+        if let keepingAlive { state.keepingAlive = keepingAlive }
+    }
+
+    /// Both flags from the same committed update.
     public func context() -> Context {
-        Context(appActive: appActive, keepingAlive: keepingAlive)
+        lock.lock()
+        defer { lock.unlock() }
+        return state
     }
 }

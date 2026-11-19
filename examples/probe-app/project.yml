@@ -280,7 +280,9 @@ targets:
       - path: PhoneDSHProbe/NativeChatPreferences.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
-      - path: PhoneDSHProbe/BluetoothDevicesPage.swift
+      # BluetoothDevicesPage coverage now runs as real XCUI tests in
+      # PhoneDSHDeviceUITests; the page is no longer compiled into this
+      # hostless/hosted unit target.
       # The device panel page carries its UI-free, injected-source model and
       # the scripted fake, so this hostless suite drives the real panel state
       # machine without BLE or Application Support. The app-only adoption sheet
@@ -458,7 +460,9 @@ targets:
       - path: PhoneDSHProbe/NativeChatPreferences.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
-      - path: PhoneDSHProbe/BluetoothDevicesPage.swift
+      # BluetoothDevicesPage coverage now runs as real XCUI tests in
+      # PhoneDSHDeviceUITests; the page is no longer compiled into this
+      # hostless/hosted unit target.
       # The device panel page carries its UI-free, injected-source model and
       # the scripted fake, so this hostless suite drives the real panel state
       # machine without BLE or Application Support. The app-only adoption sheet

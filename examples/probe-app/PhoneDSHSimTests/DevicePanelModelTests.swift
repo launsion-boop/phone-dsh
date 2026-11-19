@@ -363,7 +363,9 @@ final class DevicePanelModelTests: XCTestCase {
         fake.queryOutcomes = [.completed(requestID: requestID, reply: .object(["status": .string("completed")]))]
         await reopened.query(toolName: "light.set")
         XCTAssertEqual(fake.queryCalls, [requestID])
-        XCTAssertTrue(DevicePanelModel(source: fake, results: cache).canSend(toolName: "light.set", preset: preset),
+        let afterQuery = DevicePanelModel(source: fake, results: cache)
+        afterQuery.refresh()
+        XCTAssertTrue(afterQuery.canSend(toolName: "light.set", preset: preset),
                       "a settled request frees the tool for a new call")
     }
 }

@@ -162,30 +162,36 @@ final class PhoneDSHReplacementWorkerBootIDTests: XCTestCase {
         // seed the initial bind, consume the HELLO that belongs to it, then feed
         // the termination and the same-id replacement HELLO.
         let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 1_000)
-        defer { scheduler.stop() }
-        var attempts: [String?] = []
-        scheduler.install { bootID in attempts.append(bootID) }
-        scheduler.seed(recoveredBootID: first.bootID)
-        scheduler.noteWorkerBoot(first.bootID,
-                                 helloCount: first.count,
-                                 fenceGeneration: first.generation)
-        XCTAssertTrue(attempts.isEmpty,
+        addTeardownBlock { await scheduler.stop() }
+        let attempts = AttemptLog()
+        await scheduler.install { bootID in attempts.record(bootID) }
+        await scheduler.seed(recoveredBootID: first.bootID)
+        await scheduler.noteWorkerBoot(first.bootID,
+                                       helloCount: first.count,
+                                       fenceGeneration: first.generation)
+        XCTAssertTrue(attempts.values.isEmpty,
                       "the HELLO that is already covered by the seeded bind must not rebind")
 
-        scheduler.noteTermination(count: 1)
-        scheduler.noteWorkerBoot(second.bootID,
-                                 helloCount: second.count,
-                                 fenceGeneration: second.generation)
-        scheduler.noteWorkerReady()
+        await scheduler.noteTermination(count: 1)
+        await scheduler.noteWorkerBoot(second.bootID,
+                                       helloCount: second.count,
+                                       fenceGeneration: second.generation)
+        await scheduler.noteWorkerReady()
 
-        let ready = await waitUntil(timeout: 2) { scheduler.phase == .ready }
+        let ready = await waitUntil(timeout: 2) {
+            let phase = await scheduler.phase
+            return phase == .ready
+        }
+        let phase = await scheduler.phase
         XCTAssertTrue(ready,
                       "the same-boot-id replacement HELLO must finish the rebind; "
-                          + "phase=\(scheduler.phase) attempts=\(attempts)")
-        XCTAssertEqual(attempts, [second.bootID],
+                          + "phase=\(phase) attempts=\(attempts.values)")
+        XCTAssertEqual(attempts.values, [second.bootID],
                        "the replacement connection is claimed exactly once")
-        XCTAssertEqual(scheduler.recoveredBootID, second.bootID)
-        XCTAssertEqual(scheduler.latestHelloCount, second.count)
+        let recovered = await scheduler.recoveredBootID
+        let latestHelloCount = await scheduler.latestHelloCount
+        XCTAssertEqual(recovered, second.bootID)
+        XCTAssertEqual(latestHelloCount, second.count)
     }
 
     private func waitForHost(_ host: PhoneDSHHost, _ state: PhoneDSHState,
@@ -196,13 +202,13 @@ final class PhoneDSHReplacementWorkerBootIDTests: XCTestCase {
     }
 
     private func waitUntil(timeout: TimeInterval,
-                           _ condition: @MainActor () -> Bool) async -> Bool {
+                           _ condition: @MainActor () async -> Bool) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if condition() { return true }
+            if await condition() { return true }
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
-        return condition()
+        return await condition()
     }
 
     /// Collects the reserved Worker boot-phase console lines the host forwards.
@@ -253,5 +259,24 @@ final class PhoneDSHReplacementWorkerBootIDTests: XCTestCase {
 private extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+/// Lock-protected bind log shared by the scheduler's `Sendable` recovery
+/// closure (which may run off the main actor) and the test body.
+private final class AttemptLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String?] = []
+
+    var values: [String?] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func record(_ bootID: String?) {
+        lock.lock()
+        storage.append(bootID)
+        lock.unlock()
     }
 }
