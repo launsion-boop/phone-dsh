@@ -53,7 +53,11 @@ public enum BotWorkerIncarnation {
 /// in-flight turns and re-claimed every session, so an unrelated rebind looked
 /// to the user like the other Bot disconnected. A live unit is now left alone:
 /// its transport, main session, scheduler and running turn stay untouched.
-@MainActor
+///
+/// The driver is actor-neutral and enters only the actors the callbacks enter. A caller whose state is actor-owned
+/// (the App's composition and units) hops to that actor explicitly inside
+/// `state` and `restart`, instead of forcing this runtime module onto the main
+/// actor (PC-20261116-bot-rebind-isolation).
 public enum BotRebindScope {
     public struct Outcome: Sendable, Equatable {
         /// Units left untouched; their transport and turn kept running.
@@ -69,19 +73,29 @@ public enum BotRebindScope {
     }
 
     /// Restarts every unit that is not serving the current Worker incarnation,
-    /// and exactly those. Each restart runs sequentially so transient transport
-    /// creation stays ordered, and a thrown error is recorded for that unit
-    /// without stopping the rest (the caller decides whether that is fatal).
+    /// and exactly those. State reads and restarts run sequentially so
+    /// transient transport creation stays ordered; each candidate's state is
+    /// read exactly once. A thrown error is recorded for that unit without
+    /// stopping the rest (the caller decides whether that is fatal), while the
+    /// first `CancellationError` stops the pass immediately.
     ///
-    /// - Parameter forceRestart: the bind is for a replaced Worker incarnation.
-    ///   Every unit's transport belongs to the old process, so all are
-    ///   restarted; `BotDSHRemoteRuntime.attachTransport` then *adopts* the new
-    ///   transport (marks a running turn interrupted, never cancels it).
-    public static func apply<T>(
+    /// - Parameters:
+    ///   - candidates: `Sendable` identities owned by the caller. Each value is
+    ///     handed unchanged to `state` and, when needed, `restart`.
+    ///   - forceRestart: the bind is for a replaced Worker incarnation.
+    ///     Every unit's transport belongs to the old process, so all are
+    ///     restarted; `BotDSHRemoteRuntime.attachTransport` then *adopts* the
+    ///     new transport (marks a running turn interrupted, never cancels it).
+    ///   - state: reads the candidate's current bind state. It is `@Sendable`
+    ///     and may hop into the caller's own actor for actor-owned state.
+    ///   - restart: restarts the candidate. It is `@Sendable` as well, so the
+    ///     caller can keep its actor isolated; a cancellation short-circuits
+    ///     the pass.
+    public static func apply<T: Sendable>(
         _ candidates: [T],
         forceRestart: Bool,
-        state: @MainActor (T) async -> BotRebindUnit,
-        restart: @MainActor (T) async throws -> Void
+        state: @Sendable (T) async -> BotRebindUnit,
+        restart: @Sendable (T) async throws -> Void
     ) async -> Outcome {
         var outcome = Outcome()
         for candidate in candidates {

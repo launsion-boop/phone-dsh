@@ -907,6 +907,9 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     case workspace
     case workspaceFiles = "workspace.files"
     case configuration
+    case bleDevices = "ble.devices"
+    case bleDevicesClosing = "ble.devices.closing"
+    case bleDevicesQuarantined = "ble.devices.quarantined"
     case chatAssistant = "chat.assistant"
     case chatOfficial = "chat.official"
     case chatFailed = "chat.failed"
@@ -978,6 +981,11 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
         case .workspace: WorkspaceFoldersPage()
         case .workspaceFiles: FilesPage()
         case .configuration: PDSHShellPage()
+        // Isolated simulated BLE page for the BluetoothDevicesPage XCUI tests.
+        // The real page and store run; only the radio callbacks are scripted.
+        case .bleDevices: BLEDevicesPreviewHarness(scenario: .connected)
+        case .bleDevicesClosing: BLEDevicesPreviewHarness(scenario: .closing)
+        case .bleDevicesQuarantined: BLEDevicesPreviewHarness(scenario: .quarantined)
         case .chatAssistant: ChatPage(previewItems: PreviewChatItems.assistant)
         case .chatOfficial: ChatPage(previewItems: PreviewChatItems.official)
         case .chatFailed: ChatPage(previewItems: PreviewChatItems.failed)

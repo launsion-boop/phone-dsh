@@ -11,8 +11,9 @@ import java.nio.file.Path
  *
  * A `write`/`edit` inside the Bot workspace root is auto: the DSH file sandbox
  * is the boundary. Outside it the resource is the standardized parent
- * directory, so an "always" grant is reusable for the next file in the same
- * directory and is never keyed by content or argument digest.
+ * directory, and that directory is also the effect's `grantResource`, so an
+ * "always" grant is reusable for the next file in the same directory and is
+ * never keyed by content or argument digest.
  */
 public object BotEgressEffects {
     public const val TOOL_NAME: String = "egress"
@@ -78,6 +79,7 @@ public object BotEgressEffects {
                 label = label,
                 detail = detail,
                 known = true,
+                grantResource = directory,
             ),
         )
     }
@@ -106,8 +108,10 @@ public object BotEgressEffects {
 
     public fun egressOperation(method: String): String = "egress.${method.lowercase()}"
 
+    /** Host-only Grant resource; scheme, port, path and query are excluded. */
     public fun egressResource(host: String): String = "host=${host.lowercase().trim()}"
 
+    /** One approval effect for a Bot network write, keyed to this exact host. */
     public fun egressEffect(
         method: String,
         host: String,
@@ -136,6 +140,7 @@ public object BotEgressEffects {
             label = label,
             detail = detail,
             known = true,
+            grantResource = resource,
         )
     }
 }

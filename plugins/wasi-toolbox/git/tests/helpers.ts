@@ -4,10 +4,10 @@
  *
  * The golden tests compare byte-for-byte against the system git, so every
  * fixture is produced by that git itself (never by the implementation under
- * test) with an isolated HOME, fixed author/committer dates and deterministic
- * file contents. When `git` is absent the suites skip with a message instead
- * of failing, matching the task's "generate fixtures with the system git when
- * present, else skip" contract.
+ * test) with an isolated HOME, a pinned C locale, fixed author/committer dates
+ * and deterministic file contents. When `git` is absent the suites skip with a
+ * message instead of failing, matching the task's "generate fixtures with the
+ * system git when present, else skip" contract.
  * @module @phone-dsh/dsh-wasi-toolbox/git/tests/helpers
  */
 import { spawnSync } from 'node:child_process'
@@ -76,6 +76,23 @@ export interface FixtureEnvironment {
   readonly env: Record<string, string>
 }
 
+/**
+ * The fixture locale is part of the oracle.
+ *
+ * Git translates its human-readable messages from the inherited environment,
+ * so a host with `zh_CN.UTF-8` would change only the system git's language and
+ * every byte-for-byte comparison would fail for a reason unrelated to git
+ * behavior. `LC_ALL` overrides every category (including `LC_MESSAGES`) and
+ * `LANG` covers tools that read it directly. A test that intentionally
+ * exercises another locale can override either key in the `env` it passes to
+ * {@link systemGit} or {@link workerGit}: those helpers spread the caller's
+ * environment last.
+ */
+const FIXTURE_LOCALE: Readonly<Record<string, string>> = {
+  LC_ALL: 'C',
+  LANG: 'C',
+}
+
 /** Create the isolated environment the fixture git and the Worker git share. */
 export function fixtureEnvironment(parent: string): FixtureEnvironment {
   const home = join(parent, 'home')
@@ -83,6 +100,7 @@ export function fixtureEnvironment(parent: string): FixtureEnvironment {
   return {
     home,
     env: {
+      ...FIXTURE_LOCALE,
       HOME: home,
       XDG_CONFIG_HOME: home,
       // No user or system configuration can leak into a fixture: the commit

@@ -195,6 +195,10 @@ public class BotApprovalCoordinator(
         interactiveWaitMilliseconds: Long,
     ): BotApprovalOutcome {
         ensureRestored()
+        // A card whose effects cannot safely stand must not offer "always":
+        // unknown tools and destructive operations keep the one-shot answer
+        // only, and the card's scope says so.
+        val offeredScope = if (effects.all { it.canUseStandingGrant }) alwaysScope else "none"
         val deferConsumption = effects.all { it.execution != null || it.tool == "attach_to_model" }
         standingDecision(call, effects, deferConsumption)?.let { return it }
         if (origin == "egress") {
@@ -215,7 +219,7 @@ public class BotApprovalCoordinator(
             "detail" to JsonString(detail),
             "digest" to JsonString(digest),
             "command" to JsonString(command),
-            "alwaysScope" to JsonString(alwaysScope),
+            "alwaysScope" to JsonString(offeredScope),
             "deferConsumption" to JsonBool(deferConsumption),
             "effects" to JsonArray(effects.map { it.toJson() }),
             "persistent" to JsonBool(persistent),
@@ -251,7 +255,7 @@ public class BotApprovalCoordinator(
             action = action,
             detail = detail,
             command = command,
-            alwaysScope = alwaysScope,
+            alwaysScope = offeredScope,
             deferConsumption = deferConsumption,
             persistent = persistent,
             origin = origin,
@@ -335,10 +339,14 @@ public class BotApprovalCoordinator(
             if (allowed) {
                 effectiveScope = when (decision) {
                     BotApprovalDecision.ALLOW_ONCE -> BotGrantScope.ONCE
-                    BotApprovalDecision.ALWAYS -> when (request.alwaysScope) {
-                        "until" -> BotGrantScope.UNTIL
-                        "session" -> BotGrantScope.SESSION
-                        else -> BotGrantScope.ONCE
+                    BotApprovalDecision.ALWAYS -> if (request.effects.all { it.canUseStandingGrant }) {
+                        when (request.alwaysScope) {
+                            "until" -> BotGrantScope.UNTIL
+                            "session" -> BotGrantScope.SESSION
+                            else -> BotGrantScope.ONCE
+                        }
+                    } else {
+                        BotGrantScope.ONCE
                     }
                     BotApprovalDecision.DENY -> BotGrantScope.ONCE
                 }

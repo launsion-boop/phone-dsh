@@ -243,6 +243,10 @@ final class BotRuntimeComposition {
     /// boot exists, never drops a newer boot seen mid-bind, and bounds every
     /// attempt so a stalled transport cannot leave the page at recovering.
     private let workerRecovery = BotWorkerRecoveryScheduler()
+    /// The single consumer of the scheduler's ordered phase stream. It is
+    /// installed with the recovery callback and before the host is observed,
+    /// and applies every phase on this composition's main actor in order.
+    private var workerRecoveryPhaseTask: Task<Void, Never>?
     /// Set while a caller deliberately parks/resumes the host and then
     /// reattaches the Bot remote itself (the session-epoch eraser). The
     /// automatic `.workerHello` recovery would race that manual sequence with
@@ -259,6 +263,12 @@ final class BotRuntimeComposition {
     private var tickTask: Task<Void, Never>?
     private var rosterTask: Task<Void, Never>?
     private var started = false
+    /// Monotonic binding lifecycle fence. Every bind and every detach/stop
+    /// advances it. A bind re-checks it after every suspension and immediately
+    /// before each remaining side effect, so a bind that a stop or a newer
+    /// binding superseded cannot reinstall the egress approver, restart a unit,
+    /// publish ready or set `started` after the newer lifecycle took over.
+    private var bindEpoch = 0
     /// Monotonic attempt number for the `bot-rebind` diagnostic timeline. It
     /// distinguishes the first bind from the scheduler's bounded retries.
     private var bindAttempts = 0
@@ -578,36 +588,67 @@ final class BotRuntimeComposition {
         server.onEndpointChange = { [weak self] url in
             Task { @MainActor [weak self] in self?.applyWorkerEndpoint(url) }
         }
-        installWorkerRecovery()
+        await installWorkerRecovery()
     }
 
     /// The composition owns the rebind; the scheduler only owns event order,
     /// redo-on-newer-boot and the per-attempt deadline.
-    private func installWorkerRecovery() {
-        workerRecovery.install { [weak self] _ in
+    ///
+    /// The recovery callback is `Sendable` and not actor-isolated: it enters
+    /// this composition's main actor explicitly. The scheduler publishes its
+    /// phases through one non-dropping stream; the single consumer below is
+    /// started here, before `observeHost` can accept host events, so phase
+    /// order is preserved on the UI actor.
+    private func installWorkerRecovery() async {
+        await workerRecovery.install { [weak self] _ in
             guard let self else { throw CancellationError() }
-            guard let host = self.host else {
+            guard let host = await self.host else {
                 throw BotMCPError.unavailable("the Bot host is not connected")
             }
             try await self.bind(to: host, recovering: true)
         }
-        workerRecovery.onPhaseChange = { [weak self] phase in
-            guard let self else { return }
-            switch phase {
-            case .idle:
-                break
-            case .recovering:
-                self.state = .recovering
-            case .ready:
-                self.state = .ready
-            case .failed(let message):
-                // The scheduler owns the bounded automatic-retry round: an
-                // event-driven failure (or the user's 重试) starts one, but a
-                // failure inside that round never re-arms it. Once the round is
-                // exhausted this phase stays `.failed` until the user retries or
-                // a new Worker boot/foreground event arrives.
-                self.state = .failed(message)
+        workerRecoveryPhaseTask?.cancel()
+        let phases = workerRecovery.phases
+        workerRecoveryPhaseTask = Task { [weak self] in
+            for await event in phases {
+                guard !Task.isCancelled, let self else { return }
+                await self.applyWorkerRecoveryPhase(event)
             }
+        }
+    }
+
+    /// Applies one queued scheduler phase only when it still belongs to this
+    /// binding's lifecycle.
+    ///
+    /// The scheduler emits phases through one ordered stream, but a phase
+    /// buffered before a `stop()`/manual takeover/new round is read after the
+    /// fence already happened. The notification epoch is compared with the
+    /// scheduler's *current* epoch, and the bind epoch is checked again after
+    /// that await. A detach, stop or newer bind that ran while this consumer
+    /// was suspended therefore wins; the queued event is dropped instead of
+    /// setting `.failed`/`.ready` over the newer lifecycle. Current phases are
+    /// not lost: every scheduler fence republishes its current phase at the
+    /// new epoch.
+    private func applyWorkerRecoveryPhase(
+        _ event: BotWorkerRecoveryScheduler.PhaseEvent
+    ) async {
+        let bindingEpoch = bindEpoch
+        let currentEpoch = await workerRecovery.phaseEpoch
+        guard bindingEpoch == bindEpoch, event.epoch == currentEpoch else { return }
+        switch event.phase {
+        case .idle:
+            break
+        case .recovering:
+            state = .recovering
+        case .ready:
+            state = .ready
+        case .failed(let message):
+            // The scheduler owns the bounded automatic-retry round: an
+            // event-driven failure (or the user's 重试) starts one, but a
+            // failure inside that round never re-arms it. Once the round is
+            // exhausted this phase stays `.failed` until the user retries or
+            // a new Worker boot/foreground event arrives.
+            state = .failed(message)
         }
     }
 
@@ -679,18 +720,42 @@ final class BotRuntimeComposition {
         }
         rosterModel.setRuntimeState(BotRosterRuntimeState(runtimeState: state), for: botID)
         if started, let host {
+            // Mint the unit-local lease before the first await. The catch below
+            // can then clean up only the attempt this selection still owns: a
+            // bind/newer start that took over while the transport was being
+            // created makes `detach(ifCurrent:)` a no-op instead of tearing
+            // the newer start down.
+            let bindingEpoch = bindEpoch
+            let lease = unit.beginStart()
             do {
                 let channelDetail = BotRebindDiagnostics.channelDetail(
                     await host.channelSelection())
+                try Task.checkCancellation()
+                guard started, self.host === host, bindEpoch == bindingEpoch else {
+                    throw CancellationError()
+                }
                 let transport = try await host.makeTransport()
-                try await unit.start(transport: transport, attempt: 0,
-                                     channelDetail: channelDetail)
+                try Task.checkCancellation()
+                guard started, self.host === host, bindEpoch == bindingEpoch else {
+                    throw CancellationError()
+                }
+                try await unit.start(
+                    transport: transport, attempt: 0,
+                    channelDetail: channelDetail,
+                    lease: lease,
+                    isOuterBindCurrent: { [weak self] in
+                        guard let self else { return false }
+                        return self.started && self.host === host
+                            && self.bindEpoch == bindingEpoch
+                    })
                 installTransportFailureHandler(for: unit, botID: botID)
                 schedulePendingActionReplay(for: unit, reason: "unit-start")
             } catch {
-                units.removeValue(forKey: botID)
-                await runtime.detachTaskExecutor(botID: botID)
-                await unit.detach()
+                let detached = await unit.detach(ifCurrent: lease)
+                if detached, units[botID] === unit {
+                    units.removeValue(forKey: botID)
+                    await runtime.detachTaskExecutor(botID: botID)
+                }
                 throw error
             }
         }
@@ -736,8 +801,12 @@ final class BotRuntimeComposition {
     /// in-flight flag as "already retrying".
     func retry() async {
         guard host != nil else { return }
+        // The manual session-epoch eraser owns the only rebind for this Worker
+        // boot. An automatic attempt started here would race the caller's own
+        // park/start and could outlive the manual outcome.
+        guard !suppressesWorkerBootRebind else { return }
         guard !started || state.isFailure || state == .recovering else { return }
-        workerRecovery.forceRetry()
+        await workerRecovery.forceRetry()
         await workerRecovery.waitUntilIdle()
     }
 
@@ -755,14 +824,30 @@ final class BotRuntimeComposition {
             state: readinessState)
     }
 
+    /// Rejects every remaining step of a bind that a detach, manual takeover,
+    /// stop or newer binding superseded. It is main-actor isolated, and callers
+    /// invoke it immediately before the side effect it guards, so the check
+    /// and that side effect are one non-interleaved step on the composition's
+    /// actor.
+    private func ensureCurrentBind(_ epoch: Int, host newHost: PhoneDSHHost) throws {
+        try Task.checkCancellation()
+        guard bindEpoch == epoch, host === newHost else {
+            throw CancellationError()
+        }
+    }
+
     private func bind(to newHost: PhoneDSHHost, recovering: Bool) async throws {
         try Task.checkCancellation()
+        bindEpoch &+= 1
+        let bindingEpoch = bindEpoch
+        try ensureCurrentBind(bindingEpoch, host: newHost)
         bindAttempts &+= 1
         let attempt = bindAttempts
         let bindStep = BotRebindDiagnostics.start(
             "bind.begin", attempt: attempt,
             detail: "recovering=\(recovering ? 1 : 0) "
                 + BotRebindDiagnostics.channelDetail(await newHost.channelSelection()))
+        try ensureCurrentBind(bindingEpoch, host: newHost)
         state = recovering ? .recovering : .connecting
         // A bind is a Worker-incarnation operation, not a UI selection. Compare
         // the boot the units are attached to with the one this host is serving:
@@ -771,12 +856,15 @@ final class BotRuntimeComposition {
         // adopt fix) cancelled its running turn, which is exactly the "the other
         // Bot disconnected when I switched" report.
         let workerReplaced = BotWorkerIncarnation.isReplaced(
-            previousBootID: workerRecovery.recoveredBootID,
+            previousBootID: await workerRecovery.recoveredBootID,
             currentBootID: await newHost.currentWorkerBootID)
+        try ensureCurrentBind(bindingEpoch, host: newHost)
         // Tell the host which turns the App is keeping alive. A graceful
         // background park that would abort one of them is refused instead of
         // cancelling it (see `PhoneDSHHost.setBackgroundTurnHoldProvider`).
+        try ensureCurrentBind(bindingEpoch, host: newHost)
         await installParkHold(on: newHost)
+        try ensureCurrentBind(bindingEpoch, host: newHost)
         // Units must not attach themselves inside `ensureUnit` while this
         // method is iterating them; the loop below owns transport creation.
         started = false
@@ -796,7 +884,7 @@ final class BotRuntimeComposition {
                 BotRebindDiagnostics.emit(
                     "bot-rebind step=worker-kept attempt=\(attempt) reason=same-incarnation")
             }
-            try Task.checkCancellation()
+            try ensureCurrentBind(bindingEpoch, host: newHost)
             // The host gateway calls this seam only for Bot-attributed
             // POST/PUT/PATCH/DELETE `/v1/http` writes. The policy is the same
             // live object the App uses for exact-MCP admission/credentials.
@@ -805,6 +893,19 @@ final class BotRuntimeComposition {
                 await runtime.installWorkbenchTurnProbe(nil)
                 if let policy = newHost.configuration.egressAuthorizer as? MCPEgressPolicy {
                     let runtime = self.runtime
+                    // Install the workbench probe first (the await), then
+                    // check the bind epoch and install the approver and record
+                    // its owner without another suspension. A detach that ran
+                    // while this bind was suspended therefore cannot be
+                    // followed by a stale approver install: either the check
+                    // throws, or the install+record happen before the detach
+                    // can run and the detach clears them.
+                    await runtime.installWorkbenchTurnProbe { [weak newHost, weak runtime] in
+                        guard let newHost, let runtime else { return false }
+                        let botSessions = await runtime.activeSessionIDs()
+                        return await newHost.hasActiveWorkbenchTurn(excluding: botSessions)
+                    }
+                    try self.ensureCurrentBind(bindingEpoch, host: newHost)
                     policy.installBotEgressApprover { request in
                         let outcome = await runtime.approveEgress(
                             method: request.method,
@@ -825,74 +926,86 @@ final class BotRuntimeComposition {
                     // the journal scan. The probe is installed only while this
                     // composition is bound; a detached runtime answers no
                     // egress.
-                    await runtime.installWorkbenchTurnProbe { [weak newHost, weak runtime] in
-                        guard let newHost, let runtime else { return false }
-                        let botSessions = await runtime.activeSessionIDs()
-                        return await newHost.hasActiveWorkbenchTurn(excluding: botSessions)
-                    }
-                    botEgressPolicy = policy
+                    self.botEgressPolicy = policy
                 }
             }
+            try ensureCurrentBind(bindingEpoch, host: newHost)
             try await BotRebindDiagnostics.run(
                 "host-start", attempt: attempt,
                 detail: BotRebindDiagnostics.channelDetail(await newHost.channelSelection())
             ) {
+                try self.ensureCurrentBind(bindingEpoch, host: newHost)
                 try await newHost.start()
             }
-            try Task.checkCancellation()
+            try ensureCurrentBind(bindingEpoch, host: newHost)
 
             // Always have the selected Bot and every routine owner attached
             // before the outbox/schedulers start.
             let selected = rosterModel.selectedBotID ?? rosterModel.mainBotID
             try await BotRebindDiagnostics.run("ensure-units", attempt: attempt) {
+                try self.ensureCurrentBind(bindingEpoch, host: newHost)
                 if let selected { _ = try await ensureUnit(for: selected) }
                 try Task.checkCancellation()
                 for botID in await routineOwnerBotIDs() where botID != selected {
                     _ = try? await ensureUnit(for: botID, reason: "routine-owner")
                 }
             }
-            try Task.checkCancellation()
+            try ensureCurrentBind(bindingEpoch, host: newHost)
 
             let restartErrors = try await rebindUnits(
                 on: newHost, attempt: attempt,
-                forceRestart: workerReplaced, selected: selected)
+                forceRestart: workerReplaced, selected: selected,
+                bindEpoch: bindingEpoch)
+            _ = restartErrors
 
             #if canImport(PhoneDSHADB) && canImport(PhoneDSHLoopback)
             #if canImport(PhoneDSHBLE) && canImport(PhoneDSHVenus)
             try await BotRebindDiagnostics.run("native-mcp", attempt: attempt) {
+                try self.ensureCurrentBind(bindingEpoch, host: newHost)
                 await attachNativeMCP(PhoneNativeMCP.server)
             }
             #elseif canImport(PhoneDSHBLE)
             try await BotRebindDiagnostics.run("native-mcp", attempt: attempt) {
+                try self.ensureCurrentBind(bindingEpoch, host: newHost)
                 await attachNativeMCP(DeviceMCPServer.shared)
             }
             #else
             try await BotRebindDiagnostics.run("native-mcp", attempt: attempt) {
+                try self.ensureCurrentBind(bindingEpoch, host: newHost)
                 await attachNativeMCP(ADBMCPServer.shared)
             }
             #endif
             #endif
 
-            try Task.checkCancellation()
+            try ensureCurrentBind(bindingEpoch, host: newHost)
             try await BotRebindDiagnostics.run("outbox-handlers", attempt: attempt) {
+                try self.ensureCurrentBind(bindingEpoch, host: newHost)
                 await installOutboxHandlers()
             }
+            try ensureCurrentBind(bindingEpoch, host: newHost)
             started = true
             if !recovering {
                 // Seed before subscribing so a HELLO delivered immediately
                 // after `observeHost` is compared with the boot this bind
                 // actually attached, not a previous incarnation.
+                try ensureCurrentBind(bindingEpoch, host: newHost)
                 try await BotRebindDiagnostics.run("seed", attempt: attempt) {
-                    workerRecovery.seed(
-                        recoveredBootID: await newHost.currentWorkerBootID)
+                    let current = await newHost.currentWorkerBootID
+                    await workerRecovery.seed(recoveredBootID: current)
                 }
+                try ensureCurrentBind(bindingEpoch, host: newHost)
             }
+            try ensureCurrentBind(bindingEpoch, host: newHost)
             try await BotRebindDiagnostics.run("observe-host", attempt: attempt) {
+                try self.ensureCurrentBind(bindingEpoch, host: newHost)
                 await observeHost(newHost)
             }
+            try ensureCurrentBind(bindingEpoch, host: newHost)
             try await BotRebindDiagnostics.run("outbox-start", attempt: attempt) {
+                try self.ensureCurrentBind(bindingEpoch, host: newHost)
                 await outbox.start()
             }
+            try ensureCurrentBind(bindingEpoch, host: newHost)
             startTick()
             installDeviceTaskResultDelivery()
             state = .ready
@@ -909,7 +1022,7 @@ final class BotRuntimeComposition {
             // round: it schedules the next attempt or publishes the terminal
             // `.failed` phase once the budget is exhausted. Setting `.failed`
             // here would flash "重试" between attempts of the same round.
-            if !recovering {
+            if !recovering, bindingEpoch == self.bindEpoch, host === newHost {
                 state = .failed("Bot 连接失败：\(error.localizedDescription)")
             }
             bindStep.end(ok: false, error: error)
@@ -928,16 +1041,39 @@ final class BotRuntimeComposition {
     /// recovering/failed, while another Bot that failed to attach is skipped,
     /// logged, and retried by the next bind (it has no live transport, so it is
     /// always in the restart set).
+    ///
+    /// `BotRebindScope` is actor-neutral, so its callbacks are `@Sendable`.
+    /// This composition and its units stay main-actor isolated: the closures
+    /// hop explicitly, and the original `Error` of a failed unit is kept in an
+    /// actor-owned box instead of a mutable captured dictionary (which a
+    /// `@Sendable` callback must not mutate). The selected Bot's original
+    /// `Error` is rethrown after the pass, never a formatted string.
     private func rebindUnits(on host: PhoneDSHHost, attempt: Int,
                              forceRestart: Bool,
-                             selected: String?) async throws -> [String: Error] {
-        var errors: [String: Error] = [:]
+                             selected: String?, bindEpoch: Int) async throws -> [String: Error] {
+        actor RebindErrorBox {
+            private var errors: [String: Error] = [:]
+
+            func record(_ error: Error, for botID: String) {
+                errors[botID] = error
+            }
+
+            func error(for botID: String) -> Error? {
+                errors[botID]
+            }
+
+            func snapshot() -> [String: Error] {
+                errors
+            }
+        }
+        let errors = RebindErrorBox()
         var visited = Set<String>()
         // `select()` during this bind can create a unit after a pass took its
         // snapshot; take a bounded second look so a newly selected Bot is
         // attached before the bind completes instead of waiting for the next
         // one. No bind is ever started from the selection path.
         for _ in 0..<3 {
+            try ensureCurrentBind(bindEpoch, host: host)
             let pending = units.filter { !visited.contains($0.key) }
             guard !pending.isEmpty else { break }
             let ordered = pending.sorted { lhs, rhs in
@@ -952,12 +1088,13 @@ final class BotRuntimeComposition {
                 restart: { entry in
                     do {
                         try await self.startUnit(entry.value, botID: entry.key,
-                                                 on: host, attempt: attempt)
+                                                 on: host, attempt: attempt, bindEpoch: bindEpoch)
                     } catch {
-                        errors[entry.key] = error
+                        await errors.record(error, for: entry.key)
                         throw error
                     }
                 })
+            try ensureCurrentBind(bindEpoch, host: host)
             visited.formUnion(ordered.map(\.key))
             for botID in outcome.kept {
                 BotRebindDiagnostics.emit(
@@ -973,35 +1110,48 @@ final class BotRuntimeComposition {
                 print("[BotRuntimeComposition] unit \(botID) start failed: \(token)")
             }
             if outcome.wasCancelled { throw CancellationError() }
-            if let selected, let error = errors[selected] { throw error }
+            if let selected {
+                if let error = await errors.error(for: selected) { throw error }
+            }
         }
-        if let selected, let error = errors[selected] { throw error }
-        return errors
+        if let selected {
+            if let error = await errors.error(for: selected) { throw error }
+        }
+        return await errors.snapshot()
     }
 
     /// A Worker transport that stops answering must not surface as a silent
     /// infinite send. The runtime quarantines it once per generation; ask the
-    /// existing recovery scheduler for a fresh bind without awaiting it here
-    /// (the runtime actor must stay free to fail other waiters).
+    /// existing recovery scheduler for a fresh bind without waiting for the
+    /// whole recovery here (the runtime actor must stay free to fail other
+    /// waiters).
     private func installTransportFailureHandler(for unit: BotRuntimeUnit, botID: String) {
         Task { [weak self] in
             await unit.remote.setTransportFailureHandler { [weak self] in
                 guard let self else { return }
-                await MainActor.run {
-                    BotRebindDiagnostics.emit(
-                        "bot-rebind step=transport-stall bot=\(botID)")
-                    self.workerRecovery.forceRetry()
-                }
+                await self.handleTransportFailure(botID: botID)
             }
         }
+    }
+
+    /// Enters the composition's actor from the runtime's Sendable failure
+    /// callback. `forceRetry` only starts the scheduler's next attempt; the
+    /// scheduler owns its bounded completion and retries.
+    private func handleTransportFailure(botID: String) async {
+        BotRebindDiagnostics.emit(
+            "bot-rebind step=transport-stall bot=\(botID)")
+        // During the manual rebind window the manual path owns the reattach;
+        // a stalled automatic transport must not start a competing bind.
+        guard !suppressesWorkerBootRebind else { return }
+        await workerRecovery.forceRetry()
     }
 
     /// Creates this unit's transport for the bind and attaches it. Kept as one
     /// awaited step so the transport diagnostics carry the same `attempt` as
     /// the rest of the bind.
     private func startUnit(_ unit: BotRuntimeUnit, botID: String,
-                           on host: PhoneDSHHost, attempt: Int) async throws {
-        try Task.checkCancellation()
+                           on host: PhoneDSHHost, attempt: Int, bindEpoch: Int) async throws {
+        try ensureCurrentBind(bindEpoch, host: host)
         let channelDetail = BotRebindDiagnostics.channelDetail(
             await host.channelSelection())
         let transport = try await BotRebindDiagnostics.run(
@@ -1010,9 +1160,20 @@ final class BotRuntimeComposition {
         ) {
             try await host.makeTransport()
         }
-        try Task.checkCancellation()
-        try await unit.start(transport: transport, attempt: attempt,
-                             channelDetail: channelDetail)
+        try ensureCurrentBind(bindEpoch, host: host)
+        let lease = unit.beginStart()
+        try await unit.start(
+            transport: transport, attempt: attempt,
+            channelDetail: channelDetail,
+            lease: lease,
+            isOuterBindCurrent: { [weak self] in
+                guard let self else { return false }
+                // The bind epoch is the composition's outer fence: a stop,
+                // detach or newer bind advances it, so this attempt stops even
+                // before that newer lifecycle reaches the unit's detach.
+                return self.bindEpoch == bindEpoch && self.host === host
+            })
+        try ensureCurrentBind(bindEpoch, host: host)
         installTransportFailureHandler(for: unit, botID: botID)
         // The main session is live, so any action a previous process persisted
         // before its remote turn can be replayed now. Detached: the bind must
@@ -1064,6 +1225,9 @@ final class BotRuntimeComposition {
     }
 
     private func detachBinding() async {
+        // Fence before any teardown: every suspended bind/phase application
+        // now fails its epoch check, so it cannot undo the detach below.
+        bindEpoch &+= 1
         if let host { await host.setBackgroundTurnHoldProvider(nil) }
         botEgressPolicy?.installBotEgressApprover(nil)
         await runtime.installWorkbenchTurnProbe(nil)
@@ -1073,7 +1237,7 @@ final class BotRuntimeComposition {
         await outbox.stop()
         tickTask?.cancel(); tickTask = nil
         hostTask?.cancel(); hostTask = nil
-        workerRecovery.stop()
+        await workerRecovery.stop()
         observedHost = nil
         started = false
     }
@@ -1276,7 +1440,14 @@ final class BotRuntimeComposition {
         suppressesParkHold = true
         // The manual path is the only rebind for this Worker boot. Release
         // any armed ready gate/attempt so it cannot race the park/start.
-        workerRecovery.beginManualRebind()
+        // Awaited so the manual fence is installed before the caller parks the
+        // host and before any later event can observe a new bind.
+        //
+        // Fence the composition first: an automatic bind that is already
+        // suspended fails its next epoch check instead of reinstalling egress
+        // or publishing ready after the manual sequence took over.
+        bindEpoch &+= 1
+        await workerRecovery.beginManualRebind()
         // The parked Worker loses its in-memory registrations and every live
         // Task turn. This is the same transition an automatic bind performs;
         // without it a Task cut by the park settles as `failed` instead of
@@ -1291,9 +1462,9 @@ final class BotRuntimeComposition {
             // unit itself, including the new main session. Record the current
             // Worker boot as already bound so the page leaves recovering.
             let current = await host.currentWorkerBootID
-            workerRecovery.completeManualRebind(recoveredBootID: current)
+            await workerRecovery.completeManualRebind(recoveredBootID: current)
         } else {
-            workerRecovery.failManualRebind("Bot 连接没有恢复，请重试。")
+            await workerRecovery.failManualRebind("Bot 连接没有恢复，请重试。")
         }
         suppressesWorkerBootRebind = false
     }
@@ -1322,21 +1493,21 @@ final class BotRuntimeComposition {
                     // replacement has not HELLOed yet. The HELLO below is the
                     // point where a transport can actually answer.
                     if !self.suppressesWorkerBootRebind {
-                        self.workerRecovery.noteTermination(count: count)
+                        await self.workerRecovery.noteTermination(count: count)
                     }
                 case .restarted(let report):
                     // Page boot-ready precedes the ordered-channel HELLO.
                     // Remember the boot id for a retry target, but wait for
                     // `.workerHello` before opening a transport.
-                    self.workerRecovery.noteBootCandidate(report.bootID)
+                    await self.workerRecovery.noteBootCandidate(report.bootID)
                 case .workerHello(let hello):
                     if self.suppressesWorkerBootRebind {
-                        self.workerRecovery.noteBootCandidate(hello.bootID)
+                        await self.workerRecovery.noteBootCandidate(hello.bootID)
                     } else {
                         // The HELLO count discards a duplicate; the termination
                         // event decides that this connection is the replacement,
                         // so a reused boot id still rebinds.
-                        self.workerRecovery.noteWorkerBoot(
+                        await self.workerRecovery.noteWorkerBoot(
                             hello.bootID, helloCount: hello.count,
                             fenceGeneration: hello.generation)
                     }
@@ -1349,7 +1520,7 @@ final class BotRuntimeComposition {
                     // does not forward it).
                     if let phase = PhoneDSHBootPhase.parse(payload.text),
                        phase.scope == "worker", phase.phase == "ready" {
-                        self.workerRecovery.noteWorkerReady()
+                        await self.workerRecovery.noteWorkerReady()
                     }
                 default:
                     break

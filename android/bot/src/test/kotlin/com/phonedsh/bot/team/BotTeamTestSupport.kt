@@ -48,6 +48,8 @@ internal class FakeBotTeamHost(
     val createdAuthors: MutableList<BotTeammateAuthor?> = ArrayList()
     val delivered: MutableList<BotAgentDeliveryRequest> = ArrayList()
     val heldRequests: MutableList<BotTeamHeldRequest> = ArrayList()
+    /** Bot ids woken by a non-duplicate held enqueue (`team.md` §2.3.1). */
+    val wakeRequests: MutableList<String> = ArrayList()
     val records: MutableList<BotTeamAgentCommRecord> = ArrayList()
     private val contexts: MutableMap<String, BotAgentCommContext> = LinkedHashMap()
     private val threads: MutableMap<String, String> = LinkedHashMap()
@@ -110,16 +112,27 @@ internal class FakeBotTeamHost(
                 if (event.principal.botId != botID) continue
                 val data = event.data as? JsonObject ?: continue
                 val members = data.members
-                if ((members["direction"] as? com.phonedsh.agentcore.JsonString)?.value !=
-                    "outbound"
-                ) {
-                    continue
+                val direction =
+                    (members["direction"] as? com.phonedsh.agentcore.JsonString)?.value
+                val threadID =
+                    (members["threadId"] as? com.phonedsh.agentcore.JsonString)?.value
+                when (direction) {
+                    "outbound" -> {
+                        val durableRequestID =
+                            (members["requestId"] as? com.phonedsh.agentcore.JsonString)
+                                ?.value
+                                ?: event.correlationId
+                        if (durableRequestID == requestID) return threadID
+                    }
+                    // A reply carries the exchange requestId; its own callId is
+                    // the durable idempotency key (`team.md` §2.4).
+                    "reply" -> {
+                        val durableCallID =
+                            (members["callId"] as? com.phonedsh.agentcore.JsonString)?.value
+                        if (durableCallID == requestID) return threadID
+                    }
+                    else -> Unit
                 }
-                val durableRequestID = (members["requestId"] as? com.phonedsh.agentcore.JsonString)
-                    ?.value
-                    ?: event.correlationId
-                if (durableRequestID != requestID) continue
-                return (members["threadId"] as? com.phonedsh.agentcore.JsonString)?.value
             }
             if (events.size != 1_000) break
             cursor = events.last().commitSeq?.toInt() ?: break
@@ -141,13 +154,24 @@ internal class FakeBotTeamHost(
         heldRequests += request
         val key = request.item.requestId ?: request.item.id
         val duplicate = !heldRequestIDs.add(key)
+        if (request.wake && !duplicate) wakeRequests += request.botID
         return WakeInboxEnqueue(ok = true, item = request.item, duplicate = duplicate)
     }
 
     override suspend fun recordAgentComm(record: BotTeamAgentCommRecord) {
         records += record
-        if (record.direction == com.phonedsh.bot.rows.BotAgentCommDirection.OUTBOUND) {
-            threads[threadKey(record.botID, record.requestID)] = record.threadID
+        when (record.direction) {
+            com.phonedsh.bot.rows.BotAgentCommDirection.OUTBOUND -> {
+                threads[threadKey(record.botID, record.requestID)] = record.threadID
+            }
+            // A reply row keeps the exchange requestID; its callID is the
+            // durable idempotency key, exactly like the production index.
+            com.phonedsh.bot.rows.BotAgentCommDirection.REPLY -> {
+                record.callID?.takeIf { it.isNotEmpty() }?.let {
+                    threads[threadKey(record.botID, it)] = record.threadID
+                }
+            }
+            else -> Unit
         }
         sqlite?.store?.append(record.toEvent(now()))
     }

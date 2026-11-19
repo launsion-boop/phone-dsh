@@ -8,12 +8,17 @@
 // Worker boot: it never binds before the replacement boot is known, retries a
 // newer boot seen during an in-flight rebind, and bounds every attempt so a
 // transport that never answers cannot leave the Bot page at "正在重新同步…".
+//
+// The scheduler is actor-isolated and has no main-actor annotation: callers
+// await its commands and snapshot reads. The installed recovery callback is
+// `Sendable` and enters any app-specific actor itself. Phase changes are
+// published through one non-dropping stream so the application can consume
+// them on its own actor in scheduler order.
 
 import Foundation
 
 /// Serializes the App-side rebind of the production Bot composition.
-@MainActor
-public final class BotWorkerRecoveryScheduler {
+public actor BotWorkerRecoveryScheduler {
     public enum Phase: Equatable, Sendable {
         case idle
         case recovering
@@ -21,12 +26,51 @@ public final class BotWorkerRecoveryScheduler {
         case failed(String)
     }
 
+    /// One phase transition and the scheduler lifecycle epoch it belongs to.
+    ///
+    /// A consumer must compare ``epoch`` with the scheduler's *current*
+    /// ``phaseEpoch`` after it dequeues the event. A notification buffered
+    /// before a `stop()`, a manual takeover or a new event-driven round is
+    /// stale at that point even though it is still in stream order; applying
+    /// it would let an old bind mutate the state of the binding that replaced
+    /// it. Every fence publishes the current phase at its new epoch even when
+    /// the phase value itself did not change, so a current phase is never
+    /// dropped while stale ones are rejected.
+    public struct PhaseEvent: Equatable, Sendable {
+        public let phase: Phase
+        public let epoch: UInt64
+
+        public init(phase: Phase, epoch: UInt64) {
+            self.phase = phase
+            self.epoch = epoch
+        }
+    }
+
     /// The production rebind: re-attach every Bot unit's transport, restart
     /// the main session and re-claim its credentials. The scheduler only
     /// decides when it runs; it never widens a credential check.
-    public typealias Recovery = @MainActor (_ workerBootID: String?) async throws -> Void
+    ///
+    /// The callback is `Sendable` and intentionally not actor-isolated. App/UI
+    /// work is entered explicitly by the callback; the runtime module never
+    /// requires a main actor.
+    public typealias Recovery = @Sendable (_ workerBootID: String?) async throws -> Void
+
+    /// Ordered, lossless phase notifications. The buffer is unbounded, so a
+    /// transition is never dropped while the application's single consumer is
+    /// busy. Install the callback and start that consumer before accepting host
+    /// events; the consumer applies phases on the application's actor, and
+    /// rejects an event whose ``PhaseEvent/epoch`` is no longer the scheduler's
+    /// current ``phaseEpoch``.
+    public nonisolated let phases: AsyncStream<PhaseEvent>
+    private nonisolated let phaseContinuation: AsyncStream<PhaseEvent>.Continuation
 
     public private(set) var phase: Phase = .idle
+    /// Monotonic lifecycle fence for phase publication. It advances when a
+    /// binding is superseded (stop, manual takeover) and when a new
+    /// event-driven round or ready gate takes ownership. A queued notification
+    /// with an older epoch must not mutate application state: it belongs to a
+    /// bind that the current one replaced.
+    public private(set) var phaseEpoch: UInt64 = 0
     /// The Worker boot id whose rebind completed successfully.
     public private(set) var recoveredBootID: String?
     /// The newest Worker boot id observed from the host (HELLO or restart).
@@ -44,9 +88,6 @@ public final class BotWorkerRecoveryScheduler {
     public private(set) var latestFenceGeneration: UInt64 = 0
     /// For diagnostics/tests: whether a rebind is currently running.
     public private(set) var isRecovering = false
-    /// For diagnostics/tests: the replacement boot is known from HELLO and the
-    /// bind is waiting for its Worker `ready` signal.
-    public var isAwaitingWorkerReady: Bool { awaitingReadyTarget != nil }
 
     /// Every attempt is bounded. A Worker replacement normally rebinds in a
     /// few seconds; the bound is only a safety net for a stalled transport.
@@ -63,9 +104,8 @@ public final class BotWorkerRecoveryScheduler {
     /// phase lines over the ordered channel; an older bundle that does not
     /// still recovers, just without the early-readiness guarantee.
     public let readyFallbackMilliseconds: Int
-    public var onPhaseChange: ((Phase) -> Void)?
 
-    private enum Target: Equatable {
+    private enum Target: Equatable, Sendable {
         /// A specific replacement Worker, named by its HELLO boot id.
         case boot(String)
         /// No new boot is known (the visible retry button); the production
@@ -78,7 +118,7 @@ public final class BotWorkerRecoveryScheduler {
         }
     }
 
-    private enum AttemptResult {
+    private enum AttemptResult: Sendable {
         case success
         case failure(String)
         case timedOut
@@ -114,6 +154,17 @@ public final class BotWorkerRecoveryScheduler {
     private var task: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
     private var attemptContinuation: AsyncStream<AttemptResult>.Continuation?
+    /// Test-only suspension point at the top of ``runAttempt``, before the
+    /// attempt may install its result continuation. Production never sets it;
+    /// the scheduler tests use it to hold a superseded attempt in the one
+    /// window in which a stale task could otherwise overwrite the live
+    /// generation's continuation.
+    private var attemptEntryHook: (@Sendable () async -> Void)?
+
+    /// Installs (or clears with `nil`) the test-only attempt entry hook.
+    func setAttemptEntryHook(_ hook: (@Sendable () async -> Void)?) {
+        attemptEntryHook = hook
+    }
     /// Attempts left in the current round. It is set only by an event-driven
     /// start and decremented by each scheduled automatic retry, so a failing
     /// automatic retry cannot reset it.
@@ -127,11 +178,22 @@ public final class BotWorkerRecoveryScheduler {
         self.maximumAutomaticRetries = max(0, maximumAutomaticRetries)
         self.retryDelayMilliseconds = max(0, retryDelayMilliseconds)
         self.readyFallbackMilliseconds = max(0, readyFallbackMilliseconds)
+        let (stream, continuation) = AsyncStream<PhaseEvent>.makeStream(
+            bufferingPolicy: .unbounded)
+        self.phases = stream
+        self.phaseContinuation = continuation
+    }
+
+    deinit {
+        phaseContinuation.finish()
     }
 
     public func install(_ recovery: @escaping Recovery) {
         self.recovery = recovery
     }
+
+    /// Whether a rebind is waiting for its Worker's `ready` signal.
+    public var isAwaitingWorkerReady: Bool { awaitingReadyTarget != nil }
 
     /// Records the Worker boot whose rebind succeeded during the initial
     /// composition bind. No recovery runs; the next new boot does.
@@ -152,6 +214,11 @@ public final class BotWorkerRecoveryScheduler {
         // queued from that bind is not a replacement.
         self.lastTerminationCount = 0
         self.replacementHelloPending = false
+        // A seed is a new binding. Advance the phase fence without publishing:
+        // the caller owns the bind and publishes its own terminal state (the
+        // initial bind sets ready directly, the manual path calls `setPhase`).
+        // Queued notifications from the binding this one replaced are stale.
+        phaseEpoch &+= 1
     }
 
     /// Starts a deliberate manual park/start (the S6 epoch eraser). An
@@ -163,18 +230,12 @@ public final class BotWorkerRecoveryScheduler {
         awaitingReadyTarget = nil
         workerReady = false
         automaticRetriesRemaining = 0
-        if isRecovering {
-            generation &+= 1
-            task?.cancel()
-            attemptContinuation?.finish()
-            attemptContinuation = nil
-            task = nil
-            isRecovering = false
-            activeTarget = nil
-            pendingTarget = nil
-        }
+        // The manual path owns the reattach. Supersede any automatic attempt,
+        // even one started during this manual window, so its late completion
+        // cannot race the caller's park/start.
+        supersedeAttempt()
         replacementHelloPending = false
-        setPhase(.recovering)
+        setFencedPhase(.recovering)
     }
 
     /// Records the replacement boot the manual path already attached and
@@ -186,17 +247,19 @@ public final class BotWorkerRecoveryScheduler {
 
     /// The manual park/start failed. Publish a visible failure so the page
     /// offers 重试 instead of claiming the connection recovered.
+    ///
+    /// This is a lifecycle fence, not just a phase change: an automatic attempt
+    /// started during the manual window (a transport failure or the visible
+    /// retry) is superseded here. Without the fence its late success would pass
+    /// the generation check and publish `.ready` over the visible failure.
     public func failManualRebind(_ message: String) {
         cancelAutomaticRetry()
         cancelReadyFallback()
         awaitingReadyTarget = nil
         workerReady = false
         automaticRetriesRemaining = 0
-        isRecovering = false
-        task = nil
-        activeTarget = nil
-        pendingTarget = nil
-        setPhase(.failed(message))
+        supersedeAttempt()
+        setFencedPhase(.failed(message))
     }
 
     /// A WebContent termination is not a Worker boot: it only tells the page
@@ -218,7 +281,9 @@ public final class BotWorkerRecoveryScheduler {
         // Even if the engine reuses the Worker boot id, the next ordered
         // channel HELLO is a new Worker connection and owns a bind.
         replacementHelloPending = true
-        setPhase(.recovering)
+        // The bound Worker incarnation ended. Phases queued for it must not be
+        // applied after this point, so the recovering phase starts a new epoch.
+        setFencedPhase(.recovering)
     }
 
     /// Records a Worker boot-phase `ready` line.
@@ -250,7 +315,17 @@ public final class BotWorkerRecoveryScheduler {
     public func noteBootCandidate(_ pageBootID: String) {
         latestPageBootID = pageBootID
         guard pageBootID != recoveredBootID else { return }
-        guard phase != .ready else { return }
+        // A page boot report is not a bind event: it may move a page that has
+        // no outcome yet, but it must neither undo a completed bind nor revive
+        // a terminal failure. `.failed` stays until a HELLO or the visible
+        // retry starts another round; otherwise a late report after a failed
+        // manual rebind parks the page at "正在重新同步…" with nothing armed.
+        switch phase {
+        case .idle, .recovering:
+            break
+        case .ready, .failed:
+            return
+        }
         setPhase(.recovering)
     }
 
@@ -303,7 +378,10 @@ public final class BotWorkerRecoveryScheduler {
 
     private func armReadyGate(_ target: Target) {
         awaitingReadyTarget = target
-        setPhase(.recovering)
+        // A new boot owns the next bind. Fence queued phases of the round it
+        // superseded; publishing the (possibly unchanged) recovering phase at
+        // the new epoch keeps the current state visible to the consumer.
+        setFencedPhase(.recovering)
         scheduleReadyFallback(for: target)
     }
 
@@ -321,11 +399,19 @@ public final class BotWorkerRecoveryScheduler {
             } catch {
                 return
             }
-            guard let self, !Task.isCancelled, self.awaitingReadyTarget == target else { return }
-            self.readyFallbackTask = nil
-            self.awaitingReadyTarget = nil
-            self.startEventDriven(target)
+            guard let self else { return }
+            await self.fireReadyFallback(target)
         }
+    }
+
+    /// The fallback deadline fired. Re-checked on the actor so a `ready` line,
+    /// a manual rebind or a newer event that won the race since the sleep
+    /// cannot be overwritten by this stale timer.
+    private func fireReadyFallback(_ target: Target) {
+        guard !Task.isCancelled, awaitingReadyTarget == target else { return }
+        readyFallbackTask = nil
+        awaitingReadyTarget = nil
+        startEventDriven(target)
     }
 
     private func cancelReadyFallback() {
@@ -339,16 +425,9 @@ public final class BotWorkerRecoveryScheduler {
     /// A user action is a new event, so it opens a fresh automatic-retry round.
     public func forceRetry() {
         let target = latestBootID.map(Target.boot) ?? .current
-        if isRecovering {
-            generation &+= 1
-            task?.cancel()
-            attemptContinuation?.finish()
-            attemptContinuation = nil
-            task = nil
-            isRecovering = false
-            activeTarget = nil
-            pendingTarget = nil
-        }
+        // This is a new event and a new generation. Supersede unconditionally:
+        // a stale attempt's late completion must not publish over this round.
+        supersedeAttempt()
         startEventDriven(target)
     }
 
@@ -364,19 +443,18 @@ public final class BotWorkerRecoveryScheduler {
 
     /// Cancels the in-flight attempt (best effort) and drops pending work.
     /// Called when the composition detaches or switches hosts.
+    ///
+    /// The cancel is deliberately not awaited: a recovery callback that is
+    /// already inside a non-cooperative transport keeps running. The
+    /// generation and phase-epoch fences are what prevent its late completion
+    /// from claiming a boot, publishing ready or mutating the detached
+    /// composition.
     public func stop() {
-        generation &+= 1
-        task?.cancel()
-        attemptContinuation?.finish()
-        attemptContinuation = nil
-        task = nil
+        supersedeAttempt()
         cancelAutomaticRetry()
         cancelReadyFallback()
         awaitingReadyTarget = nil
         workerReady = false
-        isRecovering = false
-        activeTarget = nil
-        pendingTarget = nil
         recoveredBootID = nil
         latestBootID = nil
         latestPageBootID = nil
@@ -385,7 +463,21 @@ public final class BotWorkerRecoveryScheduler {
         lastTerminationCount = 0
         replacementHelloPending = false
         automaticRetriesRemaining = 0
-        setPhase(.idle)
+        setFencedPhase(.idle)
+    }
+
+    /// Invalidates the current attempt generation and releases its result wait.
+    /// The attempt task itself is only cancelled (never awaited), so a
+    /// non-cooperative callback cannot hold the actor or the caller.
+    private func supersedeAttempt() {
+        generation &+= 1
+        task?.cancel()
+        attemptContinuation?.finish()
+        attemptContinuation = nil
+        task = nil
+        isRecovering = false
+        activeTarget = nil
+        pendingTarget = nil
     }
 
     /// Starts a round for a new event: a new Worker boot, the visible retry, or
@@ -404,13 +496,29 @@ public final class BotWorkerRecoveryScheduler {
         let attemptGeneration = generation
         isRecovering = true
         activeTarget = target
-        setPhase(.recovering)
+        // A new event-driven round owns phase publication from here. Fence
+        // notifications queued for the round this attempt superseded. The
+        // phase may already be `.recovering`; publish it anyway at the new
+        // epoch so a consumer that rejects stale epochs still sees the current
+        // phase instead of dropping it.
+        setFencedPhase(.recovering)
         task = Task { [weak self] in
             guard let self else { return }
-            let result = await self.runAttempt(target, recovery: recovery)
-            guard !Task.isCancelled, attemptGeneration == self.generation else { return }
-            self.finish(target: target, result: result)
+            let result = await self.runAttempt(
+                target, recovery: recovery, attemptGeneration: attemptGeneration)
+            await self.completeAttempt(
+                target, result: result, attemptGeneration: attemptGeneration)
         }
+    }
+
+    /// Publishes one completed attempt only if it still owns the current
+    /// generation. The check and `finish` run in one actor turn, so a `stop`,
+    /// manual rebind or newer event that completed while the attempt was in
+    /// flight always wins over its late result.
+    private func completeAttempt(_ target: Target, result: AttemptResult,
+                                 attemptGeneration: Int) {
+        guard !Task.isCancelled, attemptGeneration == generation else { return }
+        finish(target: target, result: result)
     }
 
     private func finish(target: Target, result: AttemptResult) {
@@ -490,12 +598,19 @@ public final class BotWorkerRecoveryScheduler {
             } catch {
                 return
             }
-            guard let self, !Task.isCancelled,
-                  attemptGeneration == self.generation else { return }
-            self.retryTask = nil
-            self.start(target)
+            guard let self else { return }
+            await self.fireAutomaticRetry(target, attemptGeneration: attemptGeneration)
         }
         return true
+    }
+
+    /// The retry delay elapsed. Re-checked on the actor so a `stop`, manual
+    /// rebind or newer event that superseded the round cancels the retry even
+    /// though the delay task could not observe that before resuming.
+    private func fireAutomaticRetry(_ target: Target, attemptGeneration: Int) {
+        guard !Task.isCancelled, attemptGeneration == generation else { return }
+        retryTask = nil
+        start(target)
     }
 
     private func cancelAutomaticRetry() {
@@ -506,12 +621,21 @@ public final class BotWorkerRecoveryScheduler {
     /// Runs one rebind with a hard deadline. The timeout is deliberately an
     /// unstructured race: a transport that ignores cancellation cannot make
     /// `withTaskGroup` wait forever on the scope exit.
-    private func runAttempt(_ target: Target, recovery: @escaping Recovery) async
-        -> AttemptResult {
+    private func runAttempt(_ target: Target, recovery: @escaping Recovery,
+                            attemptGeneration: Int) async -> AttemptResult {
+        if let attemptEntryHook { await attemptEntryHook() }
+        // The attempt task and this actor step are separate. A `stop()`,
+        // manual takeover or `forceRetry` can supersede the attempt before its
+        // body first runs. Check the generation and the target in the same
+        // actor turn that installs the continuation: a stale attempt must never
+        // overwrite the live attempt's result stream (its late finish would
+        // release the wrong wait while the live bind stays suspended).
+        guard !Task.isCancelled, attemptGeneration == generation,
+              activeTarget == target else { return .cancelled }
         let (stream, continuation) = AsyncStream<AttemptResult>.makeStream(
             bufferingPolicy: .bufferingNewest(1))
         attemptContinuation = continuation
-        let work = Task { @MainActor in
+        let work = Task {
             do {
                 try await recovery(target.bootID)
                 continuation.yield(.success)
@@ -535,9 +659,11 @@ public final class BotWorkerRecoveryScheduler {
         let result = await iterator.next() ?? .cancelled
         work.cancel()
         timer.cancel()
-        if case .timedOut = result {
+        if case .timedOut = result, attemptGeneration == generation {
             // The non-cooperative work may still be suspended; its late yield
-            // lands in the finished stream and is ignored.
+            // lands in the finished stream and is ignored. A newer attempt
+            // owns `attemptContinuation` once the generation moved, so never
+            // clear that one from this stale attempt.
             attemptContinuation = nil
         }
         return result
@@ -546,6 +672,16 @@ public final class BotWorkerRecoveryScheduler {
     private func setPhase(_ next: Phase) {
         guard phase != next else { return }
         phase = next
-        onPhaseChange?(next)
+        phaseContinuation.yield(PhaseEvent(phase: next, epoch: phaseEpoch))
+    }
+
+    /// Publishes `next` at a new lifecycle epoch. The event is emitted even
+    /// when the phase value did not change: a consumer compares the event
+    /// epoch with the current one, so the current phase must exist at the new
+    /// epoch or the transition would be dropped along with the stale ones.
+    private func setFencedPhase(_ next: Phase) {
+        phaseEpoch &+= 1
+        phase = next
+        phaseContinuation.yield(PhaseEvent(phase: next, epoch: phaseEpoch))
     }
 }

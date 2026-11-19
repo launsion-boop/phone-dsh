@@ -41,6 +41,9 @@ function fakeCheckout(head) {
   const directory = mkdtempSync(join(tmpdir(), 'pdsh-pin-test-'))
   scratch.push(directory)
   execFileSync('git', ['-C', directory, 'init', '-q'])
+  const hooks = join(directory, '.git', 'test-hooks')
+  mkdirSync(hooks)
+  execFileSync('git', ['-C', directory, 'config', 'core.hooksPath', hooks])
   execFileSync('git', ['-C', directory, 'config', 'user.email', 'worker@example.invalid'])
   execFileSync('git', ['-C', directory, 'config', 'user.name', 'worker'])
   for (const file of REQUIRED_BUILDS) {

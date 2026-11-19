@@ -17,6 +17,12 @@ import PhoneDSHAgentCore
 /// 2. a bind restarts only units that have no live transport / no completed
 ///    start, and only treats a *replaced Worker incarnation* as a reason to
 ///    restart a live unit.
+///
+/// The rebind-scope regressions use actor-isolated `Sendable` fixtures. The
+/// focused isolation regression is `nonisolated` (the rest of this class keeps
+/// its pre-existing main-actor isolation for the transport fixtures), so it
+/// proves the frozen PC-20261116 helper's `@Sendable` callbacks enter their own
+/// actor instead of requiring main-actor isolation.
 @MainActor
 final class BotRuntimeLifecycleRebindTests: XCTestCase {
     // MARK: - In-flight turn across a transport replacement
@@ -114,14 +120,20 @@ final class BotRuntimeLifecycleRebindTests: XCTestCase {
         let dead = RebindUnitDouble(botID: "agent-99", hasLiveTransport: false, isStarted: true)
         let restarted = await BotRebindScope.apply(
             [live, dead], forceRestart: false,
-            state: { $0.state },
-            restart: { $0.restart() })
+            state: { await $0.state() },
+            restart: { await $0.restart() })
 
         XCTAssertEqual(restarted.kept, ["main"])
         XCTAssertEqual(restarted.restarted, ["agent-99"])
-        XCTAssertEqual(live.restartCount, 0,
+        let liveRestartCount = await live.restartCount
+        XCTAssertEqual(liveRestartCount, 0,
                        "a live unit must keep its transport and running turn")
-        XCTAssertEqual(dead.restartCount, 1)
+        let deadRestartCount = await dead.restartCount
+        XCTAssertEqual(deadRestartCount, 1)
+        let liveStateReads = await live.stateReadCount
+        let deadStateReads = await dead.stateReadCount
+        XCTAssertEqual(liveStateReads, 1, "the bind reads each candidate's state exactly once")
+        XCTAssertEqual(deadStateReads, 1, "the bind reads each candidate's state exactly once")
         XCTAssertTrue(restarted.failed.isEmpty)
     }
 
@@ -129,10 +141,12 @@ final class BotRuntimeLifecycleRebindTests: XCTestCase {
         let failedStart = RebindUnitDouble(botID: "half", hasLiveTransport: true, isStarted: false)
         let restarted = await BotRebindScope.apply(
             [failedStart], forceRestart: false,
-            state: { $0.state },
-            restart: { $0.restart() })
+            state: { await $0.state() },
+            restart: { await $0.restart() })
         XCTAssertEqual(restarted.restarted, ["half"],
                        "a start that never completed must be retried")
+        let stateReads = await failedStart.stateReadCount
+        XCTAssertEqual(stateReads, 1)
     }
 
     func testAReplacedWorkerIncarnationRestartsEveryUnit() async {
@@ -140,38 +154,136 @@ final class BotRuntimeLifecycleRebindTests: XCTestCase {
         let other = RebindUnitDouble(botID: "agent-99", hasLiveTransport: true, isStarted: true)
         let restarted = await BotRebindScope.apply(
             [live, other], forceRestart: true,
-            state: { $0.state },
-            restart: { $0.restart() })
+            state: { await $0.state() },
+            restart: { await $0.restart() })
         XCTAssertEqual(restarted.kept, [])
         XCTAssertEqual(Set(restarted.restarted), ["main", "agent-99"])
-        XCTAssertEqual(live.restartCount + other.restartCount, 2)
+        XCTAssertEqual(restarted.restarted, ["main", "agent-99"],
+                       "forced restarts keep the candidate order")
+        let liveRestarts = await live.restartCount
+        let otherRestarts = await other.restartCount
+        XCTAssertEqual(liveRestarts + otherRestarts, 2)
+        XCTAssertEqual(liveRestarts, 1)
+        XCTAssertEqual(otherRestarts, 1)
     }
 
     func testANonSelectedUnitFailureIsSkippedNotFatal() async {
+        let trace = RebindEventLog()
         let live = RebindUnitDouble(botID: "main", hasLiveTransport: true, isStarted: true)
         let broken = RebindUnitDouble(botID: "agent-99", hasLiveTransport: false, isStarted: true)
-        broken.restartError = BotMCPError.unavailable("transport creation failed")
+        await broken.setFailure(.mcp("transport creation failed"))
         let restarted = await BotRebindScope.apply(
             [live, broken], forceRestart: false,
-            state: { $0.state },
-            restart: { try $0.restartThrowing() })
+            state: { unit in
+                await trace.record("state:\(unit.botID)")
+                return await unit.state()
+            },
+            restart: { unit in
+                await trace.record("restart:\(unit.botID)")
+                try await unit.restartThrowing()
+            })
         XCTAssertEqual(restarted.kept, ["main"])
         XCTAssertEqual(restarted.restarted, [])
         XCTAssertTrue(restarted.failed.keys.contains("agent-99"))
         XCTAssertTrue(restarted.failed["agent-99"]?.contains("transport creation failed") == true)
+        let events = await trace.entries
+        XCTAssertEqual(events, ["state:main", "state:agent-99", "restart:agent-99"],
+                       "the failed unit's callback is recorded once")
+    }
+
+    /// A per-unit failure is recorded and does not stop the units after it;
+    /// the driver still finishes the sequential candidate order.
+    func testAPerUnitFailureDoesNotStopTheLaterCandidates() async {
+        let trace = RebindEventLog()
+        let live = RebindUnitDouble(botID: "main", hasLiveTransport: true, isStarted: true)
+        let broken = RebindUnitDouble(botID: "agent-99", hasLiveTransport: false, isStarted: true)
+        let later = RebindUnitDouble(botID: "agent-100", hasLiveTransport: false, isStarted: true)
+        await broken.setFailure(.mcp("transport creation failed"))
+        let restarted = await BotRebindScope.apply(
+            [live, broken, later], forceRestart: false,
+            state: { unit in
+                await trace.record("state:\(unit.botID)")
+                return await unit.state()
+            },
+            restart: { unit in
+                await trace.record("restart:\(unit.botID)")
+                try await unit.restartThrowing()
+            })
+        XCTAssertEqual(restarted.kept, ["main"])
+        XCTAssertEqual(restarted.restarted, ["agent-100"])
+        XCTAssertTrue(restarted.failed.keys.contains("agent-99"))
+        let events = await trace.entries
+        XCTAssertEqual(events, [
+            "state:main", "state:agent-99", "restart:agent-99",
+            "state:agent-100", "restart:agent-100",
+        ], "the recorded failure must not short-circuit the remaining candidates")
     }
 
     func testBindCancellationStopsTheRemainingUnits() async {
+        let trace = RebindEventLog()
         let first = RebindUnitDouble(botID: "main", hasLiveTransport: false, isStarted: true)
         let second = RebindUnitDouble(botID: "agent-99", hasLiveTransport: false, isStarted: true)
-        first.restartError = CancellationError()
+        await first.setFailure(.cancellation)
         let restarted = await BotRebindScope.apply(
             [first, second], forceRestart: true,
-            state: { $0.state },
-            restart: { try $0.restartThrowing() })
+            state: { unit in
+                await trace.record("state:\(unit.botID)")
+                return await unit.state()
+            },
+            restart: { unit in
+                await trace.record("restart:\(unit.botID)")
+                try await unit.restartThrowing()
+            })
         XCTAssertTrue(restarted.wasCancelled)
-        XCTAssertEqual(second.restartCount, 0,
+        XCTAssertTrue(restarted.restarted.isEmpty,
+                      "the cancelled unit must not be reported as restarted")
+        XCTAssertTrue(restarted.failed.isEmpty,
+                      "cancellation is a short-circuit, not a per-unit failure")
+        let secondRestartCount = await second.restartCount
+        XCTAssertEqual(secondRestartCount, 0,
                        "a cancelled bind must not keep attaching units")
+        let secondStateReads = await second.stateReadCount
+        XCTAssertEqual(secondStateReads, 0,
+                       "the first cancellation must short-circuit before the next state read")
+        let events = await trace.entries
+        XCTAssertEqual(events, ["state:main", "restart:main"],
+                       "the cancelled callback is the last one the driver runs")
+    }
+
+    /// The frozen helper is actor-neutral: these callbacks are `@Sendable` and
+    /// run from this `nonisolated` test task, while every state read/restart
+    /// enters the fixture's own actor. The trace also pins the sequential
+    /// decision order to the candidate order (not the Bot-id order).
+    nonisolated func testRebindScopeRunsIsolatedCallbacksSequentiallyInCandidateOrder() async {
+        let trace = RebindEventLog()
+        let live = RebindUnitDouble(botID: "a-live", hasLiveTransport: true, isStarted: true)
+        let dead = RebindUnitDouble(botID: "b-dead", hasLiveTransport: false, isStarted: true)
+        let outcome = await BotRebindScope.apply(
+            [dead, live], forceRestart: false,
+            state: { unit in
+                await trace.record("state:\(unit.botID)")
+                return await unit.state()
+            },
+            restart: { unit in
+                await trace.record("restart:\(unit.botID)")
+                await unit.restart()
+            })
+
+        XCTAssertEqual(outcome.kept, ["a-live"])
+        XCTAssertEqual(outcome.restarted, ["b-dead"])
+        XCTAssertTrue(outcome.failed.isEmpty)
+        XCTAssertFalse(outcome.wasCancelled)
+        let events = await trace.entries
+        XCTAssertEqual(events, ["state:b-dead", "restart:b-dead", "state:a-live"],
+                       "each candidate is decided fully before the next state read")
+        let deadStateReads = await dead.stateReadCount
+        let liveStateReads = await live.stateReadCount
+        XCTAssertEqual(deadStateReads, 1)
+        XCTAssertEqual(liveStateReads, 1)
+        let deadRestarts = await dead.restartCount
+        let liveRestarts = await live.restartCount
+        XCTAssertEqual(deadRestarts, 1)
+        XCTAssertEqual(liveRestarts, 0)
     }
 
     // MARK: - Worker incarnation
@@ -216,6 +328,40 @@ final class BotRuntimeLifecycleRebindTests: XCTestCase {
         XCTAssertTrue(rebindUnits.contains("forceRestart: workerReplaced") ||
                       rebindUnits.contains("forceRestart: forceRestart"),
                       "a replaced Worker incarnation is the only reason a live unit restarts")
+    }
+
+    // MARK: - Actor-neutral helper
+
+    /// PC-20261116 freezes an actor-neutral helper: `T: Sendable`, async
+    /// `@Sendable` callbacks, and no main-actor isolation in the runtime
+    /// module. The App keeps its composition and units actor-owned, so its
+    /// callbacks must hop explicitly and still rethrow the selected Bot's
+    /// original `Error` (the other Bots' failures stay reported, not thrown).
+    func testRebindScopeIsActorNeutralAndTheAppHopsExplicitly() throws {
+        let scope = try Self.productionRebindScopeSource()
+        XCTAssertFalse(scope.contains("@MainActor"),
+                       "BotRebindScope must not require the main actor")
+        XCTAssertTrue(scope.contains("public static func apply<T: Sendable>("),
+                      "candidates must be Sendable for the actor-neutral callbacks")
+        XCTAssertTrue(scope.contains("state: @Sendable (T) async -> BotRebindUnit"),
+                      "the state callback must be async and Sendable")
+        XCTAssertTrue(scope.contains("restart: @Sendable (T) async throws -> Void"),
+                      "the restart callback must be async, throwing and Sendable")
+
+        let source = try Self.productionCompositionSource()
+        let rebindUnits = try Self.functionBody("private func rebindUnits(", in: source)
+        XCTAssertTrue(rebindUnits.contains("await entry.value.rebindState()"),
+                      "the App must hop to its actor for a unit's state")
+        XCTAssertTrue(rebindUnits.contains("await self.startUnit("),
+                      "the App must hop to its actor to restart a unit")
+        XCTAssertTrue(rebindUnits.contains("actor RebindErrorBox"),
+                      "the Sendable restart callback must not mutate a captured dictionary")
+        XCTAssertTrue(rebindUnits.contains("await errors.record(error, for: entry.key)"),
+                      "the original Error is recorded through the actor-owned box")
+        XCTAssertTrue(rebindUnits.contains("throw error"),
+                      "the selected Bot's original Error is rethrown, not formatted")
+        XCTAssertTrue(rebindUnits.contains("where botID != selected"),
+                      "non-selected failures are skipped and logged, not rethrown")
     }
 
     // MARK: - Partial restart
@@ -271,13 +417,23 @@ private struct BotUnattachedTestTransport: BotUnattachedTransport {
     func authenticationFailed() async {}
 }
 
-@MainActor
-private final class RebindUnitDouble {
+/// What a fixture restart does: throw `CancellationError`, throw a Bot error,
+/// or succeed. `Sendable`, so the actor fixture needs no unchecked box.
+private enum RebindFixtureFailure: Sendable {
+    case cancellation
+    case mcp(String)
+}
+
+/// Actor-owned unit double. `BotRebindScope.apply` accepts Sendable candidates
+/// and `@Sendable` callbacks, so the rebind fixtures are isolated to their own
+/// actor instead of the main actor; every test access must hop.
+private actor RebindUnitDouble {
     let botID: String
-    var hasLiveTransport: Bool
-    var isStarted: Bool
-    var restartCount = 0
-    var restartError: Error?
+    private let hasLiveTransport: Bool
+    private let isStarted: Bool
+    private(set) var restartCount = 0
+    private(set) var stateReadCount = 0
+    private var failure: RebindFixtureFailure?
 
     init(botID: String, hasLiveTransport: Bool, isStarted: Bool) {
         self.botID = botID
@@ -285,9 +441,14 @@ private final class RebindUnitDouble {
         self.isStarted = isStarted
     }
 
-    var state: BotRebindUnit {
-        BotRebindUnit(botID: botID, hasLiveTransport: hasLiveTransport,
-                      isStarted: isStarted)
+    func setFailure(_ failure: RebindFixtureFailure?) {
+        self.failure = failure
+    }
+
+    func state() -> BotRebindUnit {
+        stateReadCount += 1
+        return BotRebindUnit(botID: botID, hasLiveTransport: hasLiveTransport,
+                             isStarted: isStarted)
     }
 
     func restart() {
@@ -296,14 +457,31 @@ private final class RebindUnitDouble {
 
     func restartThrowing() throws {
         restartCount += 1
-        if let restartError { throw restartError }
+        switch failure {
+        case .cancellation:
+            throw CancellationError()
+        case .mcp(let message):
+            throw BotMCPError.unavailable(message)
+        case .none:
+            return
+        }
+    }
+}
+
+/// Actor-owned callback trace: the driver promises sequential callbacks, so
+/// these entries are the order the driver actually observed.
+private actor RebindEventLog {
+    private(set) var entries: [String] = []
+
+    func record(_ entry: String) {
+        entries.append(entry)
     }
 }
 
 // MARK: - Source helpers
 
 private extension BotRuntimeLifecycleRebindTests {
-    static func productionCompositionSource() throws -> String {
+    nonisolated static func productionCompositionSource() throws -> String {
         // Tests/PhoneDSHBotTests/MCP/<this file> -> repository root.
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -315,7 +493,7 @@ private extension BotRuntimeLifecycleRebindTests {
         return try String(contentsOf: url, encoding: .utf8)
     }
 
-    static func productionUnitSource() throws -> String {
+    nonisolated static func productionUnitSource() throws -> String {
         // Tests/PhoneDSHBotTests/MCP/<this file> -> repository root.
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -327,9 +505,21 @@ private extension BotRuntimeLifecycleRebindTests {
         return try String(contentsOf: url, encoding: .utf8)
     }
 
+    nonisolated static func productionRebindScopeSource() throws -> String {
+        // Tests/PhoneDSHBotTests/MCP/<this file> -> repository root.
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = root.appendingPathComponent(
+            "Sources/PhoneDSHBot/MCP/BotRebindScope.swift")
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
     /// Extracts a function body by brace balance; the first `{` after the
     /// signature opens it, and nested closures/`if` bodies stay inside.
-    static func functionBody(_ signature: String, in source: String) throws -> String {
+    nonisolated static func functionBody(_ signature: String, in source: String) throws -> String {
         guard let start = source.range(of: signature) else {
             throw NSError(domain: "lifecycle-test", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "missing \(signature)",

@@ -111,6 +111,15 @@ class BotTeamCasesTest {
             )
             configure(host, caseSpec)
             (caseSpec.members["context"] as? JsonObject)?.let { context ->
+                val inbound = (context.members["inbound"] as? JsonObject)?.let { hop ->
+                    BotAgentInboundHop(
+                        senderID = text(hop, "senderID") ?: "",
+                        requestID = text(hop, "requestID") ?: "",
+                        threadID = text(hop, "threadID") ?: "",
+                        delivery = text(hop, "delivery") ?: "now",
+                        title = text(hop, "title"),
+                    )
+                }
                 host.setContext(
                     BotAgentCommContext(
                         depth = number(context, "depth")?.toInt() ?: 0,
@@ -119,6 +128,7 @@ class BotTeamCasesTest {
                         turn = number(context, "turn")?.toInt() ?: 0,
                         existingRowIDs = (context.members["existingRowIDs"] as? JsonArray)?.values
                             ?.mapNotNull { (it as? JsonString)?.value }?.toSet() ?: emptySet(),
+                        inbound = inbound,
                     ),
                     forBotID = text(caseSpec, "callerBotId") ?: "bot-a",
                 )
@@ -311,6 +321,12 @@ class BotTeamCasesTest {
                     actualID != null && Regex(pattern).matches(actualID),
                 )
             }
+
+            // `expect.wake` freezes the §2.3.1 wake policy: one target per reply
+            // at most, and nothing for a reply that is queued on either side.
+            val expectedWake = (expect.members["wake"] as? JsonArray)?.values
+                ?.mapNotNull { (it as? JsonString)?.value } ?: emptyList()
+            assertEquals("$name: wake requests", expectedWake, host.wakeRequests)
 
             (expect.members["created"] as? JsonObject)?.let { created ->
                 assertEquals("$name: created count", 1, host.created.size)
@@ -631,6 +647,114 @@ class BotTeamCasesTest {
             assertEquals(JsonBool(true), secondStructured.members["duplicated"])
             assertTrue("no new row across restart", secondHost.records.isEmpty())
             assertTrue("no delivery across restart", secondHost.delivered.isEmpty())
+        }
+    }
+
+    @Test
+    fun replyReplayIsIdempotentByCallId() {
+        SqliteBotStore.open().use { sqlite ->
+            val now = 1_700_000_000_000L
+            val threadID = "agent-outbound-origin@1700000000000000:agent-comm"
+            val principal = botTeamPrincipal("bot-b")
+            val args = com.phonedsh.bot.BotJson.objectOf(
+                "agent_id" to JsonString("bot-a"),
+                "message" to JsonString("the answer"),
+                "priority" to JsonBool(true),
+            )
+            val context = com.phonedsh.bot.mcp.BotToolCallContext(
+                runtimeId = "phone-worker",
+                callId = "call-reply",
+                call = com.phonedsh.bot.mcp.BotResolvedToolCall(
+                    principal = principal,
+                    callId = "call-reply",
+                ),
+            )
+
+            fun execute(tools: BotTeamTools): BotMCPCallResult = runBlocking {
+                tools.executeWithAuthority(
+                    BotTeamTools.SEND_TO_AGENT_NAME,
+                    args,
+                    principal,
+                    context,
+                    null,
+                )
+            }
+
+            fun replyContext(): BotAgentCommContext = BotAgentCommContext(
+                depth = 1,
+                chain = listOf("bot-a", "bot-b"),
+                turn = 4,
+                existingRowIDs = setOf("t4u"),
+                inbound = BotAgentInboundHop(
+                    senderID = "bot-a",
+                    requestID = "agent:call-origin",
+                    threadID = threadID,
+                    delivery = "now",
+                    title = "Question",
+                ),
+            )
+
+            val firstHost = FakeBotTeamHost(sqlite = sqlite, now = { now })
+            firstHost.setContext(replyContext(), forBotID = "bot-b")
+            val firstTools = BotTeamTools(host = firstHost, now = { now })
+
+            val first = execute(firstTools)
+            assertFalse("first reply: ${botTeamResultText(first)}", first.isError)
+            val firstStructured = first.structuredContent as JsonObject
+            assertEquals(JsonBool(true), firstStructured.members["reply"])
+            assertEquals(JsonString(threadID), firstStructured.members["threadId"])
+
+            val replyRow = firstHost.records.single()
+            assertEquals(
+                com.phonedsh.bot.rows.BotAgentCommDirection.REPLY,
+                replyRow.direction,
+            )
+            assertEquals("call-reply", replyRow.callID)
+            assertEquals("agent:call-origin", replyRow.requestID)
+            assertEquals(threadID, replyRow.threadID)
+            assertEquals("the answer", replyRow.text)
+            val held = firstHost.heldRequests.single()
+            assertTrue("a now/now reply wakes once", held.wake)
+            assertNull("a reply installs no hand-off chain", held.handOff)
+            assertEquals("reply:agent:call-reply", held.item.requestId)
+            assertEquals(threadID, held.item.threadId)
+            assertEquals(listOf("bot-a"), firstHost.wakeRequests)
+
+            // Same reply call in the same host: dedupe by callID, no second
+            // row, held item or wake.
+            val second = execute(firstTools)
+            assertFalse("replayed reply: ${botTeamResultText(second)}", second.isError)
+            val secondStructured = second.structuredContent as JsonObject
+            assertEquals(JsonBool(true), secondStructured.members["duplicated"])
+            assertEquals(JsonBool(true), secondStructured.members["reply"])
+            assertEquals(
+                firstStructured.members["threadId"],
+                secondStructured.members["threadId"],
+            )
+            assertEquals(1, firstHost.records.size)
+            assertEquals(1, firstHost.heldRequests.size)
+            assertEquals(listOf("bot-a"), firstHost.wakeRequests)
+
+            // A replacement process has the durable reply row but no in-memory
+            // thread or inbound context. The v1 path must dedupe the same call
+            // through the bare-callID lookup (team.md §2.4).
+            val replacementHost = FakeBotTeamHost(sqlite = sqlite, now = { now })
+            val replacementTools = BotTeamTools(host = replacementHost, now = { now })
+            val third = execute(replacementTools)
+            assertFalse("durable replay: ${botTeamResultText(third)}", third.isError)
+            val thirdStructured = third.structuredContent as JsonObject
+            assertEquals(JsonBool(true), thirdStructured.members["duplicated"])
+            assertEquals(
+                firstStructured.members["threadId"],
+                thirdStructured.members["threadId"],
+            )
+            assertNull(
+                "the v1 replay path does not claim reply shape",
+                thirdStructured.members["reply"],
+            )
+            assertTrue("no new row across replay", replacementHost.records.isEmpty())
+            assertTrue("no held item across replay", replacementHost.heldRequests.isEmpty())
+            assertTrue("no wake across replay", replacementHost.wakeRequests.isEmpty())
         }
     }
 }

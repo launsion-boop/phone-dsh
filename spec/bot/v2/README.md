@@ -747,3 +747,31 @@ python3 spec/bot/v2/tools/validate_vectors.py
 `spec/bot/v1/tools/validate_vectors.py` 也会调用同一个 v2 校验入口，因此 `phone-spec`
 阶段同时覆盖两棵树。重跑上游导出器不会再读写本目录；`--out spec/bot/v1` 的产物里
 不包含上面这些文件名，manifest 也只列 v1 剩余的文件。
+
+### Process-local presence isolation
+
+The host writes and the Bot runtime reads a process-local foreground/keep-alive
+snapshot. The fields keep their existing meanings and defaults. `context()` returns
+one coherent pair and updates are synchronized across actors; no wire, persisted
+representation, or cross-device synchronization is introduced. This actor-neutral
+boundary and source-compatibility decision are recorded in
+[PC-20261116-bot-presence-isolation](../../../docs/protocol-changes/PC-20261116-bot-presence-isolation.md).
+
+### Actor-neutral rebind helper
+
+The Swift host's rebind driver keeps its existing sequential decisions, per-unit
+failure outcomes and cancellation short-circuit while accepting Sendable candidates
+and asynchronous Sendable callbacks. App-specific actors are entered by the
+callbacks. This is a Swift source migration, not a wire or storage change; the
+compatibility decision and acceptance are in
+[PC-20261116-bot-rebind-isolation](../../../docs/protocol-changes/PC-20261116-bot-rebind-isolation.md).
+
+### Actor-neutral worker recovery
+
+The Swift recovery scheduler serializes worker replacement and its bounded retries
+on its own actor; phase updates are delivered in order to the application's actor.
+Its cancellation, readiness and stale-completion rules are unchanged. This is a
+Swift source migration, with compatibility and tests specified in
+[PC-20261116-bot-recovery-isolation](../../../docs/protocol-changes/PC-20261116-bot-recovery-isolation.md).
+Unit startup is also lifecycle-fenced: detach or a newer start invalidates older
+suspended startup before it can start further services or publish itself running.

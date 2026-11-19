@@ -1014,7 +1014,7 @@ actor BotProductionInfoService {
             grantsError = humanFailure
         }
 
-        let context = await BotPresenceCenter.shared.context()
+        let context = BotPresenceCenter.shared.context()
         let presence: RoutinePresence
         if let scheduler {
             presence = await scheduler.presenceSnapshot(

@@ -100,11 +100,66 @@ class GateContracts(unittest.TestCase):
                     self.assertIn("fixture-099:", run.stdout)
                     self.assertIn(f"sim: the test process exited {status}", run.stdout)
 
+    def test_simulator_swift_flags_keep_inherited_package_settings(self):
+        # swift-collections 1.7.5 enables the experimental Builtin module as a
+        # package Swift setting; a plain OTHER_SWIFT_FLAGS override drops it and
+        # its sources fail with "no such module 'Builtin'".
+        source = (HERE / "sim.sh").read_text(encoding="utf-8")
+        start = source.index("COMMON=(")
+        array = source[start:source.index(")\n", start) + 1]
+        # Run the production array assignment, not a copy, so an unquoted
+        # $(inherited) would be shell-expanded here and fail the assertion.
+        script = (
+            "set -euo pipefail\n"
+            "EXAMPLE=/example DESTINATION=destination DERIVED=/derived "
+            "PACKAGE_CACHE=/cache\n"
+            + array + "\n"
+            'printf "%s\\n" "${COMMON[@]}"\n'
+        )
+        run = subprocess.run(
+            ["bash", "-c", script], cwd=ROOT, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            timeout=5, check=False,
+        )
+        self.assertEqual(run.returncode, 0, run.stdout)
+        flags = [line for line in run.stdout.splitlines()
+                 if line.startswith("OTHER_SWIFT_FLAGS=")]
+        self.assertEqual(flags,
+                         ["OTHER_SWIFT_FLAGS=$(inherited) -disable-sandbox"])
+
     def gate(self, reports):
         with tempfile.TemporaryDirectory(prefix="pdsh-gate-contracts-") as temp:
             for name, report in reports.items():
                 (Path(temp) / name).write_text(json.dumps(report), encoding="utf-8")
             return sim_gate.gate(temp, echo=False)
+
+    def test_simulator_gate_runs_both_bluetooth_page_xcui_tests(self):
+        # The SwiftUI List page cannot be asserted from a hostless XCTest
+        # process; its two acceptance cases live in the XCUI target, so the
+        # simulator gate must run both and fail if either is absent.
+        source = (HERE / "sim.sh").read_text(encoding="utf-8")
+        self.assertIn("xcodebuild test -scheme PhoneDSHDeviceUI", source)
+        self.assertIn(
+            "-only-testing:PhoneDSHDeviceUITests/BluetoothDevicesPageUITests",
+            source,
+        )
+        tests = (
+            "testClosingPageKeepsDeviceVisibleUntilDisconnectCallbackReturns",
+            "testQuarantinedPageKeepsDeviceVisibleAndOffersNoDeviceOperations",
+        )
+        ui = (ROOT / "examples/probe-app/PhoneDSHDeviceUITests"
+              / "BluetoothDevicesPageUITests.swift").read_text(encoding="utf-8")
+        for test in tests:
+            self.assertIn(f"func {test}()", ui)
+            self.assertIn(test, source, "the gate must name this UI test")
+        self.assertIn('if [ "$UI_TEST_RC" -ne 0 ]', source)
+        self.assertIn('exit "$UI_TEST_RC"', source)
+        self.assertIn("UI_TEST_RC=6", source, "a dropped UI test must fail the gate")
+        self.assertFalse(
+            (ROOT / "examples/probe-app/PhoneDSHSimTests"
+             / "BluetoothDevicesPageTests.swift").exists(),
+            "the broken hostless UI probe must not be compiled again",
+        )
 
     def test_complete_versioned_reports_pass(self):
         self.assertEqual(self.gate(documents()), 0)
