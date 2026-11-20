@@ -13,11 +13,11 @@ final class BotReadySweepHostlessTests: XCTestCase {
         let log = HostlessStepLog()
         let report = await BotReadySweepRunner(
             budget: budget(remaining: 0),
-            action: { step in log.append(step) }).run()
+            action: { step in log.append(step); return .done }).run()
         XCTAssertEqual(log.all, [])
-        XCTAssertEqual(report.steps.map(\.outcome),
-                       Array(repeating: .skipped(reason: "lease"),
-                             count: BotReadySweepStep.allCases.count))
+        let expected: [BotReadySweepOutcome] = Array(
+            repeating: .skipped(.lease), count: BotReadySweepStep.allCases.count)
+        XCTAssertEqual(report.steps.map(\.outcome), expected)
     }
 
     func testOnlyTheStepWhoseBudgetFitsStarts() async {
@@ -26,12 +26,12 @@ final class BotReadySweepHostlessTests: XCTestCase {
             + ReadySweepPolicy.stepBudgetMs(for: .botHeldInbox)
         let report = await BotReadySweepRunner(
             budget: budget(remaining: minimal),
-            action: { step in log.append(step) }).run()
+            action: { step in log.append(step); return .done }).run()
         XCTAssertEqual(log.all, [.botHeldInbox])
         XCTAssertEqual(report.outcome(for: .botHeldInbox), .ran)
-        XCTAssertEqual(report.outcome(for: .missedRoutines), .skipped(reason: "lease"))
-        XCTAssertEqual(report.outcome(for: .connectorScan), .skipped(reason: "lease"))
-        XCTAssertEqual(report.outcome(for: .approvalReminderSync), .skipped(reason: "lease"))
+        XCTAssertEqual(report.outcome(for: .missedRoutines), .skipped(.lease))
+        XCTAssertEqual(report.outcome(for: .connectorScan), .skipped(.lease))
+        XCTAssertEqual(report.outcome(for: .approvalReminderSync), .skipped(.lease))
     }
 
     func testResidentLeaseRunsAllFourStepsAgainstRealStores() async throws {
@@ -89,7 +89,7 @@ final class BotReadySweepHostlessTests: XCTestCase {
         XCTAssertEqual(records.count, 1)
         XCTAssertEqual(records.first?.requestID, "gmail:1000:1010")
         let savedCursor = await cursorStore.cursor(for: .gmail)
-        XCTAssertEqual(savedCursor?.cursor, "1010")
+        XCTAssertEqual(savedCursor?.cursor, .gmail(historyId: "1010"))
     }
 
     // MARK: - Budget mapping
