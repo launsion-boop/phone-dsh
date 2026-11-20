@@ -44,6 +44,30 @@ final class EngineLaunchOrchestrator {
     private let pushSource = PushWakeSource()
     private var wakeSourcesInstalled = false
 
+    /// PLAN §2.9 I2/I5: the durable demand ledger plus its resident timer and
+    /// OS-channel projection. The scheduler only knows how to ask for a
+    /// `.scheduledDemand` wake; the orchestrator stays the only engine entry.
+    private lazy var scheduler: WakeScheduler = {
+        WakeScheduler(
+            ledger: WakeDemandLedger.applicationSupport(),
+            projection: WakeScheduler.Projection(
+                wake: { [weak self] in
+                    _ = await self?.wake(.scheduledDemand, lease: nil)
+                },
+                project: { earliestDueAtMs in
+                    let date = earliestDueAtMs.map {
+                        Date(timeIntervalSince1970: Double($0) / 1000)
+                    }
+                    if let date {
+                        _ = EngineLaunchRefreshTask.submit(earliestBeginDate: date)
+                        _ = EngineLaunchProcessingTask.submit(earliestBeginDate: date)
+                    } else {
+                        EngineLaunchRefreshTask.cancel()
+                        EngineLaunchProcessingTask.cancel()
+                    }
+                }))
+    }()
+
     private init() {
         chat = .shared
         cloud = .shared
@@ -65,6 +89,48 @@ final class EngineLaunchOrchestrator {
         pushSource.start { [weak self] lease in
             _ = await self?.wake(.cloudTaskPush, lease: lease)
         }
+        // PLAN §2.9: resume the host timer over the durable ledger and project
+        // the earliest due time onto the OS channels.
+        scheduler.start()
+    }
+
+    // MARK: - WakeDemand ledger (PLAN §2.9)
+
+    /// Upserts one future due point and re-projects the OS wake channels.
+    /// Producers (Bot routines, connectors, DSH schedule mirror, host retries)
+    /// call this before expressing any "run later" intent.
+    func upsertWakeDemand(_ demand: WakeDemand) async {
+        do {
+            try await scheduler.upsert(demand)
+        } catch {
+            ChatModel.appendDiagnostic("wake demand upsert failed: \(NativeLogRedaction.error(error))")
+        }
+    }
+
+    func removeWakeDemand(source: WakeDemandSource, key: String) async {
+        do {
+            try await scheduler.remove(source: source, key: key)
+        } catch {
+            ChatModel.appendDiagnostic("wake demand remove failed: \(NativeLogRedaction.error(error))")
+        }
+    }
+
+    func removeWakeDemands(source: WakeDemandSource) async {
+        do {
+            try await scheduler.removeAll(source: source)
+        } catch {
+            ChatModel.appendDiagnostic("wake demand removeAll failed: \(NativeLogRedaction.error(error))")
+        }
+    }
+
+    func wakeDemands() async -> [WakeDemand] {
+        await scheduler.demands()
+    }
+
+    /// Called on `applicationDidEnterBackground` / before a park: the resident
+    /// timer will not run, so the earliest due time goes to the OS channels now.
+    func appDidEnterBackground() async {
+        await scheduler.enterBackground()
     }
 
     /// A board wake event; the voice turn writes its admission before it needs
@@ -101,6 +167,8 @@ final class EngineLaunchOrchestrator {
         remember(key, outcome)
         return outcome
     }
+
+    static func nowMs() -> Int64 { WakeDemandLedger.nowMs() }
 
     private func nextWakeID() -> Int {
         wakeCounter += 1
@@ -169,7 +237,7 @@ final class EngineLaunchOrchestrator {
             }
         case .nativeOnly:
             // Lease too short (or no residency): the engine-free part only.
-            report = await runNativeOnlyPasses(lease: lease)
+            report = await runNativeOnlyPasses(wakeId: wakeId, reason: reason, lease: lease)
             // Ask the system for a later, longer window; the work stays durable.
             _ = EngineLaunchProcessingTask.submit()
         case .deferred, .needsAttention:
@@ -185,91 +253,64 @@ final class EngineLaunchOrchestrator {
                                    sweep: report)
     }
 
-    // MARK: - Phase D
+    // MARK: - Phase D (ReadySweep as a source registry, PLAN §2.9 I4)
 
-    /// Native steps 1–3 and, when the Bot side is bound, its steps 4–7 merged
-    /// into one report in the contract's fixed order.
+    /// One pass over every contract source, in order. Native steps 1–3, the
+    /// Bot composition's steps 4–7 (through one aggregate adapter around its
+    /// `runReadySweep`), and the host's steps 8–9 are all sources; adding a
+    /// source never changes this method.
     private func runReadySweep(wakeId: String, reason: WakeReason, lease: WakeLease?,
                                consumersBound: Bool) async -> ReadySweepReport {
-        var report = ReadySweepReport()
         let remaining: @Sendable () -> Int64 = { [lease] in lease?.remainingMs() ?? .max }
-        // 1. The user's own outbox.
-        if ReadySweepPolicy.shouldRun(.userOutbox, remainingMs: remaining()) {
-            if await chat.drainOutboxForWake() {
-                report.record(.userOutbox, .ran)
-            } else {
-                report.record(.userOutbox, .skipped(reason: "empty"))
-            }
-        } else {
-            report.record(.userOutbox, .skipped(reason: "lease"))
-        }
-
-        // 2. External admission pass.
-        if ReadySweepPolicy.shouldRun(.externalAdmission, remainingMs: remaining()) {
-            await chat.runAdmissionPassForWake()
-            report.record(.externalAdmission, .ran)
-        } else {
-            report.record(.externalAdmission, .skipped(reason: "lease"))
-        }
-
-        // 3. One cloud pull; a pass that ran within the freshness window this
-        // wake already pulled, so its own result is reused.
-        if ReadySweepPolicy.shouldRun(.cloudTaskPull, remainingMs: remaining()) {
-            if let last = cloud.lastPullAt,
-               Date().timeIntervalSince(last) * 1000 < Double(EngineLaunchThresholds.cloudPullFreshnessMs) {
-                report.record(.cloudTaskPull, .skipped(reason: "fresh"))
-            } else if await cloud.runWakePull() {
-                report.record(.cloudTaskPull, .ran)
-            } else {
-                report.record(.cloudTaskPull, .skipped(reason: "disabled"))
-            }
-        } else {
-            report.record(.cloudTaskPull, .skipped(reason: "lease"))
-        }
-
-        // 4–7. The Bot side owns its four steps and re-reads the lease before
-        // each one. `ReadySweepContext` is the frozen interface (PLAN §4).
-        let botSteps: [ReadySweepStep] = [.botHeldInbox, .missedRoutines, .connectorScan, .approvalReminderSync]
-        if consumersBound {
-            let context = ReadySweepContext(wakeId: wakeId, reason: reason,
-                                            engineIncarnation: engineIncarnation,
-                                            remainingMs: remaining)
-            report.steps.append(contentsOf: await botReadySweep(context).steps)
-        } else {
-            for step in botSteps { report.record(step, .skipped(reason: "engine_not_ready")) }
-        }
-
-        return report.ordered()
+        let context = ReadySweepContext(wakeId: wakeId, reason: reason,
+                                        engineIncarnation: engineIncarnation,
+                                        remainingMs: remaining)
+        let botGroup = BotSweepAggregate(chat: chat, engineBound: consumersBound)
+        let registry = ReadySweepRegistry(providers: [
+            { [weak self] in
+                guard let self else { return [] }
+                return [OutboxReadySweepSource(chat: self.chat),
+                        ExternalAdmissionReadySweepSource(chat: self.chat),
+                        CloudPullReadySweepSource(cloud: self.cloud)]
+            },
+            { botGroup.sources },
+            { [weak self] in
+                guard let self else { return [] }
+                return [DshScheduleReadySweepSource(chat: self.chat, scheduler: self.scheduler),
+                        HostRetriesReadySweepSource(chat: self.chat, scheduler: self.scheduler)]
+            },
+        ])
+        return await registry.run(context)
     }
 
-    /// Lease fallback: only the engine-free passes, in order. Step 1 cannot
-    /// run without a host; 4–7 belong to a wake that can boot.
-    private func runNativeOnlyPasses(lease: WakeLease?) async -> ReadySweepReport {
-        var report = ReadySweepReport()
+    /// Lease fallback (PLAN §2.3): only the engine-free passes. Step 1 and
+    /// steps 4–9 need a host or a lease; the admission pass and the cloud pull
+    /// are the same native work as before the change.
+    private func runNativeOnlyPasses(wakeId: String, reason: WakeReason,
+                                     lease: WakeLease?) async -> ReadySweepReport {
         let remaining: @Sendable () -> Int64 = { [lease] in lease?.remainingMs() ?? .max }
+        let context = ReadySweepContext(wakeId: wakeId, reason: reason,
+                                        engineIncarnation: engineIncarnation,
+                                        remainingMs: remaining)
+        var report = ReadySweepReport()
         report.record(.userOutbox, .skipped(reason: "lease"))
 
         if ReadySweepPolicy.shouldRun(.externalAdmission, remainingMs: remaining()) {
-            await chat.runAdmissionPassForWake()
-            report.record(.externalAdmission, .ran)
+            report.record(.externalAdmission,
+                          await ExternalAdmissionReadySweepSource(chat: chat).run(context))
         } else {
             report.record(.externalAdmission, .skipped(reason: "lease"))
         }
 
         if ReadySweepPolicy.shouldRun(.cloudTaskPull, remainingMs: remaining()) {
-            if let last = cloud.lastPullAt,
-               Date().timeIntervalSince(last) * 1000 < Double(EngineLaunchThresholds.cloudPullFreshnessMs) {
-                report.record(.cloudTaskPull, .skipped(reason: "fresh"))
-            } else if await cloud.runWakePull() {
-                report.record(.cloudTaskPull, .ran)
-            } else {
-                report.record(.cloudTaskPull, .skipped(reason: "disabled"))
-            }
+            report.record(.cloudTaskPull,
+                          await CloudPullReadySweepSource(cloud: cloud).run(context))
         } else {
             report.record(.cloudTaskPull, .skipped(reason: "lease"))
         }
 
-        for step in [ReadySweepStep.botHeldInbox, .missedRoutines, .connectorScan, .approvalReminderSync] {
+        for step in [ReadySweepStep.botHeldInbox, .missedRoutines, .connectorScan,
+                     .approvalReminderSync, .dshSchedule, .hostRetries] {
             report.record(step, .skipped(reason: "lease"))
         }
         return report.ordered()
@@ -281,22 +322,186 @@ final class EngineLaunchOrchestrator {
         }).ordered()
     }
 
-    // MARK: - Bot half (ios-bot)
+}
 
-    /// TEMPORARY until ios-bot lands `BotRuntimeComposition.runReadySweep(_:)`
-    /// with the frozen PLAN §4 signature. Every Bot step reports `skipped`, so
-    /// the native half runs and the merged report shape is exercised. Replace
-    /// the body with:
-    ///
-    ///     await chat.botRuntime?.runReadySweep(context) ?? ReadySweepReport()
-    ///
-    /// when that unit's commit is in; no contract shape changes.
-    private func botReadySweep(_ context: ReadySweepContext) async -> ReadySweepReport {
-        var report = ReadySweepReport()
-        for step in [ReadySweepStep.botHeldInbox, .missedRoutines, .connectorScan, .approvalReminderSync] {
-            report.record(step, .skipped(reason: "bot_runtime_pending"))
+// MARK: - ReadySweep sources (PLAN §2.9 I4)
+
+/// Step 1: the user's own queued sends. The source is "due" whenever the
+/// registry asks; an empty queue reports `skipped("empty")`.
+@MainActor
+final class OutboxReadySweepSource: ReadySweepSource {
+    let id: ReadySweepStep = .userOutbox
+    private let chat: ChatModel
+
+    init(chat: ChatModel) { self.chat = chat }
+
+    func due(nowMs: Int64) async -> Bool { true }
+
+    func run(_ context: ReadySweepContext) async -> ReadySweepOutcome {
+        await chat.drainOutboxForWake() ? .ran : .skipped(reason: "empty")
+    }
+}
+
+/// Step 2: admitted external requests. The journal remains the durable owner;
+/// the pass only hands ready records to their target.
+@MainActor
+final class ExternalAdmissionReadySweepSource: ReadySweepSource {
+    let id: ReadySweepStep = .externalAdmission
+    private let chat: ChatModel
+
+    init(chat: ChatModel) { self.chat = chat }
+
+    func due(nowMs: Int64) async -> Bool { true }
+
+    func run(_ context: ReadySweepContext) async -> ReadySweepOutcome {
+        await chat.runAdmissionPassForWake()
+        return .ran
+    }
+}
+
+/// Step 3: one cloud pull, skipped when this wake already pulled inside the
+/// contract's freshness window.
+@MainActor
+final class CloudPullReadySweepSource: ReadySweepSource {
+    let id: ReadySweepStep = .cloudTaskPull
+    private let cloud: CloudTaskCenter
+
+    init(cloud: CloudTaskCenter) { self.cloud = cloud }
+
+    func due(nowMs: Int64) async -> Bool { true }
+
+    func run(_ context: ReadySweepContext) async -> ReadySweepOutcome {
+        if let last = cloud.lastPullAt,
+           Date().timeIntervalSince(last) * 1000
+               < Double(EngineLaunchThresholds.cloudPullFreshnessMs) {
+            return .skipped(reason: "fresh")
         }
-        return report
+        return await cloud.runWakePull() ? .ran : .skipped(reason: "disabled")
+    }
+}
+
+/// Steps 4–7: the Bot composition's four sources, exposed through ONE adapter
+/// around its frozen `runReadySweep(_:)` (PLAN §4). The first Bot step the
+/// registry reaches runs that pass; the other three read its report, so the
+/// Bot side never duplicates work in one wake.
+@MainActor
+final class BotSweepAggregate {
+    private let chat: ChatModel
+    private let engineBound: Bool
+    private var ranForWakeId: String?
+    private var report = ReadySweepReport()
+
+    init(chat: ChatModel, engineBound: Bool) {
+        self.chat = chat
+        self.engineBound = engineBound
+    }
+
+    var sources: [any ReadySweepSource] {
+        [BotStepReadySweepSource(id: .botHeldInbox, group: self),
+         BotStepReadySweepSource(id: .missedRoutines, group: self),
+         BotStepReadySweepSource(id: .connectorScan, group: self),
+         BotStepReadySweepSource(id: .approvalReminderSync, group: self)]
+    }
+
+    func outcome(for step: ReadySweepStep, context: ReadySweepContext) async -> ReadySweepOutcome {
+        guard engineBound else { return .skipped(reason: "engine_not_ready") }
+        if ranForWakeId != context.wakeId {
+            ranForWakeId = context.wakeId
+            report = await chat.botRuntime?.runReadySweep(context) ?? ReadySweepReport()
+        }
+        return report.outcome(for: step) ?? .skipped(reason: "bot_runtime_unavailable")
+    }
+}
+
+@MainActor
+final class BotStepReadySweepSource: ReadySweepSource {
+    let id: ReadySweepStep
+    private let group: BotSweepAggregate
+
+    init(id: ReadySweepStep, group: BotSweepAggregate) {
+        self.id = id
+        self.group = group
+    }
+
+    func due(nowMs: Int64) async -> Bool { true }
+
+    func run(_ context: ReadySweepContext) async -> ReadySweepOutcome {
+        await group.outcome(for: id, context: context)
+    }
+}
+
+/// Step 8: the DSH schedule mirror. The host demand points at the next
+/// `scheduledAt`; when the engine is up the DSH runtime catches the overdue
+/// schedule up itself, so this source only confirms readiness and consumes the
+/// due once-demands. (The `engine.wakeHint` producer lands with contract §10.3;
+/// the ledger write goes through `EngineLaunchOrchestrator.upsertWakeDemand`.)
+@MainActor
+final class DshScheduleReadySweepSource: ReadySweepSource {
+    let id: ReadySweepStep = .dshSchedule
+    private let chat: ChatModel
+    private let scheduler: WakeScheduler
+
+    init(chat: ChatModel, scheduler: WakeScheduler) {
+        self.chat = chat
+        self.scheduler = scheduler
+    }
+
+    func due(nowMs: Int64) async -> Bool {
+        !(await scheduler.dueDemands(source: .dshSchedule, nowMs: nowMs)).isEmpty
+    }
+
+    func run(_ context: ReadySweepContext) async -> ReadySweepOutcome {
+        guard chat.engineHostState == .running else { return .skipped(reason: "engine_not_ready") }
+        // The DSH runtime replays the overdue schedules once the engine is up;
+        // the host only retires the due once-demand it mirrored.
+        let due = await scheduler.dueDemands(source: .dshSchedule, nowMs: EngineLaunchOrchestrator.nowMs())
+        for demand in due where demand.kind == .once {
+            try? await scheduler.remove(source: .dshSchedule, key: demand.key)
+        }
+        return .ran
+    }
+}
+
+/// Step 9: host-owned retries that used to live only in `Task.sleep` — the
+/// engine backoff window and the outbox settle flush. Losing the process timer
+/// no longer loses the retry: the ledger still holds the due time.
+@MainActor
+final class HostRetriesReadySweepSource: ReadySweepSource {
+    let id: ReadySweepStep = .hostRetries
+    private let chat: ChatModel
+    private let scheduler: WakeScheduler
+
+    init(chat: ChatModel, scheduler: WakeScheduler) {
+        self.chat = chat
+        self.scheduler = scheduler
+    }
+
+    func due(nowMs: Int64) async -> Bool {
+        !(await scheduler.dueDemands(source: .hostRetries, nowMs: nowMs)).isEmpty
+    }
+
+    func run(_ context: ReadySweepContext) async -> ReadySweepOutcome {
+        let now = EngineLaunchOrchestrator.nowMs()
+        let due = await scheduler.dueDemands(source: .hostRetries, nowMs: now)
+        guard !due.isEmpty else { return .skipped(reason: "not-due") }
+        for demand in due {
+            switch demand.key {
+            case "engineBackoff":
+                // The retry path re-arms its own demand (a persisted backoff
+                // window) or removes it on success; do not delete it here.
+                if chat.engineHostState != .running {
+                    await chat.retryBackoffFromDemand()
+                } else {
+                    try? await scheduler.remove(source: .hostRetries, key: demand.key)
+                }
+            case "outboxSettleFlush":
+                await chat.flushSettleFromDemand()
+                try? await scheduler.remove(source: .hostRetries, key: demand.key)
+            default:
+                try? await scheduler.remove(source: .hostRetries, key: demand.key)
+            }
+        }
+        return .ran
     }
 }
 

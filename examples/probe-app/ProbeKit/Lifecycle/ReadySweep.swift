@@ -29,6 +29,13 @@ public enum ReadySweepStep: String, CaseIterable, Codable, Sendable, Equatable {
     case connectorScan
     /// 7. Approval reminder reconciliation.
     case approvalReminderSync
+    /// 8. The DSH schedule mirror (`engine.wakeHint` → WakeDemand): the host
+    ///    confirms the engine is ready; the DSH runtime itself catches up the
+    ///    overdue schedules (PLAN §2.9).
+    case dshSchedule
+    /// 9. Host-owned retries (engine backoff, outbox settle flush) that were
+    ///    written as WakeDemands instead of living only in `Task.sleep`.
+    case hostRetries
 
     /// Position in the fixed order, 1-based.
     public var ordinal: Int {
@@ -122,6 +129,8 @@ public enum ReadySweepPolicy {
         case .missedRoutines: return 5_000
         case .connectorScan: return 10_000
         case .approvalReminderSync: return 1_000
+        case .dshSchedule: return 2_000
+        case .hostRetries: return 2_000
         }
     }
 

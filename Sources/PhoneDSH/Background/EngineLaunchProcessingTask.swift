@@ -82,6 +82,12 @@ public enum EngineLaunchProcessingTask {
         }
     }
 
+    /// Drops a pending request when the demand ledger no longer has a future
+    /// due time (PLAN §2.9 I5: re-project on every ledger change).
+    public static func cancel() {
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
+    }
+
     private static func run(_ task: BGProcessingTask) {
         guard let runner = state.runner() else {
             task.setTaskCompleted(success: false)
@@ -146,6 +152,109 @@ private final class CompletionGate: @unchecked Sendable {
     }
 }
 
+/// The `BGAppRefreshTask` arm of the wake projection (PLAN §2.9 channel
+/// table): the same window shape as processing, but a refresh task is the
+/// system's normal "run briefly in the background" channel and needs
+/// `UIBackgroundModes: fetch`. Register and submit exactly like the processing
+/// arm; the App's runner asks for one `.scheduledDemand` wake.
+public enum EngineLaunchRefreshTask {
+    public static var identifier: String {
+        let bundle = Bundle.main.bundleIdentifier ?? "dev.phone-dsh.probe"
+        return bundle + ".engine-launch.refresh"
+    }
+
+    private static let state = RefreshState()
+
+    @discardableResult
+    public static func register(_ runner: @escaping EngineLaunchProcessingTask.Runner) -> Bool {
+        state.setRunner(runner)
+        guard state.markRegistered() else { return false }
+        return BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: identifier, using: nil
+        ) { task in
+            guard let refresh = task as? BGAppRefreshTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            run(refresh)
+        }
+    }
+
+    @discardableResult
+    public static func submit(earliestBeginDate: Date?) -> Bool {
+        let request = BGAppRefreshTaskRequest(identifier: identifier)
+        request.earliestBeginDate = earliestBeginDate ?? Date().addingTimeInterval(15 * 60)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    public static func cancel() {
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
+    }
+
+    private static func run(_ task: BGAppRefreshTask) {
+        guard let runner = state.runner() else {
+            task.setTaskCompleted(success: false)
+            return
+        }
+        let gate = RefreshCompletionGate()
+        let grantedAt = Date()
+        let window = EngineLaunchProcessingWindow(
+            grantedAt: grantedAt,
+            deadline: grantedAt.addingTimeInterval(EngineLaunchProcessingTask.assumedWindowSeconds),
+            isExpired: { gate.isExpired })
+        task.expirationHandler = { gate.finish(task, success: false) }
+        Task {
+            let success = await runner(window)
+            gate.finish(task, success: success)
+        }
+    }
+}
+
+private final class RefreshState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedRunner: EngineLaunchProcessingTask.Runner?
+    private var registered = false
+
+    func setRunner(_ runner: @escaping EngineLaunchProcessingTask.Runner) {
+        lock.withLock { storedRunner = runner }
+    }
+
+    func runner() -> EngineLaunchProcessingTask.Runner? {
+        lock.withLock { storedRunner }
+    }
+
+    func markRegistered() -> Bool {
+        lock.withLock {
+            if registered { return false }
+            registered = true
+            return true
+        }
+    }
+}
+
+private final class RefreshCompletionGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = false
+    private var expired = false
+
+    var isExpired: Bool { lock.withLock { expired } }
+
+    func finish(_ task: BGAppRefreshTask, success: Bool) {
+        let shouldComplete: Bool = lock.withLock {
+            expired = true
+            if completed { return false }
+            completed = true
+            return true
+        }
+        if shouldComplete { task.setTaskCompleted(success: success) }
+    }
+}
+
 #else
 
 /// macOS / no BackgroundTasks: the request is never booked.
@@ -165,6 +274,20 @@ public enum EngineLaunchProcessingTask {
 
     @discardableResult
     public static func submit(earliestBeginDate: Date? = nil) -> Bool { false }
+
+    public static func cancel() {}
+}
+
+public enum EngineLaunchRefreshTask {
+    public static var identifier: String { "engine-launch.refresh" }
+
+    @discardableResult
+    public static func register(_ runner: @escaping EngineLaunchProcessingTask.Runner) -> Bool { false }
+
+    @discardableResult
+    public static func submit(earliestBeginDate: Date? = nil) -> Bool { false }
+
+    public static func cancel() {}
 }
 
 #endif

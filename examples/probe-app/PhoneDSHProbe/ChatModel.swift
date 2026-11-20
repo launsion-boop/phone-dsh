@@ -1910,6 +1910,14 @@ final class ChatModel {
                                          attempts: backoffRetryAttempts) {
         case .retry(let delay, let attempt):
             backoffRetryAttempts = attempt
+            // PLAN §2.9 I2: the retry deadline is a host WakeDemand, not only a
+            // process sleep. A suspend/kill no longer loses the retry.
+            let dueAtMs = Int64(deadline.timeIntervalSince1970 * 1000)
+            Task { @MainActor in
+                await EngineLaunchOrchestrator.shared.upsertWakeDemand(
+                    WakeDemand(source: .hostRetries, key: "engineBackoff",
+                               dueAtMs: dueAtMs, kind: .once, userVisible: false))
+            }
             let seconds = max(1, Int(ceil(max(0, delay))))
             if !launchInitiated { statusLine = "引擎将在 \(seconds) 秒后自动启动" }
             appendStatus("Engine backoff: auto-start \(attempt)/\(ChatBackoffRetry.maximumAttempts) in \(String(format: "%.1f", delay)) s")
@@ -1936,12 +1944,14 @@ final class ChatModel {
             }
         case .waitForManualStart(let remaining):
             backoffRetryTask?.cancel(); backoffRetryTask = nil
+            removeBackoffDemand()
             engineNeedsReset = true
             let seconds = max(1, Int(ceil(remaining)))
             if !launchInitiated { statusLine = "引擎将在 \(seconds) 秒后可启动，请稍后手动启动" }
             appendStatus("Engine backoff deadline is far away; automatic retry disabled")
         case .exhausted(let attempts):
             backoffRetryTask?.cancel(); backoffRetryTask = nil
+            removeBackoffDemand()
             engineNeedsReset = true
             if launchInitiated {
                 Self.persistStatus("Engine backoff exhausted (\(attempts)) during a silent launch")
@@ -1955,6 +1965,34 @@ final class ChatModel {
         backoffRetryTask?.cancel()
         backoffRetryTask = nil
         backoffRetryAttempts = 0
+        removeBackoffDemand()
+    }
+
+    private func removeBackoffDemand() {
+        Task { @MainActor in
+            await EngineLaunchOrchestrator.shared.removeWakeDemand(
+                source: .hostRetries, key: "engineBackoff")
+        }
+    }
+
+    /// hostRetries demand entry: the backoff deadline passed while the process
+    /// was not running its sleep. Retry now, silently (this is not a user action
+    /// waiting on the engine).
+    func retryBackoffFromDemand() async {
+        guard host == nil, !busy, !parked, !hostLifecycleTransition else { return }
+        silentLaunchDepth += 1
+        defer { silentLaunchDepth -= 1 }
+        await start(autoRecover: false, backoffRetry: true)
+        scheduleRecoveryQueueFlush()
+    }
+
+    /// hostRetries demand entry: the outbox settle deadline passed while the
+    /// process was gone. Run the one settle pass now.
+    func flushSettleFromDemand() async {
+        outboxSettleTask?.cancel()
+        outboxSettleTask = nil
+        outboxSettleDeadline = nil
+        scheduleRecoveryQueueFlush()
     }
 
     private func makeHostLaunch() -> HostLaunch? {
@@ -4598,15 +4636,28 @@ final class ChatModel {
 
     /// One wake-up for the earliest unknown send that still has to settle.
     private func scheduleOutboxSettleFlush(afterMs: Int64) {
-        let deadline = Date().addingTimeInterval(Double(max(afterMs, 100)) / 1_000)
+        let delay = max(afterMs, 100)
+        let deadline = Date().addingTimeInterval(Double(delay) / 1_000)
         if outboxSettleTask != nil, let current = outboxSettleDeadline, current <= deadline { return }
         outboxSettleTask?.cancel()
         outboxSettleDeadline = deadline
+        // PLAN §2.9 I2: the wake time is durable on the host; the sleep below
+        // is only the resident fast path.
+        let dueAtMs = Int64(deadline.timeIntervalSince1970 * 1000)
+        Task { @MainActor in
+            await EngineLaunchOrchestrator.shared.upsertWakeDemand(
+                WakeDemand(source: .hostRetries, key: "outboxSettleFlush",
+                           dueAtMs: dueAtMs, kind: .once, userVisible: false))
+        }
         outboxSettleTask = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: .milliseconds(max(afterMs, 100))) } catch { return }
+            do { try await Task.sleep(for: .milliseconds(delay)) } catch { return }
             guard let self else { return }
             self.outboxSettleTask = nil
             self.outboxSettleDeadline = nil
+            Task { @MainActor in
+                await EngineLaunchOrchestrator.shared.removeWakeDemand(
+                    source: .hostRetries, key: "outboxSettleFlush")
+            }
             self.scheduleRecoveryQueueFlush()
         }
     }
