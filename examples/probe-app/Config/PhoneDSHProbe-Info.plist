@@ -117,8 +117,6 @@
 	<string>启用生物识别确认后，在敏感写操作前验证是你本人。</string>
 	<key>NSFocusStatusUsageDescription</key>
 	<string>仅在你查询时读取系统 FocusStatus 的专注状态。</string>
-	<key>NSHomeKitUsageDescription</key>
-	<string>仅在你授权后读取家庭和配件，并在明确确认后写入指定特征。</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Phone DSH 仅在你请求时读取你已授权的健康数据，例如步数和运动记录。</string>
 	<key>NSAppleMusicUsageDescription</key>
@@ -162,8 +160,6 @@
 	<string>启用生物识别确认后，在敏感写操作前验证是你本人。</string>
 	<key>NSFocusStatusUsageDescription</key>
 	<string>仅在你查询时读取系统 FocusStatus 的专注状态。</string>
-	<key>NSHomeKitUsageDescription</key>
-	<string>仅在你授权后读取家庭和配件，并在明确确认后写入指定特征。</string>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>通过 MusicKit 播放你明确选择的音乐目录项目。</string>
 	<!-- Connecting an MCP server on the household/corporate LAN triggers the

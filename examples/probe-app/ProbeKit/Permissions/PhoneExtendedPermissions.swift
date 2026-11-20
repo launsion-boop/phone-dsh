@@ -2,16 +2,12 @@
 
 import ActivityKit
 import CoreLocation
-import HomeKit
 import Intents
 import MusicKit
 import UIKit
 
 @MainActor
 public final class PhoneExtendedPermissionController {
-    private var homeManager: HMHomeManager?
-    private var homeDelegate: PhoneHomeAuthorizationDelegate?
-    private var homeContinuation: CheckedContinuation<Void, Never>?
     private var alwaysManager: CLLocationManager?
     private var alwaysDelegate: PhoneAlwaysLocationDelegate?
 
@@ -35,12 +31,6 @@ public final class PhoneExtendedPermissionController {
             case .authorized: return .authorized
             @unknown default: return .unavailable
             }
-        case .homekit:
-            guard let homeManager else { return .notDetermined }
-            let status = homeManager.authorizationStatus
-            if status.contains(.authorized) { return .authorized }
-            if status.contains(.restricted) { return .restricted }
-            return .notDetermined
         case .music:
             switch MusicAuthorization.currentStatus {
             case .notDetermined: return .notDetermined
@@ -80,23 +70,6 @@ public final class PhoneExtendedPermissionController {
                     continuation.resume()
                 }
             }
-        case .homekit:
-            if homeManager == nil {
-                let manager = HMHomeManager()
-                homeManager = manager
-                let delegate = PhoneHomeAuthorizationDelegate { [weak self] in
-                    self?.finishHomeRequest()
-                }
-                homeDelegate = delegate
-                manager.delegate = delegate
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    homeContinuation = continuation
-                    Task { @MainActor [weak self] in
-                        try? await Task.sleep(for: .seconds(15))
-                        self?.finishHomeRequest()
-                    }
-                }
-            }
         case .music:
             _ = await MusicAuthorization.request()
         default:
@@ -107,34 +80,6 @@ public final class PhoneExtendedPermissionController {
 
     public func focusStatus() -> Bool? {
         INFocusStatusCenter.default.focusStatus.isFocused
-    }
-
-    public func homes() throws -> [HMHome] {
-        guard let homeManager else { throw PhoneToolError.permissionRequired(.homekit) }
-        return homeManager.homes
-    }
-
-    private func finishHomeRequest() {
-        guard let continuation = homeContinuation else { return }
-        homeContinuation = nil
-        continuation.resume()
-    }
-}
-
-private final class PhoneHomeAuthorizationDelegate: NSObject, HMHomeManagerDelegate {
-    private let updated: () -> Void
-
-    init(updated: @escaping () -> Void) {
-        self.updated = updated
-    }
-
-    func homeManagerDidUpdateHomes(_ manager: HMHomeManager) {
-        updated()
-    }
-
-    func homeManager(_ manager: HMHomeManager,
-                     didUpdate status: HMHomeManagerAuthorizationStatus) {
-        updated()
     }
 }
 

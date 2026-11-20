@@ -15,12 +15,12 @@ public enum PhoneCapabilityGroup: String, CaseIterable, Codable, Sendable {
         case .deviceSensors: return "设备与传感器"
         case .systemNotifications: return "系统与通知"
         case .filesData: return "文件与数据"
-        case .homeMedia: return "家庭与媒体"
+        case .homeMedia: return "媒体"
         }
     }
 
     public var capabilities: [PhoneCapability] {
-        PhoneCapability.allCases.filter { $0.group == self }
+        PhoneCapability.available.filter { $0.group == self }
     }
 }
 
@@ -46,10 +46,14 @@ public enum PhoneCapability: String, CaseIterable, Codable, Sendable, Identifiab
     case clipboard
     case filesFolder
     case device
+    // Retained for decoding historical permission audit records.
     case homekit
     case music
     case liveActivity
     case shortcuts
+
+    /// Permissions offered by this app. The retired HomeKit value is kept for audit history.
+    public static let available = allCases.filter { $0 != .homekit }
 
     public var group: PhoneCapabilityGroup {
         switch self {
@@ -112,7 +116,7 @@ public enum PhoneCapability: String, CaseIterable, Codable, Sendable, Identifiab
         case .filesFolder: return "通过系统选择器授权你选择的文件夹，不读取其它 App 容器。"
         case .device: return "只读显示设备型号、系统版本和当前时间，始终启用。"
         case .shortcuts: return "打开指定的快捷指令；跨 App 执行结果无法观测，不承诺已完成。"
-        case .homekit: return "读取你授权的家庭与配件，并在确认后写入指定特征。"
+        case .homekit: return "已停用的家庭权限。"
         case .music: return "通过 MusicKit 播放你指定的真实音乐目录项目。"
         case .liveActivity: return "通过 ActivityKit 创建和更新实时活动。"
         }

@@ -13,7 +13,7 @@ public final class PhonePermissionStore: ObservableObject {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         var loaded: [PhoneCapability: Bool] = [:]
-        for capability in PhoneCapability.allCases {
+        for capability in PhoneCapability.available {
             let key = Self.key(for: capability)
             loaded[capability] = defaults.object(forKey: key) as? Bool ?? capability.defaultEnabled
         }
