@@ -4,10 +4,10 @@
   "constants": {
     "version": 1,
     "maxCursorLength": 512,
-    "cursorPattern": {
-      "gmail": "^[0-9]{1,20}$",
-      "github": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
-    }
+    "gmailPattern": "^[0-9]{1,20}$",
+    "githubSincePattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+    "httpDatePattern": "^[A-Z][a-z]{2}, [0-9]{2} [A-Z][a-z]{2} [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT$",
+    "storeKey": "account+connector"
   },
   "valid": [
     {
@@ -31,13 +31,19 @@
       "id": "github-first-scan-establishes-only",
       "connector": "github",
       "stored": null,
-      "head": "2026-11-20T00:00:00Z",
+      "head": {
+        "since": "2026-11-20T00:00:00Z",
+        "lastModified": "Fri, 20 Nov 2026 00:00:00 GMT"
+      },
       "now": 1760000000000,
       "expected": {
         "record": {
           "version": 1,
           "connector": "github",
-          "cursor": "2026-11-20T00:00:00Z",
+          "cursor": {
+            "since": "2026-11-20T00:00:00Z",
+            "lastModified": "Fri, 20 Nov 2026 00:00:00 GMT"
+          },
           "updatedAt": 1760000000000,
           "status": "established"
         },
@@ -81,15 +87,76 @@
     {
       "id": "github-incremental-emits-a-delta",
       "connector": "github",
-      "stored": "2026-11-19T00:00:00Z",
-      "head": "2026-11-20T00:00:00Z",
+      "stored": {
+        "since": "2026-11-19T00:00:00Z",
+        "lastModified": "Thu, 19 Nov 2026 00:00:00 GMT"
+      },
+      "head": {
+        "since": "2026-11-20T00:00:00Z",
+        "lastModified": "Fri, 20 Nov 2026 00:00:00 GMT"
+      },
       "now": 1760000001000,
       "expected": {
         "record": {
           "version": 1,
           "connector": "github",
-          "cursor": "2026-11-20T00:00:00Z",
+          "cursor": {
+            "since": "2026-11-20T00:00:00Z",
+            "lastModified": "Fri, 20 Nov 2026 00:00:00 GMT"
+          },
           "updatedAt": 1760000001000,
+          "status": "established"
+        },
+        "emitConnectorUpdate": true
+      }
+    },
+    {
+      "id": "github-last-modified-only-emits-nothing",
+      "connector": "github",
+      "stored": {
+        "since": "2026-11-20T00:00:00Z",
+        "lastModified": "Thu, 19 Nov 2026 00:00:00 GMT"
+      },
+      "head": {
+        "since": "2026-11-20T00:00:00Z",
+        "lastModified": "Fri, 20 Nov 2026 06:00:00 GMT"
+      },
+      "now": 1760000009000,
+      "expected": {
+        "record": {
+          "version": 1,
+          "connector": "github",
+          "cursor": {
+            "since": "2026-11-20T00:00:00Z",
+            "lastModified": "Fri, 20 Nov 2026 06:00:00 GMT"
+          },
+          "updatedAt": 1760000009000,
+          "status": "established"
+        },
+        "emitConnectorUpdate": false
+      }
+    },
+    {
+      "id": "github-null-last-modified-incremental-emits",
+      "connector": "github",
+      "stored": {
+        "since": "2026-11-19T00:00:00Z",
+        "lastModified": null
+      },
+      "head": {
+        "since": "2026-11-20T00:00:00Z",
+        "lastModified": null
+      },
+      "now": 1760000010000,
+      "expected": {
+        "record": {
+          "version": 1,
+          "connector": "github",
+          "cursor": {
+            "since": "2026-11-20T00:00:00Z",
+            "lastModified": null
+          },
+          "updatedAt": 1760000010000,
           "status": "established"
         },
         "emitConnectorUpdate": true
@@ -115,14 +182,23 @@
     {
       "id": "github-no-change-emits-nothing",
       "connector": "github",
-      "stored": "2026-11-20T00:00:00Z",
-      "head": "2026-11-20T00:00:00Z",
+      "stored": {
+        "since": "2026-11-20T00:00:00Z",
+        "lastModified": "Fri, 20 Nov 2026 00:00:00 GMT"
+      },
+      "head": {
+        "since": "2026-11-20T00:00:00Z",
+        "lastModified": "Fri, 20 Nov 2026 00:00:00 GMT"
+      },
       "now": 1760000003000,
       "expected": {
         "record": {
           "version": 1,
           "connector": "github",
-          "cursor": "2026-11-20T00:00:00Z",
+          "cursor": {
+            "since": "2026-11-20T00:00:00Z",
+            "lastModified": "Fri, 20 Nov 2026 00:00:00 GMT"
+          },
           "updatedAt": 1760000003000,
           "status": "established"
         },
@@ -168,14 +244,23 @@
     {
       "id": "github-regressed-cursor-resets-silently",
       "connector": "github",
-      "stored": "2026-11-20T00:00:00Z",
-      "head": "2026-11-19T00:00:00Z",
+      "stored": {
+        "since": "2026-11-20T00:00:00Z",
+        "lastModified": "Fri, 20 Nov 2026 00:00:00 GMT"
+      },
+      "head": {
+        "since": "2026-11-19T00:00:00Z",
+        "lastModified": "Thu, 19 Nov 2026 00:00:00 GMT"
+      },
       "now": 1760000006000,
       "expected": {
         "record": {
           "version": 1,
           "connector": "github",
-          "cursor": "2026-11-19T00:00:00Z",
+          "cursor": {
+            "since": "2026-11-19T00:00:00Z",
+            "lastModified": "Thu, 19 Nov 2026 00:00:00 GMT"
+          },
           "updatedAt": 1760000006000,
           "status": "reset",
           "lastError": "cursor-regressed"
@@ -184,17 +269,50 @@
       }
     },
     {
-      "id": "github-corrupt-cursor-resets-silently",
+      "id": "github-wrong-shape-cursor-resets-silently",
       "connector": "github",
-      "stored": "yesterday",
-      "head": "2026-11-20T00:00:00Z",
+      "stored": "2026-11-20T00:00:00Z",
+      "head": {
+        "since": "2026-11-20T00:00:00Z",
+        "lastModified": "Fri, 20 Nov 2026 00:00:00 GMT"
+      },
       "now": 1760000007000,
       "expected": {
         "record": {
           "version": 1,
           "connector": "github",
-          "cursor": "2026-11-20T00:00:00Z",
+          "cursor": {
+            "since": "2026-11-20T00:00:00Z",
+            "lastModified": "Fri, 20 Nov 2026 00:00:00 GMT"
+          },
           "updatedAt": 1760000007000,
+          "status": "reset",
+          "lastError": "cursor-invalid"
+        },
+        "emitConnectorUpdate": false
+      }
+    },
+    {
+      "id": "github-bad-http-date-resets-silently",
+      "connector": "github",
+      "stored": {
+        "since": "2026-11-20T00:00:00Z",
+        "lastModified": "20 Nov 2026"
+      },
+      "head": {
+        "since": "2026-11-20T00:00:00Z",
+        "lastModified": "Fri, 20 Nov 2026 00:00:00 GMT"
+      },
+      "now": 1760000008000,
+      "expected": {
+        "record": {
+          "version": 1,
+          "connector": "github",
+          "cursor": {
+            "since": "2026-11-20T00:00:00Z",
+            "lastModified": "Fri, 20 Nov 2026 00:00:00 GMT"
+          },
+          "updatedAt": 1760000008000,
           "status": "reset",
           "lastError": "cursor-invalid"
         },
@@ -223,6 +341,31 @@
         "status": "established"
       },
       "reason": "empty_cursor"
+    },
+    {
+      "id": "gmail-non-decimal-cursor",
+      "record": {
+        "version": 1,
+        "connector": "gmail",
+        "cursor": "abc",
+        "updatedAt": 1760000000000,
+        "status": "established"
+      },
+      "reason": "wrong_cursor_shape"
+    },
+    {
+      "id": "gmail-object-cursor",
+      "record": {
+        "version": 1,
+        "connector": "gmail",
+        "cursor": {
+          "since": "2026-11-20T00:00:00Z",
+          "lastModified": null
+        },
+        "updatedAt": 1760000000000,
+        "status": "established"
+      },
+      "reason": "wrong_cursor_shape"
     },
     {
       "id": "version-2",
@@ -291,6 +434,44 @@
         "status": "established"
       },
       "reason": "negative_updated_at"
+    },
+    {
+      "id": "github-string-cursor",
+      "record": {
+        "version": 1,
+        "connector": "github",
+        "cursor": "2026-11-20T00:00:00Z",
+        "updatedAt": 1760000000000,
+        "status": "established"
+      },
+      "reason": "wrong_cursor_shape"
+    },
+    {
+      "id": "github-missing-last-modified",
+      "record": {
+        "version": 1,
+        "connector": "github",
+        "cursor": {
+          "since": "2026-11-20T00:00:00Z"
+        },
+        "updatedAt": 1760000000000,
+        "status": "established"
+      },
+      "reason": "missing_member"
+    },
+    {
+      "id": "github-bad-http-date-record",
+      "record": {
+        "version": 1,
+        "connector": "github",
+        "cursor": {
+          "since": "2026-11-20T00:00:00Z",
+          "lastModified": "20 Nov 2026"
+        },
+        "updatedAt": 1760000000000,
+        "status": "established"
+      },
+      "reason": "wrong_http_date"
     }
   ]
 }

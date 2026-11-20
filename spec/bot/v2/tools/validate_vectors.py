@@ -51,7 +51,7 @@ PROACTIVE_SETTINGS_FIELDS = (
     "fuseWindowMs", "fuseMaxWakeups", "deliveryKinds",
 )
 PROACTIVE_MODES = ("off", "would", "on")
-PROACTIVE_KINDS = ("task-done", "routine-result", "reminder")
+PROACTIVE_KINDS = ("task-done", "routine-result", "reminder", "connector-update")
 PROACTIVE_DECISIONS = ("did", "would", "skip")
 PROACTIVE_REASONS = (
     "delivered", "would-mode", "would-only-kind", "mode-off", "fuse", "dnd",
@@ -1353,10 +1353,9 @@ def validate_wake_and_held() -> tuple[int, int]:
 
 # ── connector cursor reference (spec/bot/v2/README.md §3.3.2) ──────────────
 
-CONNECTOR_CURSOR_PATTERNS = {
-    "gmail": re.compile(r"^[0-9]{1,20}$"),
-    "github": re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"),
-}
+GMAIL_HISTORY_RE = re.compile(r"^[0-9]{1,20}$")
+GITHUB_SINCE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+HTTP_DATE_RE = re.compile(r"^[A-Z][a-z]{2}, [0-9]{2} [A-Z][a-z]{2} [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT$")
 
 
 def connector_update_is_consistent(item) -> bool:
@@ -1378,15 +1377,30 @@ def connector_update_is_consistent(item) -> bool:
     return True
 
 
-def connector_scan(connector: str, stored, head: str, now: int):
+def connector_cursor_valid(connector: str, value) -> bool:
+    """The per-connector cursor shape frozen in README §3.3.2."""
+    if connector == "gmail":
+        return isinstance(value, str) and GMAIL_HISTORY_RE.fullmatch(value) is not None
+    if connector == "github":
+        if not isinstance(value, dict) or set(value) != {"since", "lastModified"}:
+            return False
+        since = value.get("since")
+        last_modified = value.get("lastModified")
+        if not isinstance(since, str) or GITHUB_SINCE_RE.fullmatch(since) is None:
+            return False
+        return last_modified is None or (
+            isinstance(last_modified, str) and HTTP_DATE_RE.fullmatch(last_modified) is not None)
+    return False
+
+
+def connector_scan(connector: str, stored, head, now: int):
     """Recompute the durable cursor record and whether a delta is emitted."""
-    pattern = CONNECTOR_CURSOR_PATTERNS.get(connector)
-    if pattern is None:
+    if connector not in ("gmail", "github"):
         raise AssertionError(f"connector {connector!r} has no cursor grammar")
-    if not isinstance(head, str) or pattern.fullmatch(head) is None:
+    if not connector_cursor_valid(connector, head):
         raise AssertionError(f"{connector}: head {head!r} does not match the cursor grammar")
 
-    def record(cursor: str, status: str, error=None):
+    def record(cursor, status: str, error=None):
         value = {"version": 1, "connector": connector, "cursor": cursor,
                  "updatedAt": now, "status": status}
         if error is not None:
@@ -1395,14 +1409,18 @@ def connector_scan(connector: str, stored, head: str, now: int):
 
     if stored is None:
         return record(head, "established"), False
-    if not isinstance(stored, str) or pattern.fullmatch(stored) is None:
+    if not connector_cursor_valid(connector, stored):
         return record(head, "reset", "cursor-invalid"), False
     if stored == head:
         return record(head, "established"), False
     if connector == "gmail":
         regressed = int(head) < int(stored)
     else:
-        regressed = head < stored
+        regressed = head["since"] < stored["since"]
+        if not regressed and head["since"] == stored["since"]:
+            # Only the conditional-request token changed: advance the stored
+            # cursor but emit no connectorUpdate.
+            return record(head, "established"), False
     if regressed:
         return record(head, "reset", "cursor-regressed"), False
     return record(head, "established"), True
@@ -1450,16 +1468,23 @@ def connector_cursor_mutations(fixture) -> int:
             return
         raise AssertionError(f"connector-cursor mutation {label!r} unexpectedly passed")
 
+    ids = [case["id"] for case in fixture["valid"]]
+
+    def index_of(ident):
+        return ids.index(ident)
+
     expect_failure(
         "first-scan-emits",
-        lambda value: value["valid"][0]["expected"].__setitem__("emitConnectorUpdate", True))
+        lambda value: value["valid"][index_of("gmail-first-scan-establishes-only")]
+        ["expected"].__setitem__("emitConnectorUpdate", True))
     expect_failure(
         "incremental-cursor",
-        lambda value: value["valid"][2]["expected"]["record"].__setitem__("cursor", "0"))
+        lambda value: value["valid"][index_of("gmail-incremental-emits-a-delta")]
+        ["expected"]["record"].__setitem__("cursor", "0"))
     expect_failure(
         "regression-status",
-        lambda value: value["valid"][8]["expected"]["record"].__setitem__(
-            "status", "established"))
+        lambda value: value["valid"][index_of("gmail-regressed-cursor-resets-silently")]
+        ["expected"]["record"].__setitem__("status", "established"))
     return mutations
 
 
@@ -1686,6 +1711,9 @@ def proactive_notification(candidate, dedupe_key):
     explicit_title = candidate.get("title")
     title = explicit_title.strip() if isinstance(explicit_title, str) else ""
     if not title:
+        if kind == "connector-update":
+            raise AssertionError(
+                "connector-update candidate must carry an explicit non-empty title")
         title = {
             "task-done": "DSH Bot · 后台任务",
             "routine-result": "DSH Bot · 定时执行",
@@ -1694,6 +1722,9 @@ def proactive_notification(candidate, dedupe_key):
     explicit_body = candidate.get("body")
     body = explicit_body.strip() if isinstance(explicit_body, str) else ""
     if not body:
+        if kind == "connector-update":
+            raise AssertionError(
+                "connector-update candidate must carry an explicit non-empty body")
         if kind == "task-done":
             if candidate.get("summary") is not None:
                 body = candidate["summary"]

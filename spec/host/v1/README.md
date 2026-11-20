@@ -398,6 +398,13 @@ starts or resumes, which wake is being served, and whether a ReadySweep step may
 (§10.2.2) records the request durably and then calls that one orchestrator; it never starts the
 engine itself, never calls the Bot runtime, and never runs a sweep on its own.
 
+**ReadySweep ownership split (fixed).** The orchestrator runs steps 1–3 itself — `userOutbox`,
+`externalAdmission`, `cloudTaskPull`. `BotRuntimeComposition.runReadySweep(_:)` runs steps 4–7 —
+`botHeldInbox`, `missedRoutines`, `connectorScan`, `approvalReminderSync`. The orchestrator merges
+both halves into **one** `ReadySweepReport`, ordered as §10.2.5 lists them; there is no second
+report and no second order. `EngineLaunchOutcome` and the report's wrapper types are app-internal:
+only the `decision` values and the step/outcome vocabulary in this section are contract.
+
 **Four stages, fixed order.** A wake runs the stages in this order and no stage invents work for
 another:
 

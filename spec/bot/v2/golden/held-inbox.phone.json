@@ -375,6 +375,92 @@
         }
       ],
       "reason": "items_over_limit"
+    },
+    {
+      "id": "connector-update-missing-cursor",
+      "kind": "connector-update",
+      "title": "Gmail",
+      "text": "Gmail: 2 new message(s) since history 4100.",
+      "requestId": "gmail:4100:4180",
+      "createdAt": 1760000004000,
+      "fromAgentId": null,
+      "fromAgentName": "",
+      "threadId": null,
+      "state": "pending",
+      "connector": "gmail",
+      "cursorTo": "4180",
+      "count": 2,
+      "items": [
+        {
+          "id": "18f2a1",
+          "at": 1760000002000,
+          "from": "ada@example.com",
+          "subject": "週報"
+        },
+        {
+          "id": "18f2a2",
+          "at": 1760000003500,
+          "from": "lin@example.com",
+          "subject": "Re: 部署"
+        }
+      ],
+      "reason": "missing_cursor"
+    },
+    {
+      "id": "connector-update-github-bad-cursor",
+      "kind": "connector-update",
+      "title": "GitHub",
+      "text": "GitHub: 1 new notification(s) since 2026-11-19T00:00:00Z.",
+      "requestId": "github:2026-11-19T00:00:00Z:2026-11-20T00:00:00Z",
+      "createdAt": 1760000005000,
+      "fromAgentId": null,
+      "fromAgentName": "",
+      "threadId": null,
+      "state": "pending",
+      "connector": "github",
+      "cursorFrom": "2026-11-20",
+      "cursorTo": "2026-11-20T00:00:00Z",
+      "count": 1,
+      "items": [
+        {
+          "id": "notif-77",
+          "at": 1760000004500,
+          "repo": "acme/phone-dsh",
+          "title": "CI failed on main"
+        }
+      ],
+      "reason": "bad_cursor_shape"
+    },
+    {
+      "id": "connector-update-gmail-bad-cursor",
+      "kind": "connector-update",
+      "title": "Gmail",
+      "text": "Gmail: 2 new message(s) since history 4100.",
+      "requestId": "gmail:4100:4180",
+      "createdAt": 1760000004000,
+      "fromAgentId": null,
+      "fromAgentName": "",
+      "threadId": null,
+      "state": "pending",
+      "connector": "gmail",
+      "cursorFrom": "4100",
+      "cursorTo": "history-4180",
+      "count": 2,
+      "items": [
+        {
+          "id": "18f2a1",
+          "at": 1760000002000,
+          "from": "ada@example.com",
+          "subject": "週報"
+        },
+        {
+          "id": "18f2a2",
+          "at": 1760000003500,
+          "from": "lin@example.com",
+          "subject": "Re: 部署"
+        }
+      ],
+      "reason": "bad_cursor_shape"
     }
   ],
   "invalidConnectorUpdate": [
