@@ -304,6 +304,9 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 - `[subagent]` 分支：task id、status 与结果正文；
 - `[card-dismissed]` 分支：标题与正文；
 - `[device-task]` 分支：设备／标题、task id、status 与正文；
+- `[connector]` 分支：连接器名、count、`cursorFrom`／`cursorTo`、每项元数据摘要（id、时间、
+  Gmail 的 from／subject 或 GitHub 的 repo／title）；每个外部字符串**分别**转义后再拼接，
+  宿主插入的分隔符是固定文本（§3.3.1）；
 - `[agent]` 分支：发送方名字、id、title、正文与 msg id（当前已转义，保持）；
 - 子代理唤醒 prompt：`task-settled` 的标题、状态、task id 与最多 1,200 字结果摘录；`task-interrupted` 的标题与 task id；
 - 以后新增的宿主结构化块／前缀默认同样转义。
@@ -377,7 +380,7 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 | `deliveryKinds` | `ProactiveEngine` 构造参数 | 引擎缺省 `[task-done, routine-result]`；生产装配 `[routine-result]` |
 
 - `mode` 为 `off`、`would`、`on`；`deliveryKinds` 的元素为 `task-done`、
-  `routine-result`、`reminder`，允许空数组（`on` 时不投递任何类别）。
+  `routine-result`、`reminder`、`connector-update`，允许空数组（`on` 时不投递任何类别）。
 - `quietStart`/`quietEnd` 是本地时钟 `HH:MM`；`QuietClock.minutes` 允许一位数小时，但写入者
   应输出两位。`quietStart == quietEnd` 表示没有安静窗口。
 - schema 是关闭对象：缺栏、型别错误、未知 enum、未知成员、越界都拒绝。错误码固定为
@@ -434,7 +437,10 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 | `task-done` | `DSH Bot · 后台任务` | `summary`，否则 `taskTitle`，否则 `任务 <taskId> <status>` |
 | `routine-result` | `DSH Bot · 定时执行` | `resultExcerpt` 的首句摘要，否则 `例行任务 <routineId> <status>` |
 | `reminder` | `DSH Bot · 提醒` | `提醒时间到了` |
+| `connector-update` | **必须显式提供**（无缺省文案） | **必须显式提供**（无缺省文案；可直接用 held 项的 `text`） |
 
+`connector-update` 是 CCR 新增的类别：它没有冻结的缺省文案，候选必须自带非空的 `title` 与
+`body`，因此契约不会替它伪造用户可见文字；缺任何一个都是候选构造错误，不进入判定链。
 只有显式 `title`/`body` 会 trim 后判空；`summary`/`taskTitle`/`resultExcerpt` 按 presence 选择，
 空串仍会被采用（routine 的空 excerpt 摘要也是空串），不继续 fallback。
 
@@ -504,8 +510,11 @@ iOS 的后台执行不是常驻能力。为了让 App 被挂起或杀掉时仍�
    `nextRunAt`。命中时持有现有静音音频会话；routine 完成后窗口内仍到期时继续持有。
 3. **预定通知。** App 被挂起或杀掉后不依赖进程存活，由 §3.1 的本地通知提醒 routine 到期。
    系统通知权限未授予、用户关闭通知或低电量限制时不显示，宿主只能显示实际登记成功数。
-4. **系统后台任务／推送中继。** 前者由既有 BGTask 路径补跑到期 routine；后者只保留
-   `WakeSignalSource` 接口，本轮不实现。
+4. **系统后台任务／推送／板子唤醒。** 三者都经宿主唯一的启动编排者（[host §10.2](../../host/v1/README.md)）：
+   推送（APNs 后台通知）、板子（蓝牙／TonoLink）与 BGTask 只把请求先 durable 写入既有 journal /
+   outbox / wake inbox，再以各自的 `WakeReason` 与唤醒租约调用编排者；适配器不直接启引擎，也不自己
+   跑 Bot。引擎就绪后由编排者在同一租约内跑 §3.3 的三步。`WakeSignalSource` 仍是 Bot 通道的适配器
+   接口，沿用而不另起一套。
 
 Bot 信息页的在场区显示当前级别、实际登记的通知数，以及 `quiet_defer` 中因安静时段延后的
 routine（标题、原定时间、延后到时间）。没有条目时显示空状态，不伪造运行、通知或延后。
@@ -513,6 +522,107 @@ routine（标题、原定时间、延后到时间）。没有条目时显示空�
 **已删除、不得重新接线的规则**（PC-20261111-bot-v2-unwired）：每日预算、分类配额、冷却、
 TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema，也不再有 Swift 类型或
 事件字段；重新引入需要新的 v2 变更单。
+
+### 3.3 ReadySweep 中的 Bot 三步
+
+引擎就绪后，启动编排者（[host §10.2](../../host/v1/README.md)）在唤醒租约内依固定顺序跑
+ReadySweep 七步；其中第 4–7 步由 `BotRuntimeComposition.runReadySweep(_:)` 提供，顺序、步名与
+步内语义冻结如下。宿主编排者负责第 1–3 步（`userOutbox`、`externalAdmission`、`cloudTaskPull`），
+Bot 负责第 4–7 步，两者合并成**同一份** `ReadySweepReport`，顺序即本表。Bot 不新增第 8 步、不重排、
+也不在 sweep 之外自行执行这四步。
+
+| 步 | `ReadySweepStep` | 內容 | 冪等與跳過 |
+| --- | --- | --- | --- |
+| 4 | `botHeldInbox` | 重放 durable 但缺確認事件的 held inbox 項（device-task-result、agent-held、routine-result、connectorUpdate 等），沿用 §2 的 write-before-enqueue + replay with dedupe。 | 以 `requestId` 去重；沒有待重放項記 `skipped(no-work)`。 |
+| 5 | `missedRoutines` | 對每個 enabled、`next_run_at <= now` 且該排程時點尚未產生 run 的 routine 補跑一次；**錯過多次只補一次**（多個過期時點合併成一次 run，不逐時點補）。 | dnd、安靜時段與 fuse 照舊：安靜時段延後而不是丟棄，urgent 仍需理由；不新增預算、配額、冷卻或 TTL。多個 worker／多次 wake 對同一排程時點只寫一個 run。 |
+| 6 | `connectorScan` | 對每個已授權且有 cursor 記錄的 Gmail／GitHub 連接器做**只含元數據**的增量掃描，再依 write-before-enqueue 寫一條 `connectorUpdate` held 項，交由主對話按 §3 的主動策略決定是否提醒。 | 首次掃描只建立 cursor、不產生 `connectorUpdate`、不把歷史內容當新內容；cursor 回退或損壞時重設到上游 head、不產生 `connectorUpdate`、不提示（§3.3.2）；以 `connector + cursorFrom + cursorTo` 去重，`items` 上限 20。 |
+| 7 | `approvalSync` | 把審批提醒投影與 durable 的待審批記錄對齊（reconcile，不新增第二份待辦）。 | 以 durable approval id 對齊；沒有變更記 `skipped(no-work)`。 |
+
+**每步的 run／skip 由編排者決定。** 步開始前用 `ReadySweepPolicy.shouldRun(step, remainingMs)` 判斷
+剩餘租約是否夠 `parkMarginMs + stepBudgetMs`；不夠就 `skipped(lease)`，留給下一次喚醒，**不做半步**。
+每一步要麼完成自己的 durable 寫入，要麼不留下會被下一步誤讀的半成品。步失敗記
+`failed(reason)`，不中斷其餘步、不自行顯示用戶可見錯誤，下一次喚醒重試。
+
+**routine 補跑的精確語義（CCR 答复）。** 補跑以該 routine 最早已過期的 `next_run_at` 作為本次
+run 的 `scheduledFor`，只認領一次；run 進入終態後，`nextRunAt` 依既有 `RoutineMachine`／
+`RoutineScheduleMath.nextRunAt` 語義前進到**嚴格晚於 now** 的下一個時點（`nextAfterAttempt`），
+不會逐個補跑中間錯過的時點。`quietDefer` **保留原本的 `scheduledFor`**：defer 時只把
+`nextRunAt` 暫時移到安靜時段結束，`quietDefer.scheduledFor` 仍是原定時點；`begin` 時 run 的
+`scheduledFor` 取 `quietDefer.scheduledFor`，不是延後到的時間，claim 後 `quietDefer` 清除。
+補跑當下仍在 dnd／安靜時段就再次 defer（延後而不是丟棄），urgent 規則不變。
+
+#### 3.3.1 `connectorUpdate` held 項
+
+`held-inbox-item.schema.json` 新增兩個封閉分支（`kind = connector-update`，`connector` 為 `gmail`
+或 `github`）。欄位與限制：
+
+- `connector` ∈ `gmail`、`github`，沒有第三個值；未知值是無效輸入，不是新通道。
+- `cursorFrom`／`cursorTo` 都是字串，且必須符合該 connector 的 cursor 形式：Gmail 是 **十進位
+  historyId 字串**（`^[0-9]{1,20}$`）；GitHub 是 **`since` 的 RFC 3339 UTC 秒字串**
+  （`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$`）。`cursorFrom != cursorTo`；
+  GitHub 的 `lastModified` 是條件請求用的 token，屬於 cursor 記錄（§3.3.2），**不是** held 項的
+  區間端點。
+- `count` 是 1–20 的整數且必須等於 `items` 長度；`items` 是 1–20 項的陣列。
+- 每項只有 `id`、`at` 與 connector 專屬元數據：`at` 是該項的時間（Gmail 的 `date`／GitHub 的
+  `updatedAt`），Unix epoch 毫秒；Gmail 另含 `from`、`subject`，GitHub 另含 `repo`、`title`。
+  **不新增第二個時間欄位**：`at` 就是 date／updatedAt，避免同一語義兩種表示。
+- `text` 是 1 行、≤ 1,200 scalar 的人可讀摘要；`requestId` 固定為
+  `<connector>:<cursorFrom>:<cursorTo>`，是 held inbox 的去重鍵；`state` 仍是 `pending|staged`，
+  `stagedAt`／`stagedKey` 的既有 dependentRequired 不變。
+- **不取正文**：schema 封閉，任何 body／content 成員都是無效輸入；正文由 Bot 在回合中用現有工具
+  按需讀取。連接器未授權或 token 失效：跳過、不提示、不寫 held 項；設置頁既有狀態不變。
+- held 項的 `connector-update` 只是候選輸入；是否提醒仍由 §3 的 `ProactivePolicy` 決定，候選的
+  `kind` 是 `connector-update`，且必須自帶非空 `title`／`body`（§3.0）。
+
+**`[connector]` held-message 行（host 拼入，已凍結）。** `HeldMessages.block` 必須有獨立的
+`[connector]` 分支，**不得**讓 `connector-update` 落進預設的 `[agent]` 分支（那會產生空發送者）：
+
+```
+- [connector] <connector> · <count> item(s) · <cursorFrom> → <cursorTo>: <summary>
+```
+
+- `<connector>` 是 `gmail`／`github`；`<count>` 是十進位；`cursorFrom`／`cursorTo` 取自 held 項。
+- `<summary>` 由每項 `id @ <時間>` 加上 Gmail `from — subject` 或 GitHub `repo — title` 組成，
+  多項以 `; ` 連接；各欄位是可讀值時才出現，缺席就以空字串占位，不偽造。
+- 每一個外部字串（connector 顯示名、cursor 值、id、from／subject、repo／title，以及被格式化的
+  時間）都必須**先**經 `HeldMessages.escapedHeldField` 轉義，再拼接；` · `、` → `、`: `、`; `
+  是宿主插入的固定分隔符，不是外部資料。
+- `HeldMessages.block` 的開頭說明在存在 connector 項時必須列出「连接器更新」／"connector
+  updates"（與 device task results、card dismissals 同一個清單）；本規則與 §2.1 的既有轉義規則
+  一起生效。Swift 實作在 `Sources/PhoneDSHBot/Wake/WakeInbox.swift`（ios-bot 的寫入範圍）。
+
+#### 3.3.2 連接器 cursor
+
+cursor 由**宿主 app-global 持有，每個 (已登入帳號, connector) 一份**；它不是 per-Bot，也不從
+Bot 記憶或 held inbox 推導。store 的 key 是 account + connector，記錄本身不必重複 account。
+格式由 `connector-cursor.schema.json` 凍結：
+
+- 共用：`version = 1`、`connector`、`updatedAt`（≥0 的 epoch ms）、`status` ∈ `established|reset`，
+  可選 `lastError` ∈ `cursor-invalid|cursor-regressed|scan-failed`。
+- Gmail：`cursor` 是十進位 historyId 字串。
+- GitHub：`cursor` 是 `{since: <RFC 3339 UTC 秒>, lastModified: <IMF-fixdate HTTP-date> | null}`；
+  `lastModified` 保留給 `If-Modified-Since` 條件請求。
+- 未知 version／connector／status／lastError、與 connector 不符的 cursor 形狀、或任何額外成員
+  都是無效記錄；fail-closed，不猜測。
+
+規則：
+
+- 檔案不存在＝從未掃描：首次掃描只把上游 head 寫成 `established` cursor，**不**產生
+  `connectorUpdate`，也不把既有歷史當成新內容。
+- 只有掃描結果已 durable 寫成 held 項後才推進 cursor；同一 cursor 區間重放不會產生第二條項。
+- Gmail `historyId` 前進 → 產生 `connectorUpdate`；GitHub `since` 前進 → 產生 `connectorUpdate`。
+  只有 GitHub `lastModified` 改變（`since` 不變）→ 更新 cursor 記錄但**不**產生 `connectorUpdate`。
+- 上游回報 cursor 回退（head 比已存 cursor 舊）或已存 cursor 無法解析／形狀不符：把 cursor 重設到
+  上游 head，`status = reset`、`lastError` 為 `cursor-regressed`／`cursor-invalid`，不產生
+  `connectorUpdate`、不提示；下一次掃描從新 head 起算。這是恢復，不是新配額或新冷卻規則。
+- 讀到較新版本或損壞檔案時 fail-closed：不覆寫、不猜測區間，交由下一次掃描以上述重設規則處理。
+
+**connector-update 的主動提醒。** 掃描只產生候選；`ProactiveEngine` 對 `kind = connector-update`
+套用 §3.0 **完全相同**的判定鏈：`mode` 與 `deliveryKinds` 過濾、`feedback` 抑制、`dnd`／
+安靜時段、既有 `fuseWindowMs`／`fuseMaxWakeups`。它**不新增**每日預算、分類配額、冷卻、
+TTL、去重窗口、模型 triage 或 idle-checkin 來源（PC-20261111-bot-v2-unwired 已刪除的規則不得
+重新接線）；dedupeKey 規則也不變。`connector-update` 沒有缺省 title/body，候選必須自帶非空文案
+（§3.0），因此契約不新增可見文案。
 
 ## 4. 后台整理（maintainer，S3 后半）
 
@@ -725,13 +835,20 @@ TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema
 `golden/routine-document.json` 是 phoneDSH 新增的 routine snapshot 向量（CCR-7），由 Swift
 encoder 产生，覆盖 new／deferred／started／needs-reconciliation／deleted；它没有上游对应文件，
 也不参与 v1 的导出器 manifest。
+`golden/connector-cursor.json` 是 §3.3.2 的 phoneDSH 新增向量：首次建立不產生 `connectorUpdate`、
+增量、無變化、GitHub 只有 `lastModified` 改變時不產生更新、cursor 回退與損壞的重設規則，以及
+Gmail 字串／GitHub `{since,lastModified}` 物件的 schema 正反例；`spec/bot/v2/tools/validate_vectors.py`
+用它重算 cursor 記錄與 `emitConnectorUpdate`，並做 mutation 自檢。`held-inbox.phone.json` 另新增
+`connectorUpdate` 的 Gmail／GitHub 正例與無效例（超過 20 項、unknown connector、含正文、`count`
+與 `items` 不一致等）。
 `held-inbox.phone.json` 的 `upstream` 字段仍指向 `held-inbox.json`，合并语义与
 [v1 §8.1](../v1/README.md#81-上游导出与-phonejson-覆盖) 相同：对象按键合并，数组按
 `name`／`id`／`nonce`／`action.nonce` 追加或替换，覆盖文件不能删除上游用例。
 `golden/proactive.json` 是 §3 的 phone-only 向量（`upstream: []`）：覆盖有效/错误设置与
 时区/时间回退、off/would/on 三模式、routine-held/quiet 优先级、DND 与安静时段、显式 reminder
 例外、保险丝第 4/5 次边界、`deliveryKinds` 过滤、投递失败/不可用、dedupeKey 的替换与回退、
-通知文案截断、非法候选，以及 routine-due 的“不是 proactive／不消耗保险丝”跨路径断言。
+通知文案截断、非法候选、`connector-update` 的 did 与 quiet-hours skip、以及 routine-due 的
+“不是 proactive／不消耗保险丝”跨路径断言。
 `spec/bot/v2/tools/validate_vectors.py` 用 §3 的参考判定链逐条复算期望 decision，并对
 settings、fuse、deliveryKinds、投递失败、dedupeKey 和 routine-due 做 mutation 自检；
 Swift `Tests/PhoneDSHBotTests/Proactive/ProactiveVectorTests.swift` 用真实

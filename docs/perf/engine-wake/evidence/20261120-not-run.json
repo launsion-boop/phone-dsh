@@ -1,0 +1,42 @@
+{
+  "base": "87a2486edb715f8bff959c94621abe423163a951",
+  "command": "bash scripts/ci/bot-residency/run-engine-wake.sh --development-team <team-id> --lan-host <iPhone-LAN-IP> --output-dir /tmp/phonedsh-engine-wake/run-1",
+  "conclusion": "NOT_RUN",
+  "contractRevision": "PC-20261120-engine-first-launch (this unit changes no contract file)",
+  "deviceClass": null,
+  "exitCode": 3,
+  "generatedAt": "2026-11-20T12:00:23.986683Z",
+  "head": "this unit's single commit (SHA in the activity handoff)",
+  "localValidation": [
+    "python3 -m py_compile scripts/ci/bot-residency/analyze.py scripts/ci/bot-residency/device_driver.py -> PASS",
+    "python3 scripts/ci/bot-residency/analyze.py --selftest -> PASS",
+    "python3 scripts/ci/bot-residency/device_driver.py --selftest -> PASS",
+    "bash -n scripts/ci/bot-residency/run-device.sh -> PASS",
+    "bash -n scripts/ci/bot-residency/run-engine-wake.sh -> PASS",
+    "python3 scripts/ci/hygiene.py --root <each changed root> -> PASS",
+    "python3 scripts/ci/license.py --root <each changed root> -> PASS",
+    "bash scripts/ci/check.sh --only phone-license,phone-hygiene -> phone-license PASS; phone-hygiene FAIL (same failure at base, pre-existing)"
+  ],
+  "realModel": false,
+  "reason": "No macOS, Xcode, simulator or physical iPhone in the Fleet environment. The harness, evidence format and analyzer were validated locally; no wake, WebContent-survival, BGTask, APNs, BLE-board or LAN-probe measurement was performed.",
+  "scenariosRequested": [
+    "push-cold-start",
+    "push-parked-resume",
+    "bgprocessing-cold-start",
+    "board-wake-cold-start",
+    "lan-resident",
+    "lan-suspended"
+  ],
+  "schema": "phonedsh-engine-wake-not-run/1",
+  "simulatorUsedAsDeviceEvidence": false,
+  "spdxLicenseIdentifier": "MIT",
+  "status": "NOT_RUN",
+  "toolchain": {
+    "platform": "Linux (Fleet worker)",
+    "python3": "3.12.15",
+    "swift": "unavailable",
+    "xcodebuild": "unavailable",
+    "xcodegen": "unavailable",
+    "xcrun/devicectl": "unavailable"
+  }
+}

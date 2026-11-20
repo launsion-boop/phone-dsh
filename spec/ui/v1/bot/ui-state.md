@@ -68,6 +68,27 @@ the complete chat-facing projection surface; there is no second chat channel.
 `BotDrawerActions` (`BotDrawer.swift:10-23`) is the drawer intent surface in §3.5.
 Page callbacks (`BotChatPage.swift:47-62`) are provider/intent props in §3.7.
 
+### 1.1 Content before the engine is ready
+
+The Bot page is usable before any engine exists. Stage A of the host launch orchestrator
+(`spec/host/v1/README.md` §10.2) prepares the Bot composition without a host; the page then renders
+the roster and every persisted row it already has (main-chat rows, held inbox items such as a device
+task result or a `connectorUpdate`, memory/routine data) without waiting for `host.start`. A turn is
+not invented for content that has no rows.
+
+- **No engine-waiting copy.** The page MUST NOT show an "engine is not ready / start the engine"
+  prompt or any equivalent. The v2 `runtime.notReady` string was deleted by
+  PC-20261120-engine-first-launch and MUST NOT be reintroduced.
+- **Sending while the engine is absent.** A send from the Bot page uses the existing durable queue
+  path and shows its existing `queued` projection; it is never refused because the runtime is not
+  connected, and it never calls `chat.start()` from the page.
+- **Silent launch.** A boot or resume initiated by the orchestrator writes no transcript status
+  line (including `Booting the Worker…`) and triggers no error row, banner or header problem state.
+  Only a user action that is itself waiting on the engine and ultimately fails uses the existing
+  failure copy.
+- **Loading, not empty.** A section with no snapshot yet shows its existing loading state; a failed
+  read shows the existing failure and retry, never zero counts or a fabricated empty state.
+
 ## 2. Presentation value types
 
 JSON Schemas: `schema/row.schema.json`, `schema/row-batch.schema.json`,

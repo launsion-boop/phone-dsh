@@ -585,12 +585,6 @@
       "expect": "正在连接 Bot"
     },
     {
-      "id": "runtime.notReady",
-      "value": "Bot 运行时还没有准备好。请先启动引擎，然后重试。",
-      "source": "BotProductionPage.swift:78",
-      "expect": "Bot 运行时还没有准备好"
-    },
-    {
       "id": "info.rename.empty",
       "value": "Bot 名不能为空。",
       "source": "BotInfoPage.swift:373",

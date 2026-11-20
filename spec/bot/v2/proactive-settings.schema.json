@@ -51,7 +51,7 @@
       "description": "Kinds ProactiveEngine may deliver when mode == on. Other kinds are still considered and record a would decision with reason would-only-kind, but consume no fuse. An empty array is valid (deliver nothing in on mode).",
       "type": "array",
       "uniqueItems": true,
-      "items": {"enum": ["task-done", "routine-result", "reminder"]}
+      "items": {"enum": ["task-done", "routine-result", "reminder", "connector-update"]}
     }
   },
   "additionalProperties": false
