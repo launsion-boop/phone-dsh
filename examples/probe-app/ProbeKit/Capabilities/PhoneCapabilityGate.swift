@@ -48,8 +48,6 @@ public enum PhoneToolCatalog {
         "network.browse": PhoneToolRoute(capability: .localNetwork, scope: "network.local.browse"),
         "location.geofence": PhoneToolRoute(capability: .locationAlways, scope: "location.geofence", writes: true),
         "focus.status": PhoneToolRoute(capability: .focus, scope: "focus.read"),
-        "home.list": PhoneToolRoute(capability: .homekit, scope: "home.read"),
-        "home.set": PhoneToolRoute(capability: .homekit, scope: "home.write", writes: true),
         "music.play": PhoneToolRoute(capability: .music, scope: "music.play", writes: true),
         "activity.start": PhoneToolRoute(capability: .liveActivity, scope: "activity.write", writes: true),
         "activity.update": PhoneToolRoute(capability: .liveActivity, scope: "activity.write", writes: true),
