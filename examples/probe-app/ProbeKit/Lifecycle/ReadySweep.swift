@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// phone-dsh phone DSH — the ReadySweep contract: seven ordered, idempotent
+// phone-dsh phone DSH — the ReadySweep contract: nine ordered, idempotent
 // steps run once per (engine incarnation, wake) inside the remaining lease.
 //
 // host contract `spec/host/v1/README.md` §10.2 (P06); PLAN §2.1. The
@@ -8,7 +8,7 @@
 
 import Foundation
 
-/// The seven steps, in their fixed order (host §10.2 `steps[7]`, PLAN §2.1).
+/// The nine steps, in their fixed order (host §10.2–§10.3 `steps[9]`).
 ///
 /// The raw values are the contract's step identifiers. They live here and
 /// nowhere else: the golden test maps `steps[]`/`sweepVectors[].step` through

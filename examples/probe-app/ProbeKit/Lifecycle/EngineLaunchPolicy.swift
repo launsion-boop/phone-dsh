@@ -98,7 +98,7 @@ public struct EngineLaunchOutcome: Sendable, Equatable {
     public let engineIncarnation: Int
     public let decision: EngineLaunchDecision
     public let engine: EngineResult
-    /// The merged ReadySweep report (steps 1–7); `nil` when no sweep ran.
+    /// The merged ReadySweep report (all nine steps); `nil` when no sweep ran.
     public let sweep: ReadySweepReport?
 
     public init(wakeId: String, reason: WakeReason, engineIncarnation: Int,
