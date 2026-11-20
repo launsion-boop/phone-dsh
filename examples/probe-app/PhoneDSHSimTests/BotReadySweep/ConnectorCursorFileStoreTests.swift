@@ -107,10 +107,53 @@ final class ConnectorCursorFileStoreTests: XCTestCase {
                       "loading must not delete or replace the unreadable record")
     }
 
+    func testAnUnreadableStoreSkipsTheScanWithoutAnUpdate() async throws {
+        let directory = tempDirectory()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent("connector-cursor-gmail.json")
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+        let store = ConnectorCursorFileStore(directory: directory)
+        let sink = SimRecordingSink()
+        let scanner = ConnectorDeltaScanner(
+            clients: [SimUnreadableClient()], cursors: store, sink: sink, now: { 1_000 })
+
+        let batch = await scanner.scanBatch()
+
+        XCTAssertEqual(batch.results, [ConnectorScanResult(
+            connector: .gmail, outcome: .skipped(reason: "gate"))])
+        let records = await sink.records
+        XCTAssertTrue(records.isEmpty)
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path,
+                                                     isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue,
+                      "the unreadable record must not be deleted or replaced")
+    }
+
     private func tempDirectory() -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("connector-cursor-\(UUID().uuidString)")
         addTeardownBlock { try? FileManager.default.removeItem(at: url) }
         return url
+    }
+}
+
+
+private actor SimRecordingSink: ConnectorUpdateEnqueuing {
+    private(set) var records: [ConnectorUpdateRecord] = []
+
+    func enqueue(_ update: ConnectorUpdateRecord) async throws -> Bool {
+        records.append(update)
+        return true
+    }
+}
+
+private actor SimUnreadableClient: ConnectorDeltaClient {
+    nonisolated let connector: ConnectorKind = .gmail
+    private(set) var fetches = 0
+
+    func fetchDelta(cursor: ConnectorCursorState?) async throws -> ConnectorDeltaPage {
+        fetches += 1
+        throw ConnectorClientFailure.unavailable
     }
 }
