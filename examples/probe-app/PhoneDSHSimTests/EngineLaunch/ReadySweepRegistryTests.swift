@@ -45,7 +45,7 @@ final class ReadySweepRegistryTests: XCTestCase {
         let registry = ReadySweepRegistry(providers: [{ [source] }])
         let report = await registry.run(context(), nowMs: 0)
         XCTAssertEqual(report.outcome(for: .userOutbox), .ran)
-        XCTAssertEqual(report.outcome(for: .hostRetries), .skipped(reason: "source_unavailable"))
+        XCTAssertEqual(report.outcome(for: .hostRetries), .failed(reason: "source_unavailable"))
         XCTAssertEqual(report.steps.count, ReadySweepStep.allCases.count)
     }
 
@@ -57,7 +57,7 @@ final class ReadySweepRegistryTests: XCTestCase {
         let registry = ReadySweepRegistry(providers: [{ [source, connector] }])
         let report = await registry.run(context(remaining: 8_000), nowMs: 0)
         XCTAssertEqual(report.outcome(for: .approvalReminderSync), .ran)
-        XCTAssertEqual(report.outcome(for: .connectorScan), .skipped(reason: "lease"))
+        XCTAssertEqual(report.outcome(for: .connectorScan), .skipped(.lease))
         XCTAssertEqual(connector.runs, 0)
     }
 
@@ -65,7 +65,7 @@ final class ReadySweepRegistryTests: XCTestCase {
         let source = FakeSource(.botHeldInbox, due: false)
         let registry = ReadySweepRegistry(providers: [{ [source] }])
         let report = await registry.run(context(), nowMs: 0)
-        XCTAssertEqual(report.outcome(for: .botHeldInbox), .skipped(reason: "not-due"))
+        XCTAssertEqual(report.outcome(for: .botHeldInbox), .skipped(.noWork))
         XCTAssertEqual(source.runs, 0)
     }
 
@@ -83,7 +83,7 @@ final class ReadySweepRegistryTests: XCTestCase {
         var sources: [any ReadySweepSource] = []
         let registry = ReadySweepRegistry(providers: [{ sources }])
         let first = await registry.run(context(), nowMs: 0)
-        XCTAssertEqual(first.outcome(for: .dshSchedule), .skipped(reason: "source_unavailable"))
+        XCTAssertEqual(first.outcome(for: .dshSchedule), .failed(reason: "source_unavailable"))
         let added = FakeSource(.dshSchedule)
         sources = [added]
         let second = await registry.run(context(), nowMs: 0)

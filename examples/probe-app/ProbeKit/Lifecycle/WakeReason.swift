@@ -33,10 +33,11 @@ public enum WakeReason: String, CaseIterable, Codable, Sendable, Equatable {
     case routineNotificationTap
     /// A host status probe saw a healthy engine again after recovery.
     case engineRecovered
-    /// A WakeDemand in the host ledger reached its due time (PLAN §2.9). The
-    /// contract freezes the final spelling in §10.3; this is the concentrated
-    /// definition every producer uses.
+    /// A WakeDemand in the host ledger reached its due time (host §10.3.4).
     case scheduledDemand
+    /// A `BGAppRefreshTask` window (host §10.3.4); the lease comes from the
+    /// task's expiration handler.
+    case bgAppRefresh
 }
 
 /// Thresholds shared by the decision function and every caller.
@@ -54,4 +55,8 @@ public enum EngineLaunchThresholds {
     public static let parkMarginMs: Int64 = 5_000
     /// ReadySweep step 3 skips its cloud pull when a pass ran this recently.
     public static let cloudPullFreshnessMs: Int64 = 30_000
+    /// The next `connectorScan` demand is due this long after a completed scan.
+    public static let connectorScanIntervalMs: Int64 = 1_800_000
+    /// A background wake request never asks the OS to start earlier than this.
+    public static let minBackgroundDelayMs: Int64 = 60_000
 }

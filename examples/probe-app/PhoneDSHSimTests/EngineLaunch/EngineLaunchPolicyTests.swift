@@ -77,6 +77,8 @@ final class EngineLaunchPolicyTests: XCTestCase {
         XCTAssertEqual(EngineLaunchThresholds.minLeaseForResumeMs, 8_000)
         XCTAssertEqual(EngineLaunchThresholds.parkMarginMs, 5_000)
         XCTAssertEqual(EngineLaunchThresholds.cloudPullFreshnessMs, 30_000)
+        XCTAssertEqual(EngineLaunchThresholds.connectorScanIntervalMs, 1_800_000)
+        XCTAssertEqual(EngineLaunchThresholds.minBackgroundDelayMs, 60_000)
     }
 
     func testProcessingFallbackOnlyForNativeOnly() {
@@ -105,7 +107,7 @@ final class ReadySweepPolicyTests: XCTestCase {
         XCTAssertEqual(ReadySweepPolicy.stepBudgetMs(for: .missedRoutines), 5_000)
         XCTAssertEqual(ReadySweepPolicy.stepBudgetMs(for: .connectorScan), 10_000)
         XCTAssertEqual(ReadySweepPolicy.stepBudgetMs(for: .approvalReminderSync), 1_000)
-        XCTAssertEqual(ReadySweepPolicy.stepBudgetMs(for: .dshSchedule), 2_000)
+        XCTAssertEqual(ReadySweepPolicy.stepBudgetMs(for: .dshSchedule), 3_000)
         XCTAssertEqual(ReadySweepPolicy.stepBudgetMs(for: .hostRetries), 2_000)
     }
 
