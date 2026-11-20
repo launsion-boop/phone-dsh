@@ -538,7 +538,9 @@ final class BotRuntimeComposition {
         // PLAN §2.5: the connector scan is assembled once, App-side, where the
         // Gmail/GitHub authorization actually lives. It reads only metadata and
         // writes one durable `connector-update` per cursor interval.
-        #if os(iOS)
+        // ProbeKit is the App target's module; the BotE2E harness compiles
+        // this file without it and keeps the step unconfigured.
+        #if os(iOS) && canImport(ProbeKit)
         await ConnectorSweepWiring.install(on: composition)
         #endif
         // PLAN §2.8: the Bot wake surfaces are assembled here, before any host
@@ -546,7 +548,7 @@ final class BotRuntimeComposition {
         // the engine is down is durable first and then asks the launch
         // orchestrator for a wake. Without the App bridge the signal is a
         // no-op and the durable item waits for the next foreground pass.
-        composition.installBotWakeSource(
+        await composition.installBotWakeSource(
             mainBotID: roster.mainBotID ?? roster.bots.first?.id ?? selectedCandidate,
             now: runtimeClock)
         composition.installDeviceTaskResultDelivery()
@@ -1289,11 +1291,11 @@ final class BotRuntimeComposition {
     /// the signal into `EngineLaunchOrchestrator.shared.wake`, and the policy
     /// there decides boot / resume / native-only / defer.
     private func installBotWakeSource(mainBotID: String,
-                                      now: @escaping @Sendable () -> Int64) {
+                                      now: @escaping @Sendable () -> Int64) async {
         let source = BotChannelWakeSource()
         botWakeSource = source
-        #if os(iOS)
-        BotWakeBridge.install(source)
+        #if os(iOS) && canImport(ProbeKit)
+        await BotWakeBridge.install(source)
         #endif
         // A Worker `tools/call` while the Bot runtime is not ready is a local
         // listener request that needs the engine; a healthy runtime must never

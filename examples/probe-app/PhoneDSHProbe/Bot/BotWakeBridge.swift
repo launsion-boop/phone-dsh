@@ -20,13 +20,13 @@ import PhoneDSHBot
 /// channel never received.
 @MainActor
 enum BotWakeBridge {
-    static func install(_ source: BotChannelWakeSource) {
-        Task { @MainActor in
-            await source.start { signal in
-                guard let reason = WakeReason(rawValue: signal.reason) else { return }
-                Task { @MainActor in
-                    _ = await EngineLaunchOrchestrator.shared.wake(reason, lease: nil)
-                }
+    /// Installs the handler before `prepare` returns, so a device result that
+    /// arrives immediately after phase A still finds a live wake path.
+    static func install(_ source: BotChannelWakeSource) async {
+        await source.start { signal in
+            guard let reason = WakeReason(rawValue: signal.reason) else { return }
+            Task { @MainActor in
+                _ = await EngineLaunchOrchestrator.shared.wake(reason, lease: nil)
             }
         }
     }
