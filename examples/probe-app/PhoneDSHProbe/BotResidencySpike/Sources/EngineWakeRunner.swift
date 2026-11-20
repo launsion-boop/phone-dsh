@@ -47,7 +47,7 @@ final class EngineWakeRunner: ObservableObject {
     private let processStartedUptime = ProcessInfo.processInfo.systemUptime
 
     private var store: EngineWakeEvidenceStore?
-    private var offscreen: OffscreenEngineWindow?
+    private var offscreen: SpikeOffscreenEngineWindow?
     private var host: PhoneDSHHost?
     private var scenarios: [EngineWakeScenarioRecord] = []
     private var backgroundSamples: [EngineWakeBackgroundSample] = []
@@ -116,7 +116,7 @@ final class EngineWakeRunner: ObservableObject {
             return
         }
         self.configuration = configuration
-        offscreen = OffscreenEngineWindow(anchor: anchor)
+        offscreen = SpikeOffscreenEngineWindow(anchor: anchor)
         do {
             store = try EngineWakeEvidenceStore(runID: configuration.runID)
         } catch {

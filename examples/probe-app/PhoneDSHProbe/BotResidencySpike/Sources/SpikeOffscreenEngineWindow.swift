@@ -19,7 +19,7 @@ import ProbeKit
 import UIKit
 
 @MainActor
-final class OffscreenEngineWindow {
+final class SpikeOffscreenEngineWindow {
     private(set) var window: UIWindow?
     private(set) var hostingView: UIView?
     private(set) var attachCount = 0

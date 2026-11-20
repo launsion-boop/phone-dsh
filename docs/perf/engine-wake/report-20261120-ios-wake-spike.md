@@ -55,7 +55,7 @@ Simulator reports carry `deviceClass=simulator` and are always `NOT_RUN`;
 - `scripts/ci/bot-residency/app/Config/BotResidencySpike-Info.plist` —
   spike-only `processing` background mode and BGProcessing identifier.
 - `examples/probe-app/PhoneDSHProbe/BotResidencySpike/Sources/` —
-  `OffscreenEngineWindow.swift`, `EngineWakeRunner.swift`,
+  `SpikeOffscreenEngineWindow.swift`, `EngineWakeRunner.swift`,
   `EngineWakeTriggers.swift`, `EngineWakeLANListener.swift`; app entry branches
   to the new root view by launch mode.
 - `examples/probe-app/ProbeKit/BotResidencySpike/EngineWakeEvidence.swift` —
