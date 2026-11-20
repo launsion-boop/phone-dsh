@@ -28,11 +28,19 @@ public enum BotReadySweepStep: String, CaseIterable, Codable, Sendable, Equatabl
     }
 }
 
+/// The closed skip vocabulary of host §10.2.5 (only these four reasons exist
+/// for a ReadySweep step). The Bot side can produce `lease` and `no-work`;
+/// `already-pulled` and `gate` belong to the native steps.
+public enum BotReadySweepSkipReason: String, Sendable, Equatable {
+    case lease
+    case noWork = "no-work"
+}
+
 /// One Bot-owned step's outcome. Mirrors the shared `ReadySweepOutcome` shape
 /// so the composition can map it without re-deciding anything.
 public enum BotReadySweepOutcome: Sendable, Equatable {
     case ran
-    case skipped(reason: String)
+    case skipped(BotReadySweepSkipReason)
     case failed(reason: String)
 
     public var isFailure: Bool {
@@ -113,28 +121,17 @@ public enum BotReadySweepWork: Sendable, Equatable {
     case none
 }
 
-/// A step action may decline to run for a reason the lease gate cannot see
-/// (for example the connector client is not authorized in this build). It is
-/// reported as `skipped`, not `failed`; nothing was started, so the next wake
-/// may still run the whole step.
-public struct BotReadySweepSkip: Error, Sendable, Equatable {
-    public let reason: String
-
-    public init(reason: String) {
-        self.reason = reason
-    }
-}
-
 /// Runs the Bot-owned steps sequentially, once each, checking the remaining
 /// lease immediately before every step.
 ///
 /// Rules (contract §10.2 / PLAN §2.1):
-/// - a step whose budget is not available is reported `skipped("lease")` and
+/// - a step whose budget is not available is reported `skipped(.lease)` and
 ///   is not started at all (never half-run);
 /// - every step is attempted at most once per call, in fixed order;
 /// - a failing step is reported `failed` and does not prevent the remaining
 ///   steps from running (each step is independently idempotent);
-/// - cancellation is reported as `skipped("cancelled")`, not as a failure.
+/// - cancellation is not in the closed skip vocabulary; it is recorded as an
+///   internal failure (`failed("cancelled")`) and retried by the next wake.
 public struct BotReadySweepRunner: Sendable {
     public typealias StepAction = @Sendable (BotReadySweepStep) async throws -> BotReadySweepWork
 
@@ -151,7 +148,7 @@ public struct BotReadySweepRunner: Sendable {
         for step in BotReadySweepStep.allCases {
             let remaining = budget.remainingMs()
             guard budget.shouldRun(step, remaining) else {
-                report.record(step, .skipped(reason: Self.leaseSkippedReason))
+                report.record(step, .skipped(.lease))
                 continue
             }
             do {
@@ -159,12 +156,12 @@ public struct BotReadySweepRunner: Sendable {
                 case .done:
                     report.record(step, .ran)
                 case .none:
-                    report.record(step, .skipped(reason: Self.noWorkReason))
+                    report.record(step, .skipped(.noWork))
                 }
-            } catch let skip as BotReadySweepSkip {
-                report.record(step, .skipped(reason: skip.reason))
             } catch is CancellationError {
-                report.record(step, .skipped(reason: Self.cancelledReason))
+                // Cancellation is not one of the closed skip reasons; keep it
+                // as an internal failure so the next wake retries the step.
+                report.record(step, .failed(reason: Self.cancelledReason))
             } catch {
                 report.record(step, .failed(reason: Self.errorToken(error)))
             }
@@ -172,9 +169,7 @@ public struct BotReadySweepRunner: Sendable {
         return report
     }
 
-    public static let leaseSkippedReason = "lease"
     public static let cancelledReason = "cancelled"
-    public static let noWorkReason = "no-work"
 
     /// Type names only: an error message can carry request content, a path or
     /// a token fragment, and the report is diagnostic surface.

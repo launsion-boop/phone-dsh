@@ -115,14 +115,16 @@ final class BotProductionHub {
     /// The chat model of a Bot without switching the page to it, connecting the hub to the app's
     /// Bot runtime first when needed (a device's voice turn arrives while another page is open).
     func chatModel(ensuring botID: String) async throws -> BotChatModel {
-        // A process relaunched in the background has the Bot runtime but no engine: a send would
-        // reach no session. Start it (allowed while the board's keep-alive holds the app).
+        // PLAN §2.9 I3: a board/BLE channel never starts the engine itself.
+        // The voice admission is already durable, so this is only the wake
+        // hand-off to the one orchestrator; it decides boot/resume/defer from
+        // the foreground, residency and lease state. No local start, no poll.
         let chat = ChatModel.shared
         if !chat.isStarted {
-            await chat.start()
-            for _ in 0..<120 where !chat.isStarted { try? await Task.sleep(for: .milliseconds(250)) }
+            _ = await EngineLaunchOrchestrator.shared.wake(.boardWake, lease: nil)
         }
         if composition == nil { await connect(chat: chat) }
+        guard chat.isStarted else { throw BotRuntimeError.unavailable }
         guard let composition, let roster else { throw BotRuntimeError.unavailable }
         guard roster.bots.contains(where: { $0.id == botID }) else { throw BotTeamHostError.botNotFound(botID) }
         // A Bot that is not on screen may have no running unit (after a relaunch only the selected

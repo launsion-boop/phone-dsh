@@ -26,7 +26,7 @@ final class BotReadySweepRunnerTests: XCTestCase {
             action: { step in log.append(step); return .done })
         let report = await runner.run()
         XCTAssertFalse(log.all.contains(skipped), "a skipped step must not run at all")
-        XCTAssertEqual(report.outcome(for: skipped), .skipped(reason: "lease"))
+        XCTAssertEqual(report.outcome(for: skipped), .skipped(.lease))
         XCTAssertEqual(report.ranSteps, [.botHeldInbox, .connectorScan, .approvalReminderSync])
     }
 
@@ -75,8 +75,8 @@ final class BotReadySweepRunnerTests: XCTestCase {
                 return .done
             })
         let report = await runner.run()
-        XCTAssertEqual(report.outcome(for: .botHeldInbox), .skipped(reason: "cancelled"))
-        XCTAssertTrue(report.failedSteps.isEmpty)
+        XCTAssertEqual(report.outcome(for: .botHeldInbox), .failed(reason: "cancelled"))
+        XCTAssertEqual(report.failedSteps, [.botHeldInbox])
         XCTAssertEqual(log.all, [.missedRoutines, .connectorScan, .approvalReminderSync])
     }
 
@@ -94,7 +94,7 @@ final class BotReadySweepRunnerTests: XCTestCase {
             budget: .init(remainingMs: { 60_000 }, shouldRun: { _, _ in true }),
             action: { step in step == .botHeldInbox ? .none : .done })
         let report = await runner.run()
-        XCTAssertEqual(report.outcome(for: .botHeldInbox), .skipped(reason: "no-work"))
+        XCTAssertEqual(report.outcome(for: .botHeldInbox), .skipped(.noWork))
         XCTAssertEqual(report.ranSteps, [.missedRoutines, .connectorScan, .approvalReminderSync])
     }
 }
