@@ -6,6 +6,10 @@ public enum ProactiveKind: String, Codable, Sendable, CaseIterable {
     case taskDone = "task-done"
     case routineResult = "routine-result"
     case reminder
+    /// A connector delta scan found new metadata (Gmail / GitHub). It uses the
+    /// same dnd / quiet-hours / fuse policy as every other proactive kind and
+    /// adds no budget, cooldown, quota or TTL of its own.
+    case connectorUpdate = "connector-update"
 }
 
 public struct ProactiveCandidate: Sendable, Equatable {

@@ -281,6 +281,11 @@ public actor ProactiveEngine: ProactiveConsidering {
         case .reminder:
             title = explicitTitle?.isEmpty == false ? explicitTitle! : "DSH Bot · 提醒"
             body = explicitBody?.isEmpty == false ? explicitBody! : "提醒时间到了"
+        case .connectorUpdate:
+            // The source provides the connector name and metadata summary; the
+            // fallback is only used by a caller that built the candidate itself.
+            title = explicitTitle?.isEmpty == false ? explicitTitle! : "DSH Bot · 连接器"
+            body = explicitBody?.isEmpty == false ? explicitBody! : "连接器有新内容"
         }
         return ProactiveNotification(title: title, body: body, kind: candidate.kind,
                                      botId: candidate.botId, dedupeKey: dedupeKey,
