@@ -207,25 +207,15 @@ final class CloudTaskCenter {
         // engine to park, so the window closes right away.
         switch outcome.decision {
         case .ready, .boot, .resume:
-            await waitForParkPoint(lease: lease)
-            await ChatModel.shared.parkForWakeDeadline()
+            // R16: release the window as soon as the sweep is done; only a
+            // running turn may use the rest of it, up to deadline − margin.
+            await ChatModel.shared.finishWakeLeaseWindow(deadlineMs: lease.deadlineMs)
         case .nativeOnly:
             _ = EngineLaunchProcessingTask.submit()
         case .deferred, .needsAttention:
             break
         }
         endPushBackgroundTask()
-    }
-
-    /// Waits until `deadline − parkMarginMs` so an in-flight turn gets the rest
-    /// of its window (host §10.2); a foreground return ends the wait early
-    /// because the lease no longer governs.
-    private func waitForParkPoint(lease: WakeLease) async {
-        let parkAt = lease.deadlineMs - EngineLaunchThresholds.parkMarginMs
-        while WakeLease.nowMs() < parkAt {
-            if UIApplication.shared.applicationState == .active { return }
-            do { try await Task.sleep(nanoseconds: 200_000_000) } catch { return }
-        }
     }
 
     private func endPushBackgroundTask() {
@@ -330,16 +320,10 @@ final class ProbeAppDelegate: NSObject, UIApplicationDelegate {
                                   grantedAtMs: grantedAtMs,
                                   deadlineMs: deadlineMs)
             let outcome = await EngineLaunchOrchestrator.shared.wake(reason, lease: lease)
-            await ChatModel.shared.parkForWakeDeadline()
+            // R17: do not interrupt a turn the sweep just started; park now
+            // only when nothing is running, otherwise at deadline − margin.
+            await ChatModel.shared.finishWakeLeaseWindow(deadlineMs: lease.deadlineMs)
             return outcome.decision != .needsAttention
-        }
-    }
-
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        // PLAN §2.9 I5: project the earliest durable due time onto the OS
-        // channels now; the resident timer will not run while suspended.
-        Task { @MainActor in
-            await EngineLaunchOrchestrator.shared.appDidEnterBackground()
         }
     }
 

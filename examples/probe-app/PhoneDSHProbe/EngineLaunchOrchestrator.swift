@@ -31,18 +31,15 @@ final class EngineLaunchOrchestrator {
 
     private let chat: ChatModel
     private let cloud: CloudTaskCenter
-    /// The one in-flight wake. A wake arriving before stage D joins it; one
-    /// arriving during stage D collapses into at most one pending follow-up
-    /// (§10.2.5 merge rule).
+    /// The one in-flight wake and its merge state (§10.2.5). A wake arriving
+    /// before stage D joins it; one arriving during stage D collapses into at
+    /// most one pending follow-up whose own completion every merged caller
+    /// awaits.
+    private var mergeState = WakeMergeState()
     private var current: Task<EngineLaunchOutcome, Never>?
-    private var currentPhase: WakePhase?
-    private var pendingWake: PendingWake?
     private var runGeneration = 0
-    private struct PendingWake {
-        var reason: WakeReason
-        var lease: WakeLease?
-        var wakeId: String
-    }
+    private var pendingWaiters: [CheckedContinuation<EngineLaunchOutcome, Never>] = []
+    private var waitersByRun: [Int: [CheckedContinuation<EngineLaunchOutcome, Never>]] = [:]
     private var recent: [WakeKey: EngineLaunchOutcome] = [:]
     private var recentOrder: [WakeKey] = []
     private static let recentLimit = 32
@@ -159,9 +156,13 @@ final class EngineLaunchOrchestrator {
     /// in-flight wake already owns the sweep, so it is merged rather than
     /// duplicated.
     func engineIncarnationAdopted(_ incarnation: Int) async {
-        guard EngineAdoptionPolicy.shouldSweep(
-            incarnationChanged: incarnation == engineIncarnation,
-            wakeInFlight: current != nil) else { return }
+        // Staleness only: an old notification must not sweep a newer engine.
+        // If a wake is in flight before stage D, this joins it (its own boot);
+        // during stage D it becomes the one follow-up that sweeps this new
+        // instance (§10.2.5 / I4).
+        guard EngineAdoptionPolicy.shouldSweep(isCurrentIncarnation: incarnation == engineIncarnation) else {
+            return
+        }
         let reason: WakeReason = UIApplication.shared.applicationState == .background
             ? .engineRecovered : .foreground
         _ = await wake(reason, lease: nil)
@@ -180,47 +181,50 @@ final class EngineLaunchOrchestrator {
     /// BGTask wake passes the lease built from its OS window. This method never
     /// starts the engine directly for an individual caller: the policy decides.
     ///
-    /// Merge rule (§10.2.5): a wake that arrives before the in-flight wake
-    /// reaches stage D joins it; arrivals during stage D collapse into one
-    /// follow-up wake with the widest eligibility. The caller always awaits the
-    /// run it joined, so it never returns before its engine decision exists.
+    /// Merge rule (§10.2.5): a wake arriving before the in-flight wake reaches
+    /// stage D joins it; arrivals during stage D collapse into one follow-up.
+    /// A caller of the follow-up awaits **that** run's outcome, so its lease is
+    /// consumed before the caller ends its background window.
     func wake(_ reason: WakeReason, lease: WakeLease?) async -> EngineLaunchOutcome {
         let wakeId = lease?.wakeId ?? "\(reason.rawValue)-\(nextWakeID())"
         let key = WakeKey(incarnation: engineIncarnation, wakeId: wakeId)
         if let completed = recent[key] { return completed }
-        if let running = current {
-            switch WakeMergePolicy.action(hasInFlight: true, phase: currentPhase) {
-            case .joinInFlight:
-                return await running.value
-            case .mergePending:
-                if var pending = pendingWake {
-                    pending.lease = WakeMergePolicy.mergedLease(pending.lease, lease)
-                    if lease == nil { pending.reason = reason }
-                    pendingWake = pending
-                } else {
-                    pendingWake = PendingWake(reason: reason, lease: lease, wakeId: wakeId)
-                }
-                return await running.value
-            case .start:
-                break
+        let request = WakeMergeState.Request(reason: reason, lease: lease, wakeId: wakeId)
+        switch mergeState.arrive(request) {
+        case .start(let admitted):
+            return await startRun(admitted, key: key).value
+        case .join:
+            guard let current else {
+                return EngineLaunchOutcome(wakeId: wakeId, reason: reason,
+                                           engineIncarnation: engineIncarnation,
+                                           decision: .deferred, engine: .notRequested)
+            }
+            return await current.value
+        case .pending:
+            return await withCheckedContinuation {
+                (continuation: CheckedContinuation<EngineLaunchOutcome, Never>) in
+                pendingWaiters.append(continuation)
             }
         }
-        let task = startRun(reason: reason, lease: lease, wakeId: wakeId, key: key)
-        return await task.value
     }
 
-    private func startRun(reason: WakeReason, lease: WakeLease?, wakeId: String,
+    private func startRun(_ request: WakeMergeState.Request,
                           key: WakeKey) -> Task<EngineLaunchOutcome, Never> {
         runGeneration += 1
         let generation = runGeneration
-        currentPhase = .stageA
+        if !pendingWaiters.isEmpty {
+            waitersByRun[generation] = pendingWaiters
+            pendingWaiters = []
+        }
         let task = Task { @MainActor [weak self] in
             guard let self else {
-                return EngineLaunchOutcome(wakeId: wakeId, reason: reason,
+                return EngineLaunchOutcome(wakeId: request.wakeId, reason: request.reason,
                                            engineIncarnation: 0, decision: .deferred,
                                            engine: .notRequested)
             }
-            let outcome = await self.performWake(reason: reason, lease: lease, wakeId: wakeId)
+            let outcome = await self.performWake(reason: request.reason,
+                                                 lease: request.lease,
+                                                 wakeId: request.wakeId)
             await self.finishRun(generation: generation, key: key, outcome: outcome)
             return outcome
         }
@@ -232,13 +236,14 @@ final class EngineLaunchOrchestrator {
                            outcome: EngineLaunchOutcome) async {
         guard generation == runGeneration else { return }
         remember(key, outcome)
-        currentPhase = nil
+        // Every caller merged into this run receives this run's outcome.
+        if let waiters = waitersByRun.removeValue(forKey: generation) {
+            for waiter in waiters { waiter.resume(returning: outcome) }
+        }
         current = nil
-        if let pending = pendingWake {
-            pendingWake = nil
-            _ = startRun(reason: pending.reason, lease: pending.lease,
-                         wakeId: pending.wakeId,
-                         key: WakeKey(incarnation: engineIncarnation, wakeId: pending.wakeId))
+        if let next = mergeState.finish() {
+            _ = startRun(next,
+                         key: WakeKey(incarnation: engineIncarnation, wakeId: next.wakeId))
         }
     }
 
@@ -272,7 +277,7 @@ final class EngineLaunchOrchestrator {
         // Phase A — engine-free immediate content. Runs for every decision so
         // the page paints before the engine exists and a deferred wake still
         // keeps its durable queue moving.
-        currentPhase = .stageA
+        mergeState.enter(.stageA)
         await chat.prepareLaunchContentForWake()
         // Residency may have changed since the last projection; re-arm the
         // resident timer now (I5 also re-projects on every ledger write).
@@ -281,7 +286,7 @@ final class EngineLaunchOrchestrator {
         var engineResult: EngineLaunchOutcome.EngineResult = .notRequested
         var consumersBound = false
 
-        currentPhase = .stageB
+        mergeState.enter(.stageB)
         switch decision {
         case .boot, .resume:
             // The lease authorizes this wake for its whole span; every gate in
@@ -296,12 +301,12 @@ final class EngineLaunchOrchestrator {
             }
             if engineResult == .booted || engineResult == .resumed {
                 // Phase C.
-                currentPhase = .stageC
+                mergeState.enter(.stageC)
                 consumersBound = await chat.prepareConsumersForWake()
             }
         case .ready:
             chat.adoptWakeLease(lease, reason: reason)
-            currentPhase = .stageC
+            mergeState.enter(.stageC)
             consumersBound = await chat.prepareConsumersForWake()
         case .nativeOnly, .deferred, .needsAttention:
             break
@@ -313,12 +318,12 @@ final class EngineLaunchOrchestrator {
         var report: ReadySweepReport?
         switch decision {
         case .ready:
-            currentPhase = .stageD
+            mergeState.enter(.stageD)
             report = await runReadySweep(wakeId: wakeId, reason: reason, lease: lease,
                                          consumersBound: consumersBound)
         case .boot, .resume:
             if engineResult == .booted || engineResult == .resumed {
-                currentPhase = .stageD
+                mergeState.enter(.stageD)
                 report = await runReadySweep(wakeId: wakeId, reason: reason, lease: lease,
                                              consumersBound: consumersBound)
             }
