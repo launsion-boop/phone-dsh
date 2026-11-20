@@ -33,6 +33,10 @@ public enum WakeReason: String, CaseIterable, Codable, Sendable, Equatable {
     case routineNotificationTap
     /// A host status probe saw a healthy engine again after recovery.
     case engineRecovered
+    /// A WakeDemand in the host ledger reached its due time (PLAN §2.9). The
+    /// contract freezes the final spelling in §10.3; this is the concentrated
+    /// definition every producer uses.
+    case scheduledDemand
 }
 
 /// Thresholds shared by the decision function and every caller.

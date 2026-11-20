@@ -105,12 +105,14 @@ final class ReadySweepPolicyTests: XCTestCase {
         XCTAssertEqual(ReadySweepPolicy.stepBudgetMs(for: .missedRoutines), 5_000)
         XCTAssertEqual(ReadySweepPolicy.stepBudgetMs(for: .connectorScan), 10_000)
         XCTAssertEqual(ReadySweepPolicy.stepBudgetMs(for: .approvalReminderSync), 1_000)
+        XCTAssertEqual(ReadySweepPolicy.stepBudgetMs(for: .dshSchedule), 2_000)
+        XCTAssertEqual(ReadySweepPolicy.stepBudgetMs(for: .hostRetries), 2_000)
     }
 
     func testStepsAreInTheContractOrder() {
-        XCTAssertEqual(ReadySweepStep.allCases.map(\.ordinal), Array(1...7))
+        XCTAssertEqual(ReadySweepStep.allCases.map(\.ordinal), Array(1...9))
         XCTAssertEqual(ReadySweepStep.allCases.first, .userOutbox)
-        XCTAssertEqual(ReadySweepStep.allCases.last, .approvalReminderSync)
+        XCTAssertEqual(ReadySweepStep.allCases.last, .hostRetries)
     }
 }
 

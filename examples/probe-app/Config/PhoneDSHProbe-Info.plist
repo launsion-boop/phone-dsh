@@ -77,6 +77,7 @@
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).continued-processing.drain.*</string>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).engine-launch.processing</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).engine-launch.refresh</string>
 	</array>
 	<!-- `audio`: the Chat page keeps a silent, mixWithOthers playback session
 	     while a turn is running in the background so the agent is not
@@ -90,6 +91,7 @@
 		<string>audio</string>
 		<string>bluetooth-central</string>
 		<string>processing</string>
+		<string>fetch</string>
 		<string>location</string>
 		<string>remote-notification</string>
 	</array>
