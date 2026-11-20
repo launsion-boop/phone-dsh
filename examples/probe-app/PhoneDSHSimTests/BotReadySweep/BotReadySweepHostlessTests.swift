@@ -156,7 +156,7 @@ private actor HostlessSink: RoutineResultSink {
 private actor HostlessCursorStore: ConnectorCursorStoring {
     private var cursors: [ConnectorKind: ConnectorCursorState] = [:]
 
-    func load(_ connector: ConnectorKind) async -> ConnectorCursorLoad {
+    func load(_ connector: ConnectorKind) async throws -> ConnectorCursorLoad {
         if let state = cursors[connector] { return .stored(state) }
         return .absent
     }

@@ -230,6 +230,12 @@ public enum ConnectorCursorLoad: Sendable, Equatable {
     case corrupt
 }
 
+public enum ConnectorCursorStoreError: Error, Equatable, Sendable {
+    /// The record exists but could not be read (data protection before the
+    /// first unlock, permissions). Neither absent nor corrupt: retry later.
+    case unavailable
+}
+
 /// The pure cursor transition of one scan (contract §3.3.2):
 /// - first scan establishes the head only;
 /// - Gmail historyId advances / GitHub `since` advances → emit an update;

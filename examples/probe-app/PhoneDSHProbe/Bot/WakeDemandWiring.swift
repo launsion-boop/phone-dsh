@@ -15,6 +15,10 @@ import ProbeKit
 enum WakeDemandWiring {
     static func install(on composition: BotRuntimeComposition) async {
         await composition.installWakeDemandSink(WakeDemandLedgerAdapter())
+        // PLAN §2.9 / host §10.3.2: the connector scan owns its own recurring
+        // cadence; the frozen interval comes from the contract constant.
+        composition.connectorScanDemandIntervalMs =
+            EngineLaunchThresholds.connectorScanIntervalMs
     }
 }
 

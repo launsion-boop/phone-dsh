@@ -63,18 +63,26 @@ enum ConnectorSweepWiring {
             // PLAN §2.9 I2: each completed scan schedules the connector's next
             // due time with the frozen minimum interval; an unauthorized
             // connector removes its demand instead of prompting.
-            if let demands = composition.wakeDemandSink {
+            if let demands = composition.wakeDemandSink,
+               let interval = composition.connectorScanDemandIntervalMs {
                 let now = botProductionNowMilliseconds()
                 for result in batch.results {
-                    if case .skipped(let reason) = result.outcome,
-                       reason == "unauthorized" {
+                    switch result.outcome {
+                    case .skipped(let reason) where reason == "unauthorized":
+                        // Revoked/expired authorization: no next scan until the
+                        // user reconnects; never prompt from a wake.
                         await demands.remove(source: BotWakeDemand.connectorScanSource,
                                              key: result.connector.rawValue)
-                    } else {
+                    case .skipped, .failed:
+                        // Gated (data protection) or failed: keep the existing
+                        // demand untouched; the next wake retries the scan.
+                        break
+                    case .baselineEstablished, .noNewItems, .enqueued,
+                         .duplicate, .reset:
                         await demands.upsert(BotWakeDemand(
                             source: BotWakeDemand.connectorScanSource,
                             key: result.connector.rawValue,
-                            dueAtMs: now + EngineLaunchThresholds.connectorScanIntervalMs,
+                            dueAtMs: now + interval,
                             kind: .recurring,
                             userVisible: false))
                     }

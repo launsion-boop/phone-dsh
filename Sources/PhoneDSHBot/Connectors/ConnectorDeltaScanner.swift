@@ -249,8 +249,13 @@ public protocol ConnectorDeltaClient: Sendable {
 
 /// Cursor persistence seam. The production store writes the frozen JSON
 /// document; tests use an in-memory implementation.
+///
+/// `load` throws when the record exists but cannot be read (for example data
+/// protection before the first unlock after a reboot). That is neither
+/// "absent" nor "corrupt": the scan must be skipped with `gate`, leave the
+/// file untouched, and retry after unlock.
 public protocol ConnectorCursorStoring: Sendable {
-    func load(_ connector: ConnectorKind) async -> ConnectorCursorLoad
+    func load(_ connector: ConnectorKind) async throws -> ConnectorCursorLoad
     func save(_ state: ConnectorCursorState) async throws
     func clear(_ connector: ConnectorKind) async throws
 }
@@ -351,7 +356,16 @@ public actor ConnectorDeltaScanner {
     private func scan(_ client: any ConnectorDeltaClient)
     async -> (ConnectorScanOutcome, ConnectorUpdateRecord?) {
         let connector = client.connector
-        let load = await cursors.load(connector)
+        let load: ConnectorCursorLoad
+        do {
+            load = try await cursors.load(connector)
+        } catch is CancellationError {
+            return (.skipped(reason: "cancelled"), nil)
+        } catch {
+            // The record exists but cannot be read (data protection/permission).
+            // Leave it and the demand untouched; retry after unlock.
+            return (.skipped(reason: "gate"), nil)
+        }
         let requestCursor: ConnectorCursorState?
         switch load {
         case .absent, .corrupt: requestCursor = nil
@@ -476,7 +490,8 @@ public actor ConnectorDeltaScanner {
 
     private func markScanFailure(connector: ConnectorKind,
                                  reason: String) async -> ConnectorScanOutcome {
-        if case .stored(let stored) = await cursors.load(connector) {
+        if let load = try? await cursors.load(connector),
+           case .stored(let stored) = load {
             try? await cursors.save(ConnectorCursorState(
                 connector: connector, cursor: stored.cursor,
                 updatedAt: now(), status: stored.status, lastError: .scanFailed))

@@ -331,13 +331,42 @@ final class ConnectorDeltaScannerTests: XCTestCase {
     }
 }
 
+    func testAnUnreadableCursorIsSkippedAsGateAndLeavesEverythingUntouched() async throws {
+        let store = MemoryConnectorCursorStore()
+        await store.seed(.gmail, cursor: .gmail(historyId: "100"))
+        await store.markUnreadable(.gmail)
+        let sink = RecordingConnectorSink()
+        let client = ScriptedConnectorClient(
+            connector: .gmail,
+            results: [.success(.init(head: .gmail(historyId: "200"),
+                                     items: [.init(id: "m1", at: 1)]))])
+        let scanner = ConnectorDeltaScanner(clients: [client], cursors: store,
+                                            sink: sink, now: { 1_000 })
+
+        await WP6AssertEqual(await scanner.scan(),
+                             [ConnectorScanResult(connector: .gmail,
+                                                  outcome: .skipped(reason: "gate"))])
+        let empty = await sink.records.isEmpty
+        XCTAssertTrue(empty)
+        let cursor = await store.cursor(for: .gmail)
+        XCTAssertEqual(cursor?.cursor, .gmail(historyId: "100"),
+                       "an unreadable cursor must not be overwritten")
+        let requestedCount = await client.requestedCursors.count
+        XCTAssertEqual(requestedCount, 0,
+                       "no fetch may run against a cursor that cannot be read")
+    }
+
 // MARK: - Fakes
 
 actor MemoryConnectorCursorStore: ConnectorCursorStoring {
     private var cursors: [ConnectorKind: ConnectorCursorState] = [:]
     private var corrupt = Set<ConnectorKind>()
+    private var unreadable = Set<ConnectorKind>()
 
-    func load(_ connector: ConnectorKind) async -> ConnectorCursorLoad {
+    func load(_ connector: ConnectorKind) async throws -> ConnectorCursorLoad {
+        if unreadable.contains(connector) {
+            throw ConnectorCursorStoreError.unavailable
+        }
         if corrupt.contains(connector) { return .corrupt }
         if let state = cursors[connector] { return .stored(state) }
         return .absent
@@ -360,6 +389,7 @@ actor MemoryConnectorCursorStore: ConnectorCursorStoring {
     }
 
     func markCorrupt(_ connector: ConnectorKind) { corrupt.insert(connector) }
+    func markUnreadable(_ connector: ConnectorKind) { unreadable.insert(connector) }
     func cursor(for connector: ConnectorKind) -> ConnectorCursorState? { cursors[connector] }
 }
 

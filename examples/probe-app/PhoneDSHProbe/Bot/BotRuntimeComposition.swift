@@ -242,6 +242,9 @@ final class BotRuntimeComposition {
     /// PLAN §2.9 I2: the App's durable WakeDemand sink. nil in the eval harness
     /// and unit tests; the App installs the ledger adapter after prepare.
     private(set) var wakeDemandSink: (any BotWakeDemanding)?
+    /// Recurring connector scan cadence, injected from the frozen
+    /// `EngineLaunchThresholds.connectorScanIntervalMs` (host §10.3.2).
+    var connectorScanDemandIntervalMs: Int64?
     /// PLAN §2.8 hand-off for Bot channels. A channel signals this only after
     /// its request is durable; the App bridge maps the signal to
     /// `EngineLaunchOrchestrator.shared.wake`. It never starts the engine here.
@@ -1603,9 +1606,17 @@ final class BotRuntimeComposition {
 
     nonisolated static func sharedSweepOutcome(_ outcome: BotReadySweepOutcome) -> ReadySweepOutcome {
         switch outcome {
-        case .ran: return .ran
-        case .skipped(let reason): return .skipped(reason: reason)
-        case .failed(let reason): return .failed(reason: reason)
+        case .ran:
+            return .ran
+        case .skipped(let reason):
+            // The host contract §10.2.5 has a closed skip vocabulary; the Bot
+            // side only ever produces these two.
+            switch reason {
+            case .lease: return .skipped(.lease)
+            case .noWork: return .skipped(.noWork)
+            }
+        case .failed(let reason):
+            return .failed(reason: reason)
         }
     }
     #endif
