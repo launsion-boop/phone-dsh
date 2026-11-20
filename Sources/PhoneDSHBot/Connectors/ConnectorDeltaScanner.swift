@@ -297,6 +297,19 @@ public struct ConnectorScanResult: Sendable, Equatable {
 /// One full scan pass: per-connector outcomes plus the records this pass made
 /// newly durable (already enqueued), so the caller can consider a proactive
 /// candidate and open the main Bot's held wake without re-reading the store.
+/// What one completed connector step produced: the per-connector results and
+/// the records this pass newly made durable. The step uses `results` to tell a
+/// fully gated pass (all connectors unreadable) from a pass that did work.
+public struct ConnectorSweepResult: Sendable, Equatable {
+    public var results: [ConnectorScanResult]
+    public var enqueued: [ConnectorUpdateRecord]
+
+    public init(results: [ConnectorScanResult] = [], enqueued: [ConnectorUpdateRecord] = []) {
+        self.results = results
+        self.enqueued = enqueued
+    }
+}
+
 public struct ConnectorScanBatch: Sendable, Equatable {
     public var results: [ConnectorScanResult]
     public var enqueued: [ConnectorUpdateRecord]

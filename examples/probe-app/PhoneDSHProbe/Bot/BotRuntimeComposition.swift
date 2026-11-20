@@ -235,7 +235,7 @@ final class BotRuntimeComposition {
     /// clients are App-side). It returns the records this scan newly made
     /// durable; nil means the connector step reports `skipped("not-configured")`
     /// and never half-scans.
-    var connectorSweep: (() async throws -> [ConnectorUpdateRecord])?
+    var connectorSweep: (() async throws -> ConnectorSweepResult)?
     /// The durable connector-update outbox. Set by the same App wiring so the
     /// held-inbox replay step can re-enqueue an unacknowledged interval.
     private(set) var connectorUpdateOutbox: ConnectorUpdateOutbox?
@@ -1324,7 +1324,7 @@ final class BotRuntimeComposition {
     /// outbox it feeds. Both are optional: a build with no authorized
     /// connector keeps the step `skipped("not-configured")`, while the outbox
     /// may still be present to replay an older unacknowledged interval.
-    func installConnectorSweep(_ sweep: (() async throws -> [ConnectorUpdateRecord])?,
+    func installConnectorSweep(_ sweep: (() async throws -> ConnectorSweepResult)?,
                                outbox: ConnectorUpdateOutbox?) {
         connectorSweep = sweep
         connectorUpdateOutbox = outbox
@@ -1512,7 +1512,18 @@ final class BotRuntimeComposition {
                 // connector work rather than a half-scan.
                 return .none
             }
-            let records = try await connectorSweep()
+            let sweep = try await connectorSweep()
+            // A pass where every connector was gated (unreadable cursor under
+            // data protection) is a gate, not a failure and not "ran".
+            if !sweep.results.isEmpty, sweep.results.allSatisfy({ result in
+                if case .skipped(let reason) = result.outcome, reason == "gate" {
+                    return true
+                }
+                return false
+            }) {
+                return .gated
+            }
+            let records = sweep.enqueued
             guard !records.isEmpty else { return .done }
             // The records and their held items are durable. The main Bot's
             // conversation is the one that processes them: consider each
@@ -1614,6 +1625,7 @@ final class BotRuntimeComposition {
             switch reason {
             case .lease: return .skipped(.lease)
             case .noWork: return .skipped(.noWork)
+            case .gate: return .skipped(.gate)
             }
         case .failed(let reason):
             return .failed(reason: reason)

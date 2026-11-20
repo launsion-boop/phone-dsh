@@ -88,7 +88,7 @@ enum ConnectorSweepWiring {
                     }
                 }
             }
-            return batch.enqueued
+            return ConnectorSweepResult(results: batch.results, enqueued: batch.enqueued)
         }, outbox: outbox)
     }
 
