@@ -850,6 +850,15 @@ final class ChatModel {
     var engineUserStopped: Bool { queuedPreparationPaused }
     /// True while the orchestrator owns a silent start.
     var isSilentLaunch: Bool { silentLaunchDepth > 0 }
+    /// Tells the launch orchestrator that a fresh host was adopted. It runs a
+    /// sweep unless a wake is already in flight (that wake owns this
+    /// incarnation's sweep, §10.2.5 / I4).
+    private func announceEngineIncarnation() {
+        let incarnation = engineIncarnation
+        Task { @MainActor in
+            await EngineLaunchOrchestrator.shared.engineIncarnationAdopted(incarnation)
+        }
+    }
     /// Read-only projection currently painted by W1-A. Non-nil means the page
     /// is showing a materialized copy and no send may go to `sessionID` until
     /// the target is activated.
@@ -1915,7 +1924,7 @@ final class ChatModel {
             let dueAtMs = Int64(deadline.timeIntervalSince1970 * 1000)
             Task { @MainActor in
                 await EngineLaunchOrchestrator.shared.upsertWakeDemand(
-                    WakeDemand(source: .hostRetries, key: "engineBackoff",
+                    WakeDemand(source: .hostRetry, key: "engineBoot",
                                dueAtMs: dueAtMs, kind: .once, userVisible: false))
             }
             let seconds = max(1, Int(ceil(max(0, delay))))
@@ -1932,12 +1941,12 @@ final class ChatModel {
                 guard self.host == nil, !self.busy, !self.parked else { return }
                 if launchInitiated {
                     self.silentLaunchDepth += 1
-                    defer { self.silentLaunchDepth -= 1 }
                 } else {
                     self.statusLine = "正在自动启动引擎…"
                 }
                 self.appendStatus("Engine backoff elapsed; retrying start()")
                 await self.start(autoRecover: false, backoffRetry: true)
+                if launchInitiated { self.silentLaunchDepth -= 1 }
                 // A rebuild that hit the persisted Backoff window finishes
                 // here; apply the queued session switch/prompts now.
                 self.scheduleRecoveryQueueFlush()
@@ -1971,7 +1980,7 @@ final class ChatModel {
     private func removeBackoffDemand() {
         Task { @MainActor in
             await EngineLaunchOrchestrator.shared.removeWakeDemand(
-                source: .hostRetries, key: "engineBackoff")
+                source: .hostRetry, key: "engineBoot")
         }
     }
 
@@ -1984,6 +1993,51 @@ final class ChatModel {
         defer { silentLaunchDepth -= 1 }
         await start(autoRecover: false, backoffRetry: true)
         scheduleRecoveryQueueFlush()
+    }
+
+    /// host §10.3.5: mirror the earliest active DSH schedule into the host
+    /// ledger through the existing `schedule/list` remote method. A failed
+    /// refresh keeps the previous demand (it is not proof of "no task"); an
+    /// empty page removes it.
+    @discardableResult
+    func refreshDshScheduleMirror() async -> Bool {
+        guard pcRuntime == nil, engineHostState == .running else { return false }
+        do {
+            let client = try await workspaceBackend.transport()
+            let result = try await client.call(
+                "schedule/list",
+                args: .object(["request": .object([
+                    "active": .bool(true),
+                    "limit": .integer(1),
+                ])]))
+            let first = result["items"]?.arrayValue?.first
+            guard let scheduledAt = first?["scheduledAt"]?.stringValue,
+                  let dueAtMs = Self.epochMilliseconds(fromISO8601: scheduledAt) else {
+                await EngineLaunchOrchestrator.shared.removeWakeDemand(
+                    source: .dshSchedule, key: "schedule")
+                return true
+            }
+            await EngineLaunchOrchestrator.shared.upsertWakeDemand(WakeDemand(
+                source: .dshSchedule, key: "schedule", dueAtMs: dueAtMs,
+                kind: .recurring, userVisible: false))
+            return true
+        } catch {
+            Self.appendDiagnostic("dsh schedule mirror refresh failed: \(NativeLogRedaction.error(error))")
+            return false
+        }
+    }
+
+    private static func epochMilliseconds(fromISO8601 text: String) -> Int64? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: text) {
+            return Int64((date.timeIntervalSince1970 * 1000).rounded())
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        if let date = formatter.date(from: text) {
+            return Int64((date.timeIntervalSince1970 * 1000).rounded())
+        }
+        return nil
     }
 
     /// hostRetries demand entry: the outbox settle deadline passed while the
@@ -2360,6 +2414,13 @@ final class ChatModel {
                                   budgets: BudgetTable,
                                   selectedProfile: ProviderProfile?,
                                   egressHosts: Set<String>) async {
+        // I4: every new engine instance owes one ReadySweep. Announcing at
+        // every exit of this adoption lets the orchestrator start that sweep
+        // even when the boot came from a button or a recovery path.
+        defer {
+            announceEngineIncarnation()
+            Task { @MainActor [weak self] in await self?.refreshDshScheduleMirror() }
+        }
         cancelBackoffRetry()
         host = newHost
         // A fresh Host is a new engine instance: the ReadySweep merge key and
@@ -3380,6 +3441,8 @@ final class ChatModel {
             hostLifecycleTransition = false
         }
         appendStatus("App in background: parking the host (in-flight work gets the drain window, then the turn is cancelled)…")
+        // §10.3.5: refresh the schedule mirror before the engine goes away.
+        await refreshDshScheduleMirror()
         do {
             try await host.park()
             parked = true
@@ -3443,6 +3506,11 @@ final class ChatModel {
             try await host.resume()
             parked = false
             didResume = true
+            // A resume is a new adopted incarnation for the sweep merge key
+            // (§10.2.5) and owes one ReadySweep (I4).
+            engineIncarnation &+= 1
+            announceEngineIncarnation()
+            Task { @MainActor [weak self] in await self?.refreshDshScheduleMirror() }
             appendStatus("Host resumed; the session continues from the WAL")
             refreshFiles()
             await reconcileTurnStateAfterResume()
@@ -3729,13 +3797,22 @@ final class ChatModel {
                     guard !prepared else { return }
                     prepared = true
                     self.appendStatus("Queued delivery: preparing the engine")
-                    await self.start(autoRecover: true)
+                    if self.isAppForeground {
+                        await self.start(autoRecover: true)
+                    } else {
+                        // I3: a background boot has exactly one entry.
+                        _ = await EngineLaunchOrchestrator.shared.wake(.engineRecovered, lease: nil)
+                    }
                     guard !Task.isCancelled, !self.queuedPreparationPaused else { return }
                 case .resume:
                     guard !prepared, let host = self.host else { return }
                     prepared = true
                     self.appendStatus("Queued delivery: resuming the parked engine")
-                    await self.resumeHost(host)
+                    if self.isAppForeground {
+                        await self.resumeHost(host)
+                    } else {
+                        _ = await EngineLaunchOrchestrator.shared.wake(.engineRecovered, lease: nil)
+                    }
                     guard !Task.isCancelled, !self.queuedPreparationPaused else { return }
                 case .deferred:
                     self.appendStatus("Queued delivery saved; waiting for foreground or a resident keep-alive")
@@ -4646,7 +4723,7 @@ final class ChatModel {
         let dueAtMs = Int64(deadline.timeIntervalSince1970 * 1000)
         Task { @MainActor in
             await EngineLaunchOrchestrator.shared.upsertWakeDemand(
-                WakeDemand(source: .hostRetries, key: "outboxSettleFlush",
+                WakeDemand(source: .hostRetry, key: "outboxSettle",
                            dueAtMs: dueAtMs, kind: .once, userVisible: false))
         }
         outboxSettleTask = Task { @MainActor [weak self] in
@@ -4656,7 +4733,7 @@ final class ChatModel {
             self.outboxSettleDeadline = nil
             Task { @MainActor in
                 await EngineLaunchOrchestrator.shared.removeWakeDemand(
-                    source: .hostRetries, key: "outboxSettleFlush")
+                    source: .hostRetry, key: "outboxSettle")
             }
             self.scheduleRecoveryQueueFlush()
         }
@@ -5402,6 +5479,8 @@ final class ChatModel {
             if outboxNeedsDrain { scheduleRecoveryQueueFlush() }
             // A turn end is the terminal evidence a linked admission waits for.
             if pcRuntime == nil { scheduleExternalAdmissionPass() }
+            // §10.3.5: the DSH schedule may have moved during the turn.
+            Task { @MainActor [weak self] in await self?.refreshDshScheduleMirror() }
             if keepingAlive, !botTurnsRunning {
                 Task { await self.finishBackgroundKeepAlive() }
             }
@@ -5684,6 +5763,8 @@ final class ChatModel {
             if outboxNeedsDrain { scheduleRecoveryQueueFlush() }
             // A turn end is the terminal evidence a linked admission waits for.
             if pcRuntime == nil { scheduleExternalAdmissionPass() }
+            // §10.3.5: the DSH schedule may have moved during the turn.
+            Task { @MainActor [weak self] in await self?.refreshDshScheduleMirror() }
             if keepingAlive, !botTurnsRunning { Task { await self.finishBackgroundKeepAlive() } }
         case .progress(let phase, let step, let total):
             if phase == "step" { activeStep = step }

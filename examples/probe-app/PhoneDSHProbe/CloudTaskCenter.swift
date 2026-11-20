@@ -313,9 +313,9 @@ final class ProbeAppDelegate: NSObject, UIApplicationDelegate {
         // before launch finishes. The handler asks for exactly one
         // `.bgProcessing` wake and parks before completing the OS task.
         EngineLaunchProcessingTask.register(Self.engineWakeRunner(.bgProcessing))
-        // PLAN §2.9: the refresh arm carries the earliest WakeDemand due time
+        // §10.3.4: the refresh arm carries the earliest WakeDemand due time
         // when the App is suspended (needs UIBackgroundModes: fetch).
-        EngineLaunchRefreshTask.register(Self.engineWakeRunner(.scheduledDemand))
+        EngineLaunchRefreshTask.register(Self.engineWakeRunner(.bgAppRefresh))
         return true
     }
 

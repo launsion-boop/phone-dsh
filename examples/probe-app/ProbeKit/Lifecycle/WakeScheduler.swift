@@ -1,33 +1,40 @@
 // SPDX-License-Identifier: MIT
 // phone-dsh phone DSH — the host timer and OS-channel projector for WakeDemands.
 //
-// PLAN §2.9 I5: while the process is resident, one host timer fires at the
-// earliest `dueAt` and asks the orchestrator for a `.scheduledDemand` wake.
-// On every ledger change — and again when the App is about to leave the
-// foreground — the earliest due time is projected onto the OS channels the App
-// has: BGAppRefreshTask, BGProcessingTask and (for `userVisible` demands) a
-// local notification. A lost wake only delays work: the next wake sweeps every
-// due demand from the durable ledger.
+// host contract `spec/host/v1/README.md` §10.3.3–§10.3.4: the projection is a
+// pure function of `(nowMs, resident, demands)`. While resident, one host timer
+// fires at `residentTimerAtMs` and asks the orchestrator for a
+// `.scheduledDemand` wake. Every ledger change, every background entry and
+// every park recomputes the projection and submits `backgroundEarliestMs` to
+// `BGAppRefreshTask` and `BGProcessingTask` — resident or not, because
+// suspension can happen at any moment. A lost wake only delays work: the next
+// wake of any kind runs every due demand.
 
 import Foundation
 
 @MainActor
 public final class WakeScheduler {
-    /// The two things the scheduler cannot own itself: the one wake entry and
-    /// the OS projection. Both are injected by the App.
+    /// The three things the scheduler cannot own itself: the one wake entry,
+    /// the OS projection, and whether the process is resident (foreground or
+    /// held by an existing audio keep-alive — never created here).
     public struct Projection {
         /// Asks the orchestrator for one `.scheduledDemand` wake. `nil` lease:
         /// a resident host timer is authorized by foreground/resident audio,
         /// never by a fabricated deadline.
         public let wake: @MainActor () async -> Void
         /// Submits (or cancels, when `nil`) the background-task projection for
-        /// this earliest due time.
-        public let project: @MainActor (_ earliestDueAtMs: Int64?) -> Void
+        /// `backgroundEarliestMs`.
+        public let project: @MainActor (_ backgroundEarliestMs: Int64?) -> Void
+        /// True while the process is in the foreground or held by an existing
+        /// audio keep-alive.
+        public let isResident: @MainActor () -> Bool
 
         public init(wake: @escaping @MainActor () async -> Void,
-                    project: @escaping @MainActor (Int64?) -> Void) {
+                    project: @escaping @MainActor (Int64?) -> Void,
+                    isResident: @escaping @MainActor () -> Bool) {
             self.wake = wake
             self.project = project
+            self.isResident = isResident
         }
     }
 
@@ -36,7 +43,10 @@ public final class WakeScheduler {
     private var timerTask: Task<Void, Never>?
     private var running = false
     private var projected = false
-    private var projectedEarliest: Int64?
+    private var projectedBackground: Int64?
+    /// Last ledger availability error, for diagnostics. The previous
+    /// projection is kept: an unreadable ledger is retried, never replaced.
+    public private(set) var lastError: WakeDemandLedgerError?
 
     public init(ledger: WakeDemandLedger, projection: Projection) {
         self.ledger = ledger
@@ -74,47 +84,78 @@ public final class WakeScheduler {
 
     // MARK: - Reads
 
-    public func demands() async -> [WakeDemand] {
-        await ledger.all()
+    public func demands() async throws -> [WakeDemand] {
+        try await ledger.all()
     }
 
-    public func dueDemands(source: WakeDemandSource, nowMs: Int64) async -> [WakeDemand] {
-        await ledger.dueDemands(source: source, nowMs: nowMs)
+    public func dueDemands(source: WakeDemandSource, nowMs: Int64) async throws -> [WakeDemand] {
+        try await ledger.dueDemands(source: source, nowMs: nowMs)
     }
 
-    public func nextDemand() async -> WakeDemand? {
-        await ledger.nextDemand()
+    public func nextDemand() async throws -> WakeDemand? {
+        try await ledger.nextDemand()
+    }
+
+    /// The projection for the current ledger and residency (diagnostics/tests).
+    public func plan(nowMs: Int64 = WakeDemandLedger.nowMs()) async throws -> WakeProjection {
+        WakeProjection.plan(nowMs: nowMs, resident: projection.isResident(),
+                            demands: try await ledger.all())
     }
 
     // MARK: - Projection
 
-    /// Recomputes the resident timer and re-projects when the earliest due
-    /// time changed. Called after every ledger write and at start.
+    /// Recomputes the projection and re-arms the resident timer. Called after
+    /// every ledger write, on start, and when the App returns to the
+    /// foreground (residency may have changed).
     public func refresh() async {
         guard running else { return }
-        let next = await ledger.nextDemand()
-        if !projected || projectedEarliest != next?.dueAtMs {
-            projected = true
-            projectedEarliest = next?.dueAtMs
-            projection.project(next?.dueAtMs)
+        let now = WakeDemandLedger.nowMs()
+        let demands: [WakeDemand]
+        do {
+            demands = try await ledger.all()
+            lastError = nil
+        } catch {
+            // Protected data not available yet (or an I/O failure): keep the
+            // previous projection and retry on the next ledger change, unlock
+            // or wake. Never project an empty ledger over a real one.
+            lastError = error as? WakeDemandLedgerError
+            return
         }
-        rearm(next: next)
+        let plan = WakeProjection.plan(nowMs: now, resident: projection.isResident(),
+                                       demands: demands)
+        if !projected || projectedBackground != plan.backgroundEarliestMs {
+            projected = true
+            projectedBackground = plan.backgroundEarliestMs
+            projection.project(plan.backgroundEarliestMs)
+        }
+        rearm(plan.residentTimerAtMs, nowMs: now)
     }
 
-    /// The App is leaving the foreground (or the host is about to park): the
-    /// resident timer will not run, so project the earliest due time now.
+    /// The App is leaving the foreground / a host is about to park (I5): the
+    /// resident timer may not run, so submit the projection to the OS now.
     public func enterBackground() async {
+        let now = WakeDemandLedger.nowMs()
+        let demands: [WakeDemand]
+        do {
+            demands = try await ledger.all()
+            lastError = nil
+        } catch {
+            lastError = error as? WakeDemandLedgerError
+            return
+        }
+        let plan = WakeProjection.plan(nowMs: now, resident: projection.isResident(),
+                                       demands: demands)
         projected = true
-        projectedEarliest = await ledger.earliestDueAt()
-        projection.project(projectedEarliest)
+        projectedBackground = plan.backgroundEarliestMs
+        projection.project(plan.backgroundEarliestMs)
+        rearm(plan.residentTimerAtMs, nowMs: now)
     }
 
-    private func rearm(next: WakeDemand?) {
+    private func rearm(_ residentTimerAtMs: Int64?, nowMs: Int64) {
         timerTask?.cancel()
         timerTask = nil
-        guard running, let next else { return }
-        let now = WakeDemandLedger.nowMs()
-        let delayMs = max(0, next.dueAtMs - now)
+        guard running, let fireAt = residentTimerAtMs else { return }
+        let delayMs = max(0, fireAt - nowMs)
         timerTask = Task { @MainActor [weak self] in
             if delayMs > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000)
