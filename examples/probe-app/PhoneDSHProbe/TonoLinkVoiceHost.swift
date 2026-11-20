@@ -214,6 +214,11 @@ import ProbeKit
                 self?.endBackgroundTask()
             }
         }
+        // PLAN §2.8 / host §10.2: the board is a wake source, not an engine
+        // starter. The orchestrator boots/resumes while the person is still
+        // speaking; the heard text is admitted durably later in `answer`, and
+        // the armed board's audio keep-alive is the eligibility source.
+        Task { @MainActor in await EngineLaunchOrchestrator.shared.boardWake() }
         turn = Task { [weak self] in
             let speaker = self?.acquireSpeaker()
             await self?.runTurn(id: id, audio: stream, request: request, requestID: requestID)
