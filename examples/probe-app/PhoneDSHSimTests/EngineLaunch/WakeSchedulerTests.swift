@@ -65,6 +65,18 @@ final class WakeSchedulerTests: XCTestCase {
         scheduler.stop()
     }
 
+    /// The scheduler reads its own clock at refresh time, so an assertion on
+    /// an absolute millisecond must allow the few ms between the test's clock
+    /// read and the projection.
+    private func assertNear(_ value: Int64??, _ expected: Int64,
+                            accuracy: Int64 = 1_000) {
+        guard let value, let unwrapped = value else {
+            return XCTFail("no projection recorded")
+        }
+        XCTAssertLessThanOrEqual(abs(unwrapped - expected), accuracy,
+                                 "projected \(unwrapped), expected \(expected)")
+    }
+
     func testEveryLedgerChangeReprojectsTheClampedEarliest() async throws {
         let recorder = Recorder()
         let scheduler = makeScheduler(recorder)
@@ -72,13 +84,13 @@ final class WakeSchedulerTests: XCTestCase {
         let now = WakeDemandLedger.nowMs()
         // Far future: the background request is the due time itself.
         try await scheduler.upsert(demand("later", dueAtMs: now + 180_000))
-        XCTAssertEqual(recorder.projected.last, now + 180_000)
+        assertNear(recorder.projected.last, now + 180_000)
         // Near future: clamped to now + minBackgroundDelayMs, but the resident
         // timer stays exact.
         try await scheduler.upsert(demand("near", dueAtMs: now + 5_000))
-        XCTAssertEqual(recorder.projected.last, now + 60_000)
+        assertNear(recorder.projected.last, now + 60_000)
         try await scheduler.remove(source: .hostRetry, key: "near")
-        XCTAssertEqual(recorder.projected.last, now + 180_000)
+        assertNear(recorder.projected.last, now + 180_000)
         try await scheduler.removeAll(source: .hostRetry)
         XCTAssertEqual(recorder.projected.last, .some(nil))
         scheduler.stop()

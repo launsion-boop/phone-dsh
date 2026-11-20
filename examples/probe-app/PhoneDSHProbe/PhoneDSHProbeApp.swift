@@ -270,7 +270,29 @@ extension PhoneDSHProbeApp {
             ["identifier": request.identifier,
              "earliestBeginDate": request.earliestBeginDate.map(\.timeIntervalSince1970) ?? -1]
         }
-        let payload: [String: Any] = ["dueAtMs": dueAt, "requests": rows]
+        // Also submit both identifiers directly so a refusal is recorded
+        // instead of silently swallowed by the production submit().
+        var submitErrors: [String] = []
+        let refreshRequest = BGAppRefreshTaskRequest(identifier: EngineLaunchRefreshTask.identifier)
+        refreshRequest.earliestBeginDate = Date(timeIntervalSince1970: Double(dueAt) / 1000)
+        do { try BGTaskScheduler.shared.submit(refreshRequest) }
+        catch { submitErrors.append("refresh: \(error)") }
+        let processingRequest = BGProcessingTaskRequest(identifier: EngineLaunchProcessingTask.identifier)
+        processingRequest.earliestBeginDate = Date(timeIntervalSince1970: Double(dueAt) / 1000)
+        do { try BGTaskScheduler.shared.submit(processingRequest) }
+        catch { submitErrors.append("processing: \(error)") }
+        let afterRetry: [BGTaskRequest] = await withCheckedContinuation { continuation in
+            BGTaskScheduler.shared.getPendingTaskRequests { continuation.resume(returning: $0) }
+        }
+        let payload: [String: Any] = [
+            "dueAtMs": dueAt,
+            "requests": rows,
+            "requestsAfterDirectSubmit": afterRetry.map { request in
+                ["identifier": request.identifier,
+                 "earliestBeginDate": request.earliestBeginDate.map(\.timeIntervalSince1970) ?? -1]
+            },
+            "submitErrors": submitErrors,
+        ]
         guard let data = try? JSONSerialization.data(
             withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) else { return }
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
