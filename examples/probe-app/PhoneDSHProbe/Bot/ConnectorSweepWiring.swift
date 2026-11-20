@@ -50,11 +50,44 @@ enum ConnectorSweepWiring {
 
         guard !clients.isEmpty else {
             composition.installConnectorSweep(nil, outbox: outbox)
+            // No authorized connector: remove its recurring demand so the host
+            // does not schedule wakes for a scan that cannot run.
+            if let demands = composition.wakeDemandSink {
+                await demands.removeAll(source: BotWakeDemand.connectorScanSource)
+            }
             return
         }
         let scanner = ConnectorDeltaScanner(clients: clients, cursors: cursors, sink: sink)
         composition.installConnectorSweep({
             let batch = await scanner.scanBatch()
+            // PLAN §2.9 I2: each completed scan schedules the connector's next
+            // due time with the frozen minimum interval; an unauthorized
+            // connector removes its demand instead of prompting.
+            if let demands = composition.wakeDemandSink,
+               let interval = composition.connectorScanDemandIntervalMs {
+                let now = botProductionNowMilliseconds()
+                for result in batch.results {
+                    switch result.outcome {
+                    case .skipped(let reason) where reason == "unauthorized":
+                        // Revoked/expired authorization: no next scan until the
+                        // user reconnects; never prompt from a wake.
+                        await demands.remove(source: BotWakeDemand.connectorScanSource,
+                                             key: result.connector.rawValue)
+                    case .skipped, .failed:
+                        // Gated (data protection) or failed: keep the existing
+                        // demand untouched; the next wake retries the scan.
+                        break
+                    case .baselineEstablished, .noNewItems, .enqueued,
+                         .duplicate, .reset:
+                        await demands.upsert(BotWakeDemand(
+                            source: BotWakeDemand.connectorScanSource,
+                            key: result.connector.rawValue,
+                            dueAtMs: now + interval,
+                            kind: .recurring,
+                            userVisible: false))
+                    }
+                }
+            }
             return batch.enqueued
         }, outbox: outbox)
     }

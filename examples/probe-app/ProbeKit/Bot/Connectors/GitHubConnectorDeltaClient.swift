@@ -3,14 +3,14 @@
 import Foundation
 import PhoneDSHBot
 
-/// GitHub's metadata-only delta client (PLAN §2.5).
+/// GitHub's metadata-only delta client (PLAN §2.5, contract §3.3).
 ///
-/// The persisted cursor is the notifications response's `Last-Modified` value
-/// (an HTTP date). Every later call sends it as `If-Modified-Since` and derives
-/// the equivalent ISO-8601 `since` from the same instant, so one frozen cursor
-/// string carries both watermarks. A baseline read (no cursor) takes the
-/// current head and emits nothing. Only notification metadata is mapped; the
-/// notification subject/thread body is never fetched.
+/// The persisted cursor is `{since: <RFC 3339 UTC seconds>, lastModified:
+/// <IMF-fixdate>|null}`. A baseline (no usable cursor) takes the current head
+/// and emits nothing. An incremental scan sends `since` + `If-Modified-Since`;
+/// a `304` keeps `since` and emits nothing, a non-empty page advances `since`
+/// to the scan start, and an empty page keeps it. Only notification metadata
+/// is mapped; the notification body/thread is never fetched.
 public struct GitHubConnectorDeltaClient: ConnectorDeltaClient {
     public let connector: ConnectorKind = .github
     private let api: GitHubConnectorAPI
@@ -33,22 +33,32 @@ public struct GitHubConnectorDeltaClient: ConnectorDeltaClient {
             // An expired/rotated token is a silent skip, never a prompt.
             throw ConnectorClientFailure.unauthorized
         }
+        let scanStartedAt = now()
         do {
-            guard let cursor, !cursor.cursor.isEmpty else {
+            guard let cursor, case .github(let since, let lastModified) = cursor.cursor else {
                 let page = try await api.notifications(
                     since: nil, ifModifiedSince: nil,
                     limit: ConnectorUpdateRecord.maxItems, token: token)
-                return ConnectorDeltaPage(cursor: Self.head(page: page, now: now()), items: [])
+                return ConnectorDeltaPage(
+                    head: .github(since: Self.isoNow(scanStartedAt),
+                                  lastModified: page.lastModified))
             }
-            let since = Self.iso8601(from: cursor.cursor) ?? Self.isoNow(now())
             let page = try await api.notifications(
-                since: since, ifModifiedSince: cursor.cursor,
+                since: since, ifModifiedSince: lastModified,
                 limit: ConnectorUpdateRecord.maxItems, token: token)
-            let next = page.lastModified ?? cursor.cursor
+            let nextLastModified = page.lastModified ?? lastModified
             guard !page.notModified else {
-                return ConnectorDeltaPage(cursor: next, items: [])
+                return ConnectorDeltaPage(
+                    head: .github(since: since, lastModified: nextLastModified))
             }
-            return ConnectorDeltaPage(cursor: next, items: page.notifications.map(Self.item))
+            let items = page.notifications.map(Self.item)
+            // Only an actual notification advances the `since` watermark; an
+            // empty page or a lastModified-only change keeps it so the next
+            // scan does not skip work and no connectorUpdate is emitted.
+            let nextSince = items.isEmpty ? since : Self.isoNow(scanStartedAt)
+            return ConnectorDeltaPage(
+                head: .github(since: nextSince, lastModified: nextLastModified),
+                items: items)
         } catch let error as GitHubConnectorError {
             switch error {
             case .unauthorized, .forbidden:
@@ -73,33 +83,9 @@ public struct GitHubConnectorDeltaClient: ConnectorDeltaClient {
             title: notification.title.isEmpty ? nil : notification.title)
     }
 
-    static func head(page: GitHubConnectorAPI.NotificationsPage, now: Date) -> String {
-        page.lastModified ?? isoNow(now)
-    }
-
-    /// Convert either an ISO-8601 instant or an HTTP date to ISO-8601. The
-    /// stored cursor is the HTTP date when the server provided one; the
-    /// derived `since` is the same instant. An unparseable cursor yields nil so
-    /// the caller falls back to the scan start (a fresh baseline).
-    static func iso8601(from value: String) -> String? {
-        guard !value.isEmpty else { return nil }
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = iso.date(from: value) { return isoNow(date) }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        if let date = plain.date(from: value) { return isoNow(date) }
-        let http = DateFormatter()
-        http.locale = Locale(identifier: "en_US_POSIX")
-        http.timeZone = TimeZone(identifier: "GMT")
-        http.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
-        if let date = http.date(from: value) { return isoNow(date) }
-        return nil
-    }
-
     static func isoNow(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.formatOptions = [.withInternetDateTime]
         formatter.timeZone = TimeZone(identifier: "GMT")
         return formatter.string(from: date)
     }

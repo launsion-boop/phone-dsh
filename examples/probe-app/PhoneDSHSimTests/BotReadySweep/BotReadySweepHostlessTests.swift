@@ -156,12 +156,15 @@ private actor HostlessSink: RoutineResultSink {
 private actor HostlessCursorStore: ConnectorCursorStoring {
     private var cursors: [ConnectorKind: ConnectorCursorState] = [:]
 
-    func cursor(for connector: ConnectorKind) async -> ConnectorCursorState? {
-        cursors[connector]
+    func load(_ connector: ConnectorKind) async throws -> ConnectorCursorLoad {
+        if let state = cursors[connector] { return .stored(state) }
+        return .absent
     }
 
     func save(_ state: ConnectorCursorState) async throws { cursors[state.connector] = state }
     func clear(_ connector: ConnectorKind) async throws { cursors.removeValue(forKey: connector) }
+
+    func cursor(for connector: ConnectorKind) -> ConnectorCursorState? { cursors[connector] }
 }
 
 private actor HostlessUpdateSink: ConnectorUpdateEnqueuing {
@@ -180,9 +183,9 @@ private actor HostlessConnectorClient: ConnectorDeltaClient {
 
     func fetchDelta(cursor: ConnectorCursorState?) async throws -> ConnectorDeltaPage {
         scans += 1
-        if cursor == nil { return ConnectorDeltaPage(cursor: "1000") }
+        if cursor == nil { return ConnectorDeltaPage(head: .gmail(historyId: "1000")) }
         return ConnectorDeltaPage(
-            cursor: "1010",
+            head: .gmail(historyId: "1010"),
             items: [ConnectorMetadataItem(id: "m1", at: 2_000,
                                           from: "QA <qa@example.com>", subject: "One")])
     }

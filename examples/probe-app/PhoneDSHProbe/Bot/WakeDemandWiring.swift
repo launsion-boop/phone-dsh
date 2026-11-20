@@ -15,11 +15,10 @@ import ProbeKit
 enum WakeDemandWiring {
     static func install(on composition: BotRuntimeComposition) async {
         await composition.installWakeDemandSink(WakeDemandLedgerAdapter())
-        // The connector scan's recurring cadence is a frozen contract constant
-        // (r3). Until that constant is in the contract tree, the scan stays
-        // wake-driven and no local interval is invented; the ReadySweep source
-        // still runs the scan on every wake.
-        composition.connectorScanDemandIntervalMs = nil
+        // PLAN §2.9 / host §10.3.2: the connector scan owns its own recurring
+        // cadence; the frozen interval comes from the contract constant.
+        composition.connectorScanDemandIntervalMs =
+            EngineLaunchThresholds.connectorScanIntervalMs
     }
 }
 
