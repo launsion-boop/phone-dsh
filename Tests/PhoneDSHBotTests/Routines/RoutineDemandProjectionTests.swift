@@ -104,6 +104,18 @@ final class RoutineDemandProjectionTests: XCTestCase {
                       "the cache path and the tick both re-project idempotently")
     }
 
+    func testProjectionCacheOnlyRewritesWhenTheDueTimeMoves() {
+        let cache = BotWakeDemandCache()
+        XCTAssertTrue(cache.shouldUpsert(dueAtMs: 1_000))
+        XCTAssertFalse(cache.shouldUpsert(dueAtMs: 1_000),
+                       "a repeated tick with the same due time must not rewrite the ledger")
+        XCTAssertTrue(cache.shouldUpsert(dueAtMs: 2_000))
+        XCTAssertTrue(cache.shouldRemove())
+        XCTAssertFalse(cache.shouldRemove())
+        XCTAssertTrue(cache.shouldUpsert(dueAtMs: 2_000),
+                      "after removal the same due time is a fresh demand")
+    }
+
     // MARK: - Fixtures
 
     private static func routine(id: String, nextRunAt: Int64?, enabled: Bool = true,
