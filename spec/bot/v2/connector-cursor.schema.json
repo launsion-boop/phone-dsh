@@ -1,0 +1,107 @@
+{
+  "title": "BotConnectorCursor v1",
+  "description": "One durable connector cursor record (spec/bot/v2/README.md section 3.3.2). The store is app-global per signed-in account and connector: the file/directory key is (account, connector), so the record itself does not repeat the account. One record per authorized connector, written after a scan completes and read on the next scan. Absent means the connector has never been scanned, and the first scan only establishes the cursor. Gmail cursor is the decimal historyId string. GitHub cursor is {since: RFC 3339 UTC second timestamp, lastModified: IMF-fixdate HTTP-date string or null}; lastModified is carried for conditional requests and a change to it alone does not emit a connectorUpdate. status reset means the previous cursor could not be used (regressed or invalid) and was replaced by the upstream head without emitting a connectorUpdate; lastError records why. A record with an unknown version, connector, status or lastError, a cursor of the wrong shape for its connector, or a member outside this set is invalid and is never guessed at.",
+  "oneOf": [
+    {
+      "title": "BotConnectorCursor gmail v1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "connector",
+        "cursor",
+        "updatedAt",
+        "status"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "connector": {
+          "const": "gmail"
+        },
+        "cursor": {
+          "description": "Gmail historyId, decimal digits only (1–20).",
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$"
+        },
+        "updatedAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status": {
+          "enum": [
+            "established",
+            "reset"
+          ]
+        },
+        "lastError": {
+          "enum": [
+            "cursor-invalid",
+            "cursor-regressed",
+            "scan-failed"
+          ]
+        }
+      }
+    },
+    {
+      "title": "BotConnectorCursor github v1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "connector",
+        "cursor",
+        "updatedAt",
+        "status"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "connector": {
+          "const": "github"
+        },
+        "cursor": {
+          "description": "GitHub notifications cursor: the since timestamp plus the last If-Modified-Since HTTP-date (null when none was returned). A lastModified change alone does not emit a connectorUpdate.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "since",
+            "lastModified"
+          ],
+          "properties": {
+            "since": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+            },
+            "lastModified": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[A-Z][a-z]{2}, [0-9]{2} [A-Z][a-z]{2} [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT$"
+            }
+          }
+        },
+        "updatedAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status": {
+          "enum": [
+            "established",
+            "reset"
+          ]
+        },
+        "lastError": {
+          "enum": [
+            "cursor-invalid",
+            "cursor-regressed",
+            "scan-failed"
+          ]
+        }
+      }
+    }
+  ]
+}
