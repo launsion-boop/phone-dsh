@@ -35,6 +35,8 @@ public actor ProactiveSources {
             return taskCandidate(event).map { [$0] } ?? []
         case "routine.run_finished":
             return routineCandidate(event).map { [$0] } ?? []
+        case ConnectorUpdateOutbox.recordEventType:
+            return connectorCandidate(event).map { [$0] } ?? []
         default:
             return []
         }
@@ -110,6 +112,46 @@ public actor ProactiveSources {
             resultExcerpt: String(excerpt.prefix(300)), deliveryKey: Self.string(event.data, "deliveryKey"),
             rowId: Self.string(event.data, "rowId") ?? RoutineDelivery.rowId(routineId: routineId, attempt: attempt)
         )
+    }
+
+    /// A connector delta scan wrote one durable `connector-update` record. The
+    /// candidate carries only its metadata summary; the held inbox item (not
+    /// this candidate) is what the Bot conversation reads. dnd, quiet hours and
+    /// the frequency fuse apply through the same `ProactivityPolicy`; no new
+    /// budget, cooldown, quota or TTL is introduced.
+    private func connectorCandidate(_ event: BotEvent) -> ProactiveCandidate? {
+        guard let botId = botId(event),
+              case .object(let data) = event.data,
+              let payload = data["connectorUpdate"],
+              let update = try? JSONDecoder().decode(
+                ConnectorUpdateRecord.self, from: payload.encoded()) else { return nil }
+        return connectorCandidate(for: update, botId: botId, eventId: event.eventId)
+    }
+
+    /// Builds the candidate for one already-durable connector update. The
+    /// ReadySweep connector step calls this directly after the outbox wrote the
+    /// record and enqueued the held item; `candidates(for:)` calls it for a
+    /// replayed durable event. Both paths are the same policy input.
+    public func connectorCandidate(for update: ConnectorUpdateRecord, botId: String,
+                                   eventId: String) -> ProactiveCandidate? {
+        let trimmed = botId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let key = "connector-update:\(update.requestID)"
+        let first = update.items.first
+        let detail: String?
+        switch update.connector {
+        case .gmail: detail = first?.subject ?? first?.from
+        case .github: detail = first?.title ?? first?.repo
+        }
+        let title = update.connector == .gmail ? "Gmail" : "GitHub"
+        let noun = update.count == 1 ? "new item" : "new items"
+        let body = "\(update.count) \(noun)" + (detail.map { ": \($0)" } ?? "")
+        return ProactiveCandidate(
+            id: key, kind: .connectorUpdate, botId: trimmed, dedupeKey: key,
+            trigger: "connector.update", sourceEventId: eventId,
+            createdAt: nowProvider(), channel: "system-notification",
+            title: title, body: body,
+            summary: detail)
     }
 
     private func botId(_ event: BotEvent) -> String? {

@@ -23,6 +23,26 @@ public struct GmailAPI: Sendable {
         public let nextPageToken: String?
     }
 
+    /// The mailbox identity and the current `historyId`. The connector delta
+    /// scan stores that `historyId` as its first cursor: the first scan only
+    /// establishes the cursor and never treats old mail as new.
+    public struct Mailbox: Sendable, Equatable {
+        public let emailAddress: String
+        public let historyId: String
+    }
+
+    /// Metadata-only result of one `users.history.list` pass.
+    ///
+    /// `messages` carries at most `limit` summaries; `count` is how many new
+    /// message ids the history page named. No message body is ever fetched by
+    /// this path (`format=metadata` only), so the connector scan stays
+    /// metadata-only even for a mailbox with large messages.
+    public struct HistoryDelta: Sendable, Equatable {
+        public let historyId: String
+        public let count: Int
+        public let messages: [Summary]
+    }
+
     public struct Message: Sendable {
         public enum Body: Equatable, Sendable {
             case plain(String)
@@ -50,9 +70,18 @@ public struct GmailAPI: Sendable {
     }
 
     public func accountEmail(token: String) async throws -> String {
+        try await mailbox(token: token).emailAddress
+    }
+
+    /// The account's email plus its current `historyId`. A caller that is about
+    /// to start a delta scan stores the `historyId` as the baseline; it must
+    /// never replay the mailbox's existing messages as new.
+    public func mailbox(token: String) async throws -> Mailbox {
         let profile: Profile = try await get("profile", token: token)
         guard !profile.emailAddress.isEmpty else { throw GmailError.invalidResponse }
-        return profile.emailAddress
+        let historyId = profile.historyId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !historyId.isEmpty, Self.isHistoryId(historyId) else { throw GmailError.invalidResponse }
+        return Mailbox(emailAddress: profile.emailAddress, historyId: historyId)
     }
 
     public func search(_ query: String, pageToken: String? = nil, token: String) async throws -> Page {
@@ -85,6 +114,83 @@ public struct GmailAPI: Sendable {
     public func message(id: String, token: String) async throws -> Message {
         let raw: RawMessage = try await getMessage(id, format: "full", token: token)
         return Message(summary: raw.summary, body: raw.payload?.messageBody ?? .unavailable)
+    }
+
+    /// Metadata-only incremental query for the connector delta scan.
+    ///
+    /// `users.history.list` with `startHistoryId` names the messages added to
+    /// the inbox since that cursor. Message ids are then fetched with
+    /// `format=metadata` (From/Subject only); no message body is requested or
+    /// retained. A `404` means the server no longer holds history from that
+    /// cursor (the caller resets to a fresh baseline); `count` is how many new
+    /// inbox message ids this page named, and `messages` holds at most `limit`
+    /// summaries so one scan can never materialize a whole mailbox.
+    public func history(startHistoryId: String, limit: Int = 20,
+                        token: String) async throws -> HistoryDelta {
+        guard Self.isHistoryId(startHistoryId), startHistoryId != "0" else {
+            throw GmailError.invalidResponse
+        }
+        let capped = min(20, max(1, limit))
+        let query: [URLQueryItem] = [
+            URLQueryItem(name: "startHistoryId", value: startHistoryId),
+            URLQueryItem(name: "historyTypes", value: "messageAdded"),
+            URLQueryItem(name: "labelId", value: "INBOX"),
+            URLQueryItem(name: "maxResults", value: String(capped)),
+        ]
+        let listing: HistoryListing = try await get("history", query: query, token: token)
+        var ids: [String] = []
+        var seen = Set<String>()
+        var latest = startHistoryId
+        for entry in listing.history ?? [] {
+            if let entryID = entry.id, Self.isHistoryId(entryID),
+               Self.historyIDValue(entryID) > Self.historyIDValue(latest) {
+                latest = entryID
+            }
+            for added in entry.messagesAdded ?? [] {
+                let message = added.message
+                guard !message.id.isEmpty else { continue }
+                if let labels = message.labelIds, !labels.contains("INBOX") { continue }
+                if seen.insert(message.id).inserted { ids.append(message.id) }
+            }
+        }
+        let selected = Array(ids.prefix(capped))
+        let summaries = try await metadataSummaries(selected, token: token)
+        // `count` always describes the items actually carried (removed messages
+        // and label mismatches contribute nothing), so a consumer can assert
+        // `count == messages.count` without re-counting.
+        return HistoryDelta(historyId: latest, count: summaries.count, messages: summaries)
+    }
+
+    private func metadataSummaries(_ ids: [String], token: String) async throws -> [Summary] {
+        guard !ids.isEmpty else { return [] }
+        return try await withThrowingTaskGroup(of: (Int, Summary?).self) { group in
+            for (index, id) in ids.enumerated() {
+                group.addTask {
+                    do {
+                        let raw: RawMessage = try await getMessage(id, format: "metadata", token: token)
+                        return (index, raw.summary)
+                    } catch GmailError.notFound {
+                        // A message removed between the history page and the
+                        // metadata read is not an error and contributes no row.
+                        return (index, nil)
+                    }
+                }
+            }
+            var rows: [(Int, Summary?)] = []
+            for try await row in group { rows.append(row) }
+            return rows.sorted { $0.0 < $1.0 }.compactMap { $0.1 }
+        }
+    }
+
+    /// Gmail ids are uint64 values encoded as decimal strings.
+    static func isHistoryId(_ value: String) -> Bool {
+        guard !value.isEmpty, value.utf8.count <= 20 else { return false }
+        guard value.utf8.allSatisfy({ (48...57).contains($0) }) else { return false }
+        return UInt64(value) != nil
+    }
+
+    private static func historyIDValue(_ value: String) -> UInt64 {
+        UInt64(value) ?? 0
     }
 
     private func getMessage(_ id: String, format: String, token: String) async throws -> RawMessage {
@@ -134,10 +240,32 @@ public struct GmailAPI: Sendable {
         ) async -> URLRequest? { nil }
     }
 
-    private struct Profile: Decodable { let emailAddress: String }
-    private struct Reference: Decodable { let id: String }
+    private struct Profile: Decodable {
+        let emailAddress: String
+        /// The mailbox's current history record. Absent on very old fixtures;
+        /// `mailbox(token:)` then refuses instead of inventing a cursor.
+        let historyId: String?
+    }
+    private struct Reference: Decodable {
+        let id: String
+        let labelIds: [String]?
+    }
     private struct Listing: Decodable {
         let messages: [Reference]?
+        let nextPageToken: String?
+    }
+
+    private struct HistoryListing: Decodable {
+        struct Entry: Decodable {
+            struct Added: Decodable {
+                let message: Reference
+            }
+
+            let id: String?
+            let messagesAdded: [Added]?
+        }
+
+        let history: [Entry]?
         let nextPageToken: String?
     }
 

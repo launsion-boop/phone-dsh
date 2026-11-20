@@ -117,6 +117,24 @@ public final class BotMCPHTTPServer: @unchecked Sendable {
         set { lock.withLock { endpointChangeHandler = newValue } }
     }
 
+    private var toolCallHandler: (@Sendable () -> Void)?
+
+    /// Called once per authorized `/mcp` request that carries a `tools/call`,
+    /// before the handler runs. It exists for the PLAN §2.8 wake adapter: a
+    /// Bot-channel request that arrived while the engine is not running hands
+    /// an already-durable signal to the launch orchestrator. The hook cannot
+    /// change the reply, and it is never called for an unauthenticated request
+    /// or for initialize/ping traffic.
+    public var onToolCall: (@Sendable () -> Void)? {
+        get { lock.withLock { toolCallHandler } }
+        set { lock.withLock { toolCallHandler = newValue } }
+    }
+
+    private func notifyToolCall() {
+        let handler = lock.withLock { toolCallHandler }
+        handler?()
+    }
+
     public func start() async throws -> URL {
         let canStart = lock.withLock { () -> Bool in
             guard !started, listener == nil else { return false }
@@ -477,6 +495,7 @@ public final class BotMCPHTTPServer: @unchecked Sendable {
             if value.arrayValue == nil, case .object(let object) = value,
                case .string(let method)? = object["method"], let id = object["id"],
                Self.streamsLongCall(method: method, batch: false, accept: request.headers["accept"]) {
+                if method == "tools/call" { notifyToolCall() }
                 await respondAllowingStream(session: true, on: connection) {
                     await self.handler.rpc(method: method, params: object["params"] ?? .object([:]),
                                            id: id, headers: request.headers)
@@ -484,6 +503,12 @@ public final class BotMCPHTTPServer: @unchecked Sendable {
                 return
             }
             let messages = value.arrayValue ?? [value]
+            let carriesToolCall = messages.contains { message in
+                guard case .object(let object) = message,
+                      case .string(let method)? = object["method"] else { return false }
+                return method == "tools/call"
+            }
+            if carriesToolCall { notifyToolCall() }
             var replies: [BotJSONValue] = []
             for message in messages {
                 guard case .object(let object) = message,
