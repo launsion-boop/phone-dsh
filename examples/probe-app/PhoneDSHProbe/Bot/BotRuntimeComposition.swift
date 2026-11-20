@@ -242,9 +242,6 @@ final class BotRuntimeComposition {
     /// PLAN §2.9 I2: the App's durable WakeDemand sink. nil in the eval harness
     /// and unit tests; the App installs the ledger adapter after prepare.
     private(set) var wakeDemandSink: (any BotWakeDemanding)?
-    /// Recurring connector scan cadence. The minimum interval is a contract
-    /// constant (r3); nil keeps the scan wake-driven without inventing a value.
-    var connectorScanDemandIntervalMs: Int64?
     /// PLAN §2.8 hand-off for Bot channels. A channel signals this only after
     /// its request is durable; the App bridge maps the signal to
     /// `EngineLaunchOrchestrator.shared.wake`. It never starts the engine here.
@@ -1496,38 +1493,31 @@ final class BotRuntimeComposition {
     }
 
     /// One step body. It is only entered after the lease gate approved the
-    /// step, and it never starts a later step itself.
-    private func performReadySweepStep(_ step: BotReadySweepStep) async throws {
+    /// step, and it never starts a later step itself. `none` becomes
+    /// `skipped("no-work")` in the contract report.
+    private func performReadySweepStep(_ step: BotReadySweepStep) async throws
+    -> BotReadySweepWork {
         switch step {
         case .botHeldInbox:
-            try await performHeldInboxReplay()
+            return try await performHeldInboxReplay()
         case .missedRoutines:
-            try await performRoutineCatchUp()
+            return try await performRoutineCatchUp()
         case .connectorScan:
             guard let connectorSweep else {
                 // The connector wiring is assembled by the App (tokens and the
-                // Gmail/GitHub clients are App-side); a build without it skips
-                // the whole step instead of half-scanning.
-                throw BotReadySweepSkip(reason: "not-configured")
+                // Gmail/GitHub clients are App-side); a build without it has no
+                // connector work rather than a half-scan.
+                return .none
             }
             let records = try await connectorSweep()
-            // PLAN §2.9: a successful scan schedules its own next due time.
-            // The minimum interval is a contract constant; until the App
-            // injects it, the scan stays wake-driven and no value is invented.
-            if let interval = connectorScanDemandIntervalMs, let sink = wakeDemandSink {
-                await sink.upsert(BotWakeDemand(
-                    source: BotWakeDemand.connectorScanSource, key: "configured",
-                    dueAtMs: botProductionNowMilliseconds() + interval,
-                    kind: .recurring, userVisible: false))
-            }
-            guard !records.isEmpty else { return }
+            guard !records.isEmpty else { return .done }
             // The records and their held items are durable. The main Bot's
             // conversation is the one that processes them: consider each
             // metadata update through the existing proactive policy (dnd,
             // quiet hours and the frequency fuse apply; no new budget, quota,
             // cooldown or TTL), then open the ordinary held-message wake.
             guard let mainBotID = rosterModel.mainBotID,
-                  let unit = units[mainBotID], unit.started else { return }
+                  let unit = units[mainBotID], unit.started else { return .done }
             let sources = ProactiveSources(now: { botProductionNowMilliseconds() })
             for record in records {
                 let eventID = "connector-update:" + record.digest
@@ -1537,8 +1527,9 @@ final class BotRuntimeComposition {
                 }
             }
             try await unit.remote.wakeWithHeldMessages()
+            return .done
         case .approvalReminderSync:
-            await syncApprovalNotifications()
+            return await syncApprovalNotifications() ? .done : .none
         }
     }
 
@@ -1546,20 +1537,28 @@ final class BotRuntimeComposition {
     /// then the Bot's own held-inbox wake. Only started units are touched: a
     /// unit without a host has no session to deliver to, and its pending items
     /// stay durable for the next wake.
-    private func performHeldInboxReplay() async throws {
+    private func performHeldInboxReplay() async throws -> BotReadySweepWork {
         var firstError: Error?
+        var didWork = false
         let mainBotID = rosterModel.mainBotID
         for unit in units.values where unit.started {
             do {
-                _ = try await unit.deviceResults.redeliver(
+                let pending = (try? await unit.wakeInbox.items())?
+                    .contains { $0.state == .pending } ?? false
+                let redelivered = try await unit.deviceResults.redeliver(
                     botID: unit.botID, in: unit.wakeInbox)
                 // Connector updates target the main Bot's conversation; replay
                 // an unacknowledged interval from the same durable outbox before
                 // the wake, so a crash between record and enqueue heals here.
+                var connectorRedelivered = 0
                 if unit.botID == mainBotID, let outbox = connectorUpdateOutbox {
-                    _ = try await outbox.redeliver(botID: unit.botID, in: unit.wakeInbox)
+                    connectorRedelivered = try await outbox.redeliver(
+                        botID: unit.botID, in: unit.wakeInbox)
                 }
-                try await unit.remote.wakeWithHeldMessages()
+                if pending || redelivered > 0 || connectorRedelivered > 0 {
+                    try await unit.remote.wakeWithHeldMessages()
+                    didWork = true
+                }
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -1567,17 +1566,22 @@ final class BotRuntimeComposition {
             }
         }
         if let firstError { throw firstError }
+        return didWork ? .done : .none
     }
 
     /// Step 5: the scheduler's own `tick()` is the catch-up pass. One call runs
     /// at most one occurrence per routine and advances `nextRunAt` past now,
     /// so several missed occurrences become one run; quiet hours/dnd and the
     /// claim lease keep their existing behaviour.
-    private func performRoutineCatchUp() async throws {
+    private func performRoutineCatchUp() async throws -> BotReadySweepWork {
         var firstError: Error?
+        var didWork = false
         for unit in units.values where unit.started {
             do {
+                let due = (try? await unit.scheduler.queuedRoutines()) ?? []
+                guard !due.isEmpty else { continue }
                 try await unit.scheduler.tick()
+                didWork = true
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -1585,6 +1589,7 @@ final class BotRuntimeComposition {
             }
         }
         if let firstError { throw firstError }
+        return didWork ? .done : .none
     }
 
     nonisolated static func sharedSweepStep(_ step: BotReadySweepStep) -> ReadySweepStep? {
@@ -1646,13 +1651,16 @@ final class BotRuntimeComposition {
     /// Keeps one pre-scheduled local reminder per durable approval. The
     /// in-app card remains the only place to act (spec/ui/v1 bot-chat §17);
     /// the notification just brings the user back to that card.
-    private func syncApprovalNotifications() async {
+    @discardableResult
+    private func syncApprovalNotifications() async -> Bool {
         #if os(iOS) && canImport(UserNotifications)
         // Local reminders belong to the launched iOS App. The macOS eval
         // harness links the same composition but has no application bundle;
         // `UNUserNotificationCenter.current()` throws there.
-        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return false }
         let records = await runtime.approvals.pendingNotificationRecords()
+        // Nothing to reconcile and no projection exists yet: no-work.
+        if records.isEmpty, approvalNotifications == nil { return false }
         let reconciler: BotApprovalNotificationReconciler
         if let existing = approvalNotifications {
             reconciler = existing
@@ -1666,6 +1674,9 @@ final class BotRuntimeComposition {
             reconciler = created
         }
         _ = await reconciler.sync(records)
+        return true
+        #else
+        return false
         #endif
     }
 

@@ -50,11 +50,36 @@ enum ConnectorSweepWiring {
 
         guard !clients.isEmpty else {
             composition.installConnectorSweep(nil, outbox: outbox)
+            // No authorized connector: remove its recurring demand so the host
+            // does not schedule wakes for a scan that cannot run.
+            if let demands = composition.wakeDemandSink {
+                await demands.removeAll(source: BotWakeDemand.connectorScanSource)
+            }
             return
         }
         let scanner = ConnectorDeltaScanner(clients: clients, cursors: cursors, sink: sink)
         composition.installConnectorSweep({
             let batch = await scanner.scanBatch()
+            // PLAN §2.9 I2: each completed scan schedules the connector's next
+            // due time with the frozen minimum interval; an unauthorized
+            // connector removes its demand instead of prompting.
+            if let demands = composition.wakeDemandSink {
+                let now = botProductionNowMilliseconds()
+                for result in batch.results {
+                    if case .skipped(let reason) = result.outcome,
+                       reason == "unauthorized" {
+                        await demands.remove(source: BotWakeDemand.connectorScanSource,
+                                             key: result.connector.rawValue)
+                    } else {
+                        await demands.upsert(BotWakeDemand(
+                            source: BotWakeDemand.connectorScanSource,
+                            key: result.connector.rawValue,
+                            dueAtMs: now + EngineLaunchThresholds.connectorScanIntervalMs,
+                            kind: .recurring,
+                            userVisible: false))
+                    }
+                }
+            }
             return batch.enqueued
         }, outbox: outbox)
     }

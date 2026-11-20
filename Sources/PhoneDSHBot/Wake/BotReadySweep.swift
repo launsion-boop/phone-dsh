@@ -106,6 +106,13 @@ public struct BotReadySweepBudget: Sendable {
     }
 }
 
+/// What one step actually did. A step with nothing to do reports `none`, which
+/// the contract records as `skipped(reason: "no-work")` (host §10.2.5).
+public enum BotReadySweepWork: Sendable, Equatable {
+    case done
+    case none
+}
+
 /// A step action may decline to run for a reason the lease gate cannot see
 /// (for example the connector client is not authorized in this build). It is
 /// reported as `skipped`, not `failed`; nothing was started, so the next wake
@@ -129,7 +136,7 @@ public struct BotReadySweepSkip: Error, Sendable, Equatable {
 ///   steps from running (each step is independently idempotent);
 /// - cancellation is reported as `skipped("cancelled")`, not as a failure.
 public struct BotReadySweepRunner: Sendable {
-    public typealias StepAction = @Sendable (BotReadySweepStep) async throws -> Void
+    public typealias StepAction = @Sendable (BotReadySweepStep) async throws -> BotReadySweepWork
 
     public let budget: BotReadySweepBudget
     private let action: StepAction
@@ -148,8 +155,12 @@ public struct BotReadySweepRunner: Sendable {
                 continue
             }
             do {
-                try await action(step)
-                report.record(step, .ran)
+                switch try await action(step) {
+                case .done:
+                    report.record(step, .ran)
+                case .none:
+                    report.record(step, .skipped(reason: Self.noWorkReason))
+                }
             } catch let skip as BotReadySweepSkip {
                 report.record(step, .skipped(reason: skip.reason))
             } catch is CancellationError {
@@ -163,6 +174,7 @@ public struct BotReadySweepRunner: Sendable {
 
     public static let leaseSkippedReason = "lease"
     public static let cancelledReason = "cancelled"
+    public static let noWorkReason = "no-work"
 
     /// Type names only: an error message can carry request content, a path or
     /// a token fragment, and the report is diagnostic surface.

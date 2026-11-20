@@ -3,10 +3,10 @@
 import Foundation
 import PhoneDSHBot
 
-/// Gmail's metadata-only delta client (PLAN §2.5).
+/// Gmail's metadata-only delta client (PLAN §2.5, contract §3.3).
 ///
-/// The cursor is the Gmail `historyId` decimal string. A baseline (no cursor)
-/// reads the mailbox head and emits nothing; later scans call
+/// The cursor is the Gmail `historyId` decimal string. A baseline (no usable
+/// cursor) reads the mailbox head and emits nothing; later scans call
 /// `users.history.list` with `startHistoryId` and fetch only From/Subject
 /// metadata for at most 20 new inbox messages. No body is requested.
 public struct GmailConnectorDeltaClient: ConnectorDeltaClient {
@@ -25,15 +25,16 @@ public struct GmailConnectorDeltaClient: ConnectorDeltaClient {
             throw ConnectorClientFailure.unauthorized
         }
         do {
-            guard let cursor, !cursor.cursor.isEmpty else {
+            guard let cursor, case .gmail(let historyId) = cursor.cursor else {
                 let mailbox = try await api.mailbox(token: token)
-                return ConnectorDeltaPage(cursor: mailbox.historyId, items: [])
+                return ConnectorDeltaPage(head: .gmail(historyId: mailbox.historyId))
             }
-            let delta = try await api.history(startHistoryId: cursor.cursor,
-                                              limit: ConnectorUpdateRecord.maxItems,
-                                              token: token)
+            let delta = try await api.history(
+                startHistoryId: historyId,
+                limit: ConnectorUpdateRecord.maxItems,
+                token: token)
             return ConnectorDeltaPage(
-                cursor: delta.historyId,
+                head: .gmail(historyId: delta.historyId),
                 items: delta.messages.map(Self.item))
         } catch let error as GmailError {
             switch error {
@@ -46,7 +47,8 @@ public struct GmailConnectorDeltaClient: ConnectorDeltaClient {
                 // The server no longer holds history from this cursor. Report
                 // the current head so the scanner resets without inventing a
                 // delta; a head read failure leaves the reset to the next scan.
-                let head = (try? await api.mailbox(token: token))?.historyId
+                let mailbox = try? await api.mailbox(token: token)
+                let head = mailbox.map { ConnectorCursorValue.gmail(historyId: $0.historyId) }
                 throw ConnectorClientFailure.cursorInvalid(head: head)
             case .serviceUnavailable:
                 throw ConnectorClientFailure.unavailable

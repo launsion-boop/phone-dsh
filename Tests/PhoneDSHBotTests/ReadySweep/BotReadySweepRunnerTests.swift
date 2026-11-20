@@ -11,7 +11,7 @@ final class BotReadySweepRunnerTests: XCTestCase {
         let log = ReadySweepStepLog()
         let runner = BotReadySweepRunner(
             budget: .init(remainingMs: { 60_000 }, shouldRun: { _, _ in true }),
-            action: { step in log.append(step) })
+            action: { step in log.append(step); return .done })
         let report = await runner.run()
         XCTAssertEqual(log.all, BotReadySweepStep.allCases)
         XCTAssertEqual(report.ranSteps, BotReadySweepStep.allCases)
@@ -23,7 +23,7 @@ final class BotReadySweepRunnerTests: XCTestCase {
         let skipped = BotReadySweepStep.missedRoutines
         let runner = BotReadySweepRunner(
             budget: .init(remainingMs: { 6_000 }, shouldRun: { step, _ in step != skipped }),
-            action: { step in log.append(step) })
+            action: { step in log.append(step); return .done })
         let report = await runner.run()
         XCTAssertFalse(log.all.contains(skipped), "a skipped step must not run at all")
         XCTAssertEqual(report.outcome(for: skipped), .skipped(reason: "lease"))
@@ -42,6 +42,7 @@ final class BotReadySweepRunnerTests: XCTestCase {
                 // The lease shrinks while the steps run; the next gate must see
                 // the new value instead of one computed at the start.
                 clock.advance(-1_000)
+                return .done
             })
         _ = await runner.run()
         XCTAssertEqual(seen.remaining, [10_000, 9_000, 8_000, 7_000])
@@ -55,6 +56,7 @@ final class BotReadySweepRunnerTests: XCTestCase {
             action: { step in
                 if step == .connectorScan { throw ConnectorFailure() }
                 log.append(step)
+                return .done
             })
         let report = await runner.run()
         XCTAssertEqual(report.failedSteps, [.connectorScan])
@@ -70,6 +72,7 @@ final class BotReadySweepRunnerTests: XCTestCase {
             action: { step in
                 if step == .botHeldInbox { throw CancellationError() }
                 log.append(step)
+                return .done
             })
         let report = await runner.run()
         XCTAssertEqual(report.outcome(for: .botHeldInbox), .skipped(reason: "cancelled"))
@@ -81,10 +84,18 @@ final class BotReadySweepRunnerTests: XCTestCase {
         let log = ReadySweepStepLog()
         let runner = BotReadySweepRunner(
             budget: .init(remainingMs: { 60_000 }, shouldRun: { _, _ in true }),
-            action: { step in log.append(step) })
+            action: { step in log.append(step); return .done })
         _ = await runner.run()
         _ = await runner.run()
         XCTAssertEqual(log.all, BotReadySweepStep.allCases + BotReadySweepStep.allCases)
+    }
+    func testANoWorkStepIsSkippedWithTheClosedReason() async {
+        let runner = BotReadySweepRunner(
+            budget: .init(remainingMs: { 60_000 }, shouldRun: { _, _ in true }),
+            action: { step in step == .botHeldInbox ? .none : .done })
+        let report = await runner.run()
+        XCTAssertEqual(report.outcome(for: .botHeldInbox), .skipped(reason: "no-work"))
+        XCTAssertEqual(report.ranSteps, [.missedRoutines, .connectorScan, .approvalReminderSync])
     }
 }
 

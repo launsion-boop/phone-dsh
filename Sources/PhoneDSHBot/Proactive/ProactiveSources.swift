@@ -136,7 +136,7 @@ public actor ProactiveSources {
                                    eventId: String) -> ProactiveCandidate? {
         let trimmed = botId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let key = "connector-update:\(update.requestID)"
+        let key = "connector:\(update.requestID)"
         let first = update.items.first
         let detail: String?
         switch update.connector {
@@ -148,7 +148,7 @@ public actor ProactiveSources {
         let body = "\(update.count) \(noun)" + (detail.map { ": \($0)" } ?? "")
         return ProactiveCandidate(
             id: key, kind: .connectorUpdate, botId: trimmed, dedupeKey: key,
-            trigger: "connector.update", sourceEventId: eventId,
+            trigger: "connector.scan", sourceEventId: eventId,
             createdAt: nowProvider(), channel: "system-notification",
             title: title, body: body,
             summary: detail)

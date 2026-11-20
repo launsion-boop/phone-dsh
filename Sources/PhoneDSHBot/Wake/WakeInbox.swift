@@ -71,6 +71,22 @@ public struct WakeInboxItem: Codable, Sendable, Equatable, Identifiable {
     }
 
     public init(from decoder: Decoder) throws {
+        // The frozen connector-update branches are closed objects: a member
+        // outside the branch is invalid input, never an ignored extra. Other
+        // kinds keep the existing permissive reader for older durable data.
+        let raw = try decoder.container(keyedBy: AnyMemberKey.self)
+        let kindKey = AnyMemberKey(stringValue: "kind")!
+        if let rawKind = try raw.decodeIfPresent(String.self, forKey: kindKey),
+           rawKind == ConnectorUpdateRecord.kind {
+            let allowed: Set<String> = [
+                "id", "kind", "fromAgentId", "fromAgentName", "title", "text",
+                "requestId", "threadId", "createdAt", "state", "stagedAt",
+                "stagedKey", "connector", "cursorFrom", "cursorTo", "count", "items",
+            ]
+            guard Set(raw.allKeys.map(\.stringValue)).isSubset(of: allowed) else {
+                throw RoutineError.invalidHeldItem("connector-update has an unknown member")
+            }
+        }
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         kind = try container.decode(String.self, forKey: .kind)
@@ -97,6 +113,13 @@ public struct WakeInboxItem: Codable, Sendable, Equatable, Identifiable {
         count = try container.decodeIfPresent(Int.self, forKey: .count)
         items = try container.decodeIfPresent([ConnectorMetadataItem].self, forKey: .items)
         try validate()
+    }
+
+    private struct AnyMemberKey: CodingKey {
+        var stringValue: String
+        var intValue: Int?
+        init?(stringValue: String) { self.stringValue = stringValue; self.intValue = nil }
+        init?(intValue: Int) { self.stringValue = String(intValue); self.intValue = intValue }
     }
 
     public func validate() throws {
@@ -135,16 +158,21 @@ public struct WakeInboxItem: Codable, Sendable, Equatable, Identifiable {
         guard count == items.count else {
             throw RoutineError.invalidHeldItem("connector-update count must equal the item count")
         }
-        var seen = Set<String>()
-        for item in items {
-            guard !item.id.isEmpty else {
-                throw RoutineError.invalidHeldItem("connector-update item id is required")
-            }
-            guard seen.insert(item.id).inserted else {
-                throw RoutineError.invalidHeldItem("connector-update item ids must be unique")
-            }
+        guard let typedConnector = ConnectorKind(rawValue: connector) else {
+            throw RoutineError.invalidHeldItem("connector-update requires a known connector")
         }
-        guard requestId == "\(connector):\(cursorFrom):\(cursorTo)" else {
+        do {
+            try ConnectorUpdateRecord.validateItems(items, connector: typedConnector)
+            try ConnectorUpdateRecord.validateCursor(cursorFrom, connector: typedConnector)
+            try ConnectorUpdateRecord.validateCursor(cursorTo, connector: typedConnector)
+        } catch {
+            throw RoutineError.invalidHeldItem("connector-update has invalid metadata or cursors")
+        }
+        guard !text.isEmpty, text.unicodeScalars.count <= 1200 else {
+            throw RoutineError.invalidHeldItem("connector-update text must be one line of 1...1200 scalars")
+        }
+        guard let requestId, requestId == "\(connector):\(cursorFrom):\(cursorTo)",
+              requestId.unicodeScalars.count <= 1200 else {
             throw RoutineError.invalidHeldItem("connector-update requestId must be the cursor interval")
         }
     }
@@ -417,16 +445,18 @@ public enum HeldMessages {
                 let text = escapedHeldField(item.text)
                 lines.append("- [device-task] \(title) · task \(taskID) · \(status): \(text)")
             case ConnectorUpdateRecord.kind:
-                // Connector metadata (subject, sender, repository, title) is
-                // external text and is escaped like every other held field.
-                // The item's structured members stay on the durable item; this
-                // line is only the short digest for the model.
-                let connector = escapedHeldField(item.connector ?? "connector")
-                let count = item.count ?? item.items?.count ?? 0
-                let from = escapedHeldField(item.cursorFrom ?? "?")
-                let to = escapedHeldField(item.cursorTo ?? "?")
-                let digest = escapedHeldField(item.text)
-                lines.append("- [connector] \(connector) · \(count) new · cursor \(from)→\(to): \(digest)")
+                // Frozen §3.3.1 line. Connector, cursor values, item ids and
+                // every metadata field are external text and are escaped before
+                // they enter the single-line block; the separators are the
+                // host's fixed text.
+                let connector = escapedHeldField(item.connector ?? "")
+                let count = String(item.count ?? item.items?.count ?? 0)
+                let from = escapedHeldField(item.cursorFrom ?? "")
+                let to = escapedHeldField(item.cursorTo ?? "")
+                let summary = (item.items ?? []).map {
+                    Self.connectorItemSummary($0, timezone: timezone)
+                }.joined(separator: "; ")
+                lines.append("- [connector] \(connector) · \(count) item(s) · \(from) → \(to): \(summary)")
             default:
                 // Bot names, ids, titles and text are model-supplied and must
                 // not forge a second bullet or close the held block.
@@ -441,6 +471,18 @@ public enum HeldMessages {
         }
         lines.append("</held_agent_messages>")
         return lines.joined(separator: "\n")
+    }
+
+    /// One `id @ <time>` plus the connector-specific metadata, with every
+    /// external field escaped. A missing value is an empty placeholder, never a
+    /// fabricated one (contract §3.3.1).
+    static func connectorItemSummary(_ item: ConnectorMetadataItem,
+                                     timezone: String = TimeZone.current.identifier) -> String {
+        let id = escapedHeldField(item.id)
+        let at = escapedHeldField(RoutineScheduleMath.formatMinute(item.at, timezone: timezone) ?? "")
+        let first = escapedHeldField(item.from ?? item.repo ?? "")
+        let second = escapedHeldField(item.subject ?? item.title ?? "")
+        return "\(id) @ \(at) — \(first) — \(second)"
     }
 
     /// Held text is single-line data inside the held block. Escape control

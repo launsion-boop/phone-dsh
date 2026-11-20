@@ -3,8 +3,8 @@
 import Foundation
 import CryptoKit
 
-/// The connector kinds the Bot scans. The held-inbox `connector-update` item
-/// and the persisted cursor both use these exact raw values.
+/// The connector kinds the Bot scans. The held-inbox `connector-update` item,
+/// the persisted cursor and the wake-demand key all use these raw values.
 public enum ConnectorKind: String, Codable, Sendable, Equatable, CaseIterable {
     case gmail
     case github
@@ -16,7 +16,7 @@ public enum ConnectorKind: String, Codable, Sendable, Equatable, CaseIterable {
 /// message/notification timestamp in milliseconds. No body, snippet, diff or
 /// attachment metadata is ever carried: the Bot reads content later through the
 /// existing tools when its turn actually needs it.
-public struct ConnectorMetadataItem: Codable, Sendable, Equatable {
+public struct ConnectorMetadataItem: Sendable, Equatable {
     public var id: String
     public var at: Int64
     public var from: String?
@@ -35,6 +35,56 @@ public struct ConnectorMetadataItem: Codable, Sendable, Equatable {
     }
 }
 
+extension ConnectorMetadataItem: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id, at, from, subject, repo, title
+    }
+
+    private struct AnyKey: CodingKey {
+        var stringValue: String
+        var intValue: Int?
+        init?(stringValue: String) { self.stringValue = stringValue; self.intValue = nil }
+        init?(intValue: Int) { self.stringValue = String(intValue); self.intValue = intValue }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.container(keyedBy: AnyKey.self)
+        let allowed: Set<String> = ["id", "at", "from", "subject", "repo", "title"]
+        guard Set(raw.allKeys.map(\.stringValue)).isSubset(of: allowed) else {
+            throw ConnectorUpdateError.invalidItem
+        }
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        at = try c.decode(Int64.self, forKey: .at)
+        from = try c.decodeIfPresent(String.self, forKey: .from)
+        subject = try c.decodeIfPresent(String.self, forKey: .subject)
+        repo = try c.decodeIfPresent(String.self, forKey: .repo)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        try validate()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(at, forKey: .at)
+        try c.encodeIfPresent(from, forKey: .from)
+        try c.encodeIfPresent(subject, forKey: .subject)
+        try c.encodeIfPresent(repo, forKey: .repo)
+        try c.encodeIfPresent(title, forKey: .title)
+    }
+
+    public func validate() throws {
+        guard !id.isEmpty, id.unicodeScalars.count <= 256 else {
+            throw ConnectorUpdateError.invalidItem
+        }
+        guard at >= 0 else { throw ConnectorUpdateError.invalidItem }
+        for value in [from, subject, repo, title].compactMap({ $0 })
+        where value.unicodeScalars.count > 512 {
+            throw ConnectorUpdateError.invalidItem
+        }
+    }
+}
+
 public enum ConnectorUpdateError: Error, Equatable, Sendable {
     case emptyConnector
     case missingCursor
@@ -45,13 +95,11 @@ public enum ConnectorUpdateError: Error, Equatable, Sendable {
     case invalidItem
 }
 
-/// One durable `connector-update` held-inbox record (the frozen v2 shape).
+/// One durable `connector-update` held-inbox record (contract §3.3.1).
 ///
-/// Semantic rules from the contract:
-/// - `requestId == <connector>:<cursorFrom>:<cursorTo>` is the dedupe key for
-///   one cursor interval;
-/// - `cursorFrom != cursorTo`; item ids are unique;
-/// - `1...20` items and `count == items.count`; no body/content.
+/// Semantic rules: `requestId == <connector>:<cursorFrom>:<cursorTo>` is the
+/// dedupe key for one cursor interval; `cursorFrom != cursorTo`; item ids are
+/// unique; `1...20` items and `count == items.count`; no body/content.
 public struct ConnectorUpdateRecord: Sendable, Equatable, Codable {
     public static let kind = "connector-update"
     public static let maxItems = 20
@@ -75,13 +123,9 @@ public struct ConnectorUpdateRecord: Sendable, Equatable, Codable {
         guard items.count <= Self.maxItems else {
             throw ConnectorUpdateError.tooManyItems(items.count)
         }
-        var seen = Set<String>()
-        for item in items {
-            guard !item.id.isEmpty else { throw ConnectorUpdateError.invalidItem }
-            guard seen.insert(item.id).inserted else {
-                throw ConnectorUpdateError.duplicateItemID(item.id)
-            }
-        }
+        try Self.validateItems(items, connector: connector)
+        try Self.validateCursor(cursorFrom, connector: connector)
+        try Self.validateCursor(cursorTo, connector: connector)
         self.connector = connector
         self.cursorFrom = cursorFrom
         self.cursorTo = cursorTo
@@ -112,95 +156,101 @@ public struct ConnectorUpdateRecord: Sendable, Equatable, Codable {
         SHA256.hash(data: Data(requestID.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// The bounded human line the held block renders. Structured fields stay
-    /// available on the item; this text is only the short summary and is
-    /// escaped by `HeldMessages` like every other host-inserted field.
+    /// The bounded human line the held block renders from the structured item.
     public var text: String {
         let noun: String
         switch connector {
         case .gmail: noun = count == 1 ? "new message" : "new messages"
         case .github: noun = count == 1 ? "new notification" : "new notifications"
         }
-        return "\(connector.rawValue): \(count) \(noun)"
+        let cursor: String
+        switch connector {
+        case .gmail: cursor = "since history \(cursorFrom)"
+        case .github: cursor = "since \(cursorFrom)"
+        }
+        return "\(connector.rawValue.capitalized): \(count) \(noun) \(cursor)."
+    }
+
+    /// The held-item schema validates cursor shapes per connector, so the
+    /// shared factory rejects a wrong endpoint before it can be stored.
+    public static func validateCursor(_ value: String, connector: ConnectorKind) throws {
+        guard value.unicodeScalars.count <= ConnectorCursorCodec.maxCursorLength else {
+            throw ConnectorUpdateError.invalidItem
+        }
+        switch connector {
+        case .gmail:
+            guard ConnectorCursorCodec.isValidHistoryId(value) else {
+                throw ConnectorUpdateError.invalidItem
+            }
+        case .github:
+            guard ConnectorCursorCodec.isValidSince(value) else {
+                throw ConnectorUpdateError.invalidItem
+            }
+        }
+    }
+
+    static func validateItems(_ items: [ConnectorMetadataItem],
+                              connector: ConnectorKind) throws {
+        var seen = Set<String>()
+        for item in items {
+            guard !item.id.isEmpty else { throw ConnectorUpdateError.invalidItem }
+            guard seen.insert(item.id).inserted else {
+                throw ConnectorUpdateError.duplicateItemID(item.id)
+            }
+            try item.validate()
+            switch connector {
+            case .gmail:
+                // Gmail's metadata members are from/subject; a repo/title is a
+                // wrong-connector member and the closed schema rejects it.
+                guard item.repo == nil, item.title == nil else {
+                    throw ConnectorUpdateError.invalidItem
+                }
+            case .github:
+                guard item.from == nil, item.subject == nil else {
+                    throw ConnectorUpdateError.invalidItem
+                }
+            }
+        }
     }
 }
 
-/// The cursor document for one connector.
-///
-/// The contract freezes `{version, connector, cursor, updatedAt, status,
-/// lastError?}`; this type is the in-memory projection of that document. The
-/// concrete JSON file store lives in the App wiring and is the only place the
-/// on-disk envelope is encoded.
-public struct ConnectorCursorState: Codable, Sendable, Equatable {
-    public enum Status: String, Codable, Sendable, Equatable {
-        case established
-        case reset
-    }
-
-    public enum LastError: String, Codable, Sendable, Equatable {
-        case cursorInvalid = "cursor-invalid"
-        case cursorRegressed = "cursor-regressed"
-        case scanFailed = "scan-failed"
-    }
-
-    public var version: Int
-    public var connector: ConnectorKind
-    public var cursor: String
-    public var updatedAt: Int64
-    public var status: Status
-    public var lastError: LastError?
-
-    public init(connector: ConnectorKind, cursor: String, updatedAt: Int64,
-                status: Status = .established, lastError: LastError? = nil) {
-        self.version = 1
-        self.connector = connector
-        self.cursor = cursor
-        self.updatedAt = updatedAt
-        self.status = status
-        self.lastError = lastError
-    }
-}
-
-/// One connector's delta page from its metadata client.
-///
-/// `cursor` is the new opaque cursor (Gmail historyId, GitHub
-/// since/lastModified projection). `items` is already metadata-only and must
-/// respect the 20-item cap; the scanner still truncates defensively.
+/// One connector's delta page: the upstream head plus metadata-only items.
 public struct ConnectorDeltaPage: Sendable, Equatable {
-    public var cursor: String
+    public var head: ConnectorCursorValue
     public var items: [ConnectorMetadataItem]
 
-    public init(cursor: String, items: [ConnectorMetadataItem] = []) {
-        self.cursor = cursor
+    public init(head: ConnectorCursorValue, items: [ConnectorMetadataItem] = []) {
+        self.head = head
         self.items = items
     }
 }
 
-/// Failure classes a metadata client may report. Authorization failures are
+/// Failure classes a metadata client may report. An authorization failure is
 /// skipped silently (the settings page already owns that state); an invalid
 /// cursor resets to the server's head and emits nothing.
 public enum ConnectorClientFailure: Error, Equatable, Sendable {
     case unauthorized
-    case cursorInvalid(head: String?)
+    case cursorInvalid(head: ConnectorCursorValue?)
     case rateLimited
     case unavailable
     case invalidResponse
 }
 
 /// A metadata-only delta client for one connector. The App injects the real
-/// Gmail/GitHub HTTP clients behind this seam; the Scan logic is pure.
+/// Gmail/GitHub HTTP clients behind this seam; the scan logic is pure.
 public protocol ConnectorDeltaClient: Sendable {
     var connector: ConnectorKind { get }
-    /// Fetch the changes after `cursor`. A nil cursor means "no cursor yet":
-    /// the client returns the current server head with no items, which is how
-    /// the first scan establishes a baseline without replaying history.
+    /// Fetch the head and changes after `cursor`. A nil cursor means "no usable
+    /// cursor": the client returns the current server head with no items, which
+    /// is how the first scan (and a corrupt/reset cursor) establishes a
+    /// baseline without replaying history as new.
     func fetchDelta(cursor: ConnectorCursorState?) async throws -> ConnectorDeltaPage
 }
 
 /// Cursor persistence seam. The production store writes the frozen JSON
 /// document; tests use an in-memory implementation.
 public protocol ConnectorCursorStoring: Sendable {
-    func cursor(for connector: ConnectorKind) async -> ConnectorCursorState?
+    func load(_ connector: ConnectorKind) async -> ConnectorCursorLoad
     func save(_ state: ConnectorCursorState) async throws
     func clear(_ connector: ConnectorKind) async throws
 }
@@ -209,7 +259,7 @@ public protocol ConnectorCursorStoring: Sendable {
 /// before it enqueues the held item and must return `false` for an interval
 /// that is already durable/in the inbox.
 public protocol ConnectorUpdateEnqueuing: Sendable {
-    func enqueue(_ update: ConnectorUpdateRecord) async throws -> Bool
+    func enqueue(_ record: ConnectorUpdateRecord) async throws -> Bool
 }
 
 public enum ConnectorScanOutcome: Sendable, Equatable {
@@ -252,15 +302,15 @@ public struct ConnectorScanBatch: Sendable, Equatable {
     }
 }
 
-/// The connector incremental scan (PLAN §2.5).
+/// The connector incremental scan (PLAN §2.5, contract §3.3).
 ///
 /// Pure orchestration over injected clients/cursors/sink:
 /// 1. no stored cursor → fetch the head and only establish the cursor;
-/// 2. otherwise fetch metadata after the cursor; an empty page advances the
-///    cursor with no held item;
-/// 3. a non-empty page becomes exactly one `connector-update` record, capped
-///    at 20 unique items, keyed by its cursor interval (write-before-enqueue
-///    lives in the sink);
+/// 2. otherwise fetch metadata after the cursor; an empty result persists the
+///    new head without a held item;
+/// 3. a Gmail historyId / GitHub `since` advance becomes exactly one
+///    `connector-update` record, capped at 20 unique items, keyed by its cursor
+///    interval (write-before-enqueue lives in the sink);
 /// 4. the cursor advances only after the sink produced the durable item.
 public actor ConnectorDeltaScanner {
     private let clients: [any ConnectorDeltaClient]
@@ -301,10 +351,16 @@ public actor ConnectorDeltaScanner {
     private func scan(_ client: any ConnectorDeltaClient)
     async -> (ConnectorScanOutcome, ConnectorUpdateRecord?) {
         let connector = client.connector
-        let stored = await cursors.cursor(for: connector)
+        let load = await cursors.load(connector)
+        let requestCursor: ConnectorCursorState?
+        switch load {
+        case .absent, .corrupt: requestCursor = nil
+        case .stored(let state): requestCursor = state
+        }
         do {
-            let page = try await client.fetchDelta(cursor: stored)
-            return try await apply(page, stored: stored, connector: connector)
+            let page = try await client.fetchDelta(cursor: requestCursor)
+            return try await apply(page, load: load, requestCursor: requestCursor,
+                                   connector: connector)
         } catch let failure as ConnectorClientFailure {
             return (await handle(failure, connector: connector), nil)
         } catch is CancellationError {
@@ -316,48 +372,65 @@ public actor ConnectorDeltaScanner {
         }
     }
 
-    private func apply(_ page: ConnectorDeltaPage, stored: ConnectorCursorState?,
+    private func apply(_ page: ConnectorDeltaPage,
+                       load: ConnectorCursorLoad,
+                       requestCursor: ConnectorCursorState?,
                        connector: ConnectorKind)
     async throws -> (ConnectorScanOutcome, ConnectorUpdateRecord?) {
-        guard !page.cursor.isEmpty else {
-            return (await markScanFailure(connector: connector, reason: "empty_cursor"), nil)
-        }
         let nowMs = now()
-        // First scan: establish the cursor, never replay history as new.
-        guard let stored, !stored.cursor.isEmpty else {
-            try await cursors.save(ConnectorCursorState(
-                connector: connector, cursor: page.cursor, updatedAt: nowMs))
-            return (.baselineEstablished, nil)
+        let decision = ConnectorScanTransition.decide(
+            connector: connector, stored: load, head: page.head, now: nowMs)
+
+        guard decision.emitConnectorUpdate else {
+            do {
+                try await cursors.save(decision.record)
+            } catch {
+                return (.failed(reason: "cursor_store"), nil)
+            }
+            switch (load, decision.record.lastError) {
+            case (.absent, _):
+                return (.baselineEstablished, nil)
+            case (_, .cursorInvalid):
+                return (.reset(reason: "cursor-invalid"), nil)
+            case (_, .cursorRegressed):
+                return (.reset(reason: "cursor-regressed"), nil)
+            default:
+                let advanced: Bool
+                switch (requestCursor?.cursor, page.head) {
+                case (.gmail(let old), .gmail(let new)):
+                    advanced = old != new
+                case (.github(let old, _), .github(let new, _)):
+                    advanced = new > old
+                default:
+                    advanced = false
+                }
+                return (.noNewItems(cursorAdvanced: advanced), nil)
+            }
         }
-        // An unchanged head means "nothing new since the last scan": keep the
-        // cursor and emit nothing. Check it before the regression rule, which
-        // must only fire for a cursor that actually moved backwards.
-        guard page.cursor != stored.cursor else {
-            return (.noNewItems(cursorAdvanced: false), nil)
-        }
-        if let regression = Self.regression(connector: connector,
-                                            previous: stored.cursor,
-                                            next: page.cursor) {
-            try? await cursors.save(ConnectorCursorState(
-                connector: connector, cursor: page.cursor, updatedAt: nowMs,
-                status: .reset, lastError: .cursorRegressed))
-            return (.reset(reason: regression), nil)
-        }
+
+        // An advancing cursor without metadata (for example every notification
+        // in the page was filtered out) still advances: the head is what the
+        // upstream says is now current, and a held item requires 1...20 items.
         let items = Self.normalized(page.items)
         guard !items.isEmpty else {
             do {
-                try await cursors.save(ConnectorCursorState(
-                    connector: connector, cursor: page.cursor, updatedAt: nowMs))
+                try await cursors.save(decision.record)
             } catch {
                 return (.failed(reason: "cursor_store"), nil)
             }
             return (.noNewItems(cursorAdvanced: true), nil)
         }
+        guard let previous = requestCursor else {
+            return (.failed(reason: "invalid_cursor"), nil)
+        }
         let record: ConnectorUpdateRecord
         do {
             record = try ConnectorUpdateRecord(
-                connector: connector, cursorFrom: stored.cursor,
-                cursorTo: page.cursor, items: items, createdAt: nowMs)
+                connector: connector,
+                cursorFrom: previous.cursor.intervalEndpoint,
+                cursorTo: page.head.intervalEndpoint,
+                items: items,
+                createdAt: nowMs)
         } catch {
             return (.failed(reason: "invalid_update"), nil)
         }
@@ -365,14 +438,11 @@ public actor ConnectorDeltaScanner {
         do {
             enqueued = try await sink.enqueue(record)
         } catch {
-            // The cursor stays where it was; the next scan retries the same
-            // interval and the sink's dedupe key prevents a second item.
             return (await markScanFailure(connector: connector, reason: "enqueue"), nil)
         }
         // Only now may the cursor advance. A crash before this write re-scans
         // the interval; the `connector:cursorFrom:cursorTo` key is the dedupe.
-        try? await cursors.save(ConnectorCursorState(
-            connector: connector, cursor: page.cursor, updatedAt: nowMs))
+        try? await cursors.save(decision.record)
         return enqueued
             ? (.enqueued(count: items.count), record)
             : (.duplicate(count: items.count), nil)
@@ -389,7 +459,7 @@ public actor ConnectorDeltaScanner {
             return .skipped(reason: "rate-limited")
         case .cursorInvalid(let head):
             let nowMs = now()
-            if let head, !head.isEmpty {
+            if let head, head.connector == connector {
                 try? await cursors.save(ConnectorCursorState(
                     connector: connector, cursor: head, updatedAt: nowMs,
                     status: .reset, lastError: .cursorInvalid))
@@ -406,7 +476,7 @@ public actor ConnectorDeltaScanner {
 
     private func markScanFailure(connector: ConnectorKind,
                                  reason: String) async -> ConnectorScanOutcome {
-        if let stored = await cursors.cursor(for: connector) {
+        if case .stored(let stored) = await cursors.load(connector) {
             try? await cursors.save(ConnectorCursorState(
                 connector: connector, cursor: stored.cursor,
                 updatedAt: now(), status: stored.status, lastError: .scanFailed))
@@ -425,14 +495,5 @@ public actor ConnectorDeltaScanner {
             if result.count == ConnectorUpdateRecord.maxItems { break }
         }
         return result
-    }
-
-    /// Gmail history ids are decimal uint64 values: a cursor that goes
-    /// backwards is corrupt and must reset to the server's head. GitHub's
-    /// opaque watermark has no local ordering, so it is never "regressed" here.
-    static func regression(connector: ConnectorKind, previous: String, next: String) -> String? {
-        guard connector == .gmail,
-              let old = UInt64(previous), let new = UInt64(next) else { return nil }
-        return new <= old ? "cursor-regressed" : nil
     }
 }
