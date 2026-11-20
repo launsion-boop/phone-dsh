@@ -231,6 +231,18 @@ final class BotRuntimeComposition {
     private(set) var provenance: BotProvenanceService?
     /// G-2 feedback center, shared by every unit and the RecordFeedback tool.
     private(set) var feedbackCenter: BotFeedbackCenter?
+    /// Installed by the App-side connector wiring (tokens and the Gmail/GitHub
+    /// clients are App-side). It returns the records this scan newly made
+    /// durable; nil means the connector step reports `skipped("not-configured")`
+    /// and never half-scans.
+    var connectorSweep: (() async throws -> [ConnectorUpdateRecord])?
+    /// The durable connector-update outbox. Set by the same App wiring so the
+    /// held-inbox replay step can re-enqueue an unacknowledged interval.
+    private(set) var connectorUpdateOutbox: ConnectorUpdateOutbox?
+    /// PLAN §2.8 hand-off for Bot channels. A channel signals this only after
+    /// its request is durable; the App bridge maps the signal to
+    /// `EngineLaunchOrchestrator.shared.wake`. It never starts the engine here.
+    private(set) var botWakeSource: BotChannelWakeSource?
     private var routineRouter: BotRoutineOutboxRouter?
     private var host: PhoneDSHHost?
     private let hostReference = BotHostReference()
@@ -523,6 +535,21 @@ final class BotRuntimeComposition {
         composition.routineRouter = BotRoutineOutboxRouter(
             store: store, machine: machine, profileStore: profileStore,
             selectionStore: selectionStore)
+        // PLAN §2.5: the connector scan is assembled once, App-side, where the
+        // Gmail/GitHub authorization actually lives. It reads only metadata and
+        // writes one durable `connector-update` per cursor interval.
+        #if os(iOS)
+        await ConnectorSweepWiring.install(on: composition)
+        #endif
+        // PLAN §2.8: the Bot wake surfaces are assembled here, before any host
+        // exists, so a device task result or Bot MCP request that arrives while
+        // the engine is down is durable first and then asks the launch
+        // orchestrator for a wake. Without the App bridge the signal is a
+        // no-op and the durable item waits for the next foreground pass.
+        composition.installBotWakeSource(
+            mainBotID: roster.mainBotID ?? roster.bots.first?.id ?? selectedCandidate,
+            now: runtimeClock)
+        composition.installDeviceTaskResultDelivery()
         await runtime.registerTeamTools(BotTeamTools(host: composition))
         await runtime.registerFishActionTool()
         #if canImport(PhoneDSHBLE) && canImport(UIKit)
@@ -1214,6 +1241,16 @@ final class BotRuntimeComposition {
 
     func stop() async {
         await detachBinding()
+        // The wake surfaces belong to the process, not to one host bind: a
+        // device result that arrives while the engine is rebound must still
+        // land durably. They are released only when the whole composition
+        // stops.
+        removeDeviceTaskResultDelivery()
+        server.onToolCall = nil
+        if let source = botWakeSource {
+            await source.stop()
+            botWakeSource = nil
+        }
         // Interactive cards cannot survive the process; durable todos are
         // deliberate facts and remain for the next launch (spec/bot/v1 §2.7).
         await runtime.approvals.cancelInteractive(reason: "shutdown")
@@ -1232,7 +1269,6 @@ final class BotRuntimeComposition {
         botEgressPolicy?.installBotEgressApprover(nil)
         await runtime.installWorkbenchTurnProbe(nil)
         botEgressPolicy = nil
-        removeDeviceTaskResultDelivery()
         for unit in units.values { await unit.detach() }
         await outbox.stop()
         tickTask?.cancel(); tickTask = nil
@@ -1240,6 +1276,45 @@ final class BotRuntimeComposition {
         await workerRecovery.stop()
         observedHost = nil
         started = false
+    }
+
+    // MARK: - Bot wake surfaces (PLAN §2.8)
+
+    /// Installs the one Bot-channel wake hand-off before any host exists.
+    ///
+    /// Each channel signals only after its own durable write: a device task
+    /// result has already been written to the journal and the held inbox, and
+    /// a Bot MCP `tools/call` is already a live request on the loopback
+    /// listener. The hook never starts the engine; the App bridge translates
+    /// the signal into `EngineLaunchOrchestrator.shared.wake`, and the policy
+    /// there decides boot / resume / native-only / defer.
+    private func installBotWakeSource(mainBotID: String,
+                                      now: @escaping @Sendable () -> Int64) {
+        let source = BotChannelWakeSource()
+        botWakeSource = source
+        #if os(iOS)
+        BotWakeBridge.install(source)
+        #endif
+        // A Worker `tools/call` while the Bot runtime is not ready is a local
+        // listener request that needs the engine; a healthy runtime must never
+        // create one wake per tool call. The readiness mirror is lock-protected
+        // and safe to read from the listener thread.
+        server.onToolCall = { [weak source, readinessState] in
+            guard !readinessState.isReady, !readinessState.isTerminal else { return }
+            source?.signal(botId: mainBotID,
+                           reason: BotChannelWakeSource.lanRequestReason,
+                           at: now())
+        }
+    }
+
+    /// App-side connector wiring installs one scan closure and the durable
+    /// outbox it feeds. Both are optional: a build with no authorized
+    /// connector keeps the step `skipped("not-configured")`, while the outbox
+    /// may still be present to replay an older unacknowledged interval.
+    func installConnectorSweep(_ sweep: (() async throws -> [ConnectorUpdateRecord])?,
+                               outbox: ConnectorUpdateOutbox?) {
+        connectorSweep = sweep
+        connectorUpdateOutbox = outbox
     }
 
     // MARK: - Device task results
@@ -1289,6 +1364,15 @@ final class BotRuntimeComposition {
                 // A startup replay may already have inserted this exact item;
                 // do not bump unread twice for one terminal result.
                 guard !enqueued.duplicate else { return }
+                // PLAN §2.8: the result is durable and in the held inbox now
+                // (write-before-enqueue + ack), so this Bot channel may ask the
+                // launch orchestrator for a wake. The wake only decides *when*
+                // the durable item is executed; it never grants a tool or a
+                // device reply path.
+                self.botWakeSource?.signal(
+                    botId: botID,
+                    reason: BotChannelWakeSource.bleRequestReason,
+                    at: botProductionNowMilliseconds())
                 let selected = self.rosterModel.selectedBotID
                 await self.rosterModel.noteMessage(
                     to: botID,
@@ -1333,6 +1417,144 @@ final class BotRuntimeComposition {
         }
         return false
     }
+
+    // MARK: - ReadySweep (Bot steps 4–7)
+
+    #if canImport(ProbeKit)
+    /// Runs the Bot-owned ReadySweep steps in contract order
+    /// (`botHeldInbox`, `missedRoutines`, `connectorScan`, `approvalReminderSync`).
+    ///
+    /// The launch orchestrator owns steps 1–3 and merges this report into the
+    /// full seven-step report. Every step is gated immediately before it
+    /// starts by the shared `ReadySweepPolicy`; an unavailable lease leaves the
+    /// step whole for the next wake (`skipped("lease")`). Each step is
+    /// idempotent, so a repeated sweep is safe:
+    /// - held inbox replay only wakes pending items and the remote coalesces
+    ///   concurrent wakes;
+    /// - routine catch-up goes through the scheduler's existing claim/lease;
+    /// - the connector scan dedupes by cursor range and persists before it
+    ///   enqueues;
+    /// - approval reminders reconcile by their durable approval ids.
+    func runReadySweep(_ context: ReadySweepContext) async -> ReadySweepReport {
+        let budget = BotReadySweepBudget(
+            remainingMs: { context.remainingMs() },
+            shouldRun: { step, remaining in
+                guard let shared = Self.sharedSweepStep(step) else { return false }
+                return ReadySweepPolicy.shouldRun(shared, remainingMs: remaining)
+            })
+        let runner = BotReadySweepRunner(budget: budget, action: { [weak self] step in
+            guard let self else { throw CancellationError() }
+            try await self.performReadySweepStep(step)
+        })
+        let report = await runner.run()
+        let steps: [ReadySweepReport.StepResult] = report.steps.compactMap { result in
+            guard let shared = Self.sharedSweepStep(result.step) else { return nil }
+            return ReadySweepReport.StepResult(
+                step: shared, outcome: Self.sharedSweepOutcome(result.outcome))
+        }
+        return ReadySweepReport(steps: steps)
+    }
+
+    /// One step body. It is only entered after the lease gate approved the
+    /// step, and it never starts a later step itself.
+    private func performReadySweepStep(_ step: BotReadySweepStep) async throws {
+        switch step {
+        case .botHeldInbox:
+            try await performHeldInboxReplay()
+        case .missedRoutines:
+            try await performRoutineCatchUp()
+        case .connectorScan:
+            guard let connectorSweep else {
+                // The connector wiring is assembled by the App (tokens and the
+                // Gmail/GitHub clients are App-side); a build without it skips
+                // the whole step instead of half-scanning.
+                throw BotReadySweepSkip(reason: "not-configured")
+            }
+            let records = try await connectorSweep()
+            guard !records.isEmpty else { return }
+            // The records and their held items are durable. The main Bot's
+            // conversation is the one that processes them: consider each
+            // metadata update through the existing proactive policy (dnd,
+            // quiet hours and the frequency fuse apply; no new budget, quota,
+            // cooldown or TTL), then open the ordinary held-message wake.
+            guard let mainBotID = rosterModel.mainBotID,
+                  let unit = units[mainBotID], unit.started else { return }
+            let sources = ProactiveSources(now: { botProductionNowMilliseconds() })
+            for record in records {
+                let eventID = "connector-update:" + record.digest
+                if let candidate = await sources.connectorCandidate(
+                    for: record, botId: mainBotID, eventId: eventID) {
+                    _ = await unit.proactive.consider(candidate)
+                }
+            }
+            try await unit.remote.wakeWithHeldMessages()
+        case .approvalReminderSync:
+            await syncApprovalNotifications()
+        }
+    }
+
+    /// Step 4: durable device-task results first (write-before-enqueue replay),
+    /// then the Bot's own held-inbox wake. Only started units are touched: a
+    /// unit without a host has no session to deliver to, and its pending items
+    /// stay durable for the next wake.
+    private func performHeldInboxReplay() async throws {
+        var firstError: Error?
+        let mainBotID = rosterModel.mainBotID
+        for unit in units.values where unit.started {
+            do {
+                _ = try await unit.deviceResults.redeliver(
+                    botID: unit.botID, in: unit.wakeInbox)
+                // Connector updates target the main Bot's conversation; replay
+                // an unacknowledged interval from the same durable outbox before
+                // the wake, so a crash between record and enqueue heals here.
+                if unit.botID == mainBotID, let outbox = connectorUpdateOutbox {
+                    _ = try await outbox.redeliver(botID: unit.botID, in: unit.wakeInbox)
+                }
+                try await unit.remote.wakeWithHeldMessages()
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                firstError = firstError ?? error
+            }
+        }
+        if let firstError { throw firstError }
+    }
+
+    /// Step 5: the scheduler's own `tick()` is the catch-up pass. One call runs
+    /// at most one occurrence per routine and advances `nextRunAt` past now,
+    /// so several missed occurrences become one run; quiet hours/dnd and the
+    /// claim lease keep their existing behaviour.
+    private func performRoutineCatchUp() async throws {
+        var firstError: Error?
+        for unit in units.values where unit.started {
+            do {
+                try await unit.scheduler.tick()
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                firstError = firstError ?? error
+            }
+        }
+        if let firstError { throw firstError }
+    }
+
+    static func sharedSweepStep(_ step: BotReadySweepStep) -> ReadySweepStep? {
+        switch step {
+        case .botHeldInbox: return .botHeldInbox
+        case .missedRoutines: return .missedRoutines
+        case .connectorScan: return .connectorScan
+        case .approvalReminderSync: return .approvalReminderSync
+        }
+    }
+
+    static func sharedSweepOutcome(_ outcome: BotReadySweepOutcome) -> ReadySweepOutcome {
+        switch outcome {
+        case .ran: return .ran
+        case .skipped(let reason): return .skipped(reason: reason)
+        case .failed(let reason): return .failed(reason: reason)
+        }
+    }
+    #endif
 
     // MARK: - Tick / observation
 
