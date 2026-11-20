@@ -312,17 +312,35 @@ final class ProbeAppDelegate: NSObject, UIApplicationDelegate {
         // Host §10.2 / PLAN §2.3: register the engine-launch BGProcessing task
         // before launch finishes. The handler asks for exactly one
         // `.bgProcessing` wake and parks before completing the OS task.
-        EngineLaunchProcessingTask.register { window in
+        EngineLaunchProcessingTask.register(Self.engineWakeRunner(.bgProcessing))
+        // PLAN §2.9: the refresh arm carries the earliest WakeDemand due time
+        // when the App is suspended (needs UIBackgroundModes: fetch).
+        EngineLaunchRefreshTask.register(Self.engineWakeRunner(.scheduledDemand))
+        return true
+    }
+
+    /// One BGTask window → one orchestrator wake with a lease built from the
+    /// window, then park before the task completes.
+    private static func engineWakeRunner(_ reason: WakeReason) -> EngineLaunchProcessingTask.Runner {
+        { window in
             let grantedAtMs = WakeLease.nowMs()
-            let deadlineMs = grantedAtMs + Int64(max(0, window.deadline.timeIntervalSinceNow) * 1000)
-            let lease = WakeLease(reason: .bgProcessing,
+            let deadlineMs = grantedAtMs
+                + Int64(max(0, window.deadline.timeIntervalSinceNow) * 1000)
+            let lease = WakeLease(reason: reason,
                                   grantedAtMs: grantedAtMs,
                                   deadlineMs: deadlineMs)
-            let outcome = await EngineLaunchOrchestrator.shared.wake(.bgProcessing, lease: lease)
+            let outcome = await EngineLaunchOrchestrator.shared.wake(reason, lease: lease)
             await ChatModel.shared.parkForWakeDeadline()
             return outcome.decision != .needsAttention
         }
-        return true
+    }
+
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        // PLAN §2.9 I5: project the earliest durable due time onto the OS
+        // channels now; the resident timer will not run while suspended.
+        Task { @MainActor in
+            await EngineLaunchOrchestrator.shared.appDidEnterBackground()
+        }
     }
 
     func application(_ application: UIApplication,
