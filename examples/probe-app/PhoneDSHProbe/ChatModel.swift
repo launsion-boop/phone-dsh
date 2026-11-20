@@ -848,12 +848,6 @@ final class ChatModel {
     /// An explicit user stop pauses queued preparation (host §10.1); the
     /// launch policy maps it to `.deferred`.
     var engineUserStopped: Bool { queuedPreparationPaused }
-    /// True while an engine transition may proceed: a host exists, is not
-    /// parked, and the harness session is adopted. Phase C/D re-check this.
-    var isEngineReadyForSweep: Bool {
-        guard pcRuntime == nil, host != nil, !parked, !hostLifecycleTransition else { return false }
-        return harness != nil && sessionID != nil
-    }
     /// True while the orchestrator owns a silent start.
     var isSilentLaunch: Bool { silentLaunchDepth > 0 }
     /// Read-only projection currently painted by W1-A. Non-nil means the page

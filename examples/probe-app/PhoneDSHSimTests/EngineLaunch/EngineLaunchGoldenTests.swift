@@ -135,10 +135,12 @@ final class EngineLaunchGoldenTests: XCTestCase {
 
     // MARK: - Loading
 
+    private enum GoldenError: Error { case missing }
+
     private func loadGolden() throws -> Golden {
         guard let url = goldenURL() else {
             XCTFail("spec/host/v1/golden/engine-launch.json is missing (contract not merged?)")
-            throw XCTSkip("missing golden")
+            throw GoldenError.missing
         }
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(Golden.self, from: data)

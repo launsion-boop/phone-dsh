@@ -51,8 +51,7 @@ public enum EngineLaunchProcessingTask {
     /// Registers the launch handler. Call before the App finishes launching.
     /// Returns false when the system refuses the identifier (missing plist
     /// entry, wrong OS, already registered).
-    @discardableResult
-    public static func register(_ runner: @escaping Runner) -> Bool {
+    @discardableResult public static func register(_ runner: @escaping Runner) -> Bool {
         state.setRunner(runner)
         guard state.markRegistered() else { return false }
         return BGTaskScheduler.shared.register(
