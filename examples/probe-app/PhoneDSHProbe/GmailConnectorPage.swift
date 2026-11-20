@@ -117,6 +117,19 @@ final class GmailMailbox {
         }
     }
 
+    func sendReply(_ target: GmailAPI.ReplyTarget, body: String, connection: UUID) async throws {
+        guard case .connected(let email, let current) = account, current == connection
+        else { throw GmailSignIn.Failure.notAuthorized }
+        let token = try await GmailSignIn.replyToken(expectedEmail: email)
+        guard isCurrent(connection) else { throw CancellationError() }
+        try await api.sendReply(to: target, from: email, body: body, token: token)
+    }
+
+    var replyConnection: UUID? {
+        guard case .connected(_, let connection) = account else { return nil }
+        return connection
+    }
+
     func disconnect() async {
         guard case .connected = account else { return }
         account = .disconnecting
@@ -318,6 +331,8 @@ private struct GmailMessagePage: View {
     @State private var message: GmailAPI.Message?
     @State private var errorMessage: String?
     @State private var attempt = 0
+    @State private var reply: GmailReplyContext?
+    @State private var replySent = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -365,6 +380,27 @@ private struct GmailMessagePage: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button(NativeText("完成", "Done")) { dismiss() }
             }
+            if GmailSignIn.replyEnabled, let target = message?.replyTarget,
+               let connection = mailbox.replyConnection, !replySent {
+                ToolbarItem(placement: .bottomBar) {
+                    Button(NativeText("回复", "Reply"), systemImage: "arrowshape.turn.up.left") {
+                        reply = GmailReplyContext(target: target, connection: connection)
+                    }
+                    .accessibilityIdentifier("gmail.reply")
+                }
+            }
+        }
+        .sheet(item: $reply) { context in
+            GmailReplyPage(context: context, mailbox: mailbox) { replySent = true }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if replySent {
+                Label(NativeText("回复已发送", "Reply sent"), systemImage: "checkmark.circle")
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(.bar)
+                    .accessibilityIdentifier("gmail.reply.sent")
+            }
         }
         .task(id: attempt) {
             errorMessage = nil
@@ -377,6 +413,121 @@ private struct GmailMessagePage: View {
                 } else {
                     errorMessage = mailbox.readErrorMessage(error)
                 }
+            }
+        }
+    }
+}
+
+
+private struct GmailReplyContext: Identifiable {
+    let id = UUID()
+    let target: GmailAPI.ReplyTarget
+    let connection: UUID
+}
+
+private struct GmailReplyPage: View {
+    private enum Status {
+        case editing
+        case reviewing(String)
+        case sending(String)
+        case deliveryUnknown
+    }
+
+    let context: GmailReplyContext
+    let mailbox: GmailMailbox
+    let didSend: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var bodyText = ""
+    @State private var status: Status = .editing
+    @State private var notice: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                LabeledContent(NativeText("收件人", "To")) {
+                    Text(verbatim: context.target.recipient)
+                        .accessibilityIdentifier("gmail.reply.recipient")
+                }
+                LabeledContent(NativeText("主题", "Subject")) {
+                    Text(verbatim: context.target.subject)
+                }
+                Section(NativeText("正文", "Message")) {
+                    switch status {
+                    case .editing:
+                        TextEditor(text: $bodyText)
+                            .frame(minHeight: 145)
+                            .accessibilityLabel(NativeText("回复正文", "Reply message"))
+                            .accessibilityIdentifier("gmail.reply.body")
+                    case .reviewing(let reviewed), .sending(let reviewed):
+                        Text(verbatim: reviewed)
+                            .textSelection(.enabled)
+                            .accessibilityIdentifier("gmail.reply.review.body")
+                    case .deliveryUnknown:
+                        Text(verbatim: bodyText).textSelection(.enabled)
+                    }
+                }
+                if let notice {
+                    Text(verbatim: notice).foregroundStyle(.secondary)
+                }
+                Section {
+                    switch status {
+                    case .editing:
+                        Button(NativeText("核对回复", "Review reply")) {
+                            notice = nil
+                            status = .reviewing(bodyText)
+                        }
+                        .disabled(bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("gmail.reply.review")
+                    case .reviewing(let reviewed):
+                        Button(NativeText("确认发送", "Confirm and send")) {
+                            status = .sending(reviewed)
+                            Task { await send(reviewed) }
+                        }
+                        .accessibilityIdentifier("gmail.reply.send")
+                        Button(NativeText("返回编辑", "Back to editing")) { status = .editing }
+                    case .sending:
+                        ProgressView(NativeText("正在发送回复…", "Sending reply…"))
+                    case .deliveryUnknown:
+                        EmptyView()
+                    }
+                }
+            }
+            .navigationTitle(NativeText("回复邮件", "Reply to email"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(NativeText("关闭", "Close")) { dismiss() }.disabled(isSending)
+                }
+            }
+            .interactiveDismissDisabled(isSending)
+        }
+    }
+
+    private var isSending: Bool {
+        if case .sending = status { return true }
+        return false
+    }
+
+    private func send(_ reviewed: String) async {
+        do {
+            try await mailbox.sendReply(context.target, body: reviewed, connection: context.connection)
+            didSend()
+            dismiss()
+        } catch GmailError.deliveryUnknown {
+            status = .deliveryUnknown
+            notice = NativeText(
+                "无法确认 Gmail 是否已发送。请先在原会话中查看。",
+                "Could not confirm delivery. Check the original conversation in Gmail."
+            )
+        } catch {
+            status = .editing
+            if GmailSignIn.isCancellation(error) {
+                notice = NativeText("已取消 Gmail 发送授权。", "Gmail send authorization was canceled.")
+            } else {
+                notice = NativeText(
+                    "未能发送回复。请检查 Gmail 连接和发送权限后重试。",
+                    "Could not send the reply. Check your Gmail connection and send permission, then try again."
+                )
             }
         }
     }

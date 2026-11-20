@@ -51,6 +51,17 @@ final class GmailAPITests: XCTestCase {
         }
     }
 
+    func testReplyUsesReplyToAndSendsInOriginalConversation() async throws {
+        let api = makeAPI()
+        let message = try await api.message(id: "replyfixture", token: "fixture")
+        let target = try XCTUnwrap(message.replyTarget)
+        XCTAssertEqual(target.recipient, "replies@example.com")
+        XCTAssertEqual(target.subject, "Re: Fixture")
+        try await api.sendReply(
+            to: target, from: "reader@example.com", body: "收到。", token: "fixture"
+        )
+    }
+
     private func makeAPI() -> GmailAPI {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [GmailFixtureProtocol.self]
@@ -64,8 +75,21 @@ private final class GmailFixtureProtocol: URLProtocol {
 
     override func startLoading() {
         guard let url = request.url, url.scheme == "https", url.host == "gmail.googleapis.com",
-              request.httpMethod == "GET", let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         else { return fail() }
+
+        if request.httpMethod == "POST" {
+            guard url.path == "/gmail/v1/users/me/messages/send",
+                  request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture",
+                  Self.isThreadedReply(request)
+            else { return fail() }
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data("{}".utf8))
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
+        guard request.httpMethod == "GET" else { return fail() }
 
         let status: Int
         let payload: String
@@ -91,11 +115,55 @@ private final class GmailFixtureProtocol: URLProtocol {
         client?.urlProtocolDidFinishLoading(self)
     }
 
+    private static func isThreadedReply(_ request: URLRequest) -> Bool {
+        let data: Data
+        if let body = request.httpBody {
+            data = body
+        } else if let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            var body = Data()
+            var count = stream.read(&buffer, maxLength: buffer.count)
+            while count > 0 {
+                body.append(contentsOf: buffer.prefix(count))
+                count = stream.read(&buffer, maxLength: buffer.count)
+            }
+            guard count == 0 else { return false }
+            data = body
+        } else {
+            return false
+        }
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: String],
+              json["threadId"] == "thread1", let raw = json["raw"]
+        else { return false }
+        let base64 = raw.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        let padded = base64 + String(repeating: "=", count: (4 - base64.count % 4) % 4)
+        guard let mime = Data(base64Encoded: padded).flatMap({ String(data: $0, encoding: .utf8) })
+        else { return false }
+        return mime.contains("From: reader@example.com\r\n")
+            && mime.contains("To: replies@example.com\r\n")
+            && mime.contains("Subject: Re: Fixture\r\n")
+            && mime.contains("In-Reply-To: <fixture@example.com>\r\n")
+            && mime.contains("References: <fixture@example.com>\r\n")
+            && mime.contains("\r\n\r\n" + Data("收到。".utf8).base64EncodedString() + "\r\n")
+    }
+
     override func stopLoading() {}
 
     private func fail() { client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse)) }
 
     private static func response(_ components: URLComponents) -> String? {
+        if components.path == "/gmail/v1/users/me/messages/replyfixture" {
+            return #"""
+            {"id":"replyfixture","threadId":"thread1","payload":{"headers":[
+                {"name":"From","value":"Sender <sender@example.com>"},
+                {"name":"Reply-To","value":"Replies <replies@example.com>"},
+                {"name":"Message-ID","value":"<fixture@example.com>"},
+                {"name":"Subject","value":"Fixture"}
+            ]}}
+            """#
+        }
         let query = components.queryItems ?? []
         if components.path == "/gmail/v1/users/me/messages" {
             guard components.percentEncodedQuery?.contains("%2B") == true,

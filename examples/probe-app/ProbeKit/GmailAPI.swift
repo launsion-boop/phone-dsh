@@ -8,6 +8,7 @@ public enum GmailError: Error, Equatable, Sendable {
     case notFound
     case invalidResponse
     case serviceUnavailable
+    case deliveryUnknown
 }
 
 public struct GmailAPI: Sendable {
@@ -32,6 +33,19 @@ public struct GmailAPI: Sendable {
 
         public let summary: Summary
         public let body: Body
+        public let replyTarget: ReplyTarget?
+    }
+
+    public struct ReplyTarget: Sendable {
+        public let recipient: String
+        public let subject: String
+        fileprivate let threadID: String
+        fileprivate let messageID: String
+    }
+
+    private struct OutgoingReply: Encodable {
+        let threadId: String
+        let raw: String
     }
 
     private let session: URLSession
@@ -84,7 +98,79 @@ public struct GmailAPI: Sendable {
 
     public func message(id: String, token: String) async throws -> Message {
         let raw: RawMessage = try await getMessage(id, format: "full", token: token)
-        return Message(summary: raw.summary, body: raw.payload?.messageBody ?? .unavailable)
+        return Message(
+            summary: raw.summary,
+            body: raw.payload?.messageBody ?? .unavailable,
+            replyTarget: raw.replyTarget
+        )
+    }
+
+    public func sendReply(to target: ReplyTarget, from: String, body: String, token: String) async throws {
+        guard Self.mailbox(from) == from, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { throw GmailError.invalidResponse }
+
+        let subject = target.subject.utf8.allSatisfy { (32...126).contains($0) }
+            ? target.subject
+            : Self.encodedSubject(target.subject)
+        let encodedBody = Data(body.utf8).base64EncodedString(options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed])
+        let mime = [
+            "From: \(from)", "To: \(target.recipient)", "Subject: \(subject)",
+            "In-Reply-To: \(target.messageID)", "References: \(target.messageID)",
+            "MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8",
+            "Content-Transfer-Encoding: base64", "", encodedBody, "",
+        ].joined(separator: "\r\n")
+        let raw = Data(mime.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let payload = try JSONEncoder().encode(OutgoingReply(threadId: target.threadID, raw: raw))
+        var request = URLRequest(url: URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages/send")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = payload
+        try Task.checkCancellation()
+        let response: URLResponse
+        do {
+            (_, response) = try await session.data(for: request)
+        } catch {
+            throw GmailError.deliveryUnknown
+        }
+        guard let http = response as? HTTPURLResponse else { throw GmailError.deliveryUnknown }
+        switch http.statusCode {
+        case 200: return
+        case 401: throw GmailError.unauthorized
+        case 403: throw GmailError.forbidden
+        case 400, 404, 429: throw GmailError.serviceUnavailable
+        default: throw GmailError.deliveryUnknown
+        }
+    }
+
+    private static func mailbox(_ header: String) -> String? {
+        guard !header.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else { return nil }
+        var address = header.trimmingCharacters(in: .whitespaces)
+        if let left = address.lastIndex(of: "<"), address.last == ">" {
+            address = String(address[address.index(after: left)..<address.index(before: address.endIndex)])
+        }
+        let pattern = #"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"#
+        guard address.utf8.count <= 254, address.range(of: pattern, options: .regularExpression) != nil
+        else { return nil }
+        return address
+    }
+
+    private static func encodedSubject(_ subject: String) -> String {
+        var chunks: [Data] = []
+        var chunk = Data()
+        for scalar in subject.unicodeScalars {
+            let bytes = Data(String(scalar).utf8)
+            if chunk.count + bytes.count > 42 {
+                chunks.append(chunk)
+                chunk = Data()
+            }
+            chunk.append(bytes)
+        }
+        if !chunk.isEmpty { chunks.append(chunk) }
+        return chunks.map { "=?UTF-8?B?\($0.base64EncodedString())?=" }.joined(separator: "\r\n ")
     }
 
     private func getMessage(_ id: String, format: String, token: String) async throws -> RawMessage {
@@ -144,7 +230,26 @@ public struct GmailAPI: Sendable {
     private struct RawMessage: Decodable {
         let id: String
         let internalDate: String?
+        let threadId: String?
         let payload: Part?
+
+        var replyTarget: ReplyTarget? {
+            guard let payload,
+                  let threadId, !threadId.isEmpty,
+                  let messageID = payload.header("Message-ID"),
+                  messageID.utf8.count <= 512,
+                  messageID.range(of: #"^<[!-;=?-~]+@[!-;=?-~]+>$"#, options: .regularExpression) != nil,
+                  let header = payload.header("Reply-To") ?? payload.header("From"),
+                  let recipient = GmailAPI.mailbox(header)
+            else { return nil }
+
+            let subject = (payload.header("Subject") ?? "")
+                .replacingOccurrences(of: #"\r?\n[ \t]+"#, with: " ", options: .regularExpression)
+            guard !subject.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+            else { return nil }
+            let replySubject = subject.lowercased().hasPrefix("re:") ? subject : "Re: " + subject
+            return ReplyTarget(recipient: recipient, subject: replySubject, threadID: threadId, messageID: messageID)
+        }
 
         var summary: Summary {
             Summary(
