@@ -40,10 +40,10 @@ enum ConnectorSweepWiring {
         }
         let secrets = KeychainModelProviderSecretStore(service: githubTokenService)
         if let current = try? secrets.secret(for: githubTokenReference),
-           let current, GitHubConnectorAPI.isValidToken(current) {
+           GitHubConnectorAPI.isValidToken(current) {
             clients.append(GitHubConnectorDeltaClient(token: {
                 guard let stored = try? secrets.secret(for: githubTokenReference),
-                      let stored, GitHubConnectorAPI.isValidToken(stored) else { return nil }
+                      GitHubConnectorAPI.isValidToken(stored) else { return nil }
                 return stored
             }))
         }

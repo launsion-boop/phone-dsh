@@ -1540,7 +1540,7 @@ final class BotRuntimeComposition {
         if let firstError { throw firstError }
     }
 
-    static func sharedSweepStep(_ step: BotReadySweepStep) -> ReadySweepStep? {
+    nonisolated static func sharedSweepStep(_ step: BotReadySweepStep) -> ReadySweepStep? {
         switch step {
         case .botHeldInbox: return .botHeldInbox
         case .missedRoutines: return .missedRoutines
@@ -1549,7 +1549,7 @@ final class BotRuntimeComposition {
         }
     }
 
-    static func sharedSweepOutcome(_ outcome: BotReadySweepOutcome) -> ReadySweepOutcome {
+    nonisolated static func sharedSweepOutcome(_ outcome: BotReadySweepOutcome) -> ReadySweepOutcome {
         switch outcome {
         case .ran: return .ran
         case .skipped(let reason): return .skipped(reason: reason)
