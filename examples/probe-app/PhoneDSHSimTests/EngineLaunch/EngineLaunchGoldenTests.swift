@@ -71,6 +71,16 @@ final class EngineLaunchGoldenTests: XCTestCase {
 
         enum Failure: Error { case negativeLease }
 
+        enum CodingKeys: String, CodingKey {
+            case reason
+            case foreground
+            case residentAudio
+            case hostState
+            case leaseRemainingMs
+            case userStopped
+            case needsReset
+        }
+
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             reason = try c.decode(WakeReason.self, forKey: .reason)
