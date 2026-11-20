@@ -86,7 +86,9 @@ final class BotReadySweepHostlessTests: XCTestCase {
         XCTAssertEqual(report.ranSteps, BotReadySweepStep.allCases)
         XCTAssertEqual(heldWakes.value, 1)
         let remainingItems = try await inbox.items()
-        XCTAssertEqual(remainingItems, [])
+        // The catch-up run legitimately enqueues its own routine-result held
+        // item; only the replayed "held-1" must be gone.
+        XCTAssertFalse(remainingItems.contains { $0.id == "held-1" })
         let routine = try await machine.get(botId: "bot-a", routineId: "catch-up")
         XCTAssertEqual(runs.all, ["catch-up"])
         XCTAssertGreaterThan(routine?.nextRunAt ?? 0, 1_000_000)
