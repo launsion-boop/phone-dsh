@@ -4,6 +4,7 @@
 import argparse
 import datetime as dt
 import json
+import math
 import os
 from pathlib import Path
 import tempfile
@@ -251,7 +252,423 @@ def write_not_run(output_dir, reason):
     return summary
 
 
+# --------------------------------------------------------------------------
+# Engine-first-launch wake measurement (plan §2.4, docs/perf/engine-wake)
+# --------------------------------------------------------------------------
+
+# Keep in sync with docs/perf/engine-wake/README.md and the provisional
+# constants in spec/host/v1 (contracts unit). If the frozen golden exists the
+# real values are read from there instead.
+DEFAULT_ENGINE_WAKE_THRESHOLDS = {
+    "minLeaseForColdBootMs": 20000,
+    "minLeaseForResumeMs": 8000,
+    "parkMarginMs": 5000,
+}
+
+ENGINE_WAKE_SCENARIOS = (
+    "push-cold-start",
+    "push-parked-resume",
+    "bgprocessing-cold-start",
+    "board-wake-cold-start",
+    "lan-resident",
+    "lan-suspended",
+)
+# Cold *engine* boot samples used for the lease recommendation. The board
+# control runs with the audio-resident process already alive, so it is a cold
+# engine boot but not a cold process.
+ENGINE_WAKE_COLD_SCENARIOS = {
+    "push-cold-start", "bgprocessing-cold-start", "board-wake-cold-start",
+}
+ENGINE_WAKE_PROCESS_COLD_SCENARIOS = {
+    "push-cold-start", "bgprocessing-cold-start",
+}
+ENGINE_WAKE_TRIGGERS = {
+    "apns-content-available", "simctl-push", "bgprocessing", "board-audio",
+    "lan-http", "external",
+}
+
+
+def percentile_nearest_rank(values, percent):
+    """Nearest-rank percentile over the real samples; None for an empty list."""
+    ordered = sorted(value for value in values if isinstance(value, (int, float)))
+    if not ordered:
+        return None
+    rank = max(1, math.ceil(percent / 100.0 * len(ordered)))
+    return ordered[min(rank, len(ordered)) - 1]
+
+
+def ceil_to_step(value, step=1000):
+    return int(math.ceil(float(value) / step)) * step
+
+
+def load_engine_wake_thresholds(path):
+    """Read the frozen constants, falling back to the plan's provisional values."""
+    document = read_json(path, {}) if path is not None else {}
+    constants = document.get("constants") if isinstance(document, dict) else None
+    result = dict(DEFAULT_ENGINE_WAKE_THRESHOLDS)
+    found = False
+    if isinstance(constants, dict):
+        for key in DEFAULT_ENGINE_WAKE_THRESHOLDS:
+            value = constants.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+                result[key] = int(value)
+                found = True
+    result["source"] = str(path) if found and path is not None else "provisional-plan"
+    return result
+
+
+def engine_wake_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0
+
+
+def engine_wake_attempt_valid(attempt):
+    return (
+        isinstance(attempt, dict)
+        and engine_wake_number(attempt.get("wakeToHostStartMs"))
+        and bool(attempt.get("hostStartReturnedAt"))
+        and attempt.get("anchorInWindowAfterBoot") is True
+        and not attempt.get("error")
+    )
+
+
+def engine_wake_probes(host, scenario_id):
+    probes = host.get("lanProbes") if isinstance(host, dict) else None
+    if not isinstance(probes, list):
+        return []
+    return [probe for probe in probes
+            if isinstance(probe, dict) and probe.get("scenario") == scenario_id
+            and probe.get("sentAt")]
+
+
+def engine_wake_scenario_verdict(scenario, host, thresholds):
+    """Return (status, reason, samples) for one measured scenario.
+
+    status is PASS, FAIL or NOT_RUN. A missing scenario / empty attempt list is
+    an unexecuted scenario, never a pass.
+    """
+    scenario_id = scenario.get("id") if isinstance(scenario, dict) else None
+    attempts = scenario.get("attempts") if isinstance(scenario, dict) else None
+    attempts = attempts if isinstance(attempts, list) else []
+    samples = [attempt.get("wakeToHostStartMs") for attempt in attempts
+               if isinstance(attempt, dict)
+               and engine_wake_number(attempt.get("wakeToHostStartMs"))]
+    if not attempts:
+        return "NOT_RUN", "no measured attempt for this scenario", samples
+
+    invalid = []
+    setup_mismatch = []
+    for index, attempt in enumerate(attempts):
+        if not engine_wake_attempt_valid(attempt):
+            invalid.append(index + 1)
+            continue
+        trigger = attempt.get("trigger")
+        if trigger is not None and trigger not in ENGINE_WAKE_TRIGGERS:
+            invalid.append(index + 1)
+            continue
+        if scenario_id in ENGINE_WAKE_PROCESS_COLD_SCENARIOS and attempt.get("processWasRunning") is True:
+            setup_mismatch.append(index + 1)
+            continue
+        if scenario_id == "push-parked-resume":
+            if attempt.get("hostStateBefore") != "parked" or attempt.get("decision") != "resume":
+                setup_mismatch.append(index + 1)
+        if scenario_id == "board-wake-cold-start" and attempt.get("residentAudio") is not True:
+            setup_mismatch.append(index + 1)
+        if scenario_id == "push-cold-start" and attempt.get("sceneConnectedAtTrigger") is False \
+                and attempt.get("offscreenWindowUsed") is not True:
+            setup_mismatch.append(index + 1)
+    if invalid:
+        return "FAIL", f"invalid attempt(s): {invalid}", samples
+    if setup_mismatch and len(setup_mismatch) == len(attempts):
+        return "NOT_RUN", (
+            "the scenario was not exercised as specified (attempt(s) "
+            f"{setup_mismatch}: warm process, host not parked, no resident audio, "
+            "or no offscreen window)"), samples
+
+    if scenario_id == "lan-resident":
+        probes = engine_wake_probes(host, scenario_id)
+        if not probes:
+            return "NOT_RUN", "no LAN probe was performed; pass --lan-host or --lan-url", samples
+        if any(probe.get("reachable") is True for probe in probes):
+            return "PASS", f"resident listener answered {sum(1 for p in probes if p.get('reachable') is True)}/{len(probes)} probes", samples
+        return "FAIL", "resident listener never answered while the app was running", samples
+
+    if scenario_id == "lan-suspended":
+        probes = engine_wake_probes(host, scenario_id)
+        if not probes:
+            return "NOT_RUN", "no LAN probe was performed; pass --lan-host or --lan-url", samples
+        reachable = [probe for probe in probes if probe.get("reachable") is True]
+        if reachable:
+            return "FAIL", ("the local listener answered while the app should be suspended; "
+                            "the process was not suspended or the listener kept the app alive"), samples
+        if not any(attempt.get("trigger") in {"apns-content-available", "external"}
+                   for attempt in attempts if isinstance(attempt, dict)):
+            return "FAIL", "the cloud-task push fallback was not observed after the unreachable probe", samples
+        return "PASS", f"listener unreachable on {len(probes)} probe(s); push fallback measured", samples
+
+    return "PASS", f"{len(attempts)} valid measured attempt(s)", samples
+
+
+def analyze_engine_wake(output_dir, thresholds_path=None, acquisition_error=None):
+    output_dir = output_dir.resolve()
+    thresholds = load_engine_wake_thresholds(thresholds_path)
+    host = read_json(output_dir / "host-report.json", {}) or {}
+    reports = list(output_dir.rglob("engine-wake-report.json"))
+    report = read_json(reports[0], None) if reports else None
+    device = read_json(output_dir / "device.json", None)
+    acquisition_error = acquisition_error or host.get("acquisitionError")
+
+    device_class = None
+    if isinstance(report, dict):
+        device_class = report.get("deviceClass")
+    if device_class is None and isinstance(device, dict):
+        device_class = device.get("deviceClass")
+    physical = device_class == "physical"
+
+    checks = []
+
+    def check(name, passed, detail):
+        checks.append({"name": name, "passed": bool(passed), "detail": detail})
+
+    if report is None:
+        check("engine-wake-report", False, acquisition_error or "engine-wake-report.json is missing")
+    else:
+        check("engine-wake-report", report.get("schema") == "phonedsh-engine-wake/1",
+              f"schema={report.get('schema')}")
+        check("physical-device", physical,
+              f"deviceClass={device_class!r}; simulator results are NOT_RUN, never device evidence")
+
+    by_id = {}
+    if isinstance(report, dict) and isinstance(report.get("scenarios"), list):
+        for scenario in report["scenarios"]:
+            if isinstance(scenario, dict) and scenario.get("id"):
+                by_id[scenario["id"]] = scenario
+
+    scenario_results = []
+    for scenario_id in ENGINE_WAKE_SCENARIOS:
+        scenario = by_id.get(scenario_id)
+        if not physical:
+            status, reason, samples = "NOT_RUN", "no physical-device measurement", []
+        elif scenario is None:
+            status, reason, samples = "NOT_RUN", "scenario was not present in the report", []
+        else:
+            status, reason, samples = engine_wake_scenario_verdict(scenario, host, thresholds)
+        scenario_results.append({
+            "id": scenario_id,
+            "status": status,
+            "p50Ms": percentile_nearest_rank(samples, 50),
+            "p95Ms": percentile_nearest_rank(samples, 95),
+            "samples": len(samples),
+            "reason": reason,
+        })
+        check(f"scenario:{scenario_id}", status == "PASS",
+              f"{status} — {reason}")
+
+    cold_samples = []
+    resume_samples = []
+    for scenario_id in ENGINE_WAKE_SCENARIOS:
+        if not physical:
+            break
+        scenario = by_id.get(scenario_id)
+        if scenario is None:
+            continue
+        for attempt in scenario.get("attempts") or []:
+            if not isinstance(attempt, dict):
+                continue
+            value = attempt.get("wakeToHostStartMs")
+            if not engine_wake_number(value):
+                continue
+            if scenario_id in ENGINE_WAKE_COLD_SCENARIOS:
+                cold_samples.append(value)
+            elif scenario_id == "push-parked-resume":
+                resume_samples.append(value)
+
+    margin = thresholds["parkMarginMs"]
+    suggestions = {
+        "minLeaseForColdBootMs": (
+            ceil_to_step(percentile_nearest_rank(cold_samples, 95) + margin)
+            if cold_samples else None),
+        "minLeaseForResumeMs": (
+            ceil_to_step(percentile_nearest_rank(resume_samples, 95) + margin)
+            if resume_samples else None),
+        "parkMarginMs": margin,
+        "formula": "ceil_to_1000(p95(wake→hostStartReturn) + parkMarginMs); "
+                   "device samples only, simulator excluded",
+        "coldSamples": len(cold_samples),
+        "resumeSamples": len(resume_samples),
+    }
+
+    statuses = [result["status"] for result in scenario_results]
+    if not physical or report is None:
+        status = "NOT_RUN"
+    elif "FAIL" in statuses:
+        status = "FAIL"
+    elif all(item == "PASS" for item in statuses):
+        status = "PASS"
+    else:
+        status = "NOT_RUN"
+
+    summary = {
+        "schema": "phonedsh-engine-wake-summary/1",
+        "generatedAt": utcnow(),
+        "status": status,
+        "conclusion": "go" if status == "PASS" else ("no-go" if status == "FAIL" else "NOT_RUN"),
+        "contractRevision": (report or {}).get("contractRevision") if isinstance(report, dict) else None,
+        "configuration": (report or {}).get("configuration") if isinstance(report, dict) else None,
+        "device": device,
+        "deviceClass": device_class,
+        "thresholds": thresholds,
+        "suggestions": suggestions,
+        "scenarios": scenario_results,
+        "checks": checks,
+        "reason": acquisition_error,
+        "evidenceStatus": ("physical-device" if physical
+                           else "simulator-not-device-evidence" if device_class == "simulator"
+                           else "incomplete-device-evidence"),
+        "realModel": False,
+    }
+    write_json(output_dir / "summary.json", summary)
+    return summary
+
+
+def write_engine_wake_not_run(output_dir, reason):
+    output_dir = output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "schema": "phonedsh-engine-wake-summary/1",
+        "generatedAt": utcnow(),
+        "status": "NOT_RUN",
+        "conclusion": "NOT_RUN",
+        "device": read_json(output_dir / "device.json", None),
+        "deviceClass": None,
+        "thresholds": load_engine_wake_thresholds(None),
+        "suggestions": None,
+        "scenarios": [{"id": scenario_id, "status": "NOT_RUN", "p50Ms": None,
+                       "p95Ms": None, "samples": 0, "reason": reason}
+                      for scenario_id in ENGINE_WAKE_SCENARIOS],
+        "checks": [],
+        "reason": reason,
+        "evidenceStatus": "no-device-run",
+        "realModel": False,
+    }
+    write_json(output_dir / "summary.json", summary)
+    return summary
+
+
+def engine_wake_selftest():
+    with tempfile.TemporaryDirectory(prefix="engine-wake-analyze-") as temporary:
+        root = Path(temporary)
+        thresholds_path = root / "engine-launch.json"
+        write_json(thresholds_path, {"constants": {
+            "minLeaseForColdBootMs": 20000,
+            "minLeaseForResumeMs": 8000,
+            "parkMarginMs": 5000,
+        }})
+
+        def attempt(value, **overrides):
+            base = {
+                "attempt": 1,
+                "trigger": "apns-content-available",
+                "triggeredAt": "2026-11-20T00:00:00Z",
+                "hostStartReturnedAt": "2026-11-20T00:00:02Z",
+                "wakeToHostStartMs": value,
+                "hostStateBefore": "absent",
+                "decision": "boot",
+                "processWasRunning": False,
+                "sceneConnectedAtTrigger": False,
+                "offscreenWindowUsed": True,
+                "anchorInWindowAfterBoot": True,
+                "residentAudio": False,
+                "error": None,
+            }
+            base.update(overrides)
+            return base
+
+        def fixture(name, scenarios, device_class="physical", probes=None):
+            directory = root / name
+            report_dir = directory / "device" / "run"
+            report_dir.mkdir(parents=True)
+            report = {
+                "schema": "phonedsh-engine-wake/1",
+                "runID": name,
+                "generatedAt": "2026-11-20T00:00:00Z",
+                "contractRevision": "test",
+                "deviceClass": device_class,
+                "configuration": {"scenarios": list(ENGINE_WAKE_SCENARIOS)},
+                "scenarios": scenarios,
+            }
+            write_json(report_dir / "engine-wake-report.json", report)
+            write_json(directory / "host-report.json", {
+                "mode": "engine-wake", "lanProbes": probes or [],
+                "acquisitionError": None,
+            })
+            return analyze_engine_wake(directory, thresholds_path)
+
+        cold_values = [18000, 19000, 21000]
+        scenarios = [
+            {"id": "push-cold-start",
+             "attempts": [attempt(value, attempt=index + 1)
+                          for index, value in enumerate(cold_values)]},
+            {"id": "push-parked-resume",
+             "attempts": [attempt(5000, trigger="apns-content-available",
+                                  hostStateBefore="parked", decision="resume")]},
+            {"id": "bgprocessing-cold-start",
+             "attempts": [attempt(22000, trigger="bgprocessing")]},
+            {"id": "board-wake-cold-start",
+             "attempts": [attempt(4000, trigger="board-audio", residentAudio=True)]},
+            {"id": "lan-resident",
+             "attempts": [attempt(300, trigger="lan-http", hostStateBefore="running",
+                                  decision="ready", processWasRunning=True)]},
+            {"id": "lan-suspended",
+             "attempts": [attempt(2500, trigger="apns-content-available")]},
+        ]
+        probes = [
+            {"scenario": "lan-resident", "sentAt": "2026-11-20T00:00:00Z", "reachable": True},
+            {"scenario": "lan-suspended", "sentAt": "2026-11-20T00:01:00Z", "reachable": False},
+        ]
+        passing = fixture("pass", scenarios, probes=probes)
+        assert passing["status"] == "PASS", passing
+        assert passing["scenarios"][0]["p50Ms"] == 19000, passing["scenarios"][0]
+        assert passing["scenarios"][0]["p95Ms"] == 21000, passing["scenarios"][0]
+        # p95 cold = 22000 (all three cold scenarios), + 5000 park margin.
+        assert passing["suggestions"]["minLeaseForColdBootMs"] == 27000, passing["suggestions"]
+        assert passing["suggestions"]["minLeaseForResumeMs"] == 10000, passing["suggestions"]
+
+        simulator = fixture("simulator", scenarios, device_class="simulator", probes=probes)
+        assert simulator["status"] == "NOT_RUN", simulator
+        assert all(item["status"] == "NOT_RUN" for item in simulator["scenarios"])
+
+        broken = [dict(scenario) for scenario in scenarios]
+        broken[0] = {"id": "push-cold-start",
+                     "attempts": [attempt(18000, anchorInWindowAfterBoot=False)]}
+        failed = fixture("failed", broken, probes=probes)
+        assert failed["status"] == "FAIL", failed
+        assert failed["scenarios"][0]["status"] == "FAIL"
+
+        warm = [dict(scenario) for scenario in scenarios]
+        warm[0] = {"id": "push-cold-start",
+                   "attempts": [attempt(18000, processWasRunning=True)]}
+        not_cold = fixture("warm", warm, probes=probes)
+        assert not_cold["status"] == "NOT_RUN", not_cold
+        assert not_cold["scenarios"][0]["status"] == "NOT_RUN"
+
+        missing = fixture("missing", scenarios[:2], probes=probes)
+        assert missing["status"] == "NOT_RUN", missing
+
+        reachable = fixture("reachable", scenarios, probes=[
+            {"scenario": "lan-resident", "sentAt": "2026-11-20T00:00:00Z", "reachable": True},
+            {"scenario": "lan-suspended", "sentAt": "2026-11-20T00:01:00Z", "reachable": True},
+        ])
+        assert reachable["status"] == "FAIL", reachable
+        assert next(item for item in reachable["scenarios"]
+                    if item["id"] == "lan-suspended")["status"] == "FAIL"
+
+        not_run = write_engine_wake_not_run(root / "not-run", "no physical device")
+        assert not_run["status"] == "NOT_RUN"
+    print("engine-wake analyzer selftest: PASS")
+
+
 def selftest():
+    engine_wake_selftest()
     with tempfile.TemporaryDirectory(prefix="bot-residency-analyze-") as temporary:
         root = Path(temporary)
 
@@ -340,6 +757,10 @@ def main():
     parser.add_argument("--acquisition-error")
     parser.add_argument("--write-not-run", action="store_true")
     parser.add_argument("--reason")
+    parser.add_argument("--engine-wake", action="store_true",
+                        help="analyse the engine-first-launch wake evidence instead of WP1 residency")
+    parser.add_argument("--thresholds", type=Path,
+                        help="engine-wake: frozen spec/host/v1/golden/engine-launch.json")
     parser.add_argument("--selftest", action="store_true")
     args = parser.parse_args()
     if args.selftest:
@@ -347,7 +768,14 @@ def main():
         return
     if args.output_dir is None:
         parser.error("--output-dir is required")
-    if args.write_not_run:
+    if args.engine_wake:
+        if args.write_not_run:
+            summary = write_engine_wake_not_run(
+                args.output_dir, args.reason or "prerequisite unavailable")
+        else:
+            summary = analyze_engine_wake(args.output_dir, args.thresholds,
+                                          args.acquisition_error)
+    elif args.write_not_run:
         summary = write_not_run(args.output_dir, args.reason or "prerequisite unavailable")
     else:
         summary = analyze(args.output_dir, args.acquisition_error)

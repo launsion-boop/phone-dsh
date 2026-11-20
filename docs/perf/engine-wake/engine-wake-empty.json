@@ -1,0 +1,36 @@
+{
+  "spdxLicenseIdentifier": "MIT",
+  "schema": "phonedsh-engine-wake/1",
+  "runID": "template-not-evidence",
+  "generatedAt": "1970-01-01T00:00:00Z",
+  "contractRevision": "PC-20261120-engine-first-launch",
+  "deviceClass": "physical",
+  "configuration": {
+    "runID": "template-not-evidence",
+    "scenarios": [
+      "push-cold-start",
+      "push-parked-resume",
+      "bgprocessing-cold-start",
+      "board-wake-cold-start",
+      "lan-resident",
+      "lan-suspended"
+    ],
+    "iterations": 1,
+    "lanPort": 0,
+    "armOnly": false
+  },
+  "thresholds": {
+    "minLeaseForColdBootMs": 20000,
+    "minLeaseForResumeMs": 8000,
+    "parkMarginMs": 5000,
+    "source": "provisional-plan"
+  },
+  "scenarios": [
+    { "id": "push-cold-start", "status": "not-started", "attempts": [], "notes": ["TEMPLATE — not evidence"] },
+    { "id": "push-parked-resume", "status": "not-started", "attempts": [], "notes": ["TEMPLATE — not evidence"] },
+    { "id": "bgprocessing-cold-start", "status": "not-started", "attempts": [], "notes": ["TEMPLATE — not evidence"] },
+    { "id": "board-wake-cold-start", "status": "not-started", "attempts": [], "notes": ["TEMPLATE — not evidence"] },
+    { "id": "lan-resident", "status": "not-started", "attempts": [], "notes": ["TEMPLATE — not evidence"] },
+    { "id": "lan-suspended", "status": "not-started", "attempts": [], "notes": ["TEMPLATE — not evidence"] }
+  ]
+}
