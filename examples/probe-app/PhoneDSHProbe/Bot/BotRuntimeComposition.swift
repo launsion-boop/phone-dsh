@@ -239,6 +239,12 @@ final class BotRuntimeComposition {
     /// The durable connector-update outbox. Set by the same App wiring so the
     /// held-inbox replay step can re-enqueue an unacknowledged interval.
     private(set) var connectorUpdateOutbox: ConnectorUpdateOutbox?
+    /// PLAN §2.9 I2: the App's durable WakeDemand sink. nil in the eval harness
+    /// and unit tests; the App installs the ledger adapter after prepare.
+    private(set) var wakeDemandSink: (any BotWakeDemanding)?
+    /// Recurring connector scan cadence. The minimum interval is a contract
+    /// constant (r3); nil keeps the scan wake-driven without inventing a value.
+    var connectorScanDemandIntervalMs: Int64?
     /// PLAN §2.8 hand-off for Bot channels. A channel signals this only after
     /// its request is durable; the App bridge maps the signal to
     /// `EngineLaunchOrchestrator.shared.wake`. It never starts the engine here.
@@ -542,6 +548,10 @@ final class BotRuntimeComposition {
         // this file without it and keeps the step unconfigured.
         #if os(iOS) && canImport(ProbeKit)
         await ConnectorSweepWiring.install(on: composition)
+        // PLAN §2.9: the host owns future due times. Install the durable
+        // demand adapter before anything can schedule a routine, then project
+        // the current roster so a launch without an engine already has it.
+        await WakeDemandWiring.install(on: composition)
         #endif
         // PLAN §2.8: the Bot wake surfaces are assembled here, before any host
         // exists, so a device task result or Bot MCP request that arrives while
@@ -730,7 +740,8 @@ final class BotRuntimeComposition {
             isMainBot: { [mainBotPointer] in mainBotPointer.isMain(botID) },
             workspaceRoot: workspaceRoot,
             now: schedulerNow, sleep: schedulerSleep,
-            feedback: feedbackCenter, provenance: provenance)
+            feedback: feedbackCenter, provenance: provenance,
+            wakeDemandSink: wakeDemandSink)
         units[botID] = unit
         let eraser = BotSessionEpochEraser(
             remote: unit.remote,
@@ -1319,6 +1330,33 @@ final class BotRuntimeComposition {
         connectorUpdateOutbox = outbox
     }
 
+    /// PLAN §2.9 I2: installs the App's durable WakeDemand sink and projects
+    /// the current routine due times for every Bot on the roster once, so a
+    /// launch with no engine still leaves the earliest due time on the host.
+    /// The sink is idempotent by `(source, key)`.
+    func installWakeDemandSink(_ sink: any BotWakeDemanding) async {
+        wakeDemandSink = sink
+        await sink.removeAll(source: BotWakeDemand.botRoutineSource)
+        await projectRoutineDemands()
+    }
+
+    /// Re-projects every Bot's earliest routine due time into the ledger.
+    /// Called at install and from a scheduler state change (via the unit's
+    /// demand hook). Bots with no runnable routine have their demand removed.
+    func projectRoutineDemands() async {
+        guard let sink = wakeDemandSink else { return }
+        let machine = await runtime.routineMachine
+        let roster = (try? await profileStore.roster()) ?? BotRoster(bots: [], mainBotID: nil)
+        for bot in roster.bots {
+            let routines = (try? await machine.list(botId: bot.id)) ?? []
+            if let demand = RoutineDemandProjection.demand(botID: bot.id, routines: routines) {
+                await sink.upsert(demand)
+            } else {
+                await sink.remove(source: BotWakeDemand.botRoutineSource, key: bot.id)
+            }
+        }
+    }
+
     // MARK: - Device task results
 
     private func installDeviceTaskResultDelivery() {
@@ -1473,6 +1511,15 @@ final class BotRuntimeComposition {
                 throw BotReadySweepSkip(reason: "not-configured")
             }
             let records = try await connectorSweep()
+            // PLAN §2.9: a successful scan schedules its own next due time.
+            // The minimum interval is a contract constant; until the App
+            // injects it, the scan stays wake-driven and no value is invented.
+            if let interval = connectorScanDemandIntervalMs, let sink = wakeDemandSink {
+                await sink.upsert(BotWakeDemand(
+                    source: BotWakeDemand.connectorScanSource, key: "configured",
+                    dueAtMs: botProductionNowMilliseconds() + interval,
+                    kind: .recurring, userVisible: false))
+            }
             guard !records.isEmpty else { return }
             // The records and their held items are durable. The main Bot's
             // conversation is the one that processes them: consider each
@@ -1853,6 +1900,8 @@ final class BotRuntimeComposition {
                 for routine in routines {
                     _ = try? await machine.delete(botId: botID, routineId: routine.id)
                 }
+                await self.wakeDemandSink?.remove(
+                    source: BotWakeDemand.botRoutineSource, key: botID)
             },
             BotDeletionStep(name: "clear-held") { [weak self] in
                 guard let self else { return }
