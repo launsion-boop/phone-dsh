@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://phone-dsh.invalid/spec/perf/engine-wake.schema.json",
+  "title": "phoneDSH engine-first-launch wake measurement app report",
+  "description": "Spike-only evidence written by the BotResidencySpike app. A simulator report is never device evidence; analyze.py keeps it NOT_RUN. Optional fields are omitted when nil, matching Swift Codable.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "runID",
+    "generatedAt",
+    "contractRevision",
+    "deviceClass",
+    "configuration",
+    "thresholds",
+    "scenarios"
+  ],
+  "properties": {
+    "schema": { "const": "phonedsh-engine-wake/1" },
+    "runID": { "type": "string", "pattern": "^[a-zA-Z0-9-]{1,80}$" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "spdxLicenseIdentifier": { "const": "MIT" },
+    "contractRevision": { "type": "string", "minLength": 1 },
+    "deviceClass": { "enum": ["physical", "simulator"] },
+    "configuration": { "$ref": "#/$defs/configuration" },
+    "thresholds": { "$ref": "#/$defs/thresholds" },
+    "scenarios": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/scenario" }
+    }
+  },
+  "$defs": {
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runID", "scenarios", "iterations", "lanPort", "armOnly"],
+      "properties": {
+        "runID": { "type": "string" },
+        "scenarios": {
+          "type": "array",
+          "items": { "enum": [
+            "push-cold-start",
+            "push-parked-resume",
+            "bgprocessing-cold-start",
+            "board-wake-cold-start",
+            "lan-resident",
+            "lan-suspended"
+          ] },
+          "uniqueItems": true
+        },
+        "iterations": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "lanPort": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "armOnly": { "type": "boolean" }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minLeaseForColdBootMs", "minLeaseForResumeMs", "parkMarginMs", "source"],
+      "properties": {
+        "minLeaseForColdBootMs": { "type": "integer", "minimum": 1 },
+        "minLeaseForResumeMs": { "type": "integer", "minimum": 1 },
+        "parkMarginMs": { "type": "integer", "minimum": 1 },
+        "source": { "type": "string" }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "attempts", "notes"],
+      "properties": {
+        "id": { "enum": [
+          "push-cold-start",
+          "push-parked-resume",
+          "bgprocessing-cold-start",
+          "board-wake-cold-start",
+          "lan-resident",
+          "lan-suspended"
+        ] },
+        "status": { "enum": ["not-started", "running", "NOT_RUN", "COMPLETE"] },
+        "notes": { "type": "array", "items": { "type": "string" } },
+        "attempts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/attempt" }
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt",
+        "trigger",
+        "triggeredAt",
+        "hostStateBefore",
+        "decision",
+        "processWasRunning",
+        "sceneConnectedAtTrigger",
+        "offscreenWindowUsed",
+        "anchorInWindowAfterBoot",
+        "residentAudio",
+        "webContentTerminated",
+        "backgroundTimeRemainingCurve",
+        "userVisiblePrompt",
+        "forcedForMeasurement"
+      ],
+      "properties": {
+        "attempt": { "type": "integer", "minimum": 1 },
+        "trigger": { "enum": [
+          "apns-content-available",
+          "simctl-push",
+          "bgprocessing",
+          "board-audio",
+          "lan-http",
+          "external"
+        ] },
+        "triggeredAt": { "type": "string", "format": "date-time" },
+        "hostStartReturnedAt": { "type": "string", "format": "date-time" },
+        "wakeToHostStartMs": { "type": "number", "minimum": 0 },
+        "hostStateBefore": { "type": "string" },
+        "decision": { "enum": ["boot", "resume", "ready", "nativeOnly", "defer", "needsAttention"] },
+        "processWasRunning": { "type": "boolean" },
+        "sceneConnectedAtTrigger": { "type": "boolean" },
+        "offscreenWindowUsed": { "type": "boolean" },
+        "anchorInWindowAfterBoot": { "type": "boolean" },
+        "residentAudio": { "type": "boolean" },
+        "webContentPIDBefore": { "type": "integer", "minimum": 1 },
+        "webContentPIDAfter": { "type": "integer", "minimum": 1 },
+        "webContentTerminated": { "type": "boolean" },
+        "leaseRemainingMsAtTrigger": { "type": "integer", "minimum": 0 },
+        "backgroundTimeRemainingCurve": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["atMs"],
+            "properties": {
+              "atMs": { "type": "number", "minimum": 0 },
+              "remainingMs": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "userVisiblePrompt": { "const": false },
+        "forcedForMeasurement": { "type": "boolean" },
+        "error": { "type": "string" }
+      }
+    }
+  }
+}

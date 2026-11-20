@@ -1,0 +1,725 @@
+{
+  "name": "engine-launch",
+  "schema": "schema/engine-launch.schema.json",
+  "notes": "spec/host/v1/README.md §10.2: decision order, threshold constants and ReadySweep step gate; PC-20261120-engine-first-launch. Swift and Kotlin tests read this file directly; do not copy a vector.",
+  "instance": {
+    "contract": "engine-launch",
+    "revision": 1,
+    "constants": {
+      "minLeaseForColdBootMs": 20000,
+      "minLeaseForResumeMs": 8000,
+      "parkMarginMs": 5000,
+      "cloudPullFreshnessMs": 30000,
+      "stepBudgetMs": {
+        "userOutbox": 2000,
+        "externalAdmission": 2000,
+        "cloudTaskPull": 5000,
+        "botHeldInbox": 2000,
+        "missedRoutines": 5000,
+        "connectorScan": 10000,
+        "approvalReminderSync": 1000
+      }
+    },
+    "wakeReasons": [
+      "coldLaunch",
+      "foreground",
+      "unlock",
+      "cloudTaskPush",
+      "boardWake",
+      "bleRequest",
+      "lanRequest",
+      "pcLinkRequest",
+      "bgProcessing",
+      "routineNotificationTap",
+      "engineRecovered"
+    ],
+    "decisions": [
+      "boot",
+      "resume",
+      "ready",
+      "nativeOnly",
+      "defer",
+      "needsAttention"
+    ],
+    "steps": [
+      "userOutbox",
+      "externalAdmission",
+      "cloudTaskPull",
+      "botHeldInbox",
+      "missedRoutines",
+      "connectorScan",
+      "approvalReminderSync"
+    ],
+    "decisionVectors": [
+      {
+        "id": "cold-launch-foreground-boots",
+        "input": {
+          "reason": "coldLaunch",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "boot"
+      },
+      {
+        "id": "cold-launch-resident-audio-boots",
+        "input": {
+          "reason": "coldLaunch",
+          "foreground": false,
+          "residentAudio": true,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "boot"
+      },
+      {
+        "id": "foreground-return-resumes-parked",
+        "input": {
+          "reason": "foreground",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "parked",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "resume"
+      },
+      {
+        "id": "foreground-return-running-is-ready",
+        "input": {
+          "reason": "foreground",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "running",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "ready"
+      },
+      {
+        "id": "unlock-without-eligibility-is-native-only",
+        "input": {
+          "reason": "unlock",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "nativeOnly"
+      },
+      {
+        "id": "cloud-push-cold-boot-lease-boundary",
+        "note": "leaseRemainingMs == minLeaseForColdBootMs (20000) boots",
+        "input": {
+          "reason": "cloudTaskPush",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": 20000,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "boot"
+      },
+      {
+        "id": "cloud-push-cold-boot-lease-minus-one",
+        "note": "19999 < minLeaseForColdBootMs: native pass only",
+        "input": {
+          "reason": "cloudTaskPush",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": 19999,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "nativeOnly"
+      },
+      {
+        "id": "cloud-push-resident-audio-boots-without-lease",
+        "input": {
+          "reason": "cloudTaskPush",
+          "foreground": false,
+          "residentAudio": true,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "boot"
+      },
+      {
+        "id": "board-wake-resume-lease-boundary",
+        "note": "leaseRemainingMs == minLeaseForResumeMs (8000) resumes a parked host",
+        "input": {
+          "reason": "boardWake",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "parked",
+          "leaseRemainingMs": 8000,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "resume"
+      },
+      {
+        "id": "board-wake-resume-lease-minus-one",
+        "note": "7999 < minLeaseForResumeMs: native pass only",
+        "input": {
+          "reason": "boardWake",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "parked",
+          "leaseRemainingMs": 7999,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "nativeOnly"
+      },
+      {
+        "id": "ble-request-cold-boot-lease-boundary",
+        "input": {
+          "reason": "bleRequest",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": 20000,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "boot"
+      },
+      {
+        "id": "ble-request-failed-host-resident-audio-boots",
+        "input": {
+          "reason": "bleRequest",
+          "foreground": false,
+          "residentAudio": true,
+          "hostState": "failed",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "boot"
+      },
+      {
+        "id": "lan-request-running-short-lease-is-ready",
+        "note": "a running host is usable regardless of a short lease; the lease only gates sweep steps",
+        "input": {
+          "reason": "lanRequest",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "running",
+          "leaseRemainingMs": 3000,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "ready"
+      },
+      {
+        "id": "lan-request-without-lease-is-native-only",
+        "input": {
+          "reason": "lanRequest",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "nativeOnly"
+      },
+      {
+        "id": "pc-link-parked-without-lease-is-native-only",
+        "input": {
+          "reason": "pcLinkRequest",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "parked",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "nativeOnly"
+      },
+      {
+        "id": "pc-link-parked-foreground-resumes",
+        "input": {
+          "reason": "pcLinkRequest",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "parked",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "resume"
+      },
+      {
+        "id": "bg-processing-cold-boot-lease-boundary",
+        "input": {
+          "reason": "bgProcessing",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": 20000,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "boot"
+      },
+      {
+        "id": "bg-processing-failed-host-lease-boundary",
+        "input": {
+          "reason": "bgProcessing",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "failed",
+          "leaseRemainingMs": 20000,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "boot"
+      },
+      {
+        "id": "bg-processing-failed-host-lease-minus-one",
+        "note": "a failed host needs the cold-boot threshold, not the resume threshold",
+        "input": {
+          "reason": "bgProcessing",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "failed",
+          "leaseRemainingMs": 19999,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "nativeOnly"
+      },
+      {
+        "id": "routine-notification-tap-foreground-boots",
+        "input": {
+          "reason": "routineNotificationTap",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "boot"
+      },
+      {
+        "id": "engine-recovered-running-is-ready",
+        "input": {
+          "reason": "engineRecovered",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "running",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "ready"
+      },
+      {
+        "id": "explicit-stop-defers-foreground",
+        "input": {
+          "reason": "coldLaunch",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": true,
+          "needsReset": false
+        },
+        "expected": "defer"
+      },
+      {
+        "id": "explicit-stop-defers-even-with-long-lease",
+        "input": {
+          "reason": "cloudTaskPush",
+          "foreground": false,
+          "residentAudio": true,
+          "hostState": "parked",
+          "leaseRemainingMs": 60000,
+          "userStopped": true,
+          "needsReset": false
+        },
+        "expected": "defer"
+      },
+      {
+        "id": "needs-reset-asks-for-attention",
+        "input": {
+          "reason": "foreground",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": true
+        },
+        "expected": "needsAttention"
+      },
+      {
+        "id": "needs-reset-outranks-explicit-stop",
+        "input": {
+          "reason": "coldLaunch",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "failed",
+          "leaseRemainingMs": null,
+          "userStopped": true,
+          "needsReset": true
+        },
+        "expected": "needsAttention"
+      },
+      {
+        "id": "parked-uses-resume-threshold-not-cold-threshold",
+        "note": "20000 >= minLeaseForResumeMs (8000) resumes; it does not need minLeaseForColdBootMs",
+        "input": {
+          "reason": "cloudTaskPush",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "parked",
+          "leaseRemainingMs": 20000,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "resume"
+      },
+      {
+        "id": "absent-resume-threshold-is-not-enough",
+        "note": "8000 >= minLeaseForResumeMs but < minLeaseForColdBootMs for an absent host",
+        "input": {
+          "reason": "cloudTaskPush",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": 8000,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "nativeOnly"
+      },
+      {
+        "id": "running-resident-audio-is-ready",
+        "input": {
+          "reason": "boardWake",
+          "foreground": false,
+          "residentAudio": true,
+          "hostState": "running",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "ready"
+      },
+      {
+        "id": "failed-host-foreground-boots",
+        "input": {
+          "reason": "foreground",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "failed",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "boot"
+      }
+    ],
+    "invalidDecisionVectors": [
+      {
+        "id": "unknown-wake-reason",
+        "input": {
+          "reason": "pushWake",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "reason": "unknown-reason"
+      },
+      {
+        "id": "missing-wake-reason",
+        "input": {
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "reason": "missing-member"
+      },
+      {
+        "id": "unknown-host-state",
+        "input": {
+          "reason": "foreground",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "stopped",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "reason": "unknown-host-state"
+      },
+      {
+        "id": "missing-host-state",
+        "input": {
+          "reason": "foreground",
+          "foreground": true,
+          "residentAudio": false,
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "reason": "missing-member"
+      },
+      {
+        "id": "missing-lease-member",
+        "note": "null is valid; omitting the member is not",
+        "input": {
+          "reason": "foreground",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "absent",
+          "userStopped": false,
+          "needsReset": false
+        },
+        "reason": "missing-member"
+      },
+      {
+        "id": "negative-lease",
+        "input": {
+          "reason": "cloudTaskPush",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": -1,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "reason": "lease-negative"
+      },
+      {
+        "id": "fractional-lease",
+        "input": {
+          "reason": "cloudTaskPush",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": 19999.5,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "reason": "lease-not-integer"
+      },
+      {
+        "id": "string-lease",
+        "input": {
+          "reason": "cloudTaskPush",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": "20000",
+          "userStopped": false,
+          "needsReset": false
+        },
+        "reason": "lease-not-integer"
+      },
+      {
+        "id": "string-foreground",
+        "input": {
+          "reason": "foreground",
+          "foreground": "true",
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "reason": "member-type"
+      },
+      {
+        "id": "number-user-stopped",
+        "input": {
+          "reason": "foreground",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": 1,
+          "needsReset": false
+        },
+        "reason": "member-type"
+      },
+      {
+        "id": "missing-user-stopped",
+        "input": {
+          "reason": "foreground",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "needsReset": false
+        },
+        "reason": "missing-member"
+      }
+    ],
+    "sweepVectors": [
+      {
+        "id": "user-outbox-runs-at-budget-boundary",
+        "note": "5000 park margin + 2000 step budget",
+        "step": "userOutbox",
+        "remainingMs": 7000,
+        "expected": "run"
+      },
+      {
+        "id": "user-outbox-skips-one-ms-below-budget",
+        "step": "userOutbox",
+        "remainingMs": 6999,
+        "expected": "skip"
+      },
+      {
+        "id": "external-admission-runs-at-budget-boundary",
+        "step": "externalAdmission",
+        "remainingMs": 7000,
+        "expected": "run"
+      },
+      {
+        "id": "external-admission-skips-one-ms-below-budget",
+        "step": "externalAdmission",
+        "remainingMs": 6999,
+        "expected": "skip"
+      },
+      {
+        "id": "cloud-pull-runs-at-budget-boundary",
+        "note": "5000 park margin + 5000 step budget",
+        "step": "cloudTaskPull",
+        "remainingMs": 10000,
+        "expected": "run"
+      },
+      {
+        "id": "cloud-pull-skips-one-ms-below-budget",
+        "step": "cloudTaskPull",
+        "remainingMs": 9999,
+        "expected": "skip"
+      },
+      {
+        "id": "bot-held-inbox-runs-at-budget-boundary",
+        "step": "botHeldInbox",
+        "remainingMs": 7000,
+        "expected": "run"
+      },
+      {
+        "id": "bot-held-inbox-skips-one-ms-below-budget",
+        "step": "botHeldInbox",
+        "remainingMs": 6999,
+        "expected": "skip"
+      },
+      {
+        "id": "missed-routines-runs-at-budget-boundary",
+        "step": "missedRoutines",
+        "remainingMs": 10000,
+        "expected": "run"
+      },
+      {
+        "id": "missed-routines-skips-one-ms-below-budget",
+        "step": "missedRoutines",
+        "remainingMs": 9999,
+        "expected": "skip"
+      },
+      {
+        "id": "connector-scan-runs-at-budget-boundary",
+        "note": "5000 park margin + 10000 step budget",
+        "step": "connectorScan",
+        "remainingMs": 15000,
+        "expected": "run"
+      },
+      {
+        "id": "connector-scan-skips-one-ms-below-budget",
+        "step": "connectorScan",
+        "remainingMs": 14999,
+        "expected": "skip"
+      },
+      {
+        "id": "approval-reminder-sync-runs-at-budget-boundary",
+        "step": "approvalReminderSync",
+        "remainingMs": 6000,
+        "expected": "run"
+      },
+      {
+        "id": "approval-reminder-sync-skips-one-ms-below-budget",
+        "step": "approvalReminderSync",
+        "remainingMs": 5999,
+        "expected": "skip"
+      },
+      {
+        "id": "park-margin-alone-does-not-run-a-step",
+        "note": "5000 == parkMarginMs but 5000 < 5000 + 2000",
+        "step": "userOutbox",
+        "remainingMs": 5000,
+        "expected": "skip"
+      },
+      {
+        "id": "no-lease-remaining-skips",
+        "step": "connectorScan",
+        "remainingMs": 0,
+        "expected": "skip"
+      }
+    ],
+    "invalidSweepVectors": [
+      {
+        "id": "unknown-step",
+        "input": {
+          "step": "outbox",
+          "remainingMs": 10000
+        },
+        "reason": "unknown-step"
+      },
+      {
+        "id": "missing-step",
+        "input": {
+          "remainingMs": 10000
+        },
+        "reason": "missing-member"
+      },
+      {
+        "id": "negative-remaining",
+        "input": {
+          "step": "userOutbox",
+          "remainingMs": -1
+        },
+        "reason": "remaining-negative"
+      },
+      {
+        "id": "string-remaining",
+        "input": {
+          "step": "userOutbox",
+          "remainingMs": "7000"
+        },
+        "reason": "member-type"
+      },
+      {
+        "id": "missing-remaining",
+        "input": {
+          "step": "userOutbox"
+        },
+        "reason": "missing-member"
+      }
+    ]
+  }
+}

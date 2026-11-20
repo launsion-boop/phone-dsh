@@ -1,6 +1,6 @@
 {
  "contract": "spec/v1/cloud-tasks.md",
- "revision": "cloud-tasks-v1.5",
+ "revision": "cloud-tasks-v1.6",
  "note": "Private scalars here are test-only values; never use them outside these vectors.",
  "constants": {
   "suite": "hpke-p256-sha256-aes128gcm",

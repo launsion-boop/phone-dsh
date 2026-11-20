@@ -10,6 +10,8 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 
 
 def utcnow():
@@ -277,6 +279,274 @@ class DeviceDriver:
             self.write_host_report()
 
 
+class EngineWakeDriver:
+    """Host side of the engine-first-launch wake measurement.
+
+    The app owns the scenarios and writes ``engine-wake-state.json`` /
+    ``engine-wake-report.json``. This driver only polls that state, performs the
+    LAN probes the app asks for, prints the instructions for an external APNs /
+    board trigger, and pulls the final evidence. It never invents a trigger.
+    """
+
+    def __init__(self, args):
+        self.args = args
+        self.out = args.output_dir.resolve()
+        self.out.mkdir(parents=True, exist_ok=True)
+        self.commands = self.out / "commands"
+        self.commands.mkdir(exist_ok=True)
+        self.command_index = 0
+        self.state = None
+        self.last_state_key = None
+        self.last_trigger_key = None
+        self.acquisition_error = None
+        self.lan_probes = []
+        self.probe_attempts = {}
+        self.last_probe_at = 0.0
+        self.last_pushed_trigger = None
+        self.started_at = utcnow()
+
+    def devicectl(self, arguments, quiet=False):
+        self.command_index += 1
+        stem = f"{self.command_index:06d}"
+        json_path = self.commands / f"{stem}.json"
+        log_path = self.commands / f"{stem}.log"
+        command = ["xcrun", "devicectl", *arguments,
+                   "--json-output", str(json_path), "--log-output", str(log_path)]
+        completed = subprocess.run(command, text=True, capture_output=True, check=False)
+        try:
+            document = json.loads(json_path.read_text(encoding="utf-8"))
+        except Exception:
+            document = None
+        if completed.returncode != 0 and not quiet:
+            detail = log_path.read_text(encoding="utf-8", errors="replace")[-2000:]
+            print(f"devicectl failed ({arguments[0]} {arguments[1]}): {detail}", file=sys.stderr)
+        return completed.returncode, document
+
+    def device_arguments(self, *arguments):
+        return [*arguments, "--device", self.args.device]
+
+    def simulator_container(self):
+        completed = subprocess.run(
+            ["xcrun", "simctl", "get_app_container", self.args.simulator_udid,
+             self.args.bundle_id, "data"],
+            text=True, capture_output=True, check=False)
+        if completed.returncode != 0:
+            return None
+        path = Path(completed.stdout.strip())
+        return path if path.is_dir() else None
+
+    def pull_file(self, name, destination="live"):
+        target = self.out / destination
+        if target.exists():
+            shutil.rmtree(target)
+        target.mkdir(parents=True)
+        if self.args.platform == "simulator":
+            root = self.simulator_container()
+            if root is None:
+                return None
+            source = root / "Documents" / "BotResidencySpike" / self.args.run_id / name
+            if not source.exists():
+                return None
+            shutil.copy2(source, target / name)
+        else:
+            source = f"Documents/BotResidencySpike/{self.args.run_id}/{name}"
+            rc, _ = self.devicectl(self.device_arguments(
+                "device", "copy", "from", "--domain-type", "appDataContainer",
+                "--domain-identifier", self.args.bundle_id,
+                "--source", source, "--destination", str(target)), quiet=True)
+            if rc != 0:
+                return None
+        matches = list(target.rglob(name))
+        if not matches:
+            return None
+        try:
+            return json.loads(matches[0].read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
+    @staticmethod
+    def probe_url(host, port, scenario):
+        return f"http://{host}:{port}/engine-wake?scenario={scenario}"
+
+    def probe(self, pending):
+        scenario = pending.get("scenario")
+        port = pending.get("port")
+        host = self.args.lan_host or pending.get("lanHost")
+        attempt = self.probe_attempts.get(pending.get("id"), 0) + 1
+        self.probe_attempts[pending.get("id")] = attempt
+        record = {
+            "scenario": scenario,
+            "probeID": pending.get("id"),
+            "attempt": attempt,
+            "sentAt": utcnow(),
+            "host": host,
+            "port": port,
+            "reachable": False,
+        }
+        if not host or not isinstance(port, int) or port <= 0:
+            record["error"] = ("no --lan-host and the app did not report a reachable "
+                              "address; pass --lan-host <device-LAN-IP>")
+            record["skipped"] = True
+            self.lan_probes.append(record)
+            print(f"lan-probe {pending.get('id')}: SKIPPED — {record['error']}", flush=True)
+            self.last_probe_at = time.monotonic()
+            return
+        url = self.probe_url(host, port, scenario)
+        started = time.monotonic()
+        try:
+            with urllib.request.urlopen(url, timeout=self.args.probe_timeout_seconds) as response:
+                body = response.read(64).decode("utf-8", "replace")
+                record["httpStatus"] = response.status
+                record["body"] = body
+                record["reachable"] = 200 <= response.status < 300
+        except urllib.error.HTTPError as error:
+            record["httpStatus"] = error.code
+            record["error"] = f"HTTP {error.code}"
+        except Exception as error:
+            record["error"] = str(error)
+        record["elapsedMs"] = round((time.monotonic() - started) * 1000, 3)
+        record["completedAt"] = utcnow()
+        self.lan_probes.append(record)
+        print(f"lan-probe {pending.get('id')} #{attempt} {scenario}: "
+              f"reachable={record['reachable']} elapsed={record.get('elapsedMs')}ms "
+              f"{record.get('error', '')}", flush=True)
+        self.last_probe_at = time.monotonic()
+
+    def service_probe(self, state):
+        if not isinstance(state, dict):
+            return
+        pending = state.get("pendingProbe")
+        if not isinstance(pending, dict) or not pending.get("id"):
+            return
+        now = time.monotonic()
+        delay = pending.get("probeDelaySeconds")
+        delay = delay if isinstance(delay, (int, float)) else 0
+        first_probe = self.probe_attempts.get(pending.get("id"), 0) == 0
+        if first_probe and now - self.last_probe_at < delay:
+            return
+        if not first_probe and now - self.last_probe_at < 2.0:
+            return
+        self.probe(pending)
+
+    def announce(self, state):
+        if not isinstance(state, dict):
+            return
+        phase = state.get("phase")
+        scenario = state.get("currentScenario")
+        key = (phase, scenario, state.get("detail"))
+        if key != self.last_state_key:
+            self.last_state_key = key
+            print(f"engine-wake phase={phase} scenario={scenario} "
+                  f"detail={state.get('detail')}", flush=True)
+        trigger = state.get("pendingTrigger")
+        if isinstance(trigger, dict) and trigger.get("id"):
+            trigger_key = trigger.get("id")
+            if trigger_key != self.last_trigger_key:
+                self.last_trigger_key = trigger_key
+                print("", flush=True)
+                print(f"== ACTION REQUIRED: {trigger_key} ==", flush=True)
+                print(trigger.get("instructions") or
+                      "Trigger the wake on the device, then leave the device idle.", flush=True)
+                print("", flush=True)
+
+    def service_trigger(self, state):
+        """Simulator only: inject the content-available push the app is waiting for.
+
+        On a physical device the operator sends the APNs test push; the script
+        must not pretend it can create one, so this method is a no-op there.
+        """
+        if self.args.platform != "simulator" or not self.args.simctl_push_udid:
+            return
+        trigger = state.get("pendingTrigger")
+        if not isinstance(trigger, dict) or trigger.get("kind") != "push":
+            return
+        key = trigger.get("id")
+        if key == self.last_pushed_trigger:
+            return
+        payload = self.out / "push-payload.json"
+        if not payload.exists():
+            write_json(payload, {
+                "Simulator Target Bundle": self.args.bundle_id,
+                "aps": {"content-available": 1},
+                "pdsh": {"kind": "engine-wake", "trigger": key},
+            })
+        completed = subprocess.run(
+            ["xcrun", "simctl", "push", self.args.simctl_push_udid,
+             self.args.bundle_id, str(payload)],
+            text=True, capture_output=True, check=False)
+        if completed.returncode == 0:
+            self.last_pushed_trigger = key
+            print(f"simctl push sent for {key}", flush=True)
+        else:
+            print(f"simctl push failed for {key}: {completed.stderr.strip()}", file=sys.stderr)
+
+    def final_pull(self):
+        target = self.out / "device"
+        if target.exists():
+            shutil.rmtree(target)
+        target.mkdir(parents=True)
+        if self.args.platform == "simulator":
+            root = self.simulator_container()
+            if root is None:
+                self.acquisition_error = "could not locate the simulator app container"
+                return []
+            source = root / "Documents" / "BotResidencySpike" / self.args.run_id
+            if not source.is_dir():
+                self.acquisition_error = f"simulator evidence directory is missing: {source}"
+                return []
+            shutil.copytree(source, target / "run")
+        else:
+            rc, _ = self.devicectl(self.device_arguments(
+                "device", "copy", "from", "--domain-type", "appDataContainer",
+                "--domain-identifier", self.args.bundle_id,
+                "--source", f"Documents/BotResidencySpike/{self.args.run_id}",
+                "--destination", str(target)))
+            if rc != 0:
+                self.acquisition_error = "could not pull the app evidence directory"
+        return list(target.rglob("engine-wake-report.json"))
+
+    def write_host_report(self):
+        write_json(self.out / "host-report.json", {
+            "schema": "phonedsh-engine-wake-host/1",
+            "mode": "engine-wake",
+            "runID": self.args.run_id,
+            "startedAt": self.started_at,
+            "endedAt": utcnow(),
+            "acquisitionError": self.acquisition_error,
+            "platform": self.args.platform,
+            "lanHost": self.args.lan_host,
+            "lanProbes": self.lan_probes,
+            "lastPhase": (self.state or {}).get("phase") if isinstance(self.state, dict) else None,
+        })
+
+    def run(self):
+        deadline = time.monotonic() + self.args.timeout_seconds
+        while time.monotonic() < deadline:
+            state = self.pull_file("engine-wake-state.json")
+            if state is not None:
+                self.state = state
+                self.announce(state)
+                self.service_trigger(state)
+                self.service_probe(state)
+                if state.get("phase") in {"complete", "aborted"}:
+                    self.final_pull()
+                    if list((self.out / "device").rglob("engine-wake-report.json")):
+                        break
+            time.sleep(self.args.poll_seconds)
+        else:
+            self.acquisition_error = "device run exceeded the driver timeout"
+        reports = self.final_pull()
+        for _ in range(5):
+            if reports or self.acquisition_error:
+                break
+            time.sleep(1)
+            reports = self.final_pull()
+        if not reports and not self.acquisition_error:
+            self.acquisition_error = "engine-wake-report.json is missing"
+        self.write_host_report()
+        return 0 if reports else 1
+
+
 def selftest():
     document = {"result": {"processes": [
         {"processIdentifier": 42, "executable": "/System/Library/com.apple.WebKit.WebContent"},
@@ -290,12 +560,18 @@ def selftest():
     nested["result"]["lockState"]["isLocked"] = False
     assert DeviceDriver.extract_locked(nested) == (False, "result.lockState.isLocked")
     assert DeviceDriver.extract_locked({"result": {}}) == (None, None)
+    assert EngineWakeDriver.probe_url("192.168.1.8", 8123, "lan-resident") == \
+        "http://192.168.1.8:8123/engine-wake?scenario=lan-resident"
     print("bot-residency device driver selftest: PASS")
 
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=("residency", "engine-wake"), default="residency")
+    parser.add_argument("--platform", choices=("device", "simulator"), default="device")
     parser.add_argument("--device")
+    parser.add_argument("--simulator-udid")
+    parser.add_argument("--simctl-push-udid")
     parser.add_argument("--bundle-id")
     parser.add_argument("--run-id")
     parser.add_argument("--output-dir", type=Path)
@@ -303,18 +579,33 @@ def main():
     parser.add_argument("--kill-webcontent", type=int)
     parser.add_argument("--timeout-seconds", type=int)
     parser.add_argument("--poll-seconds", type=float, default=2.0)
+    parser.add_argument("--lan-host",
+                        help="engine-wake: device LAN address used for the listener probes")
+    parser.add_argument("--probe-timeout-seconds", type=float, default=3.0)
     parser.add_argument("--selftest", action="store_true")
     args = parser.parse_args()
     if args.selftest:
         selftest()
         return
-    for name in ("device", "bundle_id", "run_id", "output_dir", "duration_seconds",
-                 "kill_webcontent", "timeout_seconds"):
+    required = ["bundle_id", "run_id", "output_dir", "timeout_seconds"]
+    if args.platform == "simulator":
+        required.append("simulator_udid")
+    else:
+        required.append("device")
+    if args.mode == "residency":
+        required += ["duration_seconds", "kill_webcontent"]
+    for name in required:
         if getattr(args, name) is None:
             parser.error(f"--{name.replace('_', '-')} is required")
-    args.started_at = utcnow()
     if args.poll_seconds < 0.25:
         parser.error("--poll-seconds must be at least 0.25")
+    if args.mode == "engine-wake":
+        if args.probe_timeout_seconds <= 0:
+            parser.error("--probe-timeout-seconds must be positive")
+        if args.platform == "simulator" and args.simctl_push_udid is None:
+            args.simctl_push_udid = args.simulator_udid
+        raise SystemExit(EngineWakeDriver(args).run())
+    args.started_at = utcnow()
     raise SystemExit(DeviceDriver(args).run())
 
 
