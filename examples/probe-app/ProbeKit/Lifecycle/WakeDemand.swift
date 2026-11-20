@@ -1,72 +1,148 @@
 // SPDX-License-Identifier: MIT
 // phone-dsh phone DSH — the host's durable ledger of future work.
 //
-// PLAN §2.9 invariants I1/I2/I5 (host contract §10.3):
+// host contract `spec/host/v1/README.md` §10.3 (engine-launch-v1 revision 2):
 //   I1 the intent lands on the host before anything else;
-//   I2 every future due time is one WakeDemand here, not a timer in the
-//      engine or in this process's memory;
-//   I5 before the process suspends, the earliest `dueAt` is projected onto
-//      every OS wake channel; losing a wake only delays work, because any
-//      later wake sweeps every due demand.
+//   I2 every future due point is one WakeDemand here, not a timer in the
+//      engine or in process memory;
+//   I5 whenever the ledger changes, the App enters the background or a host
+//      parks, the projection (§10.3.3) is recomputed and submitted to the OS.
 //
-// Storage: one private JSON document under Application Support
-// (`phone-dsh/wake-demands.json`), written atomically. A missing document is
-// an empty ledger; a corrupt one is moved aside and treated as empty (a lost
-// demand delays work, it never loses the durable journal it points at).
+// Storage: one host-private JSON document under Application Support
+// (`phone-dsh/wake-demands.json`), written atomically. The format is not
+// shared, but the value semantics, the closed source set and the projection
+// are contract. A missing document is an empty ledger; a corrupt one is moved
+// aside and treated as empty (a lost demand delays work, it never loses the
+// durable journal it points at).
 
 import Foundation
 
-/// Whether a demand fires once or keeps a next due time.
+/// Whether a demand fires once or keeps moving its next due time.
 public enum WakeDemandKind: String, Codable, Sendable, Equatable {
     case once
     case recurring
 }
 
-/// The closed set of producers that may write a demand (PLAN §2.9 audit; the
-/// contract freezes the final identifiers). `botRoutine` is the Bot side's
-/// routine mirror; `missedRoutines` is its ReadySweep consumer.
+/// The closed demand source set (§10.3.2). The declaration order is the
+/// contract's `demandSources` order, used to break `dueNow` ties.
 public enum WakeDemandSource: String, CaseIterable, Codable, Sendable, Equatable {
-    case userOutbox
-    case externalAdmission
-    case cloudTaskPull
-    case botHeldInbox
-    case missedRoutines
-    case connectorScan
-    case approvalReminderSync
-    case dshSchedule
-    case hostRetries
     case botRoutine
+    case connectorScan
+    case dshSchedule
+    case hostRetry
+
+    /// 0-based position in `demandSources`.
+    public var order: Int {
+        Self.allCases.firstIndex(of: self) ?? 0
+    }
+}
+
+/// The typed rejection reasons the golden's invalid vectors use (§10.3.3:
+/// unknown source/kind, duplicate identity, negative due time, malformed
+/// member). A decoder must reject with exactly one of these; it never coerces.
+public enum WakeContractError: String, Error, Equatable {
+    case missingMember = "missing-member"
+    case memberType = "member-type"
+    case unknownSource = "unknown-source"
+    case unknownKind = "unknown-kind"
+    case duplicateDemand = "duplicate-demand"
+    case dueNegative = "due-negative"
+}
+
+/// The ledger could not be read or written *now*. The bytes on disk are
+/// intact: retry after protected data becomes available (I1/I2). This is
+/// never reported as corruption and never overwrites the file.
+public enum WakeDemandLedgerError: Error, Equatable {
+    case unavailable
 }
 
 /// One future due point owned by the host.
 public struct WakeDemand: Codable, Equatable, Sendable, Identifiable {
     public var source: WakeDemandSource
     /// Source-local identity; `(source, key)` is the upsert key.
+    /// `[A-Za-z0-9._:-]{1,128}`.
     public var key: String
     public var dueAtMs: Int64
     public var kind: WakeDemandKind
-    /// A user-visible demand also gets a local notification (routine, DSH
-    /// reminder); a silent one relies on the background-task projection.
+    /// A user-visible demand also gets the source's own local notification
+    /// (routine, DSH reminder); a silent one relies on the background channels.
     public var userVisible: Bool
-    public var updatedAtMs: Int64
 
     public var id: String { "\(source.rawValue):\(key)" }
 
     public init(source: WakeDemandSource, key: String, dueAtMs: Int64,
-                kind: WakeDemandKind, userVisible: Bool,
-                updatedAtMs: Int64 = WakeDemandLedger.nowMs()) {
+                kind: WakeDemandKind, userVisible: Bool) {
         self.source = source
         self.key = key
         self.dueAtMs = dueAtMs
         self.kind = kind
         self.userVisible = userVisible
-        self.updatedAtMs = updatedAtMs
+    }
+
+    /// `[A-Za-z0-9._:-]{1,128}` (§10.3.2).
+    public static func isValidKey(_ key: String) -> Bool {
+        guard (1...128).contains(key.utf8.count) else { return false }
+        return key.unicodeScalars.allSatisfy { scalar in
+            switch scalar.value {
+            case 45...57, 58, 46, 65...90, 95, 97...122: return true // - . : 0-9 A-Z _ a-z
+            default: return false
+            }
+        }
     }
 
     public func isDue(nowMs: Int64) -> Bool { dueAtMs <= nowMs }
+
+    // MARK: - Strict coding
+
+    enum CodingKeys: String, CodingKey {
+        case source
+        case key
+        case dueAtMs
+        case kind
+        case userVisible
+    }
+
+    public init(from decoder: Decoder) throws {
+        do {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let sourceName = try c.decode(String.self, forKey: .source)
+            guard let source = WakeDemandSource(rawValue: sourceName) else {
+                throw WakeContractError.unknownSource
+            }
+            let kindName = try c.decode(String.self, forKey: .kind)
+            guard let kind = WakeDemandKind(rawValue: kindName) else {
+                throw WakeContractError.unknownKind
+            }
+            let key = try c.decode(String.self, forKey: .key)
+            guard Self.isValidKey(key) else { throw WakeContractError.memberType }
+            let dueAtMs = try c.decode(Int64.self, forKey: .dueAtMs)
+            guard dueAtMs >= 0 else { throw WakeContractError.dueNegative }
+            self.init(source: source, key: key, dueAtMs: dueAtMs, kind: kind,
+                      userVisible: try c.decode(Bool.self, forKey: .userVisible))
+        } catch let error as WakeContractError {
+            throw error
+        } catch DecodingError.keyNotFound {
+            throw WakeContractError.missingMember
+        } catch DecodingError.valueNotFound {
+            throw WakeContractError.missingMember
+        } catch DecodingError.typeMismatch {
+            throw WakeContractError.memberType
+        } catch {
+            throw WakeContractError.memberType
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(source.rawValue, forKey: .source)
+        try c.encode(key, forKey: .key)
+        try c.encode(dueAtMs, forKey: .dueAtMs)
+        try c.encode(kind.rawValue, forKey: .kind)
+        try c.encode(userVisible, forKey: .userVisible)
+    }
 }
 
-/// The persisted document.
+/// The persisted document (host-private format).
 public struct WakeDemandDocument: Codable, Equatable, Sendable {
     public var version: Int
     public var demands: [WakeDemand]
@@ -105,93 +181,125 @@ public actor WakeDemandLedger {
 
     // MARK: - Reads
 
-    public func all() -> [WakeDemand] {
-        ensureLoaded()
+    public func all() throws -> [WakeDemand] {
+        try ensureLoaded()
         return demands.keys.sorted().compactMap { demands[$0] }
     }
 
-    public func demand(source: WakeDemandSource, key: String) -> WakeDemand? {
-        ensureLoaded()
+    public func demand(source: WakeDemandSource, key: String) throws -> WakeDemand? {
+        try ensureLoaded()
         return demands["\(source.rawValue):\(key)"]
     }
 
-    /// The earliest future-or-due demand, or `nil` when the ledger is empty.
-    public func nextDemand() -> WakeDemand? {
-        ensureLoaded()
+    /// The demand with the earliest due time (ties by id).
+    public func nextDemand() throws -> WakeDemand? {
+        try ensureLoaded()
         return demands.values.min { lhs, rhs in
             lhs.dueAtMs != rhs.dueAtMs ? lhs.dueAtMs < rhs.dueAtMs : lhs.id < rhs.id
         }
     }
 
-    public func earliestDueAt() -> Int64? {
-        nextDemand()?.dueAtMs
+    public func earliestDueAt() throws -> Int64? {
+        try nextDemand()?.dueAtMs
     }
 
-    /// Demands whose due time has passed, in (`dueAtMs`, id) order.
-    public func dueDemands(nowMs: Int64) -> [WakeDemand] {
-        ensureLoaded()
+    /// Demands whose due time has passed, in contract `dueNow` order:
+    /// `dueAtMs`, then source order, then key.
+    public func dueDemands(nowMs: Int64) throws -> [WakeDemand] {
+        try ensureLoaded()
         return demands.values
             .filter { $0.dueAtMs <= nowMs }
-            .sorted { lhs, rhs in
-                lhs.dueAtMs != rhs.dueAtMs ? lhs.dueAtMs < rhs.dueAtMs : lhs.id < rhs.id
-            }
+            .sorted(by: WakeProjection.dueOrder)
     }
 
-    public func dueDemands(source: WakeDemandSource, nowMs: Int64) -> [WakeDemand] {
-        dueDemands(nowMs: nowMs).filter { $0.source == source }
+    public func dueDemands(source: WakeDemandSource, nowMs: Int64) throws -> [WakeDemand] {
+        try dueDemands(nowMs: nowMs).filter { $0.source == source }
     }
 
     // MARK: - Writes
 
     /// Upsert by `(source, key)`: the newest due time, kind and visibility win.
+    /// Invalid values are rejected, never coerced (§10.3.3).
     public func upsert(_ demand: WakeDemand) throws {
-        ensureLoaded()
+        guard WakeDemand.isValidKey(demand.key), demand.dueAtMs >= 0 else {
+            throw WakeContractError.memberType
+        }
+        try ensureLoaded()
+        let previous = demands[demand.id]
         demands[demand.id] = demand
-        try persist()
+        do { try persist() } catch {
+            if let previous { demands[demand.id] = previous } else { demands.removeValue(forKey: demand.id) }
+            throw error
+        }
     }
 
     public func remove(source: WakeDemandSource, key: String) throws {
-        ensureLoaded()
-        if demands.removeValue(forKey: "\(source.rawValue):\(key)") != nil {
-            try persist()
+        try ensureLoaded()
+        let previous = demands.removeValue(forKey: "\(source.rawValue):\(key)")
+        guard let previous else { return }
+        do { try persist() } catch {
+            demands[previous.id] = previous
+            throw error
         }
     }
 
     public func removeAll(source: WakeDemandSource) throws {
-        ensureLoaded()
-        let before = demands.count
+        try ensureLoaded()
+        let snapshot = demands
         demands = demands.filter { $0.value.source != source }
-        if demands.count != before { try persist() }
+        guard demands.count != snapshot.count else { return }
+        do { try persist() } catch {
+            demands = snapshot
+            throw error
+        }
     }
 
     /// Drops every due `once` demand after its consumer ran. A recurring
     /// demand is left to its producer (it owns the next due time).
     public func removeConsumedOnceDemands(source: WakeDemandSource, nowMs: Int64) throws {
-        ensureLoaded()
+        try ensureLoaded()
         let doomed = demands.values.filter {
             $0.source == source && $0.kind == .once && $0.dueAtMs <= nowMs
         }
         guard !doomed.isEmpty else { return }
+        let snapshot = demands
         for demand in doomed { demands.removeValue(forKey: demand.id) }
-        try persist()
+        do { try persist() } catch {
+            demands = snapshot
+            throw error
+        }
     }
 
     // MARK: - Persistence
 
-    private func ensureLoaded() {
+    /// Loads once. A read failure (data protection before first unlock,
+    /// permissions, I/O) is *not* corruption: the bytes stay where they are,
+    /// `loaded` stays false and the caller gets `unavailable` to retry later.
+    /// Only bytes that were actually read and are not valid JSON are treated
+    /// as corruption.
+    private func ensureLoaded() throws {
         guard !loaded else { return }
-        loaded = true
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            loaded = true
+            return
+        }
+        let data: Data
         do {
-            let data = try Data(contentsOf: fileURL)
+            data = try Data(contentsOf: fileURL)
+        } catch {
+            throw WakeDemandLedgerError.unavailable
+        }
+        do {
             let document = try JSONDecoder().decode(WakeDemandDocument.self, from: data)
             demands = Dictionary(uniqueKeysWithValues: document.demands.map { ($0.id, $0) })
+            loaded = true
         } catch {
             // Preserve the bytes for diagnosis, then start empty: the durable
             // work behind a demand (outbox, journal, routine store) is intact.
             let backup = fileURL.appendingPathExtension("corrupt-\(Self.nowMs())")
             try? FileManager.default.moveItem(at: fileURL, to: backup)
             demands = [:]
+            loaded = true
         }
     }
 
@@ -202,7 +310,14 @@ public actor WakeDemandLedger {
         let data = try encoder.encode(document)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let temporary = directory.appendingPathComponent(".wake-demands-\(UUID().uuidString).tmp")
-        try data.write(to: temporary)
+        try data.write(to: temporary, options: .atomic)
+        // `.completeUntilFirstUserAuthentication`, not `.complete`: a background
+        // push/BGTask wake arrives while the phone is locked, and the ledger is
+        // exactly what authorizes that wake. `.complete` would make the file
+        // unreadable until the user unlocks.
+        try FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: temporary.path)
         let handle = try FileHandle(forWritingTo: temporary)
         try handle.synchronize()
         try handle.close()

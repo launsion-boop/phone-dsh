@@ -43,10 +43,25 @@ public enum ReadySweepStep: String, CaseIterable, Codable, Sendable, Equatable {
     }
 }
 
-/// One step's result.
+/// The closed skip vocabulary of host §10.2.5. A step that does not run says
+/// one of these four and nothing else; internal detail belongs in diagnostics,
+/// never in this value.
+public enum ReadySweepSkipReason: String, Codable, Sendable, Equatable, CaseIterable {
+    /// Not enough lease left for this step's budget.
+    case lease
+    /// The cloud pull already ran inside `cloudPullFreshnessMs`.
+    case alreadyPulled = "already-pulled"
+    /// Nothing for this step to do now.
+    case noWork = "no-work"
+    /// A user gate (switch off, explicit stop) forbids this step.
+    case gate
+}
+
+/// One step's result. `failed` carries an internal diagnostic reason; it never
+/// presents a user-visible error by itself.
 public enum ReadySweepOutcome: Sendable, Equatable {
     case ran
-    case skipped(reason: String)
+    case skipped(ReadySweepSkipReason)
     case failed(reason: String)
 }
 
@@ -129,7 +144,7 @@ public enum ReadySweepPolicy {
         case .missedRoutines: return 5_000
         case .connectorScan: return 10_000
         case .approvalReminderSync: return 1_000
-        case .dshSchedule: return 2_000
+        case .dshSchedule: return 3_000
         case .hostRetries: return 2_000
         }
     }

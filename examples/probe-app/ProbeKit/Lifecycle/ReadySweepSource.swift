@@ -64,15 +64,15 @@ public final class ReadySweepRegistry {
         var report = ReadySweepReport()
         for step in ReadySweepStep.allCases {
             guard let source = byID[step] else {
-                report.record(step, .skipped(reason: "source_unavailable"))
+                report.record(step, .failed(reason: "source_unavailable"))
                 continue
             }
             guard ReadySweepPolicy.shouldRun(step, remainingMs: context.remainingMs()) else {
-                report.record(step, .skipped(reason: "lease"))
+                report.record(step, .skipped(.lease))
                 continue
             }
             guard await source.due(nowMs: nowMs) else {
-                report.record(step, .skipped(reason: "not-due"))
+                report.record(step, .skipped(.noWork))
                 continue
             }
             report.record(step, await source.run(context))
