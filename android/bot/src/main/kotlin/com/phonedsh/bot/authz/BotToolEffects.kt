@@ -151,6 +151,12 @@ public object BotToolEffectClassifier {
     private const val DSHBOT_PREFIX = "mcp__dshbot__"
     private const val PHONE_PREFIX = "mcp__phone__"
 
+    /** `DeviceAppRules.isValidName` (device-app.md §2). */
+    private val DEVICE_APP_NAME = Regex("[a-z][a-z0-9_]{0,23}")
+
+    /** `XiaozhiFirmwareToolEffects.isDigest`: 64 lowercase hex. */
+    private val SHA256_HEX = Regex("[0-9a-f]{64}")
+
     private val uiLabels: Map<String, Pair<String, String>> = linkedMapOf(
         "ask_user" to ("询问用户" to "Ask the user"),
         "show_attachment" to ("显示附件卡片" to "Show an attachment card"),
@@ -371,6 +377,103 @@ public object BotToolEffectClassifier {
                         "Sends a message to another Bot and records the reply as an agent-comm row; " +
                             "this is an external action and must not be retried automatically when the outcome is unknown."
                     },
+                    isMcp = isMcp,
+                )
+            }
+            // device-app-v1 / xiaozhi-firmware classifier forms
+            // (`DeviceAppToolEffects.swift`, `XiaozhiFirmwareToolDefinitions.swift`).
+            // Android has no host for these tools yet (GAP-20); the table entry
+            // only keeps the shared effect classification identical.
+            "DeviceAppStage" -> BotToolEffect(
+                tool = bareName, operation = "device.app.stage", resource = "device-app:stage",
+                mutability = BotToolMutability.READ, policy = BotToolPolicy.AUTO,
+                label = "检查设备应用", detail = "只做静态检查和哈希，不向设备发送任何内容。",
+                isMcp = isMcp,
+            )
+            "DeviceAppList" -> BotToolEffect(
+                tool = bareName, operation = "device.app.list", resource = "device-app:list",
+                mutability = BotToolMutability.READ, policy = BotToolPolicy.AUTO,
+                label = "查看设备上的应用",
+                detail = "读取设备上已装的设备应用（名称、版本、是否在运行），不改动设备。",
+                isMcp = isMcp,
+            )
+            "DeviceAppRemove" -> {
+                val app = clip(args["name"], 64)
+                BotToolEffect(
+                    tool = bareName, operation = "device.app.remove",
+                    resource = if (DEVICE_APP_NAME.matches(app)) "device-app:remove&app=$app" else "device-app:remove",
+                    mutability = BotToolMutability.DESTRUCTIVE, policy = BotToolPolicy.ASK,
+                    label = "从设备上删除应用",
+                    detail = "停止并删除设备上的一个设备应用；每次删除都需要你确认。",
+                    isMcp = isMcp,
+                )
+            }
+            "DeviceAppInstall" -> {
+                val digest = clip(args["digest"], 64)
+                BotToolEffect(
+                    tool = bareName, operation = "device.app.install",
+                    resource = if (digest.isEmpty()) "device-app:install" else "device-app:install&digest=$digest",
+                    mutability = BotToolMutability.DESTRUCTIVE, policy = BotToolPolicy.ASK,
+                    label = "在设备上安装应用",
+                    detail = "把已检查的设备应用装到绑定的设备上；每次安装都需要你确认。",
+                    isMcp = isMcp,
+                )
+            }
+            "XiaozhiSourceExport" -> BotToolEffect(
+                tool = bareName, operation = "device.xiaozhi.export", resource = "xiaozhi:export",
+                mutability = BotToolMutability.WRITE, policy = BotToolPolicy.AUTO,
+                label = "导出小智固件源码",
+                detail = "把可修改的固件源码复制到这个 Bot 的工作区，不向设备发送任何内容。",
+                isMcp = isMcp,
+            )
+            "XiaozhiFirmwareBuild" -> BotToolEffect(
+                tool = bareName, operation = "device.xiaozhi.build", resource = "xiaozhi:build",
+                mutability = BotToolMutability.READ, policy = BotToolPolicy.AUTO,
+                label = "编译小智固件", detail = "在这台 iPhone 上编译固件，不向设备发送任何内容。",
+                isMcp = isMcp,
+            )
+            "XiaozhiFirmwareStatus" -> BotToolEffect(
+                tool = bareName, operation = "device.xiaozhi.status", resource = "xiaozhi:status",
+                mutability = BotToolMutability.READ, policy = BotToolPolicy.AUTO,
+                label = "查看小智固件状态", detail = "只读取编译任务、设备上报和中继状态。",
+                isMcp = isMcp,
+            )
+            "XiaozhiFirmwareFlash" -> {
+                val elf = clip(args["elfSha256"], 64)
+                BotToolEffect(
+                    tool = bareName, operation = "device.xiaozhi.flash",
+                    resource = if (SHA256_HEX.matches(elf)) "xiaozhi:flash&elf=$elf" else "xiaozhi:flash",
+                    mutability = BotToolMutability.DESTRUCTIVE, policy = BotToolPolicy.ASK,
+                    label = "给小智刷入固件",
+                    detail = "把这次编译的固件放到手机的 OTA 中继上，小智下次开机检查更新时会下载并刷入，替换它现在的固件。",
+                    isMcp = isMcp,
+                )
+            }
+            "RecordFeedback" -> {
+                // G-2: one feedback action bound to an artifact. The resource
+                // never carries the user's words, an id or a path.
+                val action = clip(args["action"], 40)
+                val kind = clip((args["target"] as? JsonObject)?.members?.get("kind"), 40)
+                BotToolEffect(
+                    tool = bareName,
+                    operation = "dshbot.RecordFeedback",
+                    resource = mergedResource(
+                        listOf(
+                            "dshbot:record-feedback",
+                            if (action.isEmpty()) "" else "action=$action",
+                            if (kind.isEmpty()) "" else "target=$kind",
+                        ),
+                    ),
+                    mutability = BotToolMutability.WRITE,
+                    policy = BotToolPolicy.ASK,
+                    label = if (language == BotToolLanguage.ZH) "记录用户反馈" else "Record user feedback",
+                    detail = if (language == BotToolLanguage.ZH) {
+                        "把你刚给出的采纳/撤销/纠正/不再提醒绑定到具体对象，写一条可审计反馈。"
+                    } else {
+                        "Binds the feedback you just gave (adopt/undo/correct/suppress) to the exact object " +
+                            "as an auditable record."
+                    },
+                    execution = "feedback",
                     isMcp = isMcp,
                 )
             }
