@@ -34,6 +34,7 @@ public enum BotReadySweepStep: String, CaseIterable, Codable, Sendable, Equatabl
 public enum BotReadySweepSkipReason: String, Sendable, Equatable {
     case lease
     case noWork = "no-work"
+    case gate
 }
 
 /// One Bot-owned step's outcome. Mirrors the shared `ReadySweepOutcome` shape
@@ -119,6 +120,10 @@ public struct BotReadySweepBudget: Sendable {
 public enum BotReadySweepWork: Sendable, Equatable {
     case done
     case none
+    /// Every unit of this step was gated (for example an unreadable cursor
+    /// record during data protection): report the contract's `gate`, not a
+    /// failure, and retry after the gate clears.
+    case gated
 }
 
 /// Runs the Bot-owned steps sequentially, once each, checking the remaining
@@ -157,6 +162,8 @@ public struct BotReadySweepRunner: Sendable {
                     report.record(step, .ran)
                 case .none:
                     report.record(step, .skipped(.noWork))
+                case .gated:
+                    report.record(step, .skipped(.gate))
                 }
             } catch is CancellationError {
                 // Cancellation is not one of the closed skip reasons; keep it

@@ -97,6 +97,16 @@ final class BotReadySweepRunnerTests: XCTestCase {
         XCTAssertEqual(report.outcome(for: .botHeldInbox), .skipped(.noWork))
         XCTAssertEqual(report.ranSteps, [.missedRoutines, .connectorScan, .approvalReminderSync])
     }
+    func testAGatedStepIsSkippedWithGate() async {
+        let runner = BotReadySweepRunner(
+            budget: .init(remainingMs: { 60_000 }, shouldRun: { _, _ in true }),
+            action: { _ in .gated })
+        let report = await runner.run()
+        XCTAssertEqual(report.steps.map(\.outcome),
+                       Array(repeating: BotReadySweepOutcome.skipped(.gate),
+                             count: BotReadySweepStep.allCases.count))
+        XCTAssertTrue(report.failedSteps.isEmpty)
+    }
 }
 
 private final class ReadySweepStepLog: @unchecked Sendable {
