@@ -62,10 +62,10 @@ final class BotProductionHub {
             error = chat.botRuntimeIssue ?? BotRuntimeError.unavailable.errorDescription
             return
         }
-        adopt(composition)
+        await adopt(composition)
     }
 
-    private func adopt(_ composition: BotRuntimeComposition) {
+    private func adopt(_ composition: BotRuntimeComposition) async {
         let roster = composition.rosterModel
         self.composition = composition
         self.roster = roster

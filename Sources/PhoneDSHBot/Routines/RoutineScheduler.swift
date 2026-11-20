@@ -8,6 +8,10 @@ public actor RoutineScheduler {
     public typealias Availability = @Sendable (String) async -> Bool
     public typealias Sleeper = @Sendable (Int64) async -> Void
     public typealias ApprovalCanceller = @Sendable (String) async -> Bool
+    /// PLAN §2.9: called after a state change that can move the Bot's earliest
+    /// routine due time. The owner re-projects the durable WakeDemand; the
+    /// scheduler itself stays free of the App ledger types.
+    public typealias DemandChanged = @Sendable () async -> Void
 
     public let botId: String
     /// Upper bound one run may occupy before its lease/result is considered
@@ -32,6 +36,7 @@ public actor RoutineScheduler {
     private let runTimeoutMs: Int64
     private let cancelGraceMs: Int64
     private let leaseOwner: String
+    private let onDemandChanged: DemandChanged?
     private var timerTask: Task<Void, Never>?
     /// Coalesced one-time restore before any tick may admit/consider work.
     private var prepareTask: Task<Void, Never>?
@@ -63,7 +68,8 @@ public actor RoutineScheduler {
                     try? await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
                 },
                 tickIntervalMs: Int64 = 5_000, runTimeoutMs: Int64 = 600_000,
-                cancelGraceMs: Int64 = 5_000, leaseOwner: String = "local") {
+                cancelGraceMs: Int64 = 5_000, leaseOwner: String = "local",
+                onDemandChanged: DemandChanged? = nil) {
         self.botId = botId
         self.cloudRunBudgetMs = max(1, runTimeoutMs) + max(0, cancelGraceMs)
         self.machine = machine
@@ -83,6 +89,14 @@ public actor RoutineScheduler {
         self.runTimeoutMs = max(1, runTimeoutMs)
         self.cancelGraceMs = max(0, cancelGraceMs)
         self.leaseOwner = leaseOwner
+        self.onDemandChanged = onDemandChanged
+    }
+
+    /// Re-projects the Bot's earliest routine due time after a state change.
+    /// The closure is the App's WakeDemand adapter; nil keeps the scheduler
+    /// byte-for-byte as before (unit tests and the eval harness).
+    private func notifyDemandChanged() async {
+        await onDemandChanged?()
     }
 
     public func start() {
@@ -159,6 +173,7 @@ public actor RoutineScheduler {
             }
         }
         await syncNotifications()
+        await notifyDemandChanged()
         return actions
     }
 
@@ -215,6 +230,7 @@ public actor RoutineScheduler {
             active.remove(routine.id)
         }
         await syncNotifications()
+        await notifyDemandChanged()
     }
 
     // MARK: - Cloud-scheduled occurrences
@@ -487,9 +503,11 @@ public actor RoutineScheduler {
                 await denyWaiting(routine: routine, approvalID: approvalId,
                                   expired: expired, cancelled: cancelled)
             }
+            await notifyDemandChanged()
             return
         }
         earlyApprovalDecisions[approvalId] = (allowed, expired, cancelled)
+        await notifyDemandChanged()
     }
 
     /// Every routine currently parked on a durable approval. The App unit uses
@@ -649,6 +667,7 @@ public actor RoutineScheduler {
     /// with the save.
     public func applySettingsChange() async {
         await syncNotifications()
+        await notifyDemandChanged()
         Task { try? await self.tick() }
     }
 

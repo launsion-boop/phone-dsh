@@ -2,6 +2,7 @@
 
 import Foundation
 import PhoneDSHBot
+import ProbeKit
 
 #if os(iOS)
 /// PLAN §2.8 bridge for Bot channels.
