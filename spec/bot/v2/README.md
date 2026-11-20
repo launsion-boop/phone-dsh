@@ -526,10 +526,17 @@ TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema
 ### 3.3 ReadySweep 中的 Bot 三步
 
 引擎就绪后，启动编排者（[host §10.2](../../host/v1/README.md)）在唤醒租约内依固定顺序跑
-ReadySweep 七步；其中第 4–7 步由 `BotRuntimeComposition.runReadySweep(_:)` 提供，顺序、步名与
-步内语义冻结如下。宿主编排者负责第 1–3 步（`userOutbox`、`externalAdmission`、`cloudTaskPull`），
-Bot 负责第 4–7 步，两者合并成**同一份** `ReadySweepReport`，顺序即本表。Bot 不新增第 8 步、不重排、
-也不在 sweep 之外自行执行这四步。
+ReadySweep 九步；其中第 4–7 步由 `BotRuntimeComposition.runReadySweep(_:)` 提供，顺序、步名与
+步内语义冻结如下。宿主编排者负责第 1–3 步（`userOutbox`、`externalAdmission`、`cloudTaskPull`）与
+第 8–9 步（`dshSchedule`、`hostRetries`，host §10.3.5），Bot 负责第 4–7 步，全部合并成**同一份**
+`ReadySweepReport`，顺序即 host §10.2.5。Bot 不新增步骤、不重排，也不在 sweep 之外自行执行这四步。
+
+**到期时间归宿主（host §10.3）。** Bot 不能只靠自己的 tick 决定何时再跑：routine 排程器在每次
+routine 变化、运行结束与安静时段延后时，把该 Bot 最早的 enabled `nextRunAt` upsert 成
+`WakeDemand(source: botRoutine, key: botId, userVisible: true)`，没有时 remove；connector 扫描在每次
+完成后 upsert `WakeDemand(source: connectorScan, key: <connector>)`，到期时间为完成时刻加
+`connectorScanIntervalMs`，连接器未授权时 remove。现有 routine 到期本地通知保持不变，它就是
+`userVisible` 通道。
 
 | 步 | `ReadySweepStep` | 內容 | 冪等與跳過 |
 | --- | --- | --- | --- |

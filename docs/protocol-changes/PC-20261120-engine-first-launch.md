@@ -9,9 +9,9 @@ change: PC-20261120-engine-first-launch
 contracts: [P05, P06, P08, P09, P26]
 status: frozen
 breaking: false
-version_decision: No version bump. host gains a new normative section §10.2 over the existing contract 1; cloud-tasks goes v1.5 to v1.6 as a documentation revision only (payload, routes, ack and limits are byte-identical); external-admission goes v1.1 to v1.2 with one clarifying sentence; bot v2 held-inbox-item gains two new closed connector-update variants while every existing variant and field is unchanged and an older reader keeps rejecting the unknown kind (fail-closed); proactive-decision gains connector-update as an additive kind and proactive-settings accepts it in deliveryKinds (old build skips the unknown kind in fuse restore, and no default copy is added); connector-cursor is a new host-private record whose GitHub cursor is {since,lastModified}. No wire field, Worker env, push payload or Android contract changes.
+version_decision: No version bump. host gains a new normative section §10.2 over the existing contract 1; cloud-tasks goes v1.5 to v1.6 as a documentation revision only (payload, routes, ack and limits are byte-identical); external-admission goes v1.1 to v1.2 with one clarifying sentence; bot v2 held-inbox-item gains two new closed connector-update variants while every existing variant and field is unchanged and an older reader keeps rejecting the unknown kind (fail-closed); proactive-decision gains connector-update as an additive kind and proactive-settings accepts it in deliveryKinds (old build skips the unknown kind in fuse restore, and no default copy is added); connector-cursor is a new host-private record whose GitHub cursor is {since,lastModified}. No wire field, Worker env, push payload or Android contract changes. Revision 3 adds host §10.3 (host-owned time: WakeDemand, wake projection, OS channels), two WakeReasons, two ReadySweep steps and engine-launch golden revision 2; it adds UIBackgroundModes `fetch` for BGAppRefreshTask.
 base: 87a2486edb715f8bff959c94621abe423163a951
-contract_revision: docs/protocol-changes/PC-20261120-engine-first-launch.md@2
+contract_revision: docs/protocol-changes/PC-20261120-engine-first-launch.md@3
 ```
 
 ## 1. 識別與角色
@@ -153,6 +153,50 @@ policy 的套用方式；golden 加 did／skip 向量。
    `quietDefer.scheduledFor` 仍是原定時點；`begin` 的 run `scheduledFor` 取原定時點，claim 後
    `quietDefer` 清除；仍在 dnd／安靜時段就再 defer，不丟棄。
 
+### 3.2 Revision 3 — host-owned time and intent (owner as contract owner)
+
+**Trigger → current → expected.** The user requires scheduled work to wake the engine and asked for
+the root cause to be fixed once. Current (revision 2): Bot routines fire only from the 1 s tick of a
+composition already bound to a running engine; DSH session schedules fire only from a `setTimeout`
+inside the Worker and the host cannot see their due time; engine backoff and outbox settle retries
+are in-process sleeps lost on suspension; connector scans have no cadence of their own. Expected:
+host §10.3 — five invariants (intent durable on the host first; time owned by the host; one way in;
+one way out; project before suspending), a host-private `WakeDemand` ledger with a closed source
+set, a pure wake projection with shared vectors, the iOS channel table, and ReadySweep steps 8–9.
+
+**Delta.**
+- `spec/host/v1/README.md`: §10.2 ownership split (host also runs 8–9); §10.2.1 adds `scheduledDemand`
+  and `bgAppRefresh`; §10.2.3 lists every provisional constant (adds `connectorScanIntervalMs =
+  1800000`, `minBackgroundDelayMs = 60000`); §10.2.5 adds `dshSchedule` (3000) and `hostRetries`
+  (2000); new §10.3.
+- `spec/host/v1/golden/engine-launch.json` and its schema: `revision` 2; 13 wake reasons, 9 steps,
+  `demandSources` (4), `projectionVectors` (7) and `invalidProjectionVectors` (7), six new decision
+  vectors, four new sweep vectors, one new invalid decision and one invalid sweep vector.
+- `spec/host/v1/tools/test_engine_launch.py`: reference oracle (new).
+- `spec/platform/README.md` §14: `fetch`, best-effort scheduling facts, Android channel mapping.
+- `spec/bot/v2/README.md` §3.3: nine steps; routine and connector demands.
+
+**Not a new surface.** The `dshSchedule` mirror reads the existing upstream DSH remote
+`schedule/list` over the existing transport; no plugin, route, payload, Worker env or DSH patch is
+added (P14: none — existing method on the existing `/api/remote.mux` transport). The ledger is
+host-private storage; no other process or platform reads its bytes. The cloud-scheduled push channel
+is `target` and is not called.
+
+**Compatibility.** old→new: an App without the ledger starts with an empty ledger and fills it on
+the first routine change, connector scan or engine-ready mirror refresh; nothing is lost because the
+durable queues are unchanged. new→old (rollback): the ledger file is ignored; routines keep their
+existing notifications. new→new: both ends read engine-launch revision 2. Android: not started; it
+reads the same revision-2 golden when implemented. Old data: no migration. Engine-launch golden revision 1 existed only on this change's branch: against the PR base
+`87a2486e` the schema is new (`schema_diff --base 87a2486e` reports 0 breaking findings), and the
+only reader of revision 1, the iOS launch unit on the same branch, moves to revision 2 in the same PR.
+
+**Acceptance.** `python3 spec/host/v1/tools/test_engine_launch.py`; `python3 spec/host/v1/tools/host_check.py --root .`;
+`bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`; iOS: the
+PhoneDSHSim golden-driven tests of the launch and Bot units against revision 2.
+
+**Ownership.** ios-launch: ledger, projection, scheduler, BGAppRefresh, `dshSchedule`/`hostRetries`
+steps, the two new reasons. ios-bot: `botRoutine` and `connectorScan` demand producers.
+
 ## 4. 分工與證據
 
 - **獨占路徑（不可重疊）**
@@ -231,3 +275,4 @@ policy 的套用方式；golden 加 did／skip 向量。
 | --- | --- | --- | --- |
 | 1 | contracts | Initial freeze: host §10.2 + golden, cloud-tasks v1.6, external-admission v1.2, bot v2 §3.3 + connectorUpdate/connector-cursor, UI deletion, platform §14. | `ios-launch`, `ios-bot`, `ios-wake-spike`, `integration-review`, Android |
 | 2 | contracts | Owner-accepted CCR from ios-bot (seq 61451/61452): `proactive-decision`/`proactive-settings` gain `connector-update` with did/skip vectors; §3.3 freezes the escaped `[connector]` held line and the `HeldMessages.block` opening description; five cursor/item/golden/routine questions answered in §3.1; `connector-cursor` GitHub cursor becomes `{since,lastModified}`. Owner ruling (seq 61474/61478): ReadySweep identifiers stay as committed, ownership split now explicit. No push payload/route/ack, UIBackgroundModes, audio-keepalive or push-SDK change. | `ios-launch`, `ios-bot`, `ios-wake-spike`, `integration-review`, Android |
+| 3 | owner (coordinator as contract owner, AGENTS.md §3.1) | User requirement: scheduled tasks must wake the engine; fix the class, not the instance. Host §10.3 host-owned time and intent, engine-launch golden revision 2, reference oracle, `fetch` mode, platform and bot v2 notes (§3.2). | `ios-launch`, `ios-bot`, Android (handoff) |

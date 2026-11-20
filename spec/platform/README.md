@@ -260,7 +260,8 @@ Five entries stay `not-verified` (the three PCLink ones were added by `PC-202611
 ## 14. Engine-first launch and remote wake
 
 The cross-platform launch rules are frozen in [host §10.2](../host/v1/README.md) (`WakeReason`,
-`WakeLease`, the three provisional thresholds and ReadySweep). This section records the platform
+`WakeLease`, the provisional thresholds and ReadySweep) and the host-owned time model in
+[host §10.3](../host/v1/README.md) (`WakeDemand`, the wake projection and its OS channels). This section records the platform
 facts those rules depend on. It is a platform slice, not a second contract: a platform that cannot
 use an OS mechanism degrades to the native pass and the next foreground, and never invents a
 listener or a keep-alive to hide the difference.
@@ -280,9 +281,14 @@ listener or a keep-alive to hide the difference.
   granted (`beginBackgroundTask`, the task's expiration handler). The existing silent-audio
   keep-alive keeps its existing users (an in-flight turn, a connected board); it is not opened to
   run background tasks (App Store 2.5.4).
-- **Permitted identifiers.** The `BGProcessing` request uses an identifier listed in
-  `BGTaskSchedulerPermittedIdentifiers` (the App adds that one identifier). No new
-  `UIBackgroundModes` value is added by this work.
+- **Permitted identifiers and modes.** The `BGProcessing` and `BGAppRefresh` requests use
+  identifiers listed in `BGTaskSchedulerPermittedIdentifiers`. Revision 3 of the change record adds
+  exactly one `UIBackgroundModes` value, `fetch`, which `BGAppRefreshTask` requires (host §10.3.4);
+  no other mode is added and `audio` keeps its existing users only.
+- **Scheduled wakes are best-effort while suspended.** `BGAppRefreshTask` and `BGProcessingTask`
+  run when the system decides; `earliestBeginDate` is a lower bound, not a promise. Exact silent
+  wakes need a server push (host §10.3.4 `target` channel). A device run is the only evidence of
+  real scheduling latency; a simulator `BGTask` trigger is `NOT_RUN` for that claim.
 
 ### 14.2 Android
 
@@ -302,6 +308,10 @@ listener or a keep-alive to hide the difference.
   existing foreground/Activity lifetime.
 - **Lease source.** The Android coordinator's lease deadline is the worker's stop signal or the
   Activity's foreground lifetime; `parkMarginMs` applies the same way as on iOS.
+- **Wake projection channels (host §10.3).** Android maps `residentTimerAtMs` to an in-process
+  timer and `backgroundEarliestMs` to a one-shot `WorkManager` request with that initial delay. An
+  exact `AlarmManager` alarm needs `SCHEDULE_EXACT_ALARM`/`USE_EXACT_ALARM` and is a separate
+  Android decision; without it the projection is best-effort, as on iOS.
 
 ## Android module mapping inventory
 
