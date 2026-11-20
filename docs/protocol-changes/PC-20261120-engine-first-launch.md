@@ -197,6 +197,23 @@ PhoneDSHSim golden-driven tests of the launch and Bot units against revision 2.
 **Ownership.** ios-launch: ledger, projection, scheduler, BGAppRefresh, `dshSchedule`/`hostRetries`
 steps, the two new reasons. ios-bot: `botRoutine` and `connectorScan` demand producers.
 
+**connector-update copy rule as shared negatives.** The rule "no default title/body; a missing or
+blank one is a candidate construction error" had no vector, so no end was tested against it. The
+repository JSON validator does not implement `if`/`then`, so the rule cannot live in the schema.
+`spec/bot/v2/golden/proactive.json` gains `decisions.semanticInvalid` (3 schema-valid candidates the
+decoder rejects with `proactive-candidate-missing-field` at `$.title`/`$.body`), checked by
+`spec/bot/v2/tools/validate_vectors.py`.
+
+**Android status: partial — shared-vector alignment only (owner decision 2026-11-20).** Adding the two
+connector-update decision cases to the shared `proactive.json` turned Android `:bot:test` from PASS on
+`87a2486e` to one failure, because Android hard-codes the case count and has no `connector-update`
+kind. To keep one boundary consistent on both ends (AGENTS.md §2.2) this change touches only
+`android/bot`: `ProactiveKind.CONNECTOR_UPDATE`, the decoder rule above, the exhaustive branch with no
+default copy, the updated case/step counts and a test that reads `decisions.semanticInvalid`. The
+launch orchestrator, the WakeDemand ledger, ReadySweep and connector scanning on Android are **not
+started** and stay with the Android implementer
+([handoff](../handoffs/engine-first-launch-android.md)).
+
 ## 4. 分工與證據
 
 - **獨占路徑（不可重疊）**

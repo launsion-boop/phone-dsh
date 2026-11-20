@@ -441,6 +441,9 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 
 `connector-update` 是 CCR 新增的类别：它没有冻结的缺省文案，候选必须自带非空的 `title` 与
 `body`，因此契约不会替它伪造用户可见文字；缺任何一个都是候选构造错误，不进入判定链。
+共享向量 `golden/proactive.json` 的 `decisions.semanticInvalid` 固定这条规则：候选通过 schema，但真实
+解码器必须以 `proactive-candidate-missing-field` 拒绝（缺 `title`、`body` trim 后为空、两者都缺时报
+`$.title`）。schema 无法用本仓库的校验器表达这个条件，所以它是语义负例，两端都必须直接读取。
 只有显式 `title`/`body` 会 trim 后判空；`summary`/`taskTitle`/`resultExcerpt` 按 presence 选择，
 空串仍会被采用（routine 的空 excerpt 摘要也是空串），不继续 fallback。
 

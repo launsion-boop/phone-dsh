@@ -1649,6 +1649,14 @@ def proactive_candidate_error(value):
             return ("proactive-candidate-type", "$.rowId")
         if not value["rowId"]:
             return ("proactive-candidate-min-length", "$.rowId")
+    if value["kind"] == "connector-update":
+        # bot v2 §3.0: connector-update has no default copy. A missing or blank
+        # (after trim) title/body is a candidate construction error, not a
+        # decision input. The JSON schema cannot express this conditional with
+        # the repository validator, so it is a semantic negative.
+        for field in ("title", "body"):
+            if not value.get(field, "").strip():
+                return ("proactive-candidate-missing-field", "$." + field)
     return None
 
 
@@ -1980,6 +1988,18 @@ def validate_proactive_fixture(fixture):
         where = "proactive.decisions.invalid[{}]".format(index)
         check(case["settings"], "proactive-settings.schema.json", where + ".settings")
         rejects_schema(case["candidate"], candidate_schema, where + ".candidate")
+        proactive_mismatch(where, proactive_candidate_error(case["candidate"]),
+                           (case["error"], case["path"]))
+    semantic = decisions.get("semanticInvalid")
+    if not semantic:
+        raise AssertionError("proactive: decisions.semanticInvalid must be non-empty")
+    for index, case in enumerate(semantic):
+        where = "proactive.decisions.semanticInvalid[{}]".format(index)
+        check(case["settings"], "proactive-settings.schema.json", where + ".settings")
+        # Schema-valid on purpose: only the real decoder can reject these.
+        check_schema(case["candidate"], candidate_schema, where + ".candidate")
+        if case["candidate"].get("kind") != "connector-update":
+            raise AssertionError(where + ": semantic negatives cover connector-update copy only")
         proactive_mismatch(where, proactive_candidate_error(case["candidate"]),
                            (case["error"], case["path"]))
 

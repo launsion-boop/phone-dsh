@@ -235,6 +235,12 @@ public class ProactiveEngine(
                 title = explicitTitle.ifEmpty { "DSH Bot · 提醒" }
                 body = explicitBody.ifEmpty { "提醒时间到了" }
             }
+            ProactiveKind.CONNECTOR_UPDATE -> {
+                // No default copy exists for this kind; the decoder already
+                // rejected a candidate without a non-empty title and body.
+                title = explicitTitle
+                body = explicitBody
+            }
         }
         return ProactiveNotification(
             title = title,

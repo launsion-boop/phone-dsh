@@ -100,7 +100,7 @@ class ProactiveVectorTest {
     @Test
     fun everyDecisionStepMatchesTheReferenceChain() {
         val cases = arrayValue(fixture, "decisions", "valid")
-        assertEquals("valid decision cases", 15, cases.size)
+        assertEquals("valid decision cases", 17, cases.size)
         var steps = 0
         for ((caseIndex, entry) in cases.withIndex()) {
             val case = entry as JsonObject
@@ -133,7 +133,7 @@ class ProactiveVectorTest {
                 steps += 1
             }
         }
-        assertEquals("decision steps", 38, steps)
+        assertEquals("decision steps", 40, steps)
     }
 
     @Test
@@ -152,6 +152,27 @@ class ProactiveVectorTest {
             }
             assertEquals("invalid candidate[$index] code", string(case, "error"), error.code)
             assertEquals("invalid candidate[$index] path", string(case, "path"), error.path)
+        }
+    }
+
+    @Test
+    fun everySemanticNegativeIsRejectedByTheDecoder() {
+        // Schema-valid candidates that the real decoder must still reject
+        // (bot v2 §3.0: connector-update has no default copy).
+        val cases = arrayValue(fixture, "decisions", "semanticInvalid")
+        assertEquals("semantic invalid candidate cases", 3, cases.size)
+        for ((index, entry) in cases.withIndex()) {
+            val case = entry as JsonObject
+            ProactiveSettings.fromJson(case.members.getValue("settings"))
+            val error = try {
+                ProactiveCandidate.fromJson(case.members.getValue("candidate"))
+                fail("semantic invalid candidate[$index] was accepted")
+                error("unreachable")
+            } catch (failure: ProactiveCandidateException) {
+                failure
+            }
+            assertEquals("semantic invalid candidate[$index] code", string(case, "error"), error.code)
+            assertEquals("semantic invalid candidate[$index] path", string(case, "path"), error.path)
         }
     }
 

@@ -34,6 +34,13 @@ public enum class ProactiveKind(public val wire: String) {
     TASK_DONE("task-done"),
     ROUTINE_RESULT("routine-result"),
     REMINDER("reminder"),
+
+    /**
+     * A connector delta scan found new metadata (bot v2 §3.3). It has no default
+     * copy: the candidate must carry a non-empty title and body, which the
+     * decoder enforces (golden `decisions.semanticInvalid`).
+     */
+    CONNECTOR_UPDATE("connector-update"),
     ;
 
     public companion object {
@@ -286,6 +293,17 @@ public data class ProactiveCandidate(
                 throw ProactiveCandidateException(
                     "proactive-candidate-min-length", "$.rowId",
                 )
+            }
+            if (kind == ProactiveKind.CONNECTOR_UPDATE) {
+                // bot v2 §3.0: no default copy, so a missing or blank title/body
+                // is a construction error that never reaches the decision chain.
+                for (field in listOf("title", "body")) {
+                    if (strings[field]?.trim().isNullOrEmpty()) {
+                        throw ProactiveCandidateException(
+                            "proactive-candidate-missing-field", "$.$field",
+                        )
+                    }
+                }
             }
 
             return ProactiveCandidate(
