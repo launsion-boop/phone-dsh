@@ -26,9 +26,23 @@ final class WakeInboxConnectorUpdateGoldenTests: XCTestCase {
             XCTAssertEqual(item.requestId,
                            "\(item.connector ?? ""):\(item.cursorFrom ?? ""):\(item.cursorTo ?? "")",
                            name)
-            let roundTrip = try JSONDecoder().decode(
-                WakeInboxItem.self, from: JSONEncoder().encode(item))
+            let encoded = try JSONEncoder().encode(item)
+            let roundTrip = try JSONDecoder().decode(WakeInboxItem.self, from: encoded)
             XCTAssertEqual(roundTrip, item, name)
+            // The connector branches of the schema are closed objects: the
+            // writer may not leak a member from another branch.
+            let raw = try XCTUnwrap(
+                try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+            let allowed: Set<String> = [
+                "id", "kind", "fromAgentId", "fromAgentName", "title", "text",
+                "requestId", "threadId", "createdAt", "state", "stagedAt",
+                "stagedKey", "connector", "cursorFrom", "cursorTo", "count", "items",
+            ]
+            XCTAssertTrue(Set(raw.keys).isSubset(of: allowed), name)
+            for value in raw["items"] as? [[String: Any]] ?? [] {
+                let allowedItems = ["id", "at", "from", "subject", "repo", "title"]
+                XCTAssertTrue(Set(value.keys).isSubset(of: allowedItems), name)
+            }
         }
         XCTAssertEqual(seen, ["connectorUpdateGmail", "connectorUpdateGithub"])
     }
