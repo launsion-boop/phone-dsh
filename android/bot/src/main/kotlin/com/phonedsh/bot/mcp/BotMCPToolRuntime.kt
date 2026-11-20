@@ -37,6 +37,10 @@ public class BotMCPToolRuntime(
     private val grants: BotGrantPort = AllowAllBotGrantPort,
     private val modelImageReader: BotModelImageReader? = null,
     private val team: BotTeamToolHandler? = null,
+    /** G-2 feedback store; `null` answers `unavailable` like an unwired Swift runtime. */
+    private val feedback: BotFeedbackPort? = null,
+    /** G-2 material service; `null` answers `material-unavailable`. */
+    private val decisionContext: BotDecisionContextPort? = null,
     private val events: BotMCPEventSink = NoopBotMCPEventSink,
     private val runtimeId: String = BotMCPProtocol.DEFAULT_RUNTIME_ID,
     private val now: () -> Long = { System.currentTimeMillis() },
@@ -87,6 +91,15 @@ public class BotMCPToolRuntime(
         public const val ATTACH_UNAVAILABLE_MESSAGE: String = "无法读取这张图片"
         public const val TOO_MANY_IMAGES_MESSAGE: String = "一条消息最多附 2 张图片给模型"
         public const val MODEL_IMAGE_DENIED_MESSAGE: String = "task_scope:model_image_denied"
+
+        public const val FEEDBACK_UNAVAILABLE_MESSAGE: String = "反馈服务没有装配"
+        public const val FEEDBACK_PRINCIPAL_MESSAGE: String =
+            "只有真实用户回合可以记录反馈；后台/例行/代理会话不能替用户表态。"
+        public const val DECISION_RESULT_SCHEMA: String = "bot-decision-context-result/v1"
+        private val FEEDBACK_ACTIONS = setOf("adopt", "undo", "correct", "suppress")
+        private val FEEDBACK_KINDS = setOf("proactive", "routine", "memory", "task", "delivery", "feedback")
+        private val FEEDBACK_SCOPES = setOf("artifact", "routine", "class", "user")
+        private val DECISION_CODES = setOf("permission-denied", "invalid-request", "material-unavailable")
 
         private val TASK_TERMINAL_STATUSES: Set<String> = setOf("completed", "failed", "stopped")
         private val RECORD_REFERENCE: Regex = Regex(
@@ -147,6 +160,12 @@ public class BotMCPToolRuntime(
             callId = resolved.callId.ifEmpty { botMcpCallId(jsonRpcId) },
             call = resolved,
         )
+        // decision-context.md §1.7: the internal read-only tool is answered
+        // right after attribution, like the Swift runtime; it grants nothing
+        // and only ever returns the claimed session's own block.
+        if (bare == BotToolCatalog.DECISION_CONTEXT_NAME) {
+            return decisionContext(arguments, context)
+        }
         try {
             val available = catalogProvider.definitions(context.principal.botId)
             if (available.none { it.name == bare }) {
@@ -207,9 +226,176 @@ public class BotMCPToolRuntime(
             "RequestApproval" -> requestApproval(arguments, context)
             BotToolCatalog.ATTACH_TO_MODEL_NAME -> attachToModel(arguments, context)
             "SendToUser" -> sendToUser(arguments, context)
+            BotToolCatalog.RECORD_FEEDBACK_NAME -> recordFeedback(arguments, context)
             else -> throw BotMCPToolException("unknown_tool", MESSAGE_UNKNOWN_TOOL + name)
         }
     }
+
+    // ------------------------------------------------------------------
+    // G-2: RecordFeedback (`BotFeedbackTools.swift`)
+    // ------------------------------------------------------------------
+
+    private suspend fun recordFeedback(
+        arguments: JsonValue,
+        context: BotToolCallContext,
+    ): BotMCPCallResult {
+        val port = feedback
+            ?: return BotMCPCallResult.failure("unavailable", FEEDBACK_UNAVAILABLE_MESSAGE)
+        if (context.principal.kind != BotMCPPrincipalKind.CHAT) {
+            return BotMCPCallResult.failure("permission_denied", FEEDBACK_PRINCIPAL_MESSAGE)
+        }
+        val args = (arguments as? JsonObject)?.members
+            ?: return invalidFeedback("RecordFeedback 的参数必须是对象。")
+        val action = BotJson.string(args["action"])?.takeIf { it in FEEDBACK_ACTIONS }
+            ?: return invalidFeedback("action 必须是 adopt、undo、correct 或 suppress。")
+        val target = (args["target"] as? JsonObject)?.members
+            ?: return invalidFeedback("target 必须是对象。")
+        val kind = BotJson.string(target["kind"])?.takeIf { it in FEEDBACK_KINDS }
+        val id = BotJson.string(target["id"])?.trim()
+        if (kind == null || id.isNullOrEmpty()) return invalidFeedback("target 需要 kind 与 id。")
+        val scope = if (args.containsKey("scope")) {
+            BotJson.string(args["scope"])?.takeIf { it in FEEDBACK_SCOPES }
+                ?: return invalidFeedback("scope 必须是 artifact、routine、class 或 user。")
+        } else {
+            "artifact"
+        }
+        val version = target["version"]?.let { raw ->
+            exactLong(raw)?.takeIf { it >= 0 } ?: return invalidFeedback("target.version 必须是非负整数。")
+        }
+        val disputedRefs = when (val refs = args["disputed_refs"]) {
+            is JsonArray -> refs.values.map { value ->
+                (value as? JsonString)?.value ?: return invalidFeedback("disputed_refs 必须是字符串数组。")
+            }
+            else -> emptyList()
+        }
+        val expiresAtMs = args["expires_at_ms"]?.let { raw ->
+            exactLong(raw)?.takeIf { it >= 0 } ?: return invalidFeedback("expires_at_ms 必须是非负整数。")
+        }
+        val request = BotFeedbackRequest(
+            botId = context.principal.botId,
+            sessionId = context.sessionId,
+            nonce = context.callId,
+            action = action,
+            targetKind = kind,
+            targetId = id,
+            targetVersion = version,
+            deliveryKey = BotJson.string(target["delivery_key"]),
+            scope = scope,
+            disputedRefs = disputedRefs,
+            expiresAtMs = expiresAtMs,
+            disputedOnly = action == "correct" && disputedRefs.isNotEmpty(),
+        )
+        val outcome = try {
+            port.record(request)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            return BotMCPCallResult.failure("execution_failed", "反馈没有记录成功。")
+        }
+        return BotMCPCallResult.success(outcome)
+    }
+
+    private fun invalidFeedback(message: String): BotMCPCallResult =
+        BotMCPCallResult.failure("invalid_arguments", message)
+
+    // ------------------------------------------------------------------
+    // G-2: BotDecisionContext (`BotMCPRuntime.handleDecisionContext`)
+    // ------------------------------------------------------------------
+
+    private suspend fun decisionContext(
+        arguments: JsonValue,
+        context: BotToolCallContext,
+    ): BotMCPCallResult {
+        val service = decisionContext
+            ?: return decisionFailure("material-unavailable", "决策上下文服务尚未接线")
+        val args = (arguments as? JsonObject)?.members
+            ?: return decisionFailure("invalid-request", "需要对象参数")
+        val sessionId = BotJson.string(args["session_id"]).orEmpty()
+        if (sessionId.isEmpty() || sessionId != context.sessionId) {
+            return decisionFailure("permission-denied", "只能读取本会话的决策上下文")
+        }
+        val turnId = BotJson.string(args["turn_id"]).orEmpty()
+        if (turnId.isEmpty() || turnId.codePointCount(0, turnId.length) > 200) {
+            return decisionFailure("invalid-request", "turn_id 不合法")
+        }
+        val step = exactLong(args["step"])?.takeIf { it >= 1 }
+            ?: return decisionFailure("invalid-request", "step 不合法")
+        val stage = BotJson.string(args["stage"])?.takeIf { it == "pre_delivery" || it == "pre_step" }
+            ?: return decisionFailure("invalid-request", "stage 不合法")
+        val query = BotJson.string(args["query"]).orEmpty()
+        if (query.codePointCount(0, query.length) > 600) {
+            return decisionFailure("invalid-request", "query 过长")
+        }
+        val scopeValues = (args["scopes"] as? JsonArray)?.values
+            ?: return decisionFailure("invalid-request", "scopes 缺失")
+        val scopes = scopeValues.mapNotNull { value ->
+            BotJson.string(value)?.takeIf { it == "user" || it == "agent" }
+        }
+        if (scopes.isEmpty() || scopes.size != scopeValues.size) {
+            return decisionFailure("invalid-request", "scopes 不合法")
+        }
+        val limits = (args["limits"] as? JsonObject)?.members
+        val maxMaterials = exactLong(limits?.get("max_materials"))
+        val maxCharacters = exactLong(limits?.get("max_characters"))
+        val maxSnippet = exactLong(limits?.get("max_snippet_characters"))
+        val deadline = exactLong(limits?.get("deadline_ms"))
+        if (maxMaterials == null || maxCharacters == null || maxSnippet == null || deadline == null) {
+            return decisionFailure("invalid-request", "limits 不合法")
+        }
+        val request = BotDecisionRequest(
+            stage = stage,
+            botId = context.principal.botId,
+            sessionId = sessionId,
+            turnId = turnId,
+            step = step,
+            query = query,
+            origin = BotJson.string(args["origin"]),
+            scopes = scopes,
+            maxMaterials = maxMaterials,
+            maxCharacters = maxCharacters,
+            maxSnippetCharacters = maxSnippet,
+            deadlineMs = deadline,
+        )
+        val block = try {
+            service.materials(request)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: BotDecisionContextException) {
+            val code = error.code.takeIf { it in DECISION_CODES } ?: "material-unavailable"
+            return decisionFailure(code, error.message ?: "决策上下文暂不可用")
+        } catch (_: Throwable) {
+            return decisionFailure("material-unavailable", "决策上下文暂不可用")
+        }
+        return BotMCPCallResult.success(
+            BotJson.objectOf(
+                "schema" to JsonString(DECISION_RESULT_SCHEMA),
+                "ok" to JsonBool(true),
+                "block" to block,
+            ),
+        )
+    }
+
+    /** `decision-internal-tool.schema.json` failure branch; message ≤ 200. */
+    private fun decisionFailure(code: String, message: String): BotMCPCallResult {
+        val clipped = if (message.codePointCount(0, message.length) <= 200) {
+            message
+        } else {
+            message.substring(0, message.offsetByCodePoints(0, 200))
+        }
+        val value = BotJson.objectOf(
+            "schema" to JsonString(DECISION_RESULT_SCHEMA),
+            "ok" to JsonBool(false),
+            "code" to JsonString(code),
+            "message" to JsonString(clipped),
+        )
+        return BotMCPCallResult.raw(
+            content = listOf(BotMCPCallResult.textBlock(BotJson.canonical(value))),
+            structuredContent = value,
+            isError = true,
+        )
+    }
+
+    private fun exactLong(value: JsonValue?): Long? = (value as? JsonNumber)?.asLongOrNull()
 
     // ------------------------------------------------------------------
     // Cards

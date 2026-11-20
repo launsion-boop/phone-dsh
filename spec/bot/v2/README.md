@@ -13,7 +13,7 @@ routine 预定通知、在场/打扰和设备任务结果重投是 phoneDSH 自�
 
 其余 Bot 契约仍在 `spec/bot/v1`，仍跟随 dsh-bot 钉版：事件信封、工具面、卡片、行、
 回合来源（[v1/README.md §4.1](../v1/README.md#41-回合来源turn-origin)）和 MCP 端点。
-Android 与 HarmonyOS 没有 Bot runtime，本目录对它们没有实现端。
+HarmonyOS 没有 Bot runtime，本目录对它没有实现端。Android `:bot` 只实现 G-2 两个工具的宿主边界（[PC-20261120-android-bot-g2-tools](../../../docs/protocol-changes/PC-20261120-android-bot-g2-tools.md)）：`tools/list` 列出 `RecordFeedback` 与 `BotDecisionContext`，按 iOS 的规则校验参数、调用方与会话，再交给可注入的反馈库与材料服务；两者在 Android 尚未实现、没有接线时按冻结的错误码失败（`unavailable`／`material-unavailable`），不写入、不返回材料。本目录其余部分对 Android 没有实现端。
 
 本目录没有 `dshbot-pin.json`，也没有 `export-manifest.json`：那两份文件只约束 v1 的原样
 上游导出。变更本目录必须按 [AGENTS.md](../../../AGENTS.md) §3 走变更单，并从
