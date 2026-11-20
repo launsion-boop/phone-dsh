@@ -55,7 +55,7 @@ final class DshScheduleListSimTests: XCTestCase {
                 "schedule/list",
                 args: .object(["request": .object([
                     "active": .bool(true),
-                    "limit": .integer(1),
+                    "limit": .number(1),
                 ])]))
             // The method answers the documented ScheduleListResult page shape.
             XCTAssertNotNil(result["items"]?.arrayValue,
