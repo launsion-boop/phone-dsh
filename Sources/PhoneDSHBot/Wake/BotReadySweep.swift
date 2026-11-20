@@ -4,7 +4,7 @@ import Foundation
 
 /// The four ReadySweep steps the Bot side owns (PLAN §2.1 steps 4–7).
 ///
-/// The shared seven-step enum lives in `ProbeKit/Lifecycle` (owned by
+/// The shared nine-step enum lives in `ProbeKit/Lifecycle` (owned by
 /// ios-launch); these raw values are the single place the Bot side names its
 /// own steps, so a contract rename is a one-line change here plus the mapping
 /// in `BotRuntimeComposition.runReadySweep(_:)`. The order is fixed by the
@@ -50,7 +50,7 @@ public enum BotReadySweepOutcome: Sendable, Equatable {
 }
 
 /// The Bot-side report. It only ever contains steps 4–7; the orchestrator
-/// merges it into the full seven-step report.
+/// merges it into the full nine-step report.
 public struct BotReadySweepReport: Sendable, Equatable {
     public struct StepResult: Sendable, Equatable {
         public let step: BotReadySweepStep

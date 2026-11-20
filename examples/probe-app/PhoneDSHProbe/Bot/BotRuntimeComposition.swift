@@ -1465,7 +1465,7 @@ final class BotRuntimeComposition {
     /// (`botHeldInbox`, `missedRoutines`, `connectorScan`, `approvalReminderSync`).
     ///
     /// The launch orchestrator owns steps 1–3 and merges this report into the
-    /// full seven-step report. Every step is gated immediately before it
+    /// full nine-step report. Every step is gated immediately before it
     /// starts by the shared `ReadySweepPolicy`; an unavailable lease leaves the
     /// step whole for the next wake (`skipped("lease")`). Each step is
     /// idempotent, so a repeated sweep is safe:
@@ -1484,7 +1484,7 @@ final class BotRuntimeComposition {
             })
         let runner = BotReadySweepRunner(budget: budget, action: { [weak self] step in
             guard let self else { throw CancellationError() }
-            try await self.performReadySweepStep(step)
+            return try await self.performReadySweepStep(step)
         })
         let report = await runner.run()
         let steps: [ReadySweepReport.StepResult] = report.steps.compactMap { result in
