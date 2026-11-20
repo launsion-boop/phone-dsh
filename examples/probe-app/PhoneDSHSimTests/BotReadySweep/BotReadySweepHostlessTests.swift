@@ -22,16 +22,18 @@ final class BotReadySweepHostlessTests: XCTestCase {
 
     func testOnlyTheStepWhoseBudgetFitsStarts() async {
         let log = HostlessStepLog()
+        // approvalReminderSync has the smallest budget, so this lease fits only
+        // that step; the larger Bot budgets are still gated.
         let minimal = EngineLaunchThresholds.parkMarginMs
-            + ReadySweepPolicy.stepBudgetMs(for: .botHeldInbox)
+            + ReadySweepPolicy.stepBudgetMs(for: .approvalReminderSync)
         let report = await BotReadySweepRunner(
             budget: budget(remaining: minimal),
             action: { step in log.append(step); return .done }).run()
-        XCTAssertEqual(log.all, [.botHeldInbox])
-        XCTAssertEqual(report.outcome(for: .botHeldInbox), .ran)
+        XCTAssertEqual(log.all, [.approvalReminderSync])
+        XCTAssertEqual(report.outcome(for: .approvalReminderSync), .ran)
+        XCTAssertEqual(report.outcome(for: .botHeldInbox), .skipped(.lease))
         XCTAssertEqual(report.outcome(for: .missedRoutines), .skipped(.lease))
         XCTAssertEqual(report.outcome(for: .connectorScan), .skipped(.lease))
-        XCTAssertEqual(report.outcome(for: .approvalReminderSync), .skipped(.lease))
     }
 
     func testResidentLeaseRunsAllFourStepsAgainstRealStores() async throws {
@@ -54,6 +56,8 @@ final class BotReadySweepHostlessTests: XCTestCase {
             now: { 1_000_000 })
 
         let cursorStore = HostlessCursorStore()
+        try await cursorStore.save(ConnectorCursorState(
+            connector: .gmail, cursor: .gmail(historyId: "1000"), updatedAt: 1))
         let client = HostlessConnectorClient()
         let sink = HostlessUpdateSink()
         let scanner = ConnectorDeltaScanner(clients: [client], cursors: cursorStore,
