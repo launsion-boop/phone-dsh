@@ -60,6 +60,10 @@ struct PhoneDSHProbeApp: App {
         // The phone task queue follows the account from launch, a background launch by a
         // task push included. It starts no engine and no timer.
         Task { @MainActor in CloudTaskCenter.shared.start() }
+        // PLAN §2.8: every channel (board, push, BGTask) delivers to the one
+        // launch orchestrator entry. Installing here covers a background
+        // relaunch by Bluetooth state restoration too.
+        Task { @MainActor in EngineLaunchOrchestrator.shared.installWakeSources() }
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment["PDSH_APPEARANCE"],
            let value = NativeAppearance(rawValue: raw) {
@@ -101,6 +105,10 @@ struct PhoneDSHProbeApp: App {
                                     await workspaceModels.scenePhaseChanged(true)
                                     // One pull → admit → ack pass (cloud-tasks.md §7); off = no-op.
                                     CloudTaskCenter.shared.appBecameActive()
+                                    // PLAN §2.1: foreground is one wake among
+                                    // the channels; the orchestrator decides
+                                    // boot/resume/sweep, never a call site.
+                                    _ = await EngineLaunchOrchestrator.shared.wake(.foreground, lease: nil)
                                 }
                             },
                             backgroundMatrix: { phase in
@@ -130,11 +138,15 @@ struct PhoneDSHProbeApp: App {
                     #if DEBUG
                     PCLinkDebugAutomation.shared.start(models: workspaceModels)
                     #endif
-                    // Boot the phone engine only for the phone segment; the
-                    // PC workspace starts its relay connection instead and the
-                    // phone starts lazily when the user switches back.
-                    if workspaceModels.isPhoneSelected {
-                        await ChatModel.shared.start()
+                    // Phase A always paints (Bot store + roster, snapshot,
+                    // outbox scan) without waiting for the engine.
+                    await ChatModel.shared.prepareLaunchContentForWake()
+                    // PLAN §2.6: the phone engine starts silently when the
+                    // phone segment is selected, at least one Bot exists, or
+                    // the outbox / admission journal holds pending work — not
+                    // only when the phone segment is selected.
+                    if await workspaceModels.shouldStartPhoneEngineAtLaunch() {
+                        _ = await EngineLaunchOrchestrator.shared.wake(.coldLaunch, lease: nil)
                     }
                 }
                 #if DEBUG

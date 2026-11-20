@@ -22,6 +22,12 @@ struct RootView: View {
                     .frame(width: 2, height: 2)
                     .accessibilityHidden(true)
                     .allowsHitTesting(false)
+                    .onAppear {
+                        // A background launch may have parked the anchor in the
+                        // offscreen window (PLAN §2.4); the visible container
+                        // just took it back, so close that window.
+                        OffscreenEngineWindow.shared.releaseIfAnchorMoved(anchor: chat.anchor)
+                    }
             }
             .overlay(alignment: .top) {
                 if let notice = models.pcLink.notice {

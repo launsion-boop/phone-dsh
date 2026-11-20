@@ -69,10 +69,14 @@
 	     iOS 26 (PhoneDSH Background). iOS requires the concrete
 	     identifier family in BGTaskSchedulerPermittedIdentifiers; the runtime
 	     prefix is `<bundle id>.continued-processing.drain.`.
+	     The second entry is the engine-first launch fallback (host §10.2):
+	     when a wake's lease is too short to boot, the App submits one
+	     BGProcessingTaskRequest under this concrete identifier.
 	     NOT_VERIFIED on a device: entitlement/scheduling behaviour. -->
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).continued-processing.drain.*</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).engine-launch.processing</string>
 	</array>
 	<!-- `audio`: the Chat page keeps a silent, mixWithOthers playback session
 	     while a turn is running in the background so the agent is not

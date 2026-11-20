@@ -121,6 +121,13 @@ final class WorkspaceModels {
         }
     }
 
+    /// PLAN §2.6: the phone engine boots silently at launch when the phone
+    /// segment is selected, at least one Bot exists, or the outbox / external
+    /// admission journal holds pending work. The PC relay path is unchanged.
+    func shouldStartPhoneEngineAtLaunch() async -> Bool {
+        await ChatModel.shared.shouldStartPhoneEngineAtLaunch(phoneSelected: isPhoneSelected)
+    }
+
     /// Foreground return: wake the PC relay even when the selected segment is
     /// the phone (the PC record may still be live) and resynchronize the PC
     /// pump's follow stream. Router/background delivery stays in the app.
