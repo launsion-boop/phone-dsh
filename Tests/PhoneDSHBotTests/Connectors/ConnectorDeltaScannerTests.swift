@@ -98,6 +98,25 @@ final class ConnectorDeltaScannerTests: XCTestCase {
         await XCTAssertTrueAsync(await sink.records.isEmpty)
     }
 
+    func testAnUnchangedGmailHeadIsNoNewItemsNotARegression() async throws {
+        let store = MemoryConnectorCursorStore()
+        try await store.save(.init(connector: .gmail, cursor: "100", updatedAt: 1))
+        let sink = RecordingConnectorSink()
+        let client = ScriptedConnectorClient(connector: .gmail,
+                                             results: [.success(.init(cursor: "100"))])
+        let scanner = ConnectorDeltaScanner(clients: [client], cursors: store,
+                                            sink: sink, now: { 1_000 })
+
+        await WP6AssertEqual(await scanner.scan(),
+                             [ConnectorScanResult(connector: .gmail,
+                                                  outcome: .noNewItems(cursorAdvanced: false))])
+        let cursor = await store.cursor(for: .gmail)
+        XCTAssertEqual(cursor?.cursor, "100")
+        XCTAssertEqual(cursor?.status, .established)
+        XCTAssertNil(cursor?.lastError)
+        await XCTAssertTrueAsync(await sink.records.isEmpty)
+    }
+
     func testADuplicateIntervalStillAdvancesTheCursor() async throws {
         let store = MemoryConnectorCursorStore()
         try await store.save(.init(connector: .gmail, cursor: "100", updatedAt: 1))

@@ -329,6 +329,12 @@ public actor ConnectorDeltaScanner {
                 connector: connector, cursor: page.cursor, updatedAt: nowMs))
             return (.baselineEstablished, nil)
         }
+        // An unchanged head means "nothing new since the last scan": keep the
+        // cursor and emit nothing. Check it before the regression rule, which
+        // must only fire for a cursor that actually moved backwards.
+        guard page.cursor != stored.cursor else {
+            return (.noNewItems(cursorAdvanced: false), nil)
+        }
         if let regression = Self.regression(connector: connector,
                                             previous: stored.cursor,
                                             next: page.cursor) {
@@ -336,9 +342,6 @@ public actor ConnectorDeltaScanner {
                 connector: connector, cursor: page.cursor, updatedAt: nowMs,
                 status: .reset, lastError: .cursorRegressed))
             return (.reset(reason: regression), nil)
-        }
-        guard page.cursor != stored.cursor else {
-            return (.noNewItems(cursorAdvanced: false), nil)
         }
         let items = Self.normalized(page.items)
         guard !items.isEmpty else {
