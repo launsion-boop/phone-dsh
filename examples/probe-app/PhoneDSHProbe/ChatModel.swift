@@ -1790,6 +1790,28 @@ final class ChatModel {
         await scheduleExternalAdmissionPass().value
     }
 
+    /// Ends a granted wake window (push / BGTask). `parkMarginMs` is the
+    /// latest stop point, not a mandatory wait: no turn parks immediately, a
+    /// running turn gets the rest of the window, a foreground return releases
+    /// the window without parking.
+    func finishWakeLeaseWindow(deadlineMs: Int64) async {
+        while true {
+            switch LeaseWindowPolicy.action(
+                isForeground: UIApplication.shared.applicationState == .active,
+                turnInFlight: isTurnInFlight,
+                nowMs: WakeLease.nowMs(),
+                deadlineMs: deadlineMs) {
+            case .releaseForeground:
+                return
+            case .parkNow:
+                await parkForWakeDeadline()
+                return
+            case .wait:
+                do { try await Task.sleep(nanoseconds: 200_000_000) } catch { return }
+            }
+        }
+    }
+
     /// Park the host at lease deadline − `parkMarginMs`, before the OS window
     /// closes. The push callback calls this and only then ends its background
     /// task and completes the fetch.
@@ -2008,7 +2030,7 @@ final class ChatModel {
                 "schedule/list",
                 args: .object(["request": .object([
                     "active": .bool(true),
-                    "limit": .integer(1),
+                    "limit": .number(1),
                 ])]))
             let first = result["items"]?.arrayValue?.first
             guard let scheduledAt = first?["scheduledAt"]?.stringValue,
@@ -3441,7 +3463,9 @@ final class ChatModel {
             hostLifecycleTransition = false
         }
         appendStatus("App in background: parking the host (in-flight work gets the drain window, then the turn is cancelled)…")
-        // §10.3.5: refresh the schedule mirror before the engine goes away.
+        // I5: project the earliest WakeDemand before the host parks, then
+        // refresh the schedule mirror before the engine goes away.
+        await EngineLaunchOrchestrator.shared.appDidEnterBackground()
         await refreshDshScheduleMirror()
         do {
             try await host.park()
