@@ -214,7 +214,10 @@ private final class GmailDeltaFixtureProtocol: URLProtocol {
         else { return fail() }
 
         let query = components.queryItems ?? []
-        let queryMap = Dictionary(uniqueKeysWithValues: query.map { ($0.name, $0.value ?? "") })
+        // Gmail metadata requests repeat `metadataHeaders` (From + Subject), so
+        // uniqueKeysWithValues would trap; the fixture only inspects presence.
+        var queryMap: [String: String] = [:]
+        for item in query { queryMap[item.name] = item.value ?? "" }
         let status: Int
         let payload: String
         if request.value(forHTTPHeaderField: "Authorization") == "Bearer expired" {
@@ -334,9 +337,8 @@ private final class GitHubDeltaFixtureProtocol: URLProtocol {
               request.httpMethod == "GET",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         else { return fail() }
-        let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map {
-            ($0.name, $0.value ?? "")
-        })
+        var query: [String: String] = [:]
+        for item in components.queryItems ?? [] { query[item.name] = item.value ?? "" }
         let bearer = request.value(forHTTPHeaderField: "Authorization")
         GitHubDeltaRecorder.shared.append(.init(
             query: query,
