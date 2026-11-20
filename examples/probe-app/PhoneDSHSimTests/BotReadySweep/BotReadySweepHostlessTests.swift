@@ -76,6 +76,7 @@ final class BotReadySweepHostlessTests: XCTestCase {
                 case .approvalReminderSync:
                     break
                 }
+                return .done
             }).run()
 
         XCTAssertEqual(report.ranSteps, BotReadySweepStep.allCases)
