@@ -4,7 +4,7 @@
   "notes": "spec/host/v1/README.md §10.2: decision order, threshold constants and ReadySweep step gate; PC-20261120-engine-first-launch. Swift and Kotlin tests read this file directly; do not copy a vector.",
   "instance": {
     "contract": "engine-launch",
-    "revision": 1,
+    "revision": 2,
     "constants": {
       "minLeaseForColdBootMs": 20000,
       "minLeaseForResumeMs": 8000,
@@ -17,8 +17,12 @@
         "botHeldInbox": 2000,
         "missedRoutines": 5000,
         "connectorScan": 10000,
-        "approvalReminderSync": 1000
-      }
+        "approvalReminderSync": 1000,
+        "dshSchedule": 3000,
+        "hostRetries": 2000
+      },
+      "connectorScanIntervalMs": 1800000,
+      "minBackgroundDelayMs": 60000
     },
     "wakeReasons": [
       "coldLaunch",
@@ -31,7 +35,9 @@
       "pcLinkRequest",
       "bgProcessing",
       "routineNotificationTap",
-      "engineRecovered"
+      "engineRecovered",
+      "scheduledDemand",
+      "bgAppRefresh"
     ],
     "decisions": [
       "boot",
@@ -48,7 +54,9 @@
       "botHeldInbox",
       "missedRoutines",
       "connectorScan",
-      "approvalReminderSync"
+      "approvalReminderSync",
+      "dshSchedule",
+      "hostRetries"
     ],
     "decisionVectors": [
       {
@@ -435,6 +443,86 @@
           "needsReset": false
         },
         "expected": "boot"
+      },
+      {
+        "id": "scheduled-demand-resident-audio-boots",
+        "input": {
+          "reason": "scheduledDemand",
+          "foreground": false,
+          "residentAudio": true,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "boot",
+        "note": "a host timer fired for a due WakeDemand while audio keeps the process resident"
+      },
+      {
+        "id": "scheduled-demand-foreground-running-is-ready",
+        "input": {
+          "reason": "scheduledDemand",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "running",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "ready"
+      },
+      {
+        "id": "bg-app-refresh-cold-boot-at-threshold",
+        "input": {
+          "reason": "bgAppRefresh",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": 20000,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "boot",
+        "note": "BGAppRefreshTask expiration leaves exactly minLeaseForColdBootMs"
+      },
+      {
+        "id": "bg-app-refresh-below-cold-boot-is-native-only",
+        "input": {
+          "reason": "bgAppRefresh",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": 19999,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "nativeOnly"
+      },
+      {
+        "id": "bg-app-refresh-parked-resume-at-threshold",
+        "input": {
+          "reason": "bgAppRefresh",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "parked",
+          "leaseRemainingMs": 8000,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "resume"
+      },
+      {
+        "id": "bg-app-refresh-user-stopped-defers",
+        "input": {
+          "reason": "bgAppRefresh",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": 25000,
+          "userStopped": true,
+          "needsReset": false
+        },
+        "expected": "defer"
       }
     ],
     "invalidDecisionVectors": [
@@ -577,6 +665,19 @@
           "needsReset": false
         },
         "reason": "missing-member"
+      },
+      {
+        "id": "free-form-scheduled-reason",
+        "input": {
+          "reason": "timer",
+          "foreground": true,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "reason": "unknown-reason"
       }
     ],
     "sweepVectors": [
@@ -679,6 +780,32 @@
         "step": "connectorScan",
         "remainingMs": 0,
         "expected": "skip"
+      },
+      {
+        "id": "dsh-schedule-runs-at-budget-boundary",
+        "note": "5000 park margin + 3000 step budget",
+        "step": "dshSchedule",
+        "remainingMs": 8000,
+        "expected": "run"
+      },
+      {
+        "id": "dsh-schedule-skips-one-below",
+        "step": "dshSchedule",
+        "remainingMs": 7999,
+        "expected": "skip"
+      },
+      {
+        "id": "host-retries-runs-at-budget-boundary",
+        "note": "5000 park margin + 2000 step budget",
+        "step": "hostRetries",
+        "remainingMs": 7000,
+        "expected": "run"
+      },
+      {
+        "id": "host-retries-skips-one-below",
+        "step": "hostRetries",
+        "remainingMs": 6999,
+        "expected": "skip"
       }
     ],
     "invalidSweepVectors": [
@@ -719,6 +846,331 @@
           "step": "userOutbox"
         },
         "reason": "missing-member"
+      },
+      {
+        "id": "old-step-spelling-rejected",
+        "note": "r1 summary spellings are not aliases",
+        "input": {
+          "step": "heldInboxReplay",
+          "remainingMs": 10000
+        },
+        "reason": "unknown-step"
+      }
+    ],
+    "demandSources": [
+      "botRoutine",
+      "connectorScan",
+      "dshSchedule",
+      "hostRetry"
+    ],
+    "projectionVectors": [
+      {
+        "id": "empty-ledger-schedules-nothing",
+        "input": {
+          "nowMs": 1800000000000,
+          "resident": true,
+          "demands": []
+        },
+        "expected": {
+          "residentTimerAtMs": null,
+          "backgroundEarliestMs": null,
+          "dueNow": []
+        }
+      },
+      {
+        "id": "future-demand-resident-timer-and-background",
+        "note": "resident: exact host timer; background request is always submitted too because suspension can happen at any moment",
+        "input": {
+          "nowMs": 1800000000000,
+          "resident": true,
+          "demands": [
+            {
+              "source": "botRoutine",
+              "key": "bot-a",
+              "dueAtMs": 1800000600000,
+              "kind": "recurring",
+              "userVisible": true
+            }
+          ]
+        },
+        "expected": {
+          "residentTimerAtMs": 1800000600000,
+          "backgroundEarliestMs": 1800000600000,
+          "dueNow": []
+        }
+      },
+      {
+        "id": "future-demand-not-resident-background-only",
+        "input": {
+          "nowMs": 1800000000000,
+          "resident": false,
+          "demands": [
+            {
+              "source": "dshSchedule",
+              "key": "schedule",
+              "dueAtMs": 1800003600000,
+              "kind": "once",
+              "userVisible": false
+            }
+          ]
+        },
+        "expected": {
+          "residentTimerAtMs": null,
+          "backgroundEarliestMs": 1800003600000,
+          "dueNow": []
+        }
+      },
+      {
+        "id": "near-demand-background-clamped-to-min-delay",
+        "note": "the OS request never asks earlier than now + minBackgroundDelayMs; the resident timer stays exact",
+        "input": {
+          "nowMs": 1800000000000,
+          "resident": true,
+          "demands": [
+            {
+              "source": "hostRetry",
+              "key": "engineBoot",
+              "dueAtMs": 1800000005000,
+              "kind": "once",
+              "userVisible": false
+            }
+          ]
+        },
+        "expected": {
+          "residentTimerAtMs": 1800000005000,
+          "backgroundEarliestMs": 1800000060000,
+          "dueNow": []
+        }
+      },
+      {
+        "id": "overdue-demand-is-due-now-and-clamped",
+        "input": {
+          "nowMs": 1800000000000,
+          "resident": true,
+          "demands": [
+            {
+              "source": "botRoutine",
+              "key": "bot-a",
+              "dueAtMs": 1799999880000,
+              "kind": "recurring",
+              "userVisible": true
+            }
+          ]
+        },
+        "expected": {
+          "residentTimerAtMs": 1800000000000,
+          "backgroundEarliestMs": 1800000060000,
+          "dueNow": [
+            {
+              "source": "botRoutine",
+              "key": "bot-a"
+            }
+          ]
+        }
+      },
+      {
+        "id": "due-boundary-equal-now-is-due",
+        "input": {
+          "nowMs": 1800000000000,
+          "resident": false,
+          "demands": [
+            {
+              "source": "connectorScan",
+              "key": "gmail",
+              "dueAtMs": 1800000000000,
+              "kind": "recurring",
+              "userVisible": false
+            }
+          ]
+        },
+        "expected": {
+          "residentTimerAtMs": null,
+          "backgroundEarliestMs": 1800000060000,
+          "dueNow": [
+            {
+              "source": "connectorScan",
+              "key": "gmail"
+            }
+          ]
+        }
+      },
+      {
+        "id": "earliest-of-several-wins-and-due-now-ordered",
+        "note": "dueNow is ordered by dueAtMs, then demandSources order, then key",
+        "input": {
+          "nowMs": 1800000000000,
+          "resident": true,
+          "demands": [
+            {
+              "source": "dshSchedule",
+              "key": "schedule",
+              "dueAtMs": 1800000900000,
+              "kind": "once",
+              "userVisible": false
+            },
+            {
+              "source": "connectorScan",
+              "key": "github",
+              "dueAtMs": 1799999999000,
+              "kind": "recurring",
+              "userVisible": false
+            },
+            {
+              "source": "botRoutine",
+              "key": "bot-b",
+              "dueAtMs": 1799999999000,
+              "kind": "recurring",
+              "userVisible": true
+            },
+            {
+              "source": "botRoutine",
+              "key": "bot-a",
+              "dueAtMs": 1799999999000,
+              "kind": "recurring",
+              "userVisible": true
+            },
+            {
+              "source": "hostRetry",
+              "key": "outboxSettle",
+              "dueAtMs": 1799999995000,
+              "kind": "once",
+              "userVisible": false
+            }
+          ]
+        },
+        "expected": {
+          "residentTimerAtMs": 1800000000000,
+          "backgroundEarliestMs": 1800000060000,
+          "dueNow": [
+            {
+              "source": "hostRetry",
+              "key": "outboxSettle"
+            },
+            {
+              "source": "botRoutine",
+              "key": "bot-a"
+            },
+            {
+              "source": "botRoutine",
+              "key": "bot-b"
+            },
+            {
+              "source": "connectorScan",
+              "key": "github"
+            }
+          ]
+        }
+      }
+    ],
+    "invalidProjectionVectors": [
+      {
+        "id": "missing-demands",
+        "input": {
+          "nowMs": 1800000000000,
+          "resident": true
+        },
+        "reason": "missing-member"
+      },
+      {
+        "id": "resident-not-boolean",
+        "input": {
+          "nowMs": 1800000000000,
+          "resident": "yes",
+          "demands": []
+        },
+        "reason": "member-type"
+      },
+      {
+        "id": "unknown-source",
+        "input": {
+          "nowMs": 1800000000000,
+          "resident": true,
+          "demands": [
+            {
+              "source": "dshScheduler",
+              "key": "schedule",
+              "dueAtMs": 1800000000000,
+              "kind": "once",
+              "userVisible": false
+            }
+          ]
+        },
+        "reason": "unknown-source"
+      },
+      {
+        "id": "duplicate-source-key",
+        "input": {
+          "nowMs": 1800000000000,
+          "resident": true,
+          "demands": [
+            {
+              "source": "botRoutine",
+              "key": "bot-a",
+              "dueAtMs": 1800000000000,
+              "kind": "once",
+              "userVisible": false
+            },
+            {
+              "source": "botRoutine",
+              "key": "bot-a",
+              "dueAtMs": 1800000000001,
+              "kind": "once",
+              "userVisible": false
+            }
+          ]
+        },
+        "reason": "duplicate-demand"
+      },
+      {
+        "id": "negative-due",
+        "input": {
+          "nowMs": 1800000000000,
+          "resident": true,
+          "demands": [
+            {
+              "source": "hostRetry",
+              "key": "engineBoot",
+              "dueAtMs": -1,
+              "kind": "once",
+              "userVisible": false
+            }
+          ]
+        },
+        "reason": "due-negative"
+      },
+      {
+        "id": "unknown-kind",
+        "input": {
+          "nowMs": 1800000000000,
+          "resident": true,
+          "demands": [
+            {
+              "source": "connectorScan",
+              "key": "gmail",
+              "dueAtMs": 1800000000000,
+              "kind": "periodic",
+              "userVisible": false
+            }
+          ]
+        },
+        "reason": "unknown-kind"
+      },
+      {
+        "id": "empty-key",
+        "input": {
+          "nowMs": 1800000000000,
+          "resident": true,
+          "demands": [
+            {
+              "source": "hostRetry",
+              "key": "",
+              "dueAtMs": 1800000000000,
+              "kind": "once",
+              "userVisible": false
+            }
+          ]
+        },
+        "reason": "member-type"
       }
     ]
   }
