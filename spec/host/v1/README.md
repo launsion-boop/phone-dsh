@@ -115,6 +115,8 @@ that only exists to make one OS happy belongs to `spec/platform`, never here.
 | `schema/device-capabilities.schema.json` | manifest: capability map, limits, auth (`CONN` §4.5, `DRAFT` §5) |
 | `schema/device-receipt.schema.json` | applied/failed receipt of one downlink command (`DRAFT` §4) |
 | `schema/outbox-entry.schema.json` | one durable send-outbox entry: `rpcId`, state and timestamps (§10) |
+| `schema/engine-launch.schema.json` | the shared engine-launch vector document: closed wake reasons, decisions, steps, thresholds and per-step budgets (§10.2) |
+| `golden/engine-launch.json` | valid and invalid decision/sweep vectors, read directly by the Swift and Kotlin tests (§10.2) |
 | `golden/*.json` | at least one instance per schema; event sequences prove resume |
 | `tools/host_check.py` | schema lint, golden validation, sequence and capability rules |
 | `tools/test_host_check.py` | mutation tests that keep the gate honest |
@@ -361,11 +363,12 @@ busy. Acceptance means the existing outbox entry is durable, not that execution 
 Foreground delivery joins one preparation task and uses existing start/resume transitions.
 Execution eligibility is one answer: the App is not in the background (a cold launch is still
 inactive), or the process is held resident by an audio keep-alive — the chat's own or another
-owner's, such as a connected TonoLink board. While eligible, queued work may start, resume or
-deliver through the existing transitions, in foreground or background, and a background
-delivery takes the chat's own keep-alive for that turn so the existing turn-end path decides
-whether to park. Without eligibility a background callback alone never authorizes WebContent
-boot/resume; a start refused for that reason runs at the next foreground return. Manual
+owner's, such as a connected TonoLink board — or the App holds a valid wake lease whose remaining
+time is at least the launch threshold for the host state (§10.2). While eligible, queued work may
+start, resume or deliver through the existing transitions, in foreground or background, and a
+background delivery takes the chat's own keep-alive for that turn so the existing turn-end path
+decides whether to park. Without eligibility a background callback alone never authorizes
+WebContent boot/resume; a start refused for that reason runs at the next foreground return. Manual
 recovery and explicit stop gates remain authoritative; an explicit stop pauses queued
 preparation even while a boot is in flight. Foreground return retries retained queued work.
 A first-ever UI send must establish a foreground session and then enqueue before submitting;
@@ -379,6 +382,187 @@ may defer an entry before calling transport, using submitting → outcomeUnknown
 with its original ID. This branch has direct proof that no transport attempt occurred. That
 proof does not survive a crash and cannot be inferred from a saved error string; recovered
 submitting/unknown entries still require authoritative reconciliation before retry.
+
+### 10.2 Engine-first launch, wake leases and ReadySweep (P06, `engine-launch-v1`)
+
+Status: normative, frozen by
+[PC-20261120-engine-first-launch](../../../docs/protocol-changes/PC-20261120-engine-first-launch.md).
+This section is language-neutral. Swift implements it first on iOS; Kotlin implements the same
+closed value sets, the same constants and the same pure functions on Android, and both ends test
+them by reading [golden/engine-launch.json](golden/engine-launch.json) with
+[schema/engine-launch.schema.json](schema/engine-launch.schema.json) directly. A hand-copied vector
+or a platform-only threshold is out of contract.
+
+**One orchestrator.** Each platform has exactly one launch orchestrator. It owns when the engine
+starts or resumes, which wake is being served, and whether a ReadySweep step may run. A wake source
+(§10.2.2) records the request durably and then calls that one orchestrator; it never starts the
+engine itself, never calls the Bot runtime, and never runs a sweep on its own.
+
+**Four stages, fixed order.** A wake runs the stages in this order and no stage invents work for
+another:
+
+| Stage | Content | Needs the engine |
+|---|---|---|
+| A | immediate content: restore the DSH transcript snapshot; open the Bot store and prepare the Bot composition without a host; render the roster and the persisted Bot rows (including held inbox and device-task results already written); scan the send outbox and the admission journal; pull cloud tasks | no |
+| B | ensure the engine: one idempotent boot/resume decision (§10.2.4) | — |
+| C | bind consumers in the existing order: Bot composition starts on the host, the DSH session adopts it, the MCP listener is checked | yes |
+| D | ReadySweep (§10.2.5) | yes |
+
+Stage A must finish before anything waits on the engine: the Bot page shows persisted content and
+the chat shows its snapshot even when the engine never becomes eligible.
+
+**Launch gating is not tab selection.** The local phone engine starts at launch, silently, when the
+app is on the phone backend, or at least one Bot exists, or the send outbox or the admission journal
+holds pending work. A UI segment or tab is never the only gate for Bot work; the PC relay keeps its
+existing path.
+
+#### 10.2.1 `WakeReason` (closed)
+
+`WakeReason` is a closed enumeration. A new transport adds a value only through a contract revision
+that also updates the golden; a free-form string is invalid and is rejected, never coerced.
+
+| Value | Origin | Lease source |
+|---|---|---|
+| `coldLaunch` | process start | none (a cold launch is still `inactive`, §10.1) |
+| `foreground` | scene becomes active / foreground return | none (foreground eligibility) |
+| `unlock` | protected data became available | none; eligibility still needs foreground, keep-alive or a lease |
+| `cloudTaskPush` | background push callback | `beginBackgroundTask` / the callback's granted time |
+| `boardWake` | connected TonoLink board | existing resident audio / `bluetooth-central` |
+| `bleRequest` | another trusted BLE device | existing resident audio, or a granted background task |
+| `lanRequest` | LAN device, TonoLink relay or Bot MCP HTTP listener request | `beginBackgroundTask` while the process is resident; unreachable while suspended |
+| `pcLinkRequest` | PCLink relay request | `beginBackgroundTask` while the process is resident |
+| `bgProcessing` | `BGProcessingTask` / one-shot background worker | the task's expiration handler |
+| `routineNotificationTap` | user taps a routine-due local notification | none (user interaction = foreground) |
+| `engineRecovered` | the existing recovery finished | none |
+
+#### 10.2.2 `WakeSource` adapters
+
+One adapter per channel. An adapter does exactly three things:
+
+1. receive the request and write it durably first — the external admission journal, the send outbox
+   or the Bot wake inbox as that channel already requires — before any engine action;
+2. call the one orchestrator with the `WakeReason` and the lease it was granted (or `nil`);
+3. return without starting the engine, calling the Bot runtime or running any sweep.
+
+The existing Bot-side `WakeSignalSource` is the Bot-channel adapter interface and is reused, not
+duplicated. Adapting a push, a board, a LAN/Bot MCP listener or a PCLink request is the host's job;
+the adapter never becomes a second launch path.
+
+**iOS reachability (platform fact, not a new feature).** Once the App is suspended, a local LAN
+listener receives no connection and BLE can wake it only through a registered restorable
+connection. A remote peer that cannot reach the phone therefore retries through the cloud task
+queue ([cloud-tasks.md](../../v1/cloud-tasks.md) §8) which wakes the phone with a background push.
+Reachability and the fallback decision belong to the requester; the phone adds no listener and no
+keep-alive for this.
+
+#### 10.2.3 `WakeLease`
+
+```json
+{"wakeId":"<lowercase UUIDv4>","reason":"cloudTaskPush","grantedAtMs":0,"deadlineMs":30000}
+```
+
+`wakeId` is generated once per wake. `deadlineMs` comes from the system, never from a fixed budget:
+the remaining background time, a `BGTask` expiration handler, or the Android worker's stop signal.
+`remainingMs = deadlineMs − now` at the point of the check. A missing lease is `null`; a negative
+remaining value is invalid input.
+
+**Thresholds (provisional constants).** These are contract constants, not tuning knobs scattered in
+code. They are provisional values and are re-measured on a real device by the `ios-wake-spike`
+tool; a change is a contract revision, never a local edit.
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `minLeaseForColdBootMs` | `20000` | with no host (or a failed host), the lease must leave at least 20 s |
+| `minLeaseForResumeMs` | `8000` | with a parked host, the lease must leave at least 8 s |
+| `parkMarginMs` | `5000` | park the host and end the background task this long before the deadline |
+
+#### 10.2.4 Decision function
+
+`EngineLaunchPolicy.decide(reason, foreground, residentAudio, hostState, leaseRemainingMs,
+userStopped, needsReset)` is pure and total over the decision input in the golden. `hostState` is
+one of `absent`, `parked`, `running`, `failed`. The result is one of `boot`, `resume`, `ready`,
+`nativeOnly`, `defer`, `needsAttention`, evaluated in this order:
+
+1. `needsReset` is true → `needsAttention`. This is the existing fail-loud reset path; a silent
+   retry is forbidden.
+2. `userStopped` is true → `defer`. An explicit stop is authoritative for every reason; queued work
+   is retained and retried when the gate clears.
+3. `hostState == running` → `ready`. The engine is already usable; a short lease does not stop it,
+   it only limits ReadySweep steps.
+4. `eligible = foreground || residentAudio || (leaseRemainingMs != null && leaseRemainingMs >=
+   requiredLease)`, where `requiredLease` is `minLeaseForResumeMs` for `parked` and
+   `minLeaseForColdBootMs` for `absent` and `failed`.
+5. not eligible → `nativeOnly`. Stage A still runs; one deferred wake is scheduled
+   (`BGProcessingTask` on iOS, a one-shot worker on Android).
+6. `parked` → `resume`; `absent` or `failed` → `boot`.
+
+`reason` selects the lease source and is recorded for diagnostics; it does not add a branch. A
+wake that cannot boot never drops a request: the request is already durable in the journal, the
+outbox or the wake inbox, and the next eligible wake executes it. A `failed` host goes through the
+existing backoff/recovery; only `needsReset` asks for the user.
+
+#### 10.2.5 ReadySweep (seven steps, once per wake)
+
+After stage C the orchestrator runs the sweep in this fixed order:
+
+| # | Step | Content |
+|---|---|---|
+| 1 | `userOutbox` | drain the user's queued send-outbox entries (highest priority) |
+| 2 | `externalAdmission` | one external-admission dispatch pass for records already admitted |
+| 3 | `cloudTaskPull` | pull → admit → ack cloud tasks; skipped when this wake already pulled successfully within `cloudPullFreshnessMs = 30000` |
+| 4 | `botHeldInbox` | replay durable Bot held-inbox items whose confirmation event is absent |
+| 5 | `missedRoutines` | catch up enabled routines whose `nextRunAt` is due; several missed slots collapse into one run |
+| 6 | `connectorScan` | metadata-only Gmail/GitHub delta scan by the persisted cursor, then a `connectorUpdate` held item |
+| 7 | `approvalReminderSync` | reconcile the approval-reminder projection with the durable pending approvals |
+
+**Step gate.** Immediately before a step, `ReadySweepPolicy.shouldRun(step, remainingMs)` decides
+`run` iff `remainingMs >= parkMarginMs + stepBudgetMs(step)`. The per-step budgets are provisional,
+like the three thresholds above:
+
+| Step | `stepBudgetMs` |
+|---|---|
+| `userOutbox` | 2000 |
+| `externalAdmission` | 2000 |
+| `cloudTaskPull` | 5000 |
+| `botHeldInbox` | 2000 |
+| `missedRoutines` | 5000 |
+| `connectorScan` | 10000 |
+| `approvalReminderSync` | 1000 |
+
+A step that does not run is `skipped` with one of the closed reasons below, is left for the next
+wake, and is never half-run: each step either completes its durable write or leaves no partial state for the next
+wake to misread. A step that fails records `failed` with an internal reason and does not abort the
+remaining steps; it is retried by the next wake. Step results are the closed vocabulary
+`ran | skipped(reason) | failed(reason)`; `skipped` reasons are `lease`, `already-pulled`,
+`no-work` and `gate` (a user gate such as explicit stop), and no step failure presents a
+user-visible error by itself.
+
+**Idempotency.** Each step is idempotent: the outbox reuses its `rpcId` (§10), admission reuses
+`admissionId`/`downstreamId` ([external-admission.md](external-admission.md) §3), cloud pull and ack
+are lease-based and first-wins ([cloud-tasks.md](../../v1/cloud-tasks.md) §5), the held inbox
+reuses `requestId` (bot v2), a routine catch-up writes one run per due schedule and collapses
+several missed slots into one, the connector scan advances its cursor only after the held item is
+durable (write-before-enqueue) and dedupes by connector plus cursor interval, and the approval
+reminder sync reconciles a projection instead of appending.
+
+**Once per (`engineIncarnation`, `wakeId`).** `engineIncarnation` is a monotonically increasing
+integer owned by the orchestrator; it increments when a new host instance is adopted (boot or
+resume) and is stable while that host runs. The sweep for one pair runs at most once. A second wake
+that arrives while the first is in flight is merged: it does not boot again, does not queue a second
+sweep, and awaits the first sweep's report. Different `wakeId`s serialize; a wake during boot is
+merged into the boot, not replayed after it.
+
+#### 10.2.6 Silent-start visibility
+
+- A boot or resume initiated by the orchestrator writes **no** transcript status line (including
+  `Booting the Worker…` and any host-stage line) and presents **no** error. A failure follows the
+  existing backoff/reset path silently. Only a user action that is waiting on the engine and
+  ultimately fails uses the existing error path and its existing copy.
+- Stage A content is shown while the engine is absent: the Bot page renders the roster and the
+  persisted rows that already exist; it never shows an engine-waiting prompt. The deleted
+  `请先启动引擎` waiting copy (PC-20261120-engine-first-launch) must not be reintroduced.
+- A skipped or failed ReadySweep step adds no visible row, banner or notification. Proactive
+  delivery keeps its own rules (bot v2 §3); the sweep only produces the inputs.
 
 ## 11. External admission journal (P06)
 

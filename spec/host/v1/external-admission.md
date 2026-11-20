@@ -1,9 +1,12 @@
 # External admission journal (P06)
 
-Revision `external-admission-v1.1`, frozen 2026-11-16 (v1.1 rules two implementer change
-requests: an undecodable file under the request's own id, and waiting records in a pass). Status: `target` — no end is implemented
+Revision `external-admission-v1.2`, frozen 2026-11-20 (v1.1 rules two implementer change
+requests: an undecodable file under the request's own id, and waiting records in a pass; v1.2 adds
+one clarifying sentence: the launch orchestrator boots the engine inside a wake lease, and no
+journal rule or stage changes). Status: `target` — no end is implemented
 yet; do not claim it until each end has runtime evidence. Change record:
-[PC-20261116-external-admission](../../../docs/protocol-changes/PC-20261116-external-admission.md).
+[PC-20261116-external-admission](../../../docs/protocol-changes/PC-20261116-external-admission.md)
+and [PC-20261120-engine-first-launch](../../../docs/protocol-changes/PC-20261120-engine-first-launch.md).
 
 This fills README §9 row J2 for the phone host. A request that arrives from outside the
 composer — a TonoLink voice command, a task fetched from the phone task queue
@@ -94,7 +97,9 @@ until the 14-day rule makes it `unknown`. `linked` is never reported as executed
   the signed-in account.
 - A `dsh-session` record is handed to the send outbox with `rpcId = downstreamId` and joins the
   §10.1 preparation entry; a `bot` record is handed to that Bot's existing user-action path with
-  `nonce = downstreamId` once its unit is running. The journal never boots an engine itself.
+  `nonce = downstreamId` once its unit is running. The journal never boots an engine itself; the
+  launch orchestrator boots it inside a wake lease (`README.md` §10.2) and then dispatches. The
+  journal's admission, stages, order and limits are unchanged by that sentence.
 - Sweep runs at open and before each pass: `admitted` records past `expiresAtMs` become
   `expired`; a terminal record is deleted when `now ≥ max(expiresAtMs, settledAtMs + 86 400 000)`;
   until then it is the dedupe tombstone. Pending and `linked` records are never deleted by sweep.

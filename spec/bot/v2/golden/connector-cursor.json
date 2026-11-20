@@ -1,0 +1,296 @@
+{
+  "schemaVersion": 1,
+  "vector": "connector-cursor",
+  "constants": {
+    "version": 1,
+    "maxCursorLength": 512,
+    "cursorPattern": {
+      "gmail": "^[0-9]{1,20}$",
+      "github": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    }
+  },
+  "valid": [
+    {
+      "id": "gmail-first-scan-establishes-only",
+      "connector": "gmail",
+      "stored": null,
+      "head": "4100",
+      "now": 1760000000000,
+      "expected": {
+        "record": {
+          "version": 1,
+          "connector": "gmail",
+          "cursor": "4100",
+          "updatedAt": 1760000000000,
+          "status": "established"
+        },
+        "emitConnectorUpdate": false
+      }
+    },
+    {
+      "id": "github-first-scan-establishes-only",
+      "connector": "github",
+      "stored": null,
+      "head": "2026-11-20T00:00:00Z",
+      "now": 1760000000000,
+      "expected": {
+        "record": {
+          "version": 1,
+          "connector": "github",
+          "cursor": "2026-11-20T00:00:00Z",
+          "updatedAt": 1760000000000,
+          "status": "established"
+        },
+        "emitConnectorUpdate": false
+      }
+    },
+    {
+      "id": "gmail-incremental-emits-a-delta",
+      "connector": "gmail",
+      "stored": "4100",
+      "head": "4180",
+      "now": 1760000001000,
+      "expected": {
+        "record": {
+          "version": 1,
+          "connector": "gmail",
+          "cursor": "4180",
+          "updatedAt": 1760000001000,
+          "status": "established"
+        },
+        "emitConnectorUpdate": true
+      }
+    },
+    {
+      "id": "gmail-forward-jump-emits-a-delta",
+      "connector": "gmail",
+      "stored": "4100",
+      "head": "999999",
+      "now": 1760000002000,
+      "expected": {
+        "record": {
+          "version": 1,
+          "connector": "gmail",
+          "cursor": "999999",
+          "updatedAt": 1760000002000,
+          "status": "established"
+        },
+        "emitConnectorUpdate": true
+      }
+    },
+    {
+      "id": "github-incremental-emits-a-delta",
+      "connector": "github",
+      "stored": "2026-11-19T00:00:00Z",
+      "head": "2026-11-20T00:00:00Z",
+      "now": 1760000001000,
+      "expected": {
+        "record": {
+          "version": 1,
+          "connector": "github",
+          "cursor": "2026-11-20T00:00:00Z",
+          "updatedAt": 1760000001000,
+          "status": "established"
+        },
+        "emitConnectorUpdate": true
+      }
+    },
+    {
+      "id": "gmail-no-change-emits-nothing",
+      "connector": "gmail",
+      "stored": "4180",
+      "head": "4180",
+      "now": 1760000003000,
+      "expected": {
+        "record": {
+          "version": 1,
+          "connector": "gmail",
+          "cursor": "4180",
+          "updatedAt": 1760000003000,
+          "status": "established"
+        },
+        "emitConnectorUpdate": false
+      }
+    },
+    {
+      "id": "github-no-change-emits-nothing",
+      "connector": "github",
+      "stored": "2026-11-20T00:00:00Z",
+      "head": "2026-11-20T00:00:00Z",
+      "now": 1760000003000,
+      "expected": {
+        "record": {
+          "version": 1,
+          "connector": "github",
+          "cursor": "2026-11-20T00:00:00Z",
+          "updatedAt": 1760000003000,
+          "status": "established"
+        },
+        "emitConnectorUpdate": false
+      }
+    },
+    {
+      "id": "gmail-corrupt-cursor-resets-silently",
+      "connector": "gmail",
+      "stored": "not-a-history-id",
+      "head": "4180",
+      "now": 1760000004000,
+      "expected": {
+        "record": {
+          "version": 1,
+          "connector": "gmail",
+          "cursor": "4180",
+          "updatedAt": 1760000004000,
+          "status": "reset",
+          "lastError": "cursor-invalid"
+        },
+        "emitConnectorUpdate": false
+      }
+    },
+    {
+      "id": "gmail-regressed-cursor-resets-silently",
+      "connector": "gmail",
+      "stored": "4180",
+      "head": "4100",
+      "now": 1760000005000,
+      "expected": {
+        "record": {
+          "version": 1,
+          "connector": "gmail",
+          "cursor": "4100",
+          "updatedAt": 1760000005000,
+          "status": "reset",
+          "lastError": "cursor-regressed"
+        },
+        "emitConnectorUpdate": false
+      }
+    },
+    {
+      "id": "github-regressed-cursor-resets-silently",
+      "connector": "github",
+      "stored": "2026-11-20T00:00:00Z",
+      "head": "2026-11-19T00:00:00Z",
+      "now": 1760000006000,
+      "expected": {
+        "record": {
+          "version": 1,
+          "connector": "github",
+          "cursor": "2026-11-19T00:00:00Z",
+          "updatedAt": 1760000006000,
+          "status": "reset",
+          "lastError": "cursor-regressed"
+        },
+        "emitConnectorUpdate": false
+      }
+    },
+    {
+      "id": "github-corrupt-cursor-resets-silently",
+      "connector": "github",
+      "stored": "yesterday",
+      "head": "2026-11-20T00:00:00Z",
+      "now": 1760000007000,
+      "expected": {
+        "record": {
+          "version": 1,
+          "connector": "github",
+          "cursor": "2026-11-20T00:00:00Z",
+          "updatedAt": 1760000007000,
+          "status": "reset",
+          "lastError": "cursor-invalid"
+        },
+        "emitConnectorUpdate": false
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "id": "missing-cursor",
+      "record": {
+        "version": 1,
+        "connector": "gmail",
+        "updatedAt": 1760000000000,
+        "status": "established"
+      },
+      "reason": "missing_cursor"
+    },
+    {
+      "id": "empty-cursor",
+      "record": {
+        "version": 1,
+        "connector": "gmail",
+        "cursor": "",
+        "updatedAt": 1760000000000,
+        "status": "established"
+      },
+      "reason": "empty_cursor"
+    },
+    {
+      "id": "version-2",
+      "record": {
+        "version": 2,
+        "connector": "gmail",
+        "cursor": "4100",
+        "updatedAt": 1760000000000,
+        "status": "established"
+      },
+      "reason": "unknown_version"
+    },
+    {
+      "id": "unknown-connector",
+      "record": {
+        "version": 1,
+        "connector": "slack",
+        "cursor": "4100",
+        "updatedAt": 1760000000000,
+        "status": "established"
+      },
+      "reason": "unknown_connector"
+    },
+    {
+      "id": "unknown-status",
+      "record": {
+        "version": 1,
+        "connector": "gmail",
+        "cursor": "4100",
+        "updatedAt": 1760000000000,
+        "status": "ok"
+      },
+      "reason": "unknown_status"
+    },
+    {
+      "id": "unknown-last-error",
+      "record": {
+        "version": 1,
+        "connector": "gmail",
+        "cursor": "4100",
+        "updatedAt": 1760000000000,
+        "status": "reset",
+        "lastError": "boom"
+      },
+      "reason": "unknown_last_error"
+    },
+    {
+      "id": "body-member",
+      "record": {
+        "version": 1,
+        "connector": "gmail",
+        "cursor": "4100",
+        "updatedAt": 1760000000000,
+        "status": "established",
+        "body": "secret"
+      },
+      "reason": "extra_member"
+    },
+    {
+      "id": "negative-updated-at",
+      "record": {
+        "version": 1,
+        "connector": "gmail",
+        "cursor": "4100",
+        "updatedAt": -1,
+        "status": "established"
+      },
+      "reason": "negative_updated_at"
+    }
+  ]
+}

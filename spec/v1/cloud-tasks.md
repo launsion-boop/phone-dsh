@@ -1,10 +1,13 @@
 # Phone task queue (cloud ↔ phone)
 
-Revision `cloud-tasks-v1.5`, frozen 2026-11-16 (v1.1 rules three implementer change requests:
+Revision `cloud-tasks-v1.6`, frozen 2026-11-20 (v1.1 rules three implementer change requests:
 response openness, device takeover, terminal reason mapping; v1.2 makes the oracle and two new
 cases agree that openness reaches nested `target` and `sealed`; v1.3 names the ack for sealed
 bytes that open but are not a task text; v1.4 forbids swapping the key under one `key_id`; v1.5 removes a
-self-contradictory empty-plaintext case and writes down the clock and re-send bounds). Status: `target` — no end is implemented yet.
+self-contradictory empty-plaintext case and writes down the clock and re-send bounds; v1.6 lets a
+background push request a wake lease from the host orchestrator
+[host/v1/README.md §10.2](../host/v1/README.md) and leaves the payload, routes, ack and limits
+byte-for-byte unchanged from v1.5). Status: `target` — no end is implemented yet.
 Owner: P05. Change record:
 [PC-20261116-cloud-task-queue](../../docs/protocol-changes/PC-20261116-cloud-task-queue.md).
 Shared cases: [golden/cloud-tasks/cases.json](golden/cloud-tasks/cases.json), the judge where this
@@ -230,9 +233,14 @@ clears the stored token. Without configured APNs credentials the cloud sends not
 other clause still holds.
 
 On receipt the phone runs one pull → admit → ack pass inside the granted background time and
-hands admitted records to the existing dispatch entry; it does not boot the engine from a
-background push (README §10.1 eligibility is unchanged). A push whose `pdsh.kind` or `pdsh.v` is
-unknown is ignored.
+requests a wake lease from the host launch orchestrator ([host/v1/README.md §10.2](../host/v1/README.md))
+using the time the system granted to this callback. If the lease leaves at least
+`minLeaseForColdBootMs` (or `minLeaseForResumeMs` for a parked host), the orchestrator may boot or
+resume the engine and run its ReadySweep; if it does not, behaviour is exactly v1.5: the admitted
+records wait for the existing dispatch entry, the phone schedules one `BGProcessing` wake, and
+nothing is lost because the records are already durable. A push whose `pdsh.kind` or `pdsh.v` is
+unknown is ignored. The payload, routes, ack and limits of this section are unchanged from v1.5;
+the cloud service (`TonoTeam/phone-dsh-cloud`) needs no change.
 
 ## 9. Limits
 

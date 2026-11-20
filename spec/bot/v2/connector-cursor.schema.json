@@ -1,0 +1,46 @@
+{
+  "title": "BotConnectorCursor v1",
+  "description": "One durable connector cursor record (spec/bot/v2/README.md section 3.3.2). One record per authorized connector, written after a scan completes and read on the next scan. The file is host-private: absent means the connector has never been scanned, and the first scan only establishes the cursor. cursor is the upstream head token: decimal historyId for Gmail, an RFC 3339 UTC second timestamp for GitHub. status reset means the previous cursor could not be used (regressed or invalid) and was replaced by the upstream head without emitting a connectorUpdate; lastError records why. A record with an unknown version, connector, status or lastError, a missing or empty cursor, or a member outside this set is invalid and is never guessed at.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "connector",
+    "cursor",
+    "updatedAt",
+    "status"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "connector": {
+      "enum": [
+        "gmail",
+        "github"
+      ]
+    },
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "updatedAt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "status": {
+      "enum": [
+        "established",
+        "reset"
+      ]
+    },
+    "lastError": {
+      "enum": [
+        "cursor-invalid",
+        "cursor-regressed",
+        "scan-failed"
+      ]
+    }
+  }
+}

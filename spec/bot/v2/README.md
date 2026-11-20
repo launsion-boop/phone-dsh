@@ -504,8 +504,11 @@ iOS 的后台执行不是常驻能力。为了让 App 被挂起或杀掉时仍�
    `nextRunAt`。命中时持有现有静音音频会话；routine 完成后窗口内仍到期时继续持有。
 3. **预定通知。** App 被挂起或杀掉后不依赖进程存活，由 §3.1 的本地通知提醒 routine 到期。
    系统通知权限未授予、用户关闭通知或低电量限制时不显示，宿主只能显示实际登记成功数。
-4. **系统后台任务／推送中继。** 前者由既有 BGTask 路径补跑到期 routine；后者只保留
-   `WakeSignalSource` 接口，本轮不实现。
+4. **系统后台任务／推送／板子唤醒。** 三者都经宿主唯一的启动编排者（[host §10.2](../../host/v1/README.md)）：
+   推送（APNs 后台通知）、板子（蓝牙／TonoLink）与 BGTask 只把请求先 durable 写入既有 journal /
+   outbox / wake inbox，再以各自的 `WakeReason` 与唤醒租约调用编排者；适配器不直接启引擎，也不自己
+   跑 Bot。引擎就绪后由编排者在同一租约内跑 §3.3 的三步。`WakeSignalSource` 仍是 Bot 通道的适配器
+   接口，沿用而不另起一套。
 
 Bot 信息页的在场区显示当前级别、实际登记的通知数，以及 `quiet_defer` 中因安静时段延后的
 routine（标题、原定时间、延后到时间）。没有条目时显示空状态，不伪造运行、通知或延后。
@@ -513,6 +516,53 @@ routine（标题、原定时间、延后到时间）。没有条目时显示空�
 **已删除、不得重新接线的规则**（PC-20261111-bot-v2-unwired）：每日预算、分类配额、冷却、
 TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema，也不再有 Swift 类型或
 事件字段；重新引入需要新的 v2 变更单。
+
+### 3.3 ReadySweep 中的 Bot 三步
+
+引擎就绪后，启动编排者（[host §10.2](../../host/v1/README.md)）在唤醒租约内依固定顺序跑
+ReadySweep 七步；其中第 4–6 步由 Bot composition 提供，順序、步名與步內語義凍結如下。Bot 不新增
+第 8 步、不重排、也不在 sweep 之外自行執行這三步。
+
+| 步 | `ReadySweepStep` | 內容 | 冪等與跳過 |
+| --- | --- | --- | --- |
+| 4 | `botHeldInbox` | 重放 durable 但缺確認事件的 held inbox 項（device-task-result、agent-held、routine-result、connectorUpdate 等），沿用 §2 的 write-before-enqueue + replay with dedupe。 | 以 `requestId` 去重；沒有待重放項記 `skipped(no-work)`。 |
+| 5 | `missedRoutines` | 對每個 enabled、`next_run_at <= now` 且該排程時點尚未產生 run 的 routine 補跑一次；**錯過多次只補一次**（多個過期時點合併成一次 run，不逐時點補）。 | dnd、安靜時段與 fuse 照舊：安靜時段延後而不是丟棄，urgent 仍需理由；不新增預算、配額、冷卻或 TTL。多個 worker／多次 wake 對同一排程時點只寫一個 run。 |
+| 6 | `connectorScan` | 對每個已授權且有 cursor 記錄的 Gmail／GitHub 連接器做**只含元數據**的增量掃描，再依 write-before-enqueue 寫一條 `connectorUpdate` held 項，交由主對話按 §3 的主動策略決定是否提醒。 | 首次掃描只建立 cursor、不產生 `connectorUpdate`、不把歷史內容當新內容；cursor 回退或損壞時重設到上游 head、不產生 `connectorUpdate`、不提示（§3.3.2）；以 `connector + cursorFrom + cursorTo` 去重，`items` 上限 20。 |
+
+**每步的 run／skip 由編排者決定。** 步開始前用 `ReadySweepPolicy.shouldRun(step, remainingMs)` 判斷
+剩餘租約是否夠 `parkMarginMs + stepBudgetMs`；不夠就 `skipped(lease)`，留給下一次喚醒，**不做半步**。
+每一步要麼完成自己的 durable 寫入，要麼不留下會被下一步誤讀的半成品。步失敗記
+`failed(reason)`，不中斷其餘步、不自行顯示用戶可見錯誤，下一次喚醒重試。
+
+#### 3.3.1 `connectorUpdate` held 項
+
+`held-inbox-item.schema.json` 新增兩個封閉分支（`connector-update` 且 `connector` 為 `gmail` 或
+`github`）。它們只帶元數據：
+
+- `id`、`requestId`（`<connector>:<cursorFrom>:<cursorTo>`，穩定且可去重）、`createdAt`、`state`、
+  `text`（人可讀的一行摘要，≤ 1200 scalar）、`connector`、`cursorFrom`、`cursorTo`、`count`、
+  `items[]`。
+- `items` 上限 20，且 `count == len(items)`；每項只含 `id`、`at`，Gmail 另可含 `from`／`subject`，
+  GitHub 另可含 `repo`／`title`。**不取正文**：正文由 Bot 在回合中用現有工具按需讀取，schema 封閉，
+  任何 body／content 成員都是無效輸入。
+- 連接器未授權或 token 失效：跳過、不提示、不寫 held 項；設置頁既有狀態不變。
+
+#### 3.3.2 連接器 cursor
+
+每個已授權連接器一份持久 cursor 記錄，格式由 `connector-cursor.schema.json` 凍結（`version`、
+`connector`、`cursor`、`updatedAt`、`status` ∈ `established|reset`，可選 `lastError` ∈
+`cursor-invalid|cursor-regressed|scan-failed`）。規則：
+
+- 檔案不存在＝從未掃描：首次掃描只把上游 head 寫成 `established` cursor，**不**產生
+  `connectorUpdate`，也不把既有歷史當成新內容。
+- 只有掃描結果已 durable 寫成 held 項後才推進 cursor；同一 cursor 區間重放不會產生第二條項。
+- 上游回報 cursor 回退（head 比已存 cursor 舊）或已存 cursor 無法解析：把 cursor 重設到上游 head，
+  `status = reset`、`lastError` 為 `cursor-regressed`／`cursor-invalid`，不產生 `connectorUpdate`、
+  不提示；下一次掃描從新 head 起算。這是恢復，不是新配額或新冷卻規則。
+- 讀到較新版本或損壞檔案時 fail-closed：不覆寫、不猜測區間，交由下一次掃描以上述重設規則處理。
+
+`connectorUpdate` 只是候選輸入；是否打擾用戶仍由 §3 的 `ProactivePolicy`（`mode`、`deliveryKinds`、
+dnd、安靜時段、fuse）決定，掃描本身不直接發通知。
 
 ## 4. 后台整理（maintainer，S3 后半）
 
@@ -725,6 +775,11 @@ TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema
 `golden/routine-document.json` 是 phoneDSH 新增的 routine snapshot 向量（CCR-7），由 Swift
 encoder 产生，覆盖 new／deferred／started／needs-reconciliation／deleted；它没有上游对应文件，
 也不参与 v1 的导出器 manifest。
+`golden/connector-cursor.json` 是 §3.3.2 的 phoneDSH 新增向量：首次建立不產生 `connectorUpdate`、
+增量、無變化、cursor 回退與損壞的重設規則，以及 schema 正反例；`spec/bot/v2/tools/validate_vectors.py`
+用它重算 cursor 記錄與 `emitConnectorUpdate`，並做 mutation 自檢。`held-inbox.phone.json` 另新增
+`connectorUpdate` 的 Gmail／GitHub 正例與無效例（超過 20 項、unknown connector、含正文、`count`
+與 `items` 不一致等）。
 `held-inbox.phone.json` 的 `upstream` 字段仍指向 `held-inbox.json`，合并语义与
 [v1 §8.1](../v1/README.md#81-上游导出与-phonejson-覆盖) 相同：对象按键合并，数组按
 `name`／`id`／`nonce`／`action.nonce` 追加或替换，覆盖文件不能删除上游用例。
