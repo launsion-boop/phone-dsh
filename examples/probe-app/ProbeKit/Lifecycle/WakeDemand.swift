@@ -206,6 +206,10 @@ public actor WakeDemandLedger {
         let handle = try FileHandle(forWritingTo: temporary)
         try handle.synchronize()
         try handle.close()
-        _ = try FileManager.default.replaceItemAt(fileURL, withItemAt: temporary)
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            _ = try FileManager.default.replaceItemAt(fileURL, withItemAt: temporary)
+        } else {
+            try FileManager.default.moveItem(at: temporary, to: fileURL)
+        }
     }
 }

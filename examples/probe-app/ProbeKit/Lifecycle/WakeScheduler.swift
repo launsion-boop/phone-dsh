@@ -15,7 +15,7 @@ import Foundation
 public final class WakeScheduler {
     /// The two things the scheduler cannot own itself: the one wake entry and
     /// the OS projection. Both are injected by the App.
-    public struct Projection: Sendable {
+    public struct Projection {
         /// Asks the orchestrator for one `.scheduledDemand` wake. `nil` lease:
         /// a resident host timer is authorized by foreground/resident audio,
         /// never by a fabricated deadline.
