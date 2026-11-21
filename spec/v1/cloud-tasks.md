@@ -1,13 +1,14 @@
 # Phone task queue (cloud ↔ phone)
 
-Revision `cloud-tasks-v1.6`, frozen 2026-11-20 (v1.1 rules three implementer change requests:
+Revision `cloud-tasks-v1.7`, frozen 2026-11-21 (v1.1 rules three implementer change requests:
 response openness, device takeover, terminal reason mapping; v1.2 makes the oracle and two new
 cases agree that openness reaches nested `target` and `sealed`; v1.3 names the ack for sealed
 bytes that open but are not a task text; v1.4 forbids swapping the key under one `key_id`; v1.5 removes a
 self-contradictory empty-plaintext case and writes down the clock and re-send bounds; v1.6 lets a
 background push request a wake lease from the host orchestrator
 [host/v1/README.md §10.2](../host/v1/README.md) and leaves the payload, routes, ack and limits
-byte-for-byte unchanged from v1.5). Status: `target` — no end is implemented yet.
+byte-for-byte unchanged from v1.5; v1.7 adds the Android FCM transport). Each provider's
+online delivery requires configuration and device evidence.
 Owner: P05. Change record:
 [PC-20261116-cloud-task-queue](../../docs/protocol-changes/PC-20261116-cloud-task-queue.md).
 Shared cases: [golden/cloud-tasks/cases.json](golden/cloud-tasks/cases.json), the judge where this
@@ -60,8 +61,14 @@ uses; one install has one cloud device id).
  "push":{"provider":"apns","environment":"production","topic":"com.tono.phonedsh","token":"<hex>"}}
 ```
 
-- `platform`: `ios` | `android`. `push` is `null` when the phone has no push token (Android always
-  sends `null` in v1). `push.token` is 64–200 lowercase hex characters.
+- `platform`: `ios` | `android`. `push` is `null` when the phone has no usable token.
+- For iOS the closed `apns` object above uses 64–200 lowercase hex characters for `token`.
+  For Android the closed object is `{"provider":"fcm","token":"<opaque>"}`. FCM tokens contain
+  1–4096 visible ASCII bytes (0x21 through 0x7e). Treat them as opaque credentials, never logs.
+  Reject a provider for the other platform or additional members.
+- A v1.7 Android phone receiving `400 invalid_request` for a registration with FCM may retry
+  once without `push` for a v1.6 server, using the same device id and sealing key. Fallback
+  applies only to that token until it rotates or the process restarts. The server rolls out first.
 - `public_key` is an uncompressed P-256 point (`0x04 ‖ X ‖ Y`), base64url without padding.
 - The call replaces the registration. Registering a different `key_id` makes tasks sealed to the
   old key undeliverable: the cloud marks each such `pending` task `rejected` / `key_replaced`.
@@ -218,29 +225,33 @@ when it is `target_missing`, `not_authorized` or `retry_exhausted`, and `run_fai
 other or absent reason. (A record that expired or was cancelled was already acked `admitted`.)
 
 The phone pulls when it becomes active, after sign-in, after a push, and after an ack that
-returned work; never on a timer while idle. The feature is off until the user enables it (preference key
+returned work. Android may also use a best-effort WorkManager poll while signed in and opted in,
+including on devices without FCM. The feature is off until the user enables it (preference key
 `phone-dsh.cloud-tasks.enabled.v1`, boolean, absent = off); while off the phone neither registers
 nor pulls, and turning it off deletes the registration.
 
-## 8. Push (APNs, iOS only in v1)
+## 8. Push (APNs and FCM)
 
 After a submit is stored, and when a lease expires with the task still `pending`, the cloud may
-send one background notification to the device's registered token: `apns-push-type: background`,
-`apns-priority: 5`, `apns-topic` = the registered `topic`, payload exactly
-`{"aps":{"content-available":1},"pdsh":{"v":1,"kind":"phone-tasks"}}`. At most one push per
-device per 30 s. A push result never changes a task's state; APNs `410` or `BadDeviceToken`
-clears the stored token. Without configured APNs credentials the cloud sends nothing and every
-other clause still holds.
+send one hint to the device's registered push address. At most one push per device per 30 s.
+Delivery failure or missing provider credentials never change task state.
 
-On receipt the phone runs one pull → admit → ack pass inside the granted background time and
-requests a wake lease from the host launch orchestrator ([host/v1/README.md §10.2](../host/v1/README.md))
-using the time the system granted to this callback. If the lease leaves at least
-`minLeaseForColdBootMs` (or `minLeaseForResumeMs` for a parked host), the orchestrator may boot or
-resume the engine and run its ReadySweep; if it does not, behaviour is exactly v1.5: the admitted
-records wait for the existing dispatch entry, the phone schedules one `BGProcessing` wake, and
-nothing is lost because the records are already durable. A push whose `pdsh.kind` or `pdsh.v` is
-unknown is ignored. The payload, routes, ack and limits of this section are unchanged from v1.5;
-the cloud service (`TonoTeam/phone-dsh-cloud`) needs no change.
+- iOS receives the existing background notification. `apns-push-type: background`,
+  `apns-priority: 5`, `apns-topic` equals the registered topic, with payload
+  `{"aps":{"content-available":1},"pdsh":{"v":1,"kind":"phone-tasks"}}`.
+- Android receives an FCM data-only message with data exactly
+  `{"pdsh_v":"1","pdsh_kind":"phone-tasks"}`, normal priority and a bounded lifetime.
+  The callback queues native authenticated pulling through WorkManager. It does not declare a
+  foreground service exemption or an engine lease. A foreground host can run after admission
+  through the existing launch orchestrator. Both providers are best effort.
+- Ignore messages with an unknown task-hint version or kind. A push never supplies task data,
+  identity or execution authority; only the existing authenticated pull → admit → ack does.
+- APNs `410` or `BadDeviceToken` and FCM `UNREGISTERED` clear only the address that failed.
+  A registration rotated while a request was in flight must survive the old address failure.
+
+The iOS callback may boot or resume through host §10.2 if its granted window clears the relevant
+threshold. Short or expiry-only windows do native work; durable records wait for the next
+eligible wake. Routes and ciphertext, ack, dedupe, queue limits and APNs payload stay compatible.
 
 ## 9. Limits
 

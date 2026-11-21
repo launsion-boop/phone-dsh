@@ -32,6 +32,7 @@ CASES = Path(os.environ.get("PDSH_CLOUD_TASK_CASES")
 ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 DEVICE_ID = re.compile(r"^dev-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
+FCM_TOKEN = re.compile(r"[!-~]{1,4096}")
 PUSH_TOKEN = re.compile(r"^[0-9a-f]{64,200}$")
 B64URL = re.compile(r"^[A-Za-z0-9_-]+$")
 MAX_INT = 9007199254740991
@@ -114,15 +115,20 @@ def check_message(message):
         _key(message["key"])
         push = message["push"]
         if push is not None:
-            _closed(push, ("provider", "environment", "topic", "token"))
-            if push["provider"] != "apns" or message["platform"] != "ios":
-                raise ValueError("push provider")
-            if push["environment"] not in ("development", "production"):
-                raise ValueError("push environment")
-            if not isinstance(push["topic"], str) or not re.match(r"^[A-Za-z0-9.-]{1,155}$", push["topic"]):
-                raise ValueError("push topic")
-            if not isinstance(push["token"], str) or not PUSH_TOKEN.match(push["token"]):
-                raise ValueError("push token")
+            if isinstance(push, dict) and push.get("provider") == "fcm" and message["platform"] == "android":
+                _closed(push, ("provider", "token"))
+                if not isinstance(push["token"], str) or not FCM_TOKEN.fullmatch(push["token"]):
+                    raise ValueError("push token")
+            else:
+                _closed(push, ("provider", "environment", "topic", "token"))
+                if push["provider"] != "apns" or message["platform"] != "ios":
+                    raise ValueError("push provider")
+                if push["environment"] not in ("development", "production"):
+                    raise ValueError("push environment")
+                if not isinstance(push["topic"], str) or not re.fullmatch(r"[A-Za-z0-9.-]{1,155}", push["topic"]):
+                    raise ValueError("push topic")
+                if not isinstance(push["token"], str) or not PUSH_TOKEN.fullmatch(push["token"]):
+                    raise ValueError("push token")
     elif schema == "phone-task-submit/v1":
         _closed(message, ("schema", "device_id", "request_id", "key_id", "target",
                           "expires_at_ms", "sealed"))
@@ -364,7 +370,8 @@ class CloudTaskTests(unittest.TestCase):
             "suite": SUITE, "info": INFO.decode("ascii"), "minTtlMs": MIN_TTL_MS,
             "maxTtlMs": MAX_TTL_MS, "maxPending": MAX_PENDING, "maxTextBytes": 16384,
             "maxDevices": 8, "push": {"aps": {"content-available": 1},
-                                      "pdsh": {"v": 1, "kind": "phone-tasks"}}})
+                                      "pdsh": {"v": 1, "kind": "phone-tasks"}},
+            "fcmData": {"pdsh_v": "1", "pdsh_kind": "phone-tasks"}})
 
     def test_valid_messages(self) -> None:
         schemas = set()
