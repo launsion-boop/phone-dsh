@@ -1,0 +1,2220 @@
+{
+  "schemaVersion": 1,
+  "vector": "decision-context",
+  "source": {
+    "checkout": "aab6307ee51a80df0f994acce05d46d3cf479482"
+  },
+  "material": {
+    "valid": [
+      {
+        "block_id": "dm:1",
+        "turn_id": "gb-main#3",
+        "session_id": "gb-main",
+        "bot_id": "bot-a",
+        "stage": "pre_step",
+        "authorization_revision": "auth-r1",
+        "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "retrieved_at_ms": 1760000010000,
+        "materials": [
+          {
+            "material_id": "mat:1",
+            "ref": "memory:user/profile.md@v2",
+            "path": "user/profile.md",
+            "scope": "user",
+            "version": 2,
+            "updated_at_ms": 1760000000001,
+            "snippet": "x",
+            "evidence": [
+              "record://event/7"
+            ],
+            "selection_reason": "goal",
+            "state": "current"
+          },
+          {
+            "material_id": "mat:2",
+            "ref": "memory:user/profile.md@v2",
+            "path": "user/profile.md",
+            "scope": "user",
+            "version": 2,
+            "updated_at_ms": 1760000000002,
+            "snippet": "y",
+            "evidence": [
+              "record://event/7"
+            ],
+            "selection_reason": "goal",
+            "state": "current"
+          }
+        ],
+        "limits": {
+          "max_materials": 4,
+          "max_characters": 1600,
+          "max_snippet_characters": 240,
+          "deadline_ms": 1500
+        },
+        "truncated": false,
+        "canceled": false
+      },
+      {
+        "block_id": "dm:1",
+        "turn_id": "gb-main#3",
+        "session_id": "gb-main",
+        "bot_id": "bot-a",
+        "stage": "pre_delivery",
+        "authorization_revision": "auth-r1",
+        "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "retrieved_at_ms": 1760000010000,
+        "materials": [
+          {
+            "material_id": "mat:3",
+            "ref": "record://event/7",
+            "path": "user/profile.md",
+            "scope": "user",
+            "version": 2,
+            "updated_at_ms": 1760000000003,
+            "snippet": "z",
+            "evidence": [
+              "record://event/7"
+            ],
+            "selection_reason": "goal",
+            "state": "current"
+          }
+        ],
+        "limits": {
+          "max_materials": 4,
+          "max_characters": 1600,
+          "max_snippet_characters": 240,
+          "deadline_ms": 1500
+        },
+        "truncated": false,
+        "canceled": false
+      },
+      {
+        "block_id": "dm:1",
+        "turn_id": "gb-main#3",
+        "session_id": "gb-main",
+        "bot_id": "bot-a",
+        "stage": "pre_step",
+        "authorization_revision": "auth-r1",
+        "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "retrieved_at_ms": 1760000010000,
+        "materials": [
+          {
+            "material_id": "mat:ws1",
+            "ref": "workspace:docs/report-guide-v2.md@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "path": "docs/report-guide-v2.md",
+            "scope": "agent",
+            "version": 1794837000,
+            "updated_at_ms": 1794837000000,
+            "snippet": "报告规范：标题、数据来源、结论先行。",
+            "evidence": [],
+            "selection_reason": "match",
+            "state": "current"
+          },
+          {
+            "material_id": "mat:1",
+            "ref": "memory:user/profile.md@v2",
+            "path": "user/profile.md",
+            "scope": "user",
+            "version": 2,
+            "updated_at_ms": 1760000000001,
+            "snippet": "x",
+            "evidence": [
+              "record://event/7"
+            ],
+            "selection_reason": "goal",
+            "state": "current"
+          }
+        ],
+        "limits": {
+          "max_materials": 4,
+          "max_characters": 1600,
+          "max_snippet_characters": 240,
+          "deadline_ms": 1500
+        },
+        "truncated": false,
+        "canceled": false
+      },
+      {
+        "block_id": "dm:1",
+        "turn_id": "gb-main#3",
+        "session_id": "gb-main",
+        "bot_id": "bot-a",
+        "stage": "pre_step",
+        "authorization_revision": "auth-r1",
+        "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "retrieved_at_ms": 1760000010000,
+        "materials": [
+          {
+            "material_id": "mat:ws2",
+            "ref": "workspace:Meeting%20Notes%20%E7%85%A7%E7%89%87%40%25.md@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "path": "Meeting Notes 照片@%.md",
+            "scope": "agent",
+            "version": 1794837000,
+            "updated_at_ms": 1794837000000,
+            "snippet": "文件内容。",
+            "evidence": [],
+            "selection_reason": "match",
+            "state": "current"
+          }
+        ],
+        "limits": {
+          "max_materials": 4,
+          "max_characters": 1600,
+          "max_snippet_characters": 240,
+          "deadline_ms": 1500
+        },
+        "truncated": false,
+        "canceled": false
+      },
+      {
+        "block_id": "dm:1",
+        "turn_id": "gb-main#3",
+        "session_id": "gb-main",
+        "bot_id": "bot-a",
+        "stage": "pre_step",
+        "authorization_revision": "auth-r1",
+        "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "retrieved_at_ms": 1760000010000,
+        "materials": [
+          {
+            "material_id": "mat:ws3",
+            "ref": "workspace:docs/100%25%20%23done.md@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "path": "docs/100% #done.md",
+            "scope": "agent",
+            "version": 1794837000,
+            "updated_at_ms": 1794837000000,
+            "snippet": "文件内容。",
+            "evidence": [],
+            "selection_reason": "match",
+            "state": "current"
+          }
+        ],
+        "limits": {
+          "max_materials": 4,
+          "max_characters": 1600,
+          "max_snippet_characters": 240,
+          "deadline_ms": 1500
+        },
+        "truncated": false,
+        "canceled": false
+      },
+      {
+        "block_id": "dm:1",
+        "turn_id": "gb-main#3",
+        "session_id": "gb-main",
+        "bot_id": "bot-a",
+        "stage": "pre_step",
+        "authorization_revision": "auth-r1",
+        "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "retrieved_at_ms": 1760000010000,
+        "materials": [
+          {
+            "material_id": "mat:ws3",
+            "ref": "workspace:%252E%252E@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "path": "%2E%2E",
+            "scope": "agent",
+            "version": 1794837000,
+            "updated_at_ms": 1794837000000,
+            "snippet": "文件内容。",
+            "evidence": [],
+            "selection_reason": "match",
+            "state": "current"
+          }
+        ],
+        "limits": {
+          "max_materials": 4,
+          "max_characters": 1600,
+          "max_snippet_characters": 240,
+          "deadline_ms": 1500
+        },
+        "truncated": false,
+        "canceled": false
+      },
+      {
+        "block_id": "dm:1",
+        "turn_id": "gb-main#3",
+        "session_id": "gb-main",
+        "bot_id": "bot-a",
+        "stage": "pre_step",
+        "authorization_revision": "auth-r1",
+        "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "retrieved_at_ms": 1760000010000,
+        "materials": [
+          {
+            "material_id": "mat:disputed1",
+            "ref": "memory:agent/notes/profile.md@v2",
+            "path": "agent/notes/profile.md",
+            "scope": "agent",
+            "version": 2,
+            "updated_at_ms": 1794837000000,
+            "snippet": "旧资料正文（未改写）",
+            "evidence": [
+              "record://event/7"
+            ],
+            "selection_reason": "match",
+            "state": "unknown",
+            "reason": "feedback-disputed"
+          },
+          {
+            "material_id": "mat:pref1",
+            "ref": "feedback:preference:feedback:bot-a:n-1",
+            "path": "feedback/preference/feedback:bot-a:n-1",
+            "scope": "user",
+            "version": 1,
+            "updated_at_ms": 1794837000000,
+            "snippet": "User preference: suppress proactive:task-done.",
+            "evidence": [],
+            "selection_reason": "match",
+            "state": "current"
+          }
+        ],
+        "limits": {
+          "max_materials": 4,
+          "max_characters": 1600,
+          "max_snippet_characters": 240,
+          "deadline_ms": 1500
+        },
+        "truncated": false,
+        "canceled": false
+      }
+    ],
+    "invalid": [
+      {
+        "name": "too-many",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:0",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000000,
+              "snippet": "x",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            },
+            {
+              "material_id": "mat:1",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000001,
+              "snippet": "x",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            },
+            {
+              "material_id": "mat:2",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000002,
+              "snippet": "x",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            },
+            {
+              "material_id": "mat:3",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000003,
+              "snippet": "x",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            },
+            {
+              "material_id": "mat:4",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000004,
+              "snippet": "x",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "over-characters",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:1",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000001,
+              "snippet": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            },
+            {
+              "material_id": "mat:2",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000002,
+              "snippet": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "unknown-without-reason",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:1",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000001,
+              "snippet": "x",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "unknown"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "reason-on-current",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:1",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000001,
+              "snippet": "x",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current",
+              "reason": "no-baseline"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "forbidden-role-key",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:1",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000001,
+              "snippet": "x",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false,
+          "role": "system"
+        }
+      },
+      {
+        "name": "current-user-turn-ref",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:1",
+              "ref": "current-user-turn",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000001,
+              "snippet": "x",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-absolute",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws1",
+              "ref": "workspace:/etc/passwd@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "path": "/etc/passwd",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "报告规范：标题、数据来源、结论先行。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-dotdot",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws1",
+              "ref": "workspace:docs/../secret.md@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "path": "docs/../secret.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "报告规范：标题、数据来源、结论先行。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-missing-sha",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws1",
+              "ref": "workspace:docs/report-guide-v2.md",
+              "path": "docs/report-guide-v2.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "报告规范：标题、数据来源、结论先行。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-path-mismatch",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws1",
+              "ref": "workspace:docs/report-guide-v2.md@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "path": "docs/other.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "报告规范：标题、数据来源、结论先行。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-scope-user",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws1",
+              "ref": "workspace:docs/report-guide-v2.md@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "path": "docs/report-guide-v2.md",
+              "scope": "user",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "报告规范：标题、数据来源、结论先行。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-evidence",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws1",
+              "ref": "workspace:docs/report-guide-v2.md@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "path": "docs/report-guide-v2.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "报告规范：标题、数据来源、结论先行。",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-state-unknown",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws1",
+              "ref": "workspace:docs/report-guide-v2.md@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "path": "docs/report-guide-v2.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "报告规范：标题、数据来源、结论先行。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "unknown"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-encoded-traversal",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws2",
+              "ref": "workspace:%2e%2e/secret.md@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "path": "../secret.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-raw-space-ref",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws2",
+              "ref": "workspace:Meeting Notes 照片.md@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "path": "Meeting Notes 照片.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-encoded-at-mismatch",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws2",
+              "ref": "workspace:Meeting%20Notes%20照片%40%25.md@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "path": "Meeting Notes 照片@%.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-encoded-slash",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws3",
+              "ref": "workspace:%2Fetc/passwd@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "path": "/etc/passwd",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-encoded-nul",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws3",
+              "ref": "workspace:a%00b.md@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "path": "a\u0000b.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-malformed-percent",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws3",
+              "ref": "workspace:a%ZZb.md@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "path": "a%ZZb.md",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-lowercase-hex",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws3",
+              "ref": "workspace:%2e%2e@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "path": "..",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "name": "workspace-encoded-path-mismatch",
+        "instance": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:ws3",
+              "ref": "workspace:%252E%252E@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "path": "..",
+              "scope": "agent",
+              "version": 1794837000,
+              "updated_at_ms": 1794837000000,
+              "snippet": "文件内容。",
+              "evidence": [],
+              "selection_reason": "match",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      }
+    ]
+  },
+  "user_actions": {
+    "valid": [
+      {
+        "nonce": "n-ua-2",
+        "botID": "bot-a",
+        "kind": "feedback",
+        "rowID": "row-1",
+        "verdict": "correct"
+      }
+    ],
+    "invalid": [
+      {
+        "name": "undo-without-feedbackID",
+        "instance": {
+          "nonce": "n",
+          "botID": "b",
+          "kind": "feedback",
+          "rowID": "r",
+          "verdict": "undo"
+        }
+      },
+      {
+        "name": "wrong-verdict-name",
+        "instance": {
+          "nonce": "n",
+          "botID": "b",
+          "kind": "feedback",
+          "rowID": "r",
+          "verdict": "wrong"
+        }
+      }
+    ]
+  },
+  "feedback": {
+    "cases": [
+      {
+        "name": "adopt",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "adopt",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-1",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "proactive",
+            "id": "delivery-1",
+            "version": 2
+          },
+          "scope": {
+            "kind": "artifact",
+            "key": "artifact:delivery-1"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true
+        },
+        "expected": {
+          "accepted": true
+        }
+      },
+      {
+        "name": "suppress-user-kind",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "suppress",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-2",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "delivery",
+            "id": "delivery-1"
+          },
+          "scope": {
+            "kind": "user",
+            "key": "proactive:task-done"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true,
+          "class_key": "proactive:task-done"
+        },
+        "expected": {
+          "accepted": false,
+          "reason": "scope-requires-confirmation"
+        }
+      },
+      {
+        "name": "suppress-user-routine",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "suppress",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-3",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "delivery",
+            "id": "delivery-1"
+          },
+          "scope": {
+            "kind": "user",
+            "key": "routine:r1"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true,
+          "class_key": "routine:r1"
+        },
+        "expected": {
+          "accepted": false,
+          "reason": "scope-not-shareable"
+        }
+      },
+      {
+        "name": "correct-applied",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "correct",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-4",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "memory",
+            "id": "user/prefs.md",
+            "version": 4
+          },
+          "scope": {
+            "kind": "artifact",
+            "key": "memory:user/prefs.md@v4"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true,
+          "applied": {
+            "memory": {
+              "path": "user/prefs.md",
+              "version": 4,
+              "previous_version": 3
+            }
+          }
+        },
+        "expected": {
+          "accepted": true
+        }
+      },
+      {
+        "name": "correct-mismatch",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "correct",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-5",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "memory",
+            "id": "user/prefs.md",
+            "version": 3
+          },
+          "scope": {
+            "kind": "artifact",
+            "key": "memory:user/prefs.md@v3"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true,
+          "applied": {
+            "memory": {
+              "path": "user/prefs.md",
+              "version": 4,
+              "previous_version": 3
+            }
+          }
+        },
+        "expected": {
+          "accepted": false,
+          "reason": "correction-not-applied"
+        }
+      },
+      {
+        "name": "undo",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "undo",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-6",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "feedback",
+            "id": "feedback:bot-a:0"
+          },
+          "scope": {
+            "kind": "artifact",
+            "key": "feedback:bot-a:0"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true,
+          "reverses": "feedback:bot-a:0"
+        },
+        "expected": {
+          "accepted": true
+        }
+      },
+      {
+        "name": "undo-missing-reverses",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "undo",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-7",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "feedback",
+            "id": "feedback:bot-a:0"
+          },
+          "scope": {
+            "kind": "artifact",
+            "key": "feedback:bot-a:0"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true
+        },
+        "expected": {
+          "accepted": false,
+          "reason": "target-unresolved"
+        }
+      },
+      {
+        "name": "suppress-class-without-key",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "suppress",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-8",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "delivery",
+            "id": "delivery-1"
+          },
+          "scope": {
+            "kind": "class",
+            "key": "proactive:task-done"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true
+        },
+        "expected": {
+          "accepted": false,
+          "reason": "ambiguous-scope"
+        }
+      },
+      {
+        "name": "adopt-feedback-target",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "adopt",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-9",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "feedback",
+            "id": "feedback:bot-a:0"
+          },
+          "scope": {
+            "kind": "artifact",
+            "key": "feedback:bot-a:0"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true
+        },
+        "expected": {
+          "accepted": false,
+          "reason": "target-unresolved"
+        }
+      },
+      {
+        "name": "duplicate-nonce",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "adopt",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-1",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "proactive",
+            "id": "delivery-1",
+            "version": 2
+          },
+          "scope": {
+            "kind": "artifact",
+            "key": "artifact:delivery-1"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true
+        },
+        "expected": {
+          "accepted": true,
+          "duplicated": true
+        }
+      },
+      {
+        "name": "suppress-user-kind-ui",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "suppress",
+          "origin": {
+            "kind": "ui-action",
+            "session_id": "gb-main",
+            "nonce": "n-ui-1",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "delivery",
+            "id": "delivery-1"
+          },
+          "scope": {
+            "kind": "user",
+            "key": "proactive:task-done"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true,
+          "class_key": "proactive:task-done"
+        },
+        "expected": {
+          "accepted": true
+        }
+      },
+      {
+        "name": "suppress-kind-only-as-class",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "suppress",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-k-1",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "delivery",
+            "id": "delivery-1"
+          },
+          "scope": {
+            "kind": "class",
+            "key": "proactive:task-done"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true,
+          "class_key": "proactive:task-done"
+        },
+        "expected": {
+          "accepted": false,
+          "reason": "ambiguous-scope"
+        }
+      },
+      {
+        "name": "suppress-one-routine",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "suppress",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-r-1",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "routine",
+            "id": "r1"
+          },
+          "scope": {
+            "kind": "routine",
+            "key": "routine:r1"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true,
+          "class_key": "routine:r1"
+        },
+        "expected": {
+          "accepted": true
+        }
+      },
+      {
+        "name": "suppress-artifact-delivery-1",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:1",
+          "action": "suppress",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-art-1",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "delivery",
+            "id": "delivery-1"
+          },
+          "scope": {
+            "kind": "artifact",
+            "key": "artifact:delivery-1"
+          },
+          "subjects": [
+            "record://event/7"
+          ],
+          "accepted": true
+        },
+        "expected": {
+          "accepted": true
+        }
+      },
+      {
+        "name": "correct-disputed-only",
+        "data": {
+          "schema": "bot-feedback/v1",
+          "feedback_id": "feedback:bot-a:15",
+          "action": "correct",
+          "origin": {
+            "kind": "user-chat-turn",
+            "session_id": "gb-main",
+            "nonce": "n-15",
+            "verified_by": "host"
+          },
+          "target": {
+            "kind": "memory",
+            "id": "agent/notes/profile.md",
+            "version": 2
+          },
+          "scope": {
+            "kind": "artifact",
+            "key": "artifact:agent/notes/profile.md"
+          },
+          "accepted": true,
+          "subjects": [
+            "record://event/7"
+          ]
+        },
+        "expected": {
+          "accepted": true
+        }
+      }
+    ],
+    "isolation": [
+      {
+        "name": "routine-r1-does-not-hold-r2",
+        "active": [
+          {
+            "schema": "bot-feedback/v1",
+            "feedback_id": "feedback:bot-a:1",
+            "action": "suppress",
+            "origin": {
+              "kind": "user-chat-turn",
+              "session_id": "gb-main",
+              "nonce": "n-r-1",
+              "verified_by": "host"
+            },
+            "target": {
+              "kind": "routine",
+              "id": "r1"
+            },
+            "scope": {
+              "kind": "routine",
+              "key": "routine:r1"
+            },
+            "subjects": [
+              "record://event/7"
+            ],
+            "accepted": true,
+            "class_key": "routine:r1"
+          }
+        ],
+        "checks": [
+          {
+            "lookup_scope": "routine",
+            "lookup_key": "routine:r2",
+            "expect_active": false
+          },
+          {
+            "lookup_scope": "routine",
+            "lookup_key": "routine:r1",
+            "expect_active": true
+          }
+        ]
+      },
+      {
+        "name": "artifact-task1-does-not-hold-task2",
+        "active": [
+          {
+            "schema": "bot-feedback/v1",
+            "feedback_id": "feedback:bot-a:1",
+            "action": "adopt",
+            "origin": {
+              "kind": "user-chat-turn",
+              "session_id": "gb-main",
+              "nonce": "n-1",
+              "verified_by": "host"
+            },
+            "target": {
+              "kind": "proactive",
+              "id": "delivery-1",
+              "version": 2
+            },
+            "scope": {
+              "kind": "artifact",
+              "key": "artifact:delivery-1"
+            },
+            "subjects": [
+              "record://event/7"
+            ],
+            "accepted": true
+          }
+        ],
+        "checks": [
+          {
+            "lookup_scope": "artifact",
+            "lookup_key": "delivery-1",
+            "expect_active": true
+          },
+          {
+            "lookup_scope": "artifact",
+            "lookup_key": "delivery-2",
+            "expect_active": false
+          }
+        ]
+      }
+    ]
+  },
+  "trace": {
+    "valid": [
+      {
+        "turn_id": "gb-main#3",
+        "retrieved": [
+          "mat:1",
+          "mat:2"
+        ],
+        "injected": {
+          "request_marker": "dshbot:decision-context",
+          "request_id": "req-1",
+          "material_ids": [
+            "mat:1",
+            "mat:2"
+          ]
+        },
+        "adopted": [
+          {
+            "artifact": "delivery:1",
+            "material_ids": [
+              "mat:2"
+            ]
+          }
+        ]
+      },
+      {
+        "turn_id": "gb-main#4",
+        "retrieved": [
+          "mat:1"
+        ],
+        "injected": {
+          "request_marker": "dshbot:decision-context",
+          "request_id": "req-2",
+          "material_ids": [
+            "mat:1"
+          ]
+        },
+        "adopted": []
+      }
+    ],
+    "invalid": [
+      {
+        "name": "adopted-not-injected",
+        "trace": {
+          "turn_id": "t",
+          "retrieved": [
+            "mat:1"
+          ],
+          "injected": {
+            "request_marker": "dshbot:decision-context",
+            "request_id": "r",
+            "material_ids": [
+              "mat:1"
+            ]
+          },
+          "adopted": [
+            {
+              "artifact": "x",
+              "material_ids": [
+                "mat:9"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "missing-marker",
+        "trace": {
+          "turn_id": "t",
+          "retrieved": [
+            "mat:1"
+          ],
+          "injected": {
+            "request_marker": "other",
+            "request_id": "r",
+            "material_ids": [
+              "mat:1"
+            ]
+          },
+          "adopted": []
+        }
+      },
+      {
+        "name": "adopted-not-retrieved",
+        "trace": {
+          "turn_id": "t",
+          "retrieved": [],
+          "injected": {
+            "request_marker": "dshbot:decision-context",
+            "request_id": "r",
+            "material_ids": [
+              "mat:1"
+            ]
+          },
+          "adopted": [
+            {
+              "artifact": "x",
+              "material_ids": [
+                "mat:1"
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "event": {
+    "schemaVersion": 1,
+    "type": "feedback.recorded",
+    "eventId": "feedback.recorded:bot-a:01HX8Z3N4K5M6P7Q8R9S0T1V2W",
+    "commitSeq": 9,
+    "time": 1760000012000,
+    "origin": {
+      "kind": "local",
+      "source": "card-bridge"
+    },
+    "traceId": "feedback:01HX8Z3N4K5M6P7Q8R9S0T1V2W:9",
+    "principal": {
+      "botId": "bot-a",
+      "sessionId": "gb-main",
+      "kind": "chat",
+      "capabilities": []
+    },
+    "causationId": null,
+    "correlationId": "feedback:01HX8Z3N4K5M6P7Q8R9S0T1V2W",
+    "ignorable": true,
+    "data": {
+      "schema": "bot-feedback/v1",
+      "feedback_id": "feedback:bot-a:9",
+      "action": "suppress",
+      "origin": {
+        "kind": "ui-action",
+        "session_id": "gb-main",
+        "nonce": "n-1",
+        "verified_by": "host"
+      },
+      "target": {
+        "kind": "delivery",
+        "id": "delivery-1",
+        "version": 2,
+        "delivery_key": "routine-result:bot-a:run-1"
+      },
+      "scope": {
+        "kind": "class",
+        "key": "proactive:task-done"
+      },
+      "class_key": "proactive:task-done",
+      "subjects": [
+        "record://event/7"
+      ],
+      "accepted": true
+    }
+  },
+  "tool_results": {
+    "valid": [
+      {
+        "ok": false,
+        "code": "decision_context_changed",
+        "reason": "material-changed",
+        "materials": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:1",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000001,
+              "snippet": "x",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            },
+            {
+              "material_id": "mat:2",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000002,
+              "snippet": "y",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        },
+        "message": "材料已更新，请按新参数重新生成并重走授权"
+      },
+      {
+        "ok": false,
+        "code": "decision_context_changed",
+        "reason": "authorization-revision-changed",
+        "materials": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:1",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000001,
+              "snippet": "x",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            },
+            {
+              "material_id": "mat:2",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000002,
+              "snippet": "y",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        },
+        "message": "授权已变化，请重新生成"
+      }
+    ],
+    "invalid": [
+      {
+        "name": "ok-true",
+        "instance": {
+          "ok": true,
+          "code": "decision_context_changed",
+          "reason": "material-changed",
+          "materials": {
+            "block_id": "dm:1",
+            "turn_id": "gb-main#3",
+            "session_id": "gb-main",
+            "bot_id": "bot-a",
+            "stage": "pre_step",
+            "authorization_revision": "auth-r1",
+            "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "retrieved_at_ms": 1760000010000,
+            "materials": [
+              {
+                "material_id": "mat:1",
+                "ref": "memory:user/profile.md@v2",
+                "path": "user/profile.md",
+                "scope": "user",
+                "version": 2,
+                "updated_at_ms": 1760000000001,
+                "snippet": "x",
+                "evidence": [
+                  "record://event/7"
+                ],
+                "selection_reason": "goal",
+                "state": "current"
+              },
+              {
+                "material_id": "mat:2",
+                "ref": "memory:user/profile.md@v2",
+                "path": "user/profile.md",
+                "scope": "user",
+                "version": 2,
+                "updated_at_ms": 1760000000002,
+                "snippet": "y",
+                "evidence": [
+                  "record://event/7"
+                ],
+                "selection_reason": "goal",
+                "state": "current"
+              }
+            ],
+            "limits": {
+              "max_materials": 4,
+              "max_characters": 1600,
+              "max_snippet_characters": 240,
+              "deadline_ms": 1500
+            },
+            "truncated": false,
+            "canceled": false
+          },
+          "message": "x"
+        }
+      },
+      {
+        "name": "unknown-reason",
+        "instance": {
+          "ok": false,
+          "code": "decision_context_changed",
+          "reason": "because",
+          "materials": {
+            "block_id": "dm:1",
+            "turn_id": "gb-main#3",
+            "session_id": "gb-main",
+            "bot_id": "bot-a",
+            "stage": "pre_step",
+            "authorization_revision": "auth-r1",
+            "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "retrieved_at_ms": 1760000010000,
+            "materials": [
+              {
+                "material_id": "mat:1",
+                "ref": "memory:user/profile.md@v2",
+                "path": "user/profile.md",
+                "scope": "user",
+                "version": 2,
+                "updated_at_ms": 1760000000001,
+                "snippet": "x",
+                "evidence": [
+                  "record://event/7"
+                ],
+                "selection_reason": "goal",
+                "state": "current"
+              },
+              {
+                "material_id": "mat:2",
+                "ref": "memory:user/profile.md@v2",
+                "path": "user/profile.md",
+                "scope": "user",
+                "version": 2,
+                "updated_at_ms": 1760000000002,
+                "snippet": "y",
+                "evidence": [
+                  "record://event/7"
+                ],
+                "selection_reason": "goal",
+                "state": "current"
+              }
+            ],
+            "limits": {
+              "max_materials": 4,
+              "max_characters": 1600,
+              "max_snippet_characters": 240,
+              "deadline_ms": 1500
+            },
+            "truncated": false,
+            "canceled": false
+          },
+          "message": "x"
+        }
+      },
+      {
+        "name": "missing-materials",
+        "instance": {
+          "ok": false,
+          "code": "decision_context_changed",
+          "reason": "material-changed",
+          "message": "x"
+        }
+      }
+    ]
+  },
+  "internal_tool": {
+    "valid": [
+      {
+        "schema": "bot-decision-context-request/v1",
+        "session_id": "gb-main",
+        "turn_id": "gb-main#3",
+        "step": 1,
+        "stage": "pre_step",
+        "query": "prepare the weekly report",
+        "origin": "user",
+        "scopes": [
+          "user",
+          "agent"
+        ],
+        "limits": {
+          "max_materials": 4,
+          "max_characters": 1600,
+          "max_snippet_characters": 240,
+          "deadline_ms": 1500
+        }
+      },
+      {
+        "schema": "bot-decision-context-result/v1",
+        "ok": true,
+        "block": {
+          "block_id": "dm:1",
+          "turn_id": "gb-main#3",
+          "session_id": "gb-main",
+          "bot_id": "bot-a",
+          "stage": "pre_step",
+          "authorization_revision": "auth-r1",
+          "query_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "retrieved_at_ms": 1760000010000,
+          "materials": [
+            {
+              "material_id": "mat:1",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000001,
+              "snippet": "x",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            },
+            {
+              "material_id": "mat:2",
+              "ref": "memory:user/profile.md@v2",
+              "path": "user/profile.md",
+              "scope": "user",
+              "version": 2,
+              "updated_at_ms": 1760000000002,
+              "snippet": "y",
+              "evidence": [
+                "record://event/7"
+              ],
+              "selection_reason": "goal",
+              "state": "current"
+            }
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          },
+          "truncated": false,
+          "canceled": false
+        }
+      },
+      {
+        "schema": "bot-decision-context-result/v1",
+        "ok": false,
+        "code": "permission-denied",
+        "message": "session does not match the claimed conversation"
+      }
+    ],
+    "invalid": [
+      {
+        "name": "wrong-schema",
+        "instance": {
+          "schema": "other",
+          "session_id": "gb-main",
+          "turn_id": "gb-main#3",
+          "step": 1,
+          "stage": "pre_step",
+          "query": "prepare the weekly report",
+          "origin": "user",
+          "scopes": [
+            "user",
+            "agent"
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          }
+        }
+      },
+      {
+        "name": "zero-step",
+        "instance": {
+          "schema": "bot-decision-context-request/v1",
+          "session_id": "gb-main",
+          "turn_id": "gb-main#3",
+          "step": 0,
+          "stage": "pre_step",
+          "query": "prepare the weekly report",
+          "origin": "user",
+          "scopes": [
+            "user",
+            "agent"
+          ],
+          "limits": {
+            "max_materials": 4,
+            "max_characters": 1600,
+            "max_snippet_characters": 240,
+            "deadline_ms": 1500
+          }
+        }
+      },
+      {
+        "name": "unknown-code",
+        "instance": {
+          "schema": "bot-decision-context-result/v1",
+          "ok": false,
+          "code": "boom",
+          "message": "x"
+        }
+      }
+    ]
+  }
+}

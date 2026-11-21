@@ -18,13 +18,13 @@ public object BotToolNames {
         "StopSubagent", "UpdateRoutine", "ListRoutines", "RequestApproval", "SendToUser",
     )
     public const val VOLATILE_CONTEXT: String = "BotVolatileContext"
-    public val HOST_BUILTINS: Set<String> = setOf("bash", "write", "edit", "phone")
+    public val HOST_BUILTINS: Set<String> = setOf("bash", "write", "edit", "read_image", "phone")
     public val DEVICE_TOOLS: Set<String> = setOf(
         "bluetooth.scan", "network.browse",
         "ble_devices", "ble_read", "ble_alert", "ble_link_tools", "ble_link_call", "ble_link_result",
     )
     public val TEAM_TOOLS: Set<String> = setOf("SendToAgent", "CreateTeammate")
-    public val BOT_TOOLS: Set<String> = setOf("FishAction")
+    public val BOT_TOOLS: Set<String> = setOf("FishAction", "attach_to_model")
 
     public val DEFAULT_KNOWN: Set<String> =
         (P0 + listOf(VOLATILE_CONTEXT) + HOST_BUILTINS + DEVICE_TOOLS + TEAM_TOOLS + BOT_TOOLS).toSet()
@@ -257,6 +257,23 @@ public class BotIdentityRegistrationService(
             attribution = attribution,
             arguments = arguments,
         )
+    }
+
+    public fun claim(runtimeId: String, name: String, arguments: JsonValue): BotResolvedToolCall? {
+        pruneExpired()
+        val attribution = attributions.claimByDigest(
+            name = BotToolNames.bare(name),
+            arguments = arguments,
+            runtimeId = scopedRuntimeId(runtimeId),
+        ) ?: return null
+        synchronized(lock) {
+            val key = Key(scopedRuntimeId(runtimeId), attribution.sessionId, attribution.callId)
+            if (registrations[key]?.id == attribution.id) registrations.remove(key)
+            registrationArguments.remove(attribution.id)
+        }
+        val principal = tokens.lookupSession(attribution.sessionId) ?: return null
+        if (principal.incarnation != attribution.incarnation) return null
+        return BotResolvedToolCall(principal.sessionId, attribution.callId, principal.botId, principal, attribution, arguments)
     }
 
     /** Clears the previous generation and its interactive approvals. */

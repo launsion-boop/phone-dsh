@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotSuggestedAttachment v1",
+  "description": "One reviewable suggested-attachment candidate for a delivery/draft, with its own provenance and the approval digest that binds draft_id+revision+selection+parameters. See spec/bot/v2/decision-context.md §2.2.",
+  "type": "object",
+  "required": [
+    "suggestion_id",
+    "draft_id",
+    "revision",
+    "artifact_kind",
+    "resource",
+    "selected",
+    "created_at_ms",
+    "updated_at_ms",
+    "approval_digest"
+  ],
+  "properties": {
+    "suggestion_id": {
+      "type": "string",
+      "pattern": "^sug:[A-Za-z0-9._:-]{1,128}$"
+    },
+    "draft_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "artifact_kind": {
+      "enum": [
+        "delivery",
+        "draft",
+        "notification"
+      ]
+    },
+    "resource": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "state",
+        "source"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "state": {
+          "enum": [
+            "current",
+            "changed",
+            "unavailable",
+            "revoked",
+            "erased",
+            "unknown"
+          ]
+        },
+        "source": {
+          "type": "object",
+          "required": [
+            "ref",
+            "trust",
+            "state"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+              "maxLength": 128
+            },
+            "trust": {
+              "enum": [
+                "user",
+                "observation",
+                "assistant"
+              ]
+            },
+            "observed_at_ms": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "state": {
+              "enum": [
+                "current",
+                "changed",
+                "unavailable",
+                "revoked",
+                "erased",
+                "unknown"
+              ]
+            },
+            "reason": {
+              "enum": [
+                "record-unresolved",
+                "record-erased",
+                "grant-revoked",
+                "source-changed",
+                "newer-observation-unversioned",
+                "revision-basis-mismatch",
+                "no-baseline",
+                "source-version-unknown",
+                "cycle-detected",
+                "scan-limit-exceeded"
+              ]
+            },
+            "source_version": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "basis",
+                    "value"
+                  ],
+                  "properties": {
+                    "basis": {
+                      "enum": [
+                        "content-sha256",
+                        "etag",
+                        "last-modified",
+                        "provider-version"
+                      ]
+                    },
+                    "value": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "observed_at_ms": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "basis_ref": {
+                      "type": "string",
+                      "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+                      "maxLength": 128
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "reason"
+                  ],
+                  "properties": {
+                    "reason": {
+                      "enum": [
+                        "record-unresolved",
+                        "record-erased",
+                        "record-without-content",
+                        "source-unversioned",
+                        "invalid-reference"
+                      ]
+                    },
+                    "observed_at_ms": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "basis_ref": {
+                      "type": "string",
+                      "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+                      "maxLength": 128
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "parameters": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": [
+          "label",
+          "value"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "selected": {
+      "type": "boolean"
+    },
+    "created_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "updated_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "approval_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": false
+}

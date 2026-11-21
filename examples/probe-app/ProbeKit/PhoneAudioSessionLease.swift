@@ -56,18 +56,25 @@ public enum PhoneAudioSessionLease {
         var hasSpeakerOwner: Bool { !speakerTokens.isEmpty }
         var isSpeakerOverridden: Bool { speakerOverridden }
 
-        /// Phone speech that must be heard on the phone: the mixable playAndRecord profile
-        /// (sticky like a microphone's) and, while the output is AirPlay, the built-in speaker.
+        /// Phone speech that must be heard on the phone. Only an AirPlay output needs the
+        /// mixable playAndRecord profile (sticky like a microphone's), because only that
+        /// category can force the built-in speaker. Any other output plays under the current
+        /// profile: iOS refuses a background switch to playAndRecord ('!int'), so a background
+        /// turn must not change category when the output does not require it.
         func acquireSpeakerOutput() throws -> SpeakerToken {
-            if !microphoneProfile {
+            if microphoneProfile {
+                try activate()
+            } else if outputIsAirPlay() {
                 do { try configureMicrophone() } catch {
                     if isKeepAliveHeld { try? configurePlayback(); reclaim?() }
                     else if !hasMicrophoneOwner && speakerTokens.isEmpty { deactivate() }
                     throw error
                 }
                 microphoneProfile = true
-            } else {
+            } else if isKeepAliveHeld || hasMicrophoneOwner || hasSpeakerOwner {
                 try activate()
+            } else {
+                try configurePlayback()
             }
             if !speakerOverridden, outputIsAirPlay() {
                 overrideToSpeaker(true)

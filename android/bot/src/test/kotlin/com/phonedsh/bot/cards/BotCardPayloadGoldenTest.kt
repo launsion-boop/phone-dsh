@@ -3,6 +3,7 @@ package com.phonedsh.bot.cards
 
 import com.phonedsh.agentcore.JsonArray
 import com.phonedsh.agentcore.JsonObject
+import com.phonedsh.agentcore.JsonString
 import com.phonedsh.agentcore.JsonValue
 import com.phonedsh.bot.GoldenFixture
 import org.junit.Assert.assertEquals
@@ -19,6 +20,39 @@ import org.junit.Test
  * protocol rules (P0 tool set, `final` stripped, ids assigned).
  */
 class BotCardPayloadGoldenTest {
+    @Test
+    fun exactNonActionLabelsAreRemovedOnlyFromSteps() {
+        val fillers = listOf(
+            "暂时不用", "暂不需要", "不用了", "先这样", "不需要", "暂不操作", "暂不继续",
+            "没有了", "以上都不", "not now", "no thanks", "do nothing", "none of the above",
+            "skip", "none", "暂时不需要", "先不用", "以后再说", "暂不处理", "无需操作", "暂停，稍后继续",
+        )
+        for (filler in fillers) {
+            val steps = BotCardPayloads.build("show_next_steps", JsonObject(mapOf(
+                "steps" to JsonArray(listOf(JsonString("继续处理"), JsonString("  ${filler.uppercase()}  "), JsonString("查看结果"))),
+            ))) as JsonObject
+            val card = steps.members["card"] as JsonObject
+            val labels = ((card.members["steps"] as JsonArray).values).map {
+                ((it as JsonObject).members["label"] as JsonString).value
+            }
+            assertEquals(filler, listOf("继续处理", "查看结果"), labels)
+
+            val question = BotCardPayloads.build("ask_user", JsonObject(mapOf(
+                "question" to JsonString("选择一个"),
+                "options" to JsonArray(listOf(
+                    JsonObject(mapOf("label" to JsonString(filler))),
+                    JsonObject(mapOf("label" to JsonString("选择 A"))),
+                    JsonObject(mapOf("label" to JsonString("选择 B"))),
+                )),
+            ))) as JsonObject
+            val questionCard = question.members["card"] as JsonObject
+            val questionLabels = ((questionCard.members["options"] as JsonArray).values).map {
+                ((it as JsonObject).members["label"] as JsonString).value
+            }
+            assertTrue("ask_user must retain $filler", filler in questionLabels)
+        }
+    }
+
     @Test
     fun p0CardsMatchTheUpstreamGolden() {
         val fixture = GoldenFixture.rawObject("card-payload")

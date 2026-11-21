@@ -15,6 +15,24 @@ export const CALLER_SESSION_HEADER = 'x-pdsh-bot-session'
 /** The App appends this roster line only after it identified a caller. */
 export const CALLER_CATALOG_ROSTER_MARKER = 'Available bots:'
 export const CALLER_CATALOG_TOOL_NAMES = Object.freeze(['SendToAgent', 'CreateTeammate'])
+/**
+ * device-app-v1 host tools (spec/bot/v1/tool-contracts.md section 10). The App
+ * lists them in the all-callers catalog the Worker registers from, but only a
+ * Bot with a device binding has them in its per-caller catalog. Deny-unless-
+ * listed: an identified caller whose catalog lacks one gets it hidden.
+ * device-app-v1.5 adds DeviceAppList and DeviceAppRemove under the same rule.
+ */
+export const CALLER_CATALOG_DEVICE_APP_TOOL_NAMES = Object.freeze([
+  'DeviceAppStage', 'DeviceAppInstall', 'DeviceAppList', 'DeviceAppRemove',
+])
+/**
+ * xiaozhi-firmware-v1 host tools (spec/device/v1/xiaozhi-firmware.md section 6).
+ * Same deny-unless-listed rule: only a Bot bound to a `xiaozhi:` device key has
+ * them in its per-caller catalog (DEBUG builds with the host installed).
+ */
+export const CALLER_CATALOG_XIAOZHI_TOOL_NAMES = Object.freeze([
+  'XiaozhiSourceExport', 'XiaozhiFirmwareBuild', 'XiaozhiFirmwareStatus', 'XiaozhiFirmwareFlash',
+])
 
 const PHONE_TOOL_PREFIX = 'mcp__phone__'
 const DEFAULT_TIMEOUT_MS = 2_000
@@ -61,6 +79,10 @@ export interface CallerCatalogConfig {
 export interface CallerToolPlan {
   readonly descriptions: Readonly<Record<string, string>>
   readonly includeCreateTeammate: boolean
+  /** Device-app host tools the App lists for this caller (device-bound Bot). */
+  readonly deviceAppTools: readonly string[]
+  /** Xiaozhi firmware host tools the App lists for this caller (`xiaozhi:`-bound Bot). */
+  readonly xiaozhiTools: readonly string[]
 }
 
 /** Derive the `/mcp` endpoint from the identity-register URL. */
@@ -167,6 +189,8 @@ export function planCallerCatalog(catalog: CallerCatalog | undefined): CallerToo
   return Object.freeze({
     descriptions: Object.freeze(descriptions),
     includeCreateTeammate: byName.has('CreateTeammate'),
+    deviceAppTools: Object.freeze(CALLER_CATALOG_DEVICE_APP_TOOL_NAMES.filter(name => byName.has(name))),
+    xiaozhiTools: Object.freeze(CALLER_CATALOG_XIAOZHI_TOOL_NAMES.filter(name => byName.has(name))),
   })
 }
 
@@ -178,7 +202,7 @@ interface CallerCatalogState {
   readonly scope: Context
   readonly registrations: Map<string, () => void>
   readonly descriptions: Map<string, string>
-  restriction?: () => void
+  readonly restrictions: Map<string, () => void>
   plan?: CallerToolPlan
 }
 
@@ -276,13 +300,23 @@ export function installCallerCatalog(ctx: Context, config: CallerCatalogConfig =
       ensureTool(state, name)
     }
 
-    const createName = `${PHONE_TOOL_PREFIX}CreateTeammate`
-    if (plan.includeCreateTeammate) {
-      state.restriction?.()
-      state.restriction = undefined
-    } else if (state.restriction === undefined) {
+    const denied = new Set<string>()
+    if (!plan.includeCreateTeammate) denied.add(`${PHONE_TOOL_PREFIX}CreateTeammate`)
+    for (const name of CALLER_CATALOG_DEVICE_APP_TOOL_NAMES) {
+      if (!plan.deviceAppTools.includes(name)) denied.add(`${PHONE_TOOL_PREFIX}${name}`)
+    }
+    for (const name of CALLER_CATALOG_XIAOZHI_TOOL_NAMES) {
+      if (!plan.xiaozhiTools.includes(name)) denied.add(`${PHONE_TOOL_PREFIX}${name}`)
+    }
+    for (const [publicName, dispose] of [...state.restrictions]) {
+      if (denied.has(publicName)) continue
+      dispose()
+      state.restrictions.delete(publicName)
+    }
+    for (const publicName of denied) {
+      if (state.restrictions.has(publicName)) continue
       try {
-        state.restriction = state.scope.tools.restrict({ deny: [createName] })
+        state.restrictions.set(publicName, state.scope.tools.restrict({ deny: [publicName] }))
       } catch {
         // `mcp-phone` has not published the global tool yet (or the scope is
         // unwinding); the next event retries.
@@ -300,6 +334,7 @@ export function installCallerCatalog(ctx: Context, config: CallerCatalogConfig =
     const state: CallerCatalogState = {
       scope: context,
       registrations: new Map(),
+      restrictions: new Map(),
       descriptions: new Map(),
     }
     states.set(sessionId, state)

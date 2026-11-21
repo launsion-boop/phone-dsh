@@ -55,7 +55,8 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(len(checker.check_registry(self.root)[0]), 1)
 
     def test_real_registry(self):
-        # P28 (PCLink v1) is the 28th registered contract.
+        # P01-P28. P29 (mobile cloud scheduler) was removed with the cloud
+        # scheduling surface in ebfcfacab ("restore original Bot scope").
         self.assertEqual(len(checker.check_registry(ROOT)[0]), 28)
 
     def test_deleted_source_fails(self):

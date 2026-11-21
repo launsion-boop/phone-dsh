@@ -31,6 +31,97 @@ final class BotGrantRecoveryTests: XCTestCase {
                                        resource: "memory:user&fact=shared", mutability: .destructive,
                                        policy: .ask, label: "private label", detail: "private detail")
 
+    func testImageGrantIsStoredAndMatchedByItsStableModelResource() async throws {
+        let store = BotGrantStore(now: { 10_000 })
+        _ = try await store.add(BotGrant(
+            botId: "main", tool: "attach_to_model", operation: "model.image.attach",
+            resource: "model:image", scope: .session, sessionId: "s1", decision: .allow))
+        let nextImage = BotToolEffect(
+            tool: "attach_to_model", operation: "model.image.attach",
+            resource: "attachment=/dsh/workspace/another-photo.jpg",
+            mutability: .externalSend, policy: .ask, grantResource: "model:image")
+        let found = await store.find(botId: "main", sessionId: "s1", effect: nextImage)
+        XCTAssertEqual(found?.resource, "model:image")
+        // Bash has no stable grant scope; it stays exact-resource.
+        let bash = BotToolEffect(
+            tool: "bash", operation: "rm-destructive",
+            resource: "/dsh/workspace/another-photo.jpg",
+            mutability: .destructive, policy: .ask)
+        let bashFound = await store.find(botId: "main", sessionId: "s1", effect: bash)
+        XCTAssertNil(bashFound)
+    }
+
+    func testExternalSendGetsAStableStandingGrantButDestructiveStaysExact() async throws {
+        let store = BotGrantStore(now: { 10_000 })
+        _ = try await store.add(BotGrant(
+            botId: "main", tool: "egress", operation: "egress.post",
+            resource: "operation:egress.post", scope: .session,
+            sessionId: "s1", decision: .allow))
+        let nextHost = BotToolEffect(
+            tool: "egress", operation: "egress.post",
+            resource: "host=another.example",
+            mutability: .externalSend, policy: .ask)
+        XCTAssertTrue(nextHost.canUseStandingGrant)
+        XCTAssertEqual(nextHost.stableGrantResource, "operation:egress.post")
+        let found = await store.find(botId: "main", sessionId: "s1", effect: nextHost)
+        XCTAssertEqual(found?.resource, "operation:egress.post")
+
+        let destructive = BotToolEffect(
+            tool: "bash", operation: "rm-destructive",
+            resource: "/dsh/workspace/another-file",
+            mutability: .destructive, policy: .ask)
+        XCTAssertFalse(destructive.canUseStandingGrant)
+        XCTAssertEqual(destructive.stableGrantResource, destructive.resource)
+        let destructiveFound = await store.find(botId: "main", sessionId: "s1",
+                                                 effect: destructive)
+        XCTAssertNil(destructiveFound)
+
+        let unclassified = BotToolEffect(
+            tool: "mystery", operation: "tool.unclassified",
+            resource: "unclassified=mystery&args=abc",
+            mutability: .write, policy: .ask, known: false)
+        XCTAssertFalse(unclassified.canUseStandingGrant)
+        XCTAssertEqual(unclassified.stableGrantResource, unclassified.resource)
+    }
+
+    func testLegacyWildcardStandingGrantStillMatches() async throws {
+        let store = BotGrantStore(now: { 10_000 })
+        _ = try await store.add(BotGrant(
+            botId: "main", tool: "bash", operation: "rm-destructive",
+            resource: "*", scope: .until, decision: .allow))
+        let next = BotToolEffect(
+            tool: "bash", operation: "rm-destructive",
+            resource: "/dsh/workspace/any-other-file",
+            mutability: .destructive, policy: .ask)
+        let found = await store.find(botId: "main", sessionId: "s1", effect: next)
+        XCTAssertEqual(found?.resource, "*")
+    }
+
+    func testSpecificDenyStillBeatsTheStableStandingGrant() async throws {
+        let store = BotGrantStore(now: { 10_000 })
+        _ = try await store.add(BotGrant(
+            botId: "main", tool: "egress", operation: "egress.post",
+            resource: "operation:egress.post", scope: .session,
+            sessionId: "s1", decision: .allow))
+        _ = try await store.add(BotGrant(
+            botId: "main", tool: "egress", operation: "egress.post",
+            resource: "host=protected.example", scope: .until,
+            decision: .deny))
+        let protected = BotToolEffect(
+            tool: "egress", operation: "egress.post",
+            resource: "host=protected.example",
+            mutability: .externalSend, policy: .ask)
+        let protectedFound = await store.find(botId: "main", sessionId: "s1",
+                                               effect: protected)
+        XCTAssertEqual(protectedFound?.decision, .deny)
+        let other = BotToolEffect(
+            tool: "egress", operation: "egress.post",
+            resource: "host=other.example",
+            mutability: .externalSend, policy: .ask)
+        let otherFound = await store.find(botId: "main", sessionId: "s1", effect: other)
+        XCTAssertEqual(otherFound?.decision, .allow)
+    }
+
     func testColdRestartRestoresStandingDenyAndAuditRemainsDigestOnly() async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

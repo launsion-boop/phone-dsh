@@ -3,6 +3,15 @@
 import XCTest
 
 final class NativeMarkdownTests: XCTestCase {
+    func testCodeChunksPreserveWhitespaceAndKeepEarlierChunksStableOnAppend() {
+        let source = (0..<80).map { "line \($0) 中🙂" }.joined(separator: "\n") + "\n\n"
+        let chunks = NativeCodeTextChunks.chunks(source)
+        XCTAssertEqual(chunks.joined(separator: "\n"), source)
+        XCTAssertEqual(Array(NativeCodeTextChunks.chunks(source + "tail").dropLast()),
+                       Array(chunks.dropLast()))
+        XCTAssertEqual(NativeCodeTextChunks.chunks("\n\n").joined(separator: "\n"), "\n\n")
+    }
+
     func testGfmBlocksAndInlineStructure() {
         let blocks = NativeMarkdownParser.parse("""
         # 标题

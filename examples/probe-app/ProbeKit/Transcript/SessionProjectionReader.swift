@@ -138,12 +138,47 @@ public struct SessionProjectionReader: Sendable {
                      beforeSeq: Int,
                      maxRecords: Int = defaultPageRecords) -> SessionProjectionPage? {
         guard let file = sessionFile(for: sessionID),
-              let records = allRecords(at: file)
+              let scanned = recordsBefore(at: file, beforeSeq: beforeSeq,
+                                          maxRecords: max(0, maxRecords))
         else { return nil }
-        let older = records.filter { ($0["seq"]?.intValue ?? Int.max) < beforeSeq }
-        let page = Array(older.suffix(max(0, maxRecords)))
-        return Self.page(sessionID: sessionID, records: page,
-                         hasMore: older.count > page.count)
+        return Self.page(sessionID: sessionID, records: scanned.records,
+                         hasMore: scanned.hasMore)
+    }
+
+    /// Scans JSONL from the end and decodes only the records older than
+    /// `beforeSeq`, up to `maxRecords`. A long PC/DSH session therefore pages
+    /// from its tail instead of parsing the whole file on every scroll.
+    private func recordsBefore(at url: URL, beforeSeq: Int,
+                               maxRecords: Int) -> (records: [JSONValue], hasMore: Bool)? {
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+            return nil
+        }
+        guard maxRecords > 0, !data.isEmpty else {
+            return ([], data.contains(0x0A))
+        }
+        var cursor = data.endIndex
+        var found: [JSONValue] = []
+        var hasMore = false
+        while cursor > data.startIndex {
+            guard let newline = data[data.startIndex..<cursor].lastIndex(of: 0x0A) else {
+                break
+            }
+            let start = data.index(after: newline)
+            defer { cursor = newline }
+            guard start < cursor else { continue }
+            var line = data[start..<cursor]
+            line = line.drop(while: { $0 == 0x20 || $0 == 0x09 || $0 == 0x0D })
+            guard !line.isEmpty,
+                  let record = try? JSONValue.parse(Data(line)),
+                  let seq = record["seq"]?.intValue,
+                  seq < beforeSeq else { continue }
+            if found.count == maxRecords {
+                hasMore = true
+                break
+            }
+            found.append(record)
+        }
+        return (found.reversed(), hasMore)
     }
 
     private static func page(sessionID: String,

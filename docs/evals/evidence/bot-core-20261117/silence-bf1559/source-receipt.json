@@ -1,0 +1,33 @@
+{
+  "template_source": "bf1559ccece2ec8b1747b8a66d14c2967dc31431",
+  "accepted_source": "fafee9052d37cf48dc3570034d6d3967f0d2ed7b",
+  "net_product_changes_from_9bd": [
+    "Sources/PhoneDSHBot/MCP/BotDomainVolatileContextProvider.swift",
+    "plugins/bot-runtime/src/prompt/assemble.ts"
+  ],
+  "root_lockfile": "Restored byte-for-byte to 9bd; no final manifest, App lock or project changes. The incidental root lockfile pruning is excluded.",
+  "app_sha256": "6b8a1c343870143b7d1db2fa7f11fc8e9f6f6b670ce963bbc4f79f164e70e2d4",
+  "worker_image_sha256": "063e40ee0c97ccaa3eb3c25a017c2520c746f96bebc7dd66308598a4f6ecddba",
+  "worker_entry_sha256": "98c89cfab203da4cc0c63a73e6ef2771a28c15ca492db97a5b249280b5c57aff",
+  "silence": {
+    "repeats": 3,
+    "status": "PASS",
+    "requests": [
+      14,
+      13,
+      14
+    ]
+  },
+  "changed_result": {
+    "repeats": 1,
+    "status": "PASS",
+    "requests": 6
+  },
+  "prior_result": "8 scenarios 3/3; SILENCE 2/3 preserved; targeted fix does not relabel historical full suite",
+  "recovery_patch": "6f8e rejected and reverted in d9730f40; no runtime recovery change in accepted candidate",
+  "simulator": "PASS local text flow on frozen bf app with explicit framework path; see ../simulator-text/receipt.json",
+  "ci": "DEFERRED_BY_USER",
+  "debug_dylib_sha256": "e44d0c149edbd4c2ae5a851061ce5bf77ff0a9f7b7b928e689f4a633ea5b32ae",
+  "embedded_bot_framework_sha256": "7fd72abd1987410f5af2330a7cbeff0cfda57886670285f3446286ce31399527",
+  "simulator_packaging_note": "Original debug binary has an external /tmp build RPATH before embedded frameworks. UI acceptance must set the target App framework search path to the frozen embedded frameworks; executable hash alone is insufficient."
+}

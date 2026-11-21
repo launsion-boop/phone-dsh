@@ -45,6 +45,7 @@ import com.phonedsh.ui.page.SettingsScreenState
 import com.phonedsh.ui.page.UiPageTags
 import com.phonedsh.ui.theme.PdshTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -203,6 +204,30 @@ class PcDrawerTest {
         assertEquals(
             null,
             PcLinkDrawerPolicy.workspaceIdFor(PcDrawerSession("s", "S", cwd = "/other"), workspaces),
+        )
+    }
+
+    @Test
+    fun `pc new session gate follows the PC phase and never the phone engine`() {
+        assertEquals(PcLinkText.PC_NEW_SESSION_UNPAIRED, pcState().newSessionBlockedReason)
+        assertEquals(
+            PcLinkText.PC_NEW_SESSION_CONNECTING,
+            pcState(presence = PcLinkPresenceState.reconnecting("Studio")).newSessionBlockedReason,
+        )
+        assertEquals(
+            PcLinkText.PC_NEW_SESSION_OFFLINE,
+            pcState(presence = PcLinkPresenceState.offline("Studio")).newSessionBlockedReason,
+        )
+        assertNull(
+            "an online PC can create even while the phone engine is stopped",
+            pcState(presence = PcLinkPresenceState.online("Studio")).newSessionBlockedReason,
+        )
+        assertNull(
+            "the phone segment keeps its host engine/turn gate",
+            PcDrawerUiState(
+                selected = PcDrawerBackend.PHONE,
+                presence = PcLinkPresenceState.offline("Studio"),
+            ).newSessionBlockedReason,
         )
     }
 

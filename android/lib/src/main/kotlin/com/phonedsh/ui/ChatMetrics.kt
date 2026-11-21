@@ -79,6 +79,14 @@ public object ChatMetrics {
 
     /** Clearance for the floating latest-message control. Source: `ChatPage.swift:1389` (`.padding(.bottom, 48)`) Confidence: exact. */
     public const val TRANSCRIPT_LATEST_CLEARANCE_PT: Int = 48
+    /** History sentinel minimum height. Source: `ChatPage.swift:1364` (`.frame(maxWidth: .infinity, minHeight: 36)`) Confidence: exact. */
+    public const val HISTORY_SENTINEL_MIN_HEIGHT_PT: Int = 36
+    /** History sentinel spinner/text gap. Source: `ChatPage.swift:1356` (`HStack(spacing: 6)`) Confidence: exact. */
+    public const val HISTORY_SENTINEL_SPACING_PT: Int = 6
+    /** Settle delay before the sentinel pages. Source: `ChatPage.swift` `loadEarlierIfNeeded` (`Task.sleep(nanoseconds: 50_000_000)`) Confidence: exact. */
+    public const val HISTORY_SENTINEL_SETTLE_MS: Long = 50
+    /** Cool-down after a page so the restored anchor settles before the sentinel can page again. Source: `ChatPage.swift` `loadEarlierIfNeeded` (`Task.sleep(nanoseconds: 120_000_000)`) Confidence: exact. */
+    public const val HISTORY_SENTINEL_COOLDOWN_MS: Long = 120
     /** Failed-message row inline gap. Source: `ChatPage.swift:1045` (`HStack(alignment: .firstTextBaseline, spacing: 6)`) Confidence: exact. */
     public const val FAILURE_LINE_GAP_PT: Int = 6
     /** Failed-message row top gap. Source: `ChatPage.swift:1066` (`.padding(.top, 6)`) Confidence: exact. */
@@ -247,6 +255,9 @@ public object ChatMetrics {
 
     /** Deny button height (the 44 pt hit minimum). Source: `ChatPage.swift:5256` (`.frame(height: 44)`) Confidence: exact. */
     public val PERMISSION_DENY_HEIGHT_PT: Int get() = UiTokenData.geometrySecondaryButtonHeight.value.toInt()
+
+    /** Always-allow button height. Source: `ChatPage.swift:5748` (`.frame(height: 44)` on 总是允许) Confidence: exact. */
+    public val PERMISSION_ALWAYS_HEIGHT_PT: Int get() = UiTokenData.geometrySecondaryButtonHeight.value.toInt()
 
     /** Single-choice marker outer diameter in the current Android question fallback; source is the 20pt question marker in the PR22 reference capture. Confidence: image-measured. Page-local: one page/surface layout value; no token fit. */
     public const val QUESTION_RADIO_OUTLINE_PT: Int = 20

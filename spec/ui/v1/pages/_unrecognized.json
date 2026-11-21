@@ -97,6 +97,14 @@
    "reason": "The first RuntimeDetailsPage Section (ChatPage.swift:4370) opens with `runtimeRow(\"状态\", model.isStarted ? statusValue : \"已停止\")`; the label's value is a ternary, so no stable first-row criterion exists. The row and the stop/restart action are judged by the actions, not by this group title.",
    "owner": "ui-contract",
    "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "gmail-connector",
+   "kind": "unresolved-section",
+   "name": "<untitled: verbatim: notice>",
+   "reason": "GmailConnectorPage.swift:214 renders `Section { Text(verbatim: notice) }`: an untitled notice block whose only row is the mailbox's runtime notice, so no literal criterion exists.",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
   }
  ],
  "notes": [

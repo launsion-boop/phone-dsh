@@ -31,13 +31,25 @@ public class BotToolCatalog(
     public val p1: List<BotMCPToolDefinition>,
     public val fishAction: BotMCPToolDefinition,
     public val volatileContext: BotMCPToolDefinition,
+    public val attachToModel: BotMCPToolDefinition,
     private val teamBase: List<BotMCPToolDefinition>,
     private val roster: BotRoster? = null,
 ) : BotMCPToolCatalogProvider {
 
+    /**
+     * The order frozen by `mcp-rpc-cases.phone.json` (`tools-list-static-with-native-merge`):
+     * P0, team, FishAction, BotVolatileContext, attach_to_model, RecordFeedback, and for the
+     * static (Worker) list BotDecisionContext.
+     *
+     * As in the Swift reference, the static list is `workerDefinitions` and an identified
+     * caller gets `allDefinitions(roster:callerBotID:)`, which does not list the internal
+     * BotDecisionContext tool (`tools-list-per-caller-hides-create-teammate` counts 23).
+     * The runtime answers that tool before the per-caller check (decision-context.md §1.7).
+     */
     override fun definitions(callerBotId: String?): List<BotMCPToolDefinition> {
         val team = teamDefinitions(callerBotId)
-        return p0 + fishAction + volatileContext + team
+        val all = p0 + team + fishAction + volatileContext + attachToModel + RECORD_FEEDBACK_DEFINITION
+        return if (callerBotId == null) all + DECISION_CONTEXT_DEFINITION else all
     }
 
     public fun teamDefinitions(callerBotId: String?): List<BotMCPToolDefinition> {
@@ -65,7 +77,22 @@ public class BotToolCatalog(
             "show_table", "show_callout", "show_info", "show_payload", "show_library",
         )
         public const val VOLATILE_CONTEXT_NAME: String = "BotVolatileContext"
+        /**
+         * One existing image handed to the model as an MCP image content block.
+         * Not in [P0_NAMES]: it is an additive vision capability, so the
+         * frozen P0 golden and every non-vision deployment stay unchanged.
+         */
+        public const val ATTACH_TO_MODEL_NAME: String = "attach_to_model"
         public const val FISH_ACTION_NAME: String = "FishAction"
+
+        /** G-2 feedback tool (`spec/bot/v2/record-feedback-tool.json`). */
+        public const val RECORD_FEEDBACK_NAME: String = "RecordFeedback"
+
+        /**
+         * G-2 internal additive tool (`spec/bot/v2/decision-context.md` §1.7,
+         * `decision-internal-tool.schema.json`). Read-only; grants nothing.
+         */
+        public const val DECISION_CONTEXT_NAME: String = "BotDecisionContext"
         public const val SEND_TO_AGENT_NAME: String = "SendToAgent"
         public const val CREATE_TEAMMATE_NAME: String = "CreateTeammate"
         public val TEAM_TOOL_NAMES: List<String> = listOf(SEND_TO_AGENT_NAME, CREATE_TEAMMATE_NAME)
@@ -77,9 +104,11 @@ public class BotToolCatalog(
             "show_attachment", "show_document", "show_progress", "show_checklist", "show_link",
         )
 
-        /** §8.1: P0 + BotVolatileContext are the Bot-registered names. */
+        /** §8.1: P0 + BotVolatileContext + the additive vision and G-2 tools. */
         public fun isRegistered(name: String): Boolean =
-            name == VOLATILE_CONTEXT_NAME || P0_NAMES.contains(name)
+            name == VOLATILE_CONTEXT_NAME || name == ATTACH_TO_MODEL_NAME ||
+                name == RECORD_FEEDBACK_NAME || name == DECISION_CONTEXT_NAME ||
+                P0_NAMES.contains(name)
 
         public fun isTeamTool(name: String): Boolean = TEAM_TOOL_NAMES.contains(name)
 
@@ -138,6 +167,7 @@ public class BotToolCatalog(
                 p1 = p1,
                 fishAction = fish,
                 volatileContext = volatile,
+                attachToModel = attachToModelDefinition(),
                 teamBase = team,
                 roster = roster,
             )
@@ -158,6 +188,7 @@ public class BotToolCatalog(
                 p1 = p1,
                 fishAction = fishDefinition(phone),
                 volatileContext = volatileDefinition(),
+                attachToModel = attachToModelDefinition(),
                 teamBase = defaultTeamDefinitions(),
                 roster = roster,
             )
@@ -235,6 +266,37 @@ public class BotToolCatalog(
                         "maxLength" to JsonNumber("200"),
                     ),
                 ),
+                "additionalProperties" to JsonBool(false),
+            ),
+        )
+
+        /**
+         * `BotToolCatalog.attachToModelDefinition` in the Swift reference. The
+         * description and schema are the frozen P26 contract; the shared P0
+         * golden deliberately does not carry them.
+         */
+        private fun attachToModelDefinition(): BotMCPToolDefinition = BotMCPToolDefinition(
+            name = ATTACH_TO_MODEL_NAME,
+            description = "Attach one image from the Bot workspace or an Office artifact to the model's " +
+                "context so you can actually see it. Pass exactly one of path, fileId or photoId; for a " +
+                "PDF pass page (1-8, default 1) to pick the page image; purpose is shown to the user in the " +
+                "approval card. The user must approve sending the image to the model service. Use this after " +
+                "camera.capture or when a user attached an image and you need its pixels; do not guess from " +
+                "metadata alone.",
+            inputSchema = BotJsonObject.of(
+                "type" to JsonString("object"),
+                "properties" to BotJsonObject.of(
+                    "path" to BotJsonObject.of("type" to JsonString("string")),
+                    "fileId" to BotJsonObject.of("type" to JsonString("string")),
+                    "photoId" to BotJsonObject.of("type" to JsonString("string")),
+                    "page" to BotJsonObject.of(
+                        "type" to JsonString("integer"),
+                        "minimum" to JsonNumber("1"),
+                        "maximum" to JsonNumber("8"),
+                    ),
+                    "purpose" to BotJsonObject.of("type" to JsonString("string")),
+                ),
+                "required" to JsonArray(listOf(JsonString("purpose"))),
                 "additionalProperties" to JsonBool(false),
             ),
         )
@@ -359,6 +421,115 @@ public class BotToolCatalog(
                 "actually happened; never use it as evidence that work is done. Do not use it when the user asks " +
                 "for a plain, serious answer. Actions: $actionList. Expressions: $expressionList."
         }
+
+        private fun obj(vararg members: Pair<String, JsonValue>): JsonObject = BotJsonObject.of(*members)
+        private fun strings(vararg values: String): JsonArray = JsonArray(values.map(::JsonString))
+        private fun int(value: Int): JsonNumber = JsonNumber(value.toString())
+        private fun boundedInt(min: Int, max: Int): JsonObject =
+            obj("type" to JsonString("integer"), "minimum" to int(min), "maximum" to int(max))
+
+        /** `BotFeedbackTools.definition`, verbatim from `record-feedback-tool.json`. */
+        public val RECORD_FEEDBACK_DEFINITION: BotMCPToolDefinition = BotMCPToolDefinition(
+            name = RECORD_FEEDBACK_NAME,
+            description = "Record explicit feedback the user just gave about one Bot output, routine, or " +
+                "memory. Use this when the user accepts, rejects, corrects, or asks you to stop a kind of " +
+                "proactive message. Bind the exact object you are referring to; never guess an id. " +
+                "scope=user only when the user wants the same class of message suppressed in every Bot.",
+            inputSchema = obj(
+                "type" to JsonString("object"),
+                "required" to strings("action", "target"),
+                "properties" to obj(
+                    "action" to obj("enum" to strings("adopt", "undo", "correct", "suppress")),
+                    "target" to obj(
+                        "type" to JsonString("object"),
+                        "required" to strings("kind", "id"),
+                        "properties" to obj(
+                            "kind" to obj(
+                                "enum" to strings("proactive", "routine", "memory", "task", "delivery", "feedback"),
+                            ),
+                            "id" to obj(
+                                "type" to JsonString("string"),
+                                "minLength" to int(1),
+                                "maxLength" to int(200),
+                            ),
+                            "version" to obj("type" to JsonString("integer"), "minimum" to int(0)),
+                            "delivery_key" to obj(
+                                "type" to JsonString("string"),
+                                "minLength" to int(1),
+                                "maxLength" to int(200),
+                            ),
+                        ),
+                        "additionalProperties" to JsonBool(false),
+                    ),
+                    "scope" to obj(
+                        "enum" to strings("artifact", "routine", "class", "user"),
+                        "default" to JsonString("artifact"),
+                    ),
+                    "disputed_refs" to obj(
+                        "type" to JsonString("array"),
+                        "maxItems" to int(8),
+                        "items" to obj(
+                            "type" to JsonString("string"),
+                            "pattern" to JsonString("^record://(session|event)/"),
+                        ),
+                    ),
+                    "expires_at_ms" to obj("type" to JsonString("integer"), "minimum" to int(0)),
+                ),
+                "additionalProperties" to JsonBool(false),
+            ),
+        )
+
+        /** `BotToolCatalog.decisionContextDefinition`: the request branch of the frozen schema. */
+        public val DECISION_CONTEXT_DEFINITION: BotMCPToolDefinition = BotMCPToolDefinition(
+            name = DECISION_CONTEXT_NAME,
+            description = "Return this session's bounded decision materials for the current turn and step. " +
+                "The host validates the claimed session/turn/step and returns only this session's materials; " +
+                "the call is read-only and grants nothing.",
+            inputSchema = obj(
+                "type" to JsonString("object"),
+                "required" to strings(
+                    "schema", "session_id", "turn_id", "step", "stage", "query", "scopes", "limits",
+                ),
+                "properties" to obj(
+                    "schema" to obj("const" to JsonString("bot-decision-context-request/v1")),
+                    "session_id" to obj(
+                        "type" to JsonString("string"),
+                        "minLength" to int(1),
+                        "maxLength" to int(64),
+                    ),
+                    "turn_id" to obj(
+                        "type" to JsonString("string"),
+                        "minLength" to int(1),
+                        "maxLength" to int(200),
+                    ),
+                    "step" to obj("type" to JsonString("integer"), "minimum" to int(1)),
+                    "stage" to obj("enum" to strings("pre_step", "pre_delivery")),
+                    "query" to obj("type" to JsonString("string"), "maxLength" to int(600)),
+                    "origin" to obj("enum" to strings("user", "bot", "routine", "task", "proactive")),
+                    "scopes" to obj(
+                        "type" to JsonString("array"),
+                        "minItems" to int(1),
+                        "maxItems" to int(2),
+                        "uniqueItems" to JsonBool(true),
+                        "items" to obj("enum" to strings("user", "agent")),
+                    ),
+                    "limits" to obj(
+                        "type" to JsonString("object"),
+                        "required" to strings(
+                            "max_materials", "max_characters", "max_snippet_characters", "deadline_ms",
+                        ),
+                        "properties" to obj(
+                            "max_materials" to boundedInt(1, 6),
+                            "max_characters" to boundedInt(240, 2400),
+                            "max_snippet_characters" to boundedInt(60, 300),
+                            "deadline_ms" to boundedInt(100, 3000),
+                        ),
+                        "additionalProperties" to JsonBool(false),
+                    ),
+                ),
+                "additionalProperties" to JsonBool(false),
+            ),
+        )
 
         private const val READ_MEMORY_DESCRIPTION =
             "Read one memory document (optionally a historical version) or list a directory under user/ or " +

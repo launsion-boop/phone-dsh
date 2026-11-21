@@ -143,6 +143,8 @@ public object UiPageTags {
     public const val TONO_ACCOUNT_SIGN_IN: String = "pdsh.tonoaccount.signin"
     public const val TONO_ACCOUNT_SIGN_OUT: String = "pdsh.tonoaccount.signout"
     public const val TONO_ACCOUNT_STATUS: String = "pdsh.tonoaccount.status"
+    public const val TONO_ACCOUNT_CLOUD_TASKS_TOGGLE: String = "pdsh.tonoaccount.cloudtasks.toggle"
+    public const val TONO_ACCOUNT_CLOUD_TASKS_STATUS: String = "pdsh.tonoaccount.cloudtasks.status"
 
     public const val WEB_SEARCH_ROOT: String = "pdsh.websearch.root"
     public const val WEB_SEARCH_LIST: String = "pdsh.websearch.list"
@@ -773,6 +775,8 @@ public object UiPageTags {
     public const val PHONE_PERMISSIONS_LIST: String = "pdsh.phone.permissions.list"
     public const val PHONE_PERMISSIONS_AUDIT: String = "pdsh.phone.permissions.audit"
     public const val PHONE_PERMISSIONS_AUDIT_EMPTY: String = "pdsh.phone.permissions.audit.empty"
+    public const val PHONE_PERMISSIONS_DSH_APPROVALS: String = "pdsh.phone.permissions.dsh-approvals"
+    public const val PHONE_PERMISSIONS_NEXT_STEPS: String = "pdsh.phone.permissions.next-steps"
     public const val PHONE_PERMISSIONS_ROW_PREFIX: String = "pdsh.phone.permissions.row."
     public const val PHONE_PERMISSIONS_TOGGLE_PREFIX: String = "pdsh.phone.permissions.toggle."
     public const val PHONE_PERMISSIONS_CONFIRM_CONTINUE: String = "pdsh.phone.permissions.confirm"

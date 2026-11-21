@@ -17,6 +17,54 @@ final class PhoneDSHDeviceUITests: XCTestCase {
         app.terminate()
     }
 
+    func testLongTranscriptInitialTailStaysAboveTallComposer() throws {
+        app.launchArguments = ["-uiPreview", "chat.long"]
+        app.launch()
+        let answer = app.staticTexts.matching(NSPredicate(
+            format: "label CONTAINS %@", "这段是模型的回答")).firstMatch
+        XCTAssertTrue(answer.waitForExistence(timeout: 30))
+        let composer = app.textViews.firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        // Wait through the initial lazy layout and its tail correction. A
+        // forced top anchor used to move the tail sentinel above the viewport
+        // and leave the entire transcript blank beside a tall composer.
+        let visible = NSPredicate { _, _ in
+            answer.exists && answer.frame.maxY > 120
+                && answer.frame.minY < composer.frame.minY && answer.isHittable
+        }
+        let settled = expectation(for: visible, evaluatedWith: app)
+        wait(for: [settled], timeout: 10)
+        XCTAssertTrue(answer.isHittable)
+    }
+
+    /// Launch contract: every launch opens on Bot, never on the DSH/chat tab.
+    /// The Bot page restores the last selected Bot itself
+    /// (`BotRosterModel` → `BotSelectionStore`), so this needs no prior deep
+    /// link; the tab bar must still switch both ways from there.
+    func testLaunchOpensOnBotTab() throws {
+        app.launch()
+        let bot = app.buttons["Bot"]
+        let dsh = app.buttons["DSH"]
+        XCTAssertTrue(bot.waitForExistence(timeout: 60), "the tab bar did not appear")
+        XCTAssertTrue(bot.isSelected, "launch must open on the Bot tab")
+        XCTAssertFalse(dsh.isSelected, "launch must not open on the DSH/chat tab")
+
+        dsh.tap()
+        XCTAssertTrue(app.buttons["打开会话列表"].waitForExistence(timeout: 30),
+                      "the DSH page did not appear after tapping its tab")
+        XCTAssertTrue(waitUntil(timeout: 5) { dsh.isSelected })
+        bot.tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { bot.isSelected },
+                      "the tab bar did not return to the Bot tab")
+
+        // A second cold launch must land on Bot too, not only the first launch
+        // after a Bot was opened.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(bot.waitForExistence(timeout: 60), "the tab bar did not appear on relaunch")
+        XCTAssertTrue(bot.isSelected, "a relaunch must open on the Bot tab too")
+    }
+
     func testDailyBriefEntryIsNotExposed() throws {
         app.launch()
         let open = app.buttons["打开会话列表"]

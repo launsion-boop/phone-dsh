@@ -77,18 +77,21 @@ busy timeout, then applies these pragmas in this order
 | `PRAGMA synchronous=FULL` | `FULL` | yes |
 | `PRAGMA foreign_keys=ON` | `ON`, re-applied after migration | yes |
 | `PRAGMA secure_delete=ON` | `ON` | yes |
-| `PRAGMA user_version` | read; `0` = new, `1`/`2` = migrate, `3` = current, `>3` = `schemaTooNew` | yes |
+| `PRAGMA user_version` | read; `0` = new, `1`/`2`/`3` = migrate, `4` = current, `>4` = `schemaTooNew` | yes |
 | `PRAGMA quick_check` | exactly one row whose value is `ok` | yes |
 | `PRAGMA foreign_key_check` | empty (checked by the actor integrity scan after schema creation) | yes |
 
-- A new database runs the v3 DDL (§3) and sets `PRAGMA user_version=3`.
-- A v1/v2 database is migrated in place (§7). The migration temporarily disables
-  `foreign_keys`; the reference re-enables it and runs `foreign_key_check` before the
-  store is returned.
+- A new database runs the v4 DDL (§3) and sets `PRAGMA user_version=4`.
+- A v1/v2 database is migrated in place to v4: the v1/v2→v3 split (§7) runs first inside
+  its own transaction, then the v3→v4 additive step (§7.1). The migration temporarily
+  disables `foreign_keys`; the reference re-enables it and runs `foreign_key_check`
+  before the store is returned.
+- A v3 database is migrated additively to v4 (§7.1): the only schema change is the
+  `bot_pending_actions` table; no v3 row is read, rewritten or copied.
 - `schemaTooNew` MUST be raised **before** any schema statement or write for
-  `user_version > 3`; the file MUST be left untouched
-  (`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:88-96`;
-  `Tests/PhoneDSHBotTests/Store/UserActionTransactionTests.swift:77-89`).
+  `user_version > 4`; the file MUST be left untouched
+  (`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift`;
+  `Tests/PhoneDSHBotTests/Store/UserActionTransactionTests.swift`).
 - `synchronous=FULL` is a pragma of the profile, not a claim of tested power-loss
   durability. No repository test cuts power; see §13.
 - *Swift detail.* The `FULLMUTEX` flag, the `SQLiteDomainStoreError` spelling and the
@@ -96,14 +99,15 @@ busy timeout, then applies these pragmas in this order
   reference implementation choices. A port MUST expose equivalent open failures; the
   contract distinguishes `schemaTooNew`, `corrupted` and a generic SQLite failure.
 
-## 3. Schema v3 (normative DDL)
+## 3. Schema v4 (normative DDL)
 
 The following is the exact DDL created by
-`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:370-475`. Column names, types,
-constraints, trigger names, the view name/columns and the index names are normative. A
-reader MAY add indexes; it MUST NOT rename or drop a column, relax a constraint, drop a
-trigger or change the view to a table. `CREATE TABLE IF NOT EXISTS` is used so opening an
-existing v3 file is idempotent.
+`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift`. Column names, types, constraints,
+trigger names, the view name/columns and the index names are normative. A reader MAY add
+indexes; it MUST NOT rename or drop a column, relax a constraint, drop a trigger or
+change the view to a table. `CREATE TABLE IF NOT EXISTS` is used so opening an existing
+v4 file is idempotent. The v3 tables and view are unchanged by v4; the only v4 addition
+is `bot_pending_actions` at the end of the block.
 
 ```sql
 CREATE TABLE IF NOT EXISTS bot_event_headers (
@@ -210,6 +214,16 @@ CREATE TABLE IF NOT EXISTS bot_user_action_nonces (
     created_commit_seq INTEGER NOT NULL CHECK (created_commit_seq > 0),
     PRIMARY KEY(bot_id, nonce)
 );
+-- v4: durable outbox for user actions, written before the remote turn starts
+-- and deleted only after a non-throwing dispatch outcome.
+CREATE TABLE IF NOT EXISTS bot_pending_actions (
+    bot_id TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    payload BLOB NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY(bot_id, nonce)
+);
 ```
 
 Notes that are normative for readers:
@@ -229,6 +243,12 @@ Notes that are normative for readers:
   `bot_event_headers(event_id)`, not `commit_seq`. `created_commit_seq` is the sequence
   of that event. The primary key is `(bot_id, nonce)`; the same nonce for two Bots is
   two rows.
+- `bot_pending_actions` is a v4 addition. `payload` is canonical UTF-8 JSON of the
+  `BotUserAction` (§10.5); `nonce` is the action nonce and the primary key is
+  `(bot_id, nonce)`. `attempts` starts at `1` when the row is written and is
+  incremented by each thrown dispatch attempt; it is diagnostic, not a dead-letter
+  counter. The table has no foreign key: a pending action must survive even when its
+  eventual event never commits.
 - `bot_effects.idempotent` is stored as `0`/`1`. `state` stores the strings in §9.1.
   `generation` is `>= 1`; `attempt`/`attempts` default to `0` and advance per §9.
 - `bot_effect_inbox` is keyed by `(receiver, effect_key, generation)`; a newer
@@ -491,12 +511,28 @@ ring and returns `0` (`SQLiteDomainStore+BotEventLog.swift:7-20`):
    full integrity scan (§8) with `commitGap(expected:actual:)`. Both refuse the store;
    the migration condition is `corrupted` because no store state was ever opened.
 
-New databases never run the migration: they create v3 directly and set `user_version=3`.
+New databases never run the migration: they create v4 directly and set `user_version=4`.
 
-Rollback: a v1/v2-only App opening a v3 file MUST refuse it with `schemaTooNew` and MUST
-NOT delete, downgrade or rewrite it (`spec/bot/v1/README.md` §1;
-`Tests/PhoneDSHBotTests/Store/UserActionTransactionTests.swift:77-89`). There is no
-downgrade migration.
+### 7.1 Migration v3 → v4
+
+v4 is additive and runs after any v1/v2→v3 migration, in its own `BEGIN IMMEDIATE`
+transaction (`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift`):
+
+1. The file MUST be at `user_version=3`. Any other value is an implementation error, not
+   a migration: the open fails as `corrupted`.
+2. Run the `bot_pending_actions` DDL (§3), set `PRAGMA user_version=4`, and `COMMIT` in
+   the same transaction. A crash before COMMIT leaves the file at v3 and the next open
+   retries the same migration; a crash after COMMIT leaves a complete v4 file.
+3. No v3 row is read, normalized or rewritten. `bot_event_headers`,
+   `bot_event_payloads`, `bot_events`, `bot_effects`, `bot_effect_inbox` and
+   `bot_user_action_nonces` are untouched. The new table is empty after migration.
+4. `foreign_key_check` still passes; v4 adds no foreign key. A reopened v4 file applies
+   the idempotent DDL and does not rerun the version bump.
+
+Rollback: an App whose current schema version is lower than the file's MUST refuse it
+with `schemaTooNew` and MUST NOT delete, downgrade or rewrite it
+(`spec/bot/v1/README.md` §1; `Tests/PhoneDSHBotTests/Store/UserActionTransactionTests.swift`).
+There is no downgrade migration; a v4 file opened by a v3 binary is `schemaTooNew:4`.
 
 ## 8. Integrity and recovery
 
@@ -758,14 +794,27 @@ through unchanged and MUST NOT be rewritten here.
 
 ### 10.2 Validation before planning
 
-`BotUserActionDispatcher.dispatch` (`BotUserAction.swift:174-229`) must:
+`BotUserActionDispatcher.dispatch` (`BotUserAction.swift`) must:
 
 1. check an in-process in-flight task for the same `(botID, nonce)` (Swift detail);
-2. check `bot_user_action_nonces`; if present return `duplicate` with the stored event id;
-3. run the validation table above and return `rejected`/`stale` without planning or
-   writing;
-4. call the planner with trust `owner_direct` (the only trust value);
-5. `.stale`/`.rejected` pass through; `.commit(plan)` calls `performAndRecord`.
+2. check `bot_user_action_nonces`; if present return `duplicate` with the stored event id
+   and clear any leftover `bot_pending_actions` row for that key (§10.5);
+3. run the validation table above and return `rejected`/`stale` without planning;
+4. write the pending-action row (§10.5) **after** the duplicate/validation checks and
+   **before** the planner is called;
+5. call the planner with trust `owner_direct` (the only trust value);
+6. `.stale`/`.rejected` pass through; `.commit(plan)` calls `performAndRecord`;
+7. clear the pending row only for a **terminal** outcome: `accepted`; `duplicate` when
+   no pending row still needs resume; and terminal `stale`/`rejected` reasons
+   (`card_expired`, `already_answered`, `card_dismissed`, `unknown_card`,
+   `unknown_option`, `digest_mismatch`, `missing_text`, `missing_card_id`,
+   `missing_card_answer`, `missing_thread_id`, `unexpected_attachments`,
+   `too_many_attachments`, `unexpected_card_answer_field`,
+   `only_question_cards_can_be_dismissed`, `untrusted_action`, `cancelled`, and
+   `invalid_*`). Keep it for **retryable** non-throwing rejections
+   (`transport_replaced`, `turn_not_completed`, `turn_not_started`, `collect_idle_timeout`,
+   `snapshot_timeout`, `transport_timeout`, `unavailable`, `unit_detached`) and for
+   every unknown reason; a thrown error keeps it and rethrows.
 
 The planner/trust boundary is P27-owned. `BotUserActionDispatcher` is the only
 owner-direct caller in the App; `performAndRecord` itself does not authenticate a caller,
@@ -821,13 +870,73 @@ Two connections racing on the same nonce serialize on the write lock: exactly on
 A `duplicate` result MUST be returned even if the caller's retry carries a different
 plan, event id or effects; the original committed event is the only authority.
 
+### 10.5 Pending-action outbox (v4)
+
+A chat send waits for the whole remote turn inside `planner.plan`, so the nonce and event
+alone do not make the tap durable: a process kill mid-turn, or a transport that never
+answers, would lose the text before the transaction of §10.3 ever runs. v4 therefore
+persists the action before planning, in a transaction independent of the action commit.
+
+- **Write before the turn.** After the duplicate/validation checks of §10.2 and
+  immediately before `planner.plan`, the dispatcher inserts one
+  `bot_pending_actions(bot_id, nonce, payload, created_at_ms, attempts=1)` row. The insert
+  commits before the planner is called. It is idempotent on `(bot_id, nonce)`: a retry of
+  the same key keeps the original `created_at_ms` and `attempts`, and never resets the
+  row.
+- **Payload.** `payload` is UTF-8 JSON of the full `BotUserAction`: `nonce`, `botID`,
+  `kind`, and the kind-specific `text`/`attachments`/`cardID`/`optionID`/`approvalID`/
+  `decision`/`digest`/`threadID` fields. It MUST decode through the same action decoder
+  as the row model, including its `customText`/cardAnswer-`text`/attachments rules, so a
+  replayed payload is validated exactly like a live action. A payload that does not
+  decode is `corrupted`; it is never silently dropped or rewritten.
+- **Terminal-only clear.** `accepted` clears the row. `duplicate` clears it only when
+  no pending row still needs resume (a card answer committed before its prompt is the
+  exception, see below). `stale`/`rejected` clear only for terminal reasons
+  (`card_expired`, `already_answered`, `card_dismissed`, `unknown_card`,
+  `unknown_option`, `digest_mismatch`, `missing_text`, `missing_card_id`,
+  `missing_card_answer`, `missing_thread_id`, `unexpected_attachments`,
+  `too_many_attachments`, `unexpected_card_answer_field`,
+  `only_question_cards_can_be_dismissed`, `untrusted_action`, `cancelled`, `invalid_*`).
+  **Retryable rejections keep the row**: the chat planner reports
+  `transport_replaced`, `turn_not_completed`, `turn_not_started`, `collect_idle_timeout`, `snapshot_timeout`,
+  `transport_timeout`, `unavailable` and `unit_detached` as non-throwing `.rejected`
+  outcomes; an unknown reason is retryable too. Clearing on those is the original lost
+  message bug, not a completion.
+- **Keep after a thrown error or retryable rejection.** The row stays, `attempts` is
+  incremented, and the outcome is returned. The store has no attempt limit of its own;
+  the App replay policy owns the budget (see below) so an offline launch can retry.
+- **Card answer: committed nonce, unpublished prompt.** A card answer pre-commits
+  `card.answered` before sending its prompt. If the nonce event already exists and a
+  pending row remains, the prompt may never have been delivered: do **not** clear the row
+  and do **not** call the normal send path (the duplicate nonce-derived request id would
+  wait for a turn that cannot start). Resume the prompt once through a prompt-only
+  primitive with the `card-answer:<nonce>` request id; only that success clears the row.
+  A build without the primitive keeps the row and reports it for replay.
+- **Read order.** `pendingActions(botID:)` returns rows ordered by `created_at_ms` then
+  `nonce`, so replay is oldest-first and deterministic within one millisecond.
+  `pendingActionRecords(botID:)` additionally exposes `created_at_ms` and `attempts`.
+- **Replay.** After a unit's main session starts, the App loads the rows for that Bot and
+  re-dispatches them sequentially through the same dispatcher. Replay is safe to run with
+  no network: every dispatch throws or returns a retryable rejection before commit, the
+  rows stay, and the App does not crash. Nonce idempotency (§10.3) makes a replay after a
+  committed-but-uncleared crash return `duplicate` instead of a second turn.
+- **Replay policy (App-owned).** This change retains a row until a terminal outcome or
+  an erasure; `attempts` starts at 1 on insert and gains 1 per thrown/replay attempt and
+  is diagnostic only. A TTL / attempt cap and the idempotent
+  `send-expired:<botID>:<nonce>` notice are a follow-up App policy, not implemented by
+  this revision; when added, an expired row MUST be deleted and the notice written so the
+  user sees the loss instead of an eternal spinner.
+- **Not an event.** The pending row is a local outbox row, not a `conversation.*` event
+  and not a wire format. It never appears in `bot_events` and is not replayable across
+  hosts (the `send-expired` notice is an ordinary `ui.notice`).
+
 ## 11. Conformance and shared vectors
 
 The shared vectors are phone-owned overlays under `spec/bot/v1/golden/`:
 
 | File | Covers |
 | --- | --- |
-| `store.phone.json` | commitSeq assignment/dedupe/batch/ephemeral, canonical payloads and digests, v1/v2→v3 rows, gap/future-version refusal, outbox enqueue/lease/expiry/renew/retry/dead-letter/reconciliation/cancel/inbox |
+| `store.phone.json` | commitSeq assignment/dedupe/batch/ephemeral, canonical payloads and digests, v1/v2→v4 rows (through the v3 split), gap/future-version refusal, outbox enqueue/lease/expiry/renew/retry/dead-letter/reconciliation/cancel/inbox |
 | `user-action-transaction.phone.json` | accepted/duplicate/stale/rejected, event-id conflict, crash before/after commit, per-Bot nonce isolation |
 | `event-envelope.phone.json` | the two `memory.document_*` durable types (valid and invalid envelopes) |
 
@@ -845,7 +954,7 @@ conformance.
 | --- | --- | --- |
 | File root | the logical subtree `PhoneDSHBot/domain.sqlite` under the App-private support root; sidecars and private permissions | the exact `FileManager.applicationSupportDirectory` call and the Apple file-protection class |
 | Open | WAL confirmed, `synchronous=FULL`, `foreign_keys=ON`, `secure_delete=ON`, 5,000 ms busy timeout, `user_version` policy, `quick_check`/`foreign_key_check` | `SQLITE_OPEN_FULLMUTEX`, actor/class names, `SQLiteDomainStoreError` spelling, SQLite error mapping |
-| Schema | every table/column/constraint/trigger/view/index name and shape in §3; `user_version=3` | `CREATE TABLE IF NOT EXISTS` spelling, Swift string layout |
+| Schema | every table/column/constraint/trigger/view/index name and shape in §3; `user_version=4` | `CREATE TABLE IF NOT EXISTS` spelling, Swift string layout |
 | Sequence and dedupe | dense `commitSeq`, store-assigned only, batch atomicity, duplicate/conflict outcomes, gap outcomes | crash-hook names and the test-only `armCrashPoint` |
 | Bytes | canonical `data` bytes, SHA-256 over those bytes, `payload_size`, `header_meta` shape, erasure sentinel | Foundation `JSONEncoder` options and the `JSONValue` number representation |
 | Migration | old row decode/check, split rows, nonce copy, one transaction, contiguity check before COMMIT, idempotence, post-failure open refusal | the exact SQLite statement layout and the Swift error spelling |

@@ -86,6 +86,7 @@ public actor RoutineMachine {
                        urgentReason: String = "", delivery: RoutineDeliveryMode = .held,
                        interruptReason: String = "", creator: RoutineCreator? = nil,
                        completionCriteria: String = "", constraints: String = "",
+                       derivation: RoutineDerivation? = nil,
                        now: Int64, id: String? = nil) async throws -> Routine {
         let routineId = id ?? "routine-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12))"
         let next = enabled ? try RoutineScheduleMath.nextRunAt(schedule, now: now, createdAt: now) : nil
@@ -100,12 +101,15 @@ public actor RoutineMachine {
                 throw RoutineError.invalidRoutine("routine already exists: \(routineId)")
             }
             document.routines.append(routine)
-            return RoutineMutation(value: routine, botId: botId)
+            let derivationJSON = try derivation?.validated().map { $0.json(artifactID: routine.id) }
+            return RoutineMutation(value: routine, botId: botId, derivation: derivationJSON)
         }
     }
 
     @discardableResult
-    public func update(botId: String, routineId: String, patch: RoutinePatch, now: Int64) async throws -> Routine {
+    public func update(botId: String, routineId: String, patch: RoutinePatch,
+                       derivation: RoutineDerivation? = nil,
+                       now: Int64) async throws -> Routine {
         try await store.mutate(botId: botId) { document in
             guard let index = document.routines.firstIndex(where: { $0.id == routineId }) else {
                 throw RoutineError.routineNotFound(routineId)
@@ -123,6 +127,18 @@ public actor RoutineMachine {
             if let interruptReason = patch.interruptReason { next.interruptReason = interruptReason }
             if let completionCriteria = patch.completionCriteria { next.completionCriteria = completionCriteria }
             if let constraints = patch.constraints { next.constraints = constraints }
+            // The cloud scheduler stores an integer revision per routine. A
+            // schedule/permission-relevant edit must advance it, otherwise a
+            // later sync with the same revision but a different body is a
+            // conflict at the server. Cheap monotonic bump, no clock involved.
+            let cloudRelevantChange = next.schedule != current.schedule
+                || next.enabled != current.enabled
+                || next.delivery != current.delivery
+                || next.urgent != current.urgent
+            if cloudRelevantChange, var cloud = next.cloudSchedule {
+                cloud.seq += 1
+                next.cloudSchedule = cloud
+            }
             next = try next.validated()
 
             let scheduleChanged = patch.schedule != nil
@@ -143,7 +159,8 @@ public actor RoutineMachine {
                 next.nextRunAt = nil
             }
             document.routines[index] = next
-            return RoutineMutation(value: next, botId: botId)
+            let derivationJSON = try derivation?.validated().map { $0.json(artifactID: next.id) }
+            return RoutineMutation(value: next, botId: botId, derivation: derivationJSON)
         }
     }
 
@@ -155,6 +172,76 @@ public actor RoutineMachine {
             }
             let removed = document.routines.remove(at: index)
             return RoutineMutation(value: removed, botId: botId)
+        }
+    }
+
+    /// Grants or revokes the local cloud-scheduling permission for one
+    /// routine. This is the only writer of `cloud_schedule`; the goal/prompt
+    /// are untouched and no new durable event type is introduced (the change
+    /// travels in the existing routine snapshot).
+    @discardableResult
+    public func setCloudSchedule(botId: String, routineId: String, enabled: Bool,
+                                 authorizationRef: String? = nil,
+                                 derivationRef: String? = nil,
+                                 now: Int64) async throws -> Routine {
+        try await store.mutate(botId: botId) { document in
+            guard let index = document.routines.firstIndex(where: { $0.id == routineId }) else {
+                throw RoutineError.routineNotFound(routineId)
+            }
+            var routine = document.routines[index]
+            let previous = routine.cloudSchedule
+            let reference = authorizationRef ?? previous?.authorizationRef
+            guard !enabled || reference != nil else {
+                throw RoutineError.invalidRoutine(
+                    "enabling cloud scheduling requires the user's authorization record")
+            }
+            let next = try RoutineCloudSchedule(
+                enabled: enabled,
+                seq: (previous?.seq ?? 0) + 1,
+                authorizationRef: reference
+            ).validated()
+            routine.cloudSchedule = next
+            document.routines[index] = routine
+            var derivation: BotJSONValue?
+            if let derivationRef {
+                derivation = .object([
+                    "artifact": .object([
+                        "kind": .string("routine"),
+                        "id": .string(routine.id),
+                    ]),
+                    "sources": .array([
+                        .object([
+                            "record": .string(derivationRef),
+                            "role": .string("basis"),
+                        ]),
+                    ]),
+                ])
+            }
+            return RoutineMutation(value: routine, botId: botId, derivation: derivation)
+        }
+    }
+
+    /// Advances the local cloud revision above a revision the cloud already
+    /// knows (a rejected sync). The schedule body is unchanged; only the
+    /// monotonic revision moves so the next sync is accepted. A revision that
+    /// is already at/above the target is left alone.
+    @discardableResult
+    public func advanceCloudScheduleRevision(botId: String, routineId: String,
+                                             atLeast revision: Int64,
+                                             now: Int64) async throws -> Routine? {
+        try await store.mutate(botId: botId) { document in
+            guard let index = document.routines.firstIndex(where: { $0.id == routineId }) else {
+                return RoutineMutation(value: nil, persistSnapshot: false, botId: botId)
+            }
+            var routine = document.routines[index]
+            guard var cloud = routine.cloudSchedule, cloud.seq < revision + 1 else {
+                return RoutineMutation(value: routine, persistSnapshot: false, botId: botId)
+            }
+            cloud.seq = revision + 1
+            routine.cloudSchedule = cloud
+            document.routines[index] = routine
+            _ = now
+            return RoutineMutation(value: routine, botId: botId)
         }
     }
 

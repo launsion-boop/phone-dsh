@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Device Bot binding vector (device-bot.md §3, §5, §6)",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "class",
+        "input",
+        "key"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "key"
+        },
+        "class": {
+          "type": "string",
+          "enum": [
+            "link",
+            "gatt",
+            "lan",
+            "tonolink"
+          ]
+        },
+        "input": {
+          "type": "object"
+        },
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "raw",
+        "roster_names",
+        "name"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "name"
+        },
+        "raw": {
+          "type": "string"
+        },
+        "roster_names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "class",
+        "input",
+        "description"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "description"
+        },
+        "class": {
+          "type": "string",
+          "enum": [
+            "board",
+            "link",
+            "gatt",
+            "lan"
+          ]
+        },
+        "input": {
+          "type": "object"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "state",
+        "key",
+        "new_creation_id",
+        "action",
+        "after"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "decide"
+        },
+        "state": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bindings",
+            "intents",
+            "roster",
+            "created"
+          ],
+          "properties": {
+            "bindings": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "intents": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "roster": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "created": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "new_creation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "alias": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "do"
+          ],
+          "properties": {
+            "do": {
+              "type": "string",
+              "enum": [
+                "none",
+                "bind",
+                "create"
+              ]
+            },
+            "bot": {
+              "type": "string",
+              "minLength": 1
+            },
+            "creation_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "after": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bindings",
+            "intents"
+          ],
+          "properties": {
+            "bindings": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "intents": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "state",
+        "key",
+        "bot",
+        "after"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "complete"
+        },
+        "state": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bindings",
+            "intents",
+            "roster",
+            "created"
+          ],
+          "properties": {
+            "bindings": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "intents": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "roster": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "created": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "after": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bindings",
+            "intents"
+          ],
+          "properties": {
+            "bindings": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "intents": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

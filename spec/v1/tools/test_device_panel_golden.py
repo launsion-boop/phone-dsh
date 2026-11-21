@@ -24,11 +24,11 @@ DEVICE = Path(__file__).resolve().parents[2] / "device" / "v1"
 GOLDEN = DEVICE / "golden"
 SCHEMA = DEVICE / "schema"
 
-# Reviewed fixture revision device-panel-v1. Changing a vector requires a new
+# Reviewed fixture revision device-panel-v1.1 (property titles, required editors first). Changing a vector requires a new
 # contract revision and an update here.
 FROZEN = {
-    "device-panel-mapping.jsonl": "89da4913b9bc14835fa5c7f5d990f772dcdd0ebc6bc6f49df7143bd9affb507c",
-    "device-panel-descriptor-cases.jsonl": "ac0cd395ae3e73b89f733343478eec24e84438c74351a96cc2ba86267059580d",
+    "device-panel-mapping.jsonl": "909b6f67b261fdce27ea4b231a36ed8961510e84e48f81ccf6ff9d9ad27ee9b0",
+    "device-panel-descriptor-cases.jsonl": "1fc97537363f7d85f05a169cf18aa04045fba59d78f0180c399ab471a04f0224",
 }
 
 MAX_DESCRIPTOR_BYTES = 16384
@@ -36,6 +36,7 @@ MAX_DEPTH = 16
 MAX_PROPERTIES = 16
 MAX_OPTIONS = 32
 MAX_OPTION_LENGTH = 64
+MAX_TITLE_LENGTH = 20
 SAFE_INTEGER = 2 ** 53 - 1
 
 
@@ -79,25 +80,35 @@ def root_shape(schema):
     return properties, required
 
 
+def title_ok(title):
+    return (isinstance(title, str) and 1 <= len(title) <= MAX_TITLE_LENGTH
+            and not any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in title))
+
+
 def editor_for(prop):
     if not isinstance(prop, dict):
         return None
-    keys, kind = set(prop), prop.get("type")
+    titled = "title" in prop
+    if titled and not title_ok(prop["title"]):
+        return None
+    keys, kind = set(prop) - {"title"}, prop.get("type")
+    editor = None
     if kind == "boolean" and keys == {"type"}:
-        return {"kind": "toggle"}
-    if kind in ("integer", "number") and keys == {"type", "minimum", "maximum"}:
+        editor = {"kind": "toggle"}
+    elif kind in ("integer", "number") and keys == {"type", "minimum", "maximum"}:
         low, high = prop["minimum"], prop["maximum"]
         check = is_integral if kind == "integer" else is_number
         if check(low) and check(high) and low < high:
-            return {"kind": "slider", "integer": kind == "integer", "min": low, "max": high}
-        return None
-    if kind == "string" and keys == {"type", "enum"}:
+            editor = {"kind": "slider", "integer": kind == "integer", "min": low, "max": high}
+    elif kind == "string" and keys == {"type", "enum"}:
         options = prop["enum"]
         if (isinstance(options, list) and 1 <= len(options) <= MAX_OPTIONS
                 and all(isinstance(item, str) and 1 <= len(item) <= MAX_OPTION_LENGTH for item in options)
                 and len(set(options)) == len(options)):
-            return {"kind": "picker", "options": options}
-    return None
+            editor = {"kind": "picker", "options": options}
+    if editor is not None and titled:
+        editor["title"] = prop["title"]
+    return editor
 
 
 def classify(schema):
@@ -106,7 +117,8 @@ def classify(schema):
         return "agent_only", []
     properties, required = shape
     editors = []
-    for arg in sorted(properties):
+    # Required editors first, then optional; each group by code point.
+    for arg in sorted(properties, key=lambda name: (name not in required, name)):
         editor = editor_for(properties[arg])
         if editor is None:
             if arg in required:
@@ -118,7 +130,7 @@ def classify(schema):
 
 def value_ok(value, prop):
     """Preset validation subset: type, enum, minimum, maximum."""
-    if not isinstance(prop, dict) or not set(prop) <= {"type", "enum", "minimum", "maximum"}:
+    if not isinstance(prop, dict) or not set(prop) <= {"type", "enum", "minimum", "maximum", "title"}:
         return None
     kind = prop.get("type")
     if kind not in ("boolean", "integer", "number", "string", "object"):

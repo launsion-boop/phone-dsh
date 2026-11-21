@@ -67,6 +67,33 @@ public enum BotTranscriptLayoutSupport {
         return isNearTail(tailY: tailY, viewportHeight: viewportHeight, tolerance: tolerance)
     }
 
+    /// One follow-the-tail pass. The coalesced scroll loop runs at most once
+    /// per distinct target/height generation; repeating an identical pass is
+    /// what produced the second animated placement (launch jitter) even when
+    /// nothing had changed since the first scroll.
+    public struct ScrollPass: Equatable, Sendable {
+        public var generation: UInt64
+        public var contentHeight: CGFloat
+        public var target: String
+
+        public init(generation: UInt64, contentHeight: CGFloat, target: String) {
+            self.generation = generation
+            self.contentHeight = contentHeight
+            self.target = target
+        }
+    }
+
+    /// True when a follow pass carries new work. `previous == nil` is the
+    /// first pass and must run; a later pass with the same generation, height
+    /// (within sub-pixel rounding) and target must not move the viewport again.
+    public static func shouldPerformScrollPass(previous: ScrollPass?,
+                                               next: ScrollPass) -> Bool {
+        guard let previous else { return true }
+        return previous.generation != next.generation
+            || abs(previous.contentHeight - next.contentHeight) > 0.5
+            || previous.target != next.target
+    }
+
     /// The untouched preference default is `.greatestFiniteMagnitude`; it is
     /// finite but not a measurement. Layout can also briefly report sentinel
     /// values during rotation/keyboard transitions.

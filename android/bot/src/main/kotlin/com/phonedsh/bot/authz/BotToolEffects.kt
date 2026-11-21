@@ -56,22 +56,61 @@ public data class BotToolEffect(
     public val execution: String? = null,
     public val known: Boolean = true,
     public val isMcp: Boolean = false,
+    /**
+     * Stable resource to store for an `always`/`session` grant. `null` keeps
+     * the exact call resource, so bash/memory grants remain path-specific.
+     * Image tools set `model:image` so the next image in the same scope does
+     * not create a second approval card.
+     */
+    public val grantResource: String? = null,
 ) {
-    /** The twelve frozen members, including explicit `null` for `execution`. */
-    public fun toJson(): JsonObject = BotJson.objectOf(
-        "tool" to JsonString(tool),
-        "operation" to JsonString(operation),
-        "resource" to JsonString(resource),
-        "target" to JsonString(target),
-        "mutability" to JsonString(mutability.wire),
-        "policy" to JsonString(policy.wire),
-        "label" to JsonString(label),
-        "detail" to JsonString(detail),
-        "ui" to JsonBool(ui),
-        "execution" to (execution?.let(::JsonString) ?: JsonNull),
-        "known" to JsonBool(known),
-        "isMcp" to JsonBool(isMcp),
-    )
+    /**
+     * Whether a standing approval may cover more than this exact resource.
+     * Unknown tools are never widened. Destructive bash/memory operations stay
+     * exact; only external-send effects (images/network) and effects that
+     * explicitly declare a grantResource get a stable scope.
+     */
+    public val canUseStandingGrant: Boolean
+        get() {
+            if (!known) return false
+            if (grantResource != null) return true
+            return mutability == BotToolMutability.EXTERNAL_SEND
+        }
+
+    /**
+     * The stable scope a standing approval stores. Images opt into the
+     * narrower `model:image`; other external sends use `operation:<id>`.
+     * Destructive and unclassified effects return their exact resource, so a
+     * standing decision never widens them.
+     */
+    public val stableGrantResource: String
+        get() {
+            grantResource?.let { return it }
+            if (!canUseStandingGrant) return resource
+            return if (operation.isEmpty()) resource else "operation:$operation"
+        }
+
+    /** The frozen members, including explicit `null` for `execution`. */
+    public fun toJson(): JsonObject {
+        val members = linkedMapOf<String, JsonValue>(
+            "tool" to JsonString(tool),
+            "operation" to JsonString(operation),
+            "resource" to JsonString(resource),
+            "target" to JsonString(target),
+            "mutability" to JsonString(mutability.wire),
+            "policy" to JsonString(policy.wire),
+            "label" to JsonString(label),
+            "detail" to JsonString(detail),
+            "ui" to JsonBool(ui),
+            "execution" to (execution?.let(::JsonString) ?: JsonNull),
+            "known" to JsonBool(known),
+            "isMcp" to JsonBool(isMcp),
+        )
+        // The shared tool-effects fixture predates P26: the member is absent
+        // for every existing effect and appears only when it has a value.
+        grantResource?.let { members["grantResource"] = JsonString(it) }
+        return JsonObject(members)
+    }
 
     public companion object {
         public fun fromJson(value: JsonValue?): BotToolEffect? {
@@ -96,6 +135,7 @@ public data class BotToolEffect(
                 execution = BotJson.string(members["execution"]),
                 known = BotJson.bool(members["known"]) ?: true,
                 isMcp = BotJson.bool(members["isMcp"]) ?: true,
+                grantResource = BotJson.string(members["grantResource"]),
             )
         }
     }
@@ -110,6 +150,12 @@ public data class BotToolEffect(
 public object BotToolEffectClassifier {
     private const val DSHBOT_PREFIX = "mcp__dshbot__"
     private const val PHONE_PREFIX = "mcp__phone__"
+
+    /** `DeviceAppRules.isValidName` (device-app.md §2). */
+    private val DEVICE_APP_NAME = Regex("[a-z][a-z0-9_]{0,23}")
+
+    /** `XiaozhiFirmwareToolEffects.isDigest`: 64 lowercase hex. */
+    private val SHA256_HEX = Regex("[0-9a-f]{64}")
 
     private val uiLabels: Map<String, Pair<String, String>> = linkedMapOf(
         "ask_user" to ("询问用户" to "Ask the user"),
@@ -180,6 +226,58 @@ public object BotToolEffectClassifier {
                     label = if (language == BotToolLanguage.ZH) zhLabel else bareName,
                     detail = defaultDetail(name, args, language),
                     isMcp = isMcp,
+                )
+            }
+            "read_image" -> {
+                // DSH's built-in fs tool commits an image and asks the model
+                // route to inspect it. The Worker gate must present the same
+                // external send effect so the approval card and grants agree.
+                val target = clip(args["path"], 200)
+                BotToolEffect(
+                    tool = bareName,
+                    operation = "model.image.attach",
+                    resource = if (target.isEmpty()) "model:image" else "attachment=$target",
+                    target = if (target.isEmpty()) "model:image" else target,
+                    mutability = BotToolMutability.EXTERNAL_SEND,
+                    policy = BotToolPolicy.ASK,
+                    label = if (language == BotToolLanguage.ZH) {
+                        "把图片发送给模型"
+                    } else {
+                        "Send an image to the model"
+                    },
+                    detail = if (language == BotToolLanguage.ZH) {
+                        "把工作区图片发送给模型服务，让模型看到像素。"
+                    } else {
+                        "Sends a workspace image to the model service so the model can see its pixels."
+                    },
+                    isMcp = isMcp,
+                    grantResource = "model:image",
+                )
+            }
+            "attach_to_model" -> {
+                val purpose = clip(args["purpose"], 120)
+                val target = clip(firstNonEmpty(args["path"], args["fileId"], args["photoId"]), 200)
+                BotToolEffect(
+                    tool = bareName,
+                    operation = "model.image.attach",
+                    resource = if (target.isEmpty()) "model:image" else "attachment=$target",
+                    target = if (target.isEmpty()) "model:image" else target,
+                    mutability = BotToolMutability.EXTERNAL_SEND,
+                    policy = BotToolPolicy.ASK,
+                    label = if (language == BotToolLanguage.ZH) {
+                        "把图片发送给模型"
+                    } else {
+                        "Send an image to the model"
+                    },
+                    detail = if (language == BotToolLanguage.ZH) {
+                        "把图片发送给模型服务，让模型看到像素。" +
+                            if (purpose.isEmpty()) "" else "用途：$purpose"
+                    } else {
+                        "Sends the image to the model service so the model can see its pixels." +
+                            if (purpose.isEmpty()) "" else " Purpose: $purpose"
+                    },
+                    isMcp = isMcp,
+                    grantResource = "model:image",
                 )
             }
             "Task" -> {
@@ -279,6 +377,103 @@ public object BotToolEffectClassifier {
                         "Sends a message to another Bot and records the reply as an agent-comm row; " +
                             "this is an external action and must not be retried automatically when the outcome is unknown."
                     },
+                    isMcp = isMcp,
+                )
+            }
+            // device-app-v1 / xiaozhi-firmware classifier forms
+            // (`DeviceAppToolEffects.swift`, `XiaozhiFirmwareToolDefinitions.swift`).
+            // Android has no host for these tools yet (GAP-20); the table entry
+            // only keeps the shared effect classification identical.
+            "DeviceAppStage" -> BotToolEffect(
+                tool = bareName, operation = "device.app.stage", resource = "device-app:stage",
+                mutability = BotToolMutability.READ, policy = BotToolPolicy.AUTO,
+                label = "检查设备应用", detail = "只做静态检查和哈希，不向设备发送任何内容。",
+                isMcp = isMcp,
+            )
+            "DeviceAppList" -> BotToolEffect(
+                tool = bareName, operation = "device.app.list", resource = "device-app:list",
+                mutability = BotToolMutability.READ, policy = BotToolPolicy.AUTO,
+                label = "查看设备上的应用",
+                detail = "读取设备上已装的设备应用（名称、版本、是否在运行），不改动设备。",
+                isMcp = isMcp,
+            )
+            "DeviceAppRemove" -> {
+                val app = clip(args["name"], 64)
+                BotToolEffect(
+                    tool = bareName, operation = "device.app.remove",
+                    resource = if (DEVICE_APP_NAME.matches(app)) "device-app:remove&app=$app" else "device-app:remove",
+                    mutability = BotToolMutability.DESTRUCTIVE, policy = BotToolPolicy.ASK,
+                    label = "从设备上删除应用",
+                    detail = "停止并删除设备上的一个设备应用；每次删除都需要你确认。",
+                    isMcp = isMcp,
+                )
+            }
+            "DeviceAppInstall" -> {
+                val digest = clip(args["digest"], 64)
+                BotToolEffect(
+                    tool = bareName, operation = "device.app.install",
+                    resource = if (digest.isEmpty()) "device-app:install" else "device-app:install&digest=$digest",
+                    mutability = BotToolMutability.DESTRUCTIVE, policy = BotToolPolicy.ASK,
+                    label = "在设备上安装应用",
+                    detail = "把已检查的设备应用装到绑定的设备上；每次安装都需要你确认。",
+                    isMcp = isMcp,
+                )
+            }
+            "XiaozhiSourceExport" -> BotToolEffect(
+                tool = bareName, operation = "device.xiaozhi.export", resource = "xiaozhi:export",
+                mutability = BotToolMutability.WRITE, policy = BotToolPolicy.AUTO,
+                label = "导出小智固件源码",
+                detail = "把可修改的固件源码复制到这个 Bot 的工作区，不向设备发送任何内容。",
+                isMcp = isMcp,
+            )
+            "XiaozhiFirmwareBuild" -> BotToolEffect(
+                tool = bareName, operation = "device.xiaozhi.build", resource = "xiaozhi:build",
+                mutability = BotToolMutability.READ, policy = BotToolPolicy.AUTO,
+                label = "编译小智固件", detail = "在这台 iPhone 上编译固件，不向设备发送任何内容。",
+                isMcp = isMcp,
+            )
+            "XiaozhiFirmwareStatus" -> BotToolEffect(
+                tool = bareName, operation = "device.xiaozhi.status", resource = "xiaozhi:status",
+                mutability = BotToolMutability.READ, policy = BotToolPolicy.AUTO,
+                label = "查看小智固件状态", detail = "只读取编译任务、设备上报和中继状态。",
+                isMcp = isMcp,
+            )
+            "XiaozhiFirmwareFlash" -> {
+                val elf = clip(args["elfSha256"], 64)
+                BotToolEffect(
+                    tool = bareName, operation = "device.xiaozhi.flash",
+                    resource = if (SHA256_HEX.matches(elf)) "xiaozhi:flash&elf=$elf" else "xiaozhi:flash",
+                    mutability = BotToolMutability.DESTRUCTIVE, policy = BotToolPolicy.ASK,
+                    label = "给小智刷入固件",
+                    detail = "把这次编译的固件放到手机的 OTA 中继上，小智下次开机检查更新时会下载并刷入，替换它现在的固件。",
+                    isMcp = isMcp,
+                )
+            }
+            "RecordFeedback" -> {
+                // G-2: one feedback action bound to an artifact. The resource
+                // never carries the user's words, an id or a path.
+                val action = clip(args["action"], 40)
+                val kind = clip((args["target"] as? JsonObject)?.members?.get("kind"), 40)
+                BotToolEffect(
+                    tool = bareName,
+                    operation = "dshbot.RecordFeedback",
+                    resource = mergedResource(
+                        listOf(
+                            "dshbot:record-feedback",
+                            if (action.isEmpty()) "" else "action=$action",
+                            if (kind.isEmpty()) "" else "target=$kind",
+                        ),
+                    ),
+                    mutability = BotToolMutability.WRITE,
+                    policy = BotToolPolicy.ASK,
+                    label = if (language == BotToolLanguage.ZH) "记录用户反馈" else "Record user feedback",
+                    detail = if (language == BotToolLanguage.ZH) {
+                        "把你刚给出的采纳/撤销/纠正/不再提醒绑定到具体对象，写一条可审计反馈。"
+                    } else {
+                        "Binds the feedback you just gave (adopt/undo/correct/suppress) to the exact object " +
+                            "as an auditable record."
+                    },
+                    execution = "feedback",
                     isMcp = isMcp,
                 )
             }

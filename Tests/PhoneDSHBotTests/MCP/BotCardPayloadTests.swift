@@ -190,7 +190,13 @@ final class BotCardPayloadTests: XCTestCase {
 
     func testCatalogRegistersExactlyP0AndVolatileContext() {
         XCTAssertEqual(BotToolCatalog.definitions.map(\.name), BotToolCatalog.p0Names)
-        XCTAssertEqual(BotToolCatalog.allDefinitions.count, BotToolCatalog.p0Names.count + 5)
+        XCTAssertEqual(BotToolCatalog.allDefinitions.count, 23)
+        XCTAssertTrue(BotToolCatalog.allDefinitions.contains {
+            $0.name == BotFeedbackTools.definition.name
+        })
+        XCTAssertFalse(BotToolCatalog.allDefinitions.contains {
+            $0.name == BotToolCatalog.decisionContextName
+        })
         for name in BotToolCatalog.p1TargetNames + ["show_canvas", "show_product", "show_gift", "GenerateImage"] {
             XCTAssertFalse(BotToolCatalog.isRegistered(name))
         }
@@ -273,6 +279,13 @@ final class BotCardPayloadTests: XCTestCase {
             XCTAssertTrue(description.contains("at most one"), "\(name) must cap recommendations")
             XCTAssertTrue(description.contains("never recommend a danger"), "\(name) must exclude danger")
             XCTAssertTrue(description.contains("first"), "\(name) must put the recommendation first")
+            if name == "show_next_steps" {
+                // The card is still closing, but the prose answer comes first;
+                // the host already preserves text emitted before the call.
+                XCTAssertTrue(description.contains("complete answer first"), name)
+                XCTAssertTrue(description.contains("last action"), name)
+                XCTAssertTrue(description.contains("ends the turn"), name)
+            }
         }
     }
 

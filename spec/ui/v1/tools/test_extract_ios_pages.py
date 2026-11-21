@@ -160,6 +160,17 @@ class VerifiedChatHelperActionTests(unittest.TestCase):
         self.assertEqual("NativeQuestionComposer.swift:2", sources["跳过"])
         self.assertEqual("NativeTodoDock.swift:3", sources["任务"])
 
+    def test_always_allow_is_inlined_only_when_mounted_with_its_callback(self) -> None:
+        card = 'Button { onDeny() } label: { Text("拒绝") }'
+        with_button = CHAT_HELPER_PLAN.replace(
+            card, 'Button { onAllowAlways() } label: { Text("总是允许") }\n            ' + card)
+        mounted = with_button.replace(
+            "onDeny: { respond(.deny) })", "onDeny: { respond(.deny) }, onAllowAlways: { respond(.allowAlways) })")
+        labels = {action["label"] for action in self._extract(chat=mounted)["actions"]}
+        self.assertIn("总是允许", labels)
+        labels = {action["label"] for action in self._extract(chat=with_button)["actions"]}
+        self.assertNotIn("总是允许", labels)
+
     def test_unmounted_helper_and_missing_callback_do_not_promote_actions(self) -> None:
         no_permission_call = CHAT_HELPER_PLAN.replace(
             "PermissionCardView(onAllow: { respond(.allowOnce) }, onDeny: { respond(.deny) })", "")

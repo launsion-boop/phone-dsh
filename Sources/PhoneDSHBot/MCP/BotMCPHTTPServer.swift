@@ -57,7 +57,6 @@ public final class BotMCPHTTPServer: @unchecked Sendable {
     private var lastPort: UInt16?
     private var recoveryInFlight: Task<BotMCPListenerRecovery, Never>?
     private var endpointChangeHandler: (@Sendable (URL) -> Void)?
-
     /// When a long `tools/call` switches to SSE and how often it sends a keepalive
     /// (mcp-endpoint.md §2; golden/mcp-long-call.json). Tests scale these down.
     public struct LongCallTiming: Sendable {

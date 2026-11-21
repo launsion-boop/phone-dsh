@@ -2,6 +2,11 @@
 
 Status: P09 · 补充 [README](README.md) §1 的页面结构契约，由 `tools/page_structure_check.py` 与 `tools/extract_ios_pages.py` 执行。
 
+## 契约与 Android 判定（自 README §1 移入）
+
+页面结构另有机器可读契约：`pages/<page-id>.json`（分区/行/动作/呈现，每项带 `file:line`）由 `tools/extract_ios_pages.py` 抽取，`tools/page_structure_check.py` 比对 Android；平台被迫差异只走 `_whitelist.json`（引用 `spec/platform/whitelist.json` 的 id），已知差异记 `_baseline.json` 只减不增；`states` 只作人读，Android 无对应页登记 `_android-only.json`，Android 同页多出的单项登记 `_android-only-items.json`（准入规则与对称判定见 [page-structure-rules.md](page-structure-rules.md)），有 `public fun *Page()` 无契约即失败。标题 MUST 是渲染形态：`dynamicTitle` 只给「固定模板+一个可变量」；数据即标题记 `title:null`+`titleSource:"expression"`+`titleExpression`+`criterion`；无字面判据的项登记 `_unrecognized.json`（owner+reviewBy+理由，stale 即失败）；死 UI 标 `deadUi`+证据；整页一坨记 `single-region`。
+Android 侧 MUST 走 `SessionSectionLabel`/`SectionHeader(title=…)`/`*SectionView(_, title)` 与 `SessionTextAction`/`InfoRow(..., onClick=…)`；标题/标签含静态文案却无法解析记 `unresolved`，纯宿主数据记 data-labelled 不比较；标准控件（`Button`、`FilterChip`、`Switch`、`DropdownMenuItem`、`label:` 包装器）也算动作；判据是 gate 看不见正确实现时修 gate、实现藏信息时修实现。
+
 `pages/` 下的登记文件各管一类，不能互相代替；都由 `page_structure_check.py` 读取，过期（不再匹配任何观测项）或 `reviewBy` 已过即失败：
 
 | 文件 | 登记什么 | 必填 |

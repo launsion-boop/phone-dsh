@@ -40,6 +40,29 @@ final class PhonePermissionContractTests: XCTestCase {
     }
 
     @MainActor
+    func testRetiredHomePermissionIsAvailableOnlyInAuditHistory() async throws {
+        let suite = "RetiredPhonePermissionTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: "phone-dsh.permissions.homekit")
+        XCTAssertFalse(PhoneCapability.available.contains(.homekit))
+        XCTAssertFalse(PhonePermissionStore(defaults: defaults).isEnabled(.homekit))
+        let status = await PhonePermissionRequester().request(.homekit)
+        XCTAssertEqual(status, .unavailable)
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let history = #"[{"capability":"homekit","tool":"home.list","at":"2026-11-19T00:00:00Z","egress":true,"outcome":"success"}]"#
+        try Data(history.utf8).write(to: directory.appendingPathComponent("permissions-audit.json"))
+        let audit = PhoneCapabilityAudit(directory: directory)
+        await audit.record(PhoneCapabilityAuditRecord(capability: .device, tool: "device.status", outcome: "success"))
+        let records = await PhoneCapabilityAudit(directory: directory).recent()
+        XCTAssertEqual(records.map(\.capability), [.device, .homekit])
+        XCTAssertEqual(records.map(\.tool), ["device.status", "home.list"])
+    }
+
+    @MainActor
     func testFolderBookmarkRestoresTheSameRootWithoutClaimingAccess() throws {
         let suite = "PhoneFolderGrantTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -85,13 +108,11 @@ final class PhonePermissionContractTests: XCTestCase {
             permissionStore: PhonePermissionStore(defaults: defaults),
             requester: PhonePermissionRequester(), audit: PhoneCapabilityAudit())
         let composite = CompositePhoneToolBridge(office: OfficeToolBridge(), phone: bridge)
-        // 32 phone routes + 19 office tools before 2026-11-13; `phone info`
-        // makes the phone catalog 33, so the composite surface is 52.
-        XCTAssertEqual(composite.handles.count, 52)
+        XCTAssertEqual(composite.handles.count, 50)
         XCTAssertFalse(composite.supportsContext)
 
         for tool in ["calendar.create_event", "contacts.search", "location.geofence", "focus.status",
-                     "home.list", "music.play", "activity.start", "shortcuts.run"] {
+                     "music.play", "activity.start", "shortcuts.run"] {
             let result = try await composite.callTool(name: tool, arguments: "{}")
             let value = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any])
             XCTAssertEqual((value["error"] as? [String: Any])?["code"] as? String,
@@ -106,6 +127,14 @@ final class PhonePermissionContractTests: XCTestCase {
         let data = try XCTUnwrap(value["data"] as? [String: Any])
         for key in ["battery", "thermal", "freeDisk", "network", "lowPower"] {
             XCTAssertNotNil(data[key], key)
+        }
+
+        for tool in ["home.list", "home.set"] {
+            XCTAssertFalse(composite.handles.contains(tool))
+            let result = try await composite.callTool(name: "phone.\(tool)", arguments: "{}")
+            let value = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any])
+            XCTAssertEqual(value["tool"] as? String, tool)
+            XCTAssertEqual((value["error"] as? [String: Any])?["code"] as? String, "unknown_tool")
         }
     }
 

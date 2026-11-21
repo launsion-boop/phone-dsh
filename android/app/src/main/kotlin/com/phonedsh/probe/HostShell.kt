@@ -58,6 +58,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -148,6 +149,7 @@ import com.phonedsh.probe.pc.retryPcRoster
 import com.phonedsh.probe.pc.selectPcBackend
 import com.phonedsh.probe.pc.startPcScan
 import com.phonedsh.probe.pc.toConnectedComputerUiState
+import com.phonedsh.probe.pc.PcNewSessionOutcome
 import com.phonedsh.probe.pc.toPcDrawerUiState
 import com.phonedsh.probe.pc.toPcPairingUiState
 import com.phonedsh.probe.pc.toPcSettingsValue
@@ -396,6 +398,8 @@ internal fun HostShell(
     val permissionDefaults by engine.permissionDefaults.collectAsState()
     val configurationFacts by engine.configuration.collectAsState()
     val agentPresetFacts by engine.agentPresets.collectAsState()
+    val dshApprovals by engine.dshApprovals.collectAsState()
+    val nextStepsUsage by engine.nextStepsUsage.collectAsState()
     val context = LocalContext.current
     // The composition root owns the Bot driver/store/channel; this shell only
     // passes plain values into `:lib`. A construction failure leaves the tab
@@ -455,6 +459,15 @@ internal fun HostShell(
     // Tono 账号: the process-owned cloud account session (tono-account.md).
     val tonoAccount = remember { TonoAccountHost.get(context) }
     val tonoAccountFacts by tonoAccount.facts.collectAsState()
+    // 发现 › Gmail / GitHub (PC-20261119-android-connectors): process-owned like iOS `.shared`.
+    val gmailConnector = remember { com.phonedsh.probe.connectors.GmailConnectorHost.get(context) }
+    val gmailFacts by gmailConnector.facts.collectAsState()
+    val githubConnector = remember { com.phonedsh.probe.connectors.GitHubConnectorHost.get(context) }
+    val githubFacts by githubConnector.facts.collectAsState()
+    // 云端任务: the process-owned phone task queue (cloud-tasks.md §7); the page shows
+    // its switch and status line inside the Tono account facts.
+    val cloudTasks = remember { com.phonedsh.probe.cloudtasks.CloudTaskCenter.get(context) }
+    val cloudTaskFacts by cloudTasks.facts.collectAsState()
     // 局域网设备 on the MCP page: the user-started mDNS browse (lan-mcp.md).
     val lanDiscovery = remember { AndroidLanDiscovery.get(context) }
     val lanFacts by lanDiscovery.facts.collectAsState()
@@ -504,6 +517,7 @@ internal fun HostShell(
     var drawerRecords by remember { mutableStateOf<List<ChatRecord>?>(null) }
     var drawerFolders by remember { mutableStateOf<List<ChatWorkspaceGroup>?>(null) }
     var drawerSnapshotFailure by remember { mutableStateOf<String?>(null) }
+    var pcNewSessionFailure by remember(pcState?.record?.machineId) { mutableStateOf<String?>(null) }
     LaunchedEffect(settingsRevision, chatUi.chatId, chatUi.updatedAtMs, sessionSnapshot.sessions, sessionSnapshot.archivedSessions) {
         val loaded = withContext(Dispatchers.IO) {
             runCatching {
@@ -629,6 +643,7 @@ internal fun HostShell(
     LaunchedEffect(state is EngineHostState.Running, chatUi.workerSessionId) {
         if (state is EngineHostState.Running) engine.refreshAutomation()
     }
+    val searchBase = remember(settingsRevision) { webSearchSavedBase(WebSearchSettingsStore.active()) }
     val facts: PdshNavFacts = remember(
         state,
         // The runtime page's 最近出錯 reads the D14 failure, so a host-state
@@ -1095,7 +1110,32 @@ internal fun HostShell(
     // platform really carries this app's back gesture through the invoker. It is
     // measured by the back callback (one gesture moves it), so it is applied here
     // rather than inside the remembered walk.
-    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts, ssh = sshFacts, androidAdb = androidAdbFacts, tonoAccount = tonoAccountFacts, lan = lanFacts)
+    val shownFacts = PredictiveBack.measured(facts).copy(
+        bluetooth = bluetoothFacts,
+        ssh = sshFacts,
+        androidAdb = androidAdbFacts,
+        tonoAccount = tonoAccountFacts.copy(
+            cloudTasksEnabled = cloudTaskFacts.enabled,
+            cloudTasksStatus = cloudTaskFacts.status,
+            cloudTasksBusy = cloudTaskFacts.busy,
+        ),
+        lan = lanFacts,
+        gmail = gmailFacts,
+        github = githubFacts,
+        // The two local stores behind the phone-permissions page's 常用授权 and
+        // 建议卡使用 sections (iOS reads them on appear).
+        phonePermissions = facts.phonePermissions.copy(
+            dshApprovals = dshApprovals,
+            nextStepsUsage = nextStepsUsage,
+        ),
+    )
+    LaunchedEffect(nav.current) {
+        // Grants expire after 24 hours and Bot turns add usage in the background:
+        // re-read both whenever a page that shows them comes up.
+        if (nav.current == PdshRoute.PhonePermissions || nav.current == PdshRoute.Settings ||
+            nav.current == PdshRoute.SettingsMore
+        ) engine.refreshLocalPermissionFacts()
+    }
     LaunchedEffect(chatUi.commandExecution?.id) {
         if (chatUi.commandExecution != null) pushRoute(PdshRoute.CommandResult)
     }
@@ -1264,10 +1304,12 @@ internal fun HostShell(
                         // above it must not pad for it a second time.
                         .then(if (showTabBar) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier),
                 ) {
+                    CompositionLocalProvider(com.phonedsh.ui.page.LocalWebSearchSavedBase provides searchBase) {
                     PdshNavHost(
                         nav = nav,
                         facts = shownFacts,
                         botDriver = botPlatform?.driver,
+                        botNextSteps = engine.botNextSteps,
                         botContext = botPlatform?.context
                             ?: com.phonedsh.ui.bot.state.BotUiContext(
                                 botID = "main",
@@ -1276,6 +1318,7 @@ internal fun HostShell(
                         botAppearance = botPlatform?.appearance
                             ?: com.phonedsh.bot.profile.BotFishAppearance.CLASSIC,
                         botRoster = botPlatform?.roster ?: emptyList(),
+                        onBotDrawerIntent = engine::handleBotDrawer,
                         botIsMainBot = botPlatform?.isMainBot ?: true,
                         botDescription = botPlatform?.description.orEmpty(),
                         // §2 rule 9 / §4 rule 5: the same chain the SHEET layer
@@ -1309,6 +1352,15 @@ internal fun HostShell(
                             } else if (action.wire.startsWith("androidAdb.")) {
                                 // The page owns its 连接状态 line; no host note.
                                 androidAdb.handle(action)
+                            } else if (action is PdshHostAction.GmailConnector) {
+                                // The page owns its notices; no host note.
+                                com.phonedsh.probe.connectors.GmailConnectorHost.languageId =
+                                    facts.settings.preferences.language?.id
+                                gmailConnector.handle(action.action)
+                            } else if (action is PdshHostAction.GitHubConnector) {
+                                com.phonedsh.probe.connectors.GmailConnectorHost.languageId =
+                                    facts.settings.preferences.language?.id
+                                githubConnector.handle(action.action)
                             } else if (action.wire.startsWith("tonoAccount.")) {
                                 // The page owns its status line; no host note.
                                 tonoAccount.handle(action)
@@ -1435,8 +1487,10 @@ internal fun HostShell(
                                     onStart = onStart,
                                     onStop = onStop,
                                     onSettingsChanged = { settingsRevision++ },
+                                    expectedWebSearchBase = searchBase,
                                 )
-                                if (feedback != null) notice = feedback
+                                if (feedback != null || action is PdshHostAction.SetWebSearchMode ||
+                                    action is PdshHostAction.CommitWebSearchAddress) notice = feedback
                             }
                         },
                         // Settings writes reach their real stores: ordinary choices
@@ -1535,6 +1589,8 @@ internal fun HostShell(
                         // it (see `HostPhonePermissions.kt`).
                         onPhonePermissionRequest = onPhonePermissionRequest,
                         onPhonePermissionSettings = onPhonePermissionSettings,
+                        onPhoneDshApprovalsClear = engine::clearDshApprovals,
+                        onPhoneNextStepsUsageClear = engine::clearNextStepsUsage,
                         // PCLink C5: the two PC routes render the controller's
                         // snapshot; the scanner is a host composable because :lib
                         // carries no camera dependency.
@@ -1717,6 +1773,9 @@ internal fun HostShell(
                         permissionDenyAvailability = com.phonedsh.ui.nav.PdshActionAvailability.Available { pending ->
                             engine.answerChatPermission(pending, false)
                         },
+                        permissionAlwaysAvailability = com.phonedsh.ui.nav.PdshActionAvailability.Available { pending ->
+                            engine.answerChatPermissionAlways(pending)
+                        },
                         chatSubpages = com.phonedsh.ui.page.ChatSubpageFacts(
                             commandExecution = chatUi.commandExecution,
                             subagents = chatUi.sessionSnapshot.subagents,
@@ -1759,6 +1818,7 @@ internal fun HostShell(
                         // it which of those files this session's turns wrote.
                         artifacts = artifactFacts,
                     )
+                    }
                 }
                 if (showTabBar) {
                     HomeTabBar(
@@ -1820,7 +1880,7 @@ internal fun HostShell(
                         chatUi.running -> UiStrings.DRAWER_NEW_BLOCKED_TURN
                         else -> null
                     },
-                    failure = drawerSnapshotFailure,
+                    failure = if (pcDrawerState.selected == PcDrawerBackend.PC) pcNewSessionFailure else drawerSnapshotFailure,
                 )
                 val legacyCollapsed = remember(preferences.collapsedWorkspaceFolders) {
                     if (preferences.collapsedWorkspaceFolders == null) {
@@ -1865,17 +1925,38 @@ internal fun HostShell(
                     },
                     onClose = { closeHostDrawer(); drawerMounted = false },
                     onCreateSession = {
-                        val requestId = StateRequestId(UUID.randomUUID().toString())
-                        val receipt = engine.newChatSessionConfirmed(requestId)
-                        val created = receipt.confirms(requestId, receipt.sessionId, null)
-                        if (created) {
-                            notice = null
-                            resetTo(PdshRoute.Chat)
-                            settingsRevision++
+                        if (pcDrawerState.selected == PcDrawerBackend.PC) {
+                            when (val result = withContext(Dispatchers.IO) { pcController?.createSession() }) {
+                                is PcNewSessionOutcome.Created -> {
+                                    pcNewSessionFailure = null
+                                    val machineId = pcController?.state?.value?.record?.machineId
+                                    if (machineId != null) {
+                                        navigateFromDrawer(PdshRoute.PcSessionHistory(machineId, result.sessionId, "电脑会话"))
+                                    }
+                                    true
+                                }
+                                is PcNewSessionOutcome.Failed -> {
+                                    pcNewSessionFailure = result.error.message
+                                    false
+                                }
+                                null -> {
+                                    pcNewSessionFailure = "电脑连接不可用。"
+                                    false
+                                }
+                            }
                         } else {
-                            drawerSnapshotFailure = "新会话没有创建成功，列表未改变。请重试。"
+                            val requestId = StateRequestId(UUID.randomUUID().toString())
+                            val receipt = engine.newChatSessionConfirmed(requestId)
+                            val created = receipt.confirms(requestId, receipt.sessionId, null)
+                            if (created) {
+                                notice = null
+                                resetTo(PdshRoute.Chat)
+                                settingsRevision++
+                            } else {
+                                drawerSnapshotFailure = "新会话没有创建成功，列表未改变。请重试。"
+                            }
+                            created
                         }
-                        created
                     },
                     onCreateSessionInFolder = { folderId ->
                         val requestId = StateRequestId("ui.drawer.new-session.${UUID.randomUUID()}")
@@ -1918,7 +1999,14 @@ internal fun HostShell(
                         }
                         receipt
                     },
-                    onRetry = { settingsRevision++ },
+                    onRetry = {
+                        if (pcDrawerState.selected == PcDrawerBackend.PC) {
+                            pcNewSessionFailure = null
+                            pcController?.retryPcRoster()
+                        } else {
+                            settingsRevision++
+                        }
+                    },
                     onOpenSession = { id ->
                         engine.openChatSession(id)
                         notice = null
@@ -2180,14 +2268,16 @@ private fun handleHostAction(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onSettingsChanged: () -> Unit = {},
+    expectedWebSearchBase: String? = null,
 ): String? {
     // The label is token-free: an action never carries user text into the log.
     Log.i(TAG_NAV, "host action handed off: ${action.wire}")
     // 网页搜索's five writes land in the independent Search/Fetch store. Its
     // line never contains the key; a write that changed nothing re-reads nothing.
-    handleWebSearchAction(action, WebSearchSettingsStore.active())?.let { result ->
+    handleWebSearchAction(action, WebSearchSettingsStore.active(), expectedWebSearchBase)?.let { result ->
         if (result.changed) onSettingsChanged()
-        return result.message
+        val localFeedback = action is PdshHostAction.SetWebSearchMode || action is PdshHostAction.CommitWebSearchAddress
+        return if (localFeedback && (result.changed || result.message?.startsWith("地址没有变化") == true)) null else result.message
     }
     return when (action) {
         PdshHostAction.StopRuntime -> {
@@ -2343,9 +2433,12 @@ private fun actionLabel(action: PdshHostAction): String = when (action) {
     PdshHostAction.AndroidAdbScan -> "扫描局域网电视"
     is PdshHostAction.AndroidAdbConnect -> "连接发现的电视"
     PdshHostAction.AndroidAdbCancelConnect -> "取消电视连接"
+    is PdshHostAction.GmailConnector -> "Gmail"
+    is PdshHostAction.GitHubConnector -> "GitHub"
     is PdshHostAction.TonoAccountRequestCode -> "获取 Tono 验证码"
     is PdshHostAction.TonoAccountSignIn -> "登录 Tono 账号"
     PdshHostAction.TonoAccountSignOut -> "退出 Tono 账号"
+    is PdshHostAction.TonoAccountSetCloudTasks -> "云端任务开关"
     is PdshHostAction.SaveMcpServer -> "保存 MCP 服务器"
     PdshHostAction.StopRuntime -> "停止本地引擎"
     PdshHostAction.RestartRuntime -> "启动本地引擎"
@@ -2398,6 +2491,8 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
     PdshRoute.GitHubAgent -> null
     PdshRoute.AndroidAdb -> null
     PdshRoute.TonoAccount -> null
+    // The connector pages print their own notices.
+    PdshRoute.GmailConnector, PdshRoute.GitHubConnector -> null
 
     PdshRoute.Configuration -> null
     PdshRoute.Automation -> null

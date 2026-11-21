@@ -540,6 +540,7 @@ public struct SmokeJournalSummary {
     public var dispatched = false
     public var completed = false
     public var toolKeys: [String] = []
+    public var completedToolKeys: [String] = []
     public var error: String?
 }
 
@@ -579,7 +580,10 @@ public func readJournalSummary(workspace: URL, sessionID: String?) throws -> Smo
             if let key = object["key"] as? String { summary.toolKeys.append(key) }
             if sessionID == nil || session == sessionID {
                 if type == "dispatched" { summary.dispatched = true }
-                if type == "completed" { summary.completed = true }
+                if type == "completed" {
+                    summary.completed = true
+                    if let key = object["key"] as? String { summary.completedToolKeys.append(key) }
+                }
             }
         } else {
             summary.types.append("unparsed")

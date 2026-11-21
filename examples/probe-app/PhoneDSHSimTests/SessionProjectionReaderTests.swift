@@ -124,7 +124,7 @@ final class SessionProjectionReaderTests: XCTestCase {
         var lines = header(id: id)
         lines.append(line(seq: 2, type: "turn/start", data: "{\"turn\":1}", surfaceOp: "null"))
         lines.append(line(seq: 3, type: "user/message",
-                          data: "{\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"\(userText)\"}]},\"source\":{\"kind\":\"user\",\"rpcId\":\"rpc-1\"}}"))
+                          data: "{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"\(userText)\"}],\"source\":{\"kind\":\"user\",\"rpcId\":\"rpc-1\"}}"))
         lines.append(line(seq: 4, type: "assistant/message",
                           data: "{\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"answer\"}]}}"))
         lines.append(line(seq: 5, type: "tool/call",

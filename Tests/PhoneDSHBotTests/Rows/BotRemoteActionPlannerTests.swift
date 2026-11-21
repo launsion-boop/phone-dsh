@@ -86,8 +86,10 @@ final class BotRemoteActionPlannerTests: XCTestCase {
         let answer = BotUserAction(
             nonce: "answer-question", botID: "main", kind: .cardAnswer,
             cardID: questionID, optionID: "o0")
+        // The planner already committed the answer under this nonce, so the
+        // dispatcher reports it as duplicate rather than writing a second event.
         let accepted = try await harness.dispatcher.dispatch(answer)
-        XCTAssertEqual(accepted.status, "accepted")
+        XCTAssertEqual(accepted.status, "duplicate")
         XCTAssertEqual(harness.transport?.promptHistory.last?.text, "library")
         var events = try await botEvents(harness.fixture.store)
         XCTAssertTrue(events.contains {
@@ -112,7 +114,7 @@ final class BotRemoteActionPlannerTests: XCTestCase {
         let stepsAccepted = try await harness.dispatcher.dispatch(
             BotUserAction(nonce: "answer-steps", botID: "main", kind: .cardAnswer,
                           cardID: stepsID, optionID: "o1"))
-        XCTAssertEqual(stepsAccepted.status, "accepted")
+        XCTAssertEqual(stepsAccepted.status, "duplicate")
         XCTAssertEqual(harness.transport?.promptHistory.last?.text, "稍后再说")
         events = try await botEvents(harness.fixture.store)
         XCTAssertTrue(events.contains {
@@ -210,7 +212,109 @@ final class BotRemoteActionPlannerTests: XCTestCase {
         let opened = try await harness.dispatcher.dispatch(
             BotUserAction(nonce: "answer-open", botID: "main", kind: .cardAnswer,
                           cardID: secondID, optionID: "o1"))
-        XCTAssertEqual(opened.status, "accepted")
+        XCTAssertEqual(opened.status, "duplicate")
+    }
+
+    /// The tap is committed *before* the reply it starts. On the device this was
+    /// the whole delay: `card.answered` was only written after the turn's last
+    /// frame, so the choice landed in the chat a minute after the tap and a
+    /// backgrounded app lost it.
+    func testCardAnswerIsDurableWhileTheTurnIsStillRunning() async throws {
+        let harness = try await makeHarness(scripts: [
+            [.turn(), .assistant("answered question"), .end()],
+        ])
+        defer { harness.fixture.cleanup() }
+        let card = try await questionCard(harness)
+        let cardID = try cardID(card)
+        // Hold the turn open after `turn/start`: no assistant text and no
+        // `turn/end` has been delivered yet.
+        harness.transport?.pause("gb-main")
+        defer { harness.transport?.resume("gb-main") }
+        let action = BotUserAction(nonce: "answer-early", botID: "main", kind: .cardAnswer,
+                                   cardID: cardID, optionID: "o0")
+        let dispatch = Task { try await harness.dispatcher.dispatch(action) }
+
+        let committed = try await Self.waitForEvent(in: harness.fixture.store, type: "card.answered")
+        let answered = try XCTUnwrap(committed, "the answer must be durable before the turn ends")
+        XCTAssertEqual(answered.eventId, "action:answer-early")
+        XCTAssertEqual(answered.data["cardID"], .string(cardID))
+        XCTAssertEqual(answered.data["optionID"], .string("o0"))
+        XCTAssertEqual(answered.data["value"], .string("library"))
+        // The turn id is not known yet, so the answer carries none. The turn's
+        // own rows are the record of what happened next.
+        XCTAssertNil(answered.turnId)
+        XCTAssertEqual(harness.transport?.promptHistory.last?.text, "library")
+
+        harness.transport?.resume("gb-main")
+        // The answer was already recorded under this nonce, so the dispatcher
+        // reports the same event instead of writing a second one.
+        let outcome = try await dispatch.value
+        XCTAssertEqual(outcome.status, "duplicate")
+        XCTAssertEqual(outcome.eventID, "action:answer-early")
+        let events = try await botEvents(harness.fixture.store)
+        XCTAssertEqual(events.filter { $0.type == "card.answered" }.count, 1)
+    }
+
+    /// A failed delivery must not erase the recorded choice: the answer stays
+    /// durable, the turn's failure is the action's status, and a replay of the
+    /// same nonce never starts a second turn.
+    func testFailedTurnAfterTheAnswerKeepsTheAnswerAndDoesNotReplay() async throws {
+        let harness = try await makeHarness(scripts: [
+            [.turn(), .end("failed")],
+        ])
+        defer { harness.fixture.cleanup() }
+        let card = try await questionCard(harness)
+        let cardID = try cardID(card)
+        let action = BotUserAction(nonce: "answer-failed-turn", botID: "main", kind: .cardAnswer,
+                                   cardID: cardID, optionID: "o1")
+        let rejected = try await harness.dispatcher.dispatch(action)
+        XCTAssertEqual(rejected.status, "rejected")
+        let events = try await botEvents(harness.fixture.store)
+        XCTAssertEqual(events.filter { $0.type == "card.answered" }.count, 1)
+        XCTAssertEqual(harness.transport?.promptHistory.count, 1)
+
+        let replay = try await harness.dispatcher.dispatch(action)
+        XCTAssertEqual(replay.status, "duplicate")
+        XCTAssertEqual(harness.transport?.promptHistory.count, 1)
+    }
+
+    /// The projection and the planner must read the same event stream: the card
+    /// the page greys out (`status: superseded`) is exactly the card the planner
+    /// refuses (`card_expired`), and only the newest one accepts a tap.
+    func testProjectionAndPlannerAgreeOnWhichChoiceCardIsStale() async throws {
+        let harness = try await makeHarness(scripts: [
+            [.turn(), .assistant("answered second"), .end()],
+        ])
+        defer { harness.fixture.cleanup() }
+        let first = try await questionCard(harness, question: "第一张？")
+        let firstID = try cardID(first)
+        let second = try await questionCard(harness, question: "第二张？")
+        let secondID = try cardID(second)
+
+        let events = try await botEvents(harness.fixture.store)
+        let snapshot = BotSessionLogProjector().project(
+            botID: "main", sessionID: "gb-main", sessionEvents: [], uiEvents: events)
+        let firstRow = try XCTUnwrap(snapshot.rows.first { $0.id == firstID })
+        XCTAssertEqual(firstRow.body["status"], .string("superseded"))
+        XCTAssertEqual(firstRow.body["supersededBy"], .string(secondID))
+        let secondRow = try XCTUnwrap(snapshot.rows.first { $0.id == secondID })
+        XCTAssertNil(secondRow.body["status"], "the newest card is the one the user can tap")
+
+        let stale = try await harness.dispatcher.dispatch(
+            BotUserAction(nonce: "answer-stale", botID: "main", kind: .cardAnswer,
+                          cardID: firstID, optionID: "o0"))
+        XCTAssertEqual(stale, .stale(reason: "card_expired"))
+        let newest = try await harness.dispatcher.dispatch(
+            BotUserAction(nonce: "answer-newest", botID: "main", kind: .cardAnswer,
+                          cardID: secondID, optionID: "o1"))
+        XCTAssertEqual(newest.status, "duplicate")
+        let after = try await botEvents(harness.fixture.store)
+        XCTAssertEqual(after.filter {
+            $0.type == "card.answered" && $0.data["cardID"] == .string(secondID)
+        }.count, 1)
+        XCTAssertFalse(after.contains {
+            $0.type == "card.answered" && $0.data["cardID"] == .string(firstID)
+        })
     }
 
     func testCardAnswerWithTextIsRejectedByValidationAndDecoder() async throws {
@@ -251,7 +355,7 @@ final class BotRemoteActionPlannerTests: XCTestCase {
         let answer = try await harness.dispatcher.dispatch(
             BotUserAction(nonce: "answer-request", botID: "main", kind: .cardAnswer,
                           cardID: try cardID(card), optionID: "o0"))
-        XCTAssertEqual(answer.status, "accepted")
+        XCTAssertEqual(answer.status, "duplicate")
         XCTAssertEqual(harness.transport?.promptRequestIds.last?.requestId,
                        "card-answer:answer-request")
     }
@@ -287,5 +391,19 @@ final class BotRemoteActionPlannerTests: XCTestCase {
         XCTAssertEqual(committed, 1)
         XCTAssertEqual(staleReasons, ["answer_in_flight"])
         XCTAssertEqual(harness.transport?.promptHistory.count, 1)
+    }
+
+    /// Polls the durable log until `type` appears. Used while a scripted turn is
+    /// deliberately held open, so the assertion is about ordering, not timing.
+    private static func waitForEvent(in store: SQLiteDomainStore, type: String,
+                                     timeout: TimeInterval = 3) async throws -> BotEvent? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let event = try await botEvents(store).first(where: { $0.type == type }) {
+                return event
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return nil
     }
 }

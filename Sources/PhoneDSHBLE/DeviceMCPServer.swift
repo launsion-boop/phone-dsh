@@ -186,6 +186,8 @@ public actor DeviceMCPServer: NativeMCPServing {
                                                      store: deviceStore, journal: linkJournal)
                 } catch is LinkBusy {
                     throw BLEFailure("Another Link call is running")
+                } catch let refused as LinkHostOnly {
+                    throw BLEFailure(refused.message)
                 }
                 switch outcome {
                 case .completed(_, let reply):

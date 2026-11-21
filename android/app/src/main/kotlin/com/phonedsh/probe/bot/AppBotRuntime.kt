@@ -11,13 +11,18 @@ import com.phonedsh.agentcore.JsonValue
 import com.phonedsh.agentcore.toJsonString
 import com.phonedsh.bot.BotJson
 import com.phonedsh.bot.authz.BotApprovalCoordinator
+import com.phonedsh.bot.authz.BotApprovalDecision
+import com.phonedsh.bot.authz.BotApprovalResolution
+import com.phonedsh.bot.rows.BotActionResult
 import com.phonedsh.bot.authz.BotGrantStore
 import com.phonedsh.bot.gateway.BotAttributionRegistry
 import com.phonedsh.bot.gateway.BotIdentityRegistrationService
 import com.phonedsh.bot.gateway.BotIdentityRegistrationRequest
-import com.phonedsh.bot.gateway.BotTokenRegistry
+import com.phonedsh.bot.gateway.BotTokenPrincipalPort
+import com.phonedsh.bot.session.BotSessionTokenRegistry
 import com.phonedsh.bot.mcp.BotAttributionPort
 import com.phonedsh.bot.mcp.BotMCPHandler
+import com.phonedsh.bot.mcp.BotNativeMCPForwarder
 import com.phonedsh.bot.mcp.BotMCPToolRuntime
 import com.phonedsh.bot.mcp.BotToolCatalog
 import com.phonedsh.bot.mcp.BotVolatileContextProducer
@@ -41,18 +46,26 @@ import com.phonedsh.bot.store.BotDomainStore
 import com.phonedsh.bot.wake.BotWakeInboxStore
 import com.phonedsh.bot.wake.WakeInbox
 import com.phonedsh.engine.WorkerEnvironment
+import com.phonedsh.loopback.BotMcpEndpoint
 import com.phonedsh.loopback.BotMcpListener
 import com.phonedsh.loopback.BotMcpRequest
 import com.phonedsh.loopback.BotMcpRequestHandler
 import com.phonedsh.loopback.BotMcpResponse
 import com.phonedsh.loopback.BotMcpStartResult
+import com.phonedsh.loopback.NativeMcpRequest
+import com.phonedsh.loopback.NativeMcpServing
 import com.phonedsh.probe.bot.store.AndroidBotSqlDriver
 import com.phonedsh.ui.bot.driver.BotChatDriver
+import com.phonedsh.ui.bot.state.BotDrawerIntent
+import java.io.File
+import java.nio.file.Path
+import kotlinx.coroutines.flow.StateFlow
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** The small lifecycle seam the runtime test replaces with a fake server. */
 interface AppBotMcpServer {
     val url: String?
+    val endpoint: BotMcpEndpoint? get() = null
     fun start()
     fun stop()
 }
@@ -78,8 +91,8 @@ class ListenerAppBotMcpServer(
     @Volatile
     private var started = false
 
-    override val url: String?
-        get() = listener.endpoint()?.mcpUrl()
+    override val endpoint: BotMcpEndpoint? get() = listener.endpoint()
+    override val url: String? get() = endpoint?.mcpUrl()
 
     override fun start() {
         if (started) return
@@ -141,16 +154,25 @@ class AppBotRuntime internal constructor(
     val store: BotDomainStore,
     val driver: BotChatDriver,
     val roster: List<com.phonedsh.ui.bot.state.BotRosterEntry>,
-    val platformConfig: BotPlatformConfig,
+    private val initialPlatform: BotPlatformConfig,
     val proactiveSettings: ProactiveSettingsStore,
     private val mcpServer: AppBotMcpServer,
     private val routines: AppBotRoutineService,
     private val logger: (String) -> Unit,
+    private val rosterController: AppBotRosterController? = null,
 ) : AutoCloseable {
     private val running = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
 
+    val platformConfig: BotPlatformConfig get() = platformState?.value ?: initialPlatform
+    val platformState: StateFlow<BotPlatformConfig>? get() = rosterController?.state
+
+    fun handleDrawer(intent: BotDrawerIntent) {
+        rosterController?.apply(intent)
+    }
+
     val mcpUrl: String? get() = mcpServer.url
+    val mcpEndpoint: BotMcpEndpoint? get() = mcpServer.endpoint
 
     /** The Worker env keys for this listener; empty until it publishes a URL. */
     fun workerEnvironment(): Map<String, String> {
@@ -180,7 +202,8 @@ class AppBotRuntime internal constructor(
         if (!closed.compareAndSet(false, true)) return
         stop()
         runCatching { mcpServer.stop() }
-        runCatching { (driver as? AutoCloseable)?.close() }
+        if (rosterController != null) runCatching(rosterController::close)
+        else runCatching { (driver as? AutoCloseable)?.close() }
         runCatching { store.close() }
     }
 
@@ -196,8 +219,11 @@ class AppBotRuntime internal constructor(
             transport: BotSessionTransport,
             logger: (String) -> Unit = { Log.i(ListenerAppBotMcpServer.TAG, it) },
             clock: () -> Long = { System.currentTimeMillis() },
+            nativeMcp: NativeMcpServing? = null,
+            nativeAdmission: () -> Boolean = { true },
+            materializedSessions: Path? = null,
         ): AppBotRuntime? = runCatching {
-            build(context, transport, logger, clock)
+            build(context, transport, logger, clock, nativeMcp, nativeAdmission, materializedSessions)
         }.onFailure { error ->
             Log.w(
                 ListenerAppBotMcpServer.TAG,
@@ -210,12 +236,15 @@ class AppBotRuntime internal constructor(
             transport: BotSessionTransport,
             logger: (String) -> Unit,
             clock: () -> Long,
+            nativeMcp: NativeMcpServing?,
+            nativeAdmission: () -> Boolean,
+            materializedSessions: Path?,
         ): AppBotRuntime {
             val store = BotDomainStore(AndroidBotSqlDriver.open(context))
             val botId = AppBotRoster.DEFAULT_BOT_ID
-            val proactiveSettings = SharedPreferencesProactiveSettingsStore(
-                context.getSharedPreferences("phone-dsh-bot", Context.MODE_PRIVATE),
-            )
+            val profileStore = AppBotProfileStore(File(context.filesDir, "PhoneDSHBot"), clock)
+            val preferences = context.getSharedPreferences("phone-dsh-bot", Context.MODE_PRIVATE)
+            val proactiveSettings = SharedPreferencesProactiveSettingsStore(preferences)
             runCatching { proactiveSettings.load() }
                 .onFailure { logger("proactive settings load failed: ${it.message}") }
             val memory = BotMemory(
@@ -254,13 +283,19 @@ class AppBotRuntime internal constructor(
 
             val memoryLookup = AppBotMemoryLookup(memory, clock)
             val routineLookup = AppBotRoutineLookup(routineMachine, clock)
-            val tokens = BotTokenRegistry(clock)
-            val grantLog = AppBotAuthzEventLog(store, AppBotAuthzEventLog.GRANT_TYPES, clock)
+            val sessionTokens = BotSessionTokenRegistry(now = clock)
+            val tokens: BotTokenPrincipalPort = AppBotSessionPrincipals(sessionTokens)
+            val storeLock = Any()
+            val grantLog = AppBotAuthzEventLog(store, AppBotAuthzEventLog.GRANT_TYPES, clock, storeLock)
+            var notifyBotChanged: (String?) -> Unit = {}
+            val approvalLog = AppBotAuthzEventLog(store, AppBotAuthzEventLog.APPROVAL_TYPES, clock, storeLock) {
+                notifyBotChanged(it)
+            }
             val grantStore = BotGrantStore(grantLog, clock)
             runCatching { grantStore.recover() }
                 .onFailure { logger("bot grant recovery failed: ${it.message}") }
             val attribution = BotAttributionRegistry(clock)
-            val approvals = BotApprovalCoordinator(grantStore, grantLog, clock)
+            val approvals = BotApprovalCoordinator(grantStore, approvalLog, clock)
             val identity = BotIdentityRegistrationService(
                 tokens = tokens,
                 attributions = attribution,
@@ -274,16 +309,11 @@ class AppBotRuntime internal constructor(
                     name: String,
                     arguments: JsonValue,
                 ): McpResolvedToolCall? {
-                    val entry = attribution.claimByDigest(
-                        name = name,
-                        arguments = arguments,
-                        runtimeId = runtimeId,
-                    ) ?: return null
-                    val principal = tokens.lookupSession(entry.sessionId) ?: return null
+                    val call = identity.claim(runtimeId, name, arguments) ?: return null
                     return McpResolvedToolCall(
-                        principal = principal.toMcp(),
-                        callId = entry.callId,
-                        attributionId = entry.id,
+                        principal = call.principal.toMcp(),
+                        callId = call.callId,
+                        attributionId = call.attribution.id,
                     )
                 }
             }
@@ -293,7 +323,11 @@ class AppBotRuntime internal constructor(
                 BotDomainVolatileContextProvider(
                     memory = memoryLookup,
                     routines = routineLookup,
-                    persona = { _, _, _ -> "你的名字是${AppBotRoster.DEFAULT_BOT_NAME}。用户问起名字时如实回答。" },
+                    persona = { id, _, _ ->
+                        val name = profileStore.read().bots.firstOrNull { it.id == id }?.name
+                            ?: AppBotRoster.DEFAULT_BOT_NAME
+                        "你的名字是${name}。用户问起名字时如实回答。"
+                    },
                     now = clock,
                 ),
             )
@@ -307,6 +341,7 @@ class AppBotRuntime internal constructor(
                 tasks = AppBotTaskPort,
                 userMessages = userMessages,
                 grants = AppBotGrantPort(grantStore, clock),
+                modelImageReader = AppBotModelImageReader(context),
                 team = AppBotTeamStub(),
                 events = events,
                 runtimeId = BotMCPProtocolRuntimeId,
@@ -317,6 +352,26 @@ class AppBotRuntime internal constructor(
                 tools = toolRuntime,
                 tokens = tokenPort,
             )
+            if (nativeMcp != null) mcpHandler.attachNativeMCP(object : BotNativeMCPForwarder {
+                override suspend fun handle(request: JsonValue, headers: Map<String, String>): JsonValue? {
+                    val rpc = request as? JsonObject
+                    if (rpc?.get("method") == JsonString("tools/call") && !nativeAdmission()) {
+                        return BotJson.objectOf(
+                            "jsonrpc" to JsonString("2.0"),
+                            "id" to (rpc["id"] ?: com.phonedsh.agentcore.JsonNull),
+                            "error" to BotJson.objectOf(
+                                "code" to com.phonedsh.agentcore.JsonNumber("-32000"),
+                                "message" to JsonString("phone tool admission is closed"),
+                            ),
+                        )
+                    }
+                    val result = nativeMcp.handle(NativeMcpRequest(
+                        "POST", headers, request.toJsonString().toByteArray(Charsets.UTF_8),
+                    ))
+                    return result.body.takeIf { it.isNotEmpty() }
+                        ?.let { JsonValue.parse(it.toString(Charsets.UTF_8)) }
+                }
+            })
             val httpHandler = AppBotMcpHttpHandler(
                 handler = mcpHandler,
                 identity = identity,
@@ -325,38 +380,40 @@ class AppBotRuntime internal constructor(
             )
             val listener = BotMcpListener(httpHandler)
             val mcpServer = ListenerAppBotMcpServer(listener, logger)
-            val driver = AppBotChatDriver(
-                store = store,
-                transport = transport,
-                botId = botId,
-                clock = clock,
-            )
-            val roster = AppBotRoster.roster()
-            val botContext = AppBotRoster.context(roster)
-            val profile = roster.bots.firstOrNull { it.id == botContext.botID }
-            val platform = BotPlatformConfig(
-                driver = driver,
-                context = botContext,
-                appearance = com.phonedsh.bot.profile.BotFishAppearance.resolve(
-                    profile ?: AppBotRoster.profile(),
-                ),
-                roster = AppBotRoster.entries(roster),
-                isMainBot = botContext.botID == roster.mainBotID,
-                description = profile?.description.orEmpty(),
-                close = {
-                    runCatching { driver.close() }
-                    runCatching { store.close() }
-                },
-            )
+            val rosterController = AppBotRosterController(profileStore, clock, preferences) { selectedId ->
+                AppBotChatDriver(
+                    store = store,
+                    transport = transport,
+                    botId = selectedId,
+                    clock = clock,
+                    tokens = sessionTokens,
+                    storeLock = storeLock,
+                    materializedSessions = materializedSessions,
+                    resolveApproval = { action ->
+                        val id = checkNotNull(action.approvalID)
+                        val decision = checkNotNull(BotApprovalDecision.fromWire(checkNotNull(action.decision).wire))
+                        when (val result = approvals.resolve(id, decision, action.digest.orEmpty())) {
+                            BotApprovalResolution.Resolved -> BotActionResult.Accepted(id)
+                            is BotApprovalResolution.Stale -> BotActionResult.Rejected(result.reason)
+                        }
+                    },
+                    onTurnBoundary = { id, starting ->
+                        if (starting) toolRuntime.beginTurn(id) else toolRuntime.endTurn(id)
+                    },
+                )
+            }
+            notifyBotChanged = rosterController::domainChanged
+            val platform = rosterController.state.value
             return AppBotRuntime(
                 store = store,
-                driver = driver,
+                driver = platform.driver,
                 roster = platform.roster,
-                platformConfig = platform,
+                initialPlatform = platform,
                 proactiveSettings = proactiveSettings,
                 mcpServer = mcpServer,
                 routines = SchedulerRoutineService(scheduler),
                 logger = logger,
+                rosterController = rosterController,
             )
         }
 

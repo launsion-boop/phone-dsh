@@ -529,8 +529,12 @@ public fun HomeDrawer(
                         bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp),
             ) {
                 Column(Modifier.padding(horizontal = 16.dp)) {
-                    val blockedReason = drawerNewSessionBlockedReason(facts.languageId, facts.newSessionBlockedReason)
-                    val enabled = onCreateSession != null && facts.newSessionBlockedReason == null
+                    val blockedReason = if (pcDrawer.selected == PcDrawerBackend.PC) {
+                        pcDrawer.newSessionBlockedReason
+                    } else {
+                        drawerNewSessionBlockedReason(facts.languageId, facts.newSessionBlockedReason)
+                    }
+                    val enabled = onCreateSession != null && blockedReason == null
                     val newSessionLabel = drawerNativeText(facts.languageId, UiStrings.NEW_SESSION, UiStrings.DRAWER_NEW_SESSION_EN)
                     val newSessionInteraction = remember { MutableInteractionSource() }
                     val newSessionShape = RoundedCornerShape(26.dp)

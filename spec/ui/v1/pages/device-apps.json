@@ -1,0 +1,252 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "DeviceAppsPage",
+  "pageId": "device-apps",
+  "structure": "swiftui-view",
+  "sectionModel": "unmodeled",
+  "sectionNote": null,
+  "title": {
+    "text": "设备应用",
+    "provenance": "DeviceAppsPage.swift:78",
+    "anchor": ".navigationTitle(\"设备应用\")"
+  },
+  "source": {
+    "file": "DeviceAppsPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/DeviceAppsPage.swift",
+    "lines": 203,
+    "structLine": 51,
+    "renderedFrom": [
+      "body",
+      "content",
+      "rowView"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "DeviceAppsPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "region-51",
+      "kind": "implicit",
+      "title": null,
+      "titleTemplate": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "custom-75",
+          "label": null,
+          "labelExpr": "content.padding",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DeviceAppsPage.swift:75",
+          "anchor": "if scrolls { ScrollView { content.padding(16) } } else { content.padding(16) }",
+          "extraction": "manual",
+          "template": "content.padding"
+        }
+      ],
+      "provenance": "DeviceAppsPage.swift:51",
+      "anchor": "struct DeviceAppsPage: View {",
+      "extraction": "manual",
+      "criterion": {
+        "kind": "implicit"
+      },
+      "note": "no Section/PageSection/GroupBox/header Text found: the whole body is one region, so a human must say what the group is (or the page has none)"
+    }
+  ],
+  "actions": [
+    {
+      "id": "gesture-80",
+      "label": null,
+      "labelExpr": null,
+      "kind": "gesture",
+      "trigger": "pull-to-refresh",
+      "semantic": "refresh",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DeviceAppsPage.swift:80",
+      "anchor": ".refreshable { await model.refresh() }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "删除",
+      "label": "删除",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await model.confirmDelete() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DeviceAppsPage.swift:84",
+      "anchor": "Button(\"删除\", role: .destructive) { Task { await model.confirmDelete() } }",
+      "extraction": "syntax",
+      "deadPresentation": "alert-82"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ model.cancelDelete()",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DeviceAppsPage.swift:85",
+      "anchor": "Button(\"取消\", role: .cancel) { model.cancelDelete() }",
+      "extraction": "syntax",
+      "deadPresentation": "alert-82"
+    },
+    {
+      "id": "停止",
+      "label": "停止",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ Task { await model.stop(row) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DeviceAppsPage.swift:153",
+      "anchor": "if row.running { Button(\"停止\") { Task { await model.stop(row) } } }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "删除",
+      "label": "删除",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ model.requestDelete(row)",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "DeviceAppsPage.swift:154",
+      "anchor": "Button(\"删除\", role: .destructive) { model.requestDelete(row) }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "打开",
+      "label": "打开",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await model.open(row) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DeviceAppsPage.swift:170",
+      "anchor": "Button(\"打开\") { Task { await model.open(row) } }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "更多",
+      "label": "更多",
+      "labelExpr": null,
+      "kind": "menu",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "DeviceAppsPage.swift:158",
+      "anchor": ".accessibilityLabel(\"更多\")",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "alert-82",
+      "kind": "alert",
+      "title": "删除「\\(model.pendingDelete?.title ??",
+      "destination": null,
+      "triggerBindings": [
+        "model",
+        "pendingDelete"
+      ],
+      "span": [
+        82,
+        86
+      ],
+      "provenance": "DeviceAppsPage.swift:82",
+      "anchor": ".alert(\"删除「\\(model.pendingDelete?.title ?? \"\")」？\", isPresented: Binding(",
+      "triggered": false,
+      "deadUi": true,
+      "deadUiEvidence": "the state binding model, pendingDelete is never assigned outside its declaration, so nothing opens this alert"
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "untitled section at 51",
+          "when": null,
+          "provenance": "DeviceAppsPage.swift:51",
+          "anchor": "struct DeviceAppsPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": [
+        {
+          "renders": "正在读取设备上的应用…",
+          "when": null,
+          "provenance": "DeviceAppsPage.swift:101",
+          "anchor": "ProgressView(\"正在读取设备上的应用…\").frame(maxWidth: .infinity)"
+        },
+        {
+          "renders": "ProgressView",
+          "when": null,
+          "provenance": "DeviceAppsPage.swift:101",
+          "anchor": "ProgressView(\"正在读取设备上的应用…\").frame(maxWidth: .infinity)"
+        }
+      ]
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 2
+    }
+  },
+  "subpages": [
+    {
+      "name": "DeviceEntryPage",
+      "line": 186,
+      "private": false,
+      "embedded": false,
+      "sections": [],
+      "provenance": "DeviceAppsPage.swift:186"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 1,
+    "warnings": []
+  }
+}

@@ -15,6 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertAny
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -271,6 +272,30 @@ class ChatPageTest {
     }
 
     @Test
+    fun `总是允许 shows only for a request with a safe scope and a host callback`() {
+        // ChatPage.swift `PermissionCardView`: `if let onAllowAlways, allowsAlways`.
+        val base = state(case = "permission-flow")
+        val ask = requireNotNull(base.pending.primary)
+        var always: String? = null
+        val callback = PdshActionAvailability.Available<(PendingAnswer) -> Unit> { always = it.requestId }
+
+        show(base.copy(pending = base.pending.copy(primary = ask.copy(allowsAlways = true))),
+            permissionAlwaysAvailability = callback)
+        compose.onNodeWithTag(UiTags.APPROVAL_ALWAYS).assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.ALLOW_ALWAYS).performClick()
+        assertEquals(ask.requestId, always)
+    }
+
+    @Test
+    fun `总是允许 is absent when the request has no safe scope`() {
+        val base = state(case = "permission-flow")
+        val ask = requireNotNull(base.pending.primary)
+        show(base.copy(pending = base.pending.copy(primary = ask.copy(allowsAlways = false))),
+            permissionAlwaysAvailability = PdshActionAvailability.Available { })
+        compose.onNodeWithTag(UiTags.APPROVAL_ALWAYS).assertDoesNotExist()
+    }
+
+    @Test
     fun `permission decisions stay disabled without a request-bound receipt`() {
         var approved: String? = null
         show(state(case = "permission-flow"), onApprove = { approved = it.requestId })
@@ -508,30 +533,38 @@ class ChatPageTest {
     }
 
     @Test
-    fun `the transcript offers 加载更早消息 only when the host has more`() {
-        // ChatPage.swift `transcript`: `if model.transcriptHasMore`.
+    fun `reaching the top sentinel loads earlier history without a tap`() {
+        // ChatPage.swift `historySentinel` + `loadEarlierIfNeeded`: a passive top
+        // sentinel shown only `if model.transcriptHasMore`; once the initial tail
+        // placement is done and the sentinel is on screen, one page is requested.
         var loaded = 0
         show(
             state(case = "chat-basic", transcript = TranscriptState(hasMore = true)),
             onLoadEarlier = { loaded += 1 },
         )
         compose.onNodeWithTag(UiPageTags.CHAT_LOAD_EARLIER).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.LOAD_EARLIER).performClick()
-        assertEquals(1, loaded)
+        compose.onNodeWithText(UiStrings.LOAD_EARLIER).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.CHAT_LOAD_EARLIER).assertHasNoClickAction()
+        compose.waitUntil(timeoutMillis = 5_000) { loaded >= 1 }
     }
 
     @Test
-    fun `the load-earlier control says 正在加载… while the read runs`() {
-        // ChatPage.swift:743 `loadingEarlierTranscript ? "正在加载…" : "加载更早消息"`.
+    fun `the history sentinel says 正在加载更早消息 while the read runs`() {
+        // ChatPage.swift:1360 `loadingEarlierTranscript ? "正在加载更早消息" : "上滑加载更早消息"`.
+        var loaded = 0
         show(
             state(
                 case = "chat-basic",
                 transcript = TranscriptState(hasMore = true, loadingEarlier = true),
             ),
+            onLoadEarlier = { loaded += 1 },
         )
         compose.onNodeWithText(UiStrings.LOADING_EARLIER).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.CHAT_LOAD_EARLIER).assertIsNotEnabled()
         compose.onNodeWithText(UiStrings.LOAD_EARLIER).assertDoesNotExist()
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitForIdle()
+        // A read already in flight is never doubled.
+        assertEquals(0, loaded)
     }
 
     @Test
@@ -1176,6 +1209,8 @@ class ChatPageTest {
         stopAvailability: PdshActionAvailability<(StateRequestId) -> Unit> = PdshActionAvailability.Unavailable(com.phonedsh.ui.nav.PdshUnavailableReason.NOT_IMPLEMENTED),
         composerAvailability: ComposerAvailability = ComposerAvailability(),
         timelineRetryAvailability: PdshActionAvailability<() -> Unit> = PdshActionAvailability.Unavailable(com.phonedsh.ui.nav.PdshUnavailableReason.NOT_IMPLEMENTED),
+        permissionApproveAvailability: PdshActionAvailability<(PendingAnswer) -> Unit> = PdshActionAvailability.Unavailable(com.phonedsh.ui.nav.PdshUnavailableReason.NOT_IMPLEMENTED),
+        permissionAlwaysAvailability: PdshActionAvailability<(PendingAnswer) -> Unit> = PdshActionAvailability.Unavailable(com.phonedsh.ui.nav.PdshUnavailableReason.NOT_IMPLEMENTED),
     ) {
         compose.setContent {
             PdshTheme {
@@ -1227,6 +1262,8 @@ class ChatPageTest {
                     stopAvailability = stopAvailability,
                     composerAvailability = composerAvailability,
                     timelineRetryAvailability = timelineRetryAvailability,
+                    permissionApproveAvailability = permissionApproveAvailability,
+                    permissionAlwaysAvailability = permissionAlwaysAvailability,
                 )
             }
         }

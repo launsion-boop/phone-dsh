@@ -1,0 +1,48 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<meta charset="utf-8"><title>phoneDSH firmware builder</title>
+<script type="module">
+// Headless page: the native host calls window.fwbStart({workers, project}) and
+// receives progress, log lines and the finished image through the "fwb" message handler.
+const native = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.fwb
+const send = m => { if (native) native.postMessage(m); else console.log(JSON.stringify(m).slice(0, 300)) }
+const b64 = buf => { const u = new Uint8Array(buf); let s = ""; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s) }
+let running = false
+window.fwbStart = async opts => {
+  if (running) { send({ type: "error", message: "a build is already running" }); return }
+  running = true
+  const W = Math.max(1, Math.min(4, Number(opts && opts.workers) || 3)), project = (opts && opts.project) || "artifacts/project.bin"
+  const report = { workers: W, results: [] }
+  try {
+    // opts.overrides = {path relative to manifest.sources_root: base64}; absent = the pack's reference build.
+    const overrides = opts && opts.overrides && Object.keys(opts.overrides).length ? opts.overrides : undefined
+    let sourcesRoot
+    if (overrides) { const m = await fetch("artifacts/manifest.json").then(r => r.json()); sourcesRoot = m.sources_root
+      send({ type: "log", message: `${Object.keys(overrides).length} source override(s)` }) }
+    const T0 = performance.now(); const objs = new Map(); let queue = null, total = 0
+    await new Promise((res, rej) => { let live = 0
+      for (let k = 0; k < W; k++) { const w = new Worker("builder-worker.js", { type: "module" }); live++
+        const next = () => { const n = queue.shift(); if (n === undefined) { w.terminate(); if (--live === 0) res() } else w.postMessage({ cmd: "job", n }) }
+        w.onerror = e => rej(new Error("compile worker: " + (e.message || "failed to start")))
+        w.onmessage = ({ data }) => {
+          if (data.type === "ready") { if (!queue) { queue = data.jobs.slice(); total = queue.length; send({ type: "log", message: `compiler ready in ${data.compileMs} ms; ${total} sources on ${W} workers` }) } next() }
+          else if (data.type === "job") { report.results.push(data.r)
+            if (!data.obj) return rej(new Error(`compile failed: ${data.r.src}: ${data.r.err || data.r.trap || "exit " + data.r.cc1Exit}`))
+            objs.set(data.r.n, data.obj); send({ type: "progress", stage: "compile", done: objs.size, total }); next() }
+          else if (data.type === "fatal") rej(new Error(data.msg)) }
+        w.postMessage({ cmd: "init", project, overrides, sourcesRoot }) } })
+    report.compileMs = Math.round(performance.now() - T0); report.cc1PeakMiB = Math.max(...report.results.map(r => r.cc1PeakMiB))
+    send({ type: "log", message: `compiled ${objs.size} sources in ${report.compileMs} ms` }); send({ type: "progress", stage: "link", done: 0, total: 1 })
+    const T1 = performance.now()
+    const image = await new Promise((res, rej) => { const w = new Worker("builder-worker.js", { type: "module" })
+      w.onerror = e => rej(new Error("link worker: " + (e.message || "failed to start")))
+      w.onmessage = ({ data }) => { if (data.type === "log") send({ type: "log", message: data.msg })
+        else if (data.type === "linked") { report.link = data.out; w.terminate(); data.image ? res(data.image) : rej(new Error("link failed: " + (data.out.ldErr || data.out.trap || "exit " + data.out.ldExit))) }
+        else if (data.type === "fatal") rej(new Error(data.msg)) }
+      const list = [...objs]; w.postMessage({ cmd: "link", objs: list }, list.map(x => x[1])) })
+    report.linkMs = Math.round(performance.now() - T1); report.totalMs = Math.round(performance.now() - T0); delete report.results
+    send({ type: "done", report, imageBase64: b64(image) })
+  } catch (e) { send({ type: "error", message: String(e && e.message || e), report }) } finally { running = false }
+}
+send({ type: "loaded" })
+</script>

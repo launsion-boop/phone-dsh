@@ -65,8 +65,10 @@ remote revocation fails, the UI points to GitHub's authorized app settings.
 The original build has no broker calls. The new build requires this broker
 revision for OAuth. The broker does not change any Worker or gateway routes.
 Older builds ignore OAuth service configuration and reject the new token type.
-Rollback requires a fresh sign-in. Android and HarmonyOS have no consumers of
-this revision.
+Rollback requires a fresh sign-in. Android consumes this revision unchanged
+through the browser and a callback activity; its mechanics and storage are in
+[PC-20261119-android-connectors](../../docs/protocol-changes/PC-20261119-android-connectors.md).
+HarmonyOS has no consumer of this revision.
 
 The coordinator owns the broker and this contract. The iOS implementer owns
 the native connector and its tests. Shared valid and invalid fixtures are in

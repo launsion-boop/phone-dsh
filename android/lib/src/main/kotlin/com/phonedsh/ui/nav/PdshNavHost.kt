@@ -440,6 +440,10 @@ public fun PdshNavHost(
     // cannot prompt still renders the page — as a read-only surface.
     onPhonePermissionRequest: (PhoneCapability) -> Unit = {},
     onPhonePermissionSettings: (PhoneCapability) -> Unit = {},
+    /** 清空 DSH 常用授权 on the phone-permissions page; empty keeps the control inert. */
+    onPhoneDshApprovalsClear: () -> Unit = {},
+    /** 清空本地统计 on the phone-permissions page. */
+    onPhoneNextStepsUsageClear: () -> Unit = {},
     /** Open the host-owned home drawer over the current conversation. */
     onOpenDrawer: (() -> Unit)? = null,
     // L69: the chat page's host half. `chat` is the fully folded screen state the
@@ -453,6 +457,8 @@ public fun PdshNavHost(
     permissionApproveAvailability: PdshActionAvailability<(PendingAnswer) -> Unit> =
         PdshActionAvailability.Unavailable(PdshUnavailableReason.NOT_IMPLEMENTED),
     permissionDenyAvailability: PdshActionAvailability<(PendingAnswer) -> Unit> =
+        PdshActionAvailability.Unavailable(PdshUnavailableReason.NOT_IMPLEMENTED),
+    permissionAlwaysAvailability: PdshActionAvailability<(PendingAnswer) -> Unit> =
         PdshActionAvailability.Unavailable(PdshUnavailableReason.NOT_IMPLEMENTED),
     onChatDraftChange: (String) -> Unit = {},
     onChatSend: () -> Unit = {},
@@ -575,6 +581,12 @@ public fun PdshNavHost(
     onBotInfoIntent: (BotInfoIntent) -> Unit = {},
     /** One appearance selection from the info page or the drawer overlay. */
     onBotAppearanceIntent: (BotAppearanceIntent) -> Unit = {},
+    /**
+     * Local next-steps card usage (iOS `BotNextStepsMetrics`). When supplied, every
+     * Bot turn that finishes is recorded from the displayed rows, like iOS
+     * `BotChatPage`'s `onChange(of: runningTurnID)`.
+     */
+    botNextSteps: com.phonedsh.ui.bot.state.BotNextStepsMetrics? = null,
 ) {
     val route = nav.current
     val botScope = rememberCoroutineScope()
@@ -605,6 +617,15 @@ public fun PdshNavHost(
     }
     DisposableEffect(botModel) {
         onDispose { botModel?.close() }
+    }
+    LaunchedEffect(botModel, botNextSteps) {
+        val model = botModel ?: return@LaunchedEffect
+        val metrics = botNextSteps ?: return@LaunchedEffect
+        var running: String? = model.state.value.runningTurnID
+        model.state.collect { snapshot ->
+            if (running != null && snapshot.runningTurnID == null) metrics.recordTurn(snapshot.rows)
+            running = snapshot.runningTurnID
+        }
     }
     if (route == PdshRoute.Home) {
         CompositionLocalProvider(LocalSheetBackHost provides sheetBackHost) {
@@ -704,6 +725,7 @@ public fun PdshNavHost(
                 timelineRetryAvailability = timelineRetryAvailability,
                 permissionApproveAvailability = permissionApproveAvailability,
                 permissionDenyAvailability = permissionDenyAvailability,
+                permissionAlwaysAvailability = permissionAlwaysAvailability,
                 onDraftChange = onChatDraftChange,
                 onSend = onChatSend,
                 onStop = onChatStop,
@@ -740,6 +762,8 @@ public fun PdshNavHost(
                 backLevel = backLevel,
                 onPhonePermissionRequest = onPhonePermissionRequest,
                 onPhonePermissionSettings = onPhonePermissionSettings,
+                onPhoneDshApprovalsClear = onPhoneDshApprovalsClear,
+                onPhoneNextStepsUsageClear = onPhoneNextStepsUsageClear,
                 agentPresets = agentPresets,
                 agentPresetActions = agentPresetActions,
                 connectedComputerValue = connectedComputerValue,
@@ -750,8 +774,8 @@ public fun PdshNavHost(
                         com.phonedsh.ui.page.DiscoverConnector.DEVICES -> onNavigate(PdshRoute.Bluetooth)
                         com.phonedsh.ui.page.DiscoverConnector.WEB_SEARCH -> onNavigate(PdshRoute.WebSearch)
                         com.phonedsh.ui.page.DiscoverConnector.MCP -> onNavigate(PdshRoute.Mcp)
-                        // The example connector's sheet action is a disabled 即将支持.
-                        com.phonedsh.ui.page.DiscoverConnector.GMAIL -> Unit
+                        com.phonedsh.ui.page.DiscoverConnector.GMAIL -> onNavigate(PdshRoute.GmailConnector)
+                        com.phonedsh.ui.page.DiscoverConnector.GITHUB -> onNavigate(PdshRoute.GitHubConnector)
                     }
                 },
                 onOpenPluginsTools = { onNavigate(PdshRoute.Configuration) },
@@ -785,12 +809,31 @@ public fun PdshNavHost(
                 onConnect = { onHostAction(PdshHostAction.AndroidAdbConnect(it)) },
                 onCancelConnection = { onHostAction(PdshHostAction.AndroidAdbCancelConnect) },
             )
+            PdshRoute.GmailConnector -> com.phonedsh.ui.page.GmailConnectorPage(
+                facts = facts.gmail,
+                onBack = onBack,
+                onAction = { onHostAction(PdshHostAction.GmailConnector(it)) },
+                languageId = facts.settings.preferences.language?.id,
+            )
+            PdshRoute.GitHubConnector -> {
+                val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+                com.phonedsh.ui.page.GitHubConnectorPage(
+                    facts = facts.github,
+                    onBack = onBack,
+                    onAction = { onHostAction(PdshHostAction.GitHubConnector(it)) },
+                    // Only host-supplied github.com URLs reach here; a browser that
+                    // cannot be found is the platform's failure, not a crash.
+                    onOpenUrl = { url -> runCatching { uriHandler.openUri(url) } },
+                    languageId = facts.settings.preferences.language?.id,
+                )
+            }
             PdshRoute.TonoAccount -> com.phonedsh.ui.page.TonoAccountPage(
                 facts = facts.tonoAccount,
                 onBack = onBack,
                 onRequestCode = { onHostAction(PdshHostAction.TonoAccountRequestCode(it)) },
                 onSignIn = { onHostAction(PdshHostAction.TonoAccountSignIn(it)) },
                 onSignOut = { onHostAction(PdshHostAction.TonoAccountSignOut) },
+                onSetCloudTasks = { onHostAction(PdshHostAction.TonoAccountSetCloudTasks(it)) },
             )
             is PdshRoute.McpEditor -> McpEditorRoute(route, facts, onBack, onHostAction)
             PdshRoute.Runtime -> RuntimeRoute(facts, onBack, onHostAction, backLevel)
@@ -825,6 +868,8 @@ public fun PdshNavHost(
                 onBack = onBack,
                 onRequestPermission = onPhonePermissionRequest,
                 onOpenPermissionSettings = onPhonePermissionSettings,
+                onClearDshApprovals = onPhoneDshApprovalsClear,
+                onClearNextStepsUsage = onPhoneNextStepsUsageClear,
                 backLevel = backLevel,
             )
             PdshRoute.ChatPreferences ->
@@ -1058,6 +1103,7 @@ private fun ChatRoute(
     timelineRetryAvailability: PdshActionAvailability<() -> Unit>,
     permissionApproveAvailability: PdshActionAvailability<(PendingAnswer) -> Unit>,
     permissionDenyAvailability: PdshActionAvailability<(PendingAnswer) -> Unit>,
+    permissionAlwaysAvailability: PdshActionAvailability<(PendingAnswer) -> Unit>,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -1329,6 +1375,7 @@ private fun ChatRoute(
         timelineRetryAvailability = retryFromTable,
         permissionApproveAvailability = permissionApproveAvailability,
         permissionDenyAvailability = permissionDenyAvailability,
+        permissionAlwaysAvailability = permissionAlwaysAvailability,
         planApproveAvailability = planApproveFromTable,
         planRequestChangesAvailability = planChangesFromTable,
         queueEditAvailability = queueEditFromTable,
@@ -1814,6 +1861,10 @@ private fun SettingsRoute(
     // nothing would be the same fake control the pushed page no longer has.
     onPhonePermissionRequest: (PhoneCapability) -> Unit = {},
     onPhonePermissionSettings: (PhoneCapability) -> Unit = {},
+    /** 清空 DSH 常用授权 on the phone-permissions page; empty keeps the control inert. */
+    onPhoneDshApprovalsClear: () -> Unit = {},
+    /** 清空本地统计 on the phone-permissions page. */
+    onPhoneNextStepsUsageClear: () -> Unit = {},
     agentPresets: NativeAgentPresetsFacts = NativeAgentPresetsFacts(),
     agentPresetActions: AgentPresetActions = AgentPresetActions(),
     /** 已连接的电脑's trailing value; `null` keeps the row's honest 未知. */
@@ -1972,6 +2023,8 @@ private fun SettingsRoute(
                             backLevel = backLevel,
                             onRequestPermission = onPhonePermissionRequest,
                             onOpenPermissionSettings = onPhonePermissionSettings,
+                            onClearDshApprovals = onPhoneDshApprovalsClear,
+                            onClearNextStepsUsage = onPhoneNextStepsUsageClear,
                         )
                     SettingsTab.PRESETS -> AgentPresetsRoute(
                         onBack = onBack,
@@ -2771,6 +2824,8 @@ private fun PhonePermissionsRoute(
     backLevel: PdshBackLevel? = null,
     onRequestPermission: (PhoneCapability) -> Unit = {},
     onOpenPermissionSettings: (PhoneCapability) -> Unit = {},
+    onClearDshApprovals: () -> Unit = {},
+    onClearNextStepsUsage: () -> Unit = {},
 ) {
     var local by remember { mutableStateOf(PhonePermissionsLocalState()) }
     // The request confirmation and the disable notice are this page's own modals:
@@ -2874,6 +2929,8 @@ private fun PhonePermissionsRoute(
         onAcknowledgeDisable = { local = local.apply(PhonePermissionsUiEvent.AcknowledgeDisable) },
         onDismissDisable = { local = local.apply(PhonePermissionsUiEvent.AcknowledgeDisable) },
         embedded = embedded,
+        onClearDshApprovals = onClearDshApprovals,
+        onClearNextStepsUsage = onClearNextStepsUsage,
     )
 }
 

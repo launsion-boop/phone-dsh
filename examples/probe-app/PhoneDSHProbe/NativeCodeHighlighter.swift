@@ -3,6 +3,18 @@
 import ProbeKit
 import SwiftUI
 
+enum NativeCodeTextChunks {
+    /// Joining with a newline reconstructs the exact source, including blank
+    /// lines and a trailing newline. Copy always uses the original source.
+    static func chunks(_ source: String, linesPerChunk: Int = 32) -> [String] {
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
+        let size = max(1, linesPerChunk)
+        return stride(from: 0, to: lines.count, by: size).map { start in
+            lines[start..<min(start + size, lines.count)].joined(separator: "\n")
+        }
+    }
+}
+
 // Small native token highlighter; unknown grammars remain plain source.
 enum NativeCodeHighlighter {
     /// Cached tokens are resolved colors, so the theme is part of the key.
@@ -48,6 +60,12 @@ enum NativeCodeHighlighter {
         var result = AttributedString(source)
         result.font = .system(size: 13, design: .monospaced)
         result.foregroundColor = NativeChatTheme.secondary
+        // An exceptionally long single line must not run thousands of
+        // attributed-range edits on the main thread. Its source remains intact.
+        guard source.utf8.count <= 16 * 1024 else {
+            cache.insert(result, forKey: key, cost: source.utf8.count * 2 + 256)
+            return result
+        }
         let full = NSRange(source.startIndex..<source.endIndex, in: source)
         apply(regex: stringRegex, color: NativeChatTheme.success, to: &result, in: source, range: full)
         apply(regex: commentRegex, color: NativeChatTheme.caption, to: &result, in: source, range: full)

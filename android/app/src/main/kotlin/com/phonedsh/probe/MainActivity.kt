@@ -220,6 +220,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 发现 › Gmail / GitHub: the consent launcher must be registered before STARTED.
+        com.phonedsh.probe.connectors.ConnectorActivityBridge.attach(this)
         textToSpeech = TextToSpeech(this) { status ->
             speechReady = status == TextToSpeech.SUCCESS
         }
@@ -230,6 +232,9 @@ class MainActivity : ComponentActivity() {
         // The tono-account session, before the launch config and the gateway: both
         // ask it whether the cloud origin's credential is the signed-in account.
         TonoAccountHost.get(applicationContext)
+        // The phone task queue (cloud-tasks.md §7): built without the engine; it
+        // follows the account and runs a pass on each Activity start.
+        com.phonedsh.probe.cloudtasks.CloudTaskCenter.get(applicationContext)
         // The independent Search/Fetch settings and their own key account, read by
         // the launch plan when the view model mounts the web-search grant.
         WebSearchSettingsStore.install(applicationContext, apiKeys)
@@ -344,6 +349,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        com.phonedsh.probe.connectors.ConnectorActivityBridge.detach(this)
         textToSpeech?.stop()
         textToSpeech?.shutdown()
         textToSpeech = null
@@ -390,6 +396,9 @@ class MainActivity : ComponentActivity() {
         // routine tick alive. The runtime itself is process-lifetime (the view
         // model owns it), so this only starts/stops those services.
         engine.startBotRuntime()
+        // Foreground return: one pull → admit → ack pass, off the main thread. It
+        // never starts the engine; admitted records wait for the dispatch entry.
+        com.phonedsh.probe.cloudtasks.CloudTaskCenter.get(applicationContext).appBecameActive()
     }
 
     override fun onStop() {

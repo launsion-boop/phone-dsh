@@ -140,6 +140,23 @@ public class BotTeamTools(
         }
 
         val commContext = host.agentCommContext(principal.botId)
+        val title = firstTrimmedString(args, listOf("title"))
+        // A reply to the immediate previous hop ends the in-progress hand-off
+        // instead of starting a new one (`team.md` §2.3.1). It is checked before
+        // depth/cycle on purpose: a depth-2 receiver may answer the Bot that
+        // handed it that turn, and the reply adds no hop.
+        val previousHop = commContext.immediatePreviousHop(principal.botId)
+        if (previousHop != null && previousHop.senderID == target.id) {
+            return replyToPreviousHop(
+                inbound = previousHop,
+                commContext = commContext,
+                sender = sender,
+                target = target,
+                message = message,
+                delivery = delivery,
+                context = context,
+            )
+        }
         val depth = commContext.depth + 1
         if (depth > MAXIMUM_HOPS) {
             return BotMCPCallResult.failure(
@@ -178,7 +195,6 @@ public class BotTeamTools(
             )
         }
 
-        val title = firstTrimmedString(args, listOf("title"))
         val seq = sequence.next()
         val rowID = BotAgentCommIdentity.outboundRowID(
             senderAgentID = sender.id,
@@ -234,7 +250,17 @@ public class BotTeamTools(
                     BotTeamHeldRequest(
                         botID = target.id,
                         item = item,
-                        handOff = BotAgentCommContext(depth = depth, chain = nextChain),
+                        handOff = BotAgentCommContext(
+                            depth = depth,
+                            chain = nextChain,
+                            inbound = BotAgentInboundHop(
+                                senderID = sender.id,
+                                requestID = requestID,
+                                threadID = threadID,
+                                delivery = delivery,
+                                title = title,
+                            ),
+                        ),
                     ),
                 )
             } catch (error: Throwable) {
@@ -360,6 +386,133 @@ public class BotTeamTools(
                 return BotMCPCallResult.failure("execution_failed", "发送失败：$failure")
             }
         }
+    }
+
+    /**
+     * Records a `reply` row on the caller and writes the exchange-shaped held
+     * reply into the previous hop's inbox (`team.md` §2.3.1/§2.9/§2.10).
+     *
+     * A reply is the end of the hand-off: it adds no hop, installs no chain and
+     * never opens a target turn. The target is woken only when both the inbound
+     * hop and this call requested `now`; any `queued` side stays silent. The
+     * reply call's own `title` is accepted and intentionally not stored: the
+     * held title names the message being answered (`inbound.title`).
+     */
+    private suspend fun replyToPreviousHop(
+        inbound: BotAgentInboundHop,
+        commContext: BotAgentCommContext,
+        sender: BotAgentRef,
+        target: BotAgentRef,
+        message: String,
+        delivery: String,
+        context: BotToolCallContext,
+    ): BotMCPCallResult {
+        val callID = context.callId
+        val requestID = BotTurnOrigin.agentRequestId(callID)
+        // A reply row carries the exchange's requestID, so the canonical lookup
+        // cannot see it; its own callID is the durable idempotency key. The
+        // bare-callID lookup is the same compatibility seam pre-WP4 outbound
+        // rows use (team.md §2.4).
+        var existingThread = host.existingAgentCommThread(sender.id, requestID)
+        if (existingThread == null) {
+            existingThread = host.existingAgentCommThread(sender.id, callID)
+        }
+        existingThread?.let { threadID ->
+            return replySuccess(
+                target = target,
+                threadID = threadID,
+                requestID = requestID,
+                delivery = delivery,
+                duplicated = true,
+            )
+        }
+
+        val rowID = BotAgentCommIdentity.turnRowID(
+            turn = commContext.turn,
+            existingIDs = commContext.existingRowIDs,
+        )
+        val record = BotTeamAgentCommRecord(
+            rowID = rowID,
+            botID = sender.id,
+            direction = BotAgentCommDirection.REPLY,
+            role = "assistant",
+            text = message,
+            toAgent = BotAgentRef(id = target.id, name = target.name),
+            threadID = inbound.threadID,
+            requestID = inbound.requestID,
+            callID = callID,
+        )
+        try {
+            host.recordAgentComm(record)
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            return BotMCPCallResult.failure("execution_failed", describe(error))
+        }
+
+        val replyItem = try {
+            BotAgentCommHeld.replyItem(
+                id = BotAgentCommHeld.heldID(now()),
+                fromAgent = sender,
+                originalTitle = inbound.title,
+                replyText = message,
+                requestId = requestID,
+                threadId = inbound.threadID,
+                createdAt = now(),
+            )
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            return BotMCPCallResult.failure("execution_failed", describe(error))
+        }
+        try {
+            // No `handOff`: the reply is not a new hop and must not install a
+            // chain on the target. `wake` is the conservative §2.3.1 policy.
+            host.enqueueHeld(
+                BotTeamHeldRequest(
+                    botID = target.id,
+                    item = replyItem,
+                    wake = inbound.wakesReply(delivery),
+                ),
+            )
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            // The reply row is already durable; reuse the existing held-write
+            // failure string instead of inventing a second code for the same
+            // meaning (team.md §2.10).
+            return BotMCPCallResult.failure(
+                "execution_failed",
+                "held inbox write failed: ${describe(error)}",
+            )
+        }
+        return replySuccess(
+            target = target,
+            threadID = inbound.threadID,
+            requestID = requestID,
+            delivery = delivery,
+            duplicated = false,
+        )
+    }
+
+    private fun replySuccess(
+        target: BotAgentRef,
+        threadID: String,
+        requestID: String,
+        delivery: String,
+        duplicated: Boolean,
+    ): BotMCPCallResult {
+        val members = LinkedHashMap<String, JsonValue>()
+        members["ok"] = JsonBool(true)
+        members["threadId"] = JsonString(threadID)
+        members["requestId"] = JsonString(requestID)
+        members["target"] = BotJson.objectOf(
+            "id" to JsonString(target.id),
+            "name" to JsonString(target.name),
+        )
+        members["delivery"] = JsonString(delivery)
+        members["reply"] = JsonBool(true)
+        if (duplicated) members["duplicated"] = JsonBool(true)
+        val text = "已回复 ${target.name}：回复已写入对方的 held inbox，" +
+            "这次回复不算新的转交。"
+        return BotMCPCallResult.success(JsonObject(members), text = text)
     }
 
     private fun sendToAgentSuccess(

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotDecisionToolResult v1",
+  "description": "Model-visible tool result returned when a delivery/approval action must not execute because the decision context changed. It is iOS-only, host-generated, and not a P25 event or a P27 wire message; the side effect MUST NOT run. The model re-generates with the fresh materials and existing authorization. See spec/bot/v2/decision-context.md §1.6.",
+  "type": "object",
+  "required": ["ok", "code", "reason", "materials", "message"],
+  "properties": {
+    "ok": {"const": false},
+    "code": {"const": "decision_context_changed"},
+    "reason": {
+      "enum": [
+        "turn-changed",
+        "authorization-revision-changed",
+        "material-changed",
+        "recipient-changed",
+        "goal-changed"
+      ]
+    },
+    "materials": {"type": "object"},
+    "message": {"type": "string", "minLength": 1, "maxLength": 300}
+  },
+  "additionalProperties": false
+}

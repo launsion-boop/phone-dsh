@@ -18,7 +18,7 @@ import org.junit.Test
 
 /**
  * The catalog is data-driven: the sixteen upstream P0 entries and the five
- * phone content-card replacements are compared byte-for-byte with the
+ * phone content-card and next-steps overrides are compared byte-for-byte with the
  * vectors; nothing in Kotlin may re-type those descriptions.
  */
 class BotToolCatalogGoldenTest {
@@ -69,7 +69,10 @@ class BotToolCatalogGoldenTest {
     fun phoneContentCardsReplaceTheirUpstreamNames() {
         val phoneP0 = ((phone.members["valid"] as JsonObject).members["p0"] as JsonArray).values
             .map { it as JsonObject }
-        assertEquals(5, phoneP0.size)
+        assertEquals(
+            setOf("show_attachment", "show_document", "show_progress", "show_checklist", "show_link", "show_next_steps"),
+            phoneP0.map { (it.members["name"] as JsonString).value }.toSet(),
+        )
         for (entry in phoneP0) {
             val name = (entry.members["name"] as JsonString).value
             val definition = catalog.p0.first { it.name == name }
@@ -80,7 +83,12 @@ class BotToolCatalogGoldenTest {
                 BotJson.canonical(definition.inputSchema),
             )
             val final = (entry.members["inputSchema"] as JsonObject).members["properties"]
-            assertNotNull("$name must advertise final", (final as JsonObject).members["final"])
+            val finalProperty = (final as JsonObject).members["final"]
+            if (name == "show_next_steps") {
+                assertNull("$name has its own terminal behavior", finalProperty)
+            } else {
+                assertNotNull("$name must advertise final", finalProperty)
+            }
         }
     }
 
@@ -95,15 +103,15 @@ class BotToolCatalogGoldenTest {
     }
 
     @Test
-    fun staticCatalogIsTheFrozenTwentyOneWithTeamTools() {
+    fun staticCatalogIsTheFrozenTwentyFourWithTeamTools() {
         val names = catalog.definitions(null).map { it.name }
         assertEquals(
             listOf(
                 "ask_user", "show_next_steps", "show_attachment", "show_document", "show_progress",
                 "show_checklist", "show_link", "UpdateMemory", "ReadMemory", "RecallMemory",
                 "Task", "AwaitTask", "StopSubagent", "UpdateRoutine", "ListRoutines",
-                "RequestApproval", "SendToUser", "FishAction", "BotVolatileContext",
-                "SendToAgent", "CreateTeammate",
+                "RequestApproval", "SendToUser", "SendToAgent", "CreateTeammate", "FishAction",
+                "BotVolatileContext", "attach_to_model", "RecordFeedback", "BotDecisionContext",
             ),
             names,
         )

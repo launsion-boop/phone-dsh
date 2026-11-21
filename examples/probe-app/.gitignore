@@ -7,3 +7,6 @@ DerivedData/
 Bundle/worker/*
 !Bundle/worker/.gitkeep
 .DS_Store
+Bundle/firmware-builder/*
+!Bundle/firmware-builder/.gitkeep
+!Bundle/firmware-builder/README.md

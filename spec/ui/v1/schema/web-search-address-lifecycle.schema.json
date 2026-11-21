@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "vector",
+    "cases",
+    "visual402",
+    "aarCompatibility"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "vector": {
+      "const": "web-search-address-lifecycle"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "storedBase",
+          "credential",
+          "draft",
+          "submitted",
+          "result",
+          "finalBase",
+          "platform",
+          "operation"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "storedBase": {
+            "type": "string"
+          },
+          "credential": {
+            "enum": [
+              "absent",
+              "present",
+              "unreadable"
+            ]
+          },
+          "draft": {
+            "type": "string"
+          },
+          "submitted": {
+            "type": "string"
+          },
+          "result": {
+            "enum": [
+              "saved",
+              "unchanged",
+              "rejected"
+            ]
+          },
+          "finalBase": {
+            "type": "string"
+          },
+          "platform": {
+            "enum": [
+              "both",
+              "android"
+            ]
+          },
+          "operation": {
+            "enum": [
+              "address",
+              "key-save"
+            ]
+          }
+        }
+      }
+    },
+    "visual402": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "referenceSha256",
+        "width",
+        "scale",
+        "modeCardLeft",
+        "modeCardRight",
+        "modeCardTopPx",
+        "modeCardBottomPx",
+        "modeDividerTopPx",
+        "addressCardTopPx",
+        "addressCardBottomPx",
+        "keyCardTopPx",
+        "unselectedSubtitleVisible"
+      ],
+      "properties": {
+        "referenceSha256": {
+          "const": "7e148c91a59b66180a9e585882229ff405792bd2914b806f05f4b87f5cc7edd4"
+        },
+        "width": {
+          "const": 402
+        },
+        "scale": {
+          "const": 3
+        },
+        "modeCardLeft": {
+          "const": 16
+        },
+        "modeCardRight": {
+          "const": 386
+        },
+        "modeCardTopPx": {
+          "const": 466
+        },
+        "modeCardBottomPx": {
+          "const": 982
+        },
+        "modeDividerTopPx": {
+          "const": 721
+        },
+        "addressCardTopPx": {
+          "const": 1184
+        },
+        "addressCardBottomPx": {
+          "const": 1337
+        },
+        "keyCardTopPx": {
+          "const": 1555
+        },
+        "unselectedSubtitleVisible": {
+          "const": false
+        }
+      }
+    },
+    "aarCompatibility": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "provider",
+          "addressEnabled",
+          "keyEnabled"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "provider": {
+            "enum": [
+              "missing",
+              "readable",
+              "unreadable"
+            ]
+          },
+          "addressEnabled": {
+            "type": "boolean"
+          },
+          "keyEnabled": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

@@ -7,6 +7,7 @@
 import AVFoundation
 import UIKit
 import Foundation
+import os
 import PhoneDSH
 import PhoneDSHBLE
 import ProbeKit
@@ -26,13 +27,24 @@ import ProbeKit
     private var asr: CloudASRSession?
     private var tally = TonoLinkVoiceTally()
     private var seq: UInt16 = 40_000
+    /// The ctrl link carries one command at a time, so light changes run one after another and the
+    /// next `listen` waits for them (a light must never make a turn fail).
+    private var lightChain: Task<Void, Never>?
     private var holdsKeepAlive = false
     private let player = VoicePCMPlayer()
     private let tts = CloudTTSClient()
     private var hereAudio: Data?
-    /// Spoken the moment a command is recognised, before the (possibly long) chat turn.
-    static let acknowledgement = "好的，马上处理"
+    /// Spoken once after durable admission, and only when execution cannot start now
+    /// (deferred or no engine within the admission bound); executable work speaks only its answer.
+    static let acknowledgement = "已经记下了，打开手机后继续处理"
     private var ackAudio: Data?
+    /// Spoken when recognised text was not saved, so a command is never dropped in silence.
+    /// It states a failure, never an acceptance.
+    static let notSaved = "这条没有保存，请在手机上重试"
+    static let noDestination = "请先在手机上打开一个对话"
+    /// Source name for a link whose peripheral reported no name (the journal hashes it).
+    private static let unnamedBoard = "board"
+    private var notSavedAudio: Data?
     private static let keepAliveOwner = "tonolink-voice"
 
     /// Keeps a ctrl link to the user's board and listens for its wake word.
@@ -51,38 +63,72 @@ import ProbeKit
         link.onReady = { [weak self] in self?.linkReady(link) }
         ctrl = link
         var beat = 0
+        var disconnectedSince: Date?
         while !Task.isCancelled {
             if !link.isConnected {
-                if let token = armedSpeaker { PhoneAudioSessionLease.releaseSpeakerOutput(token); armedSpeaker = nil }
-                setKeepAlive(false)
+                let since = disconnectedSince ?? Date()
+                disconnectedSince = since
+                let foreground = UIApplication.shared.applicationState == .active
+                // iOS refuses a background switch to playAndRecord ('!int'). Keep the profile
+                // armed in the foreground while the App is hidden, so a board that reconnects in
+                // the background can still force AirPlay output to the speaker. A short drop
+                // also keeps the keep-alive, so the session stays active for the reconnect.
+                if foreground, let token = armedSpeaker {
+                    PhoneAudioSessionLease.releaseSpeakerOutput(token); armedSpeaker = nil
+                }
+                if foreground || Date().timeIntervalSince(since) > Self.backgroundReconnectGrace {
+                    setKeepAlive(false)
+                }
                 do { try await link.connect(timeout: .seconds(20)) }
                 catch {
                     state = "没有连上板子：\(error.localizedDescription)"
                     log("connect failed: \(error.localizedDescription) parked=\(link.peripheralID != nil)")
                 }
             }
+            if link.isConnected { disconnectedSince = nil }
             armSpeakerIfForeground()
             beat += 1
-            if beat % 20 == 1 {
+            // Every 9 s in the background (every minute in front): the last line before iOS ends the
+            // process says how much memory it held and how much the system had left for it.
+            let background = UIApplication.shared.applicationState == .background
+            if beat % (background ? 3 : 20) == 1 {
                 log("alive app=\(UIApplication.shared.applicationState.rawValue) connected=\(link.isConnected) "
-                    + "keepalive=\(SilentAudioKeepAlive.shared.isRendering) remaining=\(Int(min(UIApplication.shared.backgroundTimeRemaining, 99_999)))")
+                    + "keepalive=\(SilentAudioKeepAlive.shared.isRendering) remaining=\(Int(min(UIApplication.shared.backgroundTimeRemaining, 99_999)))"
+                    + " footprint_mb=\(Self.footprintMB()) available_mb=\(os_proc_available_memory() / 1_048_576)")
             }
             try? await Task.sleep(for: .seconds(link.isConnected ? 3 : 10))
         }
     }
 
+    /// This process's physical footprint (what iOS weighs when it reclaims memory), in MB.
+    static func footprintMB() -> Int {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? Int(info.phys_footprint / 1_048_576) : -1
+    }
+
     static let restoreIdentifier = "dev.phone-dsh.tonolink-voice"
+    /// How long a background board drop keeps the keep-alive (and the armed speaker profile
+    /// active) for a reconnect; after it the App may suspend until the board wakes it.
+    static let backgroundReconnectGrace: TimeInterval = 600
 
     /// True while the board's link is up: a wake may arrive, so the chat host stays alive in the background.
     var isArmed: Bool { ctrl?.isConnected == true }
 
-    /// Taken while the app is in the foreground and kept while armed: iOS refuses to switch a
-    /// background app to the playAndRecord profile ('!int'), so a background turn must find it set.
+    /// Taken while the app is in the foreground and kept while armed, and also through a board
+    /// drop while the App is hidden: iOS refuses to switch a background app to the
+    /// playAndRecord profile ('!int'), so a background turn on AirPlay must find it set.
     private var armedSpeaker: PhoneAudioSessionLease.SpeakerToken?
 
     private func linkReady(_ link: TonoLinkCtrlBLE) {
         state = "等待「你好小智」（\(link.peripheralName ?? "board")）"
         log("connected \(link.peripheralName ?? "?") app=\(UIApplication.shared.applicationState.rawValue)")
+        if let name = link.peripheralName { DeviceBotRegistry.shared.boardConnected(name: name) }
         setKeepAlive(true)
         armSpeakerIfForeground()
         // The board is back (this link only comes up when it is present): bring its Link tools back too.
@@ -103,6 +149,7 @@ import ProbeKit
     private func setKeepAlive(_ on: Bool) {
         guard on != holdsKeepAlive else { return }
         if on {
+            guard SilentAudioKeepAlive.isConfigured else { return }
             do { try SilentAudioKeepAlive.shared.start(owner: Self.keepAliveOwner); holdsKeepAlive = true }
             catch { state += "（后台保活失败：\(error.localizedDescription)）" }
         } else {
@@ -154,6 +201,10 @@ import ProbeKit
         if turnID == 0 { turnID = 1 }
         tally = TonoLinkVoiceTally()
         let id = turnID
+        let request = ChatModel.shared.voiceDestination().map { NativeVoiceRequest(sessionID: $0) }
+        // Fixed at the wake (external-admission.md §1): the request id the journal dedupes
+        // on and the downstream id every delivery attempt of this turn uses.
+        let requestID = request?.rpcID ?? UUID().uuidString.lowercased()
         let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(700))
         audio = continuation
         lastTurn = ["id": Int(id), "wake": Int(wake), "source": source, "at": ISO8601DateFormatter().string(from: Date())]
@@ -165,9 +216,30 @@ import ProbeKit
         }
         turn = Task { [weak self] in
             let speaker = self?.acquireSpeaker()
-            await self?.runTurn(id: id, audio: stream)
+            await self?.runTurn(id: id, audio: stream, request: request, requestID: requestID)
             if let speaker { PhoneAudioSessionLease.releaseSpeakerOutput(speaker) }
             self?.turnEnded(id)
+        }
+    }
+
+    /// Moves the board's LED effect to a phase of this turn (tonolink-board.md §4.3). Best effort:
+    /// no board, an older firmware (`err`) or a timeout only means no light, never a failed turn.
+    /// `wake` is lit by the board itself when it hears the wake word.
+    private func light(_ phase: TonoLinkLightPhase) {
+        guard let ctrl, ctrl.isConnected else { return }
+        let previous = lightChain
+        lightChain = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
+            self.seq = self.seq &+ 1
+            let seq = self.seq
+            do {
+                let ack = try await ctrl.command(try TonoLinkVoiceCommand.fx(seq: seq, phase: phase), seq: seq,
+                                                 timeout: .milliseconds(1500))
+                self.log("light \(phase.rawValue) \(ack.ok ? "ok" : "err \(ack.error ?? "?")")")
+            } catch {
+                self.log("light \(phase.rawValue) failed: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -204,7 +276,8 @@ import ProbeKit
         backgroundTask = .invalid
     }
 
-    private func runTurn(id: UInt32, audio: AsyncStream<Data>) async {
+    private func runTurn(id: UInt32, audio: AsyncStream<Data>, request: NativeVoiceRequest?,
+                         requestID: String) async {
         let start = Date()
         func ms() -> Int { Int(Date().timeIntervalSince(start) * 1000) }
         guard var credential = await credential() else {
@@ -222,6 +295,7 @@ import ProbeKit
         note("here_ms", ms())
         guard !Task.isCancelled else { await session.cancel(); return }
         guard let ctrl, ctrl.isConnected else { await session.cancel(); note("error", "板子已断开"); return }
+        await lightChain?.value   // the ctrl link takes one command at a time
         do {
             seq = seq &+ 1
             let ack = try await ctrl.command(TonoLinkVoiceCommand.listen(seq: seq, id: id), seq: seq, timeout: .seconds(3))
@@ -243,6 +317,7 @@ import ProbeKit
         guard up, !Task.isCancelled else {
             let why = await session.outcome()
             note("error", "语音识别没有连上（\(why)）")
+            if !Task.isCancelled { light(.idle) }
             return
         }
         note("asr_ready_ms", ms())
@@ -262,45 +337,183 @@ import ProbeKit
         switch outcome {
         case .text(let text):
             note("heard", text)
-            // Say at once that the command was understood; the reply follows when the turn ends
-            // (same player, so it plays after this, never over it).
-            await acknowledge(credential: credential)
-            note("ack_ms", ms())
-            await answer(text, credential: credential, start: start)
+            light(.taskStart)
+            await answer(text, request: request, requestID: requestID, credential: credential, start: start)
         case .silent:
             note("heard", "")
+            light(.idle)
         case .failed(let why):
             note("error", "语音识别失败：\(why)")
+            light(.idle)
         case .pending:
             break
         }
     }
 
-    /// Sends the heard text to the current chat and speaks the turn's last assistant text (§4).
-    private func answer(_ text: String, credential: String, start: Date) async {
+    /// Admits the heard text to the external admission journal with a target decided once
+    /// (PC-20261116-external-admission §2.1), then speaks only this request's completed turn.
+    private func answer(_ text: String, request: NativeVoiceRequest?, requestID: String,
+                        credential: String, start: Date) async {
+        guard !Task.isCancelled else { return }
         if let direction = TonoLinkVolumeIntent.direction(for: text) {
             await answerVolumeCommand(direction, credential: credential, start: start)
             return
         }
         let chat = ChatModel.shared
-        guard await chat.send(text) else { note("error", "当前对话没有接受这条消息"); return }
-        var waited = 0
-        while !chat.turnRunning && waited < 300 {   // up to 30 s: the engine may be resuming
-            try? await Task.sleep(for: .milliseconds(100)); waited += 1
+        let board = ctrl?.peripheralName ?? Self.unnamedBoard
+        // tonolink-board.md §4.1: the board's own Bot takes the heard text first. A paused engine
+        // is resumed while the App may execute (host contract §10.1), so the Bot path does not
+        // wait out its start bound in the background. The target is decided here, once: the
+        // board's Bot when its unit can be reached now, otherwise the wake-time chat session.
+        if let botID = DeviceBotRegistry.shared.tonoLinkBotID() {
+            if chat.parked, chat.executionEligible { await chat.resumeParkedHost() }
+            do {
+                let model = try await BotProductionHub.shared.chatModel(ensuring: botID)
+                await answerThroughBot(model, botID: botID, text: text, requestID: requestID,
+                                       board: board, credential: credential, start: start)
+                return
+            } catch {
+                note("bot_error", error.localizedDescription)
+            }
+        }
+        guard let request else {
+            note("error", "请先在手机上打开一个本地对话，再使用语音")
+            await speakFailure(Self.noDestination, credential: credential)
+            light(.idle)
+            return
+        }
+        let outcome = await chat.admitVoice(text, requestID: requestID,
+                                            target: .dshSession(sessionId: request.sessionID),
+                                            boardName: board)
+        guard outcome?.receipt != nil else {
+            if !Task.isCancelled {
+                note("error", "消息未保存，请在手机上重试（\(outcome?.result.rawValue ?? "not_attempted")）")
+                await speakFailure(Self.notSaved, credential: credential)
+                light(.idle)
+            }
+            return
+        }
+        // The journal owns delivery from this point, even if a new wake cancels this voice task.
+        guard !Task.isCancelled else { return }
+        let receipt = request
+        note("admitted", ["session": receipt.sessionID, "request": receipt.rpcID])
+        // Executable work speaks only its answer (the light shows it running). The saved-work
+        // acknowledgement is spoken once, and only when execution cannot start now.
+        func acknowledgeDeferred() async {
+            await acknowledge(credential: credential)
+            note("ack_ms", Int(Date().timeIntervalSince(start) * 1000))
+        }
+        // The 30 s admission bound counts only time the engine is idle and still not
+        // taking the request; a bounded boot/resume/rebuild in progress extends it.
+        var admissionDeadline = Date().addingTimeInterval(30)
+        let replyDeadline = Date().addingTimeInterval(1_800)
+        var indicatedRunning = false
+        var observed: String?
+        var progress = NativeVoiceProgress.queued
+        while !Task.isCancelled, Date() < replyDeadline {
+            let key = chat.voiceObservationKey
+            if key != observed {
+                observed = key
+                progress = chat.voiceProgress(receipt)
+            }
+            switch progress {
+            case .queued:
+                if chat.voicePreparing {
+                    admissionDeadline = max(admissionDeadline, Date().addingTimeInterval(30))
+                }
+                guard !chat.voiceExecutionDeferred, Date() < admissionDeadline else {
+                    note("deferred", "消息已保存，等待引擎就绪；不会重复发送")
+                    await acknowledgeDeferred()
+                    light(.idle)
+                    return
+                }
+            case .running:
+                if !indicatedRunning { light(.taskRunning); indicatedRunning = true }
+            case .failed:
+                note("error", "这条消息的任务已中断，请在手机上查看")
+                light(.idle)
+                return
+            case .unavailable:
+                note("deferred", "对话已切换，停止语音等待；已保存的消息继续保留")
+                light(.idle)
+                return
+            case .completed(let reply):
+                note("reply", String(reply.prefix(500)))
+                note("reply_ms", Int(Date().timeIntervalSince(start) * 1000))
+                if !reply.isEmpty {
+                    light(.taskReport)
+                    do { try await speak(reply, credential: credential) }
+                    catch { note("speak_error", error.localizedDescription) }
+                }
+                if !Task.isCancelled { light(.taskDone) }
+                return
+            }
+            do { try await Task.sleep(for: .milliseconds(300)) }
+            catch { return }
+        }
+        if !Task.isCancelled { note("deferred", "语音等待已结束，请在手机上查看任务"); light(.idle) }
+    }
+
+    /// tonolink-board.md §4.1: the board's own Bot takes the heard text, so every voice turn lands
+    /// in one conversation whatever page is open. The text is admitted to the journal with this
+    /// Bot as its fixed target and handed to the Bot's user-action path by the dispatch pass
+    /// (`nonce = downstreamId`); nothing is sent to the Bot without that record.
+    private func answerThroughBot(_ model: BotChatModel, botID: String, text: String, requestID: String,
+                                  board: String, credential: String, start: Date) async {
+        note("bot", botID)
+        // A Bot's rows are read only while its page is visible: in the background, or with another
+        // Bot on screen, the answer would never arrive here. Read them for this turn, then restore.
+        let wasActive = model.isPageActive
+        if !wasActive { model.setPageActive(true) }
+        defer { if !wasActive { model.setPageActive(false) } }
+        try? await Task.sleep(for: .milliseconds(300))   // the first durable read
+        let before = Set(model.rows.map(\.id))
+        let outcome = await ChatModel.shared.admitVoice(text, requestID: requestID,
+                                                        target: .bot(botId: botID), boardName: board)
+        guard let receipt = outcome?.receipt else {
+            if !Task.isCancelled {
+                note("error", "消息未保存，请在手机上重试（\(outcome?.result.rawValue ?? "not_attempted")）")
+                await speakFailure(Self.notSaved, credential: credential)
+                light(.idle)
+            }
+            return
+        }
+        note("admitted", ["bot": botID, "request": receipt.downstreamId])
+        // The answer row reaches the model after the turn ends, sometimes seconds later: wait for a
+        // new answer with no turn running (up to 2 min), not just for the turn to stop.
+        // The answer after this turn's own message (rows read on activation may arrive late, so
+        // "not seen before" alone could pick an older answer).
+        let asked = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        func newAnswer() -> String? {
+            let rows = model.rows
+            guard let mine = rows.lastIndex(where: { $0.role == "user" && $0.body["text"]?.string == asked }) else { return nil }
+            return rows[(mine + 1)...].last { BotChatModel.isAnswer($0) && !before.contains($0.id) }?.body["text"]?.string
+        }
+        var sawRunning = false
+        var answeredAt: ContinuousClock.Instant?
+        let deadline = ContinuousClock.now + .seconds(120)
+        while ContinuousClock.now < deadline {
             if Task.isCancelled { return }
+            // In the background the model's feed is paused: pull the Bot's rows ourselves.
+            await BotProductionHub.shared.pullRows(for: botID)
+            if model.runningTurnID != nil, !sawRunning { sawRunning = true; light(.taskRunning) }
+            if let text = newAnswer(), !text.isEmpty {
+                // Done when no turn runs, or the answer has stood for 2 s (a paused feed can leave
+                // a stale running turn behind).
+                if model.runningTurnID == nil { break }
+                if let at = answeredAt, ContinuousClock.now - at > .seconds(2) { break }
+                if answeredAt == nil { answeredAt = .now }
+            }
+            try? await Task.sleep(for: .seconds(1))
         }
-        guard chat.turnRunning else { note("error", "聊天没有开始运行（引擎暂停或忙）"); return }
-        while chat.turnRunning {
-            if Task.isCancelled { return }
-            try? await Task.sleep(for: .milliseconds(300))
-        }
-        guard let userIndex = chat.items.lastIndex(where: { $0.kind == .user && $0.text.contains(text) }),
-              let reply = chat.items[(userIndex + 1)...].last(where: { $0.kind == .assistant && !$0.text.isEmpty }) else {
-            note("reply", ""); return
-        }
-        note("reply", String(reply.text.prefix(500)))
+        let reply = newAnswer() ?? ""
+        if !sawRunning && reply.isEmpty { note("error", "Bot 没有开始运行（引擎暂停或忙）"); light(.idle); return }
+        note("reply", String(reply.prefix(500)))
         note("reply_ms", Int(Date().timeIntervalSince(start) * 1000))
-        do { try await speak(reply.text, credential: credential) } catch { note("speak_error", error.localizedDescription) }
+        guard !reply.isEmpty else { light(.taskDone); return }
+        light(.taskReport)
+        do { try await speak(reply, credential: credential) } catch { note("speak_error", error.localizedDescription) }
+        if !Task.isCancelled { light(.taskDone) }
     }
 
     /// A clear one-step volume command is handled locally, without the LLM or UI-Venus screen loop.
@@ -316,7 +529,9 @@ import ProbeKit
             note("volume_error", error.localizedDescription)
             note("reply", reply)
             note("reply_ms", Int(Date().timeIntervalSince(start) * 1000))
+            light(.taskReport)
             do { try await speak(reply, credential: credential) } catch { note("speak_error", error.localizedDescription) }
+            if !Task.isCancelled { light(.taskDone) }
             return
         }
         do { try await hands.disableHID() }
@@ -335,7 +550,9 @@ import ProbeKit
                          "changed": changed, "at_limit": atLimit])
         note("reply", reply)
         note("reply_ms", Int(Date().timeIntervalSince(start) * 1000))
+        light(.taskReport)
         do { try await speak(reply, credential: credential) } catch { note("speak_error", error.localizedDescription) }
+        if !Task.isCancelled { light(.taskDone) }
     }
 
     // MARK: - Speech
@@ -359,6 +576,8 @@ import ProbeKit
         guard let credential = await credential() else { return }
         if hereAudio == nil, let pcm = await synthesize("我在", credential: credential) { hereAudio = pcm }
         if ackAudio == nil, let pcm = await synthesize(Self.acknowledgement, credential: credential) { ackAudio = pcm }
+        // Kept in memory like the acknowledgement, so a failure is spoken without waiting for TTS.
+        if notSavedAudio == nil, let pcm = await synthesize(Self.notSaved, credential: credential) { notSavedAudio = pcm }
     }
 
     private func synthesize(_ text: String, credential: String) async -> Data? {
@@ -368,6 +587,15 @@ import ProbeKit
     }
 
     /// Queues 「好的，马上处理」 and returns without waiting for it to finish.
+    /// Best effort: a failure that cannot be spoken is still logged and shown by the light.
+    private func speakFailure(_ text: String, credential: String) async {
+        var audio = text == Self.notSaved ? notSavedAudio : nil
+        if audio == nil { audio = await synthesize(text, credential: credential) }
+        if text == Self.notSaved, notSavedAudio == nil { notSavedAudio = audio }
+        guard let audio, !Task.isCancelled else { return }
+        do { try player.play(audio) } catch { note("speak_error", error.localizedDescription) }
+    }
+
     private func acknowledge(credential: String) async {
         if ackAudio == nil { ackAudio = await synthesize(Self.acknowledgement, credential: credential) }
         guard let ackAudio else { return }
@@ -442,6 +670,7 @@ import ProbeKit
     /// Runs the ASR → chat → speech part on Opus packets the developer supplies
     /// (`[len u16 LE][Opus]…`), exactly as if the board had sent them.
     func debugRecognize(_ body: Data, chat: Bool) async -> [String: Any] {
+        let request = ChatModel.shared.voiceDestination().map { NativeVoiceRequest(sessionID: $0) }
         guard let credential = await credential() else { return ["error": "no cloud credential"] }
         var packets: [Data] = []
         var bytes = [UInt8](body)[...]
@@ -468,7 +697,9 @@ import ProbeKit
         var result: [String: Any] = ["packets": packets.count, "outcome": "\(outcome)"]
         if chat, case .text(let text) = outcome {
             lastTurn = ["id": Int(turnID), "source": "debug opus", "heard": text]
-            await answer(text, credential: credential, start: Date())
+            await answer(text, request: request,
+                         requestID: request?.rpcID ?? UUID().uuidString.lowercased(),
+                         credential: credential, start: Date())
             result["turn"] = lastTurn
         }
         return result
@@ -476,9 +707,11 @@ import ProbeKit
 
     /// Hosted device tests call the same local command path the voice turn uses, without ASR.
     func debugAnswer(_ text: String) async -> [String: Any] {
+        let request = ChatModel.shared.voiceDestination().map { NativeVoiceRequest(sessionID: $0) }
+        let requestID = request?.rpcID ?? UUID().uuidString.lowercased()
         guard let credential = await credential() else { return ["error": "no cloud credential", "heard": text] }
         lastTurn = ["source": "debug answer", "heard": text, "at": ISO8601DateFormatter().string(from: Date())]
-        await answer(text, credential: credential, start: Date())
+        await answer(text, request: request, requestID: requestID, credential: credential, start: Date())
         return ["heard": text, "last_turn": lastTurn]
     }
     #endif

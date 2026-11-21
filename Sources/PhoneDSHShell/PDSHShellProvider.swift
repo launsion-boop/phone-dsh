@@ -161,14 +161,17 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
 
     /// The accelerator names the host HELLO should publish for this provider.
     ///
-    /// `phone record` is served by the Swift provider itself and needs no
-    /// linked Rust shell, so a host with a `recordQuery` bridge advertises
-    /// `phone` even when `PDSHShellC` is the unlinked stub. Without the bridge
-    /// the name stays absent and the Worker does not register a command it
-    /// cannot answer.
+    /// `phone record` is served by the Swift provider only after the linked
+    /// pdsh-shell engine has resolved the command. The unlinked stub fails
+    /// every exec with ``PDSHShellError/notLinked``, so it must not advertise
+    /// `phone` merely because a record bridge exists: that produced a host
+    /// HELLO and capabilities.json claiming an accelerator that exits 1.
     public static func advertisedAcceleratorNames(channel: [String],
                                                   hasRecordQuery: Bool) -> [String] {
         var names = channel
+        guard PDSHShellC.linked else {
+            return names.filter { $0 != "phone" }
+        }
         if hasRecordQuery, !names.contains("phone") { names.append("phone") }
         return names
     }

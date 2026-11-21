@@ -193,7 +193,7 @@ class InteractionTokensTest {
         assertTrue("chatSessions must carry a note", note != null)
         assertTrue(note!!.startsWith("debug-only:"))
         assertTrue(note.contains("PDSH_DEBUG_SHEET=sessions"))
-        assertTrue(note.contains("ChatPage.swift:805"))
+        assertTrue(note.contains("ChatPage.swift:905"))
         assertNull(UiTokenData.sheet.pageDetents.single { it.id == "settings" }.note)
     }
 

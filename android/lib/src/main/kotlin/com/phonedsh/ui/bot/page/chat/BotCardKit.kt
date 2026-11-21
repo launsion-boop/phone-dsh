@@ -2,6 +2,7 @@
 package com.phonedsh.ui.bot.page.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -73,19 +75,29 @@ internal fun BotContentWidth(
 @Composable
 internal fun BotCardSurface(
     modifier: Modifier = Modifier,
+    accentTone: BotCardTone? = null,
     content: @Composable () -> Unit,
 ) {
     val tokens = LocalUiTokens.current
+    val shape = RoundedCornerShape(BotChatMetrics.CARD_RADIUS_PT.dp)
+    val cardModifier = modifier
+        .clip(shape)
+        .background(tokens.colors.surface)
+        .then(
+            if (accentTone == null) Modifier
+            else Modifier.background(
+                Brush.verticalGradient(listOf(botToneWash(accentTone), tokens.colors.surface)),
+            ),
+        )
+        .border(
+            width = BotChatMetrics.GAP_1_PT.dp,
+            color = if (accentTone == null) tokens.colors.borderList
+            else botToneInk(accentTone).copy(alpha = 0.18f).compositeOver(tokens.colors.borderList),
+            shape = shape,
+        )
+        .padding(BotChatMetrics.CARD_PADDING_PT.dp)
     Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(BotChatMetrics.CARD_RADIUS_PT.dp))
-            .background(tokens.colors.surface)
-            .border(
-                width = BotChatMetrics.GAP_1_PT.dp,
-                color = tokens.colors.borderList,
-                shape = RoundedCornerShape(BotChatMetrics.CARD_RADIUS_PT.dp),
-            )
-            .padding(BotChatMetrics.CARD_PADDING_PT.dp),
+        modifier = cardModifier,
     ) {
         content()
     }
@@ -100,6 +112,7 @@ internal fun BotCardSurface(
 internal fun BotCardHeading(
     icon: PdshIcon,
     eyebrow: String,
+    iconTint: Color? = null,
     title: String? = null,
     detail: String? = null,
     titleLineLimit: Int = 2,
@@ -115,12 +128,19 @@ internal fun BotCardHeading(
             modifier = Modifier.fillMaxWidth().heightIn(min = BotChatMetrics.GLYPH_COLUMN_PT.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PdshIconView(
-                icon = icon,
-                size = BotChatMetrics.EYEBROW_ICON_PT.dp,
-                tint = tokens.colors.textPlaceholder,
-                contentDescription = null,
-            )
+            if (iconTint == null) {
+                PdshIconView(icon, BotChatMetrics.EYEBROW_ICON_PT.dp, tokens.colors.textPlaceholder, null)
+            } else {
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(iconTint.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PdshIconView(icon, BotChatMetrics.EYEBROW_ICON_PT.dp, iconTint, null)
+                }
+            }
             Spacer(Modifier.width(BotChatMetrics.GAP_6_PT.dp))
             BasicText(
                 text = eyebrow,
@@ -341,6 +361,8 @@ internal fun BotCardButton(
     modifier: Modifier = Modifier,
     tag: String? = null,
     enabled: Boolean = true,
+    primaryColor: Color? = null,
+    primaryInk: Color? = null,
 ) {
     val tokens = LocalUiTokens.current
     val tagged = if (tag != null) modifier.testTag(tag) else modifier
@@ -354,7 +376,7 @@ internal fun BotCardButton(
                 .fillMaxWidth()
                 .height(BotChatMetrics.BUTTON_HEIGHT_PT.dp)
                 .clip(RoundedCornerShape(percent = 50))
-                .background(tokens.colors.primaryButton.copy(alpha = if (enabled) 1f else 0.25f))
+                .background((primaryColor ?: tokens.colors.primaryButton).copy(alpha = if (enabled) 1f else 0.25f))
                 .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
                 .semantics { contentDescription = label },
             horizontalArrangement = Arrangement.Center,
@@ -363,7 +385,7 @@ internal fun BotCardButton(
             BasicText(
                 text = label,
                 style = botRowStyle(FontWeight.SemiBold).copy(
-                    color = tokens.colors.primaryButtonInk,
+                    color = primaryInk ?: tokens.colors.primaryButtonInk,
                 ),
             )
         }

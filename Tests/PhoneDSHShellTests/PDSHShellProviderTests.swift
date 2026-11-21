@@ -465,16 +465,17 @@ final class PDSHShellStubProviderTests: XCTestCase {
         XCTAssertEqual(configured.helloCapabilities.mounts.count, 2)
     }
 
-    func testRecordBridgeAdvertisesPhoneWithoutTheLinkedShell() {
+    func testRecordBridgeCannotAdvertisePhoneInTheUnlinkedStub() {
+        // The test target builds the pure-Swift stub. A record bridge alone
+        // must not turn into a host HELLO claim: every exec exits notLinked.
         XCTAssertEqual(PDSHShellProvider.advertisedAcceleratorNames(
             channel: [], hasRecordQuery: false), [])
         XCTAssertEqual(PDSHShellProvider.advertisedAcceleratorNames(
-            channel: ["rg"], hasRecordQuery: true), ["rg", "phone"])
+            channel: ["rg"], hasRecordQuery: true), ["rg"])
         XCTAssertEqual(PDSHShellProvider.advertisedAcceleratorNames(
-            channel: ["rg", "phone"], hasRecordQuery: true), ["rg", "phone"])
-        // A linked host with a bridge already publishes phone; do not duplicate it.
+            channel: ["rg", "phone"], hasRecordQuery: true), ["rg"])
         XCTAssertEqual(PDSHShellProvider.advertisedAcceleratorNames(
-            channel: ["phone"], hasRecordQuery: false), ["phone"])
+            channel: ["phone"], hasRecordQuery: false), [])
     }
 
     func testStubFailsEveryExecWithNotLinked() async throws {

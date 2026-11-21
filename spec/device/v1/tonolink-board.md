@@ -16,7 +16,7 @@ The consumer is `Sources/PhoneDSHBLE/TonoLink*.swift` plus
 
 | Need | Channel | Contract |
 | --- | --- | --- |
-| LED, Home HTTP | BLE Link Tools profile (`light.set`, `light.get`, `home.http`) | [ble-link.md](ble-link.md); reached by the agent through native MCP `ble_link_call` ([native-mcp.md](../../v1/native-mcp.md)) |
+| LED, LED effects, Home HTTP | BLE Link Tools profile (`light.set`, `light.get`, `light.phase`, `light.effect.set`, `light.effect.get`, `home.http`; effects §4.3) | [ble-link.md](ble-link.md); reached by the agent through native MCP `ble_link_call` ([native-mcp.md](../../v1/native-mcp.md)) |
 | Taps, swipes, typing, system media volume keys | Board HTTP over USB NCM (§2), emitted as BLE HID reports | this document |
 | Screen | APV1 stream over USB NCM (§3) | this document |
 | Pairing, console, BLE OTA (DEBUG) | TonoLink ctrl GATT service (§4) | this document |
@@ -138,6 +138,13 @@ Producer: `tonolink-m21-r4-firmware` at `4763811` (`main/wake.c`, `main/voice.c`
 Shared cases: [golden/tonolink-voice.json](golden/tonolink-voice.json), the judge where
 this text could be read two ways.
 
+Audio source (firmware branch `feat/dual-mic-afe`, `CONFIG_TONOLINK_WAKE_AFE`, on by default): both
+microphones feed ESP-SR's two-mic AFE (BSS speech enhancement, WakeNet `DET_MODE_2CH_95`), and the AFE
+decides the wake. The turn's Opus packets carry one raw microphone, as before: measured on the board,
+the cloud ASR understood the raw microphone and not reliably the BSS output. If the AFE cannot start,
+the board wakes on one microphone, as before. Nothing on the wire changes: the phone cannot tell the
+two apart and must not depend on which ran (the console's `wake info` says, for diagnosis only).
+
 | Direction | Bytes | Meaning |
 | --- | --- | --- |
 | `status` notify | `ev wake n=<u32> up=<u32>` | The board heard 你好小智. `n` counts hits from 1; `n=0` is the console's simulated wake. A new wake cancels the board's current recording. |
@@ -151,6 +158,14 @@ Unknown `key=value` members after the known ones are ignored; any other `ev …`
 164 bytes, without Opus and without the last flag, or whose id byte is not the low 8 bits of
 the current turn's id is dropped.
 
+Where the heard text goes (the Bot's creation, key, name and lifecycle are owned by
+[device-bot.md](device-bot.md); this section keeps only the voice routing): the phone creates one Bot per Link device the first time the device
+lists its tools, and remembers the pair on the phone (the shared Bot profile is unchanged). The
+board's heard text goes to that Bot, whatever page is open, and its answer is spoken; a paused
+engine is resumed first while the App may execute. When the Bot cannot be reached (no Bot runtime
+yet) the text takes the durable local-session path of §4.1.1. The Bot path itself uses the Bot's
+own send, not the local SendOutbox, so it is not crash-durable yet.
+
 Consumer rules: subscribe `audio` only while voice is enabled. The phone speaks 「我在」
 **before** writing `listen` (the board would record it), and writes `listen` as soon as 「我在」
 has played, not after the cloud ASR is ready. Each packet's Opus body is
@@ -162,6 +177,98 @@ playback stopped) and starts a new one. The phone keeps this link while in the b
 restorable CoreBluetooth central with a parked reconnect, so `ev wake` wakes a suspended app
 (`spec/platform/whitelist.json` `platform.tonolink-voice-background-wake`). The firmware is unchanged by
 this registration.
+
+### 4.1.1 iOS voice admission and playback
+
+The native voice consumer snapshots its existing local DSH session at wake, before ASR, and
+allocates one lowercase UUIDv4 request ID. Recognized non-volume text enters that session's
+existing durable SendOutbox (§10 of the host contract) using the same ID. A missing target or
+unavailable protected storage produces no acceptance and is spoken as a failure. Durably
+admitted work defers when protected data is unavailable or execution is ineligible, and resumes
+under the host delivery rules. The board wake counter is not a globally stable task ID. No new
+BLE frame, permission or authentication is introduced.
+The saved-work acknowledgement follows durable enqueue and is spoken only when execution
+cannot start now (deferred, or no engine within the admission bound); work that executes speaks
+only its answer, with the LED showing it running.
+Canceling recognition before admission sends nothing; canceling voice after admission does not
+cancel or resend the accepted task. While the board is connected its keep-alive holds the process
+resident, so admitted voice starts, resumes or delivers on the engine without the user opening
+the App (host contract §10.1). Execution waits for foreground recovery only without residency.
+
+Playback is scoped to the receipt's session/request ID and an authoritative user message with
+its actual turn. Only settled assistant text in that turn after a normal terminal event may be
+spoken. A global running flag, a matching prompt string or another session's reply is never
+sufficient. If the user switches sessions or attribution is unavailable, keep the task but stop
+voice waiting; no replay is attempted. Cold/no-session setup requires foreground initialization.
+This native change is iOS-only; existing Android and firmware bytes remain unchanged.
+
+### 4.3 LED effects (voice task phases)
+
+Producer: `tonolink-m21-r4-firmware` branch `feat/led-effects` (`main/fx/fx_render.c` pure renderer
+with host tests `host_tests/test_fx_render.c`, `main/fx/fx.c` engine, `main/link_tools.c`,
+`main/ctrl_svc.c`, `main/wake.c`). Present when the board's `tools/list` advertises `light.phase`;
+older firmware has neither the tools nor the ctrl verb. Consumers: `TonoLinkVoiceCommand.fx` /
+`TonoLinkLightPhase` (`Sources/PhoneDSHBLE/TonoLinkVoice.swift`), the app's `TonoLinkVoiceHost.swift`, and the
+device panel through the Link tools. Shared cases: `fx_commands` in [golden/tonolink-voice.json](golden/tonolink-voice.json).
+
+The board's 6 WS2812 LEDs (two strips of 3) follow the phases of a voice task. Each phase has a
+style: an effect (`off solid breathe comet rainbow pulse sparkle scanner`), a hue (0–359°), a
+brightness (1–100 %) and a speed (1–10), saved in the board's NVS. Defaults: `wake` cyan comet,
+`task_start` violet pulse, `task_running` rainbow, `task_report` green breathe, `task_done` gold
+sparkle. `idle` shows the base light (`light.set`: on = white at the board's cap, off = dark).
+No frame draws more per LED than a white LED at `CONFIG_TONOLINK_WS2812_MAX_BRIGHTNESS`.
+
+| Phase | Who starts it | Lasts |
+| --- | --- | --- |
+| `wake` | the board itself when it accepts 你好小智 (no round trip) | 15 s, or until the next phase |
+| `task_start` | phone, when the command was heard | 1.6 s, then `task_running` by itself |
+| `task_running` | phone, when the chat turn runs | until the next phase (300 s safety net) |
+| `task_report` | phone, while it speaks the answer | until the next phase (60 s) |
+| `task_done` | phone, after the answer | 2.6 s fading out, then `idle` |
+| `idle` | phone, on silence or an error | — |
+
+| Direction | Bytes | Meaning |
+| --- | --- | --- |
+| `cmd` write | `<seq> fx <phase>` (`phase` one of the six names above) | Show that phase now (restarts it). `ack <seq> ok`; `err range` for an unknown name, `err unsupported` without WS2812. |
+
+Link tools (BLE Link profile, [ble-link.md](ble-link.md); journaled like any other call, `light.effect.get` read-only).
+The schemas carry Chinese `title`s and Chinese `enum` values for the device panel
+([device-panel.md](device-panel.md) §2); the board also accepts the English names below.
+
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `light.phase` | `{phase}` — 唤醒/wake, 开始任务/task_start, 任务进行/task_running, 任务汇报/task_report, 任务结束/task_done, 关闭灯效/idle | the read-out |
+| `light.effect.set` | required `phase` (not idle) and `style` (彗星 comet, 彩虹 rainbow, 呼吸 breathe, 心跳 pulse, 闪烁 sparkle, 扫描 scanner, 常亮 solid, 关闭 off); optional `color` (红 橙 黄 绿 青 蓝 紫 粉 白) **or** `hue` (0–359, 360 = white), `brightness` 1–100, `speed` 1–10 — an absent one keeps its saved value | saves, previews that phase, returns the read-out |
+| `light.effect.get` | `{}` | the read-out |
+
+The read-out: one Chinese row per phase (`"唤醒": "彗星 · 青 · 亮度90 · 速度8"`), `"当前"` (the
+phase showing, in Chinese), `styles` (`{<english phase>: {effect, hue, brightness, speed}}`) and `phase` (English).
+
+`light.get`/`light.set` results gain an additive `phase` member while the engine runs; `on` is the
+base light, not whether an effect is showing. `light.set`'s `on` carries the title 白光.
+
+Consumer rules: the phone sends `fx` best effort. The ctrl link carries one command at a time, so
+the phone queues light changes and the next `listen` waits for them; a refused or lost `fx` never
+fails the turn and is never retried. The phone does not send `wake` (the board lights it itself).
+
+### 4.4 Manual unlock on iOS
+
+The owner unlocks the phone using iOS. Neither a TonoLink wake nor an agent request
+asks for a lock-screen passcode, reads a previously saved passcode, or sends a
+passcode sequence to the board. The app uses UIKit protected-data availability
+for protected-data access and does not subscribe to device lock notifications.
+
+`IPhoneAgentHost.prepare()` refuses with a manual-unlock hint before HID setup if
+protected data is unavailable. If mirroring is down, a learned recovery route
+can send blind taps only with the app active in the foreground. A live mirror
+continues to use the regular screen and HID flow. Voice admission and delivery
+follow §4.1.1 and the host contract.
+
+Existing board keyboard verbs, validation, acknowledgements and sequence numbers
+are unchanged. The `unlock_commands` and `unlock_rejected` vectors in
+[golden/tonolink-voice.json](golden/tonolink-voice.json) cover legacy keyboard
+sequences at the protocol level. The iOS app executable must contain none of
+`ios_app_binary_forbidden_strings` in the same fixture.
 
 ## 5. DEBUG relay (developer builds only)
 

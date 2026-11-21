@@ -1,0 +1,60 @@
+Test Case '-[BotChatModelTests.BotChatModelTests testAdmittedReplayKeepsOneEchoAndDoesNotDecideApproval]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testAdmittedReplayKeepsOneEchoAndDoesNotDecideApproval]' passed (0.003 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testAnswerSettlesIntoSelectedOptionLine]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testAnswerSettlesIntoSelectedOptionLine]' passed (0.026 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testApprovalBeforeLiveTextStaysAboveIt]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testApprovalBeforeLiveTextStaysAboveIt]' passed (0.001 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testChecklistSendSettlesOnlyAfterAcceptance]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testChecklistSendSettlesOnlyAfterAcceptance]' passed (0.026 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testClosingCardAfterLiveTextStaysBelowIt]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testClosingCardAfterLiveTextStaysBelowIt]' passed (0.001 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testDismissedQuestionSettlesClosed]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testDismissedQuestionSettlesClosed]' passed (0.022 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testDurableAnsweredAndSkippedRules]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testDurableAnsweredAndSkippedRules]' passed (0.001 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testFailedAnswerKeepsFullCardForRetry]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testFailedAnswerKeepsFullCardForRetry]' passed (0.021 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testFinalHidesActivityLine]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testFinalHidesActivityLine]' passed (0.001 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testHistoryUsesRowAnchorAfterLiveUpdates]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testHistoryUsesRowAnchorAfterLiveUpdates]' passed (0.002 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testNewestActionableCardWinsOverTrailingLiveText]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testNewestActionableCardWinsOverTrailingLiveText]' passed (0.001 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testNextSendAfterStopShowsLineAgain]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testNextSendAfterStopShowsLineAgain]' passed (0.005 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testNoticeRowsStayOutOfTranscriptAndFreshErrorGoesToHeader]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testNoticeRowsStayOutOfTranscriptAndFreshErrorGoesToHeader]' passed (0.001 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testPendingApprovalShowsWaitingCategoryEvenWhileStreaming]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testPendingApprovalShowsWaitingCategoryEvenWhileStreaming]' passed (0.003 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testRuntimeNoticeExpiresByItself]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testRuntimeNoticeExpiresByItself]' passed (6.495 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testSameTextFromSeparateSendsReconcilesByNonce]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testSameTextFromSeparateSendsReconcilesByNonce]' passed (0.002 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testSendClearsRuntimeNotice]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testSendClearsRuntimeNotice]' passed (0.001 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testSendDoesNotClearPendingApprovalCount]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testSendDoesNotClearPendingApprovalCount]' passed (0.023 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testSendKeepsPendingApprovalUntilExplicitDecision]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testSendKeepsPendingApprovalUntilExplicitDecision]' passed (0.050 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testSendShowsActivityLineBeforeTurnStarts]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testSendShowsActivityLineBeforeTurnStarts]' passed (0.001 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testStepsWithoutPromptUsesSuggestedNextStepDetail]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testStepsWithoutPromptUsesSuggestedNextStepDetail]' passed (0.001 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testStopHidesActivityLineImmediately]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testStopHidesActivityLineImmediately]' passed (0.001 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testStopKeepsStreamedTextVisible]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testStopKeepsStreamedTextVisible]' passed (0.162 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testStreamingTextKeepsReplyingActivityLine]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testStreamingTextKeepsReplyingActivityLine]' passed (0.155 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testToolAfterCommittedTextReturnsToToolCategory]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testToolAfterCommittedTextReturnsToToolCategory]' passed (0.003 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testToolWithoutPublicTextFallsBackToToolObject]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testToolWithoutPublicTextFallsBackToToolObject]' passed (0.000 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testTurnEndHidesActivityLine]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testTurnEndHidesActivityLine]' passed (0.001 seconds).
+Test Case '-[BotChatModelTests.BotChatModelTests testWithoutDriverFailsClosed]' started.
+Test Case '-[BotChatModelTests.BotChatModelTests testWithoutDriverFailsClosed]' passed (0.201 seconds).
+	 Executed 28 tests, with 0 failures (0 unexpected) in 7.209 (7.219) seconds
+	 Executed 28 tests, with 0 failures (0 unexpected) in 7.209 (7.219) seconds
+	 Executed 28 tests, with 0 failures (0 unexpected) in 7.209 (7.220) seconds
+** TEST SUCCEEDED **

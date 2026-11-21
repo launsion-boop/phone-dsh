@@ -2,13 +2,15 @@
 
 Status: **normative**, phone-owned (`P27`, delta `D11`, checkpoint `B7a`), frozen by
 `PC-20261112-android-bot-w4`. This file is not an upstream `dsh-bot` export and is not covered by
-`spec/bot/v1/dshbot-pin.json`.
+`spec/bot/v1/dshbot-pin.json`. Contract revision `PC-20261114-card-superseded-and-pending` adds
+the `card-answer:<nonce>` chat-action nonce (§4.4 step 15) and the superseded choice-card outcome
+(§6.4); the row schema and the event types are unchanged.
 
 Implementation of record: `Sources/PhoneDSHBot/Rows/BotSessionLogProjection.swift`,
 `BotStreamingRowLimiter.swift`, `BotDisplayContract.swift`, plus the App history page in
 `examples/probe-app/PhoneDSHProbe/Bot/BotProductionServices.swift`. The Swift code is the reference
 implementation, not the definition. Line references are to the phoneDSH tree at the freeze base
-`e477497b`.
+`e477497b`; a reference explicitly marked "after `PC-…`" is to that later merged head instead.
 
 The JSON shapes are owned by `row.schema.json` and `row-batch.schema.json`; this file owns the
 **function** from the inputs to those shapes. `spec/bot/v1/golden/projection.phone.json` is the
@@ -192,8 +194,13 @@ Read in this order (`:378-427`):
     `tainted`) plus `text`. `kind = message`, `role = "user"`, trust `owner_direct`,
     `createdAt = time`.
 15. `chatActionNonce` (in-memory only, never JSON): when `source.kind == "user"` and
-    `source.rpcId` is `user-action:<nonce>` with a non-whitespace nonce, that nonce. For a held
-    origin it is instead the unique `conversation.turn_started` action nonce for the same turn
+    `source.rpcId` is `user-action:<nonce>` **or** `card-answer:<nonce>` with a non-whitespace nonce,
+    that nonce (`BotTurnOrigin.userActionNonce`; `cardAnswerActionNonce` added by
+    `PC-20261114-card-superseded-and-pending`). A card tap is a real user turn
+    (`README.md` §4.1): the host sends the option value as an ordinary chat message with
+    `card-answer:<nonce>`, so projecting its nonce lets the view retire the `local-<nonce>`
+    optimistic echo with the same rule it uses for a typed message (P09 `ui-state.md` §3.1). For a
+    held origin it is instead the unique `conversation.turn_started` action nonce for the same turn
     (`heldActionNonces`), else the `heldRequestNonces[rpcId]` fallback. Ambiguity (two candidate
     actions for the turn) yields nil (`:328-347`).
 
@@ -382,13 +389,45 @@ projected as a row here; the DSH records are the source for those rows.
 ### 6.4 Card outcomes
 
 Before processing, `cardOutcomes` scans the same Bot's events in the same stable order
-(`:678-695`): `card.answered` maps `cardID → optionID` (last wins; a missing option id keeps the
-previous or `""`); `card.dismissed` adds the card id to a dismissed set. Then:
+(`:678-695`; `:771-788` after `PC-20261114-card-superseded-and-pending`): `card.answered` maps
+`cardID → optionID` (last wins; a missing option id keeps the previous or `""`); `card.dismissed`
+adds the card id to a dismissed set.
 
-- `card.presented` for a dismissed card is skipped entirely (the closed card must stay hidden after
-  a cache rebuild).
-- `card.presented` for an answered card gets `status:"answered"` and
-  `answeredOptionID:<optionID>` in its body; the presented card itself still projects.
+`BotChoiceCardStaleness.supersededCards(in:botID:)` (`BotSessionLogProjection.swift`, added by the
+same change) scans the same event stream and returns `cardID → newer cardID`:
+
+- Only a `card.presented` whose kind is `question` or `steps` participates. The kind is
+  `payload.cardType` / `payload.kind` (nested `card.cardType` / `card.kind` accepted); the id is
+  `payload.id` / `payload.rowID` / `card.id` / `card.rowID`, else `e-ui-<eventId>`.
+- In one Bot stream a newer choice card **permanently supersedes every older still-open choice
+  card**. "Still open" means presented and not answered/dismissed before the newer card appeared.
+  A card answered or dismissed before the newer card was already closed and is not marked; the
+  newer card itself is never marked. If an answer for a superseded card is nevertheless recorded
+  after the newer card (a replay or a non-conforming client), the stored answer wins by the
+  precedence below; the UI never produces one, because the planner refuses it with `card_expired`.
+- Events are visited in the projection's stable order (`commitSeq`, then `time`, then `eventId`;
+  §6.1). Another Bot's events are ignored; `botId == nil` is accepted like the rest of §6.
+- The rule is per Bot stream, not per epoch, session or card kind: a `steps` card supersedes an
+  older `question` card and vice versa. Approvals, checklists and content cards neither supersede
+  nor are superseded.
+
+Then, for a `card.presented`:
+
+- a dismissed card is skipped entirely (the closed card must stay hidden after a cache rebuild);
+- an answered card gets `status:"answered"` and `answeredOptionID:<optionID>` in its body, and
+  still projects;
+- otherwise a superseded card gets `status:"superseded"` and `supersededBy:"<newer card id>"` in
+  its body, and still projects, so the transcript keeps its place and can render the one-line
+  settlement.
+
+**Precedence: answered > superseded.** A card with a recorded answer is written `answered` even
+when a newer card also replaced it, and `supersededBy` is then absent. A dismissed card is hidden
+before either branch. Neither member is new schema surface: the row body is
+`additionalProperties: true` in `row.schema.json`, and no event type is added.
+
+The action planner reads the same predicate (`BotRemoteActionPlanner.swift:233`), so its
+`card_expired` refusal and the painted `status` cannot disagree: the card the UI greys out is
+exactly the card the tap is refused on (P09 `ui-state.md` §4.3).
 
 ### 6.5 Deletion
 

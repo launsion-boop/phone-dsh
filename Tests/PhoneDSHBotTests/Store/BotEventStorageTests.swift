@@ -97,7 +97,7 @@ final class BotEventStorageTests: XCTestCase {
         try await store.verifyIntegrity()
         try await store.close()
 
-        XCTAssertEqual(try scalar("PRAGMA user_version", file: file), "3")
+        XCTAssertEqual(try scalar("PRAGMA user_version", file: file), "4")
         let headers = try query("SELECT name, type FROM sqlite_master WHERE name = 'bot_events'",
                                 file: file)
         XCTAssertEqual(headers.first?["type"], "view")
@@ -129,7 +129,7 @@ final class BotEventStorageTests: XCTestCase {
             XCTAssertEqual(reopenedEvents, eventsBefore)
             try await reopened.verifyIntegrity()
             try await reopened.close()
-            XCTAssertEqual(try scalar("PRAGMA user_version", file: file), "3")
+            XCTAssertEqual(try scalar("PRAGMA user_version", file: file), "4")
         }
     }
 

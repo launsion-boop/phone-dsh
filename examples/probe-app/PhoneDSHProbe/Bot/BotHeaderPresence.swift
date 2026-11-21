@@ -3,26 +3,29 @@
 import Foundation
 import PhoneDSHBot
 
-/// The single lifecycle behind the Bot header: the 32pt fish, its motion
-/// profile and the one status line under it are all read from here, so the
-/// header has no second badge, dot or icon that could disagree with them.
+/// The single lifecycle behind the Bot chat: the 32pt fish, its motion
+/// profile and the one activity sentence in the bottom bubble are all read
+/// from here, so the header has no second badge, dot or status line that could
+/// disagree with the bubble.
 ///
 /// Phases, in priority order:
 /// - `problem`: something just failed (live update, history, an action, an
-///   attachment, or a host error notice). The line shows that one sentence in
-///   a calm danger tint for a few seconds; the transcript never carries error
-///   rows. The fish keeps its own lifecycle (the director already plays sad).
+///   attachment, or a host error notice). The bubble shows that one sentence
+///   in a calm danger tint for a few seconds; the transcript never carries
+///   error rows. The fish keeps its own lifecycle (the director already plays
+///   sad).
 /// - `working`: a turn is running (from the local send until stop/final/
-///   turn end). The line shows the turn's activity, the fish plays the
+///   turn end). The bubble shows the turn's activity, the fish plays the
 ///   `.lively` clip set with the category's work style. A pending approval
-///   inside the turn becomes the static `等你确认` line and the fish's own
+///   inside the turn becomes the static `等你确认` sentence and the fish's own
 ///   `alerting` state.
 /// - `waitingForYou`: no turn is running but an approval is still pending.
-///   The line stays on a static `等你确认` (or `N 项等你确认`) and the fish
+///   The bubble stays on a static `等你确认` (or `N 项等你确认`) and the fish
 ///   keeps `alerting` with the calm `.standard` motion.
-/// - `idle`: no line; the fish follows its normal lifecycle.
+/// - `idle`: no line; the bubble is hidden and the fish follows its normal
+///   lifecycle.
 ///
-/// Unanswered question/next-step cards do not hold the header: they are
+/// Unanswered question/next-step cards do not hold the bubble: they are
 /// suggestions already visible in the transcript.
 struct BotHeaderPresence: Equatable {
     enum Phase: Equatable {
@@ -33,7 +36,7 @@ struct BotHeaderPresence: Equatable {
     }
 
     var phase: Phase
-    /// What the status line under the avatar shows; nil hides the line.
+    /// What the one activity bubble shows; nil hides the bubble.
     var line: BotActivity?
     var fishState: BotFishLifecycle
     var motion: BotFishMotionProfile
@@ -44,6 +47,20 @@ struct BotHeaderPresence: Equatable {
     var lineIsQuiet: Bool { phase == .problem || line?.category == .waiting }
     /// The line is drawn in the danger tint.
     var lineIsProblem: Bool { phase == .problem }
+    /// The bottom bubble is now the only activity surface, so it follows the
+    /// sentence rather than the typing phase: a running turn, a pending
+    /// approval that outlived its turn, and a failure report all keep the
+    /// bubble; a settled/idle Bot has no line and no bubble. `line` is still
+    /// the one source for the words (`BotActivityLineState` resolves the
+    /// empty waiting detail into「等你确认」).
+    var showsActivityBubble: Bool {
+        switch phase {
+        case .working, .waitingForYou, .problem:
+            return line != nil
+        case .idle:
+            return false
+        }
+    }
 
     static func resolve(turnActive: Bool,
                         lineActivity: BotActivity?,

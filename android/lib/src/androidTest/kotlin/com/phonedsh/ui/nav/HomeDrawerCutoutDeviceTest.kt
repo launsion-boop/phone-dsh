@@ -98,7 +98,7 @@ class HomeDrawerCutoutDeviceTest {
     }
 
     @Test
-    fun folderFoldAndFolderCreateUseTouchAndCorrelatedReceipts() {
+    fun folderFoldAndAvailableCreateActionUseTouchAndCorrelatedReceipts() {
         val commands = CopyOnWriteArrayList<PdshUiHostCommand>()
         val creates = AtomicInteger()
         val retries = AtomicInteger()
@@ -127,6 +127,12 @@ class HomeDrawerCutoutDeviceTest {
         assertTrue(compose.onAllNodesWithTag(sessionTag).fetchSemanticsNodes().isEmpty())
         compose.onNodeWithTag(folderTag).performTouchInput { click() }
         compose.onNodeWithTag(sessionTag).assertIsDisplayed()
+
+        if (!DRAWER_FOLDERS_ENABLED) {
+            compose.onNodeWithTag(HomeDrawerTags.CREATE_FOLDER).assertDoesNotExist()
+            assertTrue(commands.isEmpty())
+            return
+        }
 
         compose.onNodeWithTag(HomeDrawerTags.CREATE_FOLDER).performTouchInput { click() }
         compose.onNodeWithText("新建文件夹").performTouchInput { click() }

@@ -24,6 +24,9 @@ class ImpactTests(unittest.TestCase):
         self.write('Sources/PhoneDSHWire/WAL.swift', '// original\n')
         self.write('plugins/demo/src/client/view.ts', 'postMessage({})\n')
         self.git('init', '-q')
+        hooks = self.root / '.git' / 'test-hooks'
+        hooks.mkdir()
+        self.git('config', 'core.hooksPath', str(hooks))
         self.git('add', '.')
         self.git('-c', 'user.name=Protocol Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'base')
 

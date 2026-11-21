@@ -20,7 +20,15 @@
         "evidence": [
           "record://session/gb-main#3"
         ],
-        "trust": "user"
+        "trust": "user",
+        "review": {
+          "basis": "user-statement",
+          "at_ms": 1760000005000,
+          "refs": [
+            "record://session/gb-main#3"
+          ],
+          "state": "verified"
+        }
       },
       {
         "path": "agent/INDEX.md",
@@ -182,6 +190,53 @@
         "ok": false,
         "code": "memory-path-invalid"
       }
+    },
+    {
+      "name": "read-document-evidence-status",
+      "request": {
+        "path": "user/profile.md"
+      },
+      "expect": {
+        "ok": true,
+        "kind": "document",
+        "version": 2,
+        "evidenceStatus": [
+          {
+            "ref": "record://session/gb-main#3",
+            "observed_at_ms": 1760000003000,
+            "source_version": null
+          }
+        ],
+        "review": {
+          "basis": "user-statement",
+          "at_ms": 1760000005000,
+          "refs": [
+            "record://session/gb-main#3"
+          ],
+          "state": "verified"
+        }
+      }
+    },
+    {
+      "name": "read-document-unresolvable-evidence-time",
+      "request": {
+        "path": "agent/notes/routine.md"
+      },
+      "expect": {
+        "ok": true,
+        "kind": "document",
+        "version": 1,
+        "evidenceStatus": []
+      }
     }
-  ]
+  ],
+  "records": {
+    "record://session/gb-main#3": {
+      "kind": "session",
+      "type": "user/message",
+      "rpcId": "bot-1",
+      "botId": "bot-a",
+      "at_ms": 1760000003000
+    }
+  }
 }

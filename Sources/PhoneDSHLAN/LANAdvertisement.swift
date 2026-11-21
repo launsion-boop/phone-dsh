@@ -22,7 +22,7 @@ public struct LANDeviceCandidate: Identifiable, Equatable, Sendable {
     }
 
     /// lan-mcp.md `canon`: the one hostname used for URL, SNI and certificate name.
-    static func hostname(_ value: String) -> String? {
+    public static func hostname(_ value: String) -> String? {
         guard value.utf8.count <= 254, value.utf8.allSatisfy({ $0 < 128 }) else { return nil }
         let host = (value.hasSuffix(".") ? String(value.dropLast()) : value).lowercased()
         guard !host.isEmpty, host.utf8.count <= 253 else { return nil }

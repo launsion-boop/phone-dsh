@@ -17,6 +17,10 @@ enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case chatLayoutKeyboard
     case chatLayoutTyping
     case runningStreamingWithLine, runningAwaitingApproval
+    /// The reported ordering bug: the Bot writes the answer, then presents the
+    /// suggestion card. The card must stay below the live answer, not flash
+    /// above it and jump back down when the durable answer row lands.
+    case runningTextThenSteps
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
     case composerAttachments, composerLongDraft, infoAppearance
     case info, infoEmpty, infoError, infoLong, infoMemory, infoGrants, infoRoutines, infoReconcile
@@ -207,10 +211,11 @@ enum BotUIFixtures {
             ])
         case .steps:
             body = widget("steps", [
+                "question": "不应出现在下一步卡片中的说明标题",
                 "steps": [
                     ["id": "review", "label": "查看验收结果", "description": "先确认测试和截图证据", "recommended": true],
                     ["id": "pr", "label": "创建 Pull Request"],
-                    ["id": "pause", "label": "暂停，稍后继续", "style": "default"],
+                    ["id": "notes", "label": "查看改动说明", "style": "default"],
                 ],
             ])
         case .task:
@@ -460,13 +465,17 @@ enum BotUIFixtures {
         case .runningThinking, .runningTool, .runningToolDescribed,
              .runningToolReviewing, .runningToolPhone:
             return [BotUIRow.text(id: "\(fixture.rawValue)-user", seq: 1, role: "user",
-                                  text: "帮我检查一下构建结果。")]
+                                  text: fixture == .runningToolDescribed
+                                    ? "查一下 #174 能不能合并。" : "帮我检查一下构建结果。")]
         case .runningToolUnauthorized, .runningToolReplay:
             return [BotUIRow.text(id: "\(fixture.rawValue)-user", seq: 1, role: "user",
                                   text: "用 bash 执行 echo probe-15，只回结果")]
         case .runningStreamingWithLine:
             return [BotUIRow.text(id: "running-streaming-user", seq: 1, role: "user",
                                   text: "帮我检查一下构建结果。")]
+        case .runningTextThenSteps:
+            return [BotUIRow.text(id: "text-then-steps-user", seq: 1, role: "user",
+                                  text: "帮我总结今天的发布检查。")]
         case .runningAwaitingApproval:
             return [
                 BotUIRow.text(id: "running-approval-user", seq: 1, role: "user",
@@ -1198,11 +1207,13 @@ struct BotUIFixtureRootView: View {
             ])))
         case .runningToolDescribed:
             chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
-            chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
-                "callId": .string("fixture-described"),
-                "name": .string("bash"),
-                "arguments": .string("{\"command\":\"cat diary/*.md\",\"description\":\"对比三篇日记的情绪\"}"),
-            ])))
+            if !ProcessInfo.processInfo.arguments.contains("-BotUIActivityMotion") {
+                chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
+                    "callId": .string("fixture-described"),
+                    "name": .string("bash"),
+                    "arguments": .string("{\"command\":\"cat diary/*.md\",\"description\":\"对比 #174 与 main 的三个冲突文件\"}"),
+                ])))
+            }
         case .runningToolReviewing:
             chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
             chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
@@ -1243,6 +1254,30 @@ struct BotUIFixtureRootView: View {
             // replying (the old rule hid it as soon as text arrived).
             chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
             chat.receive(.textDelta("我已经读到构建日志，正在把失败项整理出来…"))
+        case .runningTextThenSteps:
+            // The turn writes first, then presents its closing suggestion
+            // card. Both rows are stamped by the production event clock; the
+            // card's `createdAt` is newer than the committed answer, so the
+            // transcript must draw it below the live text.
+            chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+            chat.receive(.event(BotUIFixtures.liveEvent("assistant/message", turn: 1, seq: 2, data: [
+                "message": .object([
+                    "role": .string("assistant"),
+                    "content": .array([.object([
+                        "type": .string("text"),
+                        "text": .string("今天的发布检查全部通过，下面是可以继续的动作。"),
+                    ])]),
+                ]),
+            ])))
+            var steps = BotUIFixtures.cardRow("closing-steps", seq: 3,
+                                              body: BotUIFixtures.widget("steps", [
+                "steps": [
+                    ["id": "review", "label": "查看验收结果", "recommended": true],
+                    ["id": "pr", "label": "创建 Pull Request"],
+                ],
+            ]))
+            steps.createdAt = Int(Date().timeIntervalSince1970 * 1_000) + 5_000
+            chat.apply(BotUIRowBatch(rows: [steps], deletes: [], cursor: 1, reset: false))
         case .runningAwaitingApproval:
             // A running turn with a pending approval: the line must say
             // 「等你确认」 and the fish must be alerting.
@@ -1396,6 +1431,43 @@ struct BotUIFixtureRootView: View {
             }
         }
         .task {
+            if fixture == .runningToolDescribed,
+               ProcessInfo.processInfo.arguments.contains("-BotUIActivityMotion") {
+                // Capture-only playback of real-model activity wording. This
+                // exercises the production event projection/timing/views; it
+                // is visual evidence, not a new model or production workflow.
+                let phrases = [
+                    "读取 #174 的资料笔记",
+                    "读取 main 侧的笔记",
+                    "#174 记录显示 3 个冲突文件，接着核对主干侧",
+                ]
+                var previous: String?
+                var seq = 2
+                for index in 0..<9 {
+                    do {
+                        try await Task.sleep(for: .milliseconds(index == 0 ? 2_400 : 1_800))
+                    } catch { return }
+                    guard !Task.isCancelled else { return }
+                    if let previous {
+                        chatModel.receive(.event(BotUIFixtures.liveEvent(
+                            "tool/result", turn: 1, seq: seq,
+                            data: ["callId": .string(previous)])))
+                        seq += 1
+                    }
+                    let call = "fixture-motion-\(index)"
+                    chatModel.receive(.event(BotUIFixtures.liveEvent(
+                        "tool/call", turn: 1, seq: seq, data: [
+                            "callId": .string(call), "name": .string("read"),
+                            "arguments": .object([
+                                "file_path": .string("pr/174-notes.md"),
+                                "activity": .string(phrases[index % phrases.count]),
+                            ]),
+                        ])))
+                    seq += 1
+                    previous = call
+                }
+                return
+            }
             if fixture == .chatLayoutKeyboard {
                 // Keep the production 800ms durable watch alive while the
                 // keyboard is up (pageActive defaults true for the fixture).

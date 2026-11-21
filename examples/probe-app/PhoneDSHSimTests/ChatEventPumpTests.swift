@@ -6,6 +6,28 @@ import XCTest
 
 @MainActor
 final class ChatEventPumpTests: XCTestCase {
+    func testBufferedReplayLetsMainQueueRunWithoutDroppingEvents() async {
+        var received: [UInt64] = []
+        var countAtHeartbeat: Int?
+        var current = true
+        await ChatEventPump.run(after: nil, isCurrent: { current }, events: { _ in
+            AsyncThrowingStream { continuation in
+                for seq in 1...1_000 { continuation.yield(self.event(UInt64(seq))) }
+                continuation.finish()
+            }
+        }, synchronize: { XCTFail("replay should not reconnect"); return nil }, handle: { event in
+            received.append(event.seq!)
+            if received.count == 1 {
+                DispatchQueue.main.async { countAtHeartbeat = received.count }
+            }
+            if received.count == 1_000 { current = false }
+        }, interrupted: { _ in XCTFail("unexpected interruption") }, recovered: {})
+        XCTAssertEqual(received, (1...1_000).map(UInt64.init))
+        XCTAssertNotNil(countAtHeartbeat)
+        XCTAssertLessThan(countAtHeartbeat ?? 1_000, 1_000,
+                          "an already buffered replay must yield to main-queue input")
+    }
+
     private enum Failure: Error { case disconnected, snapshotUnavailable }
 
     private func event(_ seq: UInt64) -> HarnessEvent {

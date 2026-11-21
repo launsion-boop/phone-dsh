@@ -6,9 +6,13 @@
 # Boots (or reuses) the iPhone 17 Pro simulator, builds the packed Worker
 # assets and the probe app, installs the app, runs the hostless
 # `PhoneDSHSimTests` target with `xcodebuild test -scheme PhoneDSHSim`, pulls
-# the four JSON reports from the app container's Documents/pdsh-reports, and
-# prints one PASS/FAIL/INFO table. Any FAIL row (gating or informational), a
-# missing report or a test process failure exits non-zero.
+# the four JSON reports from the app container's Documents/pdsh-reports, then
+# runs the real `BluetoothDevicesPage` XCUI suite with
+# `xcodebuild test -scheme PhoneDSHDeviceUI -only-testing:
+# PhoneDSHDeviceUITests/BluetoothDevicesPageUITests`, and prints one
+# PASS/FAIL/INFO table. Any FAIL row (gating or informational), a missing
+# report, a failed hostless or UI test process, or a UI run that does not
+# execute and pass both BluetoothDevicesPage tests exits non-zero.
 #
 # The suites are:
 #   * probe-report.json — the W3-PROBES suite via ProbeKit (G0);
@@ -351,7 +355,9 @@ log "simulator $SIM_NAME ($UDID), runtime $RUNTIME, state $STATE"
 # 5. Generate and build the Xcode project. CFFIXED_USER_HOME keeps SwiftPM's
 #    manifest cache inside $OUT (the CI harness may not allow writes to the
 #    runner's home); -disable-sandbox stops SwiftPM/the macro plugin server from
-#    nesting a second sandbox inside the harness sandbox.
+#    nesting a second sandbox inside the harness sandbox. `$(inherited)` keeps
+#    the package-level Swift settings (swift-collections' BuiltinModule) that a
+#    plain OTHER_SWIFT_FLAGS override would drop.
 log "generating the Xcode project"
 sim_generate_project "$EXAMPLE"
 DESTINATION="platform=iOS Simulator,name=$DEVICE_NAME"
@@ -362,7 +368,7 @@ COMMON=(
   -derivedDataPath "$DERIVED"
   -packageCachePath "$PACKAGE_CACHE"
   CODE_SIGNING_ALLOWED=NO
-  OTHER_SWIFT_FLAGS=-disable-sandbox
+  'OTHER_SWIFT_FLAGS=$(inherited) -disable-sandbox'
 )
 log "building the app and test bundle (build-for-testing)"
 if ! run_with_timeout "$TIMEOUT" "xcodebuild build-for-testing" \
@@ -597,7 +603,38 @@ with open(path, "w", encoding="utf-8") as handle:
     handle.write("\n")
 PY
 
-# 10. Print the row table and gate. `sim_gate.py` exits non-zero on any FAIL
+# 10. Run the BluetoothDevicesPage XCUI suite through the real UI driver. A
+#     SwiftUI List exposes no UIKit accessibility elements inside a hostless
+#     XCTest unit process, so this page's acceptance is an XCUI test against
+#     the installed probe app instead. The app launches `-uiPreview
+#     ble.devices`, whose DEBUG-only host pairs the production page with the
+#     BLEDeviceStore test adapter. Both tests must actually pass here; a run
+#     that drops either one is a gate failure, not a skip.
+UI_TEST_LOG="$OUT/xcodebuild-ui-test.log"
+UI_TEST_RC=0
+UI_TESTS=(
+  "PhoneDSHDeviceUITests.BluetoothDevicesPageUITests testClosingPageKeepsDeviceVisibleUntilDisconnectCallbackReturns"
+  "PhoneDSHDeviceUITests.BluetoothDevicesPageUITests testQuarantinedPageKeepsDeviceVisibleAndOffersNoDeviceOperations"
+)
+log "running xcodebuild test -scheme PhoneDSHDeviceUI (BluetoothDevicesPage XCUI)"
+run_with_timeout "$TIMEOUT" "xcodebuild UI test" \
+  xcodebuild test -scheme PhoneDSHDeviceUI "${COMMON[@]}" \
+  -only-testing:PhoneDSHDeviceUITests/BluetoothDevicesPageUITests \
+  > "$UI_TEST_LOG" 2>&1 || UI_TEST_RC=$?
+if [ "$UI_TEST_RC" -eq 0 ]; then
+  tail -n 40 "$UI_TEST_LOG" >> "$LOG" 2>/dev/null || true
+else
+  log "xcodebuild UI test failed; see $UI_TEST_LOG"
+  tail -n 120 "$UI_TEST_LOG" >> "$LOG" 2>/dev/null || true
+fi
+for test in "${UI_TESTS[@]}"; do
+  if ! grep -Fq "Test Case '-[$test]' passed" "$UI_TEST_LOG"; then
+    log "FAILED: the full UI gate did not execute and pass: $test"
+    [ "$UI_TEST_RC" -ne 0 ] || UI_TEST_RC=6
+  fi
+done
+
+# 11. Print the row table and gate. `sim_gate.py` exits non-zero on any FAIL
 #     row (gating or informational), a missing suite report, a suite that did
 #     not finish, a report environment other than ios-simulator, or an
 #     unreadable report. Its --selftest run at the top of this script feeds a
@@ -610,6 +647,10 @@ if [ "$TEST_RC" -ne 0 ]; then
   log "the test process exited $TEST_RC"
   # finish() replays the log to fd 3; stdout here still appends to LOG.
   exit "$TEST_RC"
+fi
+if [ "$UI_TEST_RC" -ne 0 ]; then
+  log "the BluetoothDevicesPage UI test process exited $UI_TEST_RC"
+  exit "$UI_TEST_RC"
 fi
 if [ "$KILL_ATTEMPT_RC" -ne 0 ]; then
   log "the real WebContent kill was not attempted (see above)"

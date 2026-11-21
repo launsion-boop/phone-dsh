@@ -90,6 +90,9 @@ struct BotDocumentPreview: View {
             .navigationTitle("文档")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    shareButton
+                }
                 if path != nil, content != nil {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("打开文件") { showFilePreview = true }
@@ -104,6 +107,28 @@ struct BotDocumentPreview: View {
             }
         }
         .homeSheetChrome()
+    }
+
+    /// Inline-content documents had no share surface at all: the file preview
+    /// below owns ShareLink, but this sheet is the one the card opens. Share
+    /// the rendered text when present, otherwise the resolved source file.
+    @ViewBuilder
+    private var shareButton: some View {
+        if let content {
+            ShareLink(item: "\(title)\n\n\(content)") {
+                Image(systemName: "square.and.arrow.up")
+                    .foregroundStyle(HomeSpec.primaryButton)
+            }
+            .accessibilityLabel("分享文档")
+            .accessibilityIdentifier("bot.document.share")
+        } else if let path, let url = PreviewPathResolver.fileURL(for: path) {
+            ShareLink(item: url) {
+                Image(systemName: "square.and.arrow.up")
+                    .foregroundStyle(HomeSpec.primaryButton)
+            }
+            .accessibilityLabel("分享文档")
+            .accessibilityIdentifier("bot.document.share")
+        }
     }
 
     private var header: some View {

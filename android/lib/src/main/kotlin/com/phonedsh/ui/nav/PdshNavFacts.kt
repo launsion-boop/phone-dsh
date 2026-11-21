@@ -119,6 +119,10 @@ public data class PdshNavFacts(
     public val androidAdb: com.phonedsh.ui.page.AndroidAdbFacts = com.phonedsh.ui.page.AndroidAdbFacts(),
     /** Tono 账号: the session facts (phone hint, re-verification date), host-owned. */
     public val tonoAccount: com.phonedsh.ui.page.TonoAccountFacts = com.phonedsh.ui.page.TonoAccountFacts(),
+    /** 发现 › Gmail: the account, the results and the open message, host-owned. */
+    public val gmail: com.phonedsh.ui.page.GmailConnectorFacts = com.phonedsh.ui.page.GmailConnectorFacts(),
+    /** 发现 › GitHub: the connection and the authorized repositories, host-owned. */
+    public val github: com.phonedsh.ui.page.GitHubConnectorFacts = com.phonedsh.ui.page.GitHubConnectorFacts(),
     public val runtime: RuntimeFacts = RuntimeFacts(),
     public val egress: EgressAllowListFacts = EgressAllowListFacts(),
     public val automation: AutomationFacts = AutomationFacts(),
@@ -546,6 +550,16 @@ public sealed interface PdshHostAction {
         override val wire: String = "androidAdb.cancelconnect"
     }
 
+    /** One tap on the Gmail page; the search draft is hidden by the action's `toString`. */
+    public data class GmailConnector(public val action: com.phonedsh.ui.page.GmailConnectorAction) : PdshHostAction {
+        override val wire: String = "gmail.connector"
+    }
+
+    /** One tap on the GitHub page. */
+    public data class GitHubConnector(public val action: com.phonedsh.ui.page.GitHubConnectorAction) : PdshHostAction {
+        override val wire: String = "github.connector"
+    }
+
     /** Tono 账号 获取验证码 for the drafted number; `toString` hides it. */
     public class TonoAccountRequestCode(public val phone: String) : PdshHostAction {
         override val wire: String = "tonoAccount.requestCode"
@@ -561,6 +575,11 @@ public sealed interface PdshHostAction {
     /** Tono 账号 退出登录: local state first, then a best-effort logout. */
     public data object TonoAccountSignOut : PdshHostAction {
         override val wire: String = "tonoAccount.signOut"
+    }
+
+    /** Tono 账号 → 云端任务 → 接收其他设备的任务: the host stores the switch and registers or deletes this phone. */
+    public data class TonoAccountSetCloudTasks(public val enabled: Boolean) : PdshHostAction {
+        override val wire: String = "tonoAccount.cloudTasks"
     }
 
     /** Persist the web-search switch position. */

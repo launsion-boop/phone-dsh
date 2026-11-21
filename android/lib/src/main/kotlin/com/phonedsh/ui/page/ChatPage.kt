@@ -93,6 +93,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
@@ -175,9 +176,11 @@ import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.materialDialogColors
 import com.phonedsh.ui.theme.LocalUiType
 import com.phonedsh.ui.theme.generated.UiTokenNames
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlin.math.abs
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The chat screen.
@@ -297,6 +300,8 @@ public fun ChatPage(
     /** Request-bound permission decision capabilities; absent receipts stay disabled. */
     permissionApproveAvailability: PdshActionAvailability<(PendingAnswer) -> Unit> = PdshActionAvailability.Unavailable(PdshUnavailableReason.NOT_IMPLEMENTED),
     permissionDenyAvailability: PdshActionAvailability<(PendingAnswer) -> Unit> = PdshActionAvailability.Unavailable(PdshUnavailableReason.NOT_IMPLEMENTED),
+    /** Request-bound 总是允许; shown only when the request carries a safe scope ([PendingAnswer.allowsAlways]). */
+    permissionAlwaysAvailability: PdshActionAvailability<(PendingAnswer) -> Unit> = PdshActionAvailability.Unavailable(PdshUnavailableReason.NOT_IMPLEMENTED),
     /** Request-bound approval of a question's explicit plan-review action. */
     planApproveAvailability: PdshActionAvailability<(PendingAnswer, String) -> Unit> = PdshActionAvailability.Unavailable(PdshUnavailableReason.NOT_IMPLEMENTED),
     /** Request-bound request-changes action for plan review. */
@@ -462,6 +467,7 @@ public fun ChatPage(
             onExpand = onExpandPendingSlot,
             approveAvailability = permissionApproveAvailability,
             denyAvailability = permissionDenyAvailability,
+            alwaysAvailability = permissionAlwaysAvailability,
             maxHeight = screenHeight * tokens.geometry.cardAreaMaxHeightRatio,
         )
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -690,10 +696,10 @@ internal fun ChatPage(
                     modifier = Modifier.align(Alignment.Center),
                 )
                 state.error != null -> Column(
-                    modifier = Modifier.align(Alignment.Center).padding(horizontal = 24.dp),
+                    modifier = Modifier.align(Alignment.Center).padding(horizontal = HomeMetrics.contentInset),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    BasicText(state.error, style = type.secondary.copy(color = tokens.colors.pageDanger))
+                    BasicText(state.error, style = type.secondary.copy(color = tokens.colors.danger))
                     SessionTextAction(label = UiStrings.RETRY, onClick = onRetry, tone = SessionActionTone.ACCENT)
                 }
                 state.rows.isEmpty() -> BasicText(
@@ -706,7 +712,7 @@ internal fun ChatPage(
                         BasicText(
                             text = "仅显示电脑上最近的历史。",
                             style = type.caption.copy(color = tokens.colors.textSecondary),
-                            modifier = Modifier.padding(horizontal = HomeMetrics.contentInset, vertical = 8.dp),
+                            modifier = Modifier.padding(horizontal = HomeMetrics.contentInset, vertical = tokens.spacing.iconText),
                         )
                     }
                     val transcript = remember(state.sessionId, state.rows, expanded) {
@@ -1133,6 +1139,7 @@ private fun PendingCardsRegion(
     onExpand: () -> Unit,
     approveAvailability: PdshActionAvailability<(PendingAnswer) -> Unit>,
     denyAvailability: PdshActionAvailability<(PendingAnswer) -> Unit>,
+    alwaysAvailability: PdshActionAvailability<(PendingAnswer) -> Unit>,
     maxHeight: Dp,
 ) {
     // Questions own the composer seat (ChatPage.swift `questionTakeover`); only
@@ -1162,10 +1169,10 @@ private fun PendingCardsRegion(
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     if (primary != null) {
-                        PermissionRequestCard(primary, approveAvailability, denyAvailability, maxHeight)
+                        PermissionRequestCard(primary, approveAvailability, denyAvailability, alwaysAvailability, maxHeight)
                     }
                     approvals.drop(1).forEach { ask ->
-                        PermissionRequestCard(ask, approveAvailability, denyAvailability, maxHeight)
+                        PermissionRequestCard(ask, approveAvailability, denyAvailability, alwaysAvailability, maxHeight)
                     }
                 }
             }
@@ -1179,6 +1186,7 @@ private fun PermissionRequestCard(
     request: PendingAnswer,
     approveAvailability: PdshActionAvailability<(PendingAnswer) -> Unit>,
     denyAvailability: PdshActionAvailability<(PendingAnswer) -> Unit>,
+    alwaysAvailability: PdshActionAvailability<(PendingAnswer) -> Unit>,
     maxHeight: Dp,
 ) {
     val tokens = LocalUiTokens.current
@@ -1186,6 +1194,7 @@ private fun PermissionRequestCard(
     val busy = request.actionState?.status == com.phonedsh.ui.state.PendingAnswerActionStatus.PENDING || request.submitting == true
     val approve = (approveAvailability as? PdshActionAvailability.Available)?.callback
     val deny = (denyAvailability as? PdshActionAvailability.Available)?.callback
+    val always = (alwaysAvailability as? PdshActionAvailability.Available)?.callback
     val receipt = request.actionState?.error ?: request.submissionError
     Column(
         modifier = Modifier.fillMaxWidth()
@@ -1210,6 +1219,20 @@ private fun PermissionRequestCard(
             contentAlignment = Alignment.Center,
         ) {
             BasicText(UiStrings.ALLOW_ONCE, style = type.pageTitle.copy(color = if (approve != null && !busy) tokens.colors.onAccent else tokens.colors.tertiary))
+        }
+        // ChatPage.swift `PermissionCardView`: 总是允许 sits between the two answers,
+        // only when the host found a safe standing scope (the host also withholds
+        // it for a sandbox escalation). 15 pt semibold accent, 44 pt tall.
+        if (request.allowsAlways && always != null) {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(ChatMetrics.PERMISSION_ALWAYS_HEIGHT_PT.dp)
+                    .clickable(enabled = !busy, role = Role.Button) { always(request) }
+                    .testTag(UiTags.APPROVAL_ALWAYS)
+                    .semantics { contentDescription = UiStrings.ALLOW_ALWAYS },
+                contentAlignment = Alignment.Center,
+            ) {
+                BasicText(UiStrings.ALLOW_ALWAYS, style = type.subheadline.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = if (!busy) tokens.colors.accent else tokens.colors.tertiary))
+            }
         }
         Box(
             modifier = Modifier.fillMaxWidth().height(ChatMetrics.PERMISSION_DENY_HEIGHT_PT.dp)
@@ -1873,6 +1896,13 @@ private fun ChatTranscript(
         state.rows.joinToString(separator = "\u0000") { it.id }
     }
     var scrollSessionID by remember { mutableStateOf(state.sessionID) }
+    // iOS `pendingInitialScroll`: the sentinel must not page before the initial
+    // tail placement, or paging re-anchors the top and fights the tail jump.
+    var tailPlaced by remember(state.sessionID) { mutableStateOf(false) }
+    // iOS `historyAutoLoadScheduled`: a page is scheduled or in flight.
+    var historyScheduled by remember(state.sessionID) { mutableStateOf(false) }
+    val currentState by rememberUpdatedState(state)
+    val currentLoadEarlier by rememberUpdatedState(onLoadEarlier)
 
     suspend fun scrollToTail(animate: Boolean) {
         val itemCount = listState.layoutInfo.totalItemsCount
@@ -1925,7 +1955,12 @@ private fun ChatTranscript(
         snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 1 }
         withFrameNanos { }
         if (!switchedSession && (scrolledAway || listState.isScrollInProgress)) return@LaunchedEffect
+        // iOS `guard followsTail, !loadingEarlierTranscript`: a page prepended by
+        // the history sentinel is placed by the sentinel's anchor restore, not
+        // thrown back to the tail.
+        if (!switchedSession && (historyScheduled || currentState.transcript.loadingEarlier)) return@LaunchedEffect
         scrollToTail(animate = false)
+        tailPlaced = true
     }
 
     // Streaming text can grow under the same row id. Images/math can change row
@@ -1949,11 +1984,80 @@ private fun ChatTranscript(
             }
             val viewportChanged = previousViewport != null && previousViewport != viewportHeight
             if (!(rowHeightChanged || viewportChanged) || state.rows.isEmpty() || scrolledAway ||
-                autoScrolling || listState.isScrollInProgress
+                autoScrolling || listState.isScrollInProgress ||
+                historyScheduled || currentState.transcript.loadingEarlier
             ) return@collect
             withFrameNanos { }
             if (!scrolledAway && !autoScrolling && !listState.isScrollInProgress) {
                 scrollToTail(animate = false)
+            }
+        }
+    }
+
+    // iOS `loadEarlierIfNeeded` (ChatPage.swift): when the reader reaches the top
+    // sentinel, load one older page, then put the row that was first on screen back
+    // at the same offset so the sentinel leaves the viewport. No tap needed.
+    LaunchedEffect(listState, state.sessionID) {
+        while (true) {
+            snapshotFlow {
+                val s = currentState
+                tailPlaced && s.rows.isNotEmpty() && s.transcript.hasMore &&
+                    !s.transcript.loadingEarlier && currentLoadEarlier != null &&
+                    listState.layoutInfo.visibleItemsInfo.any { it.key == CHROME_ITEM }
+            }.first { it }
+            historyScheduled = true
+            try {
+                delay(ChatMetrics.HISTORY_SENTINEL_SETTLE_MS)
+                val info = listState.layoutInfo
+                val load = currentLoadEarlier
+                if (load == null || currentState.transcript.loadingEarlier ||
+                    info.visibleItemsInfo.none { it.key == CHROME_ITEM }
+                ) continue
+                val anchor = info.visibleItemsInfo.firstOrNull { it.key != CHROME_ITEM }
+                val anchorKey = anchor?.key
+                val anchorOffset = anchor?.offset ?: 0
+                val rowsBefore = currentState.rows.size
+                load()
+                // The host flips `loadingEarlier` while the page is read; a host that
+                // ignores the call never flips it, so do not wait for it forever.
+                val started = withTimeoutOrNull(HISTORY_START_TIMEOUT_MS) {
+                    snapshotFlow { currentState.transcript.loadingEarlier }.first { it }
+                }
+                if (started != null) {
+                    snapshotFlow { currentState.transcript.loadingEarlier }.first { !it }
+                }
+                withFrameNanos { }
+                val rowsAfter = currentState.rows.size
+                val added = (rowsAfter - rowsBefore).coerceAtLeast(0)
+                val rowIndex = currentState.rows.indexOfFirst { it.id == anchorKey }
+                // The old first row, or — when the page re-derived row ids — the
+                // first row that was already there before the prepend. Either way
+                // the sentinel leaves the viewport and does not page on its own.
+                val target = when {
+                    rowIndex >= 0 -> rowIndex
+                    added > 0 -> added
+                    else -> -1
+                }
+                if (target >= 0) {
+                    autoScrolling = true
+                    try {
+                        // +1: the chrome item sits above the rows.
+                        listState.scrollToItem(target + 1)
+                        if (rowIndex >= 0 && anchorOffset != 0) listState.scrollBy(-anchorOffset.toFloat())
+                    } finally {
+                        autoScrolling = false
+                    }
+                }
+                delay(ChatMetrics.HISTORY_SENTINEL_COOLDOWN_MS)
+                // A read that added nothing or failed must not spin: iOS pages only
+                // when the sentinel moves, so wait for new rows or a reader gesture.
+                if (added == 0 || currentState.transcript.error != null) {
+                    historyScheduled = false
+                    snapshotFlow { currentState.rows.size != rowsAfter || listState.isScrollInProgress }
+                        .first { it }
+                }
+            } finally {
+                historyScheduled = false
             }
         }
     }
@@ -1968,7 +2072,7 @@ private fun ChatTranscript(
     ) {
         if (state.rows.isEmpty()) {
             Column(modifier = Modifier.fillMaxSize()) {
-                TranscriptChrome(state = state, onLoadEarlier = onLoadEarlier)
+                TranscriptChrome(state = state, historyScheduled = historyScheduled)
                 EmptyTimeline(
                     state = state,
                     startEngineAvailability = startEngineAvailability,
@@ -1992,7 +2096,7 @@ private fun ChatTranscript(
                 // put the first row directly under the header.
                 verticalArrangement = Arrangement.Bottom,
             ) {
-                item(key = CHROME_ITEM) { TranscriptChrome(state = state, onLoadEarlier = onLoadEarlier) }
+                item(key = CHROME_ITEM) { TranscriptChrome(state = state, historyScheduled = historyScheduled) }
                 itemsIndexed(items = state.rows, key = { _, row -> row.id }) { index, row ->
                     val gap = rowGap(previous = state.rows.getOrNull(index - 1), current = row)
                     Box(modifier = if (gap == null) Modifier else Modifier.padding(top = gap)) {
@@ -2075,43 +2179,38 @@ private fun ChatTranscript(
 @Composable
 private fun TranscriptChrome(
     state: ChatScreenState,
-    onLoadEarlier: (() -> Unit)?,
+    historyScheduled: Boolean = false,
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = HomeMetrics.contentInset)) {
         if (state.transcript.hasMore) {
+            // iOS `historySentinel` (ChatPage.swift:1355): a passive top sentinel,
+            // not a button. Reaching it pages once (ChatTranscript's history
+            // effect); the spinner shows while a page is scheduled or loading.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .defaultMinSize(minHeight = tokens.geometry.pageRowMinHeight)
-                    .clickable(
-                        enabled = !state.transcript.loadingEarlier && onLoadEarlier != null,
-                        role = Role.Button,
-                        onClick = { onLoadEarlier?.invoke() },
-                    )
+                    .defaultMinSize(minHeight = ChatMetrics.HISTORY_SENTINEL_MIN_HEIGHT_PT.dp)
                     .testTag(UiPageTags.CHAT_LOAD_EARLIER),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText, Alignment.CenterHorizontally),
+                horizontalArrangement = Arrangement.spacedBy(
+                    ChatMetrics.HISTORY_SENTINEL_SPACING_PT.dp,
+                    Alignment.CenterHorizontally,
+                ),
             ) {
-                if (state.transcript.loadingEarlier) {
+                if (state.transcript.loadingEarlier || historyScheduled) {
                     CircularProgressIndicator(
                         color = tokens.colors.tertiary,
                         strokeWidth = tokens.stroke.hairline,
                         modifier = Modifier.size(tokens.geometry.composerControlSize),
                     )
-                    // iOS `loadingEarlierTranscript ? "正在加载…" : "加载更早消息"`:
-                    // one word per state, each written out here.
-                    BasicText(
-                        text = UiStrings.LOADING_EARLIER,
-                        style = type.secondary.copy(color = tokens.colors.secondary),
-                    )
-                } else {
-                    BasicText(
-                        text = UiStrings.LOAD_EARLIER,
-                        style = type.secondary.copy(color = tokens.colors.secondary),
-                    )
                 }
+                // iOS `loadingEarlierTranscript ? "正在加载更早消息" : "上滑加载更早消息"`, 12 pt.
+                BasicText(
+                    text = if (state.transcript.loadingEarlier) UiStrings.LOADING_EARLIER else UiStrings.LOAD_EARLIER,
+                    style = type.caption.copy(color = tokens.colors.secondary),
+                )
             }
         }
         val transcriptError = state.transcript.error
@@ -4013,6 +4112,8 @@ private val CONFIRM_IDS: Set<String> = setOf("bypassPermissions", "danger-full-a
 
 /** The stable key of the transcript's chrome item. */
 private const val CHROME_ITEM: String = "chat-transcript-chrome"
+/** How long the history sentinel waits for the host to start a page before giving up on it. */
+private const val HISTORY_START_TIMEOUT_MS: Long = 2_000
 
 /** The rename alert's scrim opacity (the platform alert dims the page behind it). */
 private const val SCRIM_ALPHA: Float = 0.25f

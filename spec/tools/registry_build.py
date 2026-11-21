@@ -68,7 +68,9 @@ PATH_PROJECTIONS = {'P01': {'authority': ['spec/v1/channel.md', 'spec/v1/schema'
                   'Kotlin': ['android/engine/src/main/kotlin/com/phonedsh/engine/{WebViewEngine,NavigationPolicy}.kt']},
          'status': ['target', 'legacy'],
          'evidence': ['spec/v1/tools/bridge_check.py']},
- 'P05': {'authority': ['spec/v1/gateway-security.md',
+ 'P05': {'authority': ['spec/v1/gateway-independent-search.md',
+                       'spec/ui/v1/web-search-address-lifecycle.md',
+                       'spec/v1/gateway-security.md',
                        'spec/v1/schema/gateway-vector.schema.json',
                        'spec/v1/golden/gateway',
                        'spec/v1/github-oauth.md'],
@@ -77,7 +79,9 @@ PATH_PROJECTIONS = {'P01': {'authority': ['spec/v1/channel.md', 'spec/v1/schema'
                             'examples/probe-app/ProbeKit/GitHubOAuthFlow.swift'],
                   'TypeScript': ['plugins/llm-bridge', 'plugins/phone-mcp/src/{manager,schema}.ts'],
                   'JavaScript': ['services/github-oauth/server.mjs'],
-                  'Kotlin': ['android/net/src/main']},
+                  'Kotlin': ['android/net/src/main',
+                             'android/app/src/main/kotlin/com/phonedsh/probe/HostWebSearch.kt',
+                             'android/app/src/main/kotlin/com/phonedsh/probe/WebSearchSettingsStore.kt']},
          'status': [],
          'evidence': ['android/net/src/test/kotlin/com/phonedsh/gateway/GatewayVectorConformanceTest.kt',
                       'Tests/PhoneDSHGatewayTests',
@@ -111,11 +115,14 @@ PATH_PROJECTIONS = {'P01': {'authority': ['spec/v1/channel.md', 'spec/v1/schema'
          'evidence': ['spec/platform/tools/platform_check.py',
                       'examples/probe-app/PhoneDSHSimTests/ProbeSceneLifecycleTests.swift',
                       'Tests/PhoneDSHTests/ProbeScenePhaseWiringTests.swift']},
- 'P09': {'authority': ['spec/ui/v1/README.md',
+ 'P09': {'authority': ['spec/ui/v1/web-search-address-lifecycle.md',
+                       'spec/ui/v1/fixtures/web-search-address-lifecycle.json',
+                       'spec/ui/v1/schema/web-search-address-lifecycle.schema.json',
+                       'spec/ui/v1/README.md',
                        'spec/ui/v1/tokens.json',
                        'spec/ui/v1/pages',
                        'spec/v1/trajectory.md'],
-         'ends': {'Swift': ['examples/probe-app/PhoneDSHProbe'], 'Kotlin': ['android/lib']},
+         'ends': {'Swift': ['examples/probe-app/PhoneDSHProbe'], 'Kotlin': ['android/lib', 'android/app/src/main/kotlin/com/phonedsh/probe/HostWebSearch.kt']},
          'status': [],
          'evidence': ['android/**/UiStateProjectorGoldenTest.kt',
                       'android/**/TrajectoryNormalizerTest.kt',
@@ -170,14 +177,18 @@ PATH_PROJECTIONS = {'P01': {'authority': ['spec/v1/channel.md', 'spec/v1/schema'
                             'Sources/PhoneDSHGateway/ModelGateway.swift']},
          'status': [],
          'evidence': []},
- 'P18': {'authority': ['plugins/worker-entry/src/capabilities.ts',
+ 'P18': {'authority': ['spec/v1/gateway-independent-search.md',
+                       'spec/ui/v1/web-search-address-lifecycle.md',
+                       'plugins/worker-entry/src/capabilities.ts',
                        'plugins/phone-mcp/src/schema.ts',
                        'plugins/phone-model-config/src/model-config.ts',
                        'docs/protocol-changes/PC-20261111-ios-github.md'],
          'ends': {'Swift': ['Sources/PhoneDSHLog/MaterializedInvariant.swift',
                             'Sources/PhoneDSHScenario/ScenarioBudgets.swift',
                             'Sources/PhoneDSH/Phone*Settings.swift',
-                            'examples/probe-app/PhoneDSHProbe/GitHubConnectorPage.swift']},
+                            'examples/probe-app/PhoneDSHProbe/GitHubConnectorPage.swift'],
+                  'Kotlin': ['android/app/src/main/kotlin/com/phonedsh/probe/HostWebSearch.kt',
+                             'android/app/src/main/kotlin/com/phonedsh/probe/WebSearchSettingsStore.kt']},
          'status': [],
          'evidence': []},
  'P19': {'authority': ['examples/probe-app/ProbeKit/Capabilities/PhoneToolEnvelope.swift',
@@ -294,6 +305,13 @@ PATH_PROJECTIONS['P07']['evidence'].append('spec/v1/tools/test_ble_secure_sessio
 PATH_PROJECTIONS['P07']['authority'].append('spec/device/v1/device-panel.md')
 PATH_PROJECTIONS['P07']['evidence'].append('spec/v1/tools/test_device_panel_golden.py')
 PATH_PROJECTIONS['P18']['authority'].append('spec/device/v1/device-panel.md')
+# device Bot (PC-20261117-device-bot-contract): trigger/key/text are P07, the persisted map is P18.
+PATH_PROJECTIONS['P07']['authority'].append('spec/device/v1/device-bot.md')
+PATH_PROJECTIONS['P07']['evidence'].append('spec/v1/tools/test_device_bot_binding_golden.py')
+PATH_PROJECTIONS['P18']['authority'].append('spec/device/v1/device-bot.md')
+# device app install (PC-20261117-device-app-push): tool surface and admission are P07, the Bot host tools P26.
+PATH_PROJECTIONS['P07']['authority'].append('spec/device/v1/device-app.md')
+PATH_PROJECTIONS['P07']['evidence'].append('spec/v1/tools/test_device_app_golden.py')
 
 
 def registry_schema():

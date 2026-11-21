@@ -1,0 +1,27 @@
+{
+  "name": "admission-record-completed",
+  "schema": "schema/admission-record.schema.json",
+  "instance": {
+    "v": 1,
+    "admissionId": "d5435d6eb14d22fa9613eb7b1d914543c0088691fa37aff2efd98b7f52ca9d3f",
+    "principal": "local",
+    "source": {
+      "kind": "tonolink-voice",
+      "id": "74818345ab25ec804caef585fbd5dcaffff56f39865de74c295924656a64f262"
+    },
+    "sourceRequestId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "target": {
+      "kind": "dsh-session",
+      "sessionId": "gb-main"
+    },
+    "contentSha256": "7645adc2815dfc378380a246f02dc4858ef491b440e3bf4d9217ce215f33a27c",
+    "downstreamId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "admittedAtMs": 1794700000000,
+    "expiresAtMs": 1794786400000,
+    "stage": "completed",
+    "attempts": 0,
+    "linkedAtMs": 1794700000900,
+    "settledAtMs": 1794700009800
+  },
+  "notes": "spec/host/v1/external-admission.md:§3 — terminal record kept as the dedupe tombstone until the sweep limit."
+}

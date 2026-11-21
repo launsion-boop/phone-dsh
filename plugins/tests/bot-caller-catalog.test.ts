@@ -80,6 +80,8 @@ test('only a catalog with the roster marker is treated as identified', () => {
       SendToAgent: nonMainCatalog.tools[0]?.description,
     },
     includeCreateTeammate: false,
+    deviceAppTools: [],
+    xiaozhiTools: [],
   })
   assert.deepEqual(planCallerCatalog(mainCatalog), {
     descriptions: {
@@ -87,6 +89,8 @@ test('only a catalog with the roster marker is treated as identified', () => {
       CreateTeammate: mainCatalog.tools[1]?.description,
     },
     includeCreateTeammate: true,
+    deviceAppTools: [],
+    xiaozhiTools: [],
   })
 })
 
@@ -253,6 +257,145 @@ test('a refresh replaces the scoped surface when the caller becomes the main Bot
       after.tools.find(entry => entry.name === 'mcp__phone__CreateTeammate')?.description,
       mainCatalog.tools[1]?.description,
     )
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+const boundCatalog: CallerCatalog = {
+  tools: [
+    {
+      name: 'SendToAgent',
+      description: 'send\nAvailable bots: Alpha (id: bot-a, main Bot); Xray (id: bot-x).',
+    },
+    { name: 'DeviceAppStage', description: 'stage' },
+    { name: 'DeviceAppInstall', description: 'install' },
+    { name: 'DeviceAppList', description: 'list' },
+    { name: 'DeviceAppRemove', description: 'remove' },
+  ],
+}
+
+const xiaozhiNames = ['XiaozhiSourceExport', 'XiaozhiFirmwareBuild', 'XiaozhiFirmwareStatus', 'XiaozhiFirmwareFlash']
+const xiaozhiCatalog: CallerCatalog = {
+  tools: [
+    {
+      name: 'SendToAgent',
+      description: 'send\nAvailable bots: Alpha (id: bot-a, main Bot); Xray (id: bot-x).',
+    },
+    ...xiaozhiNames.map(name => ({ name, description: name })),
+  ],
+}
+
+test('xiaozhi firmware tools are deny-unless-listed per caller', async () => {
+  assert.deepEqual(planCallerCatalog(xiaozhiCatalog)?.xiaozhiTools, xiaozhiNames)
+  // A xiaozhi-bound Bot is not a device-app Bot.
+  assert.deepEqual(planCallerCatalog(xiaozhiCatalog)?.deviceAppTools, [])
+  // Unbound / device-app-bound callers never get the xiaozhi tools.
+  assert.deepEqual(planCallerCatalog(nonMainCatalog)?.xiaozhiTools, [])
+  assert.deepEqual(planCallerCatalog(boundCatalog)?.xiaozhiTools, [])
+  // Only some listed: the others stay hidden; near names are never xiaozhi tools.
+  assert.deepEqual(planCallerCatalog({
+    tools: [xiaozhiCatalog.tools[0]!, xiaozhiCatalog.tools[4]!],
+  })?.xiaozhiTools, ['XiaozhiFirmwareFlash'])
+  assert.deepEqual(planCallerCatalog({
+    tools: [xiaozhiCatalog.tools[0]!, { name: 'XiaozhiFirmwareFlashAll', description: 'x' },
+      { name: 'xiaozhifirmwarebuild', description: 'x' }],
+  })?.xiaozhiTools, [])
+
+  const ctx = await mountRuntime()
+  let catalog: CallerCatalog = nonMainCatalog
+  const names = async (agent: Agent): Promise<string[]> =>
+    (await assembleFor(ctx, agent)).tools.map(entry => entry.name).filter(name => name.includes('Xiaozhi'))
+  try {
+    registerTeamProbes(ctx)
+    for (const name of xiaozhiNames) registerProbe(ctx, `mcp__phone__${name}`, `static ${name}`)
+    await ctx.plugin(dshbotIdentityBridge, {
+      catalog: {
+        cacheTtlMs: 0,
+        request: async sessionId => sessionId === 'gb-bot-x' ? xiaozhiCatalog : catalog,
+      },
+    })
+    const unbound = await createAgent(ctx, 'gb-bot-b')
+    assert.deepEqual(await names(unbound), [])
+    const bound = await createAgent(ctx, 'gb-bot-x')
+    assert.deepEqual(await names(bound), xiaozhiNames.map(name => `mcp__phone__${name}`).sort())
+    // Unidentified caller (workbench): the static surface is untouched.
+    const workbench = await createAgent(ctx, 'session-workbench')
+    assert.deepEqual(await names(workbench), xiaozhiNames.map(name => `mcp__phone__${name}`).sort())
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('device-app tools are deny-unless-listed per caller', async () => {
+  assert.deepEqual(planCallerCatalog(boundCatalog)?.deviceAppTools,
+    ['DeviceAppStage', 'DeviceAppInstall', 'DeviceAppList', 'DeviceAppRemove'])
+  assert.deepEqual(planCallerCatalog(nonMainCatalog)?.deviceAppTools, [])
+  // Only some listed: the others stay hidden (no widening).
+  assert.deepEqual(planCallerCatalog({
+    tools: [boundCatalog.tools[0]!, boundCatalog.tools[1]!],
+  })?.deviceAppTools, ['DeviceAppStage'])
+  // A near-name is never treated as a device-app tool.
+  assert.deepEqual(planCallerCatalog({
+    tools: [boundCatalog.tools[0]!, { name: 'DeviceAppInstallAll', description: 'x' },
+      { name: 'DeviceAppListX', description: 'x' }, { name: 'DeviceAppRemoveAll', description: 'x' }],
+  })?.deviceAppTools, [])
+  // List and remove are independent names: listing one never reveals the other.
+  assert.deepEqual(planCallerCatalog({
+    tools: [boundCatalog.tools[0]!, boundCatalog.tools[3]!],
+  })?.deviceAppTools, ['DeviceAppList'])
+
+  const ctx = await mountRuntime()
+  let catalog: CallerCatalog = nonMainCatalog
+  let requests = 0
+  const names = async (agent: Agent): Promise<string[]> =>
+    (await assembleFor(ctx, agent)).tools.map(entry => entry.name).filter(name => name.includes('DeviceApp'))
+  try {
+    registerTeamProbes(ctx)
+    registerProbe(ctx, 'mcp__phone__DeviceAppStage', 'static stage')
+    registerProbe(ctx, 'mcp__phone__DeviceAppInstall', 'static install')
+    registerProbe(ctx, 'mcp__phone__DeviceAppList', 'static list')
+    registerProbe(ctx, 'mcp__phone__DeviceAppRemove', 'static remove')
+    await ctx.plugin(dshbotIdentityBridge, {
+      catalog: {
+        cacheTtlMs: 0,
+        request: async sessionId => {
+          requests += 1
+          return sessionId === 'gb-bot-a' ? boundCatalog : catalog
+        },
+      },
+    })
+
+    // Unbound Bot: all four tools hidden; its other tools and the team surface stay.
+    const unbound = await createAgent(ctx, 'gb-bot-b')
+    assert.deepEqual(await names(unbound), [])
+    assert.equal((await assembleFor(ctx, unbound)).tools.some(e => e.name === 'mcp__phone__SendToAgent'), true)
+
+    // Bound Bot: all four visible.
+    const bound = await createAgent(ctx, 'gb-bot-a')
+    assert.deepEqual(await names(bound), ['mcp__phone__DeviceAppInstall', 'mcp__phone__DeviceAppList', 'mcp__phone__DeviceAppRemove', 'mcp__phone__DeviceAppStage'])
+
+    // Unidentified caller (workbench): the static surface is untouched.
+    const workbench = await createAgent(ctx, 'session-workbench')
+    assert.deepEqual(await names(workbench), ['mcp__phone__DeviceAppInstall', 'mcp__phone__DeviceAppList', 'mcp__phone__DeviceAppRemove', 'mcp__phone__DeviceAppStage'])
+
+    // The binding appears later: a refresh reveals the tools; losing it hides them again.
+    catalog = boundCatalog
+    const before = requests
+    ctx.emit('agent/status', { agent: unbound, status: 'idle' })
+    for (let attempt = 0; attempt < 100 && requests <= before; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 1))
+    }
+    await new Promise(resolve => setTimeout(resolve, 5))
+    assert.deepEqual(await names(unbound), ['mcp__phone__DeviceAppInstall', 'mcp__phone__DeviceAppList', 'mcp__phone__DeviceAppRemove', 'mcp__phone__DeviceAppStage'])
+    catalog = nonMainCatalog
+    const again = requests
+    ctx.emit('agent/status', { agent: unbound, status: 'idle' })
+    for (let attempt = 0; attempt < 100 && requests <= again; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 1))
+    }
+    await new Promise(resolve => setTimeout(resolve, 5))
+    assert.deepEqual(await names(unbound), [])
   } finally {
     await ctx.fiber.dispose()
   }

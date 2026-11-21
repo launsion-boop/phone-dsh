@@ -1845,11 +1845,12 @@ def content_card_final_mutations(catalog):
 
 # --- P25 store / user-action transaction vectors (phone-owned) -----------------
 
+STORE_SCHEMA_VERSION = 4
 STORE_ERRORS = frozenset({
     "INVALID_EVENT", "SCHEMA_TOO_NEW", "EPHEMERAL_HAS_COMMIT_SEQ", "UNKNOWN_REQUIRED_EVENT",
     "COMMIT_SEQ_ASSIGNED_BY_STORE", "MISSING_COMMIT_SEQ",
     "invalidTransition", "invalidCursor", "invalidConfiguration", "corrupted",
-    "staleLease", "unknownEffect", "schemaTooNew:4", "commitGap:2:3",
+    "staleLease", "unknownEffect", "schemaTooNew:5", "commitGap:2:3",
     "simulatedCrash:abort-before-commit", "simulatedCrash:abort-after-commit",
 })
 TERMINAL_EFFECT_STATES = frozenset({"acked", "dead_letter", "canceled"})
@@ -1960,7 +1961,7 @@ class _StoreModel:
         self.inbox_executions = {}
         self.crash_point = None
         self.closed = False
-        self.version = 3
+        self.version = STORE_SCHEMA_VERSION
         self.migrated_from = 0
         self.open_failed = open_failed
         self.ephemeral = []
@@ -1980,14 +1981,14 @@ class _StoreModel:
                 self.nonces[(nonce["botId"], nonce["nonce"])] = nonce["eventId"]
         # A refused migration rolls back: the file keeps its old version and
         # the old rows. Successful cases (and fresh databases) are v3.
-        self.version = user_version if open_failed else 3
+        self.version = user_version if open_failed else STORE_SCHEMA_VERSION
 
     def open_failure_detail(self):
         """The detail that names the first migration gap, or None."""
         for index, seq in enumerate(sorted(self.events), start=1):
             if seq != index:
                 return f"commit_seq gap: expected {index}, found {seq}"
-        if self.version > 3:
+        if self.version > STORE_SCHEMA_VERSION:
             return f"schemaTooNew:{self.version}"
         return None
 
@@ -2109,7 +2110,7 @@ class _StoreModel:
                 "dropped": self.dropped, "head": self.head}
 
     def _op_reopen(self, step):
-        if self.version > 3:
+        if self.version > STORE_SCHEMA_VERSION:
             raise _StoreModelError(f"schemaTooNew:{self.version}")
         expected = sorted(self.events)
         if expected != list(range(1, len(expected) + 1)):
@@ -2137,7 +2138,7 @@ class _StoreModel:
         if query.startswith("PRAGMA user_version"):
             return {"rows": [[str(self.version)]]}
         if "sqlite_master WHERE name = 'bot_events'" in query:
-            if self.migrated_from and self.version == 3:
+            if self.migrated_from and self.version == STORE_SCHEMA_VERSION:
                 return {"rows": [["view"]]}
             return {"rows": [["table"]]}
         if query == "SELECT COUNT(*) FROM bot_event_headers":
@@ -4417,12 +4418,16 @@ TEAM_REQUIRED_VALID = frozenset({
     "send-now-with-title", "send-queued-with-title", "send-priority-false-string",
     "send-target-and-text-aliases", "send-hidden-target-by-name",
     "send-depth-two-allowed", "send-duplicate-call-id", "send-pre-wp4-bare-call-id",
-    "send-held-reply-cap", "create-teammate-success", "create-teammate-minimal",
+    "send-held-reply-cap", "send-reply-to-previous-hop", "send-reply-at-depth-two",
+    "send-reply-queued-no-wake", "send-reply-to-queued-handoff-no-wake",
+    "create-teammate-success", "create-teammate-minimal",
 })
 TEAM_REQUIRED_INVALID = frozenset({
     "send-missing-agent", "send-missing-message", "send-missing-priority",
     "send-priority-conflict", "send-priority-invalid", "send-delivery-invalid",
     "send-target-not-found", "send-self", "send-depth-three", "send-cycle",
+    "send-reply-older-hop-cycle", "send-reply-depth-three-new-hop",
+    "send-reply-without-inbound-context",
     "send-timeout", "send-queued-enqueue-failure", "send-arguments-not-object",
     "create-not-main", "create-missing-name", "create-name-too-long",
     "create-color-invalid", "create-hairstyle-invalid",
@@ -4439,6 +4444,16 @@ TEAM_CONTRACT_SEND = {
     "promptTemplate": "[agent] <name> (id: <id>)[ — <title>]: <message>",
     "queuedText": "已扣住给 <name>：消息会在对方下一个回合开头交付，不会唤醒对方。",
     "nowText": "已发送给 <name>，回复稍后以 agent-comm 消息送达。",
+    "replyText": "已回复 <name>：回复已写入对方的 held inbox，这次回复不算新的转交。",
+    "replyHeldRequestIdTemplate": "reply:agent:<callId>",
+    "replyRowDirection": "reply",
+    "replyRowIdTemplate": "t<turn>u[<n>]",
+    "replyAddsHop": False,
+    "replyInstallsChain": False,
+    "replyWakeRule": 'inbound.delivery == "now" && delivery == "now"',
+    "replyPredicate": ("depth >= 1 && inbound != nil && chain.count >= 2 && chain.last == caller "
+                       "&& chain[count-2] == target && inbound.senderID == target"),
+    "replyResultMember": "reply",
 }
 
 
@@ -4491,6 +4506,11 @@ def _team_derive_comm(record):
         ("hop", "hop"), ("callID", "callId"),
         ("replyEntryID", "replyEntryId"), ("error", "error"),
     ):
+        # A reply row's `callId` is the durable idempotency key and stays a
+        # top-level data member; the frozen `agentComm.reply` object has no
+        # `callId` (team.md §2.9).
+        if record_key == "callID" and direction == "reply":
+            continue
         if record_key in record:
             comm[comm_key] = record[record_key]
     return {key: value for key, value in comm.items() if value is not None}
@@ -4637,6 +4657,19 @@ def validate_team_fixture(fixture):
                      and isinstance(context.get("turn"), int)
                      and isinstance(context.get("existingRowIDs"), list),
                      f"{name}: context")
+            inbound = context.get("inbound")
+            if inbound is not None:
+                _require(isinstance(inbound, dict)
+                         and inbound.get("senderID") in bot_ids
+                         and isinstance(inbound.get("requestID"), str)
+                         and inbound["requestID"]
+                         and isinstance(inbound.get("threadID"), str)
+                         and inbound["threadID"]
+                         and inbound.get("delivery") in {"now", "queued"},
+                         f"{name}: context.inbound")
+                title = inbound.get("title")
+                _require(title is None or isinstance(title, str),
+                         f"{name}: context.inbound.title")
         expect = case.get("expect")
         _require(isinstance(expect, dict), f"{name}: expect")
         _require(isinstance(expect.get("isError"), bool), f"{name}: expect.isError")
@@ -4721,6 +4754,37 @@ def validate_team_fixture(fixture):
         _require(isinstance(held, list), f"{name}: held")
         for index, entry in enumerate(held):
             _team_validate_held(entry, f"{name}.held[{index}]")
+
+        # Reply cases (§2.3.1): the wake policy is part of the frozen vector.
+        # `expect.wake` is the exact list of Bots woken once; a reply that is
+        # queued on either side must stay silent.
+        records = expect.get("records") or []
+        is_reply = bool(records) and records[0].get("direction") == "reply"
+        wake = expect.get("wake")
+        if is_reply:
+            _require("wake" in expect, f"{name}: a reply case must declare expect.wake")
+        if wake is not None:
+            _require(isinstance(wake, list)
+                     and all(isinstance(bot, str) and bot in bot_ids for bot in wake),
+                     f"{name}: expect.wake")
+            inbound = (context or {}).get("inbound") or {}
+            arguments = case.get("arguments") if isinstance(case.get("arguments"), dict) else {}
+            priority = arguments.get("priority")
+            if priority is True:
+                reply_delivery = "now"
+            elif priority is False:
+                reply_delivery = "queued"
+            elif arguments.get("delivery") in {"now", "queued"}:
+                reply_delivery = arguments["delivery"]
+            elif isinstance(priority, str) and priority in {"true", "false"}:
+                reply_delivery = "now" if priority == "true" else "queued"
+            else:
+                reply_delivery = "now"
+            if inbound.get("delivery") == "now" and reply_delivery == "now":
+                _require(wake == [inbound.get("senderID")],
+                         f"{name}: a now reply wakes exactly its previous hop once")
+            else:
+                _require(wake == [], f"{name}: a queued side must not wake")
 
     rows = fixture.get("rowCases")
     _require(isinstance(rows, list) and len(rows) == 4, "team-cases.phone: rowCases")
@@ -4808,7 +4872,11 @@ def team_fixture_mutations(fixture):
         case for case in f["sendToUserCases"]["invalid"]
         if case["name"] == "hidden-wake")["expect"]["structured"]["error"]
         .update({"message": "wrong"}))
-    return 9
+    expect_failure("reply-contract-text", lambda f: f["contract"]["sendToAgent"]
+                   .update({"replyText": "wrong"}))
+    expect_failure("reply-wake", lambda f: by_name(f, "send-reply-to-previous-hop")
+                   ["expect"].update({"wake": []}))
+    return 11
 
 
 TASK_ERROR_CODES = frozenset({

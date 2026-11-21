@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "selftest": false,
+  "description": "review-only real-model catalog for activity-evidence-v3. Three tasks use different real files and force a two-read sequence (read A -> result -> short public progress -> read B), so acceptance can prove result-to-next-call continuity, not just a filename. No mock.tools and no scripted upstream. The third task drafts a local email reply from seeded inbox material; it never sends mail.",
+  "budget": {
+    "max_minutes": 30,
+    "max_model_requests": 60
+  },
+  "scenarios": [
+    {
+      "id": "ACT-01-PR-174",
+      "title": "check PR 174 against main with two reads",
+      "description": "First read returns PR 174 notes; the model must write one short public progress sentence before reading main. Objects: #174, conflict count.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 5,
+        "max_model_requests": 12
+      },
+      "timeout_s": 300,
+      "workspace": {
+        "root": "bot",
+        "files": {
+          "pr/174-notes.md": "# PR 174\n\nconflict files: 3\nfiles: BotChatModel.swift, BotRuntimePresentation.swift, BotActivityPhrases.swift\n",
+          "pr/main-notes.md": "# main\n\nbase commit: 908d582b\nPR 174 touches three files; merge check still open.\n"
+        }
+      },
+      "network": "none",
+      "turns": [
+        {
+          "prompt": "查一下 #174 能不能合：先读 pr/174-notes.md，再读 pr/main-notes.md。每读完一个文件，先用一句 10–20 字的简短进度说明刚看到什么、下一步看什么，再继续；最后只回答冲突文件数。"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "tool_called",
+          "name": "read",
+          "arguments_contains": "174-notes.md"
+        },
+        {
+          "type": "tool_called",
+          "name": "read",
+          "arguments_contains": "main-notes.md"
+        },
+        {
+          "type": "reply_contains",
+          "value": "3",
+          "turn": 1
+        }
+      ]
+    },
+    {
+      "id": "ACT-02-WEDNESDAY-MEETING",
+      "title": "summarize Wednesday meeting from two real files",
+      "description": "Same two-read sequence with different objects (meeting, owner) so the bubble sentences must differ from ACT-01. Tool choice is recorded from the real session log, not forced by the catalog: read or a bash call carrying the file path both count as real tool use.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 5,
+        "max_model_requests": 12
+      },
+      "timeout_s": 300,
+      "workspace": {
+        "root": "bot",
+        "files": {
+          "notes/wednesday-meeting.md": "# 周三例会\n\n待办 3 项\n负责人：李光浩\n主题：发布清单\n",
+          "notes/actions.md": "# 行动项\n\n李光浩：整理发布清单并核对日期\n截止：本周五\n"
+        }
+      },
+      "network": "none",
+      "turns": [
+        {
+          "prompt": "总结周三例会：先读 notes/wednesday-meeting.md，再读 notes/actions.md。每读完一个文件，先用一句 10–20 字的简短进度说明刚看到什么、下一步看什么，再继续；最后只输出待办负责人姓名，不要其他内容。"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "value": "李光浩",
+          "turn": 1
+        }
+      ]
+    },
+    {
+      "id": "ACT-03-EMAIL-DRAFT",
+      "title": "draft a local reply to Li Guanghao from seeded inbox material",
+      "description": "Reads a local inbox message and context, then drafts a reply. No mail account, network or send tool is used; only a local draft is produced. Tool choice is recorded from the real session log, not forced by the catalog: read or a bash call carrying the file path both count as real tool use.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 5,
+        "max_model_requests": 12
+      },
+      "timeout_s": 300,
+      "workspace": {
+        "root": "bot",
+        "files": {
+          "inbox/liguanghao-email.md": "# 邮件：李光浩\n\n发件人：李光浩\n日期：周三\n问题：本周五的发布清单是否已经定稿？请确认周五能否发布。\n",
+          "notes/release-context.md": "# 发布背景\n\n发布清单已定稿，周五可以发布。\n负责人：李光浩\n"
+        }
+      },
+      "network": "none",
+      "turns": [
+        {
+          "prompt": "帮我回复李光浩那封邮件：先读 inbox/liguanghao-email.md，再读 notes/release-context.md。每读完一个文件，先用一句 10–20 字的简短进度说明刚看到什么、下一步看什么，再继续；最后只写出给李光浩的回复草稿正文（开头称呼李光浩），不要调用发送工具，不要发邮件。"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "value": "李光浩",
+          "turn": 1
+        }
+      ]
+    }
+  ]
+}

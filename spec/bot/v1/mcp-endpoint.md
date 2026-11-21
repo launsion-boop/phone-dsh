@@ -612,12 +612,12 @@ Request body (`BotMCPHandler.swift:164-187`):
      `none`, is `stale:always_scope`.
   7. When the computed effect set is empty the call is auto-allowed with
      `{"ok":true,"allowed":true,"pending":false,"message":"auto-policy"}`; no card is created.
-- Decision outcomes:
+- Decision outcomes (`scope` is the **effective** grant scope, not the request echo):
   | decision | response |
   | --- | --- |
   | allow once | `ok:true, allowed:true, pending:false, approvalId, message:"allowed", approvalDecision:"allowOnce", scope:"once"` |
-  | always + `until` | same but `approvalDecision:"always", scope:"until"` |
-  | always + `session` | same but `approvalDecision:"always", scope:"session"` |
+  | always + `until` | same but `approvalDecision:"always", scope:"until"` when every effect can use a standing grant; otherwise the effective grant is one-shot and `scope` is `"once"` (§8.4) |
+  | always + `session` | `session` is only the request-level expected scope for all-unknown effects; those effects cannot use a standing grant, so `approvalDecision:"always", scope:"once"` (a consumed one-shot) |
   | always + `none` | same but `approvalDecision:"always", scope:"once"` (the effective grant is one-shot) |
   | deny | `ok:false, allowed:false, pending:false, approvalId, message:"approval denied", approvalDecision:"deny"`; no `scope` |
   | interactive timeout | `ok:false, allowed:false, pending:false, approvalId, message:"approval timed out"`; no decision or scope |
@@ -642,6 +642,17 @@ Request body (`BotMCPHandler.swift:164-187`):
   is accepted for every tool and resolves an `always` decision to a one-shot grant. Otherwise the
   supplied scope MUST equal the expected scope (`BotMCPRuntime.swift:984-992`). This is the frozen
   Swift rule; D13's narrower reading (`none` only for sandbox escalation) is superseded here.
+- **Standing-scope gate.** The scope the card actually offers — `approval.requested.alwaysScope` and
+  the projected card body — is `"none"` unless **every** effect can use a standing grant
+  (`BotToolEffect.canUseStandingGrant`: `known`, and either `mutability == external-send` or an
+  explicit `grantResource`). A destructive operation and every `tool.unclassified` effect
+  (`known:false`, including `RequestApproval`'s `approval.weak-action`) therefore offer no standing
+  answer, and an `always` decision against them is forced to a **consumed one-shot**:
+  `approvalDecision:"always"` with `scope:"once"` and an exact-resource grant. The user-visible
+  consequence is that these approvals are asked again on the next call; there is no standing
+  `session`/`until` grant to reuse. Eligible effects keep their requested scope (images and network
+  egress use their stable `grantResource`, a file write its parent directory;
+  `PC-20261113-approval-scope-and-haptics`, `PC-20261114-approval-once-scope`).
 - Sandbox escalation (`askAction:"sandbox-escalation"`) requires: bare tool `bash`,
   `alwaysScope:"none"`, exactly one body effect whose `operation` is `"sandbox-escalation"` and
   whose normalized `resource` is non-empty. The App replaces tool/operation/mutability/policy with

@@ -239,7 +239,8 @@ final class BotMCPRuntimeTests: XCTestCase {
         let id = try XCTUnwrap(approvalId)
         let requested = try await botEvents(fixture.store).first { $0.type == "approval.requested" }
         XCTAssertEqual(requested?.data["digest"], .string(digest))
-        XCTAssertEqual(requested?.data["alwaysScope"], .string("until"))
+        // destructive memory forget has no standing scope; the card is once-only
+        XCTAssertEqual(requested?.data["alwaysScope"], .string("none"))
         XCTAssertEqual(requested?.data["effects"]?.arrayValue?.first?["operation"], .string("memory.forget"))
         let stale = await fixture.runtime.approvals.resolve(
             approvalId: id, decision: .allowOnce, digest: String(repeating: "1", count: 64))
@@ -420,6 +421,7 @@ final class BotMCPRuntimeTests: XCTestCase {
     func testMemoryWriteUsesResolvedPrincipalAndCurrentTurn() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
+        await installTestProvenance(fixture)
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
         await fixture.runtime.beginTurn(
             sessionId: "gb-main", hidden: false,
@@ -453,6 +455,7 @@ final class BotMCPRuntimeTests: XCTestCase {
     func testCardAnswerTurnWritesSharedMemoryAsUserTurn() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
+        await installTestProvenance(fixture)
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
         await fixture.runtime.beginTurn(
             sessionId: "gb-main", hidden: false,

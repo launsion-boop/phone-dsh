@@ -221,6 +221,8 @@ final class BotInfoModel: ObservableObject {
     private let driver: BotInfoDriver?
     private let fixtureError: String?
     private var profileCenter: BotProfileCenter?
+    /// The Bot this page shows, once its profile center is attached.
+    var boundBotID: String? { profileCenter?.botID }
     private var profileCancellables: Set<AnyCancellable> = []
 
     init(snapshot: BotInfoSnapshot? = nil, driver: BotInfoDriver? = nil, fixtureError: String? = nil,
@@ -640,6 +642,25 @@ struct BotInfoPage: View {
                     .padding(.vertical, 8)
                     .listRowBackground(Color.clear)
                 }
+
+                #if !PDSH_PROBE_HOSTLESS_TESTS
+                if let botID = model.boundBotID, DeviceBotRegistry.shared.boardName(forBot: botID) != nil {
+                    TonoLinkPhoneControlSection()
+                } else if let botID = model.boundBotID, let device = DeviceBotRegistry.shared.device(forBot: botID) {
+                    Section {
+                        NavigationLink {
+                            DeviceEntryPage(device: device)
+                        } label: {
+                            Label(device.name, systemImage: "dot.radiowaves.left.and.right")
+                        }
+                        .accessibilityIdentifier("bot.info.device")
+                    } header: {
+                        Text("设备")
+                    } footer: {
+                        Text(device.linkDeviceID.isEmpty ? "设备没有连接；连上后这个 Bot 就能用它。" : (DeviceAppsPageModel.isDeviceAppTarget(tools: device.linkTools) ? "这个 Bot 负责这台设备。点进去能看到设备上的应用，可以打开、停止或删除。" : "这个 Bot 负责这台设备。点进去是它的设备面板。"))
+                    }
+                }
+                #endif
 
                 Section {
                     TextField("", text: $model.draftName, prompt: Text("给 Bot 起个名字"),

@@ -3,11 +3,23 @@
 
 import PhoneDSHAgentCore
 import PhoneDSH
+import PhoneDSHBot
 import ProbeKit
 import PhoneDSHEngine
 import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
+
+private struct ChatPageVisibleKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var chatPageVisible: Bool {
+        get { self[ChatPageVisibleKey.self] }
+        set { self[ChatPageVisibleKey.self] = newValue }
+    }
+}
 
 struct ChatPage: View {
     /// D2: the DSH tab keeps one ChatPage per backend alive. Overrides pin the
@@ -26,14 +38,19 @@ struct ChatPage: View {
     var previewItems: [ChatItem]? = nil
     /// 预览专用:进页面时输入框里已经有这段字(验超长文本用)。
     var previewDraft: String? = nil
+    var onPresentationRender: (() -> Void)? = nil
     #endif
 
     @Environment(\.workspaceModels) private var workspaceModels
+    @Environment(\.chatPageVisible) private var presentationVisible
     private var model: ChatModel { modelOverride ?? workspaceModels.currentChat ?? ChatModel.shared }
     private var management: DSHManagementModel {
         managementOverride ?? workspaceModels.currentManagement ?? DSHManagementModel.shared
     }
     @State private var voice = ComposerVoiceInput()
+    /// Set a few seconds after the page appears: if no engine start has begun by then (the
+    /// launch start did not run), the start card is shown.
+    @State private var engineLaunchGraceOver = false
     @State private var showDeviceConnections = false
     @State private var deviceCoordinator = DeviceSessionCoordinator.shared
     @Environment(\.colorScheme) private var colorScheme
@@ -137,6 +154,7 @@ struct ChatPage: View {
     /// Set when a session opens; the next transcript layout jumps to the tail
     /// without animation so history loading never leaves the view at the top.
     @State private var pendingInitialScroll = false
+    @State private var retainedScrollRowID: String?
     @State private var userScrolledAway = false
     /// The finger is on the transcript (or it is still coasting from a
     /// flick). Only this may switch following off: content growth alone
@@ -155,6 +173,9 @@ struct ChatPage: View {
     @State private var pasteLimitNoticed = false
     @State private var stopping = false
     @State private var scrollToLatestTrigger = 0
+    /// A haptic turn is one this page sent; page opens and history restores
+    /// must not buzz. Set on a successful send, cleared when the turn settles.
+    @State private var hapticTurnActive = false
     /// Coalesces follow-the-tail scrolls so one lands after the lazy stack
     /// has laid the new rows out (see `scheduleTailScroll`).
     @State private var tailScrollTask: Task<Void, Never>?
@@ -166,6 +187,18 @@ struct ChatPage: View {
     /// a keyboard change and must scroll with the current height.
     @State private var tailScrollViewportHeight: CGFloat = 0
     @State private var loadingEarlierTranscript = false
+    /// How many newest rows the transcript may materialize in one body pass.
+    /// The page starts with a tail window and grows it through the existing
+    /// "load earlier" sentinel, so a 600-row session never enumerates every
+    /// row in one `LazyVStack` pass (see `NativeTranscriptRenderWindow`).
+    @State private var renderRowLimit = NativeTranscriptRenderWindow.initialRows
+    /// While the person is reading older content, the window's top row is
+    /// pinned by id so an appended row cannot slide the transcript under their
+    /// eyes. Cleared when following the tail resumes.
+    @State private var frozenTopRowID: String?
+    /// One auto-history page per top arrival; reset after the anchor is put
+    /// back so the sentinel cannot page in a same-frame loop.
+    @State private var historyAutoLoadScheduled = false
     /// The red banner's reason signature the person chose to continue past.
     /// A changed reason set shows the banner again (S1-D.1).
     @State private var dismissedRedReasons: String?
@@ -226,7 +259,14 @@ struct ChatPage: View {
                                foldedTurns: foldedTurns,
                                endReasons: model.turnEndReasons,
                                startTimes: model.turnStartTimes,
-                               endTimes: model.turnEndTimes)
+                               endTimes: model.turnEndTimes,
+                               structureRevision: previewStructureRevision)
+    }
+    private var previewStructureRevision: Int? {
+        #if DEBUG
+        if previewItems != nil { return nil }
+        #endif
+        return model.transcriptStructureRevision
     }
     private var visibleItems: [ChatItem] { timelineSnapshot.visibleItems }
     private var timelineRows: [NativeTranscriptRow] { timelineSnapshot.rows }
@@ -421,7 +461,7 @@ struct ChatPage: View {
            let error = model.userFacingError,
            ChatEngineStoppedNoticePolicy.shouldShow(
                message: error,
-               engineEmptyStateVisible: visibleItems.isEmpty && !model.isStarted) {
+               engineEmptyStateVisible: visibleItems.isEmpty && showsEngineNotStarted) {
             errorBanner(error)
         }
         if let error = model.commandsError { commandErrorBanner(error) }
@@ -439,6 +479,8 @@ struct ChatPage: View {
     }
 
     private var pageChrome: some View {
+        Group {
+        if presentationVisible {
         pageStack
         // The composer is a bottom safe-area inset, not a stack item: the
         // keyboard then lifts only the composer and the content area shrinks
@@ -452,11 +494,24 @@ struct ChatPage: View {
                 composer
             }
         }
+        } else {
+            Color.clear
+        }
+        }
         .onChange(of: model.turnRunning) { _, running in
+            guard presentationVisible else { return }
             if running {
                 dismissedRedReasons = nil
                 model.flushStreamingText()
+                if hapticTurnActive { PhoneHaptics.thinking() }
+            } else if hapticTurnActive {
+                hapticTurnActive = false
+                PhoneHaptics.completed()
             }
+        }
+        .onChange(of: model.pendingPermission?.id) { _, id in
+            guard let id, !id.isEmpty else { return }
+            PhoneHaptics.approval()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
@@ -672,7 +727,16 @@ struct ChatPage: View {
             }
         }
         .onAppear { onChatAppear() }
-        .onChange(of: model.currentSessionID) { _, _ in onSessionIdentityChanged() }
+        .onChange(of: presentationVisible) { _, visible in
+            if visible { onChatAppear() }
+            else {
+                tailScrollTask?.cancel(); tailScrollTask = nil
+                voice.cancel(); voice.stopSpeaking()
+            }
+        }
+        .onChange(of: model.currentSessionID) { _, _ in
+            if presentationVisible { onSessionIdentityChanged() }
+        }
         .onChange(of: draft) { _, value in persistDraft(value, for: sessionKey) }
         // Folding timing. `false` keeps the official completion-time default:
         // every eligible closed Turn folds as soon as it ends. `true` is the
@@ -704,10 +768,12 @@ struct ChatPage: View {
             attachmentError = nil
             previewTarget = .workspaceFile(match.relativePath)
         }
-        .task(id: model.isSessionSwitchWorkStarted) {
+        .task(id: presentationVisible && model.isSessionSwitchWorkStarted) {
+            guard presentationVisible else { return }
             await updateSessionSwitchIndicator()
         }
-        .task(id: model.currentSessionID) {
+        .task(id: presentationVisible ? model.currentSessionID : nil) {
+            guard presentationVisible else { return }
             guard let id = model.currentSessionID else {
                 queue.prepare(for: nil)
                 return
@@ -719,11 +785,12 @@ struct ChatPage: View {
         // Re-read the durable queue after session open, Worker ready/restart,
         // stream resync, a successful send, any inbox splice and every turn
         // boundary. This is the event-driven half of I-2.
-        .task(id: queueRefreshKey) {
+        .task(id: presentationVisible ? queueRefreshKey : nil) {
+            guard presentationVisible else { return }
             await refreshComposerQueue(debounced: true)
         }
-        .task(id: model.turnRunning) {
-            guard model.turnRunning else { return }
+        .task(id: presentationVisible && model.turnRunning) {
+            guard presentationVisible, model.turnRunning else { return }
             while !Task.isCancelled, model.turnRunning {
                 model.refreshFiles()
                 try? await Task.sleep(for: .seconds(2))
@@ -736,24 +803,50 @@ struct ChatPage: View {
         // Perf counters flush every five seconds while the chat page is on
         // screen. DEBUG always enables them; Release needs the
         // `chat.perfCounters` default (off by default, so no Release log).
-        .task { await reportPerfCounters() }
+        .task(id: presentationVisible) {
+            guard presentationVisible else { return }
+            await reportPerfCounters()
+        }
     }
 
     var body: some View {
-        NativePerfCounters.shared.bodyRendered()
-        NativePerfCounters.shared.reportIfDue { ChatModel.appendDiagnostic($0) }
+        // Keep the presentation anchors mounted (including system sheets),
+        // but remove the expensive chrome/transcript subtree while hidden.
+        // Local draft/fold/scroll state stays with this ChatPage instance.
+        if presentationVisible {
+            #if DEBUG
+            onPresentationRender?()
+            #endif
+            MainThreadHangMonitor.mark("chatBody.start")
+            NativePerfCounters.shared.bodyRendered()
+            NativePerfCounters.shared.reportIfDue { ChatModel.appendDiagnostic($0) }
+            MainThreadHangMonitor.mark("chatBody.end")
+        }
         return pageLifecycle
     }
 
     private func onChatAppear() {
+        guard presentationVisible else { return }
+        if !engineLaunchGraceOver {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(3))
+                engineLaunchGraceOver = true
+            }
+        }
+        // A history page loaded while the scene was hidden was parked by the
+        // model; a page that appears now is the moment it may be painted.
+        model.adoptDeferredTranscriptIfForeground()
         if let initialPreviewTarget, previewTarget == nil {
             previewTarget = initialPreviewTarget
         }
         #if DEBUG
         if debugChatState != nil { debugInjectIfReady() }
         #endif
-        previousSessionKey = sessionKey
-        draft = savedDraft(for: sessionKey)
+        if previousSessionKey != sessionKey {
+            onSessionIdentityChanged()
+        }
+        autoFoldClosedTurns()
+        if followsTail { pendingInitialScroll = true }
         #if DEBUG
         // 预览:输入框里先放好那段超长文本,验行高和滚动。
         if let previewDraft, draft.isEmpty { draft = previewDraft }
@@ -822,6 +915,7 @@ struct ChatPage: View {
     }
 
     private func onSessionIdentityChanged() {
+        retainedScrollRowID = nil
         // A successful selection can update ChatModel from the sidebar's
         // async task before its completion callback reaches this sheet.
         // Close from the observed source of truth as well, so restoring a
@@ -852,6 +946,10 @@ struct ChatPage: View {
         scrollTrace.tailOffsetY = 0
         scrollTrace.lastBlankCorrectionHeight = nil
         pendingInitialScroll = true
+        // Another session is a different transcript: start from the bounded
+        // tail window, never the previous session's expanded one.
+        renderRowLimit = NativeTranscriptRenderWindow.initialRows
+        frozenTopRowID = nil
         management.refreshSoon()
 
     }
@@ -891,22 +989,45 @@ struct ChatPage: View {
         return HomeSpec.blockGap
     }
 
+    /// The rows this page may materialize right now.
+    ///
+    /// Normally the newest `renderRowLimit` rows. While the person is reading
+    /// older content (`userScrolledAway`) the top is pinned by row id and the
+    /// window only grows, so an appended row cannot shift the text being read;
+    /// that growth is bounded by the model's transcript cap (600 items).
+    private func renderWindow(in rows: [NativeTranscriptRow]) -> Range<Int> {
+        if userScrolledAway, let frozenTopRowID,
+           let index = rows.firstIndex(where: { $0.id == frozenTopRowID }) {
+            return index..<rows.count
+        }
+        return NativeTranscriptRenderWindow.tailRange(rowCount: rows.count,
+                                                      limit: renderRowLimit)
+    }
+
+    /// True when older rows exist: still in memory above the window, or on the
+    /// host (`transcriptHasMore`). The top sentinel is the one "load earlier"
+    /// affordance for both.
+    private func hasEarlierRows(in rows: [NativeTranscriptRow],
+                                window: Range<Int>) -> Bool {
+        model.transcriptHasMore || window.lowerBound > 0
+    }
+
     /// Official turn-tail: the action row is anchored after every content and
     /// process row of the Turn, independent of which assistant message closes it.
+    ///
+    /// Every value comes from the timeline snapshot's per-Turn facts. This used
+    /// to scan `visibleItems` three times per tail row inside `body` (copy
+    /// text, closing message, usage).
     @ViewBuilder
-    private func turnTailRow(_ turn: Int) -> some View {
-        let closing = visibleItems.last { $0.turn == turn && $0.kind == .assistant }
-        let text = visibleItems.filter { $0.turn == turn && $0.kind == .assistant }
-            .map(\.text).joined(separator: "\n\n")
-        let usage = NativeTranscriptProjector.usage(forTurn: turn, in: visibleItems)
-        if let closing {
+    private func turnTailRow(_ turn: Int, facts: NativeTimelineTurnFacts) -> some View {
+        if facts.closingAssistantID != nil {
             NativeTurnTail(
-                time: model.turnEndTimes[turn] ?? closing.timestamp,
+                time: model.turnEndTimes[turn] ?? facts.closingTimestamp,
                 isCopied: copiedTurn == turn,
                 isBranchAvailable: false,
-                showsUsage: usage != nil,
+                showsUsage: facts.usage != nil,
                 onCopy: {
-                    UIPasteboard.general.string = text
+                    UIPasteboard.general.string = facts.copyText
                     copiedTurn = turn
                     Task {
                         try? await Task.sleep(for: .seconds(1))
@@ -914,10 +1035,10 @@ struct ChatPage: View {
                     }
                 },
                 onFeedback: { feedback in
-                    guard let messageID = closing.messageID else { return }
+                    guard let messageID = facts.closingMessageID else { return }
                     Task { _ = await model.rateMessage(messageID, positive: feedback == .like) }
                 },
-                onUsage: { tailUsage = usage })
+                onUsage: { tailUsage = facts.usage })
                 .sheet(isPresented: Binding(
                     get: { tailUsage != nil },
                     set: { if !$0 { tailUsage = nil } }
@@ -927,23 +1048,12 @@ struct ChatPage: View {
         }
     }
 
-    /// A closed Turn is foldable only when it has both a final answer and at
-    /// least one process row that would be hidden.
-    private func turnHasProcess(_ turn: Int) -> Bool {
-        guard let answerID = visibleItems.last(where: {
-            $0.turn == turn && $0.kind == .assistant
-        })?.id else { return false }
-        return visibleItems.contains { item in
-            item.turn == turn && item.id != answerID
-                && item.kind != .user && item.kind != .context
-        }
-    }
-
     /// Folds the closed Turns the current timing mode allows. Completion-time
     /// takes every eligible Turn at once; on-next-message waits until an input
     /// stands after the Turn. Stopped/failed Turns are never auto-folded, and
     /// a Turn the person expanded by hand is never (re-)folded automatically.
     private func autoFoldClosedTurns() {
+        guard presentationVisible else { return }
         let eligible = model.turnEndReasons.filter {
             !["aborted", "interrupted", "error"].contains($0.value)
         }
@@ -979,7 +1089,7 @@ struct ChatPage: View {
     /// Identity of the user/steering/trigger inputs. Appending one (a send, a
     /// steer, or a producer trigger) is what lets on-next-message folding run;
     /// streamed assistant deltas must not re-run it.
-    private var inputRowSignature: String { timelineSnapshot.inputRowSignature }
+    private var inputRowSignature: String { presentationVisible ? timelineSnapshot.inputRowSignature : "" }
 
     /// The card area never takes more than 40% of the screen, scrolls inside
     /// itself when it has more, and folds to one line while the keyboard is up
@@ -1236,10 +1346,90 @@ struct ChatPage: View {
     /// Card colours and buttons per the design spec: #F2F3F5 surface, 16pt
     /// inset, 12pt radius, one filled primary action and a plain text deny —
     /// denying is not destructive, so it is not red.
+    /// Passive top sentinel shared by phone and PC-backed DSH sessions. It
+    /// loads one page only when the reader reaches the top, then restores the
+    /// old first-row anchor so the sentinel moves out of view. No tap needed.
+    /// This is also the only "load earlier" trigger for the bounded render
+    /// window: a page first shows the newest rows and this grows that window
+    /// from memory before asking the host for an older page.
+    private func historySentinel(proxy: ScrollViewProxy, viewportHeight: CGFloat) -> some View {
+        HStack(spacing: 6) {
+            if loadingEarlierTranscript || historyAutoLoadScheduled {
+                ProgressView().controlSize(.mini)
+            }
+            Text(loadingEarlierTranscript ? "正在加载更早消息" : "上滑加载更早消息")
+                .font(.system(size: 12))
+                .foregroundStyle(NativeChatTheme.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 36)
+        .accessibilityIdentifier("chat.history.loader")
+        .onGeometryChange(for: CGFloat.self, of: { row in
+            row.frame(in: .named("chat-transcript")).maxY
+        }) { maxY in
+            loadEarlierIfNeeded(maxY, proxy: proxy, viewportHeight: viewportHeight)
+        }
+    }
+
+    private func loadEarlierIfNeeded(_ maxY: CGFloat, proxy: ScrollViewProxy,
+                                     viewportHeight: CGFloat) {
+        let rows = timelineRows
+        let window = renderWindow(in: rows)
+        // A restored/cached transcript can show the sentinel for a frame
+        // before the initial tail placement. Paging older rows then re-anchors
+        // the top and fights the tail jump. Do not page until the initial
+        // placement has consumed `pendingInitialScroll`.
+        guard !pendingInitialScroll,
+              hasEarlierRows(in: rows, window: window),
+              !loadingEarlierTranscript, !historyAutoLoadScheduled,
+              maxY.isFinite, maxY >= -1, maxY <= viewportHeight + 1 else { return }
+        historyAutoLoadScheduled = true
+        // The row to keep at the viewport top: the first row on screen now. It
+        // survives both a local window growth and a host page prepend, because
+        // the window always ends at the newest row.
+        let anchor = window.lowerBound < rows.count ? rows[window.lowerBound].scrollTargetID : nil
+        let hadHostPage = model.transcriptHasMore
+        let rowCountBefore = rows.count
+        let windowStartBefore = window.lowerBound
+        let frozenBefore = frozenTopRowID != nil
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            guard historyAutoLoadScheduled, !loadingEarlierTranscript else {
+                historyAutoLoadScheduled = false
+                return
+            }
+            loadingEarlierTranscript = true
+            MainThreadHangMonitor.mark("chatTranscript.loadEarlier")
+            if windowStartBefore > 0, frozenBefore {
+                // Reading older content with a pinned top: move the pin up.
+                let next = max(0, windowStartBefore - NativeTranscriptRenderWindow.pageRows)
+                frozenTopRowID = rows[next].id
+            } else if windowStartBefore > 0 {
+                // Older rows are already in memory: grow the window without a
+                // host round trip.
+                renderRowLimit = NativeTranscriptRenderWindow.grownLimit(
+                    renderRowLimit, rowCount: rowCountBefore)
+            } else if hadHostPage {
+                await model.loadEarlierTranscript()
+                let added = max(0, timelineRows.count - rowCountBefore)
+                renderRowLimit = NativeTranscriptRenderWindow.growing(
+                    renderRowLimit, by: added, rowCount: timelineRows.count)
+            }
+            // Let the LazyVStack mount the new rows before restoring the old
+            // first-row anchor.
+            try? await Task.sleep(nanoseconds: 30_000_000)
+            if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            loadingEarlierTranscript = false
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            historyAutoLoadScheduled = false
+        }
+    }
+
     private func permissionCard(_ permission: ChatPermission) -> some View {
         PermissionCardView(permission: permission,
                            isBusy: model.busy,
                            onAllow: { respond(.allowOnce) },
+                           onAllowAlways: { respond(.allowAlways) },
+                           allowsAlways: permission.alwaysGrantKey != nil,
                            onDeny: { respond(.deny) })
     }
 
@@ -1261,28 +1451,94 @@ struct ChatPage: View {
     /// 警告色 #B45309:只用于状态词和图标,不做整块底色。
     static let warning = Color(red: 0xB4 / 255, green: 0x53 / 255, blue: 0x09 / 255)
 
+    /// The bounded row list. Kept out of `body`: the row closure plus the
+    /// window arithmetic pushed the merged page's modifier chain past the
+    /// type-checker budget, and this stays one expression per row.
+    @ViewBuilder
+    private func transcriptRows(_ snapshot: NativeTimelineSnapshot,
+                                window: Range<Int>) -> some View {
+        let _ = MainThreadHangMonitor.mark("chatTranscript.rows")
+        let rows = snapshot.rows
+        let rendered = Array(rows[window])
+        ForEach(Array(rendered.enumerated()), id: \.element.id) { offset, row in
+            transcriptRow(row, index: window.lowerBound + offset, snapshot: snapshot)
+        }
+    }
+
+    @ViewBuilder
+    private func transcriptRow(_ row: NativeTranscriptRow, index: Int,
+                               snapshot: NativeTimelineSnapshot) -> some View {
+        let _ = MainThreadHangMonitor.mark("chatTranscript.row")
+        Group {
+            switch row {
+            case .item(let item):
+                let facts: NativeTimelineTurnFacts = {
+                    guard let turn = item.turn else { return .empty }
+                    return snapshot.turnFacts[turn] ?? .empty
+                }()
+                VStack(alignment: .leading, spacing: 0) {
+                    ChatMessageRow(item: item, fileIndex: model.fileIndex,
+                                   isTurnClosingAssistant: facts.closingAssistantID == item.id,
+                                   submittedPlans: facts.plans,
+                                   turnChanges: facts.changes,
+                                   onOpenFile: openWorkspaceResult,
+                                   onOpenPlan: { plan, markdown in
+                                       previewPlan = NativePlanPreview(
+                                           id: plan.id, title: plan.title, markdown: markdown)
+                                   })
+                    queueLine(for: item)
+                    failureLineIfNeeded(for: item)
+                }
+            case .contexts(let items):
+                NativeContextSourceGroup(items: items)
+            case .tools(let items):
+                ToolRunRow(items: items, onOpenFile: openWorkspaceResult)
+            case .turnProcess(let turn):
+                if let state = model.turnProcessState(for: turn) {
+                    NativeTurnProcessRow(
+                        state: state,
+                        isOpen: !foldedTurns.contains(turn),
+                        isFoldable: snapshot.turnFacts[turn]?.hasProcess ?? false) {
+                            if foldedTurns.contains(turn) {
+                                foldedTurns.remove(turn)
+                                // Remember the hand-opened Turn: no later
+                                // auto-fold closes it.
+                                manuallyExpandedTurns.insert(turn)
+                            } else {
+                                foldedTurns.insert(turn)
+                                manuallyExpandedTurns.remove(turn)
+                            }
+                        }
+                }
+            case .turnTail(let turn):
+                turnTailRow(turn, facts: snapshot.turnFacts[turn] ?? .empty)
+            }
+        }
+        .padding(.top, Self.spacing(before: index, in: snapshot.rows))
+        // One id for ForEach and scrollTo: context rows used to expose
+        // `context-…` inside a `context-group-…` identity, so the last row
+        // could not be targeted.
+        .id(row.scrollTargetID)
+        .onGeometryChange(for: Bool.self, of: { geometry in
+            let frame = geometry.frame(in: .named("chat-transcript"))
+            return frame.minY <= 1 && frame.maxY > 1
+        }) { containsTop in
+            if containsTop, retainedScrollRowID != row.scrollTargetID {
+                retainedScrollRowID = row.scrollTargetID
+            }
+        }
+    }
+
     private var transcript: some View {
         ScrollViewReader { proxy in
             GeometryReader { viewport in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        if model.transcriptHasMore {
-                            Button {
-                                guard !loadingEarlierTranscript else { return }
-                                loadingEarlierTranscript = true
-                                Task {
-                                    await model.loadEarlierTranscript()
-                                    loadingEarlierTranscript = false
-                                }
-                            } label: {
-                                HStack {
-                                    if loadingEarlierTranscript { ProgressView().controlSize(.small) }
-                                    Text(loadingEarlierTranscript ? "正在加载…" : "加载更早消息")
-                                }
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(loadingEarlierTranscript)
+                        let snapshot = timelineSnapshot
+                        let rows = snapshot.rows
+                        let window = renderWindow(in: rows)
+                        if hasEarlierRows(in: rows, window: window) {
+                            historySentinel(proxy: proxy, viewportHeight: viewport.size.height)
                         }
                         if let error = model.transcriptError {
                             Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -1291,16 +1547,6 @@ struct ChatPage: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(12)
                                 .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                        }
-                        if model.isShowingCachedTranscript {
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.mini)
-                                Text("显示上次对话 · 引擎后台启动中…")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(ChatPage.inkSecondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.vertical, 4)
                         }
                         if visibleItems.isEmpty {
                             if model.isSwitchingSession,
@@ -1312,61 +1558,7 @@ struct ChatPage: View {
                                 emptyTimeline(viewportHeight: viewport.size.height)
                             }
                         }
-                        let snapshot = timelineSnapshot
-                        let rows = snapshot.rows
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                            Group {
-                            switch row {
-                            case .item(let item):
-                                let facts: NativeTimelineTurnFacts = {
-                                    guard let turn = item.turn else { return .empty }
-                                    return snapshot.turnFacts[turn] ?? .empty
-                                }()
-                                VStack(alignment: .leading, spacing: 0) {
-                                    ChatMessageRow(item: item, fileIndex: model.fileIndex,
-                                                   isTurnClosingAssistant: facts.closingAssistantID == item.id,
-                                                   submittedPlans: facts.plans,
-                                                   turnChanges: facts.changes,
-                                                   onOpenFile: openWorkspaceResult,
-                                                   onOpenPlan: { plan, markdown in
-                                                       previewPlan = NativePlanPreview(
-                                                           id: plan.id, title: plan.title, markdown: markdown)
-                                                   })
-                                    queueLine(for: item)
-                                    failureLineIfNeeded(for: item)
-                                }
-                            case .contexts(let items):
-                                NativeContextSourceGroup(items: items)
-                            case .tools(let items):
-                                ToolRunRow(items: items,
-                                           onOpenFile: openWorkspaceResult)
-                            case .turnProcess(let turn):
-                                if let state = model.turnProcessState(for: turn) {
-                                    NativeTurnProcessRow(
-                                        state: state,
-                                        isOpen: !foldedTurns.contains(turn),
-                                        isFoldable: turnHasProcess(turn)) {
-                                            if foldedTurns.contains(turn) {
-                                                foldedTurns.remove(turn)
-                                                // Remember the hand-opened Turn:
-                                                // no later auto-fold closes it.
-                                                manuallyExpandedTurns.insert(turn)
-                                            } else {
-                                                foldedTurns.insert(turn)
-                                                manuallyExpandedTurns.remove(turn)
-                                            }
-                                        }
-                                }
-                            case .turnTail(let turn):
-                                turnTailRow(turn)
-                            }
-                            }
-                            .padding(.top, Self.spacing(before: index, in: rows))
-                            // One id for ForEach and scrollTo: context rows used
-                            // to expose `context-…` inside a `context-group-…`
-                            // identity, so the last row could not be targeted.
-                            .id(row.scrollTargetID)
-                        }
+                        transcriptRows(snapshot, window: window)
                         if model.turnRunning, !visibleItems.isEmpty {
                             NativeRunningStatus(startedAt: model.activeTurnStartedAt,
                                                 showsDivider: false)
@@ -1408,6 +1600,15 @@ struct ChatPage: View {
                     }
                 }
                 .coordinateSpace(name: "chat-transcript")
+                .task { @MainActor in
+                    // Restore a reading anchor once after remount. A bound
+                    // scrollPosition competes with the reader's tail alignment
+                    // during lazy height changes and can expose only blank tail.
+                    guard userScrolledAway, let anchor = retainedScrollRowID else { return }
+                    await Task.yield()
+                    guard !Task.isCancelled else { return }
+                    proxy.scrollTo(anchor, anchor: .top)
+                }
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(ScrollInteractionObserver(
                     isInteracting: $userScrolling,
@@ -1435,6 +1636,7 @@ struct ChatPage: View {
                                                viewportHeight: viewport.size.height)
                     },
                     onGeometry: { metrics in
+                        MainThreadHangMonitor.mark("chatTranscript.geometry")
                         // Check before updating near/follow state: a blank
                         // viewport reports itself as far from the tail, and
                         // that must not turn the correction off.
@@ -1469,6 +1671,7 @@ struct ChatPage: View {
                     applyTailMetrics(tailY: tailY, viewportHeight: viewport.size.height)
                 }
                 .onChange(of: transcriptScrollSignature) { _, _ in
+                    guard model.isAppForeground else { return }
                     if pendingInitialScroll, !visibleItems.isEmpty {
                         // Wait for the measured content height: scrolling
                         // before the layout is known cannot prove the content
@@ -1482,9 +1685,12 @@ struct ChatPage: View {
                     guard followsTail, !loadingEarlierTranscript else { return }
                     scheduleTailScroll(proxy, viewportHeight: viewport.size.height)
                 }
+                .onChange(of: model.transcriptHasMore) { _, hasMore in
+                    if !hasMore { historyAutoLoadScheduled = false }
+                }
                 .onChange(of: model.isTranscriptReady) { _, ready in
-                    guard ready, pendingInitialScroll, !visibleItems.isEmpty,
-                          scrollTrace.contentHeight > 0 else { return }
+                    guard ready, model.isAppForeground, pendingInitialScroll,
+                          !visibleItems.isEmpty, scrollTrace.contentHeight > 0 else { return }
                     pendingInitialScroll = false
                     nearBottom = true
                     scrollToTail(proxy, viewportHeight: viewport.size.height)
@@ -1497,6 +1703,36 @@ struct ChatPage: View {
                     scrollTrace.contentHeight = 0
                     scrollTrace.tailOffsetY = 0
                     scrollTrace.lastBlankCorrectionHeight = nil
+                }
+                // Background gate: while the App is hidden the follow loop and
+                // the initial jump are background CPU. The scene becoming
+                // active is the moment they may run again — a pending jump has
+                // no content change left to wake it.
+                .onChange(of: model.isAppActive) { _, active in
+                    guard active, model.isAppForeground else { return }
+                    if pendingInitialScroll, !visibleItems.isEmpty {
+                        guard scrollTrace.contentHeight > 0 else { return }
+                        pendingInitialScroll = false
+                        nearBottom = true
+                        scrollToTail(proxy, viewportHeight: viewport.size.height)
+                        return
+                    }
+                    scheduleTailScroll(proxy, viewportHeight: viewport.size.height)
+                }
+                // The render window follows the person: while they read older
+                // content its top row is pinned, and it returns to the bounded
+                // tail window once they are back at the tail.
+                .onChange(of: userScrolledAway) { _, away in
+                    guard away else {
+                        frozenTopRowID = nil
+                        renderRowLimit = NativeTranscriptRenderWindow.initialRows
+                        return
+                    }
+                    let rows = timelineRows
+                    let window = NativeTranscriptRenderWindow.tailRange(
+                        rowCount: rows.count, limit: renderRowLimit)
+                    frozenTopRowID = window.lowerBound < rows.count
+                        ? rows[window.lowerBound].id : nil
                 }
                 .onChange(of: scrollToLatestTrigger) { _, _ in
                     // A deliberate jump owns the next scroll; drop a pending
@@ -1536,16 +1772,22 @@ struct ChatPage: View {
         // state stays put. The indicator floats above it after the 300 ms
         // delay, so it cannot change the transcript's height or move rows.
         .overlay(alignment: .top) {
-            Group {
+            VStack(spacing: 6) {
+                if model.isShowingCachedTranscript {
+                    cachedTranscriptIndicator
+                        .transition(.opacity)
+                }
                 if showsSessionSwitchIndicator {
                     sessionSwitchIndicator
-                        .padding(.top, 8)
-                        .allowsHitTesting(false)
                         .transition(.opacity)
                 }
             }
-            // Only the pill fades. The transcript's one-shot content swap is
-            // outside this subtree, so it stays animation-free.
+            .padding(.top, 8)
+            .allowsHitTesting(false)
+            // Only these pills fade. The transcript's content swap is outside
+            // this subtree, so the cached → live hand-off cannot change the
+            // scroll content height or move rows.
+            .animation(.easeInOut(duration: 0.16), value: model.isShowingCachedTranscript)
             .animation(.easeInOut(duration: 0.16), value: showsSessionSwitchIndicator)
         }
         // A tap anywhere in the transcript area — rows or the empty space
@@ -1595,10 +1837,15 @@ struct ChatPage: View {
     /// overshoots into empty space (the blank page). The last row is a real,
     /// laid-out frame; the lazy tail anchor can be scrolled past its estimate.
     private func scrollToTail(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
+        // Follow work while hidden is background CPU: the scene-update
+        // watchdog charges it to the same 10 s allowance as visible layout.
+        // The next `.active` re-arms the follow pass.
+        guard model.isAppForeground else { return }
         guard ChatTranscriptTailPolicy.shouldScrollToTail(
             contentHeight: scrollTrace.contentHeight,
             viewportHeight: viewportHeight,
             hasRows: !timelineRows.isEmpty) else { return }
+        MainThreadHangMonitor.mark("chatTranscript.scrollToTail.start")
         // The last row may be a folded tool-run group, not the last message;
         // scroll to the row that is actually last.
         if let last = timelineRows.last?.scrollTargetID {
@@ -1606,6 +1853,7 @@ struct ChatPage: View {
         } else {
             proxy.scrollTo("transcript-tail", anchor: .bottom)
         }
+        MainThreadHangMonitor.mark("chatTranscript.scrollToTail.end")
     }
 
     /// Receives the measured content height from the iOS 17 preference
@@ -1622,6 +1870,7 @@ struct ChatPage: View {
 
     private func contentHeightDidChange(_ height: CGFloat, proxy: ScrollViewProxy,
                                         viewportHeight: CGFloat) {
+        guard model.isAppForeground else { return }
         guard height.isFinite, height > 0, !visibleItems.isEmpty else { return }
         guard pendingInitialScroll else {
             // Rows that grow without changing the signature (a list card
@@ -1649,6 +1898,7 @@ struct ChatPage: View {
                                                   contentInsetTop: CGFloat,
                                                   contentInsetBottom: CGFloat,
                                                   proxy: ScrollViewProxy) {
+        guard model.isAppForeground else { return }
         guard !userScrolling else { return }
         guard followsTail || pendingInitialScroll else { return }
         guard !timelineSourceItems.isEmpty else { return }
@@ -1669,8 +1919,10 @@ struct ChatPage: View {
         }
         // Resolve the rows only when a correction is actually due: this runs
         // on every scroll frame, and the timeline snapshot must stay cheap.
-        guard let firstRow = timelineRows.first?.scrollTargetID,
-              let lastRow = timelineRows.last?.scrollTargetID else { return }
+        let rows = timelineRows
+        let window = renderWindow(in: rows)
+        guard window.lowerBound < rows.count, let lastRow = rows.last?.scrollTargetID else { return }
+        let firstRow = rows[window.lowerBound].scrollTargetID
         if let correctedHeight = scrollTrace.lastBlankCorrectionHeight,
            abs(correctedHeight - contentHeight) < 0.5 {
             // One correction per height used to be enough, but a lazy row
@@ -1763,7 +2015,7 @@ struct ChatPage: View {
     /// Debouncing by one short turn lets the height preference and the row
     /// frames settle, and the coalesced follow still tracks streaming.
     private func scheduleTailScroll(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
-        guard followsTail else { return }
+        guard model.isAppForeground, followsTail else { return }
         // Do not cancel the pending run: a streamed delta every <50ms used to
         // reset the sleep forever, so the one scroll never fired. The generation
         // tells the running loop that a newer target/height arrived.
@@ -1772,32 +2024,33 @@ struct ChatPage: View {
         guard tailScrollTask == nil else { return }
         tailScrollTask = Task { @MainActor in
             defer { tailScrollTask = nil }
-            var arrivedGeneration: UInt64 = 0
-            var corrected = false
+            var lastPass: BotTranscriptLayoutSupport.ScrollPass?
             var first = true
             while !Task.isCancelled {
                 let wait = first ? 50 : 180
                 first = false
                 try? await Task.sleep(for: .milliseconds(wait))
                 guard !Task.isCancelled, followsTail else { return }
-                let generation = tailScrollGeneration
-                if generation == arrivedGeneration {
-                    // The previous pass covered this content. One more settle
-                    // window catches a late Markdown/code/list height; after
-                    // that, wait for the next deltas instead of spinning.
-                    if corrected { return }
-                    corrected = true
-                } else {
-                    arrivedGeneration = generation
-                    corrected = false
-                }
+                let pass = BotTranscriptLayoutSupport.ScrollPass(
+                    generation: tailScrollGeneration,
+                    contentHeight: scrollTrace.contentHeight,
+                    target: timelineRows.last?.scrollTargetID ?? "transcript-tail")
+                // A late Markdown/list height may need one correction, but a
+                // pass that repeats the same height and target must not move
+                // the viewport again. The old unconditional settle pass was a
+                // second visible placement on launch.
+                guard BotTranscriptLayoutSupport.shouldPerformScrollPass(
+                    previous: lastPass, next: pass) else { return }
+                lastPass = pass
                 if Date().timeIntervalSince(lastScrollTrace) > 1 {
                     lastScrollTrace = Date()
                     ChatModel.appendDiagnostic(
                         "scroll tail content=\(Self.traceValue(scrollTrace.contentHeight)) viewport=\(Self.traceValue(tailScrollViewportHeight)) "
                         + "tail=\(Self.traceValue(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
                 }
-                model.flushStreamingText()
+                MainThreadHangMonitor.mark("chatTranscript.tailFollow")
+                // Follow the last published frame. Draining pending tokens
+                // here would bypass the display cadence on every scroll tick.
                 scrollToTail(proxy, viewportHeight: tailScrollViewportHeight)
             }
         }
@@ -1809,6 +2062,23 @@ struct ChatPage: View {
     /// fallback for a page that truly rendered nothing.
     private var oldPageDuringSwitch: SessionSwitchPresentationPolicy.OldPage {
         visibleItems.isEmpty ? .emptyStateCard : .transcriptRows
+    }
+
+    /// Cached-tail status is an overlay, not a transcript row: inserting and
+    /// removing a row at the top changed the scroll content height on the
+    /// cached → live hand-off and moved the restored transcript on launch.
+    private var cachedTranscriptIndicator: some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.mini)
+            Text("显示上次对话 · 引擎后台启动中…")
+                .font(.system(size: 12))
+                .foregroundStyle(ChatPage.inkSecondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Self.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color(uiColor: .separator), lineWidth: 0.5))
+        .accessibilityIdentifier("chat.cached.status")
     }
 
     /// The lightweight state while a tapped session's history is loading. It is
@@ -1851,9 +2121,13 @@ struct ChatPage: View {
         if model.backendID != .phone {
             pcEmptyTimeline
                 .padding(.top, 88)
-        } else if !model.isStarted {
+        } else if showsEngineNotStarted {
             engineNotStartedState
                 .padding(.top, 88)
+        } else if !model.isStarted {
+            // Launch: the engine starts by itself. Show the empty chat it is about to become
+            // instead of flashing 引擎还没启动 → 正在启动… for the moment that takes.
+            readyState(viewportHeight: viewportHeight)
         } else if providerNeedsKey {
             providerSetupState
                 .padding(.top, 88)
@@ -1900,6 +2174,12 @@ struct ChatPage: View {
             // cannot. The retry lives on the drawer's offline card.
             return "打开过的会话仍可查看上次同步的内容；连上后自动恢复，也可以在会话列表里点「重试」。"
         }
+    }
+
+    /// Case A only when the engine is really not coming: a start ended without one (a failure or
+    /// the user stopped it), or nothing tried to start it within a few seconds of opening.
+    private var showsEngineNotStarted: Bool {
+        !model.isStarted && !model.busy && (model.engineStartAttempts > 0 || engineLaunchGraceOver)
     }
 
     /// A:引擎还没启动。标题 + 说明 + 黑色主按钮,左右按内容边距 20 撑满。
@@ -3093,6 +3373,9 @@ struct ChatPage: View {
         // 一按发送就清空:失败那条留在气泡里,重试原样再发,新打的字进新气泡。
         draft = ""
         slashMenuDismissed = false
+        let priorHapticTurn = hapticTurnActive
+        hapticTurnActive = true
+        PhoneHaptics.thinking()
         Task {
             let succeeded: Bool
             if steer {
@@ -3105,6 +3388,7 @@ struct ChatPage: View {
                     scrollToLatestTrigger += 1
                 }
             }
+            if !succeeded { hapticTurnActive = priorHapticTurn }
             if succeeded {
                 // 发送即收起键盘。官方 Web 端发完保持聚焦（输入框就是 combobox），
                 // 但手机上键盘会盖住刚发出去的那条和回复，也没有"再打一句"的富余
@@ -5404,6 +5688,11 @@ struct PermissionCardView: View {
     let permission: ChatPermission
     var isBusy: Bool = false
     var onAllow: () -> Void = {}
+    /// Present only where the host can remember an always decision. Sandbox
+    /// escalation deliberately keeps the one-shot-only card.
+    var onAllowAlways: (() -> Void)?
+    /// False for destructive/unknown requests: those must stay one-shot.
+    var allowsAlways: Bool = true
     var onDeny: () -> Void = {}
 
     var body: some View {
@@ -5447,6 +5736,21 @@ struct PermissionCardView: View {
             }
             .buttonStyle(.plain)
             .disabled(isBusy)
+
+            if let onAllowAlways, allowsAlways, !Self.isSandboxEscalation(permission) {
+                Button {
+                    onAllowAlways()
+                } label: {
+                    Text("总是允许")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(NativeChatTheme.accent)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                }
+                .buttonStyle(.plain)
+                .disabled(isBusy)
+                .accessibilityIdentifier("chat.permission.always")
+            }
 
             Button {
                 onDeny()

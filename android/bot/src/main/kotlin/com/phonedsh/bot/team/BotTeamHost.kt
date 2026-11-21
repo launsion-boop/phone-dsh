@@ -14,11 +14,39 @@ import com.phonedsh.bot.wake.WakeInboxItem
 import com.phonedsh.agentcore.JsonValue
 
 /**
+ * The hand-off hop that opened the caller's current turn.
+ *
+ * It is what makes an answer to the **immediate previous hop** a reply rather
+ * than a cycle (`spec/bot/v1/team.md` §2.3.1): `SendToAgent` can write the
+ * exchange's `reply` row and exchange-shaped held item only when it knows which
+ * request/thread handed the turn over. The value is in-memory only, exactly
+ * like the chain; a host that cannot supply it keeps the historical cycle
+ * rejection.
+ */
+public data class BotAgentInboundHop(
+    /** The Bot that handed the current turn to the caller (`chain[chain.size - 2]`). */
+    public val senderID: String,
+    /** The exchange's `requestId` (`agent:<sender callId>`). */
+    public val requestID: String,
+    /** The exchange's `threadID`; the reply row and held item join it. */
+    public val threadID: String,
+    /** How the hop was delivered: `"now"` or `"queued"`. */
+    public val delivery: String,
+    /** The inbound message's title, used for the held reply title. */
+    public val title: String? = null,
+) {
+    /** `now` on both sides is the only wake combination; `queued` stays silent. */
+    public fun wakesReply(replyDelivery: String): Boolean =
+        delivery == "now" && replyDelivery == "now"
+}
+
+/**
  * Where one Bot stands inside the current hand-off chain.
  *
  * `depth` is the inbound hop depth (0 for a user turn). `chain` contains the
  * Bot ids already visited by the current hand-off, including the caller, so a
- * target already present in the chain is a cycle. `turn` and `existingRowIDs`
+ * target already present in the chain is a cycle — unless it is the immediate
+ * previous hop and [inbound] identifies that hop. `turn` and `existingRowIDs`
  * let the caller allocate the upstream `t<turn>u` inbound row id without
  * asking the transcript owner.
  */
@@ -27,7 +55,24 @@ public data class BotAgentCommContext(
     public val chain: List<String> = emptyList(),
     public val turn: Int = 0,
     public val existingRowIDs: Set<String> = emptySet(),
-)
+    /** The hop that opened the current turn, or null for a user turn/legacy host. */
+    public val inbound: BotAgentInboundHop? = null,
+) {
+    /**
+     * The hop that handed the current turn to [callerID], when the chain still
+     * ends with the caller and that hop is the element immediately before it.
+     * This separates a legitimate reply from a real cycle; anything else returns
+     * null and follows the frozen v1 depth/cycle rejection.
+     */
+    public fun immediatePreviousHop(callerID: String): BotAgentInboundHop? {
+        val hop = inbound ?: return null
+        if (depth < 1 || callerID.isEmpty() || chain.size < 2) return null
+        if (chain.last() != callerID) return null
+        if (chain[chain.size - 2] != hop.senderID) return null
+        if (hop.senderID == callerID) return null
+        return hop
+    }
+}
 
 /**
  * One `now` delivery. The host opens (or queues behind) a visible target turn
@@ -66,6 +111,13 @@ public data class BotTeamHeldRequest(
      * already inside the chain and its next send would be rejected as a cycle.
      */
     public val handOff: BotAgentCommContext? = null,
+    /**
+     * Best-effort single wake of [botID] after the item is durably enqueued.
+     * Only an explicit reply to a `now` hand-off sets this (`team.md` §2.3.1);
+     * queued deliveries and automatic held replies leave it `false` and stay
+     * silent. A duplicate enqueue never wakes.
+     */
+    public val wake: Boolean = false,
 )
 
 public sealed class BotTeamHostError(message: String) : Exception(message) {
@@ -165,13 +217,32 @@ public interface BotTeamHost {
     /** Current hand-off context for the Bot that is calling a team tool. */
     public suspend fun agentCommContext(botID: String): BotAgentCommContext
 
-    /** Idempotency lookup: the thread already opened for this request id, or null. */
+    /**
+     * Idempotency lookup: the thread already opened for this request id, or
+     * null. Outbound rows are keyed by `requestID`; `reply` rows keep the
+     * exchange `requestID` and are also indexed by their `callID`
+     * (`team.md` §2.4, §2.9).
+     */
     public suspend fun existingAgentCommThread(botID: String, requestID: String): String?
 
-    /** Open (or queue behind) a visible target turn and await its final text. */
+    /**
+     * Open (or queue behind) a visible target turn and await its final text.
+     *
+     * For the duration of the target turn the host installs an active context
+     * on the target (`depth = request.hop`, `chain = request.chain`) **including**
+     * the [BotAgentInboundHop] built from this request, then releases it; that
+     * is what lets the target answer the sender with `SendToAgent` (`team.md`
+     * §2.3.1).
+     */
     public suspend fun deliverToAgent(request: BotAgentDeliveryRequest): BotAgentDeliveryReply
 
-    /** Enqueue one held item for `request.botID`; the key is `item.requestId`. */
+    /**
+     * Enqueue one held item for `request.botID`; the key is `item.requestId`.
+     * A non-null [BotTeamHeldRequest.handOff] installs a one-shot pending context
+     * (chain and inbound) consumed by the target's next team-tool call.
+     * [BotTeamHeldRequest.wake] asks for one best-effort wake after a
+     * non-duplicate enqueue; a duplicate never wakes.
+     */
     public suspend fun enqueueHeld(request: BotTeamHeldRequest): WakeInboxEnqueue
 
     /** Persist one agent-comm row for `record.botID` and bump unread. */

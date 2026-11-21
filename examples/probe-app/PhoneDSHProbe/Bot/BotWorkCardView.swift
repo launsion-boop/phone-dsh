@@ -29,6 +29,7 @@ struct BotWorkCardView: View {
 private struct BotProgressCardView: View {
     let row: BotUIRow
     @State private var expanded = false
+    @Environment(\.botCardTheme) private var theme
 
     private var title: String { row.body["title"]?.string ?? row.body["name"]?.string ?? "" }
     private var state: String {
@@ -56,15 +57,15 @@ private struct BotProgressCardView: View {
     }
 
     var body: some View {
-        BotCardSurface {
+        BotCardSurface(category: .work) {
             VStack(alignment: .leading, spacing: BotCardMetrics.blockGap) {
                 BotCardHeading(icon: "chart.bar", eyebrow: "进度", title: title,
-                               detail: row.body.string("summary", "description")) {
+                               detail: row.body.string("summary", "description"), category: .work) {
                     BotCardTag(text: stateTag.text, tone: stateTag.tone)
                 }
                 if let percent {
                     BotCardProgressBar(percent: percent,
-                                       ink: state == "failed" ? NativeParityTokens.error : HomeSpec.textPrimary)
+                                       ink: state == "failed" ? NativeParityTokens.error : nil)
                 }
                 if !steps.isEmpty {
                     VStack(spacing: 0) {
@@ -75,7 +76,7 @@ private struct BotProgressCardView: View {
                             BotCardRow(label: step.label,
                                        labelInk: stepState == .pending ? HomeSpec.textSecondary : HomeSpec.textPrimary,
                                        strikethrough: stepState == .skipped) {
-                                BotCardGlyph(systemImage: stepState.glyph, ink: stepState.ink)
+                                BotCardGlyph(systemImage: stepState.glyph, ink: stepState.ink(theme: theme))
                             } trailing: {
                                 if let detail = step.detail {
                                     Text(detail).botCardMeta().monospacedDigit().lineLimit(1)
@@ -112,6 +113,7 @@ private struct BotChecklistCardView: View {
     @ObservedObject var model: BotChatModel
     @State private var items: [BotUIChecklistItem]
     @State private var dirty = false
+    @Environment(\.botCardTheme) private var theme
 
     init(row: BotUIRow, model: BotChatModel) {
         self.row = row
@@ -131,13 +133,13 @@ private struct BotChecklistCardView: View {
     }
 
     var body: some View {
-        BotCardSurface {
+        BotCardSurface(category: .work) {
             VStack(alignment: .leading, spacing: 0) {
                 BotCardHeading(icon: "checkmark.square", eyebrow: "检查清单", title: title,
-                               detail: row.body["summary"]?.string) {
+                               detail: row.body["summary"]?.string, category: .work) {
                     Text("\(doneCount)/\(items.count)")
                         .monospacedDigit()
-                        .foregroundStyle(doneCount == items.count ? HomeSpec.success : HomeSpec.textPlaceholder)
+                        .foregroundStyle(doneCount == items.count ? theme.accent : HomeSpec.textPlaceholder)
                 }
                 .padding(.bottom, 4)
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
@@ -152,7 +154,7 @@ private struct BotChecklistCardView: View {
                                    labelInk: item.done ? HomeSpec.textPlaceholder : HomeSpec.textPrimary,
                                    strikethrough: item.done) {
                             BotCardGlyph(systemImage: item.done ? "checkmark.square.fill" : "square",
-                                         ink: item.done ? HomeSpec.textPrimary : HomeSpec.iconMuted)
+                                         ink: item.done ? theme.accent : HomeSpec.iconMuted)
                         } trailing: {
                             if let note = item.note {
                                 Text(note).botCardMeta().lineLimit(1)
@@ -194,15 +196,16 @@ private struct BotLinkCardView: View {
     private var links: [BotUILink] { BotUILink.parseList(row.body["links"]) }
 
     var body: some View {
-        BotCardSurface {
+        BotCardSurface(category: .choice) {
             VStack(alignment: .leading, spacing: 0) {
-                BotCardHeading(icon: "link", eyebrow: "参考链接", title: row.body["title"]?.string)
+                BotCardHeading(icon: "link", eyebrow: "参考链接", title: row.body["title"]?.string,
+                               category: .choice) { EmptyView() }
                     .padding(.bottom, 4)
                 ForEach(Array(links.enumerated()), id: \.element.id) { index, link in
                     if index > 0 { BotCardDivider(inset: BotCardMetrics.tile + 12) }
                     Button { actions.openURL(link.url) } label: {
                         HStack(spacing: 12) {
-                            BotCardTile(systemImage: icon(for: link.kind))
+                            BotCardTile(systemImage: icon(for: link.kind), category: .choice)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(link.title)
                                     .botCardRow(weight: .medium)
@@ -253,6 +256,7 @@ private struct BotApprovalCardView: View {
     @ObservedObject var model: BotChatModel
     @State private var expanded = false
     @State private var copied = false
+    @Environment(\.botCardTheme) private var theme
 
     private var ask: [String: BotJSONValue] { row.body["ask"]?.object ?? [:] }
     private var status: String { row.body["status"]?.string ?? ask["status"]?.string ?? "pending" }
@@ -260,7 +264,24 @@ private struct BotApprovalCardView: View {
     private var action: String { row.body.string("action", "title", "text") ?? ask["action"]?.string ?? "操作" }
     private var command: String { row.body.string("command", "target") ?? ask["target"]?.string ?? "" }
     private var detail: String? { row.body["detail"]?.string }
-    private var scope: String { row.body["alwaysScope"]?.string ?? ask["alwaysScope"]?.string ?? "until" }
+    /// The offered standing scope from the projected row. There is no default:
+    /// the durable `approval.requested`/`approval.decided` events carry
+    /// `alwaysScope`, but DSH `tool/call` rows (the model's `RequestApproval`
+    /// arguments have no such field) and legacy payloads do not, and a missing
+    /// value means the approval can only be allowed once.
+    private var offeredScope: String? {
+        row.body["alwaysScope"]?.string ?? ask["alwaysScope"]?.string
+    }
+    private var standingScope: BotApprovalOffer.Standing? {
+        BotApprovalOffer.standingScope(offeredScope)
+    }
+    /// The grant the approval tool result says the user actually received.
+    /// It wins over the offer: the coordinator forces a consumed once grant on
+    /// a `none`/unclassified decision even when the request asked for `always`.
+    private var effectiveScope: String? { row.body["scope"]?.string }
+    /// The durable `approval.decided` row keeps its own decision (`always`
+    /// included) beside the coordinator's `status: "allowed"`.
+    private var decision: String? { row.body["decision"]?.string ?? ask["decision"]?.string }
     private var key: String { "approval:\(row.id)" }
     private var busy: Bool { model.actionStates[key] == .pending }
     private var allowed: Bool {
@@ -274,11 +295,12 @@ private struct BotApprovalCardView: View {
         return risk?["level"]?.string == "high" || risk?["tags"]?.array?.contains(.string("irreversible")) == true
     }
     private var statusLabel: String {
-        BotApprovalReceipt.label(for: status, scope: scope)
+        BotApprovalOffer.receiptLabel(status: status, alwaysScope: offeredScope,
+                                      effectiveScope: effectiveScope, decision: decision)
     }
 
     var body: some View {
-        BotCardSurface {
+        BotCardSurface(category: .approval) {
             if pending { pendingContent } else { decidedContent }
         }
         .accessibilityElement(children: .contain)
@@ -287,7 +309,7 @@ private struct BotApprovalCardView: View {
     private var decidedContent: some View {
         HStack(spacing: 12) {
             BotCardGlyph(systemImage: allowed ? "checkmark.circle.fill" : "xmark.circle",
-                         ink: allowed ? HomeSpec.success : HomeSpec.textPlaceholder)
+                         ink: allowed ? theme.accent : HomeSpec.textPlaceholder)
             VStack(alignment: .leading, spacing: 2) {
                 Text(statusLabel)
                     .botCardRow(weight: .medium)
@@ -304,7 +326,8 @@ private struct BotApprovalCardView: View {
     private var pendingContent: some View {
         VStack(alignment: .leading, spacing: BotCardMetrics.blockGap) {
             BotCardHeading(icon: "checkmark.shield", eyebrow: "需要你确认",
-                           title: row.body["title"]?.string ?? "允许执行这个操作吗？", detail: action) {
+                           title: row.body["title"]?.string ?? "允许执行这个操作吗？", detail: action,
+                           category: .approval) {
                 if highRisk { BotCardTag(text: "高风险", tone: .danger) }
             }
             if !command.isEmpty { commandBlock }
@@ -323,31 +346,65 @@ private struct BotApprovalCardView: View {
                     .botCardMeta()
                     .foregroundStyle(NativeParityTokens.error)
             }
-            VStack(spacing: 8) {
-                Button {
-                    model.decide(row: row, decision: .allowOnce)
-                } label: {
-                    HStack(spacing: 8) {
-                        if busy { ProgressView().tint(HomeSpec.primaryButtonInk) }
-                        Text("允许一次")
-                    }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    allowOnceButton.frame(maxWidth: .infinity)
+                    alwaysButton.frame(maxWidth: .infinity)
+                    denyButton.frame(maxWidth: .infinity)
                 }
-                .buttonStyle(BotCardButtonStyle(kind: .primary))
-                .accessibilityIdentifier("bot.approval.once")
-                if scope != "none" {
-                    Button(scope == "session" ? "本次对话都允许" : "总是允许") {
-                        model.decide(row: row, decision: .always)
-                    }
-                    .buttonStyle(BotCardButtonStyle(kind: .secondary))
-                    .accessibilityIdentifier("bot.approval.always")
+                VStack(spacing: 8) {
+                    allowOnceButton
+                    alwaysButton
+                    denyButton
                 }
-                Button("拒绝") { model.decide(row: row, decision: .deny) }
-                    .buttonStyle(BotCardButtonStyle(kind: .plain))
-                    .frame(maxWidth: .infinity)
-                    .accessibilityIdentifier("bot.approval.deny")
             }
             .disabled(busy)
+            if offeredScope == "session" {
+                Text("仅对本次对话有效")
+                    .botCardMeta()
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .accessibilityIdentifier("bot.approval.session.scope")
+            } else if standingScope == nil {
+                Text(BotApprovalOffer.onceOnlyNote)
+                    .botCardMeta()
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .accessibilityIdentifier("bot.approval.no-standing-scope")
+            }
         }
+    }
+
+    /// No standing or session scope is offered: the card has "允许" and "拒绝" only.
+    private var onceOnlyCard: Bool { standingScope == nil && offeredScope != "session" }
+
+    private var allowOnceButton: some View {
+        Button {
+            model.decide(row: row, decision: .allowOnce)
+        } label: {
+            HStack(spacing: 5) {
+                if busy { ProgressView().tint(HomeSpec.textPrimary) }
+                Text(onceOnlyCard ? "允许" : "允许一次").lineLimit(1).minimumScaleFactor(0.8)
+            }
+        }
+        .buttonStyle(BotCardButtonStyle(kind: .secondary))
+        .accessibilityIdentifier("bot.approval.once")
+    }
+
+    @ViewBuilder private var alwaysButton: some View {
+        if let standingScope {
+            Button(standingScope.buttonTitle) { model.decide(row: row, decision: .always) }
+                .lineLimit(1).minimumScaleFactor(0.8)
+                .buttonStyle(BotCardButtonStyle(kind: .primary, tint: theme.accent))
+                .accessibilityIdentifier("bot.approval.always")
+        }
+        // Once-only operations (for example installing an app on a device) show no "始终允许": a
+        // control that can never be pressed reads as broken. The note under the buttons says why.
+    }
+
+    private var denyButton: some View {
+        Button("拒绝") { model.decide(row: row, decision: .deny) }
+            .lineLimit(1).minimumScaleFactor(0.8)
+            .buttonStyle(BotCardButtonStyle(kind: .secondary))
+            .accessibilityIdentifier("bot.approval.deny")
     }
 
     /// The command in a gray block: 13pt monospaced, 将执行 and 复制 on top.
@@ -361,7 +418,7 @@ private struct BotApprovalCardView: View {
                     copied = true
                 }
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(HomeSpec.textPrimary)
+                .foregroundStyle(theme.accent)
                 .buttonStyle(.plain)
                 .frame(minWidth: 44, minHeight: 28, alignment: .trailing)
                 .accessibilityIdentifier("bot.approval.copy")
@@ -376,7 +433,7 @@ private struct BotApprovalCardView: View {
             if longCommand {
                 Button(expanded ? "收起" : "展开全部") { expanded.toggle() }
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(HomeSpec.textPrimary)
+                    .foregroundStyle(theme.accent)
                     .buttonStyle(.plain)
                     .frame(minHeight: 28)
                     .accessibilityValue(expanded ? "已展开" : "已折叠")
@@ -450,10 +507,10 @@ private struct BotAutomationCardView: View {
     }
 
     var body: some View {
-        BotCardSurface {
+        BotCardSurface(category: .work) {
             VStack(alignment: .leading, spacing: BotCardMetrics.blockGap) {
                 BotCardHeading(icon: "repeat", eyebrow: "例行任务", title: name,
-                               detail: meta) {
+                               detail: meta, category: .work) {
                     HStack(spacing: 4) {
                         if urgent {
                             BotCardTag(text: "紧急", tone: .warning)

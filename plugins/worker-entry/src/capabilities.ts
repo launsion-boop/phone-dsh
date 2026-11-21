@@ -274,15 +274,53 @@ export const CURL_NO_HOST_ROUTE_REASON =
  * @param env - the Worker environment (production: `process.env`).
  * @returns the unavailable rows, sorted by command name.
  */
-export function workerUnavailableCommands(env: HostRouteEnvironment = {}): CapabilityUnavailable[] {
+/** Boot facts that decide whether an optional command is actually runnable. */
+export interface WorkerToolFacts {
+  /** Host HELLO `accelerator:<name>` names observed for this boot. */
+  readonly accelerators?: readonly string[]
+  /** Whether the image staged and registered the jq/jaq WASI engine. */
+  readonly jqEngine?: boolean
+}
+
+export function workerUnavailableCommands(
+  env: HostRouteEnvironment = {},
+  facts: WorkerToolFacts = {},
+): CapabilityUnavailable[] {
   const origin = env.PDSH_CHANNEL_ORIGIN ?? env.PDSH_EXEC_BRIDGE_URL
   const token = env.PDSH_CHANNEL_TOKEN ?? env.PDSH_EXEC_BRIDGE_TOKEN
   const hasHostRoute = origin !== undefined && origin !== '' && token !== undefined && token !== ''
-  if (hasHostRoute) return []
-  return [
-    { command: 'curl', reason: CURL_NO_HOST_ROUTE_REASON },
-    { command: 'github', reason: CURL_NO_HOST_ROUTE_REASON },
-  ]
+  const byCommand = new Map<string, CapabilityUnavailable>()
+  const add = (command: string, reason: string): void => {
+    if (!byCommand.has(command)) byCommand.set(command, { command, reason })
+  }
+  if (!hasHostRoute) {
+    add('curl', CURL_NO_HOST_ROUTE_REASON)
+    add('github', CURL_NO_HOST_ROUTE_REASON)
+  }
+  if (facts.accelerators !== undefined) {
+    const accelerators = new Set(facts.accelerators)
+    if (!accelerators.has('rg')) {
+      add('rg', 'the host did not advertise accelerator:rg; only the JS just-bash stub is present')
+    }
+    if (!accelerators.has('phone')) {
+      add('phone', 'the host did not advertise accelerator:phone; pdsh-shell is not linked in this build')
+    }
+    if (!accelerators.has('ts-parse')) {
+      add('ts-parse', 'the host did not advertise accelerator:ts-parse; pdsh-shell is not linked in this build')
+    }
+    if (!accelerators.has('ts-query')) {
+      add('ts-query', 'the host did not advertise accelerator:ts-query; pdsh-shell is not linked in this build')
+    }
+  }
+  if (facts.jqEngine === false) {
+    if (!(facts.accelerators ?? []).includes('jq')) {
+      add('jq', 'the image staged no jq/jaq WASI engine and the host did not advertise accelerator:jq')
+    }
+    if (!(facts.accelerators ?? []).includes('jaq')) {
+      add('jaq', 'the image staged no jq/jaq WASI engine and the host did not advertise accelerator:jaq')
+    }
+  }
+  return [...byCommand.values()].sort((left, right) => left.command.localeCompare(right.command))
 }
 
 /** One capability manifest build input; every field is a fact, not a guess. */

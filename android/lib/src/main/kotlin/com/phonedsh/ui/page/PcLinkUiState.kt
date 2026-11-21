@@ -68,6 +68,15 @@ public object PcLinkText {
     /** `HomeDrawer.swift:456`: the PC list's honest empty state. */
     public const val NO_PC_SESSIONS: String = "还没有 PC 会话。点上面的「新会话」在电脑上新建一个。"
 
+    /** `HomeDrawer.swift:241`: the PC segment's blocked 新会话 line before pairing. */
+    public const val PC_NEW_SESSION_UNPAIRED: String = "连接电脑后可新建会话"
+
+    /** `HomeDrawer.swift:242`: the PC segment's blocked 新会话 line while dialing. */
+    public const val PC_NEW_SESSION_CONNECTING: String = "正在连接电脑"
+
+    /** `HomeDrawer.swift:243`: the PC segment's blocked 新会话 line while offline. */
+    public const val PC_NEW_SESSION_OFFLINE: String = "电脑离线，无法新建会话"
+
     /** `HomeDrawer.swift:436`: the PC list's loading row. */
     public const val LOADING_PC_SESSIONS: String = "正在读取 PC 会话…"
 
@@ -769,6 +778,25 @@ public data class PcDrawerUiState(
     /** The derived list state, unless the host already projected one (`PCWorkspaceBackend.swift:697`). */
     public val resolvedListState: PcDrawerListState
         get() = listState ?: PcLinkDrawerPolicy.listState(loading, error, sessions.size)
+
+    /**
+     * `HomeDrawer.swift:236-256`: why 新会话 is unavailable on the PC segment,
+     * or `null` when the PC can create. The phone segment keeps the host's
+     * existing engine/turn gate (`HomeDrawerFacts.newSessionBlockedReason`);
+     * this property answers only for the PC backend, so a stopped phone engine
+     * never disables a PC create and an offline PC never falls back to 手机.
+     */
+    public val newSessionBlockedReason: String?
+        get() = if (selected != PcDrawerBackend.PC) {
+            null
+        } else {
+            when (phase) {
+                PcDrawerPhase.PAIR -> PcLinkText.PC_NEW_SESSION_UNPAIRED
+                PcDrawerPhase.CONNECTING -> PcLinkText.PC_NEW_SESSION_CONNECTING
+                PcDrawerPhase.OFFLINE -> PcLinkText.PC_NEW_SESSION_OFFLINE
+                PcDrawerPhase.READY, PcDrawerPhase.PHONE -> null
+            }
+        }
 
     /** The grouped PC rows; empty on the 手机 segment (`HomeDrawer.swift:480-500`). */
     public val groups: List<PcDrawerGroup>

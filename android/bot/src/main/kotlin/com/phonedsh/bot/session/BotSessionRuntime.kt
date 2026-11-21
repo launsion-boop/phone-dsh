@@ -121,6 +121,13 @@ public class BotSessionRuntime(
     /** Cold-start retry delay for `session/not-found`; the contract says 50 ms. */
     private val retryDelayMillis: Long = 50,
     seedEvents: List<BotSessionStoredEvent> = emptyList(),
+    /**
+     * The integrator's durable sink for `runtime.started` / `runtime.exited`
+     * (`session-lifecycle.md` §4). It is called once, before the event is
+     * visible through [appendedEvents], so a failure means the commit point
+     * was not reached; the caller must not treat the epoch as durable.
+     */
+    private val onLifecycleEvent: (BotSessionLifecycleEvent) -> Unit = {},
 ) {
     private data class SessionCredential(
         val token: String,
@@ -188,12 +195,12 @@ public class BotSessionRuntime(
     public fun mainSessionIdentifier(): String? = mainSessionId
 
     /** The durable lifecycle events this runtime appended, in order. */
-    @Synchronized
-    public fun appendedEvents(): List<BotSessionLifecycleEvent> = appended.toList()
+    public fun appendedEvents(): List<BotSessionLifecycleEvent> =
+        synchronized(stateLock) { appended.toList() }
 
     /** Ephemeral diagnostics (`runtime.stderr`) this runtime emitted. */
-    @Synchronized
-    public fun ephemeralEvents(): List<BotSessionEphemeralEvent> = ephemeral.toList()
+    public fun ephemeralEvents(): List<BotSessionEphemeralEvent> =
+        synchronized(stateLock) { ephemeral.toList() }
 
     /** Stage the one-shot epoch-continuation seam for the next user message. */
     @Synchronized
@@ -409,7 +416,8 @@ public class BotSessionRuntime(
 
     private fun latestMainSessionEvent(): RecoveredMainSession? {
         var latest: RecoveredMainSession? = null
-        for (event in storedEvents.sortedBy { it.commitSeq }) {
+        val events = synchronized(stateLock) { storedEvents.toList() }
+        for (event in events.sortedBy { it.commitSeq }) {
             if (event.type != "runtime.started") continue
             if (event.principal.botId != botId) continue
             if (event.principal.kind != BotSessionKind.CHAT) continue
@@ -455,17 +463,23 @@ public class BotSessionRuntime(
             eventId = "evt-$type-${UUID.randomUUID().toString().lowercase()}",
             time = now(),
         )
-        storedEvents.add(
-            BotSessionStoredEvent(
-                type = event.type,
-                principal = event.principal,
-                data = event.data,
-                eventId = event.eventId,
-                time = event.time,
-                commitSeq = nextCommitSeq++,
-            ),
-        )
-        appended.add(event)
+        // The durable sink is the commit point. Persist first so a store
+        // failure is visible to the caller instead of an event that exists
+        // only in this process's memory.
+        onLifecycleEvent(event)
+        synchronized(stateLock) {
+            storedEvents.add(
+                BotSessionStoredEvent(
+                    type = event.type,
+                    principal = event.principal,
+                    data = event.data,
+                    eventId = event.eventId,
+                    time = event.time,
+                    commitSeq = nextCommitSeq++,
+                ),
+            )
+            appended.add(event)
+        }
         return event
     }
 
@@ -996,17 +1010,19 @@ public class BotSessionRuntime(
                 return (members["cwd"] as? JsonString)?.value
             }
         } catch (error: Exception) {
-            ephemeral.add(
-                BotSessionEphemeralEvent(
-                    type = "runtime.stderr",
-                    sessionId = sessionId,
-                    data = linkedMapOf(
-                        "source" to JsonString("BotDSHRemoteRuntime.remoteSessionCwd"),
-                        "message" to JsonString(
-                            "session/list cwd lookup failed for $sessionId: ${error.message ?: error}"),
+            synchronized(stateLock) {
+                ephemeral.add(
+                    BotSessionEphemeralEvent(
+                        type = "runtime.stderr",
+                        sessionId = sessionId,
+                        data = linkedMapOf(
+                            "source" to JsonString("BotDSHRemoteRuntime.remoteSessionCwd"),
+                            "message" to JsonString(
+                                "session/list cwd lookup failed for $sessionId: ${error.message ?: error}"),
+                        ),
                     ),
-                ),
-            )
+                )
+            }
         }
         return null
     }

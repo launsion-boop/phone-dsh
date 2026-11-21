@@ -252,7 +252,13 @@ public class BotGrantStore(
     override fun find(botId: String, sessionId: String?, effect: BotToolEffect): BotGrant? {
         if (recoveryState != RecoveryState.READY) return null
         val wantedBot = botId.trim()
+        // A grant matches either the exact per-call resource (a one-shot or a
+        // specific deny) or the effect's stable standing scope (images use
+        // model:image; other external sends use operation:<id>). Checking both
+        // keeps a specific deny effective while a standing allow covers the
+        // next same-kind request.
         val wantedResource = BotResourceNormalizer.normalize(effect.resource)
+        val wantedGrantScope = BotResourceNormalizer.normalize(effect.stableGrantResource)
         if (wantedBot.isEmpty() || effect.tool.trim().isEmpty() || wantedResource.isEmpty()) return null
         val timestamp = now()
         return activeGrants().filter {
@@ -264,7 +270,7 @@ public class BotGrantStore(
         }.filter {
             (it.tool == "*" || it.tool == effect.tool) &&
                 (it.operation == "*" || it.operation == effect.operation) &&
-                it.resource == wantedResource
+                (it.resource == wantedResource || it.resource == wantedGrantScope)
         }.sortedWith(
             compareByDescending<BotGrant> { it.decision == BotGrantDecision.DENY }
                 .thenByDescending { specificity(it) },

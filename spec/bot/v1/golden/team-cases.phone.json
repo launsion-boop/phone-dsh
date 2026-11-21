@@ -16,7 +16,8 @@
     "P26: freeze SendToAgent/CreateTeammate arguments, exact errors, target resolution, hop/cycle, request-id and held-reply behaviour from Swift (D12).",
     "P27: freeze the four agent-comm row directions and the agent.comm event data shape from BotAgentComm/BotTeamAgentCommRecord.",
     "P25: agent.comm is the existing additive durable event; this vector adds no event type.",
-    "P05: none — SendToUser stays an existing chat tool and no gateway wire body changes."
+    "P05: none — SendToUser stays an existing chat tool and no gateway wire body changes.",
+    "P26/P27: bot-team-d12-v2 accepts a reply to the immediate previous hop (§2.3.1): a reply-direction agent.comm row plus the exchange-shaped agent-held item, no hop, no chain, conservative wake; real cycles and depth > 2 keep the frozen sentences."
   ],
   "contract": {
     "sendToAgent": {
@@ -35,7 +36,16 @@
       "sentAtTemplate": "reply:<requestId>",
       "heldReplyTitle": "回复：<title>",
       "heldReplyTitleDefault": "回复",
-      "entryRole": "assistant"
+      "entryRole": "assistant",
+      "replyText": "已回复 <name>：回复已写入对方的 held inbox，这次回复不算新的转交。",
+      "replyHeldRequestIdTemplate": "reply:agent:<callId>",
+      "replyRowDirection": "reply",
+      "replyRowIdTemplate": "t<turn>u[<n>]",
+      "replyAddsHop": false,
+      "replyInstallsChain": false,
+      "replyWakeRule": "inbound.delivery == \"now\" && delivery == \"now\"",
+      "replyPredicate": "depth >= 1 && inbound != nil && chain.count >= 2 && chain.last == caller && chain[count-2] == target && inbound.senderID == target",
+      "replyResultMember": "reply"
     },
     "targetResolution": {
       "order": [
@@ -1267,6 +1277,328 @@
           "id": "bot-new"
         }
       }
+    },
+    {
+      "name": "send-reply-to-previous-hop",
+      "callerBotId": "bot-b",
+      "arguments": {
+        "agent_id": "bot-a",
+        "message": "  the answer  ",
+        "priority": true
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "threadId": "agent-outbound-9c5ffe071d2d7d19ba07892d1621e033bd42c2ed4f0c67fa13f1b09969da5e81@1700000000000000:agent-comm",
+          "requestId": "agent:call-reply",
+          "target": {
+            "id": "bot-a",
+            "name": "Alpha"
+          },
+          "delivery": "now",
+          "reply": true
+        },
+        "text": "已回复 Alpha：回复已写入对方的 held inbox，这次回复不算新的转交。",
+        "records": [
+          {
+            "rowID": "t4u2",
+            "botID": "bot-b",
+            "direction": "reply",
+            "role": "assistant",
+            "text": "the answer",
+            "toAgent": {
+              "id": "bot-a",
+              "name": "Alpha"
+            },
+            "threadID": "agent-outbound-9c5ffe071d2d7d19ba07892d1621e033bd42c2ed4f0c67fa13f1b09969da5e81@1700000000000000:agent-comm",
+            "requestID": "agent:call-origin",
+            "callID": "call-reply"
+          }
+        ],
+        "deliveries": [],
+        "held": [
+          {
+            "botID": "bot-a",
+            "handOff": null,
+            "item": {
+              "id": "held-0-00000000",
+              "kind": "agent-held",
+              "fromAgentId": "bot-b",
+              "fromAgentName": "Bee",
+              "title": "回复：Question",
+              "text": "the answer",
+              "requestId": "reply:agent:call-reply",
+              "threadId": "agent-outbound-9c5ffe071d2d7d19ba07892d1621e033bd42c2ed4f0c67fa13f1b09969da5e81@1700000000000000:agent-comm",
+              "createdAt": 1700000000000,
+              "state": "pending"
+            },
+            "idPattern": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+          }
+        ],
+        "wake": [
+          "bot-a"
+        ]
+      },
+      "callId": "call-reply",
+      "context": {
+        "depth": 1,
+        "chain": [
+          "bot-a",
+          "bot-b"
+        ],
+        "turn": 4,
+        "existingRowIDs": [
+          "t4u"
+        ],
+        "inbound": {
+          "senderID": "bot-a",
+          "requestID": "agent:call-origin",
+          "threadID": "agent-outbound-9c5ffe071d2d7d19ba07892d1621e033bd42c2ed4f0c67fa13f1b09969da5e81@1700000000000000:agent-comm",
+          "delivery": "now",
+          "title": "Question"
+        }
+      }
+    },
+    {
+      "name": "send-reply-at-depth-two",
+      "callerBotId": "bot-c",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "depth two reply",
+        "priority": true
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "threadId": "agent-outbound-84785a6df10343fdb39e101a3391af008e86444a1e67b7e826203b8cf94b630f@1700000000000000:agent-comm",
+          "requestId": "agent:call-depth-reply",
+          "target": {
+            "id": "bot-b",
+            "name": "Bee"
+          },
+          "delivery": "now",
+          "reply": true
+        },
+        "text": "已回复 Bee：回复已写入对方的 held inbox，这次回复不算新的转交。",
+        "records": [
+          {
+            "rowID": "t2u",
+            "botID": "bot-c",
+            "direction": "reply",
+            "role": "assistant",
+            "text": "depth two reply",
+            "toAgent": {
+              "id": "bot-b",
+              "name": "Bee"
+            },
+            "threadID": "agent-outbound-84785a6df10343fdb39e101a3391af008e86444a1e67b7e826203b8cf94b630f@1700000000000000:agent-comm",
+            "requestID": "agent:call-two",
+            "callID": "call-depth-reply"
+          }
+        ],
+        "deliveries": [],
+        "held": [
+          {
+            "botID": "bot-b",
+            "handOff": null,
+            "item": {
+              "id": "held-0-00000000",
+              "kind": "agent-held",
+              "fromAgentId": "bot-c",
+              "fromAgentName": "Hidden",
+              "title": "回复",
+              "text": "depth two reply",
+              "requestId": "reply:agent:call-depth-reply",
+              "threadId": "agent-outbound-84785a6df10343fdb39e101a3391af008e86444a1e67b7e826203b8cf94b630f@1700000000000000:agent-comm",
+              "createdAt": 1700000000000,
+              "state": "pending"
+            },
+            "idPattern": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+          }
+        ],
+        "wake": [
+          "bot-b"
+        ]
+      },
+      "callId": "call-depth-reply",
+      "context": {
+        "depth": 2,
+        "chain": [
+          "bot-a",
+          "bot-b",
+          "bot-c"
+        ],
+        "turn": 2,
+        "existingRowIDs": [],
+        "inbound": {
+          "senderID": "bot-b",
+          "requestID": "agent:call-two",
+          "threadID": "agent-outbound-84785a6df10343fdb39e101a3391af008e86444a1e67b7e826203b8cf94b630f@1700000000000000:agent-comm",
+          "delivery": "now"
+        }
+      }
+    },
+    {
+      "name": "send-reply-queued-no-wake",
+      "callerBotId": "bot-b",
+      "arguments": {
+        "agent_id": "bot-a",
+        "message": "held answer",
+        "priority": false
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "threadId": "agent-outbound-9c5ffe071d2d7d19ba07892d1621e033bd42c2ed4f0c67fa13f1b09969da5e81@1700000000000000:agent-comm",
+          "requestId": "agent:call-reply-queued",
+          "target": {
+            "id": "bot-a",
+            "name": "Alpha"
+          },
+          "delivery": "queued",
+          "reply": true
+        },
+        "text": "已回复 Alpha：回复已写入对方的 held inbox，这次回复不算新的转交。",
+        "records": [
+          {
+            "rowID": "t5u2",
+            "botID": "bot-b",
+            "direction": "reply",
+            "role": "assistant",
+            "text": "held answer",
+            "toAgent": {
+              "id": "bot-a",
+              "name": "Alpha"
+            },
+            "threadID": "agent-outbound-9c5ffe071d2d7d19ba07892d1621e033bd42c2ed4f0c67fa13f1b09969da5e81@1700000000000000:agent-comm",
+            "requestID": "agent:call-origin",
+            "callID": "call-reply-queued"
+          }
+        ],
+        "deliveries": [],
+        "held": [
+          {
+            "botID": "bot-a",
+            "handOff": null,
+            "item": {
+              "id": "held-0-00000000",
+              "kind": "agent-held",
+              "fromAgentId": "bot-b",
+              "fromAgentName": "Bee",
+              "title": "回复：Question",
+              "text": "held answer",
+              "requestId": "reply:agent:call-reply-queued",
+              "threadId": "agent-outbound-9c5ffe071d2d7d19ba07892d1621e033bd42c2ed4f0c67fa13f1b09969da5e81@1700000000000000:agent-comm",
+              "createdAt": 1700000000000,
+              "state": "pending"
+            },
+            "idPattern": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+          }
+        ],
+        "wake": []
+      },
+      "callId": "call-reply-queued",
+      "context": {
+        "depth": 1,
+        "chain": [
+          "bot-a",
+          "bot-b"
+        ],
+        "turn": 5,
+        "existingRowIDs": [
+          "t5u"
+        ],
+        "inbound": {
+          "senderID": "bot-a",
+          "requestID": "agent:call-origin",
+          "threadID": "agent-outbound-9c5ffe071d2d7d19ba07892d1621e033bd42c2ed4f0c67fa13f1b09969da5e81@1700000000000000:agent-comm",
+          "delivery": "now",
+          "title": "Question"
+        }
+      }
+    },
+    {
+      "name": "send-reply-to-queued-handoff-no-wake",
+      "callerBotId": "bot-b",
+      "arguments": {
+        "agent_id": "bot-a",
+        "message": "answering the held message",
+        "priority": true
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "threadId": "agent-outbound-f54cbb990e456ffca52bceb7658a646d1fe945b88f58d0c5a7644379cb36f47c@1700000000000000:agent-comm",
+          "requestId": "agent:call-reply-from-held",
+          "target": {
+            "id": "bot-a",
+            "name": "Alpha"
+          },
+          "delivery": "now",
+          "reply": true
+        },
+        "text": "已回复 Alpha：回复已写入对方的 held inbox，这次回复不算新的转交。",
+        "records": [
+          {
+            "rowID": "t2u2",
+            "botID": "bot-b",
+            "direction": "reply",
+            "role": "assistant",
+            "text": "answering the held message",
+            "toAgent": {
+              "id": "bot-a",
+              "name": "Alpha"
+            },
+            "threadID": "agent-outbound-f54cbb990e456ffca52bceb7658a646d1fe945b88f58d0c5a7644379cb36f47c@1700000000000000:agent-comm",
+            "requestID": "agent:call-held-origin",
+            "callID": "call-reply-from-held"
+          }
+        ],
+        "deliveries": [],
+        "held": [
+          {
+            "botID": "bot-a",
+            "handOff": null,
+            "item": {
+              "id": "held-0-00000000",
+              "kind": "agent-held",
+              "fromAgentId": "bot-b",
+              "fromAgentName": "Bee",
+              "title": "回复：FYI",
+              "text": "answering the held message",
+              "requestId": "reply:agent:call-reply-from-held",
+              "threadId": "agent-outbound-f54cbb990e456ffca52bceb7658a646d1fe945b88f58d0c5a7644379cb36f47c@1700000000000000:agent-comm",
+              "createdAt": 1700000000000,
+              "state": "pending"
+            },
+            "idPattern": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+          }
+        ],
+        "wake": []
+      },
+      "callId": "call-reply-from-held",
+      "context": {
+        "depth": 1,
+        "chain": [
+          "bot-a",
+          "bot-b"
+        ],
+        "turn": 2,
+        "existingRowIDs": [
+          "t2u"
+        ],
+        "inbound": {
+          "senderID": "bot-a",
+          "requestID": "agent:call-held-origin",
+          "threadID": "agent-outbound-f54cbb990e456ffca52bceb7658a646d1fe945b88f58d0c5a7644379cb36f47c@1700000000000000:agent-comm",
+          "delivery": "queued",
+          "title": "FYI"
+        }
+      }
     }
   ],
   "invalid": [
@@ -1960,6 +2292,110 @@
         },
         "text": "CreateTeammate 的 hairstyle 只能是这些值之一：long、twin-tail、bob、side-braid"
       }
+    },
+    {
+      "name": "send-reply-older-hop-cycle",
+      "callerBotId": "bot-b",
+      "arguments": {
+        "agent_id": "bot-a",
+        "message": "loop",
+        "priority": true
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "转交链已经走过 Alpha → Hidden → Bee → Alpha，Alpha 在这条链上，不能再转回去。请直接回答当前请求。"
+          }
+        },
+        "text": "转交链已经走过 Alpha → Hidden → Bee → Alpha，Alpha 在这条链上，不能再转回去。请直接回答当前请求。"
+      },
+      "callId": "call-reply-older",
+      "context": {
+        "depth": 1,
+        "chain": [
+          "bot-a",
+          "bot-c",
+          "bot-b"
+        ],
+        "turn": 4,
+        "existingRowIDs": [],
+        "inbound": {
+          "senderID": "bot-c",
+          "requestID": "agent:call-chain",
+          "threadID": "agent-outbound-aa4cda008e38615dcda98d38de41e7a1f6dc332189f2e3b7417d8406dc8cb135@1700000000000000:agent-comm",
+          "delivery": "now"
+        }
+      }
+    },
+    {
+      "name": "send-reply-depth-three-new-hop",
+      "callerBotId": "bot-c",
+      "arguments": {
+        "agent_id": "bot-x",
+        "message": "forward",
+        "priority": true
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "转交层数已经达到上限（最多 2 层）。不要再转给别人了，请直接回答当前请求。"
+          }
+        },
+        "text": "转交层数已经达到上限（最多 2 层）。不要再转给别人了，请直接回答当前请求。"
+      },
+      "callId": "call-reply-new-hop",
+      "context": {
+        "depth": 2,
+        "chain": [
+          "bot-a",
+          "bot-b",
+          "bot-c"
+        ],
+        "turn": 2,
+        "existingRowIDs": [],
+        "inbound": {
+          "senderID": "bot-b",
+          "requestID": "agent:call-two",
+          "threadID": "agent-outbound-84785a6df10343fdb39e101a3391af008e86444a1e67b7e826203b8cf94b630f@1700000000000000:agent-comm",
+          "delivery": "now"
+        }
+      }
+    },
+    {
+      "name": "send-reply-without-inbound-context",
+      "callerBotId": "bot-b",
+      "arguments": {
+        "agent_id": "bot-a",
+        "message": "loop without identity",
+        "priority": true
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "转交链已经走过 Alpha → Bee → Alpha，Alpha 在这条链上，不能再转回去。请直接回答当前请求。"
+          }
+        },
+        "text": "转交链已经走过 Alpha → Bee → Alpha，Alpha 在这条链上，不能再转回去。请直接回答当前请求。"
+      },
+      "callId": "call-reply-no-inbound",
+      "context": {
+        "depth": 1,
+        "chain": [
+          "bot-a",
+          "bot-b"
+        ],
+        "turn": 4,
+        "existingRowIDs": []
+      }
     }
   ],
   "rowCases": [
@@ -2109,7 +2545,8 @@
           "name": "Alpha"
         },
         "threadID": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690@1700000000000000:agent-comm",
-        "requestID": "agent:call-row"
+        "requestID": "agent:call-row",
+        "callID": "call-row"
       },
       "eventData": {
         "id": "t1u",
@@ -2130,7 +2567,8 @@
         "toAgent": {
           "id": "bot-a",
           "name": "Alpha"
-        }
+        },
+        "callId": "call-row"
       }
     }
   ],

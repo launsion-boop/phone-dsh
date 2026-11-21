@@ -83,10 +83,24 @@ private actor BotScriptedGate {
 final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var scripts: [String: [[BotScriptedEvent]]]
+    /// Simulates the old Worker connection ending: every live mux returns nil
+    /// on its next receive, exactly like a WebSocket that lost its peer.
+    private var muxesClosed = false
     private let mainId: String
     private let honorRequestedSessionIDs: Bool
     private var nextCreateIndex = 0
     private var gates: [String: BotScriptedGate] = [:]
+    /// A separate gate in front of `session/prompt`, so a test can hold the
+    /// turn in the pre-accept admission window without pausing its follow
+    /// stream.
+    private var promptGates: [String: BotScriptedGate] = [:]
+    /// A gate in front of only `mode == "steer"` prompts, so a test can end the
+    /// running turn between the runtime's pre-send check and the actual send.
+    private var steerPromptGates: [String: BotScriptedGate] = [:]
+    /// DSH dedupes `session/prompt` by requestId (`hasPromptRequest`). Off by
+    /// default so pre-existing tests keep their recorded-prompt expectations.
+    private let dedupeRequestIds: Bool
+    private var seenRequestIds: Set<String> = []
     private var failingPages: [String: Int] = [:]
     private var remainingSessionListFailures = 0
     private var sessionListArgs: [BotJSONValue] = []
@@ -96,6 +110,10 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     /// Test seam: report a different composed preset than the requested one.
     var createPresetOverride: String?
 
+    private(set) var promptAttempts = 0
+    /// How many `mode == "steer"` prompts reached the transport seam (before
+    /// the steer gate), so a test can prove the steer was in flight.
+    private(set) var steerPromptAttempts = 0
     private(set) var prompts: [String: (sessionId: String, mode: String, text: String)] = [:]
     private(set) var promptHistory: [(sessionId: String, mode: String, text: String)] = []
     private(set) var promptRequestIds: [(sessionId: String, requestId: String, mode: String)] = []
@@ -115,10 +133,11 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     }
 
     init(mainId: String = "gb-main", scripts: [String: [[BotScriptedEvent]]],
-         honorRequestedSessionIDs: Bool = false) {
+         honorRequestedSessionIDs: Bool = false, dedupeRequestIds: Bool = false) {
         self.mainId = mainId
         self.scripts = scripts
         self.honorRequestedSessionIDs = honorRequestedSessionIDs
+        self.dedupeRequestIds = dedupeRequestIds
     }
 
     var createCount: Int { lock.withLock { createdIDs.count } }
@@ -148,6 +167,47 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     func resume(_ sessionId: String) {
         let gate = lock.withLock { gates[sessionId] }
         if let gate { Task { await gate.open() } }
+    }
+
+    /// Hold `session/prompt` before it is recorded, simulating the window in
+    /// which the turn is open but the Worker has not accepted its first prompt.
+    func pausePrompts(_ sessionId: String) {
+        lock.withLock {
+            if promptGates[sessionId] == nil { promptGates[sessionId] = BotScriptedGate() }
+        }
+    }
+
+    func resumePrompts(_ sessionId: String) {
+        let gate = lock.withLock { promptGates[sessionId] }
+        if let gate { Task { await gate.open() } }
+    }
+
+    /// Hold only `mode == "steer"` prompts. The head steer reaches the gate
+    /// after the runtime's pre-send check; ending the turn while it is held
+    /// reproduces the turn-end window deterministically.
+    func pauseSteerPrompts(_ sessionId: String) {
+        lock.withLock {
+            if steerPromptGates[sessionId] == nil {
+                steerPromptGates[sessionId] = BotScriptedGate()
+            }
+        }
+    }
+
+    func resumeSteerPrompts(_ sessionId: String) {
+        let gate = lock.withLock { steerPromptGates[sessionId] }
+        if let gate { Task { await gate.open() } }
+    }
+
+    var acceptedPromptCount: Int { lock.withLock { promptHistory.count } }
+
+    /// Ends every open `session/follow` stream, like the replaced Worker's
+    /// connection dropping. The owning turn sees EOF on its next read.
+    func closeMuxes() {
+        let openGates = lock.withLock { () -> [BotScriptedGate] in
+            muxesClosed = true
+            return Array(self.gates.values)
+        }
+        for gate in openGates { Task { await gate.open() } }
     }
 
     func failPage(_ sessionId: String, times: Int? = nil) {
@@ -254,6 +314,24 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
                 $0["text"]?.stringValue
             }.joined()
             let requestId = request["requestId"]?.stringValue ?? ""
+            lock.withLock { promptAttempts += 1 }
+            let promptGate = lock.withLock { promptGates[sessionId] }
+            if let promptGate { await promptGate.wait() }
+            if mode == "steer" {
+                lock.withLock { steerPromptAttempts += 1 }
+                let steerGate = lock.withLock { steerPromptGates[sessionId] }
+                if let steerGate { await steerGate.wait() }
+            }
+            if dedupeRequestIds {
+                // DSH records an accepted request before admitting it; a
+                // repeated requestId is acknowledged without a new message.
+                let duplicate = lock.withLock { () -> Bool in
+                    if seenRequestIds.contains(requestId) { return true }
+                    seenRequestIds.insert(requestId)
+                    return false
+                }
+                if duplicate { return .object([:]) }
+            }
             lock.withLock {
                 prompts[sessionId] = (sessionId, mode, text)
                 promptHistory.append((sessionId, mode, text))
@@ -280,6 +358,9 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
             },
             gateForSession: { [weak self] sessionId in
                 self?.lock.withLock { self?.gates[sessionId] } ?? nil
+            },
+            isClosed: { [weak self] in
+                self?.lock.withLock { self?.muxesClosed ?? true } ?? true
             })
     }
 
@@ -289,6 +370,7 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
 private actor BotScriptedMux: DSHMuxConnection {
     private let eventsForSession: (String) -> [BotScriptedEvent]
     private let gateForSession: (String) -> BotScriptedGate?
+    private let isClosed: () -> Bool
     private var events: [BotScriptedEvent] = []
     private var snapshotReturned = false
     private var index = 0
@@ -296,9 +378,11 @@ private actor BotScriptedMux: DSHMuxConnection {
     private var gateWaited = false
 
     init(eventsForSession: @escaping (String) -> [BotScriptedEvent],
-         gateForSession: @escaping (String) -> BotScriptedGate?) {
+         gateForSession: @escaping (String) -> BotScriptedGate?,
+         isClosed: @escaping () -> Bool = { false }) {
         self.eventsForSession = eventsForSession
         self.gateForSession = gateForSession
+        self.isClosed = isClosed
     }
 
     func send(_ frame: BotJSONValue) async throws {
@@ -310,6 +394,7 @@ private actor BotScriptedMux: DSHMuxConnection {
     }
 
     func receive() async throws -> BotJSONValue? {
+        if isClosed() { return nil }
         if !snapshotReturned {
             snapshotReturned = true
             return .object([
@@ -321,6 +406,7 @@ private actor BotScriptedMux: DSHMuxConnection {
             gateWaited = true
             await gate.wait()
         }
+        if isClosed() { return nil }
         guard index < events.count else { return nil }
         let event = events[index]
         index += 1

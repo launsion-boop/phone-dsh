@@ -1,0 +1,130 @@
+{
+  "auto_decisions" : [
+
+  ],
+  "budget" : {
+    "max_minutes" : 12,
+    "max_model_requests" : 30
+  },
+  "expect" : "pass",
+  "expectation_met" : true,
+  "finished_at" : "2026-11-17T06:18:58Z",
+  "id" : "AHA-CONTINUOUS",
+  "keep_bodies" : true,
+  "model" : {
+    "base_url_host" : "api.deepseek.com",
+    "name" : "deepseek-flash",
+    "real" : true
+  },
+  "repeat" : 1,
+  "repeats" : [
+    {
+      "actions" : [
+        {
+          "bot" : "main",
+          "detail" : "allow_once",
+          "index" : 0,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "approval_policy",
+          "wall_ms" : 0
+        },
+        {
+          "bot" : "main",
+          "detail" : "scheduled delay_ms=4000",
+          "index" : 1,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "concurrent_user_message",
+          "wall_ms" : 0
+        },
+        {
+          "bot" : "main",
+          "index" : 2,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 4,
+              "turn" : 1
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 10072
+        }
+      ],
+      "approval_requests" : {
+
+      },
+      "assertions" : [
+        {
+          "bot" : "main",
+          "detail" : "reply contains \"BLUE\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "reply_contains"
+        },
+        {
+          "bot" : "main",
+          "detail" : "reply does not contain \"DONE RED\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "reply_not_contains"
+        },
+        {
+          "bot" : "main",
+          "detail" : "counted 1 conversation.assistant_message event(s), expected 1 ()",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "event_count"
+        },
+        {
+          "bot" : "main",
+          "detail" : "found 1 user\/message session event(s)",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "session_event"
+        }
+      ],
+      "auto_decisions" : [
+
+      ],
+      "index" : 1,
+      "page_visibility" : {
+        "attached_with_visible_area" : true,
+        "document_visibility_state" : "visible",
+        "is_visible" : true,
+        "window_occlusion_visible" : true
+      },
+      "status" : "PASS",
+      "usage" : {
+        "max_minutes" : 12,
+        "max_model_requests" : 30,
+        "model_requests" : 3,
+        "recorded_model_requests" : 3,
+        "upstream_bytes_in" : 158622,
+        "upstream_bytes_out" : 21212,
+        "upstream_requests" : 3,
+        "wall_s" : 14.143760085105896
+      },
+      "wall_s" : 14.143760085105896
+    }
+  ],
+  "run_status" : "PASS",
+  "schema_version" : 1,
+  "selftest" : false,
+  "started_at" : "2026-11-17T06:18:44Z",
+  "status" : "PASS",
+  "title" : "a correction sent while the turn is busy is consumed by the same turn",
+  "upstream" : "real",
+  "usage" : {
+    "model_requests" : 3,
+    "upstream_bytes_in" : 158622,
+    "upstream_bytes_out" : 21212,
+    "wall_s" : 14.143760085105896
+  }
+}

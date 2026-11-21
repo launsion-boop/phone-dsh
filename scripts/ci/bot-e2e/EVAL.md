@@ -471,3 +471,9 @@ Scenario notes:
 * A created Bot's workspace files use the materialized-tree fallback because
   the host owns the WAL once it is running; main-Bot and host-root seeds use
   the WAL.
+* The App's `BotWorkspaceModelImage` bridge imports UIKit/Photos/PDFKit and is
+  iOS-only. The macOS harness links a guarded eval shim
+  (`Sources/BotEvalApp/BotWorkspaceModelImage+macOS.swift`) that fails closed:
+  image attachments and photo-library reads are unavailable on this runner.
+  Scenarios that need them must be `SKIP`/`NOT_RUN`, never reported as model
+  image evidence.

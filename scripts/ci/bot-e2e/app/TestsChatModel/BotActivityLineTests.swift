@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import CoreGraphics
 import PhoneDSHAgentCore
 import PhoneDSHBot
 
@@ -247,6 +248,30 @@ final class BotActivityLineTests: XCTestCase {
         }
     }
 
+    // MARK: - Shimmer sweep
+
+    /// The glint is a pure function of time: −1 → 1 across one 1.6s period,
+    /// wrapping on both ends of the reference interval. Keeping it here means
+    /// the view only applies it to a mask offset and the logic-only targets
+    /// can check it without a renderer.
+    func testActivitySweepPhaseIsPureAndWraps() {
+        func phase(_ seconds: TimeInterval) -> CGFloat {
+            BotActivitySweep.phase(at: Date(timeIntervalSinceReferenceDate: seconds))
+        }
+        XCTAssertEqual(BotActivitySweep.period, 1.6, accuracy: 0.0001)
+        XCTAssertEqual(phase(0), -1, accuracy: 0.0001)
+        XCTAssertEqual(phase(BotActivitySweep.period * 0.25), -0.5, accuracy: 0.0001)
+        XCTAssertEqual(phase(BotActivitySweep.period * 0.5), 0, accuracy: 0.0001)
+        XCTAssertEqual(phase(BotActivitySweep.period * 0.75), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(phase(BotActivitySweep.period), -1, accuracy: 0.0001)
+        XCTAssertEqual(phase(-BotActivitySweep.period * 0.5), 0, accuracy: 0.0001)
+        for step in 0...32 {
+            let value = phase(Double(step) * 0.05)
+            XCTAssertGreaterThanOrEqual(value, -1)
+            XCTAssertLessThanOrEqual(value, 1)
+        }
+    }
+
     // MARK: - Model description
 
     func testModelDescriptionWinsButCategoryStillFollowsTool() {
@@ -281,7 +306,7 @@ final class BotActivityLineTests: XCTestCase {
 
     // MARK: - Phase derivation
 
-    func testFinishedToolCallBecomesReviewingUntilNextStep() {
+    func testFinishedToolCallKeepsItsOwnSentenceAsReviewing() {
         let turn = sessionEvent("turn/start", seq: 1, time: 1_000)
         let call = sessionEvent("tool/call", seq: 2, time: 1_100, data: [
             "callId": .string("read-1"),
@@ -292,16 +317,16 @@ final class BotActivityLineTests: XCTestCase {
             "message": .object(["toolCallId": .string("read-1")]),
         ])
         let reviewing = presentation([turn, call, result], now: 1_300)
-        XCTAssertEqual(reviewing.activity?.status, .toolRunning)
+        XCTAssertEqual(reviewing.activity?.status, .thinking)
         XCTAssertEqual(reviewing.activity?.category, .reviewing)
-        XCTAssertEqual(reviewing.activity?.detail, "看看结果 · report.md")
+        XCTAssertEqual(reviewing.activity?.detail, "在翻文件 · report.md")
         XCTAssertEqual(reviewing.activity?.startedAt, 1_200)
 
         let step = sessionEvent("step/start", seq: 4, time: 1_400)
         let thinking = presentation([turn, call, result, step], now: 1_500)
         XCTAssertEqual(thinking.activity?.status, .thinking)
-        XCTAssertEqual(thinking.activity?.category, .thinking)
-        XCTAssertEqual(thinking.activity?.detail, "")
+        XCTAssertEqual(thinking.activity?.category, .reviewing)
+        XCTAssertEqual(thinking.activity?.detail, "在翻文件 · report.md")
         XCTAssertEqual(thinking.activity?.startedAt, 1_400)
     }
 
@@ -317,9 +342,16 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(running.activity?.detail, "在翻文件 · report.md")
         XCTAssertEqual(running.activity?.startedAt, 1_100)
 
-        let stream = sessionEvent("assistant/stream", seq: 3, time: 1_300,
-                                  data: ["channel": .string("text")])
-        XCTAssertNil(presentation([turn, call, stream], now: 1_400).activity)
+        // A committed public sentence for a later step never replaces the
+        // in-flight call's own sentence or its lifecycle.
+        let step = sessionEvent("step/start", seq: 3, time: 1_200, data: ["step": .number(2)])
+        let sentence = sessionEvent("assistant/message", seq: 4, time: 1_300, data: [
+            "message": .object(["content": .array([.object([
+                "type": .string("text"), "text": .string("定位重连失败用例"),
+            ])])]),
+        ])
+        XCTAssertEqual(presentation([turn, call, step, sentence], now: 1_400).activity?.detail,
+                       "在翻文件 · report.md")
 
         let preview = presentation([turn], now: 1_500)
         XCTAssertEqual(preview.activity?.status, .thinking)
@@ -334,10 +366,360 @@ final class BotActivityLineTests: XCTestCase {
             "name": .string("mcp__phone__FishAction"),
             "arguments": .string("{\"action\":\"waving\"}"),
         ])
-        XCTAssertNil(presentation([turn, fish], now: 1_200).activity)
+        XCTAssertEqual(presentation([turn, fish], now: 1_200).activity?.detail, "等待响应")
+    }
+
+    /// One sentence per real call. These exercise the real factory and policy
+    /// over the shared `activity-evidence-v2.1` oracle; shared legacy phrase
+    /// tests remain to protect deferred Android compatibility.
+    func testIOSEvidenceLifecycleVectors() throws {
+        struct Expected: Decodable { let status: String; let detail: String; let category: String; let startedAt: Int64 }
+        struct Case: Decodable { let id: String; let events: [JSONValue]; let expected: Expected? }
+        struct Vectors: Decodable { let now: Int64; let cases: [Case] }
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { root.deleteLastPathComponent() }
+        let path = root.appendingPathComponent("spec/ui/v1/bot/ios/activity-evidence-vectors.json")
+        let vectors = try JSONDecoder().decode(Vectors.self, from: Data(contentsOf: path))
+        XCTAssertEqual(vectors.cases.count, 91)
+        for vector in vectors.cases {
+            let live = BotRuntimePresentationFactory.live(botID: "main", events: vector.events,
+                                                          now: vectors.now).activity
+            // The durable session log and the live frames share one reducer, so
+            // the same events must produce the same activity.
+            let durable = presentation(sessionEvents(vector.events), now: vectors.now).activity
+            guard let expected = vector.expected else {
+                XCTAssertNil(live, vector.id)
+                XCTAssertNil(durable, vector.id)
+                continue
+            }
+            XCTAssertNotNil(live, vector.id)
+            XCTAssertEqual(live?.status.rawValue, expected.status, vector.id)
+            XCTAssertEqual(live?.detail, expected.detail, vector.id)
+            XCTAssertEqual(live?.category.rawValue, expected.category, vector.id)
+            XCTAssertEqual(live?.startedAt, expected.startedAt, vector.id)
+            XCTAssertEqual(durable, live, vector.id)
+        }
+    }
+
+    func testDisplayTextKeepsRealTaskObjects() {
+        for raw in ["对比 #174 与 main 的三个冲突文件",
+                    "读取 BotChatModel.swift 中的发送逻辑",
+                    "查看 BotChatModel.swift",
+                    "回复李光浩的邮件",
+                    "检查《周三例会》纪要"] {
+            XCTAssertEqual(BotActivityEvidence.displayText(raw), raw, raw)
+        }
+        // First line, collapsed whitespace, trailing punctuation stripped.
+        XCTAssertEqual(BotActivityEvidence.displayText("检查会议记录\n然后整理结论"), "检查会议记录")
+        XCTAssertEqual(BotActivityEvidence.displayText("  对比   #174   与 main  "), "对比 #174 与 main")
+        XCTAssertEqual(BotActivityEvidence.displayText("整理结果！！"), "整理结果")
+        XCTAssertNil(BotActivityEvidence.displayText("   。  "))
+    }
+
+    func testDisplayTextRejectsFillersCompletionClaimsAndCredentials() {
+        for raw in ["思考中", "处理中", "我来看看", "好的", "稍等", "开始",
+                    "已收到读取结果", "已完成所有验证", "已确认可以合并",
+                    "completed all steps", "done",
+                    "Bearer secret-value", "api_key=abc123",
+                    "sk-proj-AbCdEf123456", "ghp_0123456789abcdef",
+                    "xoxb-1234-5678", "AKIAIOSFODNN7EXAMPLE"] {
+            XCTAssertNil(BotActivityEvidence.displayText(raw), raw)
+        }
+        XCTAssertEqual(BotActivityEvidence.displayText("Meeting notes review"), "Meeting notes review")
+        XCTAssertEqual(BotActivityEvidence.displayText("检查 3.5 小时"), "检查 3.5 小时")
+    }
+
+    func testLongPublicAnswerShortensAtClauseBoundary() {
+        // A repeated short clause is cut at the last clause punctuation in the
+        // 28-character CJK bound, so one real progress sentence is shown.
+        let clauses = String(repeating: "对比 #174 与 main 的冲突文件，", count: 40)
+        XCTAssertEqual(BotActivityEvidence.displayText(clauses),
+                       "对比 #174 与 main 的冲突文件")
+        XCTAssertEqual(BotActivityEvidence.displayText(
+            "我先检查这个问题的完整原因。后面还有很长的解释内容不应上屏。"),
+            "我先检查这个问题的完整原因")
+        // Non-CJK text uses the 56-character bound and an ellipsis tail.
+        let latin = String(repeating: "abcdef ghij ", count: 10)
+        let shortened = BotActivityEvidence.displayText(latin)
+        XCTAssertEqual(shortened?.count, 56)
+        XCTAssertEqual(shortened?.hasSuffix("…"), true)
+    }
+
+    func testLongPathObjectUsesTheBasename() {
+        let path = "/workspace/examples/probe-app/PhoneDSHProbe/Bot/BotChatModel.swift"
+        let call = BotActivityEvidence.action(forToolNamed: "read",
+                                              arguments: arguments("{\"file_path\":\"\(path)\"}"))
+        XCTAssertEqual(call.category, .reading)
+        XCTAssertEqual(call.text, "在翻文件 · BotChatModel.swift")
+    }
+
+    func testDisplayedURLObjectIsTheHostOnly() {
+        let call = BotActivityEvidence.action(forToolNamed: "web_fetch", arguments: arguments(
+            "{\"url\":\"https://user:password@localhost/report?token=secret&view=1\"}"))
+        XCTAssertEqual(call.text, "在开网页 · localhost")
+        XCTAssertEqual(BotActivityEvidence.displayHost(
+            "https://github.com/launsion-boop/phone-dsh/pull/174"), "github.com")
+    }
+
+    func testEvidenceActionUsesIntentThenObjectThenLabel() {
+        XCTAssertEqual(BotActivityEvidence.action(forToolNamed: "bash", arguments: arguments(
+            "{\"description\":\"对比 #174 与 main 的冲突文件\",\"command\":\"git diff\"}")).text,
+            "对比 #174 与 main 的冲突文件")
+        XCTAssertEqual(BotActivityEvidence.action(forToolNamed: "bash",
+            arguments: arguments("{\"command\":\"git status\"}")).text, "正在运行命令")
+        XCTAssertEqual(BotActivityEvidence.action(forToolNamed: "mcp__phone__Task", arguments: arguments(
+            "{\"task_title\":\"核对 #174 的合并状态\",\"prompt\":\"x\"}")).text,
+            "核对 #174 的合并状态")
+        XCTAssertEqual(BotActivityEvidence.action(forToolNamed: "mcp__phone__Task",
+            arguments: arguments("{\"prompt\":\"x\"}")).text, "启动子任务")
+        XCTAssertEqual(BotActivityEvidence.action(forToolNamed: "mcp__phone__MysteryTool",
+            arguments: arguments("{\"description\":\"伪造进度\"}")).text, "等待操作结果")
+    }
+
+    /// v2.1: text-channel deltas accumulate within one step; the durable
+    /// `assistant/message` replaces the accumulated text instead of being
+    /// appended to it, so a single streamed fragment is never the sentence.
+    func testSameStepTextDeltasAccumulateAndMessageReplacesThem() {
+        let turn = sessionEvent("turn/start", seq: 1, time: 100)
+        let step = sessionEvent("step/start", seq: 2, time: 150, data: ["step": .number(1)])
+        let first = sessionEvent("assistant/stream", seq: 3, time: 160, data: [
+            "step": .number(1), "channel": .string("text"), "text": .string("对比 #174 "),
+        ])
+        let second = sessionEvent("assistant/stream", seq: 4, time: 170, data: [
+            "step": .number(1), "channel": .string("text"), "text": .string("与 main 的 README"),
+        ])
+        let message = sessionEvent("assistant/message", seq: 5, time: 180, data: [
+            "step": .number(1),
+            "message": .object(["content": .array([.object([
+                "type": .string("text"), "text": .string("对比 #174 与 main 的 README"),
+            ])])]),
+        ])
+        let call = sessionEvent("tool/call", seq: 6, time: 200, data: [
+            "step": .number(1), "callId": .string("a"), "name": .string("read"),
+            "arguments": .object(["file_path": .string("/dsh/workspace/README.md")]),
+        ])
+        let expected = "对比 #174 与 main 的 README"
+        XCTAssertEqual(presentation([turn, step, first, second, call], now: 300).activity?.detail,
+                       expected)
+        XCTAssertEqual(presentation([turn, step, first, message, call], now: 300).activity?.detail,
+                       expected)
+
+        // A delta after the durable message starts a new segment for that step.
+        let later = sessionEvent("assistant/stream", seq: 7, time: 195, data: [
+            "step": .number(1), "channel": .string("text"), "text": .string("再看 B 的失败"),
+        ])
+        let laterCall = sessionEvent("tool/call", seq: 8, time: 300, data: [
+            "step": .number(1), "callId": .string("b"), "name": .string("read"),
+            "arguments": .object(["file_path": .string("/dsh/workspace/README.md")]),
+        ])
+        XCTAssertEqual(presentation([turn, step, message, later, laterCall], now: 400).activity?.detail,
+                       "再看 B 的失败")
+
+        // A new step clears the accumulated candidate.
+        let nextStep = sessionEvent("step/start", seq: 8, time: 210, data: ["step": .number(2)])
+        let nextCall = sessionEvent("tool/call", seq: 9, time: 220, data: [
+            "step": .number(2), "callId": .string("b"), "name": .string("read"),
+            "arguments": .object(["file_path": .string("/dsh/workspace/b.md")]),
+        ])
+        XCTAssertEqual(presentation([turn, step, first, message, nextStep, nextCall],
+                                    now: 300).activity?.detail,
+                       "在翻文件 · b.md")
+    }
+
+    /// Real live traffic: `streamStart`, several `textDelta` frames, then the
+    /// session's own continuously numbered events. The accumulated public
+    /// sentence must be complete, the real sequence must not be overtaken by
+    /// synthetic events, and live must equal durable for the same events.
+    func testLiveFramesKeepRealEventOrderAndTheAccumulatedSentence() {
+        var projection = BotLiveFishProjection(botID: "main")
+        func frame(_ type: String, seq: Int, time: Int64,
+                   data: [String: JSONValue]) -> BotLiveFrame {
+            .event(.object([
+                "type": .string(type), "seq": .number(Double(seq)),
+                "time": .number(Double(time)), "data": .object(data),
+            ]))
+        }
+        projection.receive(frame("turn/start", seq: 1, time: 100,
+                                 data: ["turn": .number(1)]), now: 100)
+        projection.receive(frame("step/start", seq: 2, time: 150,
+                                 data: ["turn": .number(1), "step": .number(1)]), now: 150)
+        projection.receive(.streamStart, now: 160)
+        for chunk in ["对比 #174 ", "与 main ", "的 README"] {
+            projection.receive(.textDelta(chunk), now: 170)
+        }
+        // Token count must not add records or advance the live sequence.
+        for _ in 0..<100 { projection.receive(.textDelta("…"), now: 175) }
+        let syntheticSeqs = projection.records.compactMap { record -> Int? in
+            guard record["type"]?.stringValue == "assistant/stream" else { return nil }
+            return record["seq"]?.intValue
+        }
+        XCTAssertEqual(syntheticSeqs.count, 1)
+        XCTAssertLessThanOrEqual(syntheticSeqs.first ?? .max, 3)
+        XCTAssertLessThan(projection.records.count, 10)
+
+        projection.receive(frame("tool/call", seq: 3, time: 200, data: [
+            "turn": .number(1), "step": .number(1), "callId": .string("a"),
+            "name": .string("read"),
+            "arguments": .object(["file_path": .string("/workspace/README.md")]),
+        ]), now: 200)
+        projection.receive(frame("tool/result", seq: 4, time: 220, data: [
+            "turn": .number(1), "step": .number(1),
+            "message": .object(["toolCallId": .string("a"), "isError": .bool(false)]),
+        ]), now: 220)
+        let live = projection.presentation(now: 300).activity
+        XCTAssertEqual(live?.detail, "对比 #174 与 main 的 README")
+        XCTAssertEqual(live?.status, .thinking)
+        XCTAssertEqual(live?.category, .reviewing)
+
+        // The same logical events through the durable entry point: live and
+        // durable agree, and the deltas read as one sentence, not a fragment.
+        let durable = presentation([
+            sessionEvent("turn/start", seq: 1, time: 100, data: ["turn": .number(1)]),
+            sessionEvent("step/start", seq: 2, time: 150,
+                         data: ["turn": .number(1), "step": .number(1)]),
+            sessionEvent("assistant/stream", seq: 3, time: 160, data: [
+                "step": .number(1), "channel": .string("text"), "text": .string("对比 #174 "),
+            ]),
+            sessionEvent("assistant/stream", seq: 4, time: 165, data: [
+                "step": .number(1), "channel": .string("text"),
+                "text": .string("与 main 的 README"),
+            ]),
+            sessionEvent("tool/call", seq: 5, time: 200, data: [
+                "turn": .number(1), "step": .number(1), "callId": .string("a"),
+                "name": .string("read"),
+                "arguments": .object(["file_path": .string("/workspace/README.md")]),
+            ]),
+            sessionEvent("tool/result", seq: 6, time: 220, data: [
+                "turn": .number(1), "step": .number(1),
+                "message": .object(["toolCallId": .string("a"), "isError": .bool(false)]),
+            ]),
+        ], now: 300).activity
+        XCTAssertEqual(durable, live)
+    }
+
+    /// v3.3: the optional `activity` argument of the five host-native work
+    /// tools is the per-call model sentence for that call.
+    func testActivityParameterWinsAcrossTheFiveWorkTools() {
+        let cases: [(String, String, BotActivityCategory, String)] = [
+            ("read", "{\"file_path\":\"/dsh/workspace/pr/174-notes.md\",\"activity\":\"核对 #174 的合并资料\"}",
+             .reading, "核对 #174 的合并资料"),
+            ("glob", "{\"pattern\":\"**/*.swift\",\"activity\":\"定位 #174 的改动文件\"}",
+             .searching, "定位 #174 的改动文件"),
+            ("grep", "{\"pattern\":\"conflict\",\"activity\":\"核对 #174 的冲突记录\"}",
+             .searching, "核对 #174 的冲突记录"),
+            ("web_search", "{\"query\":\"PR 174 merge status\",\"activity\":\"查 #174 的合并状态\"}",
+             .searching, "查 #174 的合并状态"),
+            ("web_fetch", "{\"url\":\"https://example.com/pr/174\",\"activity\":\"核对 #174 的合并页\"}",
+             .browsing, "核对 #174 的合并页"),
+        ]
+        for (name, json, category, text) in cases {
+            let phrase = BotActivityEvidence.action(forToolNamed: name, arguments: arguments(json))
+            XCTAssertEqual(phrase.category, category, name)
+            XCTAssertEqual(phrase.text, text, name)
+        }
+    }
+
+    func testActivityParameterBeatsPublicTextAndShortens() {
+        let turn = sessionEvent("turn/start", seq: 1, time: 100)
+        let step = sessionEvent("step/start", seq: 2, time: 150, data: ["step": .number(1)])
+        let publicText = sessionEvent("assistant/stream", seq: 3, time: 180, data: [
+            "step": .number(1), "channel": .string("text"),
+            "text": .string("对比 #174 与 main 的 README"),
+        ])
+        let call = sessionEvent("tool/call", seq: 4, time: 200, data: [
+            "step": .number(1), "callId": .string("a"), "name": .string("read"),
+            "arguments": .object([
+                "file_path": .string("/dsh/workspace/README.md"),
+                "activity": .string("核对 #174 的合并资料"),
+            ]),
+        ])
+        XCTAssertEqual(presentation([turn, step, publicText, call], now: 300).activity?.detail,
+                       "核对 #174 的合并资料")
+
+        let longCall = sessionEvent("tool/call", seq: 5, time: 250, data: [
+            "step": .number(1), "callId": .string("b"), "name": .string("read"),
+            "arguments": .object([
+                "file_path": .string("/dsh/workspace/pr/174-notes.md"),
+                "activity": .string("核对 #174 与 main 的三个冲突文件，然后继续检查远端分支的合并状态"),
+            ]),
+        ])
+        XCTAssertEqual(presentation([turn, step, longCall], now: 300).activity?.detail,
+                       "核对 #174 与 main 的三个冲突文件")
+    }
+
+    func testActivityParameterFallsBackWhenUnusable() {
+        let turn = sessionEvent("turn/start", seq: 1, time: 100)
+        let step = sessionEvent("step/start", seq: 2, time: 150, data: ["step": .number(1)])
+        let publicText = sessionEvent("assistant/stream", seq: 3, time: 180, data: [
+            "step": .number(1), "channel": .string("text"), "text": .string("定位重连失败用例"),
+        ])
+        func call(seq: Int, id: String, activity: JSONValue?) -> BotDSHSessionEvent {
+            var fields: [String: JSONValue] = ["file_path": .string("/dsh/workspace/report.md")]
+            if let activity { fields["activity"] = activity }
+            return sessionEvent("tool/call", seq: seq, time: 200, data: [
+                "step": .number(1), "callId": .string(id), "name": .string("read"),
+                "arguments": .object(fields),
+            ])
+        }
+        // Empty and non-string values are unusable, so the same-step public
+        // progress still wins over the object fallback.
+        XCTAssertEqual(presentation([turn, step, publicText, call(seq: 4, id: "a", activity: .string(""))],
+                                    now: 300).activity?.detail,
+                       "定位重连失败用例")
+        XCTAssertEqual(presentation([turn, step, publicText, call(seq: 5, id: "b", activity: .number(7))],
+                                    now: 300).activity?.detail,
+                       "定位重连失败用例")
+        // Without any usable model sentence the short object fallback runs.
+        XCTAssertEqual(presentation([turn, step, call(seq: 6, id: "c", activity: nil)],
+                                    now: 300).activity?.detail,
+                       "在翻文件 · report.md")
+    }
+
+    func testProductionEvidenceLabelsDoNotInventTimedProgress() {
+        for category in [BotActivityCategory.thinking, .reviewing, .replying, .generic] {
+            let current = BotActivityEvidence.normalized(activity("", category: category, startedAt: 0))
+            var state = BotActivityLineState()
+            state.receive(current, at: 0)
+            let original = state.text
+            XCTAssertFalse(original.isEmpty)
+            XCTAssertNil(state.nextDeadline)
+            for time: Int64 in [2_400, 4_800, 30_000] {
+                state.tick(at: time)
+                XCTAssertEqual(state.text, original, "No new event must not invent a new action")
+            }
+        }
+    }
+
+    func testEvidencePriorityKeepsApprovalAndStopAuthoritative() {
+        let tool = BotActivity(status: .toolRunning, detail: "读取会议记录", category: .reading, startedAt: 100)
+        XCTAssertEqual(BotActivityEvidence.lineActivity(factory: tool, streaming: true,
+            pendingApprovals: 0, visible: true)?.detail, tool.detail)
+        XCTAssertEqual(BotActivityEvidence.lineActivity(factory: tool, streaming: true,
+            pendingApprovals: 1, visible: true)?.detail, "等你确认")
+        XCTAssertNil(BotActivityEvidence.lineActivity(factory: tool, streaming: true,
+            pendingApprovals: 0, visible: false))
+        XCTAssertEqual(BotActivityEvidence.lineActivity(factory: nil, streaming: true,
+            pendingApprovals: 0, visible: true)?.detail, "正在回复")
+        XCTAssertEqual(BotActivityEvidence.lineActivity(factory: nil, streaming: false,
+            pendingApprovals: 0, visible: true)?.detail, "等待响应")
     }
 
     // MARK: - 800 ms latest-wins
+
+    func testUrgentDisplayReplacesAndClearsPendingProgress() {
+        for urgent in [activity("等你确认", category: .waiting, startedAt: 0),
+                       activity("读取失败，请重试", category: .reviewing, startedAt: 0)] {
+            var state = BotActivityLineState()
+            state.receive(activity("读取 #174 的笔记", category: .reading, startedAt: 1_000), at: 1_000)
+            state.receive(activity("核对 main 的笔记", category: .reading, startedAt: 1_100), at: 1_100)
+            XCTAssertEqual(state.text, "读取 #174 的笔记")
+            state.receive(urgent, at: 1_150, immediately: true)
+            XCTAssertEqual(state.text, urgent.detail)
+            state.tick(at: 1_800)
+            XCTAssertEqual(state.text, urgent.detail, "obsolete pending work must not reappear")
+            XCTAssertNil(state.nextDeadline)
+        }
+    }
 
     func testRecentActivityHoldsFor800msAndLatestWins() {
         var state = BotActivityLineState()
@@ -516,6 +898,19 @@ final class BotActivityLineTests: XCTestCase {
                                            sessionEvents: events, uiEvents: [], now: now)
     }
 
+    /// Decodes the shared vector's raw events exactly as `live` does, so the
+    /// durable entry point runs over the same values.
+    private func sessionEvents(_ events: [JSONValue]) -> [BotDSHSessionEvent] {
+        events.enumerated().compactMap { index, event in
+            guard let type = event["type"]?.stringValue else { return nil }
+            var data: [String: PhoneDSHBot.BotJSONValue] = [:]
+            if case .object(let object)? = event["data"] { data = object }
+            let time = Int64((event["time"]?.numberValue ?? 0).rounded())
+            return BotDSHSessionEvent(type: type, seq: event["seq"]?.intValue ?? index,
+                                      time: max(0, time), data: data)
+        }
+    }
+
     // MARK: - Header lifecycle
 
     func testHeaderWorkingUsesLivelyFishAndTurnActivity() {
@@ -528,6 +923,7 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(presence.workStyle, .reading)
         XCTAssertEqual(presence.fishState, .working)
         XCTAssertFalse(presence.lineIsQuiet)
+        XCTAssertTrue(presence.showsActivityBubble)
     }
 
     func testHeaderWorkingBeforeFirstEventLooksBusy() {
@@ -547,6 +943,7 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(presence.fishState, .alerting)
         XCTAssertTrue(presence.lineIsQuiet)
         XCTAssertEqual(presence.workStyle, .generic)
+        XCTAssertTrue(presence.showsActivityBubble)
     }
 
     func testHeaderPendingApprovalAfterTurnKeepsStaticLine() {
@@ -555,6 +952,7 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(one.phase, .waitingForYou)
         XCTAssertEqual(one.motion, .standard)
         XCTAssertTrue(one.lineIsQuiet)
+        XCTAssertTrue(one.showsActivityBubble)
         var line = BotActivityLineState()
         line.receive(one.line, at: 0)
         XCTAssertEqual(line.text, "等你确认")
@@ -574,6 +972,58 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertNil(presence.line)
         XCTAssertEqual(presence.motion, .standard)
         XCTAssertEqual(presence.fishState, .sleeping)
+        XCTAssertFalse(presence.showsActivityBubble)
+    }
+
+    /// The bottom bubble is the one activity surface: it is on for every
+    /// phase that carries a sentence — a running turn, an approval after its
+    /// turn, and a failure report — and off when the Bot is settled. The old
+    /// working-only `showsTypingBubble` mapping is gone.
+    func testActivityBubbleFollowsThePresenceLine() {
+        // Thinking / awaiting reply / tool running / streaming all resolve
+        // to `.working` and must carry the bubble and its sentence.
+        let running: [(BotActivity, Int)] = [
+            (BotActivity(status: .thinking, detail: "等待响应", category: .thinking), 0),
+            (BotActivity(status: .thinking, detail: "", category: .waiting), 0),
+            (BotActivity(status: .toolRunning, detail: "在翻文件 · a.md", category: .reading), 0),
+            (BotActivity(status: .streaming, detail: "正在回复", category: .replying), 0),
+        ]
+        for (activity, approvals) in running {
+            let presence = BotHeaderPresence.resolve(turnActive: true, lineActivity: activity,
+                                                     pendingApprovals: approvals,
+                                                     fishState: .thinking)
+            XCTAssertEqual(presence.phase, .working, "\(activity.category)")
+            XCTAssertNotNil(presence.line, "\(activity.category)")
+            XCTAssertTrue(presence.showsActivityBubble, "\(activity.category)")
+            XCTAssertFalse(presence.lineIsProblem, "\(activity.category)")
+        }
+
+        // The final assistant row: the turn is over and the sentence is gone,
+        // so the bubble is gone too.
+        let settled = BotHeaderPresence.resolve(turnActive: false, lineActivity: nil,
+                                                pendingApprovals: 0, fishState: .idle)
+        XCTAssertNil(settled.line)
+        XCTAssertFalse(settled.showsActivityBubble)
+
+        // An error keeps its sentence for six seconds: the bubble shows it in
+        // the danger tint, quietly (no glint).
+        let failed = BotHeaderPresence.resolve(turnActive: false, lineActivity: nil,
+                                               pendingApprovals: 0, fishState: .sad,
+                                               problem: "连接中断")
+        XCTAssertNotNil(failed.line)
+        XCTAssertTrue(failed.showsActivityBubble)
+        XCTAssertTrue(failed.lineIsQuiet)
+        XCTAssertTrue(failed.lineIsProblem)
+
+        // Waiting for the user's approval after the turn: the bubble shows
+        // the static「等你确认」sentence (resolved from the empty detail by
+        // `BotActivityLineState`), no glint.
+        let waiting = BotHeaderPresence.resolve(turnActive: false, lineActivity: nil,
+                                                pendingApprovals: 1, fishState: .alerting)
+        XCTAssertNotNil(waiting.line)
+        XCTAssertTrue(waiting.showsActivityBubble)
+        XCTAssertTrue(waiting.lineIsQuiet)
+        XCTAssertFalse(waiting.lineIsProblem)
     }
 
     func testHeaderProblemWinsAndJoinsLinesQuietly() {
@@ -585,6 +1035,7 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(presence.line?.detail, "附件「a」未附加：超限；附件「b」未附加：超限")
         XCTAssertTrue(presence.lineIsQuiet)
         XCTAssertTrue(presence.lineIsProblem)
+        XCTAssertTrue(presence.showsActivityBubble)
         XCTAssertEqual(presence.motion, .standard)
         XCTAssertEqual(presence.fishState, .sad)
     }
@@ -596,6 +1047,7 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(presence.phase, .idle)
         XCTAssertNil(presence.line)
         XCTAssertFalse(presence.lineIsProblem)
+        XCTAssertFalse(presence.showsActivityBubble)
     }
 
     private func activity(_ detail: String, category: BotActivityCategory,

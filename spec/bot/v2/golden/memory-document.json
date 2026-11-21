@@ -11,10 +11,20 @@
       "content": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
       "version": 3,
       "updated_at_ms": 1760000005000,
-      "author": {"bot_id": "bot-a", "session_id": "gb-main", "kind": "chat"},
-      "evidence": ["record://session/gb-main#3"],
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "evidence": [
+        "record://session/gb-main#3"
+      ],
       "trust": "user",
-      "source": {"kind": "user-turn", "sessionId": "gb-main", "turnId": "1"}
+      "source": {
+        "kind": "user-turn",
+        "sessionId": "gb-main",
+        "turnId": "1"
+      }
     },
     {
       "path": "agent/INDEX.md",
@@ -22,10 +32,17 @@
       "content": "# Index\n\n- profile.md\n- notes/routine.md",
       "version": 2,
       "updated_at_ms": 1760000006000,
-      "author": {"bot_id": "bot-a", "session_id": "gb-main", "kind": "chat"},
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
       "evidence": [],
       "trust": "assistant",
-      "source": {"kind": "agent-message", "sessionId": "gb-main"}
+      "source": {
+        "kind": "agent-message",
+        "sessionId": "gb-main"
+      }
     },
     {
       "path": "agent/log/2025-10.md",
@@ -33,7 +50,10 @@
       "content": "# 2025-10\n\n- 我负责 iOS 工作",
       "version": 1,
       "updated_at_ms": 1760000007000,
-      "author": {"bot_id": "bot-b", "kind": "migration"},
+      "author": {
+        "bot_id": "bot-b",
+        "kind": "migration"
+      },
       "evidence": [],
       "trust": "import"
     }
@@ -46,7 +66,9 @@
         "scope": "agent",
         "content": "x",
         "updated_at_ms": 1,
-        "author": {"kind": "chat"},
+        "author": {
+          "kind": "chat"
+        },
         "evidence": []
       }
     },
@@ -58,7 +80,9 @@
         "content": "x",
         "version": 0,
         "updated_at_ms": 1,
-        "author": {"kind": "chat"},
+        "author": {
+          "kind": "chat"
+        },
         "evidence": []
       }
     },
@@ -70,7 +94,9 @@
         "content": "x",
         "version": 1,
         "updated_at_ms": 1,
-        "author": {"kind": "chat"},
+        "author": {
+          "kind": "chat"
+        },
         "evidence": []
       }
     },
@@ -82,7 +108,9 @@
         "content": "x",
         "version": 1,
         "updated_at_ms": 1,
-        "author": {"kind": "root"},
+        "author": {
+          "kind": "root"
+        },
         "evidence": []
       }
     },
@@ -94,10 +122,18 @@
         "content": "x",
         "version": 1,
         "updated_at_ms": 1,
-        "author": {"kind": "chat"},
+        "author": {
+          "kind": "chat"
+        },
         "evidence": [
-          "record://event/1", "record://event/2", "record://event/3", "record://event/4",
-          "record://event/5", "record://event/6", "record://event/7", "record://event/8",
+          "record://event/1",
+          "record://event/2",
+          "record://event/3",
+          "record://event/4",
+          "record://event/5",
+          "record://event/6",
+          "record://event/7",
+          "record://event/8",
           "record://event/9"
         ]
       }
@@ -110,8 +146,12 @@
         "content": "x",
         "version": 1,
         "updated_at_ms": 1,
-        "author": {"kind": "chat"},
-        "evidence": ["record://session/gb-main"]
+        "author": {
+          "kind": "chat"
+        },
+        "evidence": [
+          "record://session/gb-main"
+        ]
       }
     },
     {
@@ -122,10 +162,35 @@
         "content": "x",
         "version": 1,
         "updated_at_ms": 1,
-        "author": {"kind": "chat"},
+        "author": {
+          "kind": "chat"
+        },
         "evidence": [],
         "tier": "note"
       }
     }
-  ]
+  ],
+  "records": {
+    "record://event/7": {
+      "kind": "event",
+      "type": "conversation.user_message",
+      "rpcId": "user-action:1",
+      "botId": "bot-a",
+      "at_ms": 1760000003000
+    },
+    "record://session/gb-main#4": {
+      "kind": "session",
+      "type": "tool/call",
+      "tool": "web_fetch",
+      "botId": "bot-a",
+      "at_ms": 1760000004000
+    },
+    "record://session/gb-main#3": {
+      "kind": "session",
+      "type": "user/message",
+      "rpcId": "bot-1",
+      "botId": "bot-a",
+      "at_ms": 1760000003000
+    }
+  }
 }

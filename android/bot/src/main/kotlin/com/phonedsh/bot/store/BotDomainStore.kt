@@ -8,7 +8,7 @@ import java.security.MessageDigest
 import java.util.UUID
 
 /**
- * The P25 durable store: event log, schema v3, canonical bytes, migration and
+ * The P25 durable store: event log, schema v4, canonical bytes, migration and
  * integrity scanning (`spec/bot/v1/store.md` §1–§8). All SQL lives here; the
  * constructor takes a [BotSqlDriver] so the host JVM and Android can share the
  * exact statements.
@@ -41,8 +41,11 @@ public class BotDomainStore(
 
     private fun open() {
         val version = driver.userVersion()
-        if (version > 3) {
-            throw BotStoreException("schemaTooNew:$version", "schema version $version is newer than 3")
+        if (version > BotStoreSchema.CURRENT_VERSION) {
+            throw BotStoreException(
+                "schemaTooNew:$version",
+                "schema version $version is newer than ${BotStoreSchema.CURRENT_VERSION}",
+            )
         }
         applyPragmas()
         when (version) {
@@ -50,15 +53,20 @@ public class BotDomainStore(
                 driver.beginImmediate()
                 try {
                     BotStoreSchema.create(driver)
-                    driver.setUserVersion(3)
+                    BotStoreSchema.createPendingActions(driver)
+                    driver.setUserVersion(BotStoreSchema.CURRENT_VERSION)
                     driver.commit()
                 } catch (error: Throwable) {
                     runCatching { driver.rollback() }
                     throw error
                 }
             }
-            1, 2 -> migrateToV3(version)
-            3 -> inTransaction { BotStoreSchema.create(driver) }
+            1, 2 -> {
+                migrateToV3(version)
+                migrateToV4()
+            }
+            3 -> migrateToV4(ensureV3Schema = true)
+            4 -> Unit
         }
         driver.execute("PRAGMA foreign_keys=ON")
         scanIntegrity()
@@ -194,6 +202,22 @@ public class BotDomainStore(
                 ?: throw corrupted("bot_event_headers row has no commit_seq")
             if (actual != expected) throw corrupted("commit_seq gap: expected $expected, found $actual")
             expected += 1
+        }
+    }
+
+    /**
+     * v3 → v4 (`store.md` §7): add the durable outbox table without touching
+     * v3 rows, then advance `user_version` in the same transaction. For a v3
+     * `user_version`, [ensureV3Schema] first re-runs the idempotent v3 DDL so
+     * a fixture/rollback file whose tables are missing or partial self-heals,
+     * as the pre-v4 `3` branch did. v1/v2 files already rebuilt v3 in
+     * `migrateToV3` and pass `false`.
+     */
+    private fun migrateToV4(ensureV3Schema: Boolean = false) {
+        inTransaction {
+            if (ensureV3Schema) BotStoreSchema.create(driver)
+            BotStoreSchema.createPendingActions(driver)
+            driver.setUserVersion(BotStoreSchema.CURRENT_VERSION)
         }
     }
 

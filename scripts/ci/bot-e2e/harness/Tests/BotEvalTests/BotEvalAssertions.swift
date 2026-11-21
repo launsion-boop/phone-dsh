@@ -97,7 +97,7 @@ enum EvalAssertions {
             let matches = replies.filter {
                 $0.text.range(
                     of: value,
-                    options: assertion.ignoreCase ? [.caseInsensitive] : []) != nil
+                    options: assertion.ignoreCase ? String.CompareOptions.caseInsensitive : []) != nil
             }
             let contains = !matches.isEmpty
             if assertion.type == "reply_contains" {
@@ -172,6 +172,85 @@ enum EvalAssertions {
                 + "min \(lengths.first ?? 0), max \(lengths.last ?? 0)"
                 + (failures.isEmpty ? "" : "; \(failures.joined(separator: ", "))")
             return (failures.isEmpty, detail)
+
+        case "model_request_count":
+            let count = snapshot.modelRequests.count
+            if let equals = assertion.equals {
+                return (count == equals, "model requests \(count) (expected \(equals))")
+            }
+            if let minimum = assertion.min {
+                return (count >= minimum, "model requests \(count) (minimum \(minimum))")
+            }
+            throw EvalAssertionError.invalid("model_request_count has no bound")
+
+        case "model_request_contains":
+            let value = assertion.value ?? ""
+            guard !snapshot.modelRequests.isEmpty else {
+                return (false, "no real-model request was recorded for this repeat")
+            }
+            let matches = snapshot.modelRequests.filter { request in
+                request.requestText.range(
+                    of: value,
+                    options: assertion.ignoreCase ? String.CompareOptions.caseInsensitive : []) != nil
+            }
+            let ok = !matches.isEmpty
+            return (ok, ok
+                ? "model request contains \(quoted(value))"
+                : "model request does not contain \(quoted(value)) across \(snapshot.modelRequests.count) request(s)")
+
+        case "model_request_section_contains":
+            let section = assertion.section ?? ""
+            let value = assertion.value ?? ""
+            guard !section.isEmpty, !value.isEmpty else {
+                return (false, "model_request_section_contains requires section and value")
+            }
+            guard !snapshot.modelRequests.isEmpty else {
+                return (false, "no real-model request was recorded for this repeat")
+            }
+            var hits = 0
+            for request in snapshot.modelRequests {
+                for text in evalMessageTexts(fromRequestBody: request.requestBody) {
+                    guard let start = text.range(of: section) else { continue }
+                    let tail = text[start.lowerBound...]
+                    let segment = tail.split(separator: "\n\n", maxSplits: 1,
+                                             omittingEmptySubsequences: false).first.map(String.init) ?? String(tail)
+                    if segment.range(of: value,
+                                     options: assertion.ignoreCase ? String.CompareOptions.caseInsensitive : []) != nil {
+                        hits += 1
+                    }
+                }
+            }
+            return (hits > 0, hits > 0
+                ? "section \(quoted(section)) contains \(quoted(value)) in \(hits) request(s)"
+                : "section \(quoted(section)) does not contain \(quoted(value)) in \(snapshot.modelRequests.count) request(s)")
+
+        case "model_request_absent":
+            let value = assertion.value ?? ""
+            guard !snapshot.modelRequests.isEmpty else {
+                return (false, "no real-model request was recorded for this repeat")
+            }
+            let matches = snapshot.modelRequests.filter { request in
+                request.requestText.range(
+                    of: value,
+                    options: assertion.ignoreCase ? String.CompareOptions.caseInsensitive : []) != nil
+            }
+            let ok = matches.isEmpty
+            return (ok, ok
+                ? "model request does not contain \(quoted(value)) across \(snapshot.modelRequests.count) request(s)"
+                : "model request contains \(quoted(value)) in \(matches.count) request(s)")
+
+        case "provenance":
+            guard let provenance = snapshot.provenance else {
+                return (false, "no provenance snapshot was collected for this repeat")
+            }
+            let kinds = Set(assertion.kinds ?? [])
+            let selected = provenance.items(kinds: kinds)
+            let minimum = assertion.minItems ?? 1
+            let unresolved = selected.reduce(0) { $0 + $1.unresolved.count }
+            let missing = selected.filter(\.isMissingRefs).count
+            let ok = selected.count >= minimum
+            return (ok, "provenance items \(selected.count) (minimum \(minimum)), "
+                + "refs \(provenance.refsChecked), unresolved \(unresolved), missing-ref items \(missing)")
 
         case "card_count":
             let cards = matchingCards(assertion, snapshot: snapshot)
@@ -274,6 +353,15 @@ enum EvalAssertions {
             return (!found, !found
                 ? "no \(assertion.event ?? "?") event matched \(whereDescription(assertion))"
                 : "found \(events.count) forbidden \(assertion.event ?? "?") event(s)")
+
+        case "event_count":
+            let events = matchingEvents(assertion, snapshot: snapshot)
+            guard let expected = assertion.equals else {
+                throw EvalAssertionError.invalid("event_count needs equals")
+            }
+            return (events.count == expected,
+                    "counted \(events.count) \(assertion.event ?? "?") event(s), expected \(expected)"
+                    + " (\(whereDescription(assertion)))")
 
         case "tool_called", "no_tool_call":
             let calls = matchingToolCalls(assertion, snapshot: snapshot)
@@ -885,4 +973,21 @@ enum EvalRedaction {
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         return regex.stringByReplacingMatches(in: text, range: range, withTemplate: template)
     }
+
 }
+
+func evalMessageTexts(fromRequestBody body: Data) -> [String] {
+        guard let root = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let messages = root["messages"] as? [[String: Any]] else { return [] }
+        var texts: [String] = []
+        for message in messages {
+            if let content = message["content"] as? String {
+                texts.append(content)
+            } else if let content = message["content"] as? [[String: Any]] {
+                for part in content {
+                    if let text = part["text"] as? String { texts.append(text) }
+                }
+            }
+        }
+        return texts
+    }

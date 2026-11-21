@@ -24,6 +24,48 @@ import PhoneDSHLoopback
 import PhoneDSHWire
 import PhoneDSHShell
 
+/// A keep-alive obligation the App declares to ``PhoneDSHHost/park()``.
+///
+/// A background park normally aborts every open turn so the Worker can be torn
+/// down with a terminal record. That is wrong for work the App is deliberately
+/// holding: a Bot turn (or any other App-owned turn) the user is still waiting
+/// for must not be turned into "the other Bot disconnected" by a park that
+/// slipped through the App's keep-alive decision, for example when a queued
+/// background park runs after a host transition.
+public struct PhoneDSHBackgroundTurnHold: Sendable, Equatable {
+    /// Sessions whose in-flight turn the App's keep-alive path is holding.
+    public let sessionIDs: Set<String>
+    /// Content-free reason, for diagnostics only.
+    public let reason: String
+
+    public init(sessionIDs: Set<String>, reason: String) {
+        self.sessionIDs = sessionIDs
+        self.reason = reason
+    }
+}
+
+/// Thrown by ``PhoneDSHHost/park()`` when the App declared held turns and one of
+/// them is still open. Nothing was torn down and no turn was cancelled; the
+/// caller keeps its keep-alive path instead of destroying the turn.
+public struct PhoneDSHParkHeld: Error, LocalizedError, CustomStringConvertible,
+    Equatable, Sendable {
+    public let sessionIDs: [String]
+    public let reason: String
+
+    public init(sessionIDs: [String], reason: String) {
+        self.sessionIDs = sessionIDs
+        self.reason = reason
+    }
+
+    public var errorDescription: String? { description }
+
+    /// The App logs `\(error)` from its park failure path, so the message must
+    /// survive plain string interpolation as well as `localizedDescription`.
+    public var description: String {
+        "另一个 Bot 还有正在进行的任务（\(reason)）；为了不打断它，这次没有暂停引擎。"
+    }
+}
+
 /// The App-process facade (PLAN §2.1). See ``PhoneDSHHosting`` for the minimal
 /// host-facing protocol and ``PhoneDSHHost/harness()`` for the Agent bridge.
 public actor PhoneDSHHost: PhoneDSHHosting {
@@ -249,6 +291,13 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// and lets a running tool finish inside the drain window, because its
     /// writes are exactly what the park/resume recovery has to preserve.
     private var stopping = false
+    /// The App's keep-alive obligation, asked when a graceful background park
+    /// is about to abort open turns. When the provider names sessions with an
+    /// open turn, ``park()`` refuses instead: the App owns those turns and its
+    /// keep-alive path is holding them, so aborting them is the "the other Bot
+    /// disconnected" defect, not a legal park outcome. `nil` until the App
+    /// installs one, which keeps every existing host unchanged.
+    private var backgroundTurnHold: (@Sendable () async -> PhoneDSHBackgroundTurnHold?)?
     /// Sessions whose open turn a background park had to leave interrupted:
     /// the bounded escalation stopped the old Worker but its connection never
     /// reached a clean end (iOS froze or killed the WebContent), so no
@@ -473,10 +522,6 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             setState(.stopped)
             return
         }
-        // A deliberate park replaces any deferred termination recovery: the
-        // foreground return resumes the parked host instead of booting a
-        // replacement Worker.
-        pendingRecovery = false
         guard state != .stopped else { return }
         guard !restarting else {
             throw PhoneDSHError.invalidState("a planned restart is already draining")
@@ -486,6 +531,20 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             throw PhoneDSHError.invalidState(
                 "reclaim the remote workspace before parking locally")
         }
+        // A graceful background park must not abort a turn the App's keep-alive
+        // path is deliberately holding. The App decides whether to keep the
+        // Worker alive from its own turn flags, but a queued background park can
+        // run after that decision (a host transition is in flight) and would
+        // otherwise cancel another Bot's running turn. Ask the owner and refuse
+        // instead; nothing has been torn down at this point. `stop()` is a
+        // teardown and keeps its unconditional drain/cancel.
+        if !stopping {
+            try await refuseGracefulParkForHeldTurns(runtime)
+        }
+        // A deliberate park replaces any deferred termination recovery: the
+        // foreground return resumes the parked host instead of booting a
+        // replacement Worker. A refused park above has not changed anything yet.
+        pendingRecovery = false
         parking = true
         setState(.draining)
         beginDescendantDrainWindow()
@@ -540,6 +599,29 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         } catch {
             await failClassifying(error, context: "park")
             throw error
+        }
+    }
+
+    /// Refuses a graceful background park while the App holds an open turn.
+    ///
+    /// The provider names the sessions whose turn the App is keeping alive; the
+    /// journal must still show that turn open for the park to be refused. A
+    /// session whose turn already closed is not protected, and a session list
+    /// that cannot be read is not treated as an open turn: the drain's own
+    /// verification stays the authority for what must stop. Refusing costs a
+    /// background park (the App stays on its keep-alive path); aborting costs
+    /// the user a turn that was still running.
+    private func refuseGracefulParkForHeldTurns(_ runtime: RuntimeServices) async throws {
+        guard let provider = backgroundTurnHold else { return }
+        guard let hold = await provider(), !hold.sessionIDs.isEmpty else { return }
+        let states = await sessionTurnStates(runtime: runtime, sessionIDs: hold.sessionIDs)
+        let open = states.filter { $0.value.isTurnOpen }.keys.sorted()
+        guard open.isEmpty else {
+            eventBus.send(.console(ConsolePayload(
+                level: .warn,
+                text: "park held: \(open.count) App-held turn(s) are still open "
+                    + "(\(hold.reason)); the Worker stays up and no turn is cancelled")))
+            throw PhoneDSHParkHeld(sessionIDs: open, reason: hold.reason)
         }
     }
 
@@ -4738,6 +4820,20 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// (`isForeground` defaults to `true`).
     public func setForeground(_ foreground: Bool) async {
         await applyForeground(foreground, cancelResume: true)
+    }
+
+    /// Installs (or clears) the App's keep-alive obligation for a graceful
+    /// background ``park()``.
+    ///
+    /// The provider is asked at park time, not cached: work can end between the
+    /// scene transition and the queued park. A non-empty hold whose sessions
+    /// still have an open turn makes ``park()`` throw ``PhoneDSHParkHeld`` and
+    /// leaves the Worker running, so the turn the App is holding is never
+    /// cancelled behind the user's back. ``stop()`` ignores the hold: a teardown
+    /// is not a background park.
+    public func setBackgroundTurnHoldProvider(
+        _ provider: (@Sendable () async -> PhoneDSHBackgroundTurnHold?)?) {
+        backgroundTurnHold = provider
     }
 
     /// Platform lifecycle observation keeps the recovery gate truthful without

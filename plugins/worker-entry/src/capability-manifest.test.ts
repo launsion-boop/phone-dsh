@@ -222,6 +222,22 @@ test('manifest.commands has an empty two-way difference with the production comm
   assert.deepEqual(stale, [], 'the manifest names no command the shell cannot run')
 })
 
+test('workerUnavailableCommands records the missing optional toolchain facts', () => {
+  const route = { PDSH_CHANNEL_ORIGIN: 'http://127.0.0.1:41234', PDSH_CHANNEL_TOKEN: 't0ken' }
+  const missing = workerUnavailableCommands(route, { accelerators: [], jqEngine: false })
+  assert.deepEqual(missing.map(row => row.command),
+    ['jaq', 'jq', 'phone', 'rg', 'ts-parse', 'ts-query'])
+  assert.match(missing.find(row => row.command === 'phone')?.reason ?? '', /not linked/u)
+  const complete = workerUnavailableCommands(route, {
+    accelerators: ['phone', 'rg', 'ts-parse', 'ts-query'], jqEngine: true,
+  })
+  assert.deepEqual(complete, [])
+  const linkedShell = workerUnavailableCommands(route, {
+    accelerators: ['jq', 'jaq', 'phone', 'rg', 'ts-parse', 'ts-query'], jqEngine: false,
+  })
+  assert.deepEqual(linkedShell, [], 'a host jq/jaq accelerator is a real implementation')
+})
+
 test('workerUnavailableCommands marks curl and github only when the host /v1/http route is incomplete', () => {
   // The same four keys shell-ext's resolveHostProxy reads: an origin alone
   // builds no request, so the boot must not declare curl or github.

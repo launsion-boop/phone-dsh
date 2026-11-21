@@ -13,7 +13,7 @@ routine 预定通知、在场/打扰和设备任务结果重投是 phoneDSH 自�
 
 其余 Bot 契约仍在 `spec/bot/v1`，仍跟随 dsh-bot 钉版：事件信封、工具面、卡片、行、
 回合来源（[v1/README.md §4.1](../v1/README.md#41-回合来源turn-origin)）和 MCP 端点。
-Android 与 HarmonyOS 没有 Bot runtime，本目录对它们没有实现端。
+HarmonyOS 没有 Bot runtime，本目录对它没有实现端。Android `:bot` 只实现 G-2 两个工具的宿主边界（[PC-20261120-android-bot-g2-tools](../../../docs/protocol-changes/PC-20261120-android-bot-g2-tools.md)）：`tools/list` 列出 `RecordFeedback` 与 `BotDecisionContext`，按 iOS 的规则校验参数、调用方与会话，再交给可注入的反馈库与材料服务；两者在 Android 尚未实现、没有接线时按冻结的错误码失败（`unavailable`／`material-unavailable`），不写入、不返回材料。本目录其余部分对 Android 没有实现端。
 
 本目录没有 `dshbot-pin.json`，也没有 `export-manifest.json`：那两份文件只约束 v1 的原样
 上游导出。变更本目录必须按 [AGENTS.md](../../../AGENTS.md) §3 走变更单，并从
@@ -73,7 +73,7 @@ Android 与 HarmonyOS 没有 Bot runtime，本目录对它们没有实现端。
 
 `ReadMemory` 读一份文档或列一个目录（`memory-read-result.schema.json`）：
 
-- `{path}` 是 live 文档时返回完整 `content`、`version`、`author`、`evidence`、`trust`。
+- `{path}` 是 live 文档时返回完整 `content`、`version`、`author`、`evidence`、`trust`，以及可选的 `review`（§1.5.1 的核对状态）与 `evidence_status`（§1.5.1 的逐条证据时效，宿主派生）。
 - `{path, version}` 读历史版本；已删除版本返回 `deleted:true`、空 `content` 和
   `deletion_reason`。未知版本返回 `memory-version-not-found`。
 - `{path}` 是根或目录时只列直接子项（`document`/`directory`），按路径排序。
@@ -82,7 +82,7 @@ Android 与 HarmonyOS 没有 Bot runtime，本目录对它们没有实现端。
 `RecallMemory`（`memory-recall.schema.json`）在 live 文档正文上做全文检索，沿用既有 BM25 和
 CJK 分词。`scope` 为 `agent`、`user` 或 `all`；默认 `all`，但 `agent` 只命中本 Bot。
 返回 `path`、最多 500 scalar 的 `snippet`、`version`、`updated_at_ms`、`evidence`、`score`、
-`relevance`、`recency`。两个根的 `INDEX.md` 已在每回合注入，因此不进入检索结果。`score = 0.85 * relevance + 0.15 * recency`，recency 以
+`relevance`、`recency`，以及可选的 `review` 与 `evidence_status`（与 `ReadMemory` 同形，§1.5.1）。两个根的 `INDEX.md` 已在每回合注入，因此不进入检索结果。`score = 0.85 * relevance + 0.15 * recency`，recency 以
 `updated_at_ms` 计算、半衰期 180 天；`importance` 随字段一起删除。空 query 按更新时间倒序。
 结果被截断时返回 `count`、`total` 和 `truncated`。
 
@@ -113,6 +113,13 @@ CJK 分词。`scope` 为 `agent`、`user` 或 `all`；默认 `all`，但 `agent`
   路径真实存在。
 - 记什么的界线只写在工具描述，不写流程：值得记的是验证过的规则、决定与承诺、偏好、策略及
   原因；能从原始记录重新读到的内容不复制，需要原文时写 `record://` 引用。
+- **写前证据长度闸（2026-11-16 addendum）**：仅当 `BotMemory` 有真实
+  `BotMemoryMaintenanceRecordReading`，且本次写入带 evidence/review 引用、作者是 maintainer 或
+  context trust 是 `observation` 时：content 的 Unicode scalar 数 > 去重后引用记录**完整 canonical
+  正文**的 scalar 数 → 拒绝，返回 `memory-document-longer-than-evidence`（`limit`=引用正文总数，
+  `actual`=content 数），**不落事件/不增版本**；同一回合可改短重试。普通 user 写入（trust user）和
+  无证据的 trigger-only 写入不受影响；不放松 batch rollback、不改预算、不改 trust/fail-closed。
+  `record://` 模型工具返回仍按 8k 有界输出，本闸只用于写前比较。
 
 ### 1.5 证据与信任推导
 
@@ -153,11 +160,77 @@ maintainer 回合都得不到保留值（`memory-evidence-invalid`）。
 - 注入文本必须说明：写记忆时优先引用来源；关于用户的持久事实用用户消息引用，观察所得注明观察，
   没有引用就按自己的推断记录。不得再声称所有聊天回合都是用户陈述。
 
-`memory-write-request.schema.json` 的 `evidence`、`memory-document.schema.json` 的 `trust`／`source`
-与 `golden/memory-write.json` 的 `evidenceCases`／`boundaryCases` 是共享向量；`validate_vectors.py`
-用参考解析器逐条校验 `user`／`observation`／`assistant` 推导、引用无效时的拒绝和 source 规则的叠加。
-物理抹除的共享向量在 `golden/memory-erasure.json`（§1.8）；它同时校验目标范围、版本计数、跨 Bot
-隔离和不覆盖的 session 引用。
+### 1.5.1 核对状态与逐条时效（AHA 增量）
+
+`trust` 回答「谁说的」，可选 `review` 回答「写入者自己核对到什么程度」。`review` 是**模型在写入时
+做出的核验断言**，不是宿主对结论真实性的认证：宿主只校验它有没有可指认、可解析的依据，以及
+状态与依据的组合是否自洽。`review` 随版本持久化；缺省表示**没有记录核对判断**（不得读成
+`verified`，也不得读成 `unverified` 的同义词）；v2 冻结前的旧文档一律缺省，宿主从不替模型合成
+`verified`。
+
+| `review.state` | 含义 | 宿主校验（不通过返回 `memory-review-invalid`，整条写入失败） |
+| --- | --- | --- |
+| `verified` | 写入者声称做过核对，并给出了可解析的依据 | `basis` ∈ `user-statement`／`observation`／`record-recheck`（**不得**是 `model-inference`）；`refs` **至少 1 条**，每条都能解析、属于本 Bot、未被抹除；`method` 可选（自由文本，≤200 scalar，宿主不据此认证）；`at_ms` 可选，是写入者声称的时间，宿主不校验时钟 |
+| `unverified` | 写入者明确表示没核对过、或只是自己的判断 | `basis` 必填（通常是 `model-inference`）；可以带 `refs` 说明查过哪些记录，但不会被当作已核对 |
+| `disputed` | 已知存在冲突，两种说法都要保留 | `refs` 至少 1 条**可定位争议的记录**（同一原文可以同时包含矛盾双方，不强制两条）；不得静默覆盖任何一方 |
+
+- `review.refs` 与 `evidence` 是两件事：`evidence` 是内容来源，`review.refs` 是核对依据；两者可以
+  不同，但都走同一套引用规则（§1.5）。写入请求里 `review.refs` 也接受保留值 `current-user-turn`，
+  宿主解析为当前回合用户消息；隐藏、held、`agent:`、routine、Task、maintainer 回合不可用。
+  形状、状态/依据组合、引用解析任一项不合格都返回 `memory-review-invalid`，不降级、不忽略。
+- **可解析不等于结论成立。** 宿主只证明「这条引用当时存在且属于本 Bot」，不证明它支持正文结论；
+  是否真的核对过由独立评测检验，不由字段本身证明。
+- `move` 按目标写入的值记录；`delete` 可省略 `review`；`restore` 把历史内容作为新版本写回，
+  `evidence`／`trust`／`source`／`review` 从被恢复版本继承（宿主内部回滚同），模型不得注入或清空；
+  被恢复版本本身缺这些字段时保持缺失。**`restore` 不重新解析 `review.refs`**：`review` 是写入时点的
+  断言，之后原始引用被抹除时不会回写或降级该字段；读取方也不得把 `verified` 当作「现在仍成立」或当前有效证据。
+- maintainer 的机械检查（§4.4）不因为 `review` 放宽：引用仍要能解析、trust 仍要一致；
+  `least-verified` 候选可以把缺 `review` 或 `state != verified` 的文档排进候选，但不改变写入边界。
+
+**逐条证据时效（宿主派生，不持久化、不写事件、不参与版本前提）。** 正常情况下 `ReadMemory` 的文档结果与
+`RecallMemory` 的每个命中另带 `evidence_status`，与 `evidence` 一一对应、同序；**resolver 不可用或超限时
+省略该成员并记录诊断码 `evidence_status_unavailable`**，不得用全 `null` 冒充「来源缺失」：
+
+| 字段 | 含义 |
+| --- | --- |
+| `ref` | 规范化后的 `record://` 引用 |
+| `observed_at_ms` | 该原始记录自身的观察时间（session 行的行时间／`bot_events.time`）；记录已不可解析（含被抹除）或本身没有时间时为 `null` |
+| `source_version` | 来源版本；本版 session 行与 Bot 事件都不暴露来源版本，因此一律 `null`。**不得**用记忆文档自己的 `version` 冒充来源版本，也不得据此声称「最新」 |
+
+- 实现约束：一次读取/召回调用内用**一次批量解析**（共享 resolver snapshot）产出全部状态，
+  不新增 `memory.evidence_invalidated` 之类的派生事件流，也不为每条命中重扫事件库。
+- 多个 evidence 各有各的 `observed_at_ms`，不能用文档级时间或 `updated_at_ms` 掩盖部分过期；
+  `updated_at_ms` 是记忆写入时间，**不是**来源观察时间。
+- `evidence_status` 每次读取重新解析：抹除/撤权后对应项变 `null`，不复用旧值；这是显示语义，
+  不改变 `evidence` 数组、不改变版本、不复活已抹除内容。
+- 记录本身没有时间时 `observed_at_ms = null`（unknown），不是 0；没有来源版本时
+  `source_version = null`，两者都不得伪造成具体值。`evidence_status` 自 G-1 起是 **legacy**
+  三字段视图：不再扩展，`source_version` 保持 `null`，不得改类型或另造第二套判定。
+
+### 1.5.2 当前状态与派生关系（AHA 增量，G-1）
+
+`evidence_status` 只回答「这条 ref 的时间/版本」，不回答「它现在是否仍有效」。当前状态的唯一
+权威是 [provenance.md](provenance.md) §4 的 `source_statuses`：`ReadMemory` 单文档结果与
+`RecallMemory` 每个命中可带一个**可选**数组，覆盖 `evidence ∪ review.refs`，每项
+`{ref, roles, resolved, erased, state, reasons, observed_at_ms, record_type, trust, source_version}`。
+`state` 封闭 `current|changed|unavailable|revoked|erased|unknown`，非 current 必带封闭 reason；
+`baseline`（写时快照）与 `latest_ref`（最新观察）并列，用来解释 changed/为什么失效；
+`current` 只表示没有已知的更新/撤权/抹除，**不是**核对通过的认证。
+
+- 来源版本用 [source-revision.schema.json](source-revision.schema.json) 的互斥形态：
+  `{basis,value,observed_at_ms,basis_ref}` 或显式 `{reason}`；不得用文档 version/记录序号冒充。
+- 派生物用既有 durable 事件 `data` 的可选 `derivation` 成员声明来源（[derivation.schema.json](derivation.schema.json)）；
+  失效/删除/上游失效是读时推导，不新增事件类型、不写 `*invalidated` 事件流，历史 `review`
+  永不回写。派生读视图见 [derivation-view.schema.json](derivation-view.schema.json)。
+- resolver 不可用/超限时**省略整个 `source_statuses`** 并记诊断码 `source_status_unavailable`，
+  不得用全 `unknown` 冒充已计算；缓存/上下文材料必须按 `generation` token 失效。
+- 写路径的 resolver 失败/超限 = 整条写入失败 `memory-source-baseline-unavailable`（fail-closed，
+  不写无基线版本）；旧事件无 `derivation` 仍合法。
+- `skill` 的 `skill.changed` 写事件（见 provenance.md §3.4）是 **parked target**（A04 不在本轮 core，
+  当前 envelope 枚举/golden 不含该事件）；没有该事件的旧数据仍是
+  `unknown` + `no-skill-write-event`，不得冒充已覆盖。
+- 共享 golden 基线不新增 iOS 字段；G-1 的向量是新 phone-only 文件
+  [golden/provenance.json](golden/provenance.json)，旧 Android/旧 reader 仍只读共享基线。
 
 ### 1.6 迁移
 
@@ -324,7 +397,7 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 `quiet`、`dnd`、`delivery-failed` 等是 `reason` 值，不是 decision kind；`ProactiveDecision`
 的 JSON 形状由 `proactive-decision.schema.json` 固定。`reason` 的完整集合是
 `delivered`、`would-mode`、`would-only-kind`、`mode-off`、`fuse`、`dnd`、`quiet-hours`、
-`missing-bot`、`delivery-failed`、`delivery-unavailable`、`routine-held`、`routine-quiet`。
+`missing-bot`、`delivery-failed`、`delivery-unavailable`、`routine-held`、`routine-quiet`、`feedback-held`。
 
 一次 `ProactiveEngine.consider` 按以下顺序处理，前一步命中就短路：
 
@@ -332,6 +405,11 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
    记 `routine-quiet`。这两步在 `mode` 之前，因此 `off` 模式下的 held/quiet routine 不是
    `mode-off`。
 2. **模式。** `off` 记 `mode-off`，不检查 DND/安静/保险丝，也不投递。
+2.5 **反馈抑制（G-2 §3.1）。** 位于模式之后、投递类别/硬限制/保险丝之前：若当前 Bot 存在 host
+   校验过的 active `feedback.recorded`（`action=suppress`）且候选命中其 artifact/class 范围 →
+   记 `skip`/`feedback-held`；仍生成 notification，但不投递、不消耗保险丝（`fuseRecorded=false`），
+   routine 不停不删。`off` 模式仍先记 `mode-off`（模式先于反馈抑制）。范围只由 host 从被引用
+   artifact 推导，不由模型词表/正文判断。
 3. **投递类别。** 只有 `on` 且 kind 在 `deliveryKinds` 内才可投递；否则不投递，仍继续走
    硬限制和保险丝检查；两者都未命中时最后记 `would`/`would-only-kind`，不投递、不消耗保险丝。
 4. **硬限制。** Bot id trim 后为空记 `missing-bot`；`dnd == true` 记 `dnd`；落在
@@ -369,7 +447,7 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 它是通知的稳定 identifier（同一 key 替换同一条系统通知），**不是**抑制窗口：同一 key 的候选
 仍然每次判定、仍然可能再次 `did`。
 
-**持久事件与重启恢复。** 每次判定写一条 durable `proactive.considered`（P25 envelope），
+**持久事件与重启恢复。** 每次判定写一条 durable `proactive.considered`（P25 envelope）；`data` 是开放对象，可选 `routineId`/`reminderId`/`rowId` 供反馈目标解析与重启后重建，旧 reader 忽略未知成员，不新增 schema/envelope。
 `data` 至少包含 `decision`、`reason`、`kind`、`botId`、`mode`、`channel`、`fuseRecorded`、
 `dedupeKey`，有 `trigger` 时一并写入。`restoreAccounting` 只取 fuse 窗口内
 `decision == "did"` 或 `"would"` 的事件，按 `kind`/`botId`/`mode`/`fuseRecorded` 重建计数；
@@ -503,7 +581,9 @@ TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema
 
 ### 4.3 批次
 
-一次运行是一个批次，批次 id 形如 `mm-<uuid 的前 32 位小写十六进制>`。
+一次运行是一个批次，批次 id 形如 `mm-<uuid 的前 32 位小写十六进制>`。批次核验的 durable
+增量（`checks.verification_rechecked`、`verification.findings`、失败码）与质量门槛由
+[provenance.md](provenance.md) §6 冻结；旧批次没有 `verification` 是合法，读作「无核验记录」。
 
 - 回合开始前写 durable `memory.maintenance_started`（`memory-maintenance-start.schema.json`）：
   批次 id、触发原因、maintainer session、候选和两条预算。
@@ -587,11 +667,25 @@ TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema
 同一路径多个原因合并，最多保留 4 个原因。索引和 inbox 永远在候选里；候选不保证每次
 都被修改。
 
-**预算。** 单次运行 **32,000 token**、每个 UTC 自然日 **96,000 token**（输入 + 输出 +
-cache read + cache write，以 LLM 账本为准）。维护回合的账本 `purpose` 是独立值
-`memory-maintenance`；日报只统计这个 purpose。预算耗尽时触发条件再满足也不启动，
-在记忆页显示“今日整理预算已用完”，不伪造一次运行。token 用量从 LLM 账本按
-`sessionId = maintainer_session_id` 读取，不依赖模型自报。
+**预算（2026-11-16 修订，G-1 r10）。** 单次运行 **400,000 token**、每个 UTC 自然日
+**1,000,000 token**（输入 + 输出 + cache read + cache write，以 LLM 账本为准）。维护回合的账本
+`purpose` 是独立值 `memory-maintenance`；日报只统计这个 purpose。预算耗尽时触发条件再满足也不启动，
+在记忆页显示“今日整理预算已用完”，不伪造一次运行。
+
+- **证据**：真实 production assembly（M `b48ba1a53`/`571a3a793` + K L4 + P delta，real upstream，
+  2 场景×repeat2，4 个真实批次实测）单批 **126,451–373,938 token**（含 cache read/write），
+  同日 4 批合计 **902,962**；r9 的 160k/512k 仍把 3/4 批 `maintenance-budget-exceeded`
+  整批回滚（4/4 checks 通过、verification blocking=0，只有预算失败）。r10 取单批最大值约 +7%
+  （400k）与同日 4 批约 +11% 余量（1M）。
+- r9 依据的 106k/183k 是**加入候选核验材料之前**的旧观测；真实维护循环会读取更多记录，预算以新
+  实测为准，不静默截断批次。
+- **tokens_used 必须是本批真实用量**：写 `memory.maintenance_finished` 前，宿主按本批窗口/维护
+  session 汇总 LLM 账本（含 cache read/write）；`tokens_used=0` 只有在整批没有模型调用（例如首个
+  请求前取消）时才合法。拿不到账本 → 整批失败码 **`maintenance-usage-unavailable`**，不写成功、
+  不把 0 当成本。
+- 触发条件、默认关闭、开启门槛不变；预算不是质量门槛的替代，超过新预算仍按失败记录，不截断批次。
+- 若连续 2 个真实批次超过 run 预算 80%，或某 UTC 日超过 daily 预算 80%，下一 revision 必须按新
+  实测重评（不静默调回、不截断）。
 
 ### 4.7 多 Bot 分工
 
@@ -622,7 +716,7 @@ cache read + cache write，以 LLM 账本为准）。维护回合的账本 `purp
 
 ## 5. 一致性向量
 
-`golden/` 覆盖 `memory-document`、`memory-write`、`memory-read`、`memory-recall`、
+`golden/` 覆盖 `memory-document`（含 `review` 正反例）、`memory-write`（含引用时间与 `memory-review-invalid` 正反例）、`memory-read`／`memory-recall`（含 `review` 与 `evidence_status` 期望值）、
 `memory-injection`、`memory-migration`、`memory-legacy-fact`、`memory-maintenance`、
 `wake-routine`、`held-inbox` 及其合并覆盖文件；旧 fact 形状只保留为迁移输入
 （`memory-legacy-fact`）。
@@ -653,3 +747,31 @@ python3 spec/bot/v2/tools/validate_vectors.py
 `spec/bot/v1/tools/validate_vectors.py` 也会调用同一个 v2 校验入口，因此 `phone-spec`
 阶段同时覆盖两棵树。重跑上游导出器不会再读写本目录；`--out spec/bot/v1` 的产物里
 不包含上面这些文件名，manifest 也只列 v1 剩余的文件。
+
+### Process-local presence isolation
+
+The host writes and the Bot runtime reads a process-local foreground/keep-alive
+snapshot. The fields keep their existing meanings and defaults. `context()` returns
+one coherent pair and updates are synchronized across actors; no wire, persisted
+representation, or cross-device synchronization is introduced. This actor-neutral
+boundary and source-compatibility decision are recorded in
+[PC-20261116-bot-presence-isolation](../../../docs/protocol-changes/PC-20261116-bot-presence-isolation.md).
+
+### Actor-neutral rebind helper
+
+The Swift host's rebind driver keeps its existing sequential decisions, per-unit
+failure outcomes and cancellation short-circuit while accepting Sendable candidates
+and asynchronous Sendable callbacks. App-specific actors are entered by the
+callbacks. This is a Swift source migration, not a wire or storage change; the
+compatibility decision and acceptance are in
+[PC-20261116-bot-rebind-isolation](../../../docs/protocol-changes/PC-20261116-bot-rebind-isolation.md).
+
+### Actor-neutral worker recovery
+
+The Swift recovery scheduler serializes worker replacement and its bounded retries
+on its own actor; phase updates are delivered in order to the application's actor.
+Its cancellation, readiness and stale-completion rules are unchanged. This is a
+Swift source migration, with compatibility and tests specified in
+[PC-20261116-bot-recovery-isolation](../../../docs/protocol-changes/PC-20261116-bot-recovery-isolation.md).
+Unit startup is also lifecycle-fenced: detach or a newer start invalidates older
+suspended startup before it can start further services or publish itself running.

@@ -562,7 +562,8 @@
         "ui": false,
         "execution": null,
         "known": true,
-        "isMcp": false
+        "isMcp": false,
+        "grantResource": "model:image"
       }
     },
     {
@@ -580,6 +581,176 @@
         "policy": "ask",
         "label": "把图片发送给模型",
         "detail": "把工作区图片发送给模型服务，让模型看到像素。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false,
+        "grantResource": "model:image"
+      }
+    },
+    {
+      "name": "DeviceAppStage",
+      "args": {
+        "files": [
+          {
+            "path": "main.py",
+            "content": "print(1)"
+          },
+          {
+            "path": "app.json",
+            "content": "{}"
+          }
+        ]
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "DeviceAppStage",
+        "operation": "device.app.stage",
+        "resource": "device-app:stage",
+        "target": "device-app:stage",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "检查设备应用",
+        "detail": "只做静态检查和哈希，不向设备发送任何内容。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "DeviceAppInstall",
+      "args": {
+        "digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "DeviceAppInstall",
+        "operation": "device.app.install",
+        "resource": "device-app:install&digest=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "target": "device-app:install&digest=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "mutability": "destructive",
+        "policy": "ask",
+        "label": "在设备上安装应用",
+        "detail": "把已检查的设备应用装到绑定的设备上；每次安装都需要你确认。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "DeviceAppList",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "DeviceAppList",
+        "operation": "device.app.list",
+        "resource": "device-app:list",
+        "target": "device-app:list",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "查看设备上的应用",
+        "detail": "读取设备上已装的设备应用（名称、版本、是否在运行），不改动设备。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "DeviceAppRemove",
+      "args": {
+        "name": "focus_timer"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "DeviceAppRemove",
+        "operation": "device.app.remove",
+        "resource": "device-app:remove&app=focus_timer",
+        "target": "device-app:remove&app=focus_timer",
+        "mutability": "destructive",
+        "policy": "ask",
+        "label": "从设备上删除应用",
+        "detail": "停止并删除设备上的一个设备应用；每次删除都需要你确认。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "XiaozhiSourceExport",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "XiaozhiSourceExport",
+        "operation": "device.xiaozhi.export",
+        "resource": "xiaozhi:export",
+        "target": "xiaozhi:export",
+        "mutability": "write",
+        "policy": "auto",
+        "label": "导出小智固件源码",
+        "detail": "把可修改的固件源码复制到这个 Bot 的工作区，不向设备发送任何内容。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "XiaozhiFirmwareBuild",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "XiaozhiFirmwareBuild",
+        "operation": "device.xiaozhi.build",
+        "resource": "xiaozhi:build",
+        "target": "xiaozhi:build",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "编译小智固件",
+        "detail": "在这台 iPhone 上编译固件，不向设备发送任何内容。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "XiaozhiFirmwareStatus",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "XiaozhiFirmwareStatus",
+        "operation": "device.xiaozhi.status",
+        "resource": "xiaozhi:status",
+        "target": "xiaozhi:status",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "查看小智固件状态",
+        "detail": "只读取编译任务、设备上报和中继状态。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "XiaozhiFirmwareFlash",
+      "args": {
+        "elfSha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "XiaozhiFirmwareFlash",
+        "operation": "device.xiaozhi.flash",
+        "resource": "xiaozhi:flash&elf=1111111111111111111111111111111111111111111111111111111111111111",
+        "target": "xiaozhi:flash&elf=1111111111111111111111111111111111111111111111111111111111111111",
+        "mutability": "destructive",
+        "policy": "ask",
+        "label": "给小智刷入固件",
+        "detail": "把这次编译的固件放到手机的 OTA 中继上，小智下次开机检查更新时会下载并刷入，替换它现在的固件。",
         "ui": false,
         "execution": null,
         "known": true,
@@ -628,6 +799,49 @@
         "detail": "从 用户共享记忆移除一条事实。",
         "ui": false,
         "execution": "memory",
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "DeviceAppRemove",
+      "args": {
+        "name": "/apps/focus_timer"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "DeviceAppRemove",
+        "operation": "device.app.remove",
+        "resource": "device-app:remove",
+        "target": "device-app:remove",
+        "mutability": "destructive",
+        "policy": "ask",
+        "label": "从设备上删除应用",
+        "detail": "停止并删除设备上的一个设备应用；每次删除都需要你确认。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "DeviceAppList",
+      "args": {
+        "name": "focus_timer",
+        "path": "/apps"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "DeviceAppList",
+        "operation": "device.app.list",
+        "resource": "device-app:list",
+        "target": "device-app:list",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "查看设备上的应用",
+        "detail": "读取设备上已装的设备应用（名称、版本、是否在运行），不改动设备。",
+        "ui": false,
+        "execution": null,
         "known": true,
         "isMcp": false
       }

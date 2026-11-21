@@ -49,7 +49,7 @@ enum ChatSettings {
     /// Keep the agent running in the background with a silent audio session
     /// (instead of parking the host). On by default.
     static var backgroundKeepAlive: Bool {
-        get { UserDefaults.standard.object(forKey: keepAliveKey) as? Bool ?? true }
+        get { SilentAudioKeepAlive.isConfigured && (UserDefaults.standard.object(forKey: keepAliveKey) as? Bool ?? true) }
         set { UserDefaults.standard.set(newValue, forKey: keepAliveKey) }
     }
 }
@@ -263,6 +263,11 @@ struct ChatPermission: Identifiable, Equatable {
     let summary: String
     /// 这次工具调用的参数,只用来在卡上写相对路径/命令原文;拿不到就是空。
     var arguments: [String: String] = [:]
+
+    /// nil means this request must stay one-shot (destructive/unknown).
+    var alwaysGrantKey: String? {
+        DSHApprovalPolicy.grantKey(tool: tool, arguments: arguments)
+    }
 }
 
 /// One current-session permission mode returned by the active DSH Worker.
@@ -353,6 +358,24 @@ final class ChatModel {
         self.pcRuntime = pcRuntime
     }
 
+    deinit {
+        // NotificationCenter retains the block observer, so an instance that
+        // goes away must remove its token instead of leaving a live block.
+        if let protectedDataObserver {
+            NotificationCenter.default.removeObserver(protectedDataObserver)
+        }
+    }
+
+    #if DEBUG
+    /// Hosted reconciliation tests own a temporary outbox and script the
+    /// authoritative read-back. It skips the app's startup scan, so no real
+    /// user queue is touched.
+    init(outbox: SendOutbox, readBack: @escaping (SendOutboxEntry) async -> SendOutboxReadBack) {
+        self.injectedOutbox = outbox
+        self.injectedReadBack = readBack
+    }
+    #endif
+
     /// Host-private durable queue directory. It is not a P18 settings key and
     /// never enters `dsh/home/*.json`.
     static var sendOutboxDirectory: URL {
@@ -369,8 +392,22 @@ final class ChatModel {
     private func startOutboxStartupScanIfNeeded() {
         guard !outboxScanStarted else { return }
         outboxScanStarted = true
+        // Work admitted on a locked phone is delivered when it unlocks, even if the App
+        // stays in the background (a connected board keeps the process resident).
+        protectedDataObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.protectedDataDidBecomeAvailableNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleRecoveryQueueFlush()
+                self?.scheduleExternalAdmissionPass()
+            }
+        }
         Task { @MainActor [weak self] in
             guard let self, self.pcRuntime == nil else { return }
+            // Admitted and recovered `dispatching` requests are handed over at launch; the
+            // pass only writes to the outbox or an already running Bot unit.
+            self.scheduleExternalAdmissionPass()
             // Attachment bytes are user data. Only directories without an
             // entry file are orphans; a directory whose entry still exists is
             // a consistency failure handled at dispatch, never GC'd here.
@@ -417,6 +454,10 @@ final class ChatModel {
     /// The session's DSH goal (the input-dock GoalBar source).
     private(set) var goal: HarnessGoal?
     private(set) var busy = false
+    /// Local engine starts that actually began (past the busy/started guard), including restarts.
+    /// The chat page shows its "引擎还没启动" card only after one ended without an engine, not
+    /// while the launch start is still on its way.
+    private(set) var engineStartAttempts = 0
     private(set) var turnRunning = false
     /// Any Bot page turn (selected or a team/routine delivery) participates in
     /// the same background keep-alive decision as the DSH turn.
@@ -442,11 +483,18 @@ final class ChatModel {
     /// again through `loadEarlierTranscript`.
     static let maximumTranscriptItems = 600
     private(set) var items: [ChatItem] = [] {
-        didSet { itemsRevision &+= 1 }
+        didSet {
+            itemsRevision &+= 1
+            if !applyingStreamChunks { transcriptStructureRevision &+= 1 }
+        }
     }
     /// Monotonic transcript revision. The timeline cache keys on this instead
     /// of re-filtering/grouping `items` in every view body.
     private(set) var itemsRevision = 0
+    /// Only the stream drain may promise that all preceding rows are intact.
+    /// Every other mutation invalidates the timeline's incremental fast path.
+    private(set) var transcriptStructureRevision = 0
+    @ObservationIgnored private var applyingStreamChunks = false
     private(set) var transcriptHasMore = false
     private(set) var transcriptError: String?
     private(set) var trajectoryEntries: [NativeTrajectoryEntry] = []
@@ -689,6 +737,14 @@ final class ChatModel {
     }
     private var transcriptReady = false
     var isTranscriptReady: Bool { transcriptReady }
+    /// Which transcript mutations may run while the App is not on screen. A
+    /// background relaunch that re-adopts a large session used to run the whole
+    /// page pass as background CPU and the scene-update watchdog killed the app
+    /// (`0x8BADF00D` in the SwiftUI display-list update).
+    @ObservationIgnored private var transcriptGate = ChatTranscriptGate()
+    /// A loaded history page waiting for the scene to become active again.
+    /// Always a full replacement, so only the newest one is kept.
+    @ObservationIgnored private var pendingTranscriptAdoption: PendingTranscriptAdoption?
     /// The last transcript is on screen from disk while the engine boots.
     private(set) var isShowingCachedTranscript = false
     private var transcriptThroughSeq: Int?
@@ -707,8 +763,43 @@ final class ChatModel {
     private var resumeWatchdogTask: Task<Void, Never>?
     /// Scene phase as last delivered to the App. Used to decide whether a
     /// cancelled resume should immediately re-arm or wait for the next active.
-    private var appIsActive = true
+    /// A background relaunch reports no transition, so the launch value comes
+    /// from the process state: the transcript gate must be closed before the
+    /// first delivery, not after it.
+    private var appIsActive = UIApplication.shared.applicationState != .background
+    /// Read-only scene state for `ChatPage`'s follow loop. Observation tracks
+    /// the stored property, so a phase change re-runs the page.
+    var isAppActive: Bool { appIsActive }
+    /// True only while the App is on screen. `appIsActive` is the delivered
+    /// signal; `applicationState` is the synchronous authority and also covers
+    /// a background relaunch, where iOS never reports a phase transition.
+    var isAppForeground: Bool {
+        appIsActive && UIApplication.shared.applicationState == .active
+    }
+    /// Whether the engine may boot, resume or deliver now (host contract §10.1): the App is not in
+    /// the background (a cold launch is still `.inactive`), or the process is held resident by an
+    /// audio keep-alive — this model's own or another owner's, such as a connected TonoLink board.
+    /// Every preparation, drain and voice gate reads this one answer.
+    var executionEligible: Bool {
+        ChatDeliveryPreparation.executionEligible(
+            foreground: UIApplication.shared.applicationState != .background,
+            keepingAlive: keepingAlive, residentAudio: SilentAudioKeepAlive.shared.isActive)
+    }
+    /// Queued sends are delivered only while the phone is unlocked: a locked phone still
+    /// admits them durably (the outbox write decides), and the unlock notification or the
+    /// next foreground return delivers them.
+    var queuedDeliveryEligible: Bool {
+        executionEligible && UIApplication.shared.isProtectedDataAvailable
+    }
+    @ObservationIgnored private var protectedDataObserver: NSObjectProtocol?
+    private var outboxSettleTask: Task<Void, Never>?
+    private var outboxSettleDeadline: Date?
+    /// A start refused while ineligible; the next foreground return performs it.
+    private var startDeferredUntilEligible = false
     private var recoveryFlushTask: Task<Void, Never>?
+    private var queuedPreparationPaused = false
+    private var explicitStopRevision = 0
+    private var recoveryFlushRequested = false
     /// Durable send queue (P06/W1-C). The file is the source of truth; this
     /// count only drives the lightweight queued hint.
     private(set) var queuedSendCount = 0
@@ -729,9 +820,38 @@ final class ChatModel {
         var beforeSeq: Int?
         var throughSeq: Int?
     }
+    /// The transcript-shape half of a history adoption, parked while the App is
+    /// hidden. `items` is the one value whose replacement forces the page
+    /// through a fresh `LazyVStack` pass, so it must not change in the
+    /// background; the durable turn facts still land immediately because other
+    /// state machines read them.
+    private struct PendingTranscriptAdoption {
+        var sessionID: String?
+        var items: [ChatItem]
+        var hasMore: Bool
+        var beforeSeq: Int?
+        var throughSeq: Int?
+        var hidesCachedTranscript: Bool
+    }
     private var projectedRestore: ProjectedRestore?
+    #if DEBUG
+    @ObservationIgnored private var injectedOutbox: SendOutbox?
+    @ObservationIgnored private var injectedReadBack:
+        ((SendOutboxEntry) async -> SendOutboxReadBack)?
+    @ObservationIgnored
+    private lazy var sendOutbox = injectedOutbox ?? SendOutbox(directory: Self.sendOutboxDirectory)
+    #else
     @ObservationIgnored
     private lazy var sendOutbox = SendOutbox(directory: Self.sendOutboxDirectory)
+    #endif
+    /// External admission journal (P06): `admissions/` beside `send-outbox/` in the same
+    /// app-private tree. Opening it is a directory read; it needs no engine or Bot runtime.
+    @ObservationIgnored
+    private lazy var externalAdmissions = ExternalAdmissionJournal(
+        directory: sendOutbox.directory.deletingLastPathComponent()
+            .appendingPathComponent("admissions", isDirectory: true))
+    @ObservationIgnored private var admissionPassTask: Task<Void, Never>?
+    @ObservationIgnored private var admissionPassQueued = false
     private var outboxScanStarted = false
     private var hostResumeWatchdogTimeout =
         ChatHostConfiguration.defaultResumeWatchdogTimeout
@@ -918,6 +1038,8 @@ final class ChatModel {
     /// Last durable seq carried by the cached transcript snapshot read for a
     /// session. The draft evidence line reports it without another disk read.
     private var cachedSnapshotLastSeq: [String: UInt64] = [:]
+    /// Supersedes an off-main cache read whose apply would be stale.
+    @ObservationIgnored private var cachedRestoreGeneration = 0
     private var trajectoryThroughSeq: Int?
     private var trajectoryBeforeSeq: Int?
     private var trajectoryRefreshTask: Task<Void, Never>?
@@ -1506,6 +1628,7 @@ final class ChatModel {
     /// Boots the host and adopts the persisted session. Launching and sending
     /// may acknowledge one persisted `Failed` controller per process.
     func start(autoRecover: Bool = false) async {
+        if !autoRecover { queuedPreparationPaused = false }
         if pcRuntime != nil {
             await startPCModel()
             return
@@ -1517,18 +1640,31 @@ final class ChatModel {
         // Every start except the scheduled backoff retry is a new intent: it
         // supersedes any pending retry, including a manual tap.
         if !backoffRetry { cancelBackoffRetry() }
-        guard host == nil, !busy else { return }
+        guard !Task.isCancelled, host == nil, !busy else { return }
+        guard executionEligible else {
+            startDeferredUntilEligible = true
+            return
+        }
+        startDeferredUntilEligible = false
+        // A parked adoption belongs to a page that is now visible again; land
+        // it before the new boot repaints anything.
+        adoptDeferredTranscriptIfForeground()
         if engineNeedsReset, failedHost != nil {
             await restartEngine()
             return
         }
         busy = true
         isStartingEngine = true
+        engineStartAttempts += 1
         defer { busy = false; isStartingEngine = false }
         guard await prepareBotRuntime() else { return }
         // Every Host build reads the Bot MCP URL into the Worker environment;
         // heal a reaped listener before that snapshot is taken.
         _ = await botListenerSupervisor?.willStartEngine()
+        guard executionEligible, !Task.isCancelled else {
+            startDeferredUntilEligible = !Task.isCancelled
+            return
+        }
         guard let launch = makeHostLaunch() else { return }
         hostResumeWatchdogTimeout = launch.resumeWatchdogTimeout
         // Show the last conversation from disk immediately; the engine boots
@@ -1540,6 +1676,15 @@ final class ChatModel {
         do {
             try await ADBMCPServer.shared.setWorkspaceDirectory(materializedWorkspace)
             await botLaunch?.composition.attachNativeMCP(PhoneNativeMCP.server)
+            // Native preparation yields. Leaving foreground without a resident
+            // keep-alive is not permission to create WebContent.
+            guard executionEligible, !Task.isCancelled else {
+                hostEventTask?.cancel(); hostEventTask = nil
+                anchor.shutdown()
+                startDeferredUntilEligible = !Task.isCancelled
+                statusLine = "消息已保存，等待回到 App 后继续"
+                return
+            }
             try await launch.host.start()
         } catch {
             Self.appendDiagnostic("host start failed: \(NativeLogRedaction.error(error))")
@@ -1804,7 +1949,7 @@ final class ChatModel {
     }
 
     private func ensureEngineRunning() async {
-        guard host == nil, !busy else { return }
+        guard pcRuntime != nil || executionEligible, host == nil, !busy else { return }
         await start(autoRecover: true)
     }
 
@@ -1839,6 +1984,7 @@ final class ChatModel {
         }
         busy = true
         isStartingEngine = true
+        engineStartAttempts += 1
         defer { busy = false; isStartingEngine = false }
         statusLine = "Restarting the engine…"
         appendStatus("User reset: clearing the persisted failed controller")
@@ -1892,6 +2038,87 @@ final class ChatModel {
         Set(list.split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
             .filter { !$0.isEmpty })
+    }
+
+    /// Replaces the painted transcript with a loaded history page, or parks it
+    /// while the App is hidden.
+    ///
+    /// The row replacement is the expensive mutation: the fresh `LazyVStack`
+    /// pass measures every row, and `.defaultScrollAnchor(.bottom)` forces the
+    /// longest path. iOS charges that work to the scene-update budget even when
+    /// nothing is visible (field evidence: iPhone 17 Pro, FRONTBOARD
+    /// `0x8BADF00D`, main thread in `DisplayList.ViewUpdater.ViewCache.update`
+    /// under `_UIHostingView.layoutSubviews`), so a background adoption waits
+    /// for the next `.active`.
+    private func adoptTranscript(rows: [ChatItem], hasMore: Bool, beforeSeq: Int?,
+                                 throughSeq: Int?, hidesCachedTranscript: Bool) {
+        transcriptGate.isForeground = isAppForeground
+        if transcriptGate.takeAdoptionSlot() {
+            applyAdoptedTranscript(rows: rows, hasMore: hasMore, beforeSeq: beforeSeq,
+                                   throughSeq: throughSeq,
+                                   hidesCachedTranscript: hidesCachedTranscript)
+            return
+        }
+        pendingTranscriptAdoption = PendingTranscriptAdoption(
+            sessionID: sessionID, items: rows, hasMore: hasMore, beforeSeq: beforeSeq,
+            throughSeq: throughSeq, hidesCachedTranscript: hidesCachedTranscript)
+        // Log only: the rows stay parked and the page is not invalidated.
+        Self.appendDiagnostic("transcript adoption parked while backgrounded rows=\(rows.count)")
+    }
+
+    private func applyAdoptedTranscript(rows: [ChatItem], hasMore: Bool, beforeSeq: Int?,
+                                        throughSeq: Int?, hidesCachedTranscript: Bool) {
+        items = rows
+        transcriptHasMore = hasMore
+        transcriptBeforeSeq = beforeSeq
+        transcriptThroughSeq = throughSeq
+        if hidesCachedTranscript { isShowingCachedTranscript = false }
+        persistTranscriptSnapshot()
+    }
+
+    /// Commits the parked adoption once, when the page is visible again. The
+    /// scene-phase delivery calls this; `ChatPage` calls it too so a page that
+    /// appears after a background launch cannot miss the one commit.
+    ///
+    /// Rows the event pump delivered while the App was hidden (the App can
+    /// still execute in the background, e.g. on the Bot keep-alive or while a
+    /// broken stream recovers) landed on the old transcript, which makes the
+    /// parked snapshot older than the screen. Committing it would silently
+    /// drop those rows, so the stale snapshot is replaced by a foreground
+    /// re-read instead of being painted.
+    func adoptDeferredTranscriptIfForeground() {
+        guard let pending = pendingTranscriptAdoption else { return }
+        transcriptGate.isForeground = isAppForeground
+        guard transcriptGate.isForeground else { return }
+        pendingTranscriptAdoption = nil
+        // The commit decision is taken exactly once, whether the snapshot is
+        // applied or replaced by a fresh read.
+        let snapshotIsCurrent = transcriptGate.beginParkedAdoptionCommit()
+        // A parked page belongs to the session it was loaded for. A switch (or
+        // a newer adoption) makes it stale; never paint it late.
+        guard pending.sessionID == nil || pending.sessionID == sessionID else { return }
+        guard snapshotIsCurrent else {
+            Task { [weak self] in
+                await self?.resyncTranscriptAfterStaleParkedAdoption()
+            }
+            return
+        }
+        flushStreamingText()
+        streamDraftTracker.clearAll()
+        applyAdoptedTranscript(rows: pending.items, hasMore: pending.hasMore,
+                               beforeSeq: pending.beforeSeq,
+                               throughSeq: pending.throughSeq,
+                               hidesCachedTranscript: pending.hidesCachedTranscript)
+    }
+
+    /// Re-reads the transcript in the foreground after a parked adoption was
+    /// superseded by rows delivered while the App was hidden. Reuses the
+    /// event-pump recovery path: it loads the history, adopts the fresh rows
+    /// (the gate is open now) and repositions the pump. A failure keeps the
+    /// live rows on screen — still the fresher picture.
+    private func resyncTranscriptAfterStaleParkedAdoption() async {
+        guard let sessionID else { return }
+        _ = try? await synchronizeInterruptedSession(sessionID: sessionID)
     }
 
     /// Adopts a host that has finished booting: opens the persisted (or a
@@ -1950,12 +2177,10 @@ final class ChatModel {
                 if !keepProjection {
                     flushStreamingText()
                     streamDraftTracker.clearAll()
-                    items = history.items
-                    transcriptHasMore = history.hasMore
-                    transcriptBeforeSeq = history.beforeSeq
-                    transcriptThroughSeq = history.throughSeq
-                    isShowingCachedTranscript = false
-                    persistTranscriptSnapshot()
+                    adoptTranscript(rows: history.items, hasMore: history.hasMore,
+                                    beforeSeq: history.beforeSeq,
+                                    throughSeq: history.throughSeq,
+                                    hidesCachedTranscript: true)
                 }
                 turnStartTimes = history.turnFacts.starts
                 turnEndReasons = history.turnFacts.endReasons
@@ -2650,16 +2875,22 @@ final class ChatModel {
             statusLine = "电脑会话已关闭"
             return
         }
+        // An explicit stop always pauses queued preparation first, including a
+        // boot that queued work started: that boot must not drain afterwards.
+        explicitStopRevision &+= 1
+        queuedPreparationPaused = true
+        recoveryFlushTask?.cancel()
+        startDeferredUntilEligible = false
+        guard !busy && !hostLifecycleTransition else {
+            reportError("引擎操作尚未完成，排队消息已暂停；请稍候再停止")
+            return
+        }
         guard let host else {
             stopBotTurnPolling()
             await botLaunch?.composition.stop()
             if let composition = botLaunch?.composition {
                 botRuntimeState = composition.state
             }
-            return
-        }
-        guard !busy && !hostLifecycleTransition else {
-            reportError("引擎操作尚未完成，请稍候再停止")
             return
         }
         busy = true
@@ -2749,7 +2980,11 @@ final class ChatModel {
             flushStreamDraft(immediately: true)
         }
         appIsActive = phase == .active
+        transcriptGate.isForeground = isAppForeground
         BotPresenceCenter.shared.update(appActive: appIsActive)
+        // The scene is the trigger that releases a parked history adoption:
+        // this is the one commit, done before any further scene work can paint.
+        if appIsActive { adoptDeferredTranscriptIfForeground() }
         // PC lifecycle is connection-only: nothing to park or keep alive. On
         // foreground return, nudge the relay client's reconnect loop. The
         // phone's resume/rebuild/keep-alive state machine below must never run
@@ -2775,6 +3010,14 @@ final class ChatModel {
             // rebuild an engine that is already back in a clean state.
             resumeWatchdogTask?.cancel()
             resumeWatchdogTask = nil
+        }
+        if phase == .active, outboxNeedsDrain { scheduleRecoveryQueueFlush() }
+        if phase == .active, pcRuntime == nil { scheduleExternalAdmissionPass() }
+        // A start refused while the App was ineligible (background without a
+        // resident keep-alive) runs now; queued work joins it through the flush.
+        if phase == .active, host == nil, startDeferredUntilEligible, !busy, pcRuntime == nil {
+            startDeferredUntilEligible = false
+            Task { @MainActor [weak self] in await self?.start(autoRecover: true) }
         }
         guard let host else { return }
         switch phase {
@@ -2935,7 +3178,7 @@ final class ChatModel {
     }
 
     private func resumeHost(_ host: PhoneDSHHost) async {
-        guard parked, !hostLifecycleTransition else { return }
+        guard executionEligible, !Task.isCancelled, parked, !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
         // The Worker booted with the URL captured at Host construction. If the
         // listener had to move to a new port, resuming would just replay the
@@ -2943,6 +3186,10 @@ final class ChatModel {
         // environment. A same-port rebind keeps the URL valid and resumes.
         if let supervisor = botListenerSupervisor {
             _ = await supervisor.willResumeHost()
+            guard executionEligible, !Task.isCancelled else {
+                hostLifecycleTransition = false
+                return
+            }
             if !supervisor.hostEndpointIsCurrent {
                 hostLifecycleTransition = false
                 appendStatus("Bot MCP listener recovered on a new port; rebuilding instead of resuming the old Worker URL")
@@ -2966,6 +3213,14 @@ final class ChatModel {
             appendStatus("Host resumed; the session continues from the WAL")
             refreshFiles()
             await reconcileTurnStateAfterResume()
+            // A pump that failed while parked can be blocked in a resync issued
+            // against the parked page and never return. Restart it from the last
+            // delivered seq on the resumed host so this session's events arrive
+            // (a background resume has no foreground reload to repair it).
+            if eventStreamRecovering, pcRuntime == nil, let harness, let sessionID {
+                appendStatus("Event stream restarted after resume")
+                startPump(harness: harness, sessionID: sessionID, after: lastSeq)
+            }
         } catch {
             if Self.isResumeCancelled(error) {
                 // The App went to the background. The host released its gate
@@ -3178,35 +3433,101 @@ final class ChatModel {
     /// ``sessionSwitchGate`` and performs the latest optimistic target after the
     /// lifecycle settles, so there is exactly one pending switch structure.
     private func flushPendingRecoveryUIActions() async {
-        guard !isHostRecovering, !busy, host != nil else {
-            if host != nil { scheduleRecoveryQueueFlush() }
+        guard !isHostRecovering, !busy, !engineNeedsReset, host != nil, queuedDeliveryEligible else {
+            appendStatus("Queued delivery held before drain (recovering=\(isHostRecovering) busy=\(busy) reset=\(engineNeedsReset) host=\(host != nil) eligible=\(queuedDeliveryEligible))")
+            if recoveryFlushTask == nil { scheduleRecoveryQueueFlush() }
             return
         }
+        recoveryFlushRequested = false
         await drainSendOutbox()
     }
 
     private func scheduleRecoveryQueueFlush() {
-        guard outboxNeedsDrain else {
-            recoveryFlushTask?.cancel()
-            recoveryFlushTask = nil
+        guard outboxNeedsDrain else { return }
+        guard pcRuntime == nil else { return }
+        if recoveryFlushTask != nil {
+            recoveryFlushRequested = true
             return
         }
-        guard recoveryFlushTask == nil else { return }
-        // Nothing can consume the queue until a host exists or a rebuild/backoff
-        // is in flight; adoption calls this again.
-        guard host != nil || engineRebuildInProgress || backoffRetryTask != nil else { return }
+        recoveryFlushRequested = false
+        // This single task joins all queued requests. Existing Host methods still
+        // own boot/resume/exclusive transitions, and failed entries remain durable.
         recoveryFlushTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            for _ in 0..<300 {
-                if !self.busy && !self.engineRebuildInProgress
-                    && !self.hostLifecycleTransition && !self.parked
-                    && self.host != nil {
-                    break
+            defer {
+                self.recoveryFlushTask = nil
+                // A fresh send may arrive while a canceled preparation unwinds.
+                if (Task.isCancelled || self.recoveryFlushRequested), !self.queuedPreparationPaused,
+                   self.outboxNeedsDrain, self.queuedDeliveryEligible, !self.engineNeedsReset {
+                    self.scheduleRecoveryQueueFlush()
                 }
-                try? await Task.sleep(for: .milliseconds(100))
             }
-            self.recoveryFlushTask = nil
-            await self.flushPendingRecoveryUIActions()
+            // One preparation per task: after start/resume the loop waits for the
+            // engine to become ready instead of draining once mid-recovery (a
+            // background resume has no later page event to retry the drain).
+            var prepared = false
+            for _ in 0..<300 {
+                guard !Task.isCancelled, self.outboxNeedsDrain else { return }
+                guard UIApplication.shared.isProtectedDataAvailable else {
+                    self.appendStatus("Queued delivery saved; waiting for the phone to be unlocked")
+                    return
+                }
+                let decision = ChatDeliveryPreparation.decide(
+                    foreground: UIApplication.shared.applicationState != .background,
+                    keepingAlive: self.keepingAlive,
+                    hostPresent: self.host != nil, parked: self.parked,
+                    transitioning: self.hostLifecycleTransition || self.engineRebuildInProgress,
+                    busy: self.busy || self.backoffRetryTask != nil,
+                    transportReady: self.harness != nil && self.sessionID != nil,
+                    requiresRecovery: self.engineNeedsReset, userPaused: self.queuedPreparationPaused,
+                    residentAudio: SilentAudioKeepAlive.shared.isActive)
+                if decision == .ready || decision == .start || decision == .resume {
+                    self.holdResidencyForBackgroundDelivery()
+                }
+                switch decision {
+                case .ready:
+                    if prepared { self.appendStatus("Queued delivery: engine ready, delivering") }
+                    await self.flushPendingRecoveryUIActions()
+                    return
+                case .start:
+                    // start/adoption owns retries. Never boot twice from one task.
+                    guard !prepared else { return }
+                    prepared = true
+                    self.appendStatus("Queued delivery: preparing the engine")
+                    await self.start(autoRecover: true)
+                    guard !Task.isCancelled, !self.queuedPreparationPaused else { return }
+                case .resume:
+                    guard !prepared, let host = self.host else { return }
+                    prepared = true
+                    self.appendStatus("Queued delivery: resuming the parked engine")
+                    await self.resumeHost(host)
+                    guard !Task.isCancelled, !self.queuedPreparationPaused else { return }
+                case .deferred:
+                    self.appendStatus("Queued delivery saved; waiting for foreground or a resident keep-alive")
+                    return
+                case .needsAttention:
+                    self.appendStatus("Queued delivery saved; engine recovery requires user attention")
+                    return
+                case .wait:
+                    do { try await Task.sleep(for: .milliseconds(100)) }
+                    catch { return }
+                }
+            }
+            self.appendStatus("Queued delivery saved; engine preparation is still waiting on lifecycle readiness")
+        }
+    }
+
+    /// Background delivery borrowed another owner's resident audio (a connected
+    /// board). Take this model's own keep-alive for the turn, so the existing
+    /// turn-end path decides whether to park and the foreground return releases it.
+    private func holdResidencyForBackgroundDelivery() {
+        guard UIApplication.shared.applicationState == .background,
+              backgroundKeepAlive, !keepingAlive else { return }
+        do {
+            try beginKeepAlive()
+            appendStatus("Background delivery: keep-alive audio held for the queued turn")
+        } catch {
+            appendStatus("Background delivery: keep-alive failed (\(NativeLogRedaction.error(error)))")
         }
     }
 
@@ -3507,9 +3828,242 @@ final class ChatModel {
         return await enqueueSend(prompt, attachments: attachments, reusing: itemID)
     }
 
-    /// The pre-W1 direct send. Used by the PC backend and the first-ever launch
-    /// where no session identifier exists yet to key a durable entry. Local
-    /// text and attachment sends share the durable outbox.
+    /// Captured at wake, before recognition/unlock can change the selected session.
+    func voiceDestination() -> String? {
+        guard pcRuntime == nil else { return nil }
+        let target = currentSessionID ?? WorkspaceStorage.currentSessionID(for: .phone)
+        guard let target, !DeviceSessionCoordinator.shared.isDeviceSession(target) else { return nil }
+        return target
+    }
+
+    /// Admits one TonoLink voice request to the external admission journal
+    /// (spec/host/v1/external-admission.md; PC-20261116-external-admission §2.1), then runs
+    /// one dispatch pass so the record is handed to its fixed target. The outcome carries a
+    /// receipt only for `admitted` / `duplicate`; nil means admission was not attempted.
+    func admitVoice(_ text: String, requestID: String, target: ExternalAdmissionTarget,
+                    boardName: String) async -> ExternalAdmissionOutcome? {
+        // A locked phone still admits: the journal write itself decides whether storage is
+        // available, and delivery waits for the unlock (``queuedDeliveryEligible``).
+        guard !Task.isCancelled, pcRuntime == nil else { return nil }
+        if case .dshSession(let sessionID) = target,
+           DeviceSessionCoordinator.shared.isDeviceSession(sessionID) {
+            return nil
+        }
+        let nowMs = ExternalAdmissionJournal.nowMs()
+        let outcome = await externalAdmissions.admit(
+            .tonoLinkVoice(boardName: boardName, requestID: requestID, target: target,
+                           text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                           nowMs: nowMs),
+            nowMs: nowMs)
+        guard outcome.receipt != nil else {
+            appendStatus("External admission refused: \(outcome.result.rawValue)")
+            return outcome
+        }
+        // The journal owns the request from here; the pass is not cancelled with the voice turn.
+        await scheduleExternalAdmissionPass().value
+        return outcome
+    }
+
+    // MARK: External admission (P06, external-admission-v1)
+
+    /// Joins the single dispatch chain: a pass that has not started yet is shared, and a new
+    /// one starts only after the pass in flight ends, so a record is never handed over twice
+    /// by two passes. Called at launch, on unlock, on foreground return, after an admission,
+    /// at a turn end and when a Bot unit becomes available. It starts no timer.
+    @discardableResult
+    func scheduleExternalAdmissionPass() -> Task<Void, Never> {
+        if admissionPassQueued, let queued = admissionPassTask { return queued }
+        let previous = admissionPassTask
+        admissionPassQueued = true
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            self.admissionPassQueued = false
+            await self.runExternalAdmissionPass()
+        }
+        admissionPassTask = task
+        return task
+    }
+
+    /// external-admission.md §4: sweep, then hand over at most 16 ready records in FIFO
+    /// order. Waiting for an engine, a Bot unit or the unlock changes nothing in a record.
+    private func runExternalAdmissionPass() async {
+        guard pcRuntime == nil else { return }
+        let nowMs = ExternalAdmissionJournal.nowMs()
+        let pending = await externalAdmissions.sweptPendingRecords(nowMs: nowMs)
+        // v1.1 §4: a record that is only waiting for execution conditions is skipped and
+        // does not use one of the pass's 16 places.
+        // An `account:` record (a task from the phone task queue) is dispatched only while
+        // its account is the signed-in one; any other account's record waits.
+        let accountPrincipal = await CloudTaskAccount.signedInPrincipal()
+        let batch = ExternalAdmissionPolicy.dispatchOrder(pending, nowMs: nowMs) { record in
+            if ExternalAdmissionPolicy.isWaitingForAccount(record, signedInPrincipal: accountPrincipal) {
+                return true
+            }
+            if case .bot(let botID) = record.target,
+               case .waiting = BotProductionHub.shared.admissionTarget(for: botID) {
+                return true
+            }
+            return false
+        }
+        for record in batch {
+            // §4: immediately before each dispatch, an `account:` principal must still be
+            // the signed-in account (a sign-out may have happened during this pass).
+            if record.principal != "local",
+               ExternalAdmissionPolicy.isWaitingForAccount(
+                   record, signedInPrincipal: await CloudTaskAccount.signedInPrincipal()) {
+                continue
+            }
+            switch record.target {
+            case .dshSession(let sessionID):
+                await dispatchAdmission(record, toSession: sessionID)
+            case .bot(let botID):
+                await dispatchAdmission(record, toBot: botID)
+            }
+        }
+        await settleLinkedAdmissions()
+    }
+
+    /// Hands a `dsh-session` record to the send outbox with `rpcId = downstreamId`; the
+    /// existing enqueue joins the single queued-delivery preparation. A recovered
+    /// `dispatching` record repeats this with the same id and the outbox de-duplicates.
+    private func dispatchAdmission(_ record: ExternalAdmissionRecord,
+                                   toSession sessionID: String) async {
+        guard let live = try? await externalAdmissions.beginDispatch(record.admissionId),
+              let text = live.text else { return }
+        let held = await enqueueSend(text, attachments: [], reusing: nil,
+                                     pinnedSession: sessionID, requestID: live.downstreamId)
+        if held {
+            _ = try? await externalAdmissions.markLinked(live.admissionId)
+        } else if !Task.isCancelled {
+            _ = try? await externalAdmissions.recordDispatchFailure(
+                live.admissionId, error: "downstream_unavailable")
+        }
+    }
+
+    /// Hands a `bot` record to that Bot's user-action path with `nonce = downstreamId`,
+    /// only while its unit is already running. The journal never starts the engine or a unit.
+    private func dispatchAdmission(_ record: ExternalAdmissionRecord,
+                                   toBot botID: String) async {
+        switch BotProductionHub.shared.admissionTarget(for: botID) {
+        case .waiting:
+            return
+        case .missing:
+            _ = try? await externalAdmissions.fail(record.admissionId, reason: "target_missing")
+        case .ready(let model):
+            guard let live = try? await externalAdmissions.beginDispatch(record.admissionId),
+                  let text = live.text else { return }
+            if await model.sendAdmitted(text: text, nonce: live.downstreamId) == .accepted {
+                _ = try? await externalAdmissions.markLinked(live.admissionId)
+            } else {
+                _ = try? await externalAdmissions.recordDispatchFailure(
+                    live.admissionId, error: "downstream_unavailable")
+            }
+        }
+    }
+
+    /// `linked → completed | failed` needs the downstream owner's own terminal evidence: the
+    /// journaled user message with this `rpcId` and its turn's end, read from the engine's
+    /// active session only. A `bot` record has no contract-defined read-back and stays `linked`.
+    private func settleLinkedAdmissions() async {
+        guard let active = sessionID, currentSessionID == nil || currentSessionID == active else {
+            return
+        }
+        let ended = Set(turnEndTimes.keys)
+        let failed = Set(turnEndReasons.compactMap { $0.value == "completed" ? nil : $0.key })
+        for record in await externalAdmissions.linkedRecords() {
+            guard record.target == .dshSession(sessionId: active) else { continue }
+            switch ExternalAdmissionSettlement.resolve(
+                downstreamId: record.downstreamId, items: items,
+                endedTurns: ended, failedTurns: failed) {
+            case .completed:
+                _ = try? await externalAdmissions.complete(record.admissionId)
+            case .failed:
+                _ = try? await externalAdmissions.fail(record.admissionId, reason: "turn_failed")
+            case .pending:
+                break
+            }
+        }
+    }
+
+    /// The journal the phone task queue admits into (spec/v1/cloud-tasks.md §7).
+    var externalAdmissionJournal: ExternalAdmissionJournal { externalAdmissions }
+
+    /// Whether a phone-task target exists, answered without booting anything. A running
+    /// engine's own `session/list` is the authority for a session; while it is not running
+    /// only a positive answer is possible (the selected session, or the last successful
+    /// `session/list` the app cached). The read-only materialized projection is never asked:
+    /// it must not decide an admission (wal.md §11). The Bot roster answers once it is loaded.
+    func cloudTaskTargetPresence(_ target: ExternalAdmissionTarget) async -> CloudTaskTargetPresence {
+        guard pcRuntime == nil else { return .unknown }
+        switch target {
+        case .bot(let botID):
+            guard let roster = botRuntime?.rosterModel ?? BotProductionHub.shared.roster,
+                  !roster.bots.isEmpty else { return .unknown }
+            return roster.bots.contains(where: { $0.id == botID }) ? .present : .absent
+        case .dshSession(let id):
+            // A device-task session takes no outside request (same rule as a voice turn).
+            // It exists, so it is not reported missing either: the task stays with the cloud.
+            if DeviceSessionCoordinator.shared.isDeviceSession(id) { return .unknown }
+            // A parked host is not asked: the call would wait for a resume nobody requested.
+            if host != nil, !parked, let transport = try? await transportForManagement(),
+               let value = try? await transport.call("session/list",
+                                                     args: .object(["_request": .object([:])])),
+               let rows = value["items"]?.arrayValue {
+                return rows.contains { $0["sessionId"]?.stringValue == id } ? .present : .absent
+            }
+            if id == currentSessionID || id == sessionID
+                || id == WorkspaceStorage.currentSessionID(for: .phone) {
+                return .present
+            }
+            if let data = UserDefaults.standard.data(
+                   forKey: WorkspaceStorageKeys.sessionSnapshotKey(for: .phone)),
+               let cached = CachedSessionSnapshotCodec.decode(data)?.snapshot,
+               cached.sessions.contains(where: { $0.id == id }) {
+                return .present
+            }
+            return .unknown
+        }
+    }
+
+    /// A deleted Bot can no longer take its admitted requests (external-admission.md §3).
+    func withdrawExternalAdmissions(forDeletedBot botID: String) {
+        guard pcRuntime == nil else { return }
+        Task { [externalAdmissions] in
+            _ = await externalAdmissions.withdraw(target: .bot(botId: botID))
+        }
+    }
+
+    func voiceProgress(_ request: NativeVoiceRequest) -> NativeVoiceProgress {
+        guard currentSessionID == nil || currentSessionID == request.sessionID else {
+            return .unavailable
+        }
+        guard sessionID == request.sessionID else { return .queued }
+        return NativeVoiceProgress.resolve(request: request, items: items,
+            endedTurns: Set(turnEndTimes.keys),
+            failedTurns: Set(turnEndReasons.compactMap {
+                $0.value == "completed" ? nil : $0.key
+            }))
+    }
+
+    var voiceExecutionDeferred: Bool {
+        queuedPreparationPaused || engineNeedsReset || !queuedDeliveryEligible
+    }
+
+    /// The engine is booting, resuming or rebuilding for queued work; a voice
+    /// wait must not time out on that bounded preparation.
+    var voicePreparing: Bool {
+        recoveryFlushTask != nil || isStartingEngine || hostLifecycleTransition || engineRebuildInProgress
+    }
+
+    /// Changes whenever ``voiceProgress(_:)`` could change, so a waiting voice
+    /// turn re-derives progress only after an event, a session switch or a turn boundary.
+    var voiceObservationKey: String {
+        "\(eventsHandled)|\(items.count)|\(turnBoundaryRevision)|\(sessionID ?? "")|\(currentSessionID ?? "")"
+    }
+
+    /// The pre-W1 direct send is retained only for the PC backend.
+    /// All accepted local sends use the durable outbox.
     private func sendDirect(_ prompt: String, attachments: [HarnessAttachment],
                             reusing itemID: String?) async -> Bool {
         // Sending is the clearest signal that the engine is wanted. Boot it
@@ -3571,31 +4125,31 @@ final class ChatModel {
     /// crash at any point before the authoritative message leaves the files
     /// for the next launch.
     private func enqueueSend(_ prompt: String, attachments: [HarnessAttachment],
-                             reusing itemID: String?) async -> Bool {
-        // A brand-new engine with no persisted session still has to boot once
-        // before a sessionId exists. Everything after that is durable.
-        if currentSessionID == nil, sessionID == nil,
+                             reusing itemID: String?, pinnedSession: String? = nil,
+                             requestID: String? = nil) async -> Bool {
+        let stopRevision = explicitStopRevision
+        guard !prompt.isEmpty || !attachments.isEmpty else { return false }
+        // The first-ever foreground send establishes a target, but never submits
+        // directly. No target/storage means no durable acceptance.
+        if pinnedSession == nil, currentSessionID == nil, sessionID == nil,
            WorkspaceStorage.currentSessionID(for: .phone) == nil {
-            return await sendDirect(prompt, attachments: attachments, reusing: itemID)
+            await ensureEngineRunning()
         }
-        guard let target = currentSessionID ?? sessionID
-                ?? WorkspaceStorage.currentSessionID(for: .phone) else {
-            return await sendDirect(prompt, attachments: attachments, reusing: itemID)
-        }
+        guard !Task.isCancelled,
+              let target = pinnedSession ?? currentSessionID ?? sessionID
+                ?? WorkspaceStorage.currentSessionID(for: .phone) else { return false }
         // A retry of the same failed row keeps the original rpcId so the
         // authority de-duplicates instead of appending a second message.
-        let reuseRequestID = itemID.flatMap { id in
+        let reuseRequestID = requestID ?? itemID.flatMap { id in
             items.first(where: { $0.id == id })?.promptRequestID
         }
         let entry: SendOutboxEntry
         do {
             if let reuseRequestID, let existing = await sendOutbox.entry(rpcId: reuseRequestID) {
-                switch existing.state {
-                case .outcomeUnknown:
-                    entry = try await sendOutbox.requeue(rpcId: reuseRequestID)
-                default:
-                    entry = existing
-                }
+                guard existing.sessionId == target, existing.text == prompt else { return false }
+                // An ambiguous submit is never made retryable by a UI/voice retry.
+                // Only authoritative reconciliation may settle it.
+                entry = existing
             } else {
                 entry = try await sendOutbox.enqueue(
                     sessionID: target, text: prompt,
@@ -3611,19 +4165,21 @@ final class ChatModel {
         var input = ChatItem(id: rowID, kind: .user, title: "You",
                              text: Self.visiblePrompt(prompt, attachments: attachments))
         input.promptRequestID = entry.rpcId
-        NativeTranscriptProjector.acceptInput(input, in: &items)
-        markQueued(itemID: rowID, requestID: entry.rpcId)
-        lastPrompt = (prompt, attachments)
-        lastPromptRequestID = entry.rpcId
+        // A send pinned to another session (voice captured at wake) must not
+        // become the retry target of the session on screen.
+        if currentSessionID == target {
+            NativeTranscriptProjector.acceptInput(input, in: &items)
+            markQueued(itemID: rowID, requestID: entry.rpcId)
+            lastPrompt = (prompt, attachments)
+            lastPromptRequestID = entry.rpcId
+        }
         clearError()
         syncIdleTimer()
         SessionTitleHints.remember(prompt, for: target, backend: backendID)
         await refreshQueuedSendCount()
-        // Sending is the clearest signal that the engine is wanted; boot it
-        // without holding the composer.
-        if !isStarted, !busy {
-            Task { @MainActor [weak self] in await self?.start(autoRecover: true) }
-        }
+        if explicitStopRevision == stopRevision { queuedPreparationPaused = false }
+        // Durable admission precedes preparation; a parked Host is not ready
+        // merely because its object exists. Background work waits without booting.
         scheduleRecoveryQueueFlush()
         return true
     }
@@ -3698,7 +4254,8 @@ final class ChatModel {
             outboxNeedsDrain = false
             return
         }
-        guard host != nil, !busy, !hostLifecycleTransition, !parked else {
+        guard host != nil, !busy, !hostLifecycleTransition, !parked, !engineNeedsReset,
+              queuedDeliveryEligible else {
             await refreshQueuedSendCount()
             return
         }
@@ -3723,21 +4280,42 @@ final class ChatModel {
                 continue
             }
             if entry.sessionId != sessionID {
-                guard !turnRunning, !keepingAlive else { break }
-                guard await activateSessionForOutbox(entry.sessionId) else { break }
+                guard !turnRunning, !keepingAlive else {
+                    appendStatus("Queued delivery held: target session is not active (turnRunning=\(turnRunning) keepingAlive=\(keepingAlive) active=\(sessionID == nil ? "none" : "other"))")
+                    break
+                }
+                guard await activateSessionForOutbox(entry.sessionId) else {
+                    appendStatus("Queued delivery held: target session could not be activated")
+                    break
+                }
             }
-            guard let activeHarness = harness else { break }
+            guard let activeHarness = harness, let deliveryHost = host,
+                  queuedEntryCanDispatch(entry) else {
+                appendStatus("Queued delivery held: engine not dispatchable (harness=\(harness != nil) host=\(host != nil) eligible=\(queuedDeliveryEligible))")
+                break
+            }
             // Both the first attempt and every retry re-verify every byte
             // reference before submit. A missing or modified file blocks the
             // entry; it is never downgraded to a text-only send.
             guard let submittedAttachments = await dispatchAttachments(for: entry) else {
                 continue
             }
+            guard host === deliveryHost, queuedEntryCanDispatch(entry), !Task.isCancelled else { break }
             let submitted: SendOutboxEntry
             do {
                 submitted = try await sendOutbox.markSubmitting(rpcId: entry.rpcId)
             } catch {
                 continue
+            }
+            guard host === deliveryHost, queuedEntryCanDispatch(entry), !Task.isCancelled else {
+                // This live branch has not called transport. A crash between these
+                // writes stays unknown; restart never infers proof from lastError.
+                do {
+                    _ = try await sendOutbox.markOutcomeUnknown(rpcId: entry.rpcId,
+                        lastError: "lifecycle changed before transport submission")
+                    _ = try await sendOutbox.requeue(rpcId: entry.rpcId)
+                } catch { }
+                break
             }
             do {
                 try await activeHarness.send(
@@ -3758,59 +4336,82 @@ final class ChatModel {
         // actually progress now; a turn on another session waits for its own
         // turn-end callback.
         let remaining = await sendOutbox.pending()
-        let deliverable = remaining.contains {
-            $0.state == .queued && (!turnRunning || $0.sessionId == sessionID)
-        }
-        if deliverable { scheduleRecoveryQueueFlush() }
+        let attempted = Set(entries.map(\.rpcId))
+        let newArrival = remaining.contains { $0.state == .queued && !attempted.contains($0.rpcId) }
+        if newArrival { recoveryFlushRequested = true }
     }
 
-    /// Reads the same authoritative history that makes an entry durable. The
-    /// engine must be the source; a local cache is never proof.
-    private func authoritativeHistoryContains(rpcId: String,
-                                              sessionID: String) async -> Bool? {
-        guard host != nil, !isReloadingSession else { return nil }
+    private func queuedEntryCanDispatch(_ entry: SendOutboxEntry) -> Bool {
+        !queuedPreparationPaused && !engineNeedsReset && !busy && !parked
+            && !hostLifecycleTransition && sessionID == entry.sessionId
+            && queuedDeliveryEligible
+    }
+
+    /// Reads the same authority that makes an entry durable: the engine's
+    /// inbox and history at one follow snapshot. A local cache is never proof.
+    private func readBackOutboxEntry(_ entry: SendOutboxEntry) async -> SendOutboxReadBack {
+        #if DEBUG
+        if let injectedReadBack { return await injectedReadBack(entry) }
+        #endif
+        guard host != nil, !isReloadingSession else { return .inconclusive }
         do {
             let transport = try await transportForManagement()
-            let cursor = try await SessionHistoryReader.followCursor(
-                sessionID: sessionID, transport: transport)
-            guard cursor >= 0 else { return nil }
-            let page = try await transport.call("session/page", args: .object([
-                "request": .object([
-                    "address": .object([
-                        "kind": .string("session"), "sessionId": .string(sessionID),
-                    ]),
-                    "throughSeq": .number(Double(cursor)),
-                    "maxMessages": .number(60),
-                ]),
-            ]))
-            for record in page["records"]?.arrayValue ?? [] {
-                guard let event = record["event"],
-                      event["type"]?.stringValue == "user/message",
-                      event["data"]?["source"]?["rpcId"]?.stringValue == rpcId else {
-                    continue
-                }
-                return true
-            }
-            return nil
+            return try await SessionHistoryReader.readBack(
+                rpcId: entry.rpcId, createdAtMs: entry.createdAtMs,
+                sessionID: entry.sessionId, transport: transport)
         } catch {
-            return nil
+            return .inconclusive
         }
     }
 
-    private func reconcileOutboxEntry(_ entry: SendOutboxEntry) async {
-        guard entry.state == .accepted || entry.state == .outcomeUnknown
+    private func reconcileOutboxEntry(_ stale: SendOutboxEntry) async {
+        guard let entry = await sendOutbox.entry(rpcId: stale.rpcId),
+              entry.state == .accepted || entry.state == .outcomeUnknown
                 || entry.state == .submitting else { return }
-        guard let found = await authoritativeHistoryContains(
-            rpcId: entry.rpcId, sessionID: entry.sessionId) else {
+        let unsettled = entry.state == .outcomeUnknown || entry.state == .submitting
+        switch await readBackOutboxEntry(entry) {
+        case .journaled:
+            if unsettled { _ = try? await sendOutbox.markAccepted(rpcId: entry.rpcId) }
+            _ = try? await sendOutbox.observeAuthoritativeUserMessage(rpcId: entry.rpcId)
+        case .held:
+            // The engine has it; the user/message follows its next turn start.
+            if unsettled { _ = try? await sendOutbox.markAccepted(rpcId: entry.rpcId) }
+        case .absent:
+            // Proof of absence returns the entry to the queue with its original
+            // rpcId (host contract §10). A submit that only just failed may
+            // still land, so it settles first; the delay grows with attempts.
+            guard entry.state == .outcomeUnknown else { break }
+            let nowMs = Int64((Date().timeIntervalSince1970 * 1_000).rounded())
+            let settledAtMs = (entry.outcomeUnknownAtMs ?? nowMs)
+                + SendOutboxReadBack.settleDelayMs(attempts: entry.attempts)
+            guard nowMs >= settledAtMs else {
+                scheduleOutboxSettleFlush(afterMs: settledAtMs - nowMs)
+                break
+            }
+            if (try? await sendOutbox.requeue(rpcId: entry.rpcId)) != nil {
+                appendStatus("Queued delivery: read-back proved an unknown send absent; queued again with the same request")
+                recoveryFlushRequested = true
+            }
+        case .inconclusive:
             // No read-back means stay put; never guess and resend.
-            return
+            break
         }
-        guard found else { return }
-        if entry.state == .outcomeUnknown || entry.state == .submitting {
-            _ = try? await sendOutbox.markAccepted(rpcId: entry.rpcId)
-        }
-        _ = try? await sendOutbox.observeAuthoritativeUserMessage(rpcId: entry.rpcId)
         await refreshQueuedSendCount()
+    }
+
+    /// One wake-up for the earliest unknown send that still has to settle.
+    private func scheduleOutboxSettleFlush(afterMs: Int64) {
+        let deadline = Date().addingTimeInterval(Double(max(afterMs, 100)) / 1_000)
+        if outboxSettleTask != nil, let current = outboxSettleDeadline, current <= deadline { return }
+        outboxSettleTask?.cancel()
+        outboxSettleDeadline = deadline
+        outboxSettleTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .milliseconds(max(afterMs, 100))) } catch { return }
+            guard let self else { return }
+            self.outboxSettleTask = nil
+            self.outboxSettleDeadline = nil
+            self.scheduleRecoveryQueueFlush()
+        }
     }
 
     /// Activation for a queued send. It reuses the existing open/activate path
@@ -3921,10 +4522,51 @@ final class ChatModel {
         appendStatus("已停止（运行时未确认）。若之后没有响应，请在 ⋯ 菜单里停止主机再重新启动。")
     }
 
+    /// DSH Remote only has a one-shot wire outcome. The always decision is
+    /// remembered here and later requests for the same session + tool are
+    /// auto-answered with allow-once; deny/allow-once clear it.
+    private func presentPermission(_ permission: ChatPermission) {
+        if let sessionID, let scope = permission.alwaysGrantKey,
+           DSHApprovalMemory.isAllowed(sessionID: sessionID, scope: scope) {
+            autoApprove(permission, sessionID: sessionID)
+        } else {
+            pendingPermission = permission
+        }
+    }
+
+    private func autoApprove(_ permission: ChatPermission, sessionID: String) {
+        guard let harness else {
+            pendingPermission = permission
+            return
+        }
+        Task { @MainActor [weak self] in
+            do {
+                try await harness.send(
+                    .permissionResponse(requestID: permission.id, decision: .allowOnce),
+                    to: sessionID)
+                self?.appendStatus("Permission for \(permission.tool): always (this session)")
+            } catch {
+                self?.pendingPermission = permission
+                self?.reportError("自动授权发送失败：\(Self.condensed(String(describing: error)))")
+            }
+        }
+    }
+
     func respond(to permission: ChatPermission, decision: PermissionDecision) async {
         guard let harness, let sessionID else { return }
+        if let scope = permission.alwaysGrantKey {
+            switch decision {
+            case .allowAlways:
+                DSHApprovalMemory.remember(sessionID: sessionID, scope: scope)
+            case .allowOnce, .deny:
+                // Choosing once or deny must not leave an older always grant
+                // behind; the next request asks again.
+                DSHApprovalMemory.forget(sessionID: sessionID, scope: scope)
+            }
+        }
+        let wire: PermissionDecision = decision == .deny ? .deny : .allowOnce
         do {
-            try await harness.send(.permissionResponse(requestID: permission.id, decision: decision), to: sessionID)
+            try await harness.send(.permissionResponse(requestID: permission.id, decision: wire), to: sessionID)
             if pendingPermission?.id == permission.id { pendingPermission = nil }
             clearError()
             appendStatus("Permission for \(permission.tool): \(decision.rawValue)")
@@ -4443,34 +5085,32 @@ final class ChatModel {
         flushStreamingText()
         streamDraftTracker.clearAll()
         MainThreadHangMonitor.mark("historyRestore.start")
-        items = NativeTranscriptProjector.restoring(history.items, preservingInputsFrom: items,
-                                                    inputReceipts: history.inputReceipts)
+        var restored = NativeTranscriptProjector.restoring(
+            history.items, preservingInputsFrom: items,
+            inputReceipts: history.inputReceipts)
         MainThreadHangMonitor.mark("historyRestore.end")
+        // Settle the restored rows before the adoption is painted or parked:
+        // the post-replacement pass used to mutate `items` in place.
+        if !history.turnRunning { Self.settleRestoredRows(&restored) }
         turnStartTimes = history.turnFacts.starts
         turnEndReasons = history.turnFacts.endReasons
         turnEndTimes = history.turnFacts.ends
-        transcriptHasMore = history.hasMore
-        transcriptBeforeSeq = history.beforeSeq
-        transcriptThroughSeq = history.throughSeq
-        isShowingCachedTranscript = false
         lastSeq = history.after
         turnRunning = history.turnRunning
         activeTurn = history.turnRunning ? history.turnFacts.starts.keys.max() : nil
         activeStep = nil
         activeTurnStartedAt = activeTurn.flatMap { history.turnFacts.starts[$0] }
         if !history.turnRunning {
-            finishStreamingAssistant()
-            finishStreamingReasoning()
             clearQueueLines()
             pendingQuestion = nil
             pendingPermission = nil
-            for index in items.indices where items[index].toolState == .running {
-                items[index].toolState = .stopped
-                items[index].bumpRenderRevision()
-            }
         }
         syncIdleTimer()
-        persistTranscriptSnapshot()
+        // A parked adoption is committed whole on the next `.active`; the pump
+        // follows `lastSeq` immediately, so no event is lost meanwhile.
+        adoptTranscript(rows: restored, hasMore: history.hasMore,
+                        beforeSeq: history.beforeSeq, throughSeq: history.throughSeq,
+                        hidesCachedTranscript: true)
         scheduleNativeMetricsRefresh()
         if !turnRunning, !botTurnsRunning, keepingAlive {
             Task { await self.finishBackgroundKeepAlive() }
@@ -4512,13 +5152,15 @@ final class ChatModel {
             turnEndReasons[finishedTurn] = event.rawTurnEndKind ?? Self.rawTurnEndKind(reason)
             turnEndTimes[finishedTurn] = event.time
             if outboxNeedsDrain { scheduleRecoveryQueueFlush() }
+            // A turn end is the terminal evidence a linked admission waits for.
+            if pcRuntime == nil { scheduleExternalAdmissionPass() }
             if keepingAlive, !botTurnsRunning {
                 Task { await self.finishBackgroundKeepAlive() }
             }
         case .permissionRequested(let request):
-            pendingPermission = ChatPermission(id: request.requestID, tool: request.tool,
-                                               summary: request.summary,
-                                               arguments: recentToolArguments[request.tool] ?? [:])
+            presentPermission(ChatPermission(id: request.requestID, tool: request.tool,
+                                             summary: request.summary,
+                                             arguments: recentToolArguments[request.tool] ?? [:]))
         case .questionRequested(let question):
             pendingQuestion = question
         case .exited:
@@ -4551,6 +5193,11 @@ final class ChatModel {
             handle(eventWhileViewingAnotherSession: event)
             return
         }
+        // This event mutates (or coalesces text that will mutate) the painted
+        // transcript. While a history adoption is parked behind a hidden
+        // scene, it supersedes the parked snapshot: see
+        // `adoptDeferredTranscriptIfForeground`.
+        transcriptGate.noteRowsMayHaveChanged()
         // Deltas are coalesced; every other event is an ordering boundary and
         // sees the transcript with the pending text already applied.
         switch event.kind {
@@ -4591,11 +5238,14 @@ final class ChatModel {
         case .assistantDelta(let text):
             recordLatency("first-assistant", event: event, once: true)
             clearSendingLabels()
-            finishStreamingReasoning()
             if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
                 streamAccumulator.append(text, to: items[index].id)
                 scheduleStreamingFlush()
             } else {
+                // Closing reasoning is a transition, not a per-token action:
+                // it drains the shared accumulator, so calling it above the
+                // fast path publishes the preceding assistant token early.
+                finishStreamingReasoning()
                 var item = ChatItem(id: eventItemID(event), kind: .assistant,
                                     title: "Assistant", text: "", streaming: true)
                 item.timestamp = event.time
@@ -4632,7 +5282,8 @@ final class ChatModel {
             scheduleNativeMetricsRefresh()
         case .userMessage(let text, let source):
             if let sessionID {
-                NativeTranscriptProjector.acknowledgeInput(event, sessionID: sessionID, in: &items)
+                NativeTranscriptProjector.acknowledgeInput(event, sessionID: sessionID, in: &items,
+                                                           openTurn: turnRunning ? activeTurn : nil)
             }
             // The authoritative `source.rpcId` is the only durable marker for a
             // queued send (P06/W1-C); a local accepted acknowledgement is not
@@ -4702,9 +5353,9 @@ final class ChatModel {
             scheduleNativeMetricsRefresh()
             refreshFiles(debounced: true)
         case .permissionRequested(let request):
-            pendingPermission = ChatPermission(id: request.requestID, tool: request.tool,
-                                               summary: request.summary,
-                                               arguments: recentToolArguments[request.tool] ?? [:])
+            presentPermission(ChatPermission(id: request.requestID, tool: request.tool,
+                                             summary: request.summary,
+                                             arguments: recentToolArguments[request.tool] ?? [:]))
         case .questionRequested(let question):
             pendingQuestion = question
             appendStatus("The agent asks: len=\(question.prompt.count)")
@@ -4783,6 +5434,8 @@ final class ChatModel {
             refreshFiles()
             Task { await self.refreshGoal() }
             if outboxNeedsDrain { scheduleRecoveryQueueFlush() }
+            // A turn end is the terminal evidence a linked admission waits for.
+            if pcRuntime == nil { scheduleExternalAdmissionPass() }
             if keepingAlive, !botTurnsRunning { Task { await self.finishBackgroundKeepAlive() } }
         case .progress(let phase, let step, let total):
             if phase == "step" { activeStep = step }
@@ -4854,6 +5507,24 @@ final class ChatModel {
         }
     }
 
+    /// The array form of `finishStreamingAssistant` + `finishStreamingReasoning`
+    /// plus the stopped-tool sweep. Used when a restored history snapshot lands
+    /// and must be prepared before it is painted or parked.
+    private static func settleRestoredRows(_ rows: inout [ChatItem]) {
+        if let index = rows.indices.last, rows[index].kind == .assistant, rows[index].streaming {
+            rows[index].streaming = false
+            rows[index].bumpRenderRevision()
+        }
+        for index in rows.indices where rows[index].kind == .reasoning && rows[index].streaming {
+            rows[index].streaming = false
+            rows[index].bumpRenderRevision()
+        }
+        for index in rows.indices where rows[index].toolState == .running {
+            rows[index].toolState = .stopped
+            rows[index].bumpRenderRevision()
+        }
+    }
+
     /// Applies every pending streamed delta to `items` now.
     ///
     /// Called at ordering boundaries (tool call/result, turn start/end, a
@@ -4873,7 +5544,9 @@ final class ChatModel {
         }
         // Mutate the stored array in place: a `var next = items` copy makes the
         // buffer non-unique, so the first append copies the whole transcript.
+        applyingStreamChunks = chunks.allSatisfy { $0.itemID == items.last?.id }
         items.applyStreamChunks(chunks)
+        applyingStreamChunks = false
         MainThreadHangMonitor.mark("flushStreamingText.end")
         flushStreamDraft(immediately: false)
     }
@@ -4912,7 +5585,12 @@ final class ChatModel {
 
     private func scheduleStreamingFlush() {
         guard streamFlushTask == nil else { return }
-        let delay = resourceMeter.level.streamUpdateIntervalNanoseconds
+        // Remote execution still renders on this phone. Thermal/low-power
+        // pressure must cap the display even when no local host meter runs.
+        let constrained = ProcessInfo.processInfo.isLowPowerModeEnabled
+            || ProcessInfo.processInfo.thermalState != .nominal
+        let level = max(resourceMeter.level, constrained ? .yellow : .green)
+        let delay = level.streamUpdateIntervalNanoseconds
         streamFlushTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: delay)
             guard !Task.isCancelled, let self else { return }
@@ -4954,8 +5632,13 @@ final class ChatModel {
         }
     }
 
+    /// A `Host` status row is a diagnostic, never transcript content the page
+    /// draws (`visibleItems` drops `.status`). While the App is hidden it only
+    /// invalidates the page for background CPU, so it waits for `.active` and
+    /// the status log keeps the line either way.
     private func appendStatus(_ text: String) {
-        items.append(ChatItem(kind: .status, title: "Host", text: text))
+        transcriptGate.isForeground = isAppForeground
+        if let row = transcriptGate.statusRow(text) { items.append(row) }
         Self.persistStatus(text)
     }
 
@@ -5110,10 +5793,46 @@ final class ChatModel {
     }
 
     /// Renders the last session's settled items before the host is ready.
+    ///
+    /// Reading and JSON-decoding a full cached transcript is disk work that
+    /// used to run on the main actor at launch, exactly where the scene-update
+    /// watchdog is already counting. The decode runs detached; only the row
+    /// adoption (bounded by the page's render window) lands on the main actor.
     private func restoreCachedTranscriptIfAvailable() {
         guard items.isEmpty,
               let sessionID = WorkspaceStorage.currentSessionID(for: backendID) else { return }
-        guard let cached = readCachedTranscript(sessionID: sessionID) else { return }
+        let urls = cachedTranscriptURLs(sessionID: sessionID)
+        guard !urls.isEmpty else { return }
+        cachedRestoreGeneration &+= 1
+        let generation = cachedRestoreGeneration
+        let backend = backendID
+        Task { [weak self] in
+            // Detached: the read/decode must not inherit the main actor.
+            let cached = await Task.detached(priority: .userInitiated) {
+                Self.decodeCachedTranscript(at: urls, backend: backend, sessionID: sessionID)
+            }.value
+            self?.applyCachedTranscript(cached, sessionID: sessionID, generation: generation)
+        }
+    }
+
+    /// Applies one decoded cache read. A newer restore (or a session switch)
+    /// supersedes it; an adoption that already painted leaves no empty window.
+    private func applyCachedTranscript(_ cached: CachedTranscriptSnapshot?,
+                                       sessionID: String, generation: Int) {
+        guard generation == cachedRestoreGeneration,
+              items.isEmpty,
+              WorkspaceStorage.currentSessionID(for: backendID) == sessionID else { return }
+        guard let cached else {
+            // No readable snapshot: do not let an earlier read's seq describe
+            // a cache that no longer exists.
+            cachedSnapshotLastSeq.removeValue(forKey: sessionID)
+            return
+        }
+        if let lastSeq = cached.lastSeq {
+            cachedSnapshotLastSeq[sessionID] = lastSeq
+        } else {
+            cachedSnapshotLastSeq.removeValue(forKey: sessionID)
+        }
         flushStreamingText()
         items = Self.chatItems(from: cached.items)
         guard !items.isEmpty else { return }
@@ -5121,27 +5840,39 @@ final class ChatModel {
         statusLine = "显示上次对话，引擎在后台启动…"
     }
 
-    /// Reads one session's cached tail. The envelope carries the scope, so a
-    /// file that belongs to another backend or session is ignored rather than
-    /// painted (P18). The phone's pre-envelope bare array still decodes.
+    /// One session's cached tail, newest scope first (P18).
+    private func cachedTranscriptURLs(sessionID: String) -> [URL] {
+        [snapshotURL(for: sessionID),
+         WorkspaceStorage.legacyTranscriptSnapshotURL(for: backendID, sessionID: sessionID)]
+            .compactMap { $0 }
+    }
+
+    /// Reads one session's cached tail on the main actor. The envelope carries
+    /// the scope, so a file that belongs to another backend or session is
+    /// ignored rather than painted (P18). The phone's pre-envelope bare array
+    /// still decodes.
     private func readCachedTranscript(sessionID: String) -> CachedTranscriptSnapshot? {
-        for url in [snapshotURL(for: sessionID),
-                    WorkspaceStorage.legacyTranscriptSnapshotURL(for: backendID, sessionID: sessionID)]
-            .compactMap({ $0 }) {
+        let cached = Self.decodeCachedTranscript(at: cachedTranscriptURLs(sessionID: sessionID),
+                                                 backend: backendID, sessionID: sessionID)
+        if let lastSeq = cached?.lastSeq {
+            cachedSnapshotLastSeq[sessionID] = lastSeq
+        } else {
+            cachedSnapshotLastSeq.removeValue(forKey: sessionID)
+        }
+        return cached
+    }
+
+    /// Pure decode with no actor state, safe to run off the main actor.
+    private nonisolated static func decodeCachedTranscript(
+        at urls: [URL], backend: BackendID, sessionID: String
+    ) -> CachedTranscriptSnapshot? {
+        for url in urls {
             guard let data = try? Data(contentsOf: url) else { continue }
-            if let snapshot = CachedTranscriptCodec.decode(data, backend: backendID,
+            if let snapshot = CachedTranscriptCodec.decode(data, backend: backend,
                                                            sessionID: sessionID) {
-                if let lastSeq = snapshot.lastSeq {
-                    cachedSnapshotLastSeq[sessionID] = lastSeq
-                } else {
-                    cachedSnapshotLastSeq.removeValue(forKey: sessionID)
-                }
                 return snapshot
             }
         }
-        // No readable snapshot: do not let an earlier read's seq describe a
-        // cache that no longer exists.
-        cachedSnapshotLastSeq.removeValue(forKey: sessionID)
         return nil
     }
 
@@ -5348,6 +6079,11 @@ final class ChatModel {
     /// 回复一旦开始流式输出,这条消息就已经送达:「发送中…」必须收掉,
     /// 否则它会一直挂在用户消息下面(线上反馈)。
     private func clearSendingLabels() {
+        // Even removeAll on an unchanged @Observable array invalidates its
+        // readers. Keep the composer quiet while text is only being buffered.
+        guard queueLineOrder.contains(where: {
+            queueLines[$0] == .sending || queueLines[$0] == nil
+        }) else { return }
         for id in queueLineOrder where queueLines[id] == .sending {
             queueLines[id] = nil
             queueLineRequests[id] = nil
@@ -5630,6 +6366,17 @@ final class ChatModel {
 
 #if DEBUG
 extension ChatModel {
+    /// Drives the production reducer without a host, relay or model request.
+    func debugHandleHarnessEvent(_ event: HarnessEvent) {
+        handle(event)
+    }
+
+    /// Drives the real read-back reconciliation against this model's injected
+    /// outbox instead of a startup scan or a live engine.
+    func debugReconcileOutboxEntry(_ entry: SendOutboxEntry) async {
+        await reconcileOutboxEntry(entry)
+    }
+
     /// Preview-only: park a message state that normally comes from a live turn
     /// so the failure and queued screens can be reviewed without a model.
     func debugInstallPreviewState(failedItemID itemID: String?, error: String?, queue: [String: String]) {

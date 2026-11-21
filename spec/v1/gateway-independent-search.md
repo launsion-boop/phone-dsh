@@ -109,6 +109,14 @@ The Android host keeps a private settings document `{version: 1, mode, baseUrl}`
 `mode` `follow-model` or `search-api` and `baseUrl` empty or canonical. An absent
 document is follow-model. A document with another version, mode, member or a
 non-canonical base is unreadable: the page reports it and both web tools stay off.
-The key lives in the host key store under a separate account. Committing a base
-different from the stored one deletes the stored key first; a key is accepted only
-after a canonical base is stored. Removing the service deletes the key and the document.
+The key lives in the host key store under a separate account. An address-only
+commit to a different base is refused when the existing independent key is present,
+invalid, or unreadable; it leaves the prior document and key intact. A confirmed
+absent key allows a validated new base. The same canonical base is a no-op. A key
+save includes the UI's last confirmed canonical base and is refused unless that
+base still equals the stored base under the store's lock. A key save also refuses
+an invalid or unreadable existing key without writing or deleting it. Removing the service
+deletes the key and the document. The existing document version and canonical base
+rules do not change. Atomic replacement of a keyed base together with a new key is
+not implemented on Android by this revision; callers must not apply a new key to
+the old base when the address draft differs.

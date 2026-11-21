@@ -93,8 +93,11 @@ struct NativeShell: View {
 
     @State private var drawerOpen = NativeDebugDefaults.drawerOpen(
         environment: ProcessInfo.processInfo.environment)
-    /// Bottom menu selection; 任务 (the chat page) is where the app opens.
-    @State private var selectedTab: HomeTab = .tasks
+    /// Bottom menu selection. Every launch opens on Bot; the Bot page restores
+    /// the last selected Bot while it connects (`BotRosterModel` via
+    /// `BotSelectionStore`/UserDefaults, falling back to the main Bot), so this
+    /// does not depend on a prior Bot deep link. DSH stays mounted on its tab.
+    @State private var selectedTab: HomeTab = .bot
     @State private var keyboardVisible = false
     /// Tabs whose root page is covered by a pushed page. The bar belongs to
     /// the first-level pages only, so it leaves while the selected tab has
@@ -278,6 +281,8 @@ struct NativeShell: View {
                                 openDrawer()
                             }
                         }, drawerExpanded: sidebarVisible)
+                        .environment(\.chatPageVisible,
+                                     selectedTab == .tasks && models.isPhoneSelected && appModel.isSceneActive)
                         .modifier(tabRoot(.tasks))
                     }
                     .opacity(models.isPhoneSelected ? 1 : 0)
@@ -295,6 +300,8 @@ struct NativeShell: View {
                                              openDrawer()
                                          }
                                      }, drawerExpanded: sidebarVisible)
+                            .environment(\.chatPageVisible,
+                                         selectedTab == .tasks && !models.isPhoneSelected && appModel.isSceneActive)
                             .modifier(tabRoot(.tasks))
                         }
                         .opacity(models.isPhoneSelected ? 0 : 1)
@@ -900,6 +907,9 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     case workspace
     case workspaceFiles = "workspace.files"
     case configuration
+    case bleDevices = "ble.devices"
+    case bleDevicesClosing = "ble.devices.closing"
+    case bleDevicesQuarantined = "ble.devices.quarantined"
     case chatAssistant = "chat.assistant"
     case chatOfficial = "chat.official"
     case chatFailed = "chat.failed"
@@ -971,6 +981,11 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
         case .workspace: WorkspaceFoldersPage()
         case .workspaceFiles: FilesPage()
         case .configuration: PDSHShellPage()
+        // Isolated simulated BLE page for the BluetoothDevicesPage XCUI tests.
+        // The real page and store run; only the radio callbacks are scripted.
+        case .bleDevices: BLEDevicesPreviewHarness(scenario: .connected)
+        case .bleDevicesClosing: BLEDevicesPreviewHarness(scenario: .closing)
+        case .bleDevicesQuarantined: BLEDevicesPreviewHarness(scenario: .quarantined)
         case .chatAssistant: ChatPage(previewItems: PreviewChatItems.assistant)
         case .chatOfficial: ChatPage(previewItems: PreviewChatItems.official)
         case .chatFailed: ChatPage(previewItems: PreviewChatItems.failed)

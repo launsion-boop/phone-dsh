@@ -473,6 +473,644 @@
           ]
         }
       }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "暂时不用"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "暂不需要"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "不用了"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "先这样"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "不需要"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "暂不操作"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "暂不继续"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "没有了"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "以上都不"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "not now"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "no thanks"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "do nothing"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "none of the above"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "skip"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "none"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "ask_user",
+      "args": {
+        "question": "是否继续？",
+        "options": [
+          {
+            "label": "继续"
+          },
+          {
+            "label": "暂时不用"
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "question",
+          "question": "是否继续？",
+          "options": [
+            {
+              "label": "继续",
+              "id": "o0"
+            },
+            {
+              "label": "暂时不用",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          {
+            "label": "暂时不用",
+            "recommended": true
+          },
+          {
+            "label": "查看结果"
+          },
+          {
+            "label": "取消正在运行的任务",
+            "style": "danger"
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "取消正在运行的任务",
+              "style": "danger",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "暂时不需要"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "先不用"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "以后再说"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "暂不处理"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "无需操作"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "暂停，稍后继续"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "导出文件",
+          "  Not Now  "
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "id": "o0"
+            },
+            {
+              "label": "导出文件",
+              "id": "o1"
+            }
+          ]
+        }
+      }
     }
   ],
   "invalid": [
@@ -686,6 +1324,19 @@
       "result": {
         "ok": false,
         "error": "final 必须是 boolean。"
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "查看结果",
+          "暂时不用"
+        ]
+      },
+      "result": {
+        "ok": false,
+        "error": "show_next_steps 需要 2–4 个有效 steps。"
       }
     }
   ]

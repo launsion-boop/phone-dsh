@@ -62,6 +62,7 @@ final class BotProductionHub {
                 self.roster = roster
                 composition.onBotDeleted = { [weak self] botID in
                     self?.dropCaches(botID)
+                    ChatModel.shared.withdrawExternalAdmissions(forDeletedBot: botID)
                 }
                 let initial = roster.selectedBotID
                 if let initial {
@@ -108,6 +109,57 @@ final class BotProductionHub {
         error = nil
     }
 
+    /// The chat model of a Bot without switching the page to it, connecting the hub to the app's
+    /// Bot runtime first when needed (a device's voice turn arrives while another page is open).
+    func chatModel(ensuring botID: String) async throws -> BotChatModel {
+        // A process relaunched in the background has the Bot runtime but no engine: a send would
+        // reach no session. Start it (allowed while the board's keep-alive holds the app).
+        let chat = ChatModel.shared
+        if !chat.isStarted {
+            await chat.start()
+            for _ in 0..<120 where !chat.isStarted { try? await Task.sleep(for: .milliseconds(250)) }
+        }
+        if composition == nil { await connect(chat: chat) }
+        guard let composition, let roster else { throw BotRuntimeError.unavailable }
+        guard roster.bots.contains(where: { $0.id == botID }) else { throw BotTeamHostError.botNotFound(botID) }
+        // A Bot that is not on screen may have no running unit (after a relaunch only the selected
+        // one starts): without it a send reaches no engine session. An existing unit is untouched.
+        _ = try await composition.ensureUnit(for: botID, reason: "device-voice")
+        if chatModels[botID] == nil { try await installModels(botID: botID, composition: composition) }
+        guard let model = chatModels[botID] else { throw BotRuntimeError.unavailable }
+        return model
+    }
+
+    /// Where an admitted `bot` request can go right now (external-admission.md §4).
+    enum AdmissionTarget {
+        /// The Bot's unit is running and its chat model is installed.
+        case ready(BotChatModel)
+        /// The Bot runtime, the unit or the page model is not up yet; nothing is started here.
+        case waiting
+        /// The loaded roster no longer has this Bot.
+        case missing
+    }
+
+    /// Never starts the engine, the Bot runtime or a unit: a request for a Bot that is not
+    /// running waits in the journal until that unit comes up on its own.
+    func admissionTarget(for botID: String) -> AdmissionTarget {
+        guard let composition, let roster, !roster.bots.isEmpty else { return .waiting }
+        guard roster.bots.contains(where: { $0.id == botID }) else { return .missing }
+        guard composition.unit(for: botID) != nil, let model = chatModels[botID] else {
+            return .waiting
+        }
+        return .ready(model)
+    }
+
+    /// Reads a Bot's durable rows into its chat model now. The model's own feed is paused while
+    /// the app is in the background, so a voice turn pulls the answer itself.
+    func pullRows(for botID: String) async {
+        guard let composition, let model = chatModels[botID],
+              let unit = try? await composition.ensureUnit(for: botID, reason: "device-voice") else { return }
+        let driver = await unit.rows.chatDriver()
+        if let batch = try? await driver.watch(0) { model.apply(batch) }
+    }
+
     /// A link names a Bot explicitly. A legacy `main` link resolves through
     /// the current main pointer; a link to a live Bot switches the page first.
     /// Row links go to the chat row; routine links present the routine list.
@@ -147,6 +199,7 @@ final class BotProductionHub {
         guard let composition else { throw BotRuntimeError.unavailable }
         try await composition.deleteBot(botID)
         dropCaches(botID)
+        ChatModel.shared.withdrawExternalAdmissions(forDeletedBot: botID)
         if let next = composition.rosterModel.selectedBotID {
             do { try await select(next) }
             catch { self.error = "切换到剩余 Bot 失败：\(error.localizedDescription)" }
@@ -189,14 +242,18 @@ final class BotProductionHub {
         let model = BotChatModel(
             context: BotRuntimeContext(botID: botID, botName: context.botName),
             driver: driver, profileCenter: center)
+        // The watch feed's health lives on the row service, not on the frozen
+        // seven-member `BotChatDriver` (ui-state.md §1). The model uses it for
+        // the header reconnect line; the page never polls it on its own.
+        model.watchHealthProvider = { BotFeedHealth(await unit.rows.watchHealth()) }
         if let initial = try? await driver.watch(0) { model.apply(initial) }
         await model.refreshPresentation()
-        if let chat = currentChat, let transport = try? await chat.transportForManagement() {
-            let remote = unit.remote
-            model.attachmentImporter = BotWorkspaceAttachmentImporter(
-                transport: transport,
-                sessionID: { try await remote.ensureMainSessionID() })
-        }
+        let remote = unit.remote
+        // Bind one importer that resolves transport + session atomically from
+        // the unit runtime on every send. A restart must not reuse an old
+        // transport with a newly created main session.
+        model.attachmentImporter = BotWorkspaceAttachmentImporter(
+            context: { try await remote.attachmentImportContext() })
         let infoDriver = await unit.info.infoDriver()
         let info = BotInfoModel(driver: infoDriver, profileCenter: center)
         if let profile {
@@ -209,12 +266,33 @@ final class BotProductionHub {
         profileCenters[botID] = center
         chatModels[botID] = model
         infoModels[botID] = info
+        // This Bot's unit and page model are up: admitted requests waiting for it can go.
+        ChatModel.shared.scheduleExternalAdmissionPass()
         roster.setRuntimeState(
             BotRosterRuntimeState(fishState: model.fishState, activity: model.activity,
                                   isRunning: model.runningTurnID != nil,
                                   pendingApprovalCount: model.pendingApprovalCount,
                                   runtimeState: composition.state),
             for: botID)
+    }
+
+    /// One immediate durable resync after the composition reports a completed
+    /// rebind. A Worker restart can replace the live observer and leaves
+    /// `botPageActive` unchanged, so without this the page would stay on the
+    /// old subscription and wait for the next page activation (the field bug:
+    /// the reply only appeared after backgrounding and returning). The loops
+    /// read the driver every iteration, so rebuilding it from the current unit
+    /// plus one forced resync re-subscribes instead of staying attached to the
+    /// previous one.
+    func resyncSelectedBot() async {
+        guard let composition, let botID = selectedID,
+              let model = chatModels[botID] else { return }
+        guard let unit = try? await composition.ensureUnit(for: botID) else {
+            model.forceResync(.rebind)
+            return
+        }
+        let driver = await unit.rows.chatDriver()
+        model.replaceDriver(driver)
     }
 
     private func startSelectionWatch() {
@@ -271,6 +349,19 @@ final class BotProductionHub {
 enum BotRuntimeError: Error, LocalizedError {
     case unavailable
     var errorDescription: String? { "Bot 运行时还没有准备好。" }
+}
+
+extension BotFeedHealth {
+    /// Bridges the row service's verdict into the model's own value. The two
+    /// types exist separately because `BotChatModel.swift` must compile
+    /// without the production service (the E2E chat-model bundle), while this
+    /// page is the one owner of the production wiring.
+    init(_ health: BotProductionWatchHealth) {
+        switch health {
+        case .healthy: self = .healthy
+        case .degraded(let reason, let since): self = .degraded(reason: reason, since: since)
+        }
+    }
 }
 
 struct BotProductionPage: View {
@@ -372,6 +463,14 @@ struct BotProductionPage: View {
         .onChange(of: botPageActive) { _, active in
             hub.setPageActive(active)
             hub.chatModel?.setPageActive(active)
+        }
+        // A rebind completes while `botPageActive` stays true. Resync the
+        // moment the composition is ready again instead of waiting for a scene
+        // flip or the next 800 ms tick; `setPageActive` covers the scene-resume
+        // half through the existing `botPageActive` plumbing.
+        .onChange(of: chat.botRuntimeState) { old, new in
+            guard new == .ready, old != .ready else { return }
+            Task { await hub.resyncSelectedBot() }
         }
     }
 

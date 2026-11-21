@@ -8,6 +8,7 @@ import com.phonedsh.agentcore.JsonValue
 import com.phonedsh.bot.BotJson
 import com.phonedsh.bot.attachments.BotWorkspaceLayout
 import com.phonedsh.bot.gateway.BotAttribution
+import com.phonedsh.bot.mcp.BotToolCatalog
 import com.phonedsh.bot.gateway.BotGatewayPrincipal
 import com.phonedsh.bot.session.BotSessionKind
 import java.util.UUID
@@ -194,7 +195,11 @@ public class BotApprovalCoordinator(
         interactiveWaitMilliseconds: Long,
     ): BotApprovalOutcome {
         ensureRestored()
-        val deferConsumption = effects.all { it.execution != null }
+        // A card whose effects cannot safely stand must not offer "always":
+        // unknown tools and destructive operations keep the one-shot answer
+        // only, and the card's scope says so.
+        val offeredScope = if (effects.all { it.canUseStandingGrant }) alwaysScope else "none"
+        val deferConsumption = effects.all { it.execution != null || it.tool == "attach_to_model" }
         standingDecision(call, effects, deferConsumption)?.let { return it }
         if (origin == "egress") {
             matchingPendingEgress(call.principal, effects)?.let { existing ->
@@ -214,7 +219,7 @@ public class BotApprovalCoordinator(
             "detail" to JsonString(detail),
             "digest" to JsonString(digest),
             "command" to JsonString(command),
-            "alwaysScope" to JsonString(alwaysScope),
+            "alwaysScope" to JsonString(offeredScope),
             "deferConsumption" to JsonBool(deferConsumption),
             "effects" to JsonArray(effects.map { it.toJson() }),
             "persistent" to JsonBool(persistent),
@@ -250,7 +255,7 @@ public class BotApprovalCoordinator(
             action = action,
             detail = detail,
             command = command,
-            alwaysScope = alwaysScope,
+            alwaysScope = offeredScope,
             deferConsumption = deferConsumption,
             persistent = persistent,
             origin = origin,
@@ -334,21 +339,36 @@ public class BotApprovalCoordinator(
             if (allowed) {
                 effectiveScope = when (decision) {
                     BotApprovalDecision.ALLOW_ONCE -> BotGrantScope.ONCE
-                    BotApprovalDecision.ALWAYS -> when (request.alwaysScope) {
-                        "until" -> BotGrantScope.UNTIL
-                        "session" -> BotGrantScope.SESSION
-                        else -> BotGrantScope.ONCE
+                    BotApprovalDecision.ALWAYS -> if (request.effects.all { it.canUseStandingGrant }) {
+                        when (request.alwaysScope) {
+                            "until" -> BotGrantScope.UNTIL
+                            "session" -> BotGrantScope.SESSION
+                            else -> BotGrantScope.ONCE
+                        }
+                    } else {
+                        BotGrantScope.ONCE
                     }
                     BotApprovalDecision.DENY -> BotGrantScope.ONCE
                 }
                 try {
                     for (effect in request.effects) {
+                        // A once decision is exact. A standing decision uses
+                        // the effect's stable scope only when it has one
+                        // (images use model:image, file/network egress its
+                        // directory/host); destructive and unclassified
+                        // effects keep their exact resource, so "always"
+                        // cannot widen them.
+                        val storedResource = if (effectiveScope == BotGrantScope.ONCE) {
+                            effect.resource
+                        } else {
+                            effect.stableGrantResource
+                        }
                         val grant = grants.add(
                             BotGrant(
                                 botId = request.principal.botId,
                                 tool = effect.tool,
                                 operation = effect.operation,
-                                resource = effect.resource,
+                                resource = storedResource,
                                 scope = effectiveScope,
                                 sessionId = request.principal.sessionId,
                                 createdAt = now(),

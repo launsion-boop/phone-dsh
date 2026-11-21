@@ -142,10 +142,6 @@ private final class PhoneCapabilityEngine {
                 payload = try extended.geofence(object: object)
             case "focus.status":
                 payload = extended.focus()
-            case "home.list":
-                payload = try extended.homeList(object: object)
-            case "home.set":
-                payload = try await extended.homeSet(object: object)
             case "music.play":
                 payload = try await extended.musicPlay(object: object)
             case "activity.start":

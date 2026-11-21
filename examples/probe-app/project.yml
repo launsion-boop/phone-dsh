@@ -71,6 +71,15 @@ targets:
       - path: BotFish
         type: folder
         buildPhase: resources
+      # On-device firmware builder (DEBUG page): the page code is tracked in
+      # FirmwareBuilder/; the WebAssembly toolchain and the prebuilt SDK pack
+      # are staged, untracked, into Bundle/firmware-builder (see its README).
+      - path: FirmwareBuilder
+        type: folder
+        buildPhase: resources
+      - path: Bundle/firmware-builder
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: ProbeKit
       # SwiftPM products are not re-exported: every module the app imports
@@ -218,7 +227,12 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
+      - path: ../../spec/ui/v1/fixtures/web-search-address-lifecycle.json
+        buildPhase: resources
       - path: PhoneDSHSimTests
+      # The session-scoped DSH always-allow memory is app code but pure
+      # UserDefaults logic; compile it into the hostless simulator suite.
+      - path: PhoneDSHProbe/DSHApprovalMemory.swift
       # The frozen GitHub OAuth fixture is shared with the broker and the spec;
       # copy the one contract-owned file instead of keeping a test-only clone.
       - path: ../../spec/v1/golden/github-oauth/github-oauth-cases.json
@@ -230,6 +244,8 @@ targets:
       # The native Daily Brief presentation model is UI-free and lets the suite
       # exercise add → refresh → persist → offline reload against ProbeKit.
       - path: PhoneDSHProbe/DailyBriefModel.swift
+      # The Bot chat's Tono sign-in rule (pure; the banner view stays out of the suite).
+      - path: PhoneDSHProbe/Bot/BotSignInRequirement.swift
       # NativeConversationModels / NativeTranscriptProjector moved into
       # ProbeKit/Transcript, and the perf helpers into ProbeKit/Perf;
       # the test targets import ProbeKit instead.
@@ -266,13 +282,16 @@ targets:
       - path: PhoneDSHProbe/NativeChatPreferences.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
-      - path: PhoneDSHProbe/BluetoothDevicesPage.swift
+      # BluetoothDevicesPage coverage now runs as real XCUI tests in
+      # PhoneDSHDeviceUITests; the page is no longer compiled into this
+      # hostless/hosted unit target.
       # The device panel page carries its UI-free, injected-source model and
       # the scripted fake, so this hostless suite drives the real panel state
       # machine without BLE or Application Support. The app-only adoption sheet
       # is ChatModel-bound; DevicePanelPage.swift hides that reference behind
       # PDSH_PROBE_HOSTLESS_TESTS (this target does not compile ChatModel.swift).
       - path: PhoneDSHProbe/DevicePanelPage.swift
+      - path: PhoneDSHProbe/DeviceAppsPage.swift
       # The PCLink connection owner is UI-free except for the debug identity
       # store; the simulator suite drives its foreground wake-through.
       - path: PhoneDSHProbe/PCLinkWorkspace.swift
@@ -280,11 +299,38 @@ targets:
       # real PhoneDSHBot recovery result, so the three lifecycle timings run
       # against an injected fake listener without constructing ChatModel.
       - path: PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
+      # The phone task queue's journal bridge (cloud-tasks.md §7) is UI-free and
+      # host-free: the suite drives it with the real admission journal and the
+      # real CloudTaskCoordinator against a fake cloud.
+      - path: PhoneDSHProbe/CloudTaskAdmissionBridge.swift
       # Live turn projection: dedupe live replay, finished process rows and
       # the exact unauthorized event sequence in the regression suite.
       - path: PhoneDSHProbe/Bot/BotLiveTurn.swift
       # Shared Bot display formatting; Foundation-only so both suites can test it.
       - path: PhoneDSHProbe/Bot/BotUIFormat.swift
+      # Pure approval-offer rules (what the card may offer, its receipt and the
+      # one-shot degrade); Foundation-only so the same rules run under test.
+      - path: PhoneDSHProbe/Bot/BotApprovalOffer.swift
+      # Real-time watch: the incremental session-log reader, the durable
+      # event tail, the row service poll and its health/instrumentation
+      # compile here so the append-only, no-op and degraded-path regressions
+      # drive the real production path.
+      - path: PhoneDSHProbe/Bot/BotProductionServices.swift
+      - path: PhoneDSHProbe/Bot/BotRuntimePresentation.swift
+      - path: PhoneDSHProbe/Bot/BotActivityPhrases.swift
+      - path: PhoneDSHProbe/Bot/BotRebindDiagnostics.swift
+      - path: PhoneDSHProbe/BotSessionRegistry.swift
+      - path: PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
+      # Phase 2 realtime supervision: the Bot chat model owns the supervised
+      # watch/live loops, so the stall/throw/stream-end/health regressions drive
+      # the real model instead of a copy. Its dependencies are Foundation,
+      # Combine and PhoneDSHBot only (no ChatModel, no SwiftUI).
+      - path: PhoneDSHProbe/Bot/BotChatModel.swift
+      - path: PhoneDSHProbe/Bot/BotUIModels.swift
+      - path: PhoneDSHProbe/Bot/BotProfileCenter.swift
+      # BotUIModels' deep-link helpers resolve the roster's main pointer
+      # through the production routing rule; Foundation + PhoneDSHBot only.
+      - path: PhoneDSHProbe/Bot/BotAppWiringLogic.swift
       # The scripted model upstream, the smoke evidence readers (WAL
       # replay/journal/step formats) and the kill-matrix support ship as the
       # regular SwiftPM target `PhoneDSHHarness`; this target links its
@@ -377,6 +423,10 @@ targets:
       # production presentation source is compiled into this test module too.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
       - path: PhoneDSHProbe/DailyBriefModel.swift
+      # PhoneDSHSimTests/NativeStreamDraftTests needs it here too (parity with PhoneDSHSimTests).
+      - path: PhoneDSHProbe/NativeStreamDraftStore.swift
+      # PhoneDSHSimTests/DSHApprovalMemoryTests needs it here too (parity with PhoneDSHSimTests).
+      - path: PhoneDSHProbe/DSHApprovalMemory.swift
       # NativeConversationModels / NativeTranscriptProjector moved into
       # ProbeKit/Transcript, and the perf helpers into ProbeKit/Perf;
       # the test targets import ProbeKit instead.
@@ -412,23 +462,48 @@ targets:
       - path: PhoneDSHProbe/NativeChatPreferences.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
-      - path: PhoneDSHProbe/BluetoothDevicesPage.swift
+      # BluetoothDevicesPage coverage now runs as real XCUI tests in
+      # PhoneDSHDeviceUITests; the page is no longer compiled into this
+      # hostless/hosted unit target.
       # The device panel page carries its UI-free, injected-source model and
       # the scripted fake, so this hostless suite drives the real panel state
       # machine without BLE or Application Support. The app-only adoption sheet
       # is ChatModel-bound; DevicePanelPage.swift hides that reference behind
       # PDSH_PROBE_HOSTLESS_TESTS (this target does not compile ChatModel.swift).
       - path: PhoneDSHProbe/DevicePanelPage.swift
+      - path: PhoneDSHProbe/DeviceAppsPage.swift
       - path: PhoneDSHProbe/PCLinkWorkspace.swift
       # The App-side Bot MCP listener supervisor is host-free and links the
       # real PhoneDSHBot recovery result, so the three lifecycle timings run
       # against an injected fake listener without constructing ChatModel.
       - path: PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
+      # The phone task queue's journal bridge (cloud-tasks.md §7) is UI-free and
+      # host-free: the suite drives it with the real admission journal and the
+      # real CloudTaskCoordinator against a fake cloud.
+      - path: PhoneDSHProbe/CloudTaskAdmissionBridge.swift
       # Live turn projection: dedupe live replay, finished process rows and
       # the exact unauthorized event sequence in the regression suite.
       - path: PhoneDSHProbe/Bot/BotLiveTurn.swift
       # Shared Bot display formatting; Foundation-only so both suites can test it.
       - path: PhoneDSHProbe/Bot/BotUIFormat.swift
+      # Pure approval-offer rules (what the card may offer, its receipt and the
+      # one-shot degrade); Foundation-only so the same rules run under test.
+      - path: PhoneDSHProbe/Bot/BotApprovalOffer.swift
+      # Same real-time watch sources as the simulator twin; the device session
+      # suite must compile the identical production poll.
+      - path: PhoneDSHProbe/Bot/BotProductionServices.swift
+      - path: PhoneDSHProbe/Bot/BotRuntimePresentation.swift
+      - path: PhoneDSHProbe/Bot/BotActivityPhrases.swift
+      - path: PhoneDSHProbe/Bot/BotRebindDiagnostics.swift
+      - path: PhoneDSHProbe/BotSessionRegistry.swift
+      - path: PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
+      # Same realtime supervision sources as the simulator twin.
+      - path: PhoneDSHProbe/Bot/BotChatModel.swift
+      - path: PhoneDSHProbe/Bot/BotUIModels.swift
+      - path: PhoneDSHProbe/Bot/BotProfileCenter.swift
+      # BotUIModels' deep-link helpers resolve the roster's main pointer
+      # through the production routing rule; Foundation + PhoneDSHBot only.
+      - path: PhoneDSHProbe/Bot/BotAppWiringLogic.swift
     dependencies:
       - target: PhoneDSHProbe
       - target: ProbeKit

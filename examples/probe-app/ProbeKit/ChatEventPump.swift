@@ -29,8 +29,20 @@ public enum ChatEventPump {
                     needsSnapshot = false
                     recovered()
                 }
+                let clock = ContinuousClock()
+                var sliceStart = clock.now
+                var sliceCount = 0
                 for try await event in events(after) {
+                    // A replay can already be buffered: `await next()` then
+                    // need not yield the MainActor. Let input/layout run after
+                    // a bounded batch without dropping or reordering events.
+                    if sliceCount >= 64 || sliceStart.duration(to: clock.now) >= .milliseconds(2) {
+                        try await Task.sleep(for: .milliseconds(1))
+                        sliceStart = clock.now
+                        sliceCount = 0
+                    }
                     guard !Task.isCancelled, isCurrent() else { return }
+                    sliceCount += 1
                     if let seq = event.seq, let current = after, seq <= current { continue }
                     if let seq = event.seq { after = seq }
                     handle(event)

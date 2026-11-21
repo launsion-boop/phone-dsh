@@ -35,6 +35,17 @@ public struct LinkBusy: Error, Equatable, Sendable {
     public init() {}
 }
 
+/// An agent-origin call of a device-app-v1 host-only tool (device-app.md §7).
+/// Thrown after admission and authorization but *before* the journal intent, so the
+/// call has no request UUID and nothing reached the radio: `not_executed` / `host_only`.
+public struct LinkHostOnly: Error, Equatable, Sendable {
+    public let name: String
+    public init(name: String) { self.name = name }
+    public var message: String {
+        "not_executed (host_only): \(name) is installed by the phone itself, never through ble_link_call. Nothing ran."
+    }
+}
+
 /// Where the app keeps the Link journal. The MCP server and the device panel
 /// must use this one directory: `DeviceMCPServer.receiptDirectory` defaults to
 /// the same Application Support root, and tests inject their own root instead.
@@ -81,7 +92,14 @@ func callLinkTool(
 ) async throws -> LinkCallOutcome {
     try await withLinkAdmission(store, deviceID, origin) { admission in
         // Authorization still precedes the durable intent (ble-link.md rule 1/6).
-        try await store.authorizeLink(deviceID, name: name, arguments: arguments)
+        // device-app-v1.3: the install path (user origin) is authorized by the user's per-install
+        // approval, not by the Settings grant. An agent origin never gets this waiver.
+        try await store.authorizeLink(
+            deviceID, name: name, arguments: arguments,
+            userApprovedDeviceApp: origin == .user && DeviceAppTools.all.contains(name))
+        // device-app-v1 §7: installs are host-only. An agent-origin call is refused
+        // before any journal record and before the radio.
+        if origin == .agent, DeviceAppTools.hostOnly.contains(name) { throw LinkHostOnly(name: name) }
         // Persist key/device/name/fingerprint/request UUID before uploading.
         let (intent, fresh) = try journal.prepare(
             key: idempotencyKey, deviceID: deviceID, name: name, arguments: arguments)

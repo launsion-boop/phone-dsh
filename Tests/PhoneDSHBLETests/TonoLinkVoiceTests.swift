@@ -62,6 +62,16 @@ final class TonoLinkVoiceTests: XCTestCase {
         XCTAssertThrowsError(try TonoLinkVoiceCommand.listen(seq: 1, id: 0))
     }
 
+    func testFxCommands() throws {
+        let commands = try XCTUnwrap(try cases()["fx_commands"] as? [[String: Any]])
+        XCTAssertEqual(Set(commands.compactMap { $0["phase"] as? String }), Set(TonoLinkLightPhase.allCases.map(\.rawValue)))
+        for command in commands {
+            let phase = try XCTUnwrap(TonoLinkLightPhase(rawValue: command["phase"] as! String))
+            let data = try TonoLinkVoiceCommand.fx(seq: UInt16(command["seq"] as! Int), phase: phase)
+            XCTAssertEqual(String(decoding: data, as: UTF8.self), command["line"] as? String)
+        }
+    }
+
     func testPackets() throws {
         let packets = try XCTUnwrap(try cases()["packets"] as? [[String: Any]])
         for packet in packets {

@@ -52,7 +52,7 @@ final class UserActionTransactionTests: XCTestCase {
             try await migrated.eventID(botID: action.botID, nonce: action.nonce), "evt-after-migration")
         try await migrated.close()
 
-        XCTAssertEqual(try SQLiteProbe.scalar("PRAGMA user_version", at: file), "3")
+        XCTAssertEqual(try SQLiteProbe.scalar("PRAGMA user_version", at: file), "4")
         let migratedTables = try SQLiteProbe.query(
             """
             SELECT name, sql FROM sqlite_master
@@ -79,12 +79,12 @@ final class UserActionTransactionTests: XCTestCase {
         let store = try SQLiteDomainStore(fileURL: file, now: { 1_000 })
         _ = try await store.append(Self.event(id: "evt-future"))
         try await store.close()
-        try SQLiteProbe.execute("PRAGMA user_version=4", at: file)
+        try SQLiteProbe.execute("PRAGMA user_version=5", at: file)
 
         XCTAssertThrowsError(try SQLiteDomainStore(fileURL: file)) { error in
-            XCTAssertEqual(error as? SQLiteDomainStoreError, .schemaTooNew(4))
+            XCTAssertEqual(error as? SQLiteDomainStoreError, .schemaTooNew(5))
         }
-        XCTAssertEqual(try SQLiteProbe.scalar("PRAGMA user_version", at: file), "4")
+        XCTAssertEqual(try SQLiteProbe.scalar("PRAGMA user_version", at: file), "5")
         XCTAssertEqual(try SQLiteProbe.scalar("SELECT COUNT(*) FROM bot_events", at: file), "1")
     }
 

@@ -41,6 +41,16 @@ export interface WasiToolboxOptions {
   readonly memoryLimitBytes?: number
   readonly maxFrameBytes?: number
   readonly syncTimeoutMs?: number
+  /**
+   * Byte budget of each proxy server's read cache (`vfs-server.ts`); the
+   * default is 128 MiB and `0` disables it. A toolbox whose programs re-read
+   * more input than that (a linker over a large library set) evicts and
+   * reloads files, so it should raise the budget or serve those inputs from a
+   * read-only layer instead.
+   */
+  readonly readCacheBytes?: number
+  /** Byte budget of each proxy server's positional-write buffer; `0` disables it. */
+  readonly writeBufferBytes?: number
   /** Override the automatic `crossOriginIsolated` detection (tests). */
   readonly crossOriginIsolated?: boolean
   /** Factory for the dedicated tool worker; defaults to `new Worker(workerUrl)`. */
@@ -329,6 +339,8 @@ export class WasiToolbox {
   private readonly backend: VfsBackend
   private readonly preopens: readonly GuestPreopen[]
   private readonly memoryLimitBytes: number
+  private readonly readCacheBytes: number | undefined
+  private readonly writeBufferBytes: number | undefined
   private readonly maxFrameBytes: number
   private readonly syncTimeoutMs: number
   private readonly spawnWorkerImpl: (command: ToolboxCommand) => ToolWorkerTransport
@@ -356,6 +368,8 @@ export class WasiToolbox {
     this.backend = options.backend
     this.preopens = options.preopens ?? DEFAULT_PREOPENS
     this.memoryLimitBytes = options.memoryLimitBytes ?? DEFAULT_HOT_INSTANCE_MEMORY_BYTES
+    this.readCacheBytes = options.readCacheBytes
+    this.writeBufferBytes = options.writeBufferBytes
     this.maxFrameBytes = options.maxFrameBytes ?? DEFAULT_VFS_FRAME_BYTES
     this.syncTimeoutMs = options.syncTimeoutMs ?? DEFAULT_VFS_SYNC_TIMEOUT_MS
     this.workerReadyTimeoutMs = options.workerReadyTimeoutMs ?? DEFAULT_WORKER_READY_TIMEOUT_MS
@@ -574,7 +588,7 @@ export class WasiToolbox {
       // already have taken away, and the command must not be reported as a
       // normal exit.
       if (instance.stopCause !== undefined) return result
-      const fenced = await this.fenceDurability(result, request)
+      const fenced = await this.fenceDurability(await this.flushBufferedWrites(instance, result, request), request)
       // The command finished and its writes were acknowledged: a marker left
       // by an earlier aborted attempt of the same path is stale.
       if (fenced.failureCode === undefined) this.clearPartialMarkers(instance.lastWritten)
@@ -642,6 +656,39 @@ export class WasiToolbox {
    * @param request - the dispatch, for the failure stderr.
    * @returns the result, or a failed result when the sink did not acknowledge.
    */
+  /**
+   * Store the volatile files the proxy still holds only in memory.
+   *
+   * Positional writes to `/tmp` files are buffered in the proxy server and
+   * stored once. The command must not report its exit before that store: the
+   * next step reads those files from the VFS. A refused store (the `tmp`
+   * quota) fails the command the same way an unacknowledged sink does.
+   * @returns the result, or a failed result when a file could not be stored.
+   */
+  private async flushBufferedWrites(
+    instance: ProgramInstance,
+    result: ToolboxResult,
+    request: ToolboxRunRequest,
+  ): Promise<ToolboxResult> {
+    if (instance.server.pendingWrites === 0) return result
+    try {
+      await instance.server.flushWrites()
+      return result
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      const message = new TextEncoder().encode(
+        `wasi-toolbox: ${result.program}: a buffered /tmp file could not be stored: ${detail}\n`,
+      )
+      request.onStderr?.(message)
+      return {
+        ...result,
+        exitCode: result.exitCode === 0 ? 134 : result.exitCode,
+        stderrBytes: result.stderrBytes + message.byteLength,
+        failureCode: result.failureCode ?? 'E_VFS_FLUSH',
+      }
+    }
+  }
+
   private async fenceDurability(result: ToolboxResult, request: ToolboxRunRequest): Promise<ToolboxResult> {
     const sync = this.backend.sync
     if (typeof sync !== 'function') return result
@@ -817,7 +864,13 @@ export class WasiToolbox {
   private async createInstance(command: ToolboxCommand, forceSnapshot = false): Promise<ProgramInstance> {
     const preopens = command.preopens ?? this.preopens
     const transport = this.spawnWorkerImpl(command)
-    const server = new VfsProxyServer({ backend: this.backend, preopens, maxFrameBytes: this.maxFrameBytes })
+    const server = new VfsProxyServer({
+      backend: this.backend,
+      preopens,
+      maxFrameBytes: this.maxFrameBytes,
+      ...(this.readCacheBytes === undefined ? {} : { readCacheBytes: this.readCacheBytes }),
+      ...(this.writeBufferBytes === undefined ? {} : { writeBufferBytes: this.writeBufferBytes }),
+    })
     server.attach(transport)
     const ready = deferred<void>()
     const view = deferred<ToolboxFileView>()
@@ -964,6 +1017,9 @@ export class WasiToolbox {
         resolve: result => {
           instance.active = undefined
           instance.lastWritten = active.written
+          // Cached file bytes belong to the dispatch that read them: the next
+          // command must see whatever ran in between (a `bash` step).
+          instance.server.resetReadCache()
           cleanup()
           resolve(result)
         },
@@ -997,6 +1053,7 @@ export class WasiToolbox {
         if (instance.active !== active) return
         this.hardStop(instance, 'cancel')
       }
+      instance.server.resetReadCache()
       instance.active = active
       if (request.signal !== undefined) request.signal.addEventListener('abort', onAbort, { once: true })
       if (isAborted(request.signal)) {
@@ -1269,6 +1326,9 @@ export class WasiToolbox {
     instance.readyReject?.(new WasiToolboxError('the toolbox was stopped while the tool worker was starting'))
     const active = instance.active
     let stopped = 0
+    // Bytes the proxy buffered for a stopped dispatch are never stored: the
+    // files keep their pre-buffer content and get a partial-write marker.
+    instance.server.discardWrites()
     if (active !== undefined) {
       stopped = 1
       this.markPartialWrites(instance, active.written, cause, instance.command.program)

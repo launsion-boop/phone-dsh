@@ -4,15 +4,16 @@
 // The structure assertions follow the 2026-11-01 contract
 // (`spec/ui/v1/pages/web-search-settings.json`): 用哪一份搜索 / 地址 / 密钥状态 /
 // the untitled delete group / 什么时候生效 / 需要处理 / 还要知道. The point of the
-// page is that a mode the host did not report is never drawn as "follow the
-// model", and that neither the address nor the key is ever read back from the
-// host: both are drafts whose commit the user controls.
+// page keeps an unknown mode distinct, displays the confirmed address, and
+// never reads a stored key into the page.
 //
 // Every assertion below the fold scrolls the lazy list first: a LazyColumn item
 // outside the viewport is not composed, so asserting before scrolling would be a
 // false negative.
 package com.phonedsh.ui.page
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,7 +70,7 @@ class WebSearchSettingsPageTest {
     ) {
         val state = WebSearchScreenState.from(facts)
         compose.setContent {
-            PdshTheme {
+            TestWebSearchTheme {
                 WebSearchSettingsPage(
                     state = state,
                     onToggle = {},
@@ -91,7 +92,7 @@ class WebSearchSettingsPageTest {
     private fun showLive(facts: WebSearchFacts) {
         compose.setContent {
             var local by remember { mutableStateOf(WebSearchLocalState()) }
-            PdshTheme {
+            TestWebSearchTheme {
                 WebSearchSettingsPage(
                     state = WebSearchScreenState.from(facts, local),
                     onToggle = {},
@@ -120,7 +121,7 @@ class WebSearchSettingsPageTest {
     ) {
         compose.setContent {
             var liveFacts by remember { mutableStateOf(facts) }
-            PdshTheme {
+            TestWebSearchTheme {
                 WebSearchSettingsPage(
                     state = WebSearchScreenState.from(liveFacts),
                     onToggle = {},
@@ -533,8 +534,7 @@ class WebSearchSettingsPageTest {
     }
 
     @Test
-    fun `the page never renders a host address or key`() {
-        // The facts carry no address and no key at all: both fields are drafts.
+    fun `the page renders the confirmed address but never the host key`() {
         show(
             WebSearchFacts(
                 mode = WebSearchMode.SEARCH_API,
@@ -542,7 +542,15 @@ class WebSearchSettingsPageTest {
                 keyTail = "sk-1234-9f3a",
             ),
         )
-        compose.onAllNodesWithText("api.deepseek.com", substring = true).assertCountEquals(1)
+        compose.onAllNodesWithText("https://fixture.example", substring = true).assertCountEquals(1)
         compose.onAllNodesWithText("sk-1234-9f3a", substring = true).assertCountEquals(0)
+    }
+}
+
+
+@Composable
+private fun TestWebSearchTheme(content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalWebSearchSavedBase provides "https://fixture.example") {
+        PdshTheme(content = content)
     }
 }

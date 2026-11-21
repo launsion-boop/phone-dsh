@@ -5,6 +5,8 @@ import com.phonedsh.agentcore.JsonObject
 import com.phonedsh.bot.GoldenFixture
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -44,6 +46,13 @@ class BotEgressEffectsTest {
                 val expectedResource = GoldenFixture.string(expected, "resource")
                 if (expectedResource != null && expectedResource != "unclassified") {
                     assertEquals("$label resource", expectedResource, effect.resource)
+                    assertEquals("$label grantResource", expectedResource, effect.grantResource)
+                    assertEquals(
+                        "$label stable standing key",
+                        expectedResource,
+                        effect.stableGrantResource,
+                    )
+                    assertTrue("$label can use a standing grant", effect.canUseStandingGrant)
                 }
                 if (path.isEmpty()) {
                     assertFalse("$label missing path is unknown", effect.known)
@@ -65,11 +74,47 @@ class BotEgressEffectsTest {
         assertEquals(BotEgressEffects.TOOL_NAME, effect.tool)
         assertEquals("egress.post", effect.operation)
         assertEquals("host=api.example.test", effect.resource)
+        assertEquals("host=api.example.test", effect.grantResource)
+        assertEquals("host=api.example.test", effect.stableGrantResource)
         assertEquals(BotToolMutability.EXTERNAL_SEND, effect.mutability)
         assertEquals(BotToolPolicy.ASK, effect.policy)
         assertTrue(effect.known)
+        assertTrue(effect.canUseStandingGrant)
         assertEquals("egress.get", BotEgressEffects.egressOperation("GET"))
         assertEquals("host=api.example.test", BotEgressEffects.egressResource(" API.EXAMPLE.TEST "))
+    }
+
+    @Test
+    fun networkGrantForOneHostNeverAuthorizesAnotherHostOrMethod() {
+        val store = BotGrantStore(now = { 1_000L })
+        val allowed = BotEgressEffects.egressEffect(
+            method = "POST",
+            host = "api.example.test",
+            target = "https://api.example.test/upload",
+        )
+        store.add(
+            BotGrant(
+                botId = "main",
+                tool = allowed.tool,
+                operation = allowed.operation,
+                resource = allowed.stableGrantResource,
+                scope = BotGrantScope.UNTIL,
+                decision = BotGrantDecision.ALLOW,
+            ),
+        )
+        assertNotNull("same host and method matches", store.find("main", "gb-main", allowed))
+        val otherHost = BotEgressEffects.egressEffect(
+            method = "POST",
+            host = "evil.example.test",
+            target = "https://evil.example.test/upload",
+        )
+        assertNull("another host must not inherit the grant", store.find("main", "gb-main", otherHost))
+        val otherMethod = BotEgressEffects.egressEffect(
+            method = "GET",
+            host = "api.example.test",
+            target = "https://api.example.test/upload",
+        )
+        assertNull("another method must not inherit the grant", store.find("main", "gb-main", otherMethod))
     }
 
     @Test

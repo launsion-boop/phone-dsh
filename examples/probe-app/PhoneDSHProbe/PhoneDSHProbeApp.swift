@@ -20,12 +20,18 @@ import PhoneDSHVenus
 
 @main
 struct PhoneDSHProbeApp: App {
+    // Remote-notification registration and background task pushes (cloud-tasks.md §8).
+    @UIApplicationDelegateAdaptor(ProbeAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
     @State private var model = AppModel()
     @State private var workspaceModels = WorkspaceModels.shared
     @State private var preferences = NativeChatPreferences.shared
 
     init() {
+        #if DEBUG
+        DebugEngineQuarantine.runIfRequested()   // DEBUG recovery: moves chat-host aside, then exits
+        DebugChannel.shared.install()            // DEBUG developer control channel (spec/dev/debug-channel.md)
+        #endif
         // P09 main-thread bound: start the hang evidence first, before any
         // scene work. The monitor writes through the same off-main status log
         // the chat pipeline uses, so a blocked main actor still leaves a trace.
@@ -45,12 +51,15 @@ struct PhoneDSHProbeApp: App {
         #if DEBUG
         // USB OTA diagnostics need exclusive ownership of the board's BLE ctrl connection.
         // The normal voice listener is restarted on the next ordinary app launch.
-        if ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] == nil {
-            Task { @MainActor in TonoLinkVoiceHost.shared.start() }
+        if !Self.boardDiagnosticRequested {
+            Task { @MainActor in TonoLinkVoiceHost.shared.start(); DeviceBotRegistry.shared.start() }
         }
         #else
-        Task { @MainActor in TonoLinkVoiceHost.shared.start() }
+        Task { @MainActor in TonoLinkVoiceHost.shared.start(); DeviceBotRegistry.shared.start() }
         #endif
+        // The phone task queue follows the account from launch, a background launch by a
+        // task push included. It starts no engine and no timer.
+        Task { @MainActor in CloudTaskCenter.shared.start() }
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment["PDSH_APPEARANCE"],
            let value = NativeAppearance(rawValue: raw) {
@@ -90,6 +99,8 @@ struct PhoneDSHProbeApp: App {
                                 // refill the follow stream.
                                 if phase == .active {
                                     await workspaceModels.scenePhaseChanged(true)
+                                    // One pull → admit → ack pass (cloud-tasks.md §7); off = no-op.
+                                    CloudTaskCenter.shared.appBecameActive()
                                 }
                             },
                             backgroundMatrix: { phase in
@@ -107,7 +118,7 @@ struct PhoneDSHProbeApp: App {
                     model.refreshLockdown()
                     // The user's own boards: connected once means trusted, and they reconnect by themselves.
                     #if DEBUG
-                    let runningBoardDiagnostic = ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] != nil
+                    let runningBoardDiagnostic = Self.boardDiagnosticRequested
                     #else
                     let runningBoardDiagnostic = false
                     #endif
@@ -128,11 +139,38 @@ struct PhoneDSHProbeApp: App {
                 }
                 #if DEBUG
                 .task {
-                    guard ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] == nil else { return }
+                    guard !Self.boardDiagnosticRequested else { return }
                     await Self.bleAutoconnect()
                 }
                 .task {
+                    // DEBUG only, launch argument `-pdsh-selftest-device-app 1`; bypasses the install approval card.
+                    await DeviceAppSelfTest.runIfRequested()
+                }
+                .task {
+                    // DEBUG only, launch argument `-pdsh-cleanup-leaked-bots dry|run` (one-shot, see the file).
+                    await DeviceBotLeakCleanup.runIfRequested()
+                }
+                .task {
+                    // DEBUG only, launch argument `-pdsh-selftest-device-bot-chat 1`; auto-approves the install approval.
+                    await DeviceBotChatSelfTest.runIfRequested()
+                }
+                .task {
                     if let mode = ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] { await TonoLinkUSBOTADiagnostics.run(mode) }
+                }
+                .task {
+                    if let mode = ProcessInfo.processInfo.environment[FirmwareBuilderDiagnostics.environmentKey] { await FirmwareBuilderDiagnostics.run(mode) }
+                }
+                .task {
+                    // DEBUG device-test hook (spec/device/v1/xiaozhi-firmware.md §8): start the OTA relay so a
+                    // board (or a test client on the Wi-Fi) can reach it headlessly. The wiring installs the
+                    // SDK relay when a pack with sources_root is staged; this just switches it on.
+                    if ProcessInfo.processInfo.environment["PDSH_XIAOZHI_RELAY"] == "on" {
+                        try? await Task.sleep(for: .seconds(2))
+                        await XiaozhiFirmwareModel.shared.startRelayForDiagnostics()
+                    }
+                }
+                .task {
+                    if let mac = ProcessInfo.processInfo.environment[XiaozhiE2EDiagnostics.environmentKey] { await XiaozhiE2EDiagnostics.run(mac: mac) }
                 }
                 #endif
         }
@@ -177,6 +215,14 @@ extension PhoneDSHProbeApp {
             try VenusSettings.shared.save(VenusConfiguration(baseURL: value.baseURL, model: value.model), key: value.key)
         } catch { /* Never log credential material. Settings supports correction. */ }
     }
+
+    #if DEBUG
+    /// A headless board diagnostic owns the board's BLE ctrl connection for its whole run.
+    static var boardDiagnosticRequested: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["PDSH_TONOLINK_USB_OTA"] != nil || environment[FirmwareBuilderDiagnostics.environmentKey] != nil
+    }
+    #endif
 
     /// `PDSH_BLE_AUTOCONNECT=<name substring>` scans in-app and connects the first match through the
     /// ordinary BLE device store (Link tools such as light.set, and the board's HID bond).

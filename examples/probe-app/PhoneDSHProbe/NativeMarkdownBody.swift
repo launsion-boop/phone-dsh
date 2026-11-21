@@ -32,7 +32,7 @@ struct NativeMarkdownBody: View {
         let blocks = NativeMarkdownParseCache.shared.blocks(
             for: markdown, itemID: cacheItemID,
             revision: cacheRevision, streaming: streaming)
-        VStack(alignment: .leading, spacing: variant == .compact ? 4 : NativeChatTheme.messageParagraphSpacing) {
+        LazyVStack(alignment: .leading, spacing: variant == .compact ? 4 : NativeChatTheme.messageParagraphSpacing) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 NativeMarkdownBlockView(block: block, variant: variant,
                                         fileIndex: fileIndex, onOpenFile: onOpenFile)

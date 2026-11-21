@@ -1,0 +1,96 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "DeviceEntryPage",
+  "pageId": "device-entry",
+  "structure": "swiftui-view",
+  "sectionModel": "unmodeled",
+  "sectionNote": null,
+  "title": null,
+  "source": {
+    "file": "DeviceAppsPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/DeviceAppsPage.swift",
+    "lines": 203,
+    "structLine": 186,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "DeviceEntryPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "region-186",
+      "kind": "implicit",
+      "title": null,
+      "titleTemplate": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [],
+      "provenance": "DeviceAppsPage.swift:186",
+      "anchor": "struct DeviceEntryPage: View {",
+      "extraction": "manual",
+      "criterion": {
+        "kind": "implicit"
+      },
+      "note": "no Section/PageSection/GroupBox/header Text found: the whole body is one region, so a human must say what the group is (or the page has none)"
+    }
+  ],
+  "actions": [],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "untitled section at 186",
+          "when": null,
+          "provenance": "DeviceAppsPage.swift:186",
+          "anchor": "struct DeviceEntryPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [
+    {
+      "name": "DeviceAppsPage",
+      "line": 51,
+      "private": false,
+      "embedded": false,
+      "sections": [],
+      "provenance": "DeviceAppsPage.swift:51"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 1,
+    "warnings": []
+  }
+}

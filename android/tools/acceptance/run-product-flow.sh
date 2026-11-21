@@ -519,12 +519,17 @@ trap 'cleanup; exit 143' TERM
 
 # ---------------------------------------------------------------- navigation
 ensure_home() {
+   ui_hide_ime
    local end=$((SECONDS + 45))
    while [ "$SECONDS" -lt "$end" ]; do
       if ui_dump "$RUN_DIR/last.xml"; then
          # iOS's sessions surface has no page-title row. Identify its two real
          # controls so a correct title-less list is not mistaken for a failure.
          if ui_has --text "搜索会话" --exact && ui_has --text "新建会话" --exact; then return 0; fi
+         if ui_has --text "New Session" --exact; then return 0; fi
+         if ui_has --text "打开会话列表" --exact; then
+            ui_tap_exact "打开会话列表" >/dev/null 2>&1 || true
+         fi
          if ui_has --text "重试本地引擎" || ui_has --text "启动本地引擎"; then
             ui_tap_exact "启动本地引擎" >/dev/null 2>&1 || true
          fi
@@ -536,7 +541,7 @@ ensure_home() {
 
 open_session() {
    local title="${S_SESSION_TITLE:-新会话}"
-   if ui_tap_exact "$title"; then return 0; fi
+   if ui_tap_exact "$title" || ui_tap_exact "验收会话"; then return 0; fi
    if ui_tap_exact "新会话"; then return 0; fi
    # The newest row may carry a suffix (新会话 2 …): take the first row that is
    # not the 新建会话 control.
@@ -564,12 +569,6 @@ wait_chat() {
 }
 
 go_home() {
-   # A conversation is a pushed route: BACK is what the product offers to leave
-   # it, and the sessions list is what it lands on.
-   if ui_dump "$RUN_DIR/last.xml" && ui_has --text "发送消息" --exact; then
-      adb_c shell input keyevent 4 >/dev/null
-      sleep 1.5
-   fi
    ensure_home
 }
 
@@ -593,7 +592,9 @@ wait_engine_ready() { # seconds
    local secs="${1:-60}" end=$((SECONDS + ${1:-60}))
    while [ "$SECONDS" -lt "$end" ]; do
       if ui_dump "$RUN_DIR/last.xml"; then
-         if ui_has --text "运行中" --exact; then return 0; fi
+         if ui_has --text "运行中" --exact ||
+            (ui_has --text "打开会话列表" --exact && ui_has --text "发送消息" --exact &&
+               ! ui_has --text "重试本地引擎"); then return 0; fi
          if ui_has --text "启动本地引擎"; then
             ui_tap_exact "启动本地引擎" >/dev/null 2>&1 || true
             sleep 5
@@ -620,7 +621,8 @@ open_chat() {
 
 # ---------------------------------------------------------------- steps
 step_1() {
-   local url="http://127.0.0.1:$UPSTREAM_PORT" key xy record keyfile ksize plain found
+   local url="http://127.0.0.1:$UPSTREAM_PORT" key xy record keyfile ksize plain found i
+   local -a delete_keys=()
    key="$(random_key)"
    S_KEY="$key"
    S_KEY_SHA="$(sha256_text "$key")"
@@ -629,14 +631,8 @@ step_1() {
 
    # ---- open 模型服务 through the product's own entry points
    if ! ui_tap_exact "去配置模型服务"; then
-      if ! ui_tap_exact "打开会话列表"; then
-         EV="首屏既没有「去配置模型服务」卡片，也没有抽屉按钮（App 没有启动到产品首屏）"
-         return 1
-      fi
-      ui_wait "设置" 10 || { EV="抽屉里没有「设置」入口"; return 1; }
-      ui_tap_exact "设置"
-      ui_wait "模型服务" 15 || { EV="设置页里没有「模型服务」行"; return 1; }
-      ui_tap_exact "模型服务"
+      ui_tap_exact "我的" || { EV="首页没有模型设置卡片或「我的」入口"; return 1; }
+      ui_tap_exact "Model providers" || ui_tap_exact "模型服务" || { EV="「我的」未显示模型服务"; return 1; }
    fi
    ui_wait "添加模型服务" 20 || { EV="模型服务页 20s 内没有加载出来"; return 1; }
 
@@ -645,15 +641,20 @@ step_1() {
       EV="模型服务页既没有「编辑」也没有「添加模型服务」"
       return 1
    fi
-   ui_wait "服务 URL" 15 || { EV="模型服务编辑器没有打开（找不到「服务 URL」标签）"; return 1; }
+   ui_wait "API 地址" 15 || { EV="模型服务编辑器没有打开（找不到「API 地址」标签）"; return 1; }
 
-   xy="$(field_under "服务 URL")" || { EV="编辑器里「服务 URL」标签下面没有输入框"; return 1; }
+   xy="$(field_under "显示名称")" || { EV="模型服务编辑器没有显示名称输入框"; return 1; }
+   ui_tap_xy $xy; ui_type "Acceptance Model"; ui_hide_ime
+   xy="$(field_under "API 地址")" || { EV="编辑器里「API 地址」标签下面没有输入框"; return 1; }
    # shellcheck disable=SC2086
    ui_tap_xy $xy; sleep 0.5
+   adb_c shell input keyevent KEYCODE_MOVE_END >/dev/null
+   for ((i=0; i<100; i++)); do delete_keys+=(KEYCODE_DEL); done
+   adb_c shell input keyevent "${delete_keys[@]}" >/dev/null
    ui_type "$url"; sleep 0.4
    ui_hide_ime
-   if ! ui_has --text "服务 URL"; then
-      EV="输入服务 URL 后编辑器被关掉了（返回手势被页面吃掉）"
+   if ! ui_has --text "API 地址"; then
+      EV="输入 API 地址后编辑器被关掉了（返回手势被页面吃掉）"
       return 1
    fi
 
@@ -720,7 +721,7 @@ step_1() {
 }
 
 step_2() {
-   local before after i=0 created=0 handoff sid rowtitle on_chat=0
+   local before after i=0 created=0 handoff sid rowtitle
    ensure_home || { EV="App 不在会话列表首屏，步骤2 无法点击「新建会话」"; return 1; }
    ui_dump "$RUN_DIR/step2-before.xml" || { EV="拿不到会话列表首屏的 dump"; return 1; }
    before="$(ui_count_rows '^新会话( [0-9]+)?$')"
@@ -728,7 +729,7 @@ step_2() {
 
    adb_raw logcat -c 2>/dev/null || true
 
-   if ! ui_tap_exact "新建会话"; then
+   if ! ui_tap_exact "新建会话" && ! ui_tap_exact "New Session"; then
       if ui_has --text "先启动本地引擎"; then
          EV="「新建会话」被页面禁用（显示「先启动本地引擎,才能新建会话。」，引擎当前未启动）"
       else
@@ -741,7 +742,7 @@ step_2() {
    # the row may appear in place. Both count only if a session really exists.
    while [ "$i" -lt 25 ]; do
       if ui_dump "$RUN_DIR/step2-after.xml"; then
-         if ui_has --text "发送消息" --exact; then on_chat=1; created=1; break; fi
+         if ui_has --text "发送消息" --exact; then created=1; break; fi
          after="$(ui_count_rows '^新会话( [0-9]+)?$')"
          [ -n "$after" ] || after=0
          if [ "$after" -gt "$before" ]; then created=1; break; fi
@@ -761,9 +762,6 @@ step_2() {
 
    # The row has to survive leaving the conversation: that is what makes it a
    # session and not a screen the shell painted for one gesture.
-   if [ "$on_chat" = "1" ]; then
-      adb_c shell input keyevent 4 >/dev/null; sleep 1.5
-   fi
    ensure_home || { EV="新建会话后回不到会话列表首屏"; return 1; }
    ui_dump "$RUN_DIR/step2-list.xml" || true
    after="$(ui_count_rows '^新会话( [0-9]+)?$')"
@@ -876,8 +874,15 @@ PY
       return 1
    fi
    if ! ui_has --text "$S_PROMPT"; then
-      EV="流式正常，但完成后的 dump 里找不到刚发送的用户文本「${S_PROMPT}」"
-      return 1
+      ui_hide_ime
+      for ((i=0; i<6; i++)); do
+         if ui_dump "$RUN_DIR/step3-prompt.xml" && ui_has --text "$S_PROMPT"; then break; fi
+         ui_swipe_content up
+      done
+      if ! ui_dump "$RUN_DIR/step3-prompt.xml" || ! ui_has --text "$S_PROMPT"; then
+         EV="流式正常，但返回对话上方后仍找不到刚发送的文本「${S_PROMPT}」"
+         return 1
+      fi
    fi
 
    EV="采样 $(wc -l <"$samples" | tr -d ' ') 次，正文 $mid_max → $final_len 字（增长 $growing 次，完成态更长），含 ${STREAM_END}；上游 $req_count 个请求，凭证 $hit"
@@ -898,6 +903,7 @@ step_4() {
       return 1
    fi
 
+   ui_hide_ime
    ui_tap_exact "添加指令、引用或附件" || { EV="对话页 composer 上没有「+」（添加指令、引用或附件）"; return 1; }
    ui_wait "添加文件（写入工作区）" 15 || { EV="点「+」后 15s 内没有出现「添加文件（写入工作区）」菜单项"; return 1; }
    ui_tap_exact "添加文件（写入工作区）" || { EV="「添加文件（写入工作区）」点不动"; return 1; }
@@ -1058,10 +1064,11 @@ step_6() {
       EV="$(prereq_note 2 3)${on_disk}，但进不了对话页，打不开产物页"
       return 1
    fi
-   ui_tap_exact "更多操作" || { EV="${on_disk}；但对话页没有「更多操作」(⋯) 按钮"; return 1; }
+   ui_hide_ime
+   ui_tap_exact "更多操作" || ui_tap_exact "更多" || { EV="${on_disk}；但对话页没有「更多操作」(⋯) 按钮"; return 1; }
    ui_wait "产物" 10 || { EV="${on_disk}；但「更多操作」菜单里没有「产物」项"; return 1; }
    ui_tap_exact "产物"
-   ui_wait "本 session 产物" 20 || { EV="${on_disk}；但 20s 内没有打开「本 session 产物」页"; return 1; }
+   ui_wait "本会话产物" 20 || { EV="${on_disk}；但 20s 内没有打开「本会话产物」页"; return 1; }
    ui_dump "$RUN_DIR/step6-artifacts.xml" || true
    if ! ui_has --text "$SUMMARY_NAME"; then
       demo="$(python3 "$UI_PY" texts "$UI_XML" 2>/dev/null | awk -F'\t' '$1 ~ /^演示数据/ {print $1; exit}')"
@@ -1134,7 +1141,7 @@ step_7() {
 
    ensure_home || { EV="重启后 45s 内没有回到会话列表首屏"; return 1; }
    ui_dump "$RUN_DIR/step7-home.xml" || true
-   if [ -n "${S_SESSION_TITLE:-}" ] && ! ui_has --text "$S_SESSION_TITLE"; then
+   if [ -n "${S_SESSION_TITLE:-}" ] && ! ui_has --text "$S_SESSION_TITLE" && ! ui_has --text "验收会话" --exact; then
       EV="重启后会话列表里没有原来的会话「${S_SESSION_TITLE}」"
       return 1
    fi

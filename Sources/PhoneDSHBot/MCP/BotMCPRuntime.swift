@@ -233,6 +233,8 @@ public actor BotMCPRuntime {
     public let store: SQLiteDomainStore
     public let gateway: BotGateway
     public let grants: BotGrantStore
+    /// Real authorizer grants seen per tool call, for observation attribution.
+    public let grantAttribution = BotGrantAttributionStore()
     public let authorizer: BotExecutionAuthorizer
     public let eventWriter: BotMCPEventWriter
     public let approvals: BotApprovalCoordinator
@@ -264,9 +266,20 @@ public actor BotMCPRuntime {
     private var approvalResolutionHandlerInstalled = false
     private var memories: [String: BotMemory] = [:]
     private var teamToolHandlers: [any BotTeamToolHandling] = []
+    private var deviceApp: DeviceAppToolHost?
+    private var xiaozhiFirmware: XiaozhiFirmwareToolHost?
     private var toolCatalogProvider: (@Sendable (String?) async -> [BotMCPToolDefinition]?)?
     private var registrations: [String: BotAttribution] = [:]
     private var registrationArguments: [String: BotJSONValue] = [:]
+    /// Runtime-clock deadline for each local registration. The gateway records
+    /// its own `expiresAt` under *its* clock; the runtime may be driven by an
+    /// injected clock (the eval harness starts at local noon, not wall time),
+    /// so comparing the two clocks would mark every fresh registration expired
+    /// and turn every approval into `unattributed`. The registry stays the
+    /// authority for expiry (checked at approval); this deadline only bounds
+    /// the local mirror.
+    private var registrationDeadlines: [String: Int64] = [:]
+
     /// Bumped by `workerRestarted()`. Every registration/claim/approval is
     /// scoped by it, so a call registered by the previous Worker generation
     /// can never be claimed or approved after the restart.
@@ -306,6 +319,86 @@ public actor BotMCPRuntime {
     /// the Worker's MCP client until its own 130 s timeout. `nil` keeps the
     /// library/test behaviour: no extra wait.
     private var runtimeReadinessProbe: (@Sendable (Int) async -> Bool)?
+    /// G-2 decision material: the host selects bounded materials before a
+    /// step/delivery and revalidates a delivery right before its side effect.
+    /// Installed once by the App composition; nil keeps library/test behaviour
+    /// exactly as before.
+    private var decisionContext: BotDecisionContextService?
+    /// Real durable user-message ref for routine content evidence.
+    private var userContentRecordProvider: (@Sendable (String) async -> String?)?
+    private var materialTrace: (any BotMaterialTraceRecording)?
+    private var permissionRevisionEvaluator: BotPermissionRevisionEvaluator?
+    /// Last material block the host handed to each session. Used to bind a
+    /// delivery's adopted materials back to the injected block; in-memory only.
+    private var activeMaterialBlocks: [String: BotDecisionMaterialBlock] = [:]
+    /// G-2 feedback handler. Registered as a catalog-visible tool, so it is
+    /// dispatched from the catalog switch instead of the team-tool seam.
+    private var feedbackTools: BotFeedbackTools?
+    /// G-1 provenance read model (identity/current status/derivation). The
+    /// runtime only merges its `source_statuses` projection into read/recall
+    /// results; it never re-implements the state machine.
+    private var provenance: BotProvenanceService?
+    private var injectedTraceKeys: Set<String> = []
+    /// Delivery-class tools whose side effect must revalidate the decision
+    /// context first (G-2 frozen list).
+    private static let preDeliveryToolNames: Set<String> = [
+        "SendToUser", "SendToAgent", "show_attachment", "show_document", "show_link",
+    ]
+
+    /// Installs the G-2 services. Called by the App composition after the
+    /// runtime exists (the service needs `memory(for:)`).
+    public func installUserContentRecordProvider(
+        _ provider: (@Sendable (String) async -> String?)?) {
+        userContentRecordProvider = provider
+    }
+
+    public func installDecisionContext(_ service: BotDecisionContextService,
+                                       trace: (any BotMaterialTraceRecording)? = nil,
+                                       permissionRevision: BotPermissionRevisionEvaluator? = nil) {
+        decisionContext = service
+        materialTrace = trace
+        permissionRevisionEvaluator = permissionRevision
+    }
+
+    /// Installs the G-2 feedback handler. It is a catalog tool (not a team
+    /// tool), so a single dispatch case executes it after the usual
+    /// attribution, catalog and effect checks.
+    public func installFeedbackTools(_ tools: BotFeedbackTools) {
+        feedbackTools = tools
+    }
+
+    /// Records the real `runtime-context` row the host observed in the DSH
+    /// session. This is the only `.injected` source; the Worker plugin
+    /// observer is not trusted for that stage. Deduplicated per (session, block).
+    public func noteInjectedDecisionMaterial(_ injected: BotDecisionInjectedMaterial) async {
+        guard let materialTrace else { return }
+        let key = "\(injected.sessionID)#\(injected.blockID)"
+        if injectedTraceKeys.contains(key) { return }
+        injectedTraceKeys.insert(key)
+        await materialTrace.note(BotMaterialTraceEvent(
+            stage: .injected, blockID: injected.blockID, turnID: injected.turnID,
+            sessionID: injected.sessionID, botID: injected.botID,
+            materialRefs: injected.materialIDs, atMS: injected.observedAtMS))
+    }
+
+    /// Installs the G-1 provenance read model. It provides the single
+    /// `source_statuses` view consumed by memory reads/recalls and M.
+    public func installProvenance(_ service: BotProvenanceService) {
+        provenance = service
+    }
+
+    /// A04 skill write boundary for the observation producer. The service is
+    /// the single provenance authority; a missing installer fails closed.
+    public func recordSkillWrite(_ request: BotSkillWriteRequest) async throws -> BotDerivedRef {
+        guard let provenance else { throw BotProvenanceError.invalidDerivation("skill-provenance-unavailable") }
+        return try await provenance.recordSkillWrite(request)
+    }
+
+    public func latestSkillChange(identity: BotSkillIdentity) async throws
+        -> BotSkillChangeSnapshot? {
+        guard let provenance else { throw BotProvenanceError.invalidDerivation("skill-provenance-unavailable") }
+        return try await provenance.latestSkillChange(identity: identity)
+    }
     /// Default bounded wait for a `tools/call` while the App reattaches the
     /// Worker. Long enough to cover the ready-gate fallback and the first
     /// session/page, short enough to stay far below the 130 s Worker client
@@ -355,7 +448,9 @@ public actor BotMCPRuntime {
         self.dataRoot = dataRoot
         let mainMemory = BotMemory(
             store: SQLiteBotMemoryDocumentStore(eventLog: store, botID: "main", now: now),
-            botID: "main", now: now)
+            botID: "main", now: now,
+            sourceStates: recordEvidence as? any BotSourceStateResolving,
+            recordReading: recordEvidence as? any BotMemoryMaintenanceRecordReading)
         memory = mainMemory
         memories = ["main": mainMemory]
         routineMachine = RoutineMachine(store: routineStore ?? SQLiteRoutineStore(domainStore: store))
@@ -421,7 +516,9 @@ public actor BotMCPRuntime {
         if let existing = memories[botID] { return existing }
         let memory = BotMemory(
             store: SQLiteBotMemoryDocumentStore(eventLog: store, botID: botID, now: now),
-            botID: botID, now: now)
+            botID: botID, now: now,
+            sourceStates: recordEvidence as? any BotSourceStateResolving,
+            recordReading: recordEvidence as? any BotMemoryMaintenanceRecordReading)
         memories[botID] = memory
         return memory
     }
@@ -526,7 +623,8 @@ public actor BotMCPRuntime {
     /// catalog itself is intentionally unchanged in this unit.
     func handlesTeamTool(_ name: String) -> Bool {
         guard !Self.isHostBuiltinToolName(name) else { return false }
-        return teamToolHandlers.contains { $0.handles(name) }
+        return teamToolHandlers.contains { $0.handles(name) } || handlesDeviceAppTool(name)
+            || handlesXiaozhiTool(name)
     }
 
     /// Names the host/Worker already owns outside the Bot catalog (shell, VFS,
@@ -564,13 +662,47 @@ public actor BotMCPRuntime {
     /// installed by `registerTeamTools`; the App needs no extra wiring.
     public func toolDefinitions(callerBotID: String?) async -> [BotMCPToolDefinition] {
         guard let callerBotID, !callerBotID.isEmpty else {
-            return BotToolCatalog.allDefinitions
+            // device-app-v1 / xiaozhi-firmware-v1 r2: the all-callers list the Worker
+            // registers its tools from carries each host's tools whenever that host is
+            // installed; the Worker hides them per caller and `execute` refuses an unbound
+            // caller against the per-caller catalog below.
+            var all = BotToolCatalog.workerDefinitions
+            if deviceApp != nil { all += DeviceAppToolDefinitions.all }
+            if xiaozhiFirmware != nil { all += XiaozhiFirmwareToolDefinitions.all }
+            return all
         }
+        var base = BotToolCatalog.workerDefinitions
         if let provider = toolCatalogProvider,
            let definitions = await provider(callerBotID) {
-            return definitions
+            base = definitions
         }
-        return BotToolCatalog.allDefinitions
+        // xiaozhi-firmware-v1 §4/§6: a Bot bound to a `xiaozhi:` key lists only the four firmware
+        // tools (and only while the app installed the host); the device-app tools are not
+        // listed for it. Any other bound Bot keeps the device-app tools.
+        if let xiaozhiFirmware, await xiaozhiFirmware.isBound(botID: callerBotID) {
+            return base + XiaozhiFirmwareToolDefinitions.all
+        }
+        // device-app-v1: only a Bot with a device binding lists the two host tools.
+        if let deviceApp, await deviceApp.isBound(botID: callerBotID) {
+            base += DeviceAppToolDefinitions.all
+        }
+        return base
+    }
+
+    /// Installs the device-app host tools (P26, device-app-v1). `nil` removes them.
+    public func setDeviceAppTools(_ host: DeviceAppToolHost?) { deviceApp = host }
+
+    private func handlesDeviceAppTool(_ name: String) -> Bool {
+        deviceApp != nil && DeviceAppToolNames.handles(name)
+    }
+
+    /// Installs the xiaozhi firmware host tools (P26, xiaozhi-firmware-v1; DEBUG app builds with
+    /// a staged pack that has `sources_root`). `nil` removes them. Listed in the all-callers list
+    /// when installed (r2), and per caller for a `xiaozhi:` Bot.
+    public func setXiaozhiFirmwareTools(_ host: XiaozhiFirmwareToolHost?) { xiaozhiFirmware = host }
+
+    private func handlesXiaozhiTool(_ name: String) -> Bool {
+        xiaozhiFirmware != nil && XiaozhiFirmwareToolNames.handles(name)
     }
 
     /// Resolves the caller Bot from the App-minted MCP session identity. This
@@ -718,6 +850,14 @@ public actor BotMCPRuntime {
         "\(runtimeId)@\(registrationGeneration)"
     }
 
+    /// Local expiry bound in the runtime's own clock. Mirrors the gateway's
+    /// default attribution TTL; the gateway remains the expiry authority.
+    private func registrationDeadline() -> Int64 {
+        let (sum, overflow) = now().addingReportingOverflow(
+            BotAttributionRegistry.defaultTTLMilliseconds)
+        return overflow ? Int64.max : sum
+    }
+
     public func registerIdentity(runtimeId: String, sessionId: String, callId: String,
                                  name: String, arguments: BotJSONValue,
                                  argsDigest: String? = nil) async throws -> BotAttribution {
@@ -745,6 +885,7 @@ public actor BotMCPRuntime {
                 if let refreshed = await gateway.refreshToolCall(id: existing.id) {
                     registrations[key] = refreshed
                     registrationArguments[key] = arguments
+                    registrationDeadlines[key] = registrationDeadline()
                     return refreshed
                 }
             }
@@ -754,6 +895,7 @@ public actor BotMCPRuntime {
             arguments: arguments, argsDigest: argsDigest, runtimeId: scope)
         registrations[key] = attribution
         registrationArguments[key] = arguments
+        registrationDeadlines[key] = registrationDeadline()
         return attribution
     }
 
@@ -817,6 +959,7 @@ public actor BotMCPRuntime {
                 if let refreshed = await gateway.refreshToolCall(id: existing.id) {
                     registrations[key] = refreshed
                     registrationArguments[key] = arguments
+                    registrationDeadlines[key] = registrationDeadline()
                     return refreshed
                 }
             }
@@ -826,6 +969,7 @@ public actor BotMCPRuntime {
             name: bareName, arguments: arguments, argsDigest: argsDigest, runtimeId: scope)
         registrations[key] = attribution
         registrationArguments[key] = arguments
+        registrationDeadlines[key] = registrationDeadline()
         return attribution
     }
 
@@ -853,6 +997,7 @@ public actor BotMCPRuntime {
         let callId = match.value.callId
         registrations.removeValue(forKey: match.key)
         registrationArguments.removeValue(forKey: match.key)
+        registrationDeadlines.removeValue(forKey: match.key)
         // A cancelled registration ends its call's interactive approvals
         // (§3). Persist neither a connection state nor the host egress: the
         // Worker's paired `/identity/cancel` is the cancellation signal, and a
@@ -869,12 +1014,17 @@ public actor BotMCPRuntime {
                                     callId: String) async -> BotResolvedToolCall? {
         _ = pruneExpiredRegistrationsSync()
         let scope = scopedRuntimeID(runtimeId)
+        let timestamp = now()
         let matches = registrations.filter { key, attribution in
             key.hasPrefix("\(scope)\u{0}") && attribution.callId == callId
                 && (sessionId == nil || attribution.sessionId == sessionId)
-                && attribution.expiresAt > now()
+                && (registrationDeadlines[key].map { $0 > timestamp } ?? false)
         }
         guard matches.count == 1, let attribution = matches.first?.value else { return nil }
+        // The registry owns attribution expiry and cancellation. A local entry
+        // the registry no longer has (expired by its own clock, cancelled, or
+        // rotated) must stay unattributed even when the two clocks disagree.
+        guard await gateway.attribution.get(id: attribution.id) != nil else { return nil }
         guard let principal = await gateway.tokens.lookupSession(attribution.sessionId),
               principal.incarnation == attribution.incarnation else { return nil }
         return BotResolvedToolCall(
@@ -893,6 +1043,7 @@ public actor BotMCPRuntime {
         registrationGeneration &+= 1
         registrations.removeAll()
         registrationArguments.removeAll()
+        registrationDeadlines.removeAll()
         for attribution in previousRegistrations.values {
             _ = await gateway.cancelToolCall(id: attribution.id)
         }
@@ -938,11 +1089,15 @@ public actor BotMCPRuntime {
 
     private func pruneExpiredRegistrationsSync() -> [BotAttribution] {
         let timestamp = now()
-        let expired = registrations.filter { $0.value.expiresAt <= timestamp }
+        let expired = registrations.filter { key, _ in
+            guard let deadline = registrationDeadlines[key] else { return true }
+            return deadline <= timestamp
+        }
         guard !expired.isEmpty else { return [] }
         for (key, _) in expired {
             registrations.removeValue(forKey: key)
             registrationArguments.removeValue(forKey: key)
+            registrationDeadlines.removeValue(forKey: key)
         }
         return expired.map(\.value)
     }
@@ -1276,14 +1431,19 @@ public actor BotMCPRuntime {
                         context: BotMCPRequestContext) async -> BotMCPCallResult {
         let bareName = bareToolName(name)
         let catalogTool = BotToolCatalog.isRegistered(bareName)
+        let decisionTool = bareName == BotDecisionTool.name
         let teamHandler = catalogTool ? nil : teamToolHandler(for: bareName)
-        guard catalogTool || teamHandler != nil else {
+        guard catalogTool || teamHandler != nil || decisionTool || handlesDeviceAppTool(bareName)
+                || handlesXiaozhiTool(bareName) else {
             return .failure("unknown_tool", "未知工具：\(name)")
         }
         let scope = scopedRuntimeID(context.runtimeId)
         guard let call = await gateway.resolveToolCall(
             runtimeId: scope, name: bareName, arguments: arguments) else {
             return .failure("unattributed", "这次工具调用无法归属到任何进行中的会话")
+        }
+        if decisionTool {
+            return await handleDecisionContext(arguments: arguments, call: call)
         }
         // The per-caller catalog is not a display filter: `tools/call` must use
         // the same catalog `tools/list` returns for this principal before any
@@ -1297,6 +1457,7 @@ public actor BotMCPRuntime {
         let registrationKey = key(scope, call.sessionId, call.callId)
         registrations.removeValue(forKey: registrationKey)
         registrationArguments.removeValue(forKey: registrationKey)
+        registrationDeadlines.removeValue(forKey: registrationKey)
         // A replaced Worker keeps its MCP client call open until the App
         // answers. While the App is still reattaching the transport there is
         // nothing that can complete Task/AwaitTask/StopSubagent or an
@@ -1320,9 +1481,22 @@ public actor BotMCPRuntime {
                 let snapshot = try await volatileContext.snapshot(request: arguments, principal: call.principal)
                 return .success(snapshot.jsonValue)
             }
+            if handlesDeviceAppTool(bareName), let deviceApp {
+                // A `xiaozhi:`-bound Bot is not a device-app Bot (xiaozhi-firmware.md §4).
+                if let xiaozhiFirmware, await xiaozhiFirmware.isBound(botID: call.principal.botId) {
+                    return .failure("permission_denied", "这个 Bot 绑定的是小智设备，不能使用设备应用工具")
+                }
+                return await executeDeviceApp(bareName, arguments: arguments, call: call, host: deviceApp)
+            }
+            if handlesXiaozhiTool(bareName), let xiaozhiFirmware {
+                return await executeXiaozhi(bareName, arguments: arguments, call: call, host: xiaozhiFirmware)
+            }
             let effect = BotToolEffectClassifier.effect(for: bareName, arguments: arguments)
             if let reason = await authorize(call: call, effect: effect) {
                 return .failure("permission_denied", reason)
+            }
+            if let reviewed = await reviewDelivery(name: bareName, arguments: arguments, call: call) {
+                return reviewed
             }
             if let teamHandler {
                 if bareName == BotTeamTools.createTeammateName {
@@ -1371,10 +1545,328 @@ public actor BotMCPRuntime {
         }
     }
 
+    /// `DeviceAppInstall` and `DeviceAppRemove` never go through the generic ask-authorization
+    /// (their effects have no standing grant): each raises its own once-only approval on
+    /// every call, including a user's own turn, before any radio use.
+    private func executeDeviceApp(_ name: String, arguments: BotJSONValue,
+                                  call: BotResolvedToolCall,
+                                  host: DeviceAppToolHost) async -> BotMCPCallResult {
+        if name == DeviceAppToolNames.stage || name == DeviceAppToolNames.list {
+            // Read-only, auto: classified like any other read, no approval card.
+            let effect = BotToolEffectClassifier.effect(for: name, arguments: arguments)
+            if let reason = await authorize(call: call, effect: effect) {
+                return .failure("permission_denied", reason)
+            }
+            return name == DeviceAppToolNames.list
+                ? await host.list(arguments: arguments, principal: call.principal)
+                : await host.stage(arguments: arguments, principal: call.principal)
+        }
+        let authority = turnAuthority(for: call)
+        let persistence = approvalPersistence(for: call)
+        let approvals = self.approvals
+        if name == DeviceAppToolNames.remove {
+            return await host.remove(
+                arguments: arguments, principal: call.principal, authority: authority
+            ) { effect in
+                await approvals.request(
+                    call: call, effects: [effect], action: DeviceAppToolNames.remove,
+                    detail: effect.detail, command: "", alwaysScope: "none",
+                    persistence: persistence, origin: "structural")
+            }
+        }
+        return await host.install(
+            arguments: arguments, principal: call.principal, authority: authority
+        ) { effect in
+            await approvals.request(
+                call: call, effects: [effect], action: DeviceAppToolNames.install,
+                detail: effect.detail, command: "", alwaysScope: "none",
+                persistence: persistence, origin: "structural")
+        }
+    }
+
+    /// The four xiaozhi firmware tools. Export/build/status are classified like any read or write
+    /// and authorized as `auto`; Flash never goes through the generic ask-authorization (its
+    /// effect has no standing grant): the host raises its own once-only approval on every call,
+    /// before any side effect.
+    private func executeXiaozhi(_ name: String, arguments: BotJSONValue,
+                                call: BotResolvedToolCall,
+                                host: XiaozhiFirmwareToolHost) async -> BotMCPCallResult {
+        if name == XiaozhiFirmwareToolNames.flash {
+            let authority = turnAuthority(for: call)
+            let persistence = approvalPersistence(for: call)
+            let approvals = self.approvals
+            return await host.flash(
+                arguments: arguments, principal: call.principal, authority: authority
+            ) { effect in
+                await approvals.request(
+                    call: call, effects: [effect], action: XiaozhiFirmwareToolNames.flash,
+                    detail: effect.detail, command: "", alwaysScope: "none",
+                    persistence: persistence, origin: "structural")
+            }
+        }
+        let effect = BotToolEffectClassifier.effect(for: name, arguments: arguments)
+        if let reason = await authorize(call: call, effect: effect) {
+            return .failure("permission_denied", reason)
+        }
+        switch name {
+        case XiaozhiFirmwareToolNames.export:
+            return await host.export(arguments: arguments, principal: call.principal)
+        case XiaozhiFirmwareToolNames.build:
+            return await host.build(arguments: arguments, principal: call.principal)
+        default:
+            return await host.status(arguments: arguments, principal: call.principal)
+        }
+    }
+
+    // MARK: - G-2 decision material (host side)
+
+    /// The internal additive tool the Worker pre-step provider calls. It is in
+    /// the catalog (so `tools/list` exposes it) but outside the frozen P26
+    /// model catalog/golden; the host validates the claimed session/turn/step
+    /// and only ever returns this session's bounded block.
+    private func handleDecisionContext(arguments: BotJSONValue,
+                                       call: BotResolvedToolCall) async -> BotMCPCallResult {
+        guard let service = decisionContext else {
+            return Self.decisionToolFailure("material-unavailable", "决策上下文服务尚未接线")
+        }
+        guard case .object(let args) = arguments else {
+            return Self.decisionToolFailure("invalid-request", "需要对象参数")
+        }
+        let sessionID = string(args["session_id"]) ?? ""
+        guard !sessionID.isEmpty, sessionID == call.sessionId else {
+            return Self.decisionToolFailure("permission-denied", "只能读取本会话的决策上下文")
+        }
+        let turnID = string(args["turn_id"]) ?? ""
+        guard !turnID.isEmpty, turnID.unicodeScalars.count <= 200 else {
+            return Self.decisionToolFailure("invalid-request", "turn_id 不合法")
+        }
+        guard let step = try? optionalInt(args["step"]), step >= 1 else {
+            return Self.decisionToolFailure("invalid-request", "step 不合法")
+        }
+        let stage: BotDecisionStage
+        switch string(args["stage"]) ?? "" {
+        case "pre_delivery": stage = .preDelivery
+        case "pre_step": stage = .preStep
+        default: return Self.decisionToolFailure("invalid-request", "stage 不合法")
+        }
+        let query = string(args["query"]) ?? ""
+        guard query.unicodeScalars.count <= 600 else {
+            return Self.decisionToolFailure("invalid-request", "query 过长")
+        }
+        let origin = string(args["origin"])
+        guard case .array(let scopeValues)? = args["scopes"] else {
+            return Self.decisionToolFailure("invalid-request", "scopes 缺失")
+        }
+        let scopes = scopeValues.compactMap { value -> BotMemoryScope? in
+            switch string(value) {
+            case "user": return .user
+            case "agent": return .agent
+            default: return nil
+            }
+        }
+        guard !scopes.isEmpty, scopes.count == scopeValues.count else {
+            return Self.decisionToolFailure("invalid-request", "scopes 不合法")
+        }
+        guard case .object(let limitObject)? = args["limits"],
+              let maxMaterials = try? optionalInt(limitObject["max_materials"]),
+              let maxCharacters = try? optionalInt(limitObject["max_characters"]),
+              let maxSnippet = try? optionalInt(limitObject["max_snippet_characters"]),
+              let deadline = try? optionalInt(limitObject["deadline_ms"]) else {
+            return Self.decisionToolFailure("invalid-request", "limits 不合法")
+        }
+        let limits = BotDecisionLimits(
+            maxMaterials: maxMaterials, maxCharacters: maxCharacters,
+            maxSnippetCharacters: maxSnippet, deadlineMilliseconds: deadline)
+        let revision = await permissionRevisionEvaluator?(call.principal.botId, sessionID, nil) ?? ""
+        let request = BotDecisionRequest(
+            stage: stage, botID: call.principal.botId, sessionID: sessionID,
+            turnID: turnID, step: step, query: query, origin: origin,
+            scopes: scopes, permissionRevision: revision, limits: limits)
+        do {
+            let block = try await service.materials(for: request)
+            activeMaterialBlocks[sessionID] = block
+            await materialTrace?.note(BotMaterialTraceEvent(
+                stage: .retrieved, blockID: block.blockID, turnID: block.turnID,
+                sessionID: sessionID, botID: call.principal.botId,
+                materialRefs: block.materials.map(\.ref), atMS: now()))
+            let blockValue = (try? BotJSONValue.parse(JSONEncoder().encode(block))) ?? .object([:])
+            return .success(.object([
+                "schema": .string("bot-decision-context-result/v1"),
+                "ok": .bool(true),
+                "block": blockValue,
+            ]))
+        } catch let error as BotDecisionContextError {
+            return Self.decisionToolFailure(Self.decisionToolCode(error),
+                                            Self.decisionToolMessage(error))
+        } catch {
+            return Self.decisionToolFailure("material-unavailable", "决策上下文暂不可用")
+        }
+    }
+
+    /// Revalidate a delivery-class action right before its side effect. The
+    /// frozen G-2 list is `SendToUser`/`SendToAgent`/attachment/document/link
+    /// cards; `.regenerate` must not execute and must not consume a grant.
+    private func reviewDelivery(name: String, arguments: BotJSONValue,
+                                call: BotResolvedToolCall) async -> BotMCPCallResult? {
+        guard Self.preDeliveryToolNames.contains(name) else { return nil }
+        let sessionID = call.sessionId
+        guard let service = decisionContext else { return nil }
+        let active = activeMaterialBlocks[sessionID]
+        // The DSH turn id is a bare number; the frozen block/turn_id is
+        // "<session>#<turn>". Normalize before comparing so the same turn does
+        // not look changed, while a new turn still invalidates the block.
+        let turnNumber = currentTurnID(sessionId: sessionID)
+        let turnID = turnNumber.map { "\(sessionID)#\($0)" } ?? "\(sessionID)#0"
+        let recipient = Self.deliveryRecipient(name: name, arguments: arguments)
+        let refs = Self.materialRefs(in: arguments)
+        // `permissionRevision` is the revision the active block was retrieved
+        // under; the service compares it with the current provider value. Do
+        // not pass the current value here or `authorization-revision-changed`
+        // can never fire.
+        let request = BotDecisionRequest(
+            stage: .preDelivery, botID: call.principal.botId, sessionID: sessionID,
+            turnID: turnID, step: 1, tool: name, recipient: recipient,
+            query: Self.boundedQuery(arguments), origin: "delivery",
+            permissionRevision: active?.authorizationRevision ?? "",
+            activeMaterialRefs: active?.materials.map(\.ref) ?? [],
+            activeTurnID: turnNumber == nil ? nil : active?.turnID,
+            activeGoalDigest: active?.goalDigest)
+        let digest = (try? BotArgumentsDigest.string(for: arguments)) ?? ""
+        let proposal = BotDeliveryProposal(request: request, tool: name, recipient: recipient,
+                                           materialRefs: refs, argumentDigest: digest)
+        do {
+            switch try await service.review(proposal) {
+            case .proceed:
+                let text = (try? arguments.encoded()).map { String(decoding: $0, as: UTF8.self) } ?? ""
+                await noteAdopted(active: active, refs: refs, argumentsText: text,
+                                  call: call, turnID: turnID)
+                return nil
+            case .regenerate(let block, let reason):
+                activeMaterialBlocks[sessionID] = block
+                await materialTrace?.note(BotMaterialTraceEvent(
+                    stage: .retrieved, blockID: block.blockID, turnID: block.turnID,
+                    sessionID: sessionID, botID: call.principal.botId,
+                    materialRefs: block.materials.map(\.ref), atMS: now()))
+                return Self.decisionChangedResult(block: block, reason: reason)
+            case .failClosed(let code):
+                return .failure(code, "决策上下文复核未通过，动作没有执行")
+            }
+        } catch {
+            return .failure("decision_context_unavailable", "决策上下文复核不可用，动作没有执行")
+        }
+    }
+
+    private func noteAdopted(active: BotDecisionMaterialBlock?, refs: [String],
+                             argumentsText: String, call: BotResolvedToolCall,
+                             turnID: String) async {
+        guard let active else { return }
+        let used = active.materials.filter { material in
+            refs.contains(material.ref) || refs.contains(material.materialID)
+                || refs.contains(material.path) || argumentsText.contains(material.materialID)
+        }
+        guard !used.isEmpty else { return }
+        await materialTrace?.note(BotMaterialTraceEvent(
+            stage: .adopted, blockID: active.blockID, turnID: turnID,
+            sessionID: call.sessionId, botID: call.principal.botId,
+            materialRefs: used.map(\.ref), atMS: now()))
+    }
+
+    private static func decisionToolFailure(_ code: String, _ message: String) -> BotMCPCallResult {
+        let value = BotJSONValue.object([
+            "schema": .string("bot-decision-context-result/v1"),
+            "ok": .bool(false),
+            "code": .string(code),
+            "message": .string(String(message.prefix(200))),
+        ])
+        return resultEnvelope(value)
+    }
+
+    private static func decisionChangedResult(block: BotDecisionMaterialBlock,
+                                              reason: BotRegenerationReason) -> BotMCPCallResult {
+        // R's frozen G-2 r2 type is the single encoder of the refused-delivery
+        // tool result; the runtime must not hand-assemble a second shape.
+        let result = BotDecisionToolResult(
+            reason: reason, materials: block,
+            message: "决策材料已变化，这次交付没有执行。请基于新材料重新生成，再按既有授权重试。")
+        guard let data = try? JSONEncoder().encode(result),
+              let value = try? BotJSONValue.parse(data) else {
+            return .failure("decision_context_changed", "决策材料已变化，请重新生成")
+        }
+        return resultEnvelope(value)
+    }
+
+    private static func resultEnvelope(_ value: BotJSONValue) -> BotMCPCallResult {
+        let text = (try? value.encoded()).map { String(decoding: $0, as: UTF8.self) } ?? ""
+        return BotMCPCallResult(
+            content: [.object(["type": .string("text"), "text": .string(text)])],
+            structuredContent: value, isError: true)
+    }
+
+    private static func decisionToolCode(_ error: BotDecisionContextError) -> String {
+        switch error {
+        case .invalidRequest: return "invalid-request"
+        case .crossSessionDenied, .permissionRevisionMismatch: return "permission-denied"
+        case .unavailable, .timeout, .cancelled: return "material-unavailable"
+        }
+    }
+
+    private static func decisionToolMessage(_ error: BotDecisionContextError) -> String {
+        switch error {
+        case .invalidRequest(let message): return message
+        case .crossSessionDenied: return "只能读取本会话的决策上下文"
+        case .permissionRevisionMismatch: return "授权版本已变化"
+        case .unavailable(let message): return message
+        case .timeout: return "决策上下文超时"
+        case .cancelled: return "决策上下文已取消"
+        }
+    }
+
+    private static func deliveryRecipient(name: String,
+                                          arguments: BotJSONValue) -> BotDecisionRecipient? {
+        guard name == "SendToAgent" else {
+            return BotDecisionRecipient(kind: .user, id: "user")
+        }
+        var id = "bot"
+        if case .object(let object) = arguments {
+            for key in ["agent_id", "target_id", "bot_name", "agentId"] {
+                if case .string(let value)? = object[key], !value.isEmpty { id = value; break }
+            }
+        }
+        return BotDecisionRecipient(kind: .bot, id: String(id.prefix(120)))
+    }
+
+    private static func boundedQuery(_ arguments: BotJSONValue) -> String {
+        guard case .object(let object) = arguments else { return "" }
+        var parts: [String] = []
+        for key in ["message", "text", "caption", "title", "summary", "query", "path", "name"] {
+            if case .string(let value)? = object[key], !value.isEmpty { parts.append(value) }
+        }
+        return String(parts.joined(separator: " ").prefix(600))
+    }
+
+    private static func materialRefs(in arguments: BotJSONValue) -> [String] {
+        guard let data = try? arguments.encoded(),
+              let text = String(data: data, encoding: .utf8),
+              let regex = try? NSRegularExpression(
+                pattern: #"(record://[A-Za-z0-9._:/#@=\-]{1,300}|memory:[A-Za-z0-9._/:@=\-]{1,300})"#) else {
+            return []
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        var refs: [String] = []
+        for match in regex.matches(in: text, range: range) {
+            guard let matchRange = Range(match.range(at: 0), in: text) else { continue }
+            let candidate = String(text[matchRange])
+            if !refs.contains(candidate) { refs.append(candidate) }
+        }
+        return refs
+    }
+
     private func authorize(call: BotResolvedToolCall, effect: BotToolEffect) async -> String? {
         let decision = await authorizer.authorizeExecution(
             principal: BotExecutionPrincipal(gateway: call.principal), effects: [effect],
             source: "app-mcp-execution", argsDigest: call.attribution.argsDigest)
+        await grantAttribution.note(callId: call.callId,
+                                    grantIds: decision.grants.map(\.id))
         return decision.allowed ? nil : decision.reason
     }
 
@@ -1391,6 +1883,10 @@ public actor BotMCPRuntime {
             fields["id"] = .string("card-\(UUID().uuidString.lowercased())")
             fields["tool"] = .string(name)
             fields["callId"] = .string(call.callId)
+            // A real delivery card carries the record-backed sources of the
+            // resources the user selected. The refs come from the production
+            // workspaceFile derivation; no ref is invented when the file was
+            // written outside that path.
             _ = try await eventWriter.append(type: "card.presented", principal: call.principal, data: .object(fields))
             if final {
                 // Same seam as ask_user/show_next_steps: a successful wrap-up
@@ -1420,6 +1916,13 @@ public actor BotMCPRuntime {
         case BotToolCatalog.attachToModelName:
             return try await attachToModel(arguments, call: call)
         case "SendToUser": return try await sendToUser(arguments, call: call)
+        case BotFeedbackTools.toolName:
+            guard let feedbackTools else {
+                return .failure("unavailable", "反馈服务没有装配")
+            }
+            return await feedbackTools.execute(
+                name: name, arguments: arguments, principal: call.principal,
+                context: BotMCPRequestContext(callId: call.callId))
         default: throw BotMCPError.unknownTool(name)
         }
     }
@@ -1513,7 +2016,7 @@ public actor BotMCPRuntime {
         guard let expectedVersion = try optionalInt(args["expected_version"]), expectedVersion >= 0 else {
             throw BotMCPError.invalidRequest("更新记忆需要提供不小于 0 的版本号")
         }
-        let evidence: BotRecordEvidence
+        var evidence: BotRecordEvidence
         do {
             evidence = try await validatedEvidence(args, call: call)
                 ?? BotRecordEvidence(trust: .assistant, refs: [])
@@ -1527,6 +2030,35 @@ public actor BotMCPRuntime {
             return .failure("memory-evidence-invalid",
                             "每条依据都必须指向这个 Bot 已有的一条 record:// 记录，或者是真实用户回合里的 current-user-turn。")
         }
+        // COMPACT stored_with_provenance: every non-index document must carry
+        // a record reference. A chat write that omitted evidence entirely is
+        // still anchored to the host-observed current user turn; the host does
+        // not invent a source and does not attach it to explicit evidence.
+        // Other turn kinds keep their existing evidence rules.
+        if evidence.refs.isEmpty, call.principal.kind == .chat,
+           [.write, .append, .replace].contains(action),
+           BotMemoryAuthorizer.scope(of: path) == .agent,
+           !BotMemoryAuthorizer.isIndex(path),
+           let currentRef = currentUserMessageRefs[call.sessionId] {
+            evidence = BotRecordEvidence(trust: .user, refs: [currentRef])
+        }
+        let review: BotMemoryReview?
+        if action == .restore {
+            // `restore` inherits the restored version's metadata; a review
+            // supplied by the model is ignored rather than injected or cleared.
+            review = nil
+        } else {
+            do {
+                review = try await validatedReview(args["review"], call: call)
+            } catch let rejected as BotMemoryReviewRejected {
+                return .failure("memory-review-invalid", rejected.message)
+            } catch {
+                return .failure("memory-review-invalid",
+                                "review 必须给出可解析的真实记录：verified 需要至少一条引用，disputed 需要冲突双方。")
+            }
+        }
+        // Current user turn is request provenance, never content evidence.
+        let triggerRef = currentUserMessageRefs[call.sessionId]
         let sourceKind = memorySourceKind(for: call)
         guard let authorKind = call.principal.kind.memoryAuthorKind else {
             return .failure("permission_denied", "验证会话不能写记忆")
@@ -1563,6 +2095,71 @@ public actor BotMCPRuntime {
         } else {
             restoreVersion = nil
         }
+        // G-1 Plan A: the write front-end asks L for the derivation baseline,
+        // so an observation either carries a real resource identity or the
+        // whole write is refused. P only validates and persists the result.
+        var sourceBaselines: [BotSourceBaseline]?
+        let sourceRefs = evidence.refs + (review?.refs ?? []) + (triggerRef.map { [$0] } ?? [])
+        // `restore` inherits the restored version's evidence/review, so the
+        // request-derived baseline (current turn/trigger only) must not be
+        // supplied: it would not cover the inherited sources and the write
+        // would fail closed. BotMemory resolves the inherited sources instead.
+        if action != .restore, !sourceRefs.isEmpty {
+            guard let resolver = recordEvidence as? any BotSourceStateResolving else {
+                return .failure("memory-source-baseline-unavailable", "来源状态解析器未接入")
+            }
+            let states: [BotSourceState]
+            do {
+                states = try await resolver.sourceStates(
+                    for: sourceRefs,
+                    callerBotID: call.principal.botId,
+                    callerSessionID: call.principal.sessionId)
+            } catch {
+                return .failure("memory-source-baseline-unavailable", "来源状态不可用")
+            }
+            var byRef: [String: BotSourceState] = [:]
+            for state in states where byRef[state.ref] == nil { byRef[state.ref] = state }
+            var baselines: [BotSourceBaseline] = []
+            for raw in evidence.refs {
+                let ref = BotRecordReference.canonicalize(raw) ?? raw
+                guard let state = byRef[ref] else {
+                    return .failure("memory-source-baseline-unavailable", "来源缺少基线：\(ref)")
+                }
+                baselines.append(BotSourceBaseline(
+                    record: state.ref, role: .evidence, sourceVersion: state.version,
+                    resource: nil, grantId: state.grantId))
+            }
+            for raw in review?.refs ?? [] {
+                let ref = BotRecordReference.canonicalize(raw) ?? raw
+                guard let state = byRef[ref] else {
+                    return .failure("memory-source-baseline-unavailable", "复核来源缺少基线：\(ref)")
+                }
+                baselines.append(BotSourceBaseline(
+                    record: state.ref, role: .review, sourceVersion: state.version,
+                    resource: nil, grantId: state.grantId))
+            }
+            if let triggerRef {
+                baselines.append(BotSourceBaseline(
+                    record: triggerRef, role: .trigger, sourceVersion: nil, resource: nil))
+            }
+            guard let provenance else {
+                return .failure("memory-source-baseline-unavailable", "溯源服务未接入")
+            }
+            do {
+                let prepared = try await provenance.prepareDerivation(
+                    artifact: BotDerivedRef(kind: .memory, id: path, version: nil),
+                    sources: baselines.map { $0.provenanceSource() })
+                guard let encodedSources = prepared["sources"] else {
+                    return .failure("memory-source-baseline-unavailable", "溯源结果缺少 sources")
+                }
+                sourceBaselines = try JSONDecoder().decode(
+                    [BotSourceBaseline].self,
+                    from: encodedSources.encoded())
+            } catch {
+                return .failure("memory-source-baseline-unavailable",
+                                "来源缺少稳定资源身份，整条写入已拒绝")
+            }
+        }
         let request = BotMemoryWriteRequest(
             action: action,
             path: path,
@@ -1572,7 +2169,9 @@ public actor BotMCPRuntime {
             to: action == .move ? string(args["to"]) : nil,
             expectedVersion: expectedVersion,
             restoreVersion: restoreVersion,
-            evidence: evidence.refs)
+            evidence: evidence.refs,
+            review: review,
+            sourceBaselines: sourceBaselines)
         let context = BotMemoryWriteContext(
             botID: call.principal.botId,
             sessionID: call.principal.sessionId,
@@ -1683,6 +2282,210 @@ public actor BotMCPRuntime {
         return reference
     }
 
+    private struct BotMemoryReviewRejected: Error {
+        var message: String
+    }
+
+    /// Parses and host-validates the optional `review` member (spec/bot/v2
+    /// §1.5.1). Shape, state/basis coherence and reference resolution all fail
+    /// closed with `memory-review-invalid`; the host never derives `verified`.
+    private func validatedReview(_ raw: BotJSONValue?,
+                                 call: BotResolvedToolCall) async throws -> BotMemoryReview? {
+        guard let raw else { return nil }
+        // `review` is an object when present: an explicit null is not "absent"
+        // and the frozen schema does not allow it.
+        guard case let .object(object) = raw else {
+            throw BotMemoryReviewRejected(message: "review 必须是一个对象，不能是 null")
+        }
+        let allowed: Set<String> = ["state", "basis", "method", "at_ms", "refs"]
+        guard object.keys.allSatisfy({ allowed.contains($0) }) else {
+            throw BotMemoryReviewRejected(message: "review 含有未定义的成员")
+        }
+        guard let stateText = object["state"]?.stringValue,
+              let state = BotMemoryReviewState(rawValue: stateText) else {
+            throw BotMemoryReviewRejected(
+                message: "review.state 必须是 verified、unverified 或 disputed")
+        }
+        guard let basisText = object["basis"]?.stringValue,
+              let basis = BotMemoryReviewBasis(rawValue: basisText) else {
+            throw BotMemoryReviewRejected(
+                message: "review.basis 必须是 user-statement、observation、record-recheck 或 model-inference")
+        }
+        var method: String?
+        if let value = object["method"] {
+            guard let text = value.stringValue, !text.isEmpty,
+                  text.unicodeScalars.count <= BotMemoryAuthorizer.maximumReviewMethodScalars else {
+                throw BotMemoryReviewRejected(message: "review.method 必须是不超过 200 字的非空文本")
+            }
+            method = text
+        }
+        var atMS: Int64?
+        if let value = object["at_ms"] {
+            // Integer contract: reject null, non-finite and fractional values
+            // instead of truncating them.
+            guard let number = value.numberValue, number.isFinite,
+                  number == number.rounded(.towardZero),
+                  number >= 0,
+                  number <= Double(BotRecordReference.maximumDecimal) else {
+                throw BotMemoryReviewRejected(
+                    message: "review.at_ms 必须是不小于 0 的整数毫秒时间")
+            }
+            guard let timestamp = Int64(exactly: number) else {
+                throw BotMCPError.invalidRequest("timeout/limit must be an integer")
+            }
+            atMS = timestamp
+        }
+        var refs: [String] = []
+        if let value = object["refs"] {
+            guard case let .array(items) = value,
+                  items.count <= BotMemoryAuthorizer.maximumReviewRefs else {
+                throw BotMemoryReviewRejected(message: "review.refs 最多 8 条")
+            }
+            for item in items {
+                guard let text = item.stringValue else {
+                    throw BotMemoryReviewRejected(message: "review.refs 里每一项都必须是字符串")
+                }
+                if text == BotMemoryAuthorizer.currentUserTurnEvidence {
+                    refs.append(try await resolveCurrentUserTurnEvidence(call: call))
+                    continue
+                }
+                guard let parsed = BotRecordReference.parse(text) else {
+                    throw BotMemoryReviewRejected(message: "review.refs 里有非法的 record:// 引用")
+                }
+                refs.append(parsed.canonical)
+            }
+        }
+        let review = BotMemoryReview(state: state, basis: basis, method: method,
+                                     atMS: atMS, refs: refs)
+        if BotMemoryAuthorizer.reviewError(review) != nil {
+            throw BotMemoryReviewRejected(
+                message: "verified 需要非 model-inference 的依据和至少一条引用；disputed 需要给出冲突双方")
+        }
+        if !refs.isEmpty {
+            guard let resolver = recordEvidence else {
+                throw BotMemoryReviewRejected(message: "当前部署无法核对 review.refs")
+            }
+            let snapshot = try await resolver.evidenceSnapshot(
+                for: refs, callerBotID: call.principal.botId,
+                callerSessionID: call.principal.sessionId)
+            for ref in refs {
+                guard let point = snapshot.point(for: ref),
+                      point.resolved, !point.erased else {
+                    throw BotMemoryReviewRejected(
+                        message: "review.refs 里有不存在的、不属于本 Bot 或已被抹除的记录")
+                }
+            }
+        }
+        return review
+    }
+
+    /// Host-derived per-evidence observation time for one read/recall call.
+    /// One batched resolve for the whole call; never persisted. A reference
+    /// that cannot resolve (missing, foreign, erased) reports null.
+    ///
+    /// Returns nil when the resolver itself is unavailable or rejects the
+    /// batch (for example more than 512 distinct refs). That is not the same
+    /// thing as "the record is gone", so callers omit `evidence_status` and
+    /// record a diagnostic instead of fabricating all-null entries.
+    private func evidenceStatuses(
+        for references: [String], call: BotResolvedToolCall
+    ) async -> [String: BotMemoryEvidenceStatus]? {
+        guard !references.isEmpty else { return [:] }
+        let canonical = references.map { BotRecordReference.canonicalize($0) ?? $0 }
+        guard let resolver = recordEvidence else {
+            noteBridgeError(code: "evidence_status_unavailable",
+                            sessionId: call.principal.sessionId)
+            return nil
+        }
+        let snapshot: BotRecordEvidenceSnapshot
+        do {
+            snapshot = try await resolver.evidenceSnapshot(
+                for: canonical, callerBotID: call.principal.botId,
+                callerSessionID: call.principal.sessionId)
+        } catch {
+            noteBridgeError(code: "evidence_status_unavailable",
+                            sessionId: call.principal.sessionId)
+            return nil
+        }
+        var statuses: [String: BotMemoryEvidenceStatus] = [:]
+        for ref in canonical where statuses[ref] == nil {
+            let point = snapshot.point(for: ref)
+            let observed: Int64?
+            if let point, point.resolved, !point.erased {
+                observed = point.observedAtMS
+            } else {
+                observed = nil
+            }
+            statuses[ref] = BotMemoryEvidenceStatus(
+                ref: ref, observedAtMS: observed, sourceVersion: nil)
+        }
+        return statuses
+    }
+
+    /// G-1 artifact read view: baseline/resource/current-status come from the
+    /// memory document's derivation, ordered by the caller's evidence ∪
+    /// review.refs. The arbitrary-ref view is only for M's mechanical checks.
+    private func artifactSourceStatuses(kind: BotDerivedKind, id: String, version: Int?,
+                                        orderedRefs: [String], botID: String,
+                                        call: BotResolvedToolCall) async -> [BotSourceStatus]? {
+        guard let provenance else { return nil }
+        do {
+            let artifact = BotDerivedRef(kind: kind, id: id, version: version)
+            let statuses = try await provenance.sourceStatuses(for: artifact, botID: botID)
+            let byRef = Dictionary(statuses.map { ($0.ref, $0) }, uniquingKeysWith: { first, _ in first })
+            var ordered: [BotSourceStatus] = []
+            var seen = Set<String>()
+            for raw in orderedRefs {
+                let ref = BotRecordReference.canonicalize(raw) ?? raw
+                guard seen.insert(ref).inserted else { continue }
+                if let status = byRef[ref] { ordered.append(status) }
+            }
+            // Sources with no matching order entry stay reachable for roles.
+            for status in statuses where !seen.contains(status.ref) { ordered.append(status) }
+            return ordered
+        } catch {
+            noteBridgeError(code: "source_status_unavailable",
+                            sessionId: call.principal.sessionId)
+            return nil
+        }
+    }
+
+    /// G-1 `source_statuses`: the only current-status view. The whole member is
+    /// omitted (with the diagnostic code) when the provenance model is not
+    /// installed or fails; a partial all-unknown array must never stand in for
+    /// "computed".
+    private func sourceStatusValues(for references: [String],
+                                    call: BotResolvedToolCall) async -> [String: BotJSONValue]? {
+        guard let provenance, !references.isEmpty else { return nil }
+        let canonical = references.map { BotRecordReference.canonicalize($0) ?? $0 }
+        do {
+            let statuses = try await provenance.sourceStatuses(
+                for: canonical, botID: call.principal.botId)
+            var values: [String: BotJSONValue] = [:]
+            for ref in canonical {
+                guard let status = statuses[ref] else { continue }
+                let data = try JSONEncoder().encode(status)
+                if let value = try? BotJSONValue.parse(data) { values[ref] = value }
+            }
+            return values
+        } catch {
+            noteBridgeError(code: "source_status_unavailable",
+                            sessionId: call.principal.sessionId)
+            return nil
+        }
+    }
+
+    private func evidenceStatusValue(
+        _ statuses: [String: BotMemoryEvidenceStatus], for refs: [String]
+    ) throws -> BotJSONValue {
+        .array(try refs.map { raw in
+            let canonical = BotRecordReference.canonicalize(raw) ?? raw
+            let status = statuses[canonical] ?? BotMemoryEvidenceStatus(
+                ref: canonical, observedAtMS: nil, sourceVersion: nil)
+            return try encode(status)
+        })
+    }
+
     private func readMemory(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
         guard case .object(let args) = arguments else { throw BotMCPError.invalidRequest("arguments must be an object") }
         guard let path = string(args["path"]), !path.isEmpty else {
@@ -1704,6 +2507,19 @@ public actor BotMCPRuntime {
                 "evidence": .array(document.evidence.map(BotJSONValue.string)),
             ]
             if let trust = document.trust { output["trust"] = .string(trust) }
+            if let review = document.review { output["review"] = try encode(review) }
+            if let statuses = await evidenceStatuses(for: document.evidence, call: call) {
+                output["evidence_status"] = try evidenceStatusValue(
+                    statuses, for: document.evidence)
+            }
+            // G-1 §4.4: the current-status view comes from the artifact
+            // derivation (baseline/resource), never the arbitrary-ref view.
+            let sourceRefs = document.evidence + (document.review?.refs ?? [])
+            if let statuses = await artifactSourceStatuses(
+                kind: .memory, id: document.path, version: document.version,
+                orderedRefs: sourceRefs, botID: call.principal.botId, call: call) {
+                output["source_statuses"] = .array(try statuses.map { try encode($0) })
+            }
             if document.deleted {
                 output["deleted"] = .bool(true)
                 output["deletion_reason"] = .string(document.deletionReason ?? "forget")
@@ -1763,9 +2579,26 @@ public actor BotMCPRuntime {
                 "memory_unavailable",
                 "记忆暂时读不出来，请稍后重试。")
         }
+        let statuses = await evidenceStatuses(
+            for: page.hits.flatMap(\.evidence), call: call)
+        var encodedHits: [BotJSONValue] = []
+        for hit in page.hits {
+            var object = (try encode(hit)).objectValue ?? [:]
+            if let statuses {
+                object["evidence_status"] = try evidenceStatusValue(
+                    statuses, for: hit.evidence)
+            }
+            let sourceRefs = hit.evidence + (hit.review?.refs ?? [])
+            if let artifactStatuses = await artifactSourceStatuses(
+                kind: .memory, id: hit.path, version: hit.version,
+                orderedRefs: sourceRefs, botID: call.principal.botId, call: call) {
+                object["source_statuses"] = .array(try artifactStatuses.map { try encode($0) })
+            }
+            encodedHits.append(.object(object))
+        }
         return .success(.object([
             "ok": .bool(true),
-            "hits": .array(try page.hits.map { try encode($0) }),
+            "hits": .array(encodedHits),
             "count": .number(Double(page.hits.count)),
             "total": .number(Double(page.total)),
             "truncated": .bool(page.total > page.hits.count),
@@ -1945,9 +2778,14 @@ public actor BotMCPRuntime {
             }
             authority.approvalID = outcome.approvalId
         }
+        var derivation: RoutineDerivation?
+        if let provider = userContentRecordProvider,
+           let userRecord = await provider(call.sessionId) {
+            derivation = RoutineDerivationBuilder.fromUserTurn(userRecord)
+        }
         let result = try await BotRoutineTool.handle(
             machine: routineMachine, principal: call.principal, arguments: arguments,
-            now: now(), authority: authority)
+            now: now(), authority: authority, derivation: derivation)
         guard case .object(let args) = arguments, case .string(let action)? = args["action"] else {
             throw BotMCPError.invalidRequest("更新例行任务需要指定动作")
         }
@@ -1973,10 +2811,42 @@ public actor BotMCPRuntime {
             target: command.isEmpty ? resource : command, mutability: .destructive, policy: .ask,
             label: action, detail: detail, known: false, isMcp: true))
         let alwaysScope = effects.contains(where: \.known) ? "until" : "session"
+        let approvalID = "approval-\(UUID().uuidString.lowercased())"
+        var extraData: [String: BotJSONValue] = [:]
+        var digestOverride: String?
+        // A model may call RequestApproval before any pre-step/delivery tool
+        // materialized a block. Build the same bounded pre-delivery block now
+        // so the delivery draft is really offered; never offer from empty
+        // materials and never guess a digest.
+        if activeMaterialBlocks[call.sessionId] == nil, let service = decisionContext {
+            let turnNumber = currentTurnID(sessionId: call.sessionId)
+            let turnID = turnNumber.map { "\(call.sessionId)#\($0)" } ?? "\(call.sessionId)#0"
+            let revision = await permissionRevisionEvaluator?(
+                call.principal.botId, call.sessionId, nil) ?? ""
+            let request = BotDecisionRequest(
+                stage: .preDelivery, botID: call.principal.botId,
+                sessionID: call.sessionId, turnID: turnID, step: 1,
+                tool: "RequestApproval",
+                goal: action,
+                query: [action, detail].filter { !$0.isEmpty }.joined(separator: " "),
+                origin: "approval",
+                scopes: [.agent, .user],
+                permissionRevision: revision,
+                limits: BotDecisionLimits())
+            if let block = try? await service.materials(for: request) {
+                activeMaterialBlocks[call.sessionId] = block
+                await materialTrace?.note(BotMaterialTraceEvent(
+                    stage: .retrieved, blockID: block.blockID, turnID: block.turnID,
+                    sessionID: call.sessionId, botID: call.principal.botId,
+                    materialRefs: block.materials.map(\.ref), atMS: now()))
+            }
+        }
         let outcome = await approvals.request(
             call: call, effects: effects, action: action, detail: detail,
             command: command, alwaysScope: alwaysScope,
-            persistence: approvalPersistence(for: call), origin: "structural")
+            persistence: approvalPersistence(for: call), origin: "structural",
+            approvalID: approvalID, digestOverride: digestOverride,
+            extraData: extraData)
         var result: [String: BotJSONValue] = [
             "allowed": .bool(outcome.allowed), "decision": .string(outcome.allowed ? "allowed" : "denied"),
             "approvalId": outcome.approvalId.map(BotJSONValue.string) ?? .null,
@@ -2007,7 +2877,10 @@ public actor BotMCPRuntime {
 
     /// One plain Chinese sentence for the model-facing approval result. It
     /// mirrors the receipt wording the user saw, without ids or enum names.
-    private static func approvalResultSummary(_ outcome: BotApprovalOutcome) -> String {
+    /// Internal, not private: the copy table is contract data and a test asserts
+    /// every branch, including the standing-scope sentences that most phone
+    /// tools cannot reach any more (only a standing-eligible effect may).
+    static func approvalResultSummary(_ outcome: BotApprovalOutcome) -> String {
         if outcome.pending {
             return "审批请求已经发出，正在等用户确认。"
         }
@@ -2046,6 +2919,9 @@ public actor BotMCPRuntime {
 
     private func effectsForApproval(name: String, botID: String,
                                     arguments: BotJSONValue) async -> [BotToolEffect] {
+        // Decision context is a read-only additive internal tool; it never
+        // needs an approval card. The model's real action is RequestApproval.
+        if name == BotToolCatalog.decisionContextName { return [] }
         if name == BotToolCatalog.volatileContextName { return [] }
         let workspace = BotWorkspaceLayout.botRoot(botId: botID)
         if name == "bash" {
@@ -2136,10 +3012,11 @@ public actor BotMCPRuntime {
 
     private func optionalInt(_ value: BotJSONValue?) throws -> Int? {
         guard let value else { return nil }
-        guard case .number(let number) = value, number.isFinite, number.rounded() == number else {
+        guard case .number(let number) = value,
+              let converted = Int(exactly: number) else {
             throw BotMCPError.invalidRequest("timeout/limit must be an integer")
         }
-        return Int(number)
+        return converted
     }
 
     private func bareToolName(_ name: String) -> String {

@@ -77,6 +77,23 @@ public enum TonoLinkVoiceCommand {
         guard id != 0 else { throw TonoLinkUSBOTAError("listen id must be 1…4294967295") }
         return try TonoLinkBLECommand.line("\(seq) listen \(id)")
     }
+
+    /// `<seq> fx <phase>`: move the board's LED effect to a phase of the voice task
+    /// (tonolink-board.md §4.3). The board acks `ok`; older firmware answers `err`.
+    public static func fx(seq: UInt16, phase: TonoLinkLightPhase) throws -> Data {
+        try TonoLinkBLECommand.line("\(seq) fx \(phase.rawValue)")
+    }
+}
+
+/// The phases the board's LED effects follow (tonolink-board.md §4.3). `wake` is lit by the board
+/// itself when it hears the wake word; the phone sends the others.
+public enum TonoLinkLightPhase: String, CaseIterable, Sendable {
+    case wake
+    case taskStart = "task_start"
+    case taskRunning = "task_running"
+    case taskReport = "task_report"
+    case taskDone = "task_done"
+    case idle
 }
 
 /// Counts what arrived in one turn, for diagnostics (`seq` gaps are counted, not filled).

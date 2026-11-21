@@ -200,6 +200,157 @@ enum BotProductionEventReader {
     }
 }
 
+/// Actor-owned append cache. It never changes the durable log format. A
+/// replacement, truncation or same-size rewrite discards the derived state;
+/// an unfinished last line is re-decoded when more bytes arrive.
+struct BotSessionLogReadCache {
+    private struct Stamp: Equatable {
+        var inode: UInt64
+        var size: UInt64
+        var modified: Date
+    }
+    private var stamp: Stamp?
+    private var url: URL?
+    private var prefix = Data()
+    private var suffix = Data()
+    private var offset: UInt64 = 0
+    private var tail = Data()
+    private var lineNumber = 0
+    private var firstRecord = true
+    private var events: [BotDSHSessionEvent] = []
+    private var records: [JSONValue] = []
+    private var skipped: [BotDSHSessionLogSkippedRecord] = []
+    private let decoder = JSONDecoder()
+    private(set) var bytesRead = 0
+    private(set) var decodedLines = 0
+    private(set) var revision = 0
+
+    struct Snapshot {
+        var events: [BotDSHSessionEvent]
+        var records: [JSONValue]
+        var diagnostics: BotDSHSessionLogDiagnostics
+    }
+
+    mutating func refresh(_ source: URL?) throws -> Bool {
+        guard let source else {
+            guard url != nil else { return false }
+            reset(); url = nil; stamp = nil; revision += 1
+            return true
+        }
+        let attributes = try FileManager.default.attributesOfItem(atPath: source.path)
+        let next = Stamp(inode: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0,
+                         size: (attributes[.size] as? NSNumber)?.uint64Value ?? 0,
+                         modified: attributes[.modificationDate] as? Date ?? .distantPast)
+        guard source != url || next != stamp else { return false }
+        let handle = try FileHandle(forReadingFrom: source)
+        defer { try? handle.close() }
+        var appendOnly = source == url && next.inode == stamp?.inode && next.size > offset
+        if appendOnly {
+            let head = try handle.read(upToCount: prefix.count) ?? Data()
+            try handle.seek(toOffset: offset - UInt64(suffix.count))
+            let end = try handle.read(upToCount: suffix.count) ?? Data()
+            appendOnly = head == prefix && end == suffix
+        }
+        if !appendOnly { reset() }
+        try handle.seek(toOffset: offset)
+        while let bytes = try handle.read(upToCount: 1024 * 1024), !bytes.isEmpty {
+            bytesRead += bytes.count
+            offset += UInt64(bytes.count)
+            if prefix.count < 256 { prefix.append(bytes.prefix(256 - prefix.count)) }
+            suffix.append(bytes)
+            suffix = Data(suffix.suffix(256))
+            tail.append(bytes)
+            let lines = tail.split(separator: 0x0A, omittingEmptySubsequences: false)
+            for line in lines.dropLast() {
+                lineNumber += 1; decodedLines += 1
+                Self.decode(Data(line), decoder: decoder, number: lineNumber, first: &firstRecord,
+                       events: &events, records: &records, skipped: &skipped)
+            }
+            tail = Data(lines.last ?? Data().prefix(0))
+        }
+        url = source; stamp = next; revision += 1
+        return true
+    }
+
+    mutating func snapshot() -> Snapshot {
+        var result = Snapshot(events: events, records: records,
+                              diagnostics: BotDSHSessionLogDiagnostics(skipped: skipped))
+        if !tail.isEmpty {
+            var first = firstRecord
+            var errors = skipped
+            Self.decode(tail, decoder: decoder, number: lineNumber + 1, first: &first,
+                   events: &result.events, records: &result.records, skipped: &errors)
+            result.diagnostics = BotDSHSessionLogDiagnostics(skipped: errors)
+        }
+        return result
+    }
+
+    private mutating func reset() {
+        offset = 0; tail = Data(); prefix = Data(); suffix = Data()
+        lineNumber = 0; firstRecord = true
+        events.removeAll(); records.removeAll(); skipped.removeAll()
+    }
+
+    private static func decode(_ line: Data, decoder: JSONDecoder, number: Int, first: inout Bool,
+                        events: inout [BotDSHSessionEvent], records: inout [JSONValue],
+                        skipped: inout [BotDSHSessionLogSkippedRecord]) {
+        let trimmed = line.drop(while: { $0 == 0x20 || $0 == 0x09 || $0 == 0x0D })
+        guard !trimmed.isEmpty else { return }
+        let data = Data(trimmed)
+        if let record = try? JSONValue.parse(data),
+           let type = record["type"]?.stringValue,
+           ["turn/start", "user/message", "tool/call", "tool/result", "turn/end"].contains(type) {
+            records.append(record)
+        }
+        if first {
+            first = false
+            let parsed = BotDSHSessionEvent.parseJSONL(data)
+            events.append(contentsOf: parsed.events)
+            skipped.append(contentsOf: parsed.diagnostics.skipped.map {
+                BotDSHSessionLogSkippedRecord(lineNumber: number, seq: $0.seq)
+            })
+        } else if let event = try? decoder.decode(BotDSHSessionEvent.self, from: data) {
+            events.append(event)
+        } else {
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            skipped.append(BotDSHSessionLogSkippedRecord(
+                lineNumber: number, seq: (object?["seq"] as? NSNumber)?.intValue))
+        }
+    }
+}
+
+/// Durable commit cursors avoid reading the whole domain on every UI tick.
+/// Erasure is the only permitted mutation of old payloads; reload the prefix
+/// when its durable erasure event arrives so cached text cannot resurrect it.
+struct BotDomainReadCache {
+    private(set) var events: [BotEvent] = []
+    private(set) var cursor = 0
+    private(set) var fetchedEvents = 0
+
+    mutating func refresh(domain: SQLiteDomainStore) async throws -> Bool {
+        let head = try await domain.headCommitSeq()
+        let reset = head < cursor
+        if reset { events = []; cursor = 0 }
+        guard head != cursor else { return reset }
+        var delta: [BotEvent] = []
+        var next = cursor
+        while next < head {
+            let page = try await domain.events(after: next, limit: 500)
+            guard let last = page.last?.commitSeq else { break }
+            delta.append(contentsOf: page); next = last
+        }
+        fetchedEvents += delta.count
+        if cursor > 0 && delta.contains(where: { $0.type == "erasure" }) {
+            events = try await BotProductionEventReader.all(domain: domain)
+            fetchedEvents += events.count
+            cursor = events.last?.commitSeq ?? 0
+        } else {
+            events.append(contentsOf: delta); cursor = next
+        }
+        return true
+    }
+}
+
 enum BotProductionPaths {
     static func workspaceRoot() -> URL {
         #if canImport(ProbeKit)
@@ -246,6 +397,40 @@ struct BotProductionHistoryPage: Sendable, Equatable {
     var hasMore: Bool
 }
 
+/// Health of the Bot page's durable watch feed, as the row service reports it.
+///
+/// The realtime lane (`BotChatModel.watchHealthProvider`) reads this verdict
+/// through `BotProductionRowService.watchHealth()`: the thrown read error is
+/// transient and one-shot, while the verdict stays `.degraded` until the next
+/// successful rebuild, which is what keeps the page's「实时更新中断，正在重连」
+/// line armed across the failing polls. `reason` is a stable diagnostic token,
+/// never user copy; the page maps `.degraded` to its own reconnect line.
+enum BotProductionWatchHealth: Equatable, Sendable {
+    case healthy
+    case degraded(reason: String, since: Int64)
+
+    var isDegraded: Bool {
+        if case .degraded = self { return true }
+        return false
+    }
+
+    var reason: String? {
+        guard case .degraded(let reason, _) = self else { return nil }
+        return reason
+    }
+
+    var since: Int64? {
+        guard case .degraded(_, let since) = self else { return nil }
+        return since
+    }
+
+    /// The log token: `ok` or `degraded:<reason>`.
+    var verdict: String {
+        guard let reason else { return "ok" }
+        return "degraded:\(reason)"
+    }
+}
+
 /// Loads the main-chat epoch chain from durable `runtime.started` events. Each
 /// entry keeps its physical session id; the row projector stitches them in
 /// first-start order so an epoch switch does not make the old conversation
@@ -289,6 +474,39 @@ enum BotProductionSessionEpochs {
     }
 }
 
+/// Bounds for the pending-action replay pass (v4 outbox). Generous enough that
+/// a briefly unavailable transport gets one more try, small enough that a
+/// launch never retries a dead network for long; the row itself stays pending
+/// across launches regardless.
+enum BotPendingActionReplayPolicy {
+    /// Automatic replay at launch/bind was removed: it started unsolicited
+    /// turns (and the activity bubble + transcript scroll that follow them)
+    /// for a message the user had already stopped waiting on. Rows stay
+    /// durable; an explicit retry surface is the follow-up. Set this to true
+    /// only with that surface in place.
+    static let automaticReplay = false
+    static let attemptsPerAction = 2
+    static let backoffMilliseconds: Int64 = 250
+}
+
+/// Outcome of one pending-action replay pass for diagnostics. Counts and a
+/// type name only: action text, attachments and paths never leave the store.
+struct BotPendingActionReplayReport: Equatable, Sendable {
+    var loaded = 0
+    var accepted = 0
+    var duplicates = 0
+    var stale = 0
+    var rejected = 0
+    /// Actions that threw on every permitted attempt and stayed pending.
+    var deferred = 0
+    /// Rows still in the store after the pass; `-1` when the reload failed.
+    var remaining = 0
+    var loadFailed = false
+    var lastErrorType: String?
+
+    var isClean: Bool { !loadFailed && deferred == 0 && remaining == 0 }
+}
+
 /// Reads the same durable rows the production Bot page renders. One instance
 /// belongs to the composition root; the UI passes its driver around instead of
 /// constructing another projection authority.
@@ -296,22 +514,41 @@ actor BotProductionRowService {
     private let environment: BotProductionEnvironment
     private let history: BotRowHistory
     private let remote: BotDSHRemoteRuntime?
+    /// Delivers a committed card answer's prompt after a crash/rebind. nil in
+    /// library/tests, where a committed-but-undelivered answer stays pending.
+    private let cardAnswerPromptResumer: (any BotCardAnswerPromptResuming)?
     private var dispatcher: BotUserActionDispatcher?
     private var plannerIdentity: ObjectIdentifier?
     private var started = false
     private var currentPresentation = BotRuntimePresentation()
     /// Tool steps per turn, re-projected only when the session log changes.
     private var processes: [Int: BotTurnProcess] = [:]
-    private var processSource: Data?
+    private var domainCache = BotDomainReadCache()
+    private var logCaches: [String: BotSessionLogReadCache] = [:]
+    private var logSnapshots: [String: BotSessionLogReadCache.Snapshot] = [:]
+    private var logURLs: [String: URL] = [:]
+    private var epochIDs: [String] = []
+    private var lastSessionID: String?
+    private var lastHeldNonces: [String: String] = [:]
+    private var rebuildTask: Task<Void, Error>?
+    private var cacheExpiryTask: Task<Void, Never>?
+    private var projectionDirty = true
+    private(set) var projectionRebuildCount = 0
     private var liveGeneration = 0
     /// Read-only evidence of session-log records the last `rebuild()` skipped.
     private(set) var sessionLogDiagnostics = BotDSHSessionLogDiagnostics.empty
+    /// The realtime lane's verdict for `watchHealth()`: a failed read is kept
+    /// as `.degraded` until the next successful rebuild, so the page's
+    /// reconnect line survives the poll that threw.
+    private var health = BotProductionWatchHealth.healthy
 
     init(environment: BotProductionEnvironment, history: BotRowHistory = BotRowHistory(),
-         remote: BotDSHRemoteRuntime? = nil) {
+         remote: BotDSHRemoteRuntime? = nil,
+         cardAnswerPromptResumer: (any BotCardAnswerPromptResuming)? = nil) {
         self.environment = environment
         self.history = history
         self.remote = remote
+        self.cardAnswerPromptResumer = cardAnswerPromptResumer
     }
 
     func start() async throws {
@@ -326,43 +563,152 @@ actor BotProductionRowService {
         let identity = ObjectIdentifier(planner)
         guard identity != plannerIdentity else { return }
         plannerIdentity = identity
-        dispatcher = BotUserActionDispatcher(store: environment.domain, planner: planner)
+        dispatcher = BotUserActionDispatcher(
+            store: environment.domain, planner: planner,
+            cardAnswerPromptResumer: cardAnswerPromptResumer)
     }
 
     private func rebuild() async throws {
-        let snapshot = await environment.sessionSnapshot()
-        let sessionID = snapshot.sessionID
-        let logURL = snapshot.logURL
-        let logData = try logURL.map { try Data(contentsOf: $0) }
-        let parsed = logData.map { BotDSHSessionEvent.parseJSONL($0) }
-        let sessionEvents = parsed?.events ?? []
-        sessionLogDiagnostics = parsed?.diagnostics ?? .empty
-        updateProcesses(from: logData)
-        let uiEvents = try await BotProductionEventReader.all(domain: environment.domain)
-        let heldRequestNonces = await remote?.heldChatActionNonces(sessionID: sessionID) ?? [:]
-        let epochs = try await BotProductionSessionEpochs.load(
-            botID: environment.botID, currentSessionID: sessionID,
-            currentLogURL: logURL, workspaceRoot: environment.workspaceRoot,
-            domain: environment.domain)
-        _ = try await history.rebuild(botID: environment.botID, epochs: epochs,
-                                      uiEvents: uiEvents,
-                                      heldRequestNonces: heldRequestNonces)
-        currentPresentation = BotRuntimePresentationFactory.make(
-            botID: environment.botID, sessionID: sessionID,
-            sessionEvents: sessionEvents, uiEvents: uiEvents)
+        defer { scheduleReadCacheExpiry() }
+        // history/watch/start can overlap while the actor awaits its stores.
+        // They share one read/projection instead of racing stale snapshots.
+        do {
+            try await rebuildShared()
+        } catch {
+            markReadDegraded()
+            throw error
+        }
+        health = .healthy
     }
 
-    private func updateProcesses(from data: Data?) {
-        guard data != processSource else { return }
-        processSource = data
-        guard let data else {
-            processes = [:]
-            return
+    private func rebuildShared() async throws {
+        if let rebuildTask { return try await rebuildTask.value }
+        let task = Task { try await self.rebuildOnce() }
+        rebuildTask = task
+        defer { rebuildTask = nil }
+        try await task.value
+    }
+
+    /// Current health of the watch feed's last rebuild. The Bot page's
+    /// supervised loops read it through `BotChatModel.watchHealthProvider`;
+    /// the thrown error is transient, the verdict is what stays.
+    func watchHealth() -> BotProductionWatchHealth { health }
+
+    private func markReadDegraded() {
+        if case .degraded(_, let since) = health {
+            health = .degraded(reason: "rebuild", since: since)
+        } else {
+            health = .degraded(reason: "rebuild", since: botProductionNowMilliseconds())
         }
-        let records = data.split(separator: UInt8(ascii: "\n")).compactMap { line in
-            try? JSONValue.parse(Data(line))
+    }
+
+    private func scheduleReadCacheExpiry() {
+        cacheExpiryTask?.cancel()
+        cacheExpiryTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            await self?.expireReadCache()
         }
-        processes = BotTurnProcessProjector.make(records: records)
+    }
+
+    private func expireReadCache() {
+        if rebuildTask != nil { scheduleReadCacheExpiry(); return }
+        domainCache = BotDomainReadCache()
+        logCaches = [:]; logSnapshots = [:]; logURLs = [:]
+        projectionDirty = true
+        cacheExpiryTask = nil
+    }
+
+    private func rebuildOnce() async throws {
+        let snapshot = await environment.sessionSnapshot()
+        let sessionID = snapshot.sessionID
+        var domain = domainCache
+        var changed = try await domain.refresh(domain: environment.domain)
+        domainCache = domain
+        // Retain invalidation across a later file-read failure. The domain
+        // cursor has already advanced and cannot rediscover these UI events.
+        projectionDirty = projectionDirty || changed
+        let uiEvents = domain.events
+        var ordered: [String] = []
+        var seen: Set<String> = []
+        for event in uiEvents where event.type == "runtime.started"
+            && event.principal.botId == environment.botID
+            && event.principal.kind == BotSessionKind.chat.rawValue {
+            if let id = event.data["sessionId"]?.stringValue ?? event.principal.sessionId,
+               !id.isEmpty, seen.insert(id).inserted { ordered.append(id) }
+        }
+        if seen.insert(sessionID).inserted { ordered.append(sessionID) }
+        changed = changed || epochIDs != ordered || lastSessionID != sessionID
+        projectionDirty = projectionDirty || changed
+        var epochs: [BotSessionEpochProjection] = []
+        for id in ordered {
+            let explicit = id == sessionID ? snapshot.logURL : nil
+            let candidate = explicit ?? logURLs[id]
+                ?? BotSessionLogLocator.latestFile(sessionID: id, workspaceRoot: environment.workspaceRoot)
+            // Resolve a rotation inside the already located session directory;
+            // do not re-walk every other session on each 800 ms UI tick.
+            let url = newestLog(near: candidate, sessionID: id) ?? candidate
+            logURLs[id] = url
+            var cache = logCaches[id] ?? BotSessionLogReadCache()
+            // A missing live log is a read failure, not authoritative deletion.
+            // Missing archived epochs keep the previous full-reader semantics.
+            let readable = id != sessionID && url.map({ !FileManager.default.fileExists(atPath: $0.path) }) == true
+                ? nil : url
+            let updated = try cache.refresh(readable)
+            if updated || logSnapshots[id] == nil {
+                projectionDirty = true
+                logSnapshots[id] = cache.snapshot()
+                changed = true
+                if id == sessionID {
+                    processes = BotTurnProcessProjector.make(records: logSnapshots[id]?.records ?? [])
+                }
+            }
+            logCaches[id] = cache
+            let events = logSnapshots[id]?.events ?? []
+            if id == sessionID || !events.isEmpty {
+                epochs.append(BotSessionEpochProjection(sessionID: id, events: events))
+            }
+        }
+        // Removed/erased epochs must release their cached payloads as well.
+        logCaches = logCaches.filter { seen.contains($0.key) }
+        logSnapshots = logSnapshots.filter { seen.contains($0.key) }
+        logURLs = logURLs.filter { seen.contains($0.key) }
+        let current = logSnapshots[sessionID]
+        sessionLogDiagnostics = current?.diagnostics ?? .empty
+        let held = await remote?.heldChatActionNonces(sessionID: sessionID) ?? [:]
+        projectionDirty = projectionDirty || changed || held != lastHeldNonces
+        changed = projectionDirty
+        let now = botProductionNowMilliseconds()
+        let expired = currentPresentation.oneShot.map { $0.endsAt <= now } == true
+            || currentPresentation.reaction.map { !$0.isActive(at: now) } == true
+        if changed {
+            _ = try await history.rebuild(botID: environment.botID, epochs: epochs,
+                                          uiEvents: uiEvents, heldRequestNonces: held)
+            projectionRebuildCount += 1
+            projectionDirty = false
+        }
+        if changed || expired {
+            currentPresentation = BotRuntimePresentationFactory.make(
+                botID: environment.botID, sessionID: sessionID,
+                sessionEvents: current?.events ?? [], uiEvents: uiEvents, now: now)
+        }
+        epochIDs = ordered; lastSessionID = sessionID; lastHeldNonces = held
+    }
+
+    private func newestLog(near url: URL?, sessionID: String) -> URL? {
+        let sessionsRoot = environment.workspaceRoot
+            .appendingPathComponent("materialized/home/sessions", isDirectory: true).standardizedFileURL.path + "/"
+        guard let url, url.standardizedFileURL.path.hasPrefix(sessionsRoot),
+              url.deletingLastPathComponent().lastPathComponent == sessionID,
+              url.lastPathComponent.hasPrefix("session.v"), url.pathExtension == "jsonl" else { return url }
+        let files = try? FileManager.default.contentsOfDirectory(
+            at: url.deletingLastPathComponent(),
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey])
+        return files?.compactMap { candidate -> (URL, Date)? in
+            guard candidate.lastPathComponent.hasPrefix("session.v"), candidate.pathExtension == "jsonl",
+                  let info = try? candidate.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey]),
+                  info.isRegularFile == true else { return nil }
+            return (candidate, info.contentModificationDate ?? .distantPast)
+        }.max { $0.1 < $1.1 }?.0
     }
 
     func turnProcesses() -> [Int: BotTurnProcess] { processes }
@@ -420,6 +766,91 @@ actor BotProductionRowService {
         await updateDispatcher()
         guard let dispatcher else { return .rejected(reason: BotProductionError.brainUnavailable.localizedDescription) }
         return try await dispatcher.dispatch(action)
+    }
+
+    /// Replays the durable pending-action outbox (v4) for this Bot.
+    ///
+    /// Called after the unit's main session starts, never from inside the bind:
+    /// one replay may await a whole remote turn. Rows are re-dispatched one at
+    /// a time through the same dispatcher the UI uses, so a replayed action is
+    /// validated, nonce-checked and committed exactly like a live tap. A thrown
+    /// dispatch keeps the row for the next launch, which makes an offline
+    /// launch safe: nothing is dropped and nothing crashes. After two
+    /// consecutive deferred actions the pass stops early, because the likely
+    /// cause is an unavailable transport rather than one bad action.
+    @discardableResult
+    func replayPendingActions(
+        attemptsPerAction: Int = BotPendingActionReplayPolicy.attemptsPerAction,
+        backoffMilliseconds: Int64 = BotPendingActionReplayPolicy.backoffMilliseconds
+    ) async -> BotPendingActionReplayReport {
+        var report = BotPendingActionReplayReport()
+        let botID = environment.botID
+        let pending: [BotUserAction]
+        do {
+            pending = try await environment.domain.pendingActions(botID: botID)
+        } catch {
+            report.loadFailed = true
+            report.lastErrorType = Self.errorTypeToken(error)
+            return report
+        }
+        report.loaded = pending.count
+        guard !pending.isEmpty else { return report }
+        // A live turn already owns the session: those rows are that turn's
+        // durable intent (or a duplicate dispatch). Do not start a second turn
+        // behind it from launch/bind replay; the next launch or an idle bind
+        // retries them.
+        if let remote, await remote.isMainTurnBusy() {
+            report.deferred = pending.count
+            report.lastErrorType = "turn_busy"
+            report.remaining = pending.count
+            return report
+        }
+        do {
+            try await start()
+        } catch {
+            report.deferred = pending.count
+            report.lastErrorType = Self.errorTypeToken(error)
+            return report
+        }
+        let allowedAttempts = max(1, attemptsPerAction)
+        var consecutiveDeferred = 0
+        for action in pending {
+            var result: BotActionResult?
+            var lastError: Error?
+            for attempt in 1...allowedAttempts {
+                do {
+                    result = try await perform(action)
+                    break
+                } catch {
+                    lastError = error
+                    guard attempt < allowedAttempts else { break }
+                    try? await Task.sleep(
+                        nanoseconds: UInt64(max(0, backoffMilliseconds)) * 1_000_000)
+                }
+            }
+            if let result {
+                consecutiveDeferred = 0
+                switch result {
+                case .accepted: report.accepted += 1
+                case .duplicate: report.duplicates += 1
+                case .stale: report.stale += 1
+                case .rejected: report.rejected += 1
+                }
+            } else {
+                report.deferred += 1
+                if let lastError { report.lastErrorType = Self.errorTypeToken(lastError) }
+                consecutiveDeferred += 1
+                if consecutiveDeferred >= 2 { break }
+            }
+        }
+        report.remaining = (try? await environment.domain.pendingActions(botID: botID).count) ?? -1
+        return report
+    }
+
+    /// Type names only: a remote error's message can carry request content, and
+    /// a store error can name a path. The diagnostic line gets neither.
+    private static func errorTypeToken(_ error: Error) -> String {
+        String(describing: type(of: error))
     }
 
     func stopCurrentTurn(turnID: String?) async throws {
@@ -583,7 +1014,7 @@ actor BotProductionInfoService {
             grantsError = humanFailure
         }
 
-        let context = await BotPresenceCenter.shared.context()
+        let context = BotPresenceCenter.shared.context()
         let presence: RoutinePresence
         if let scheduler {
             presence = await scheduler.presenceSnapshot(
@@ -927,8 +1358,8 @@ struct BotProductionInfoDriver {
 /// A refused or failed file is reported by name and skipped; the successful
 /// subset and the text still send.
 final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked Sendable {
-    private let transport: any DSHRemoteTransport
-    private let sessionID: @Sendable () async throws -> String
+    private let context: @Sendable () async throws
+        -> (transport: any DSHRemoteTransport, sessionID: String)
     /// Bot data root the runtime also passes to `session/create`. The import
     /// service scopes writes to the session cwd, so this must match.
     private let botDataDirectory: String
@@ -936,8 +1367,17 @@ final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked S
     init(transport: any DSHRemoteTransport,
          sessionID: @escaping @Sendable () async throws -> String,
          botDataDirectory: String = BotDataRoot.path) {
-        self.transport = transport
-        self.sessionID = sessionID
+        self.context = { (transport, try await sessionID()) }
+        self.botDataDirectory = botDataDirectory
+    }
+
+    /// Preferred: the runtime returns transport + session from one host
+    /// incarnation, so a restart cannot pair an old transport with a new
+    /// session.
+    init(context: @escaping @Sendable () async throws
+            -> (transport: any DSHRemoteTransport, sessionID: String),
+         botDataDirectory: String = BotDataRoot.path) {
+        self.context = context
         self.botDataDirectory = botDataDirectory
     }
 
@@ -977,14 +1417,15 @@ final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked S
         }
 
         guard !prepared.isEmpty else { return BotAttachmentImportResult(items: [], errors: errors) }
-        let session: String
+        let context: (transport: any DSHRemoteTransport, sessionID: String)
         do {
-            session = try await sessionID()
+            context = try await self.context()
         } catch {
-            let reason = "Bot 会话尚未就绪：\(error.localizedDescription)"
+            let reason = "Bot 会话/transport 尚未就绪：\(error.localizedDescription)"
             errors.append(contentsOf: prepared.map { (name: $0.safeName, reason: reason) })
             return BotAttachmentImportResult(items: [], errors: errors)
         }
+        let session = context.sessionID
 
         let botRoot = BotWorkspaceLayout.botRoot(
             botId: botID, dataDirectory: botDataDirectory)
@@ -995,11 +1436,13 @@ final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked S
             directories: [],
             files: prepared.map { WebEngineDirectoryImportFile(path: $0.safeName, size: $0.data.count) },
             totalBytes: prepared.reduce(0) { $0 + $1.data.count })
-        let sink = PhoneDSHWorkspaceImportSink(transport: transport)
+        let sink = PhoneDSHWorkspaceImportSink(transport: context.transport)
         var importID: String?
+        var stage = "导入 begin"
         do {
             let started = try await sink.begin(manifest)
             importID = started
+            stage = "写入工作区"
             let chunk = 1024 * 1024
             for file in prepared {
                 var offset = 0
@@ -1010,6 +1453,7 @@ final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked S
                     offset = end
                 }
             }
+            stage = "导入 commit"
             let result = try await sink.commit(importID: started)
             let items = prepared.map { file in
                 BotAttachment(
@@ -1023,7 +1467,7 @@ final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked S
         } catch {
             if let importID { await sink.abort(importID: importID) }
             errors.append(contentsOf: prepared.map {
-                (name: $0.safeName, reason: "写入工作区失败：\(error.localizedDescription)")
+                (name: $0.safeName, reason: "\(stage)失败：\(error.localizedDescription)")
             })
             return BotAttachmentImportResult(items: [], errors: errors)
         }

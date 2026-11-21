@@ -157,6 +157,14 @@ internal class ChatTurnRunner(
         promptMode: String = "queue",
         busySubmissionVersion: suspend () -> Long? = { 0L },
         sealBusySubmissions: suspend (Long) -> Boolean = { true },
+        /**
+         * Runs immediately before each `session/prompt` call and must have made
+         * the submission durable when it returns (the send outbox's
+         * `markSubmitting`). A throw stops the turn before the transport is touched.
+         */
+        beforePrompt: suspend () -> Unit = {},
+        /** Runs after `session/prompt` returned success, before the stream is read. */
+        afterPrompt: suspend () -> Unit = {},
     ): ChatTurnOutcome {
         val requested = workerSessionId
         if (requested != null) {
@@ -179,6 +187,8 @@ internal class ChatTurnRunner(
                     onReasoningDelta,
                     busySubmissionVersion,
                     sealBusySubmissions,
+                    beforePrompt,
+                    afterPrompt,
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -198,6 +208,7 @@ internal class ChatTurnRunner(
         return oneTurn(
             created, prompt, promptRequestId, promptMode, onSession, onEvent, onDelta,
             onInteractiveRequest, onInteractiveCancel, onReasoningDelta, busySubmissionVersion, sealBusySubmissions,
+            beforePrompt, afterPrompt,
         )
             .copy(contextReset = requested != null)
     }
@@ -239,6 +250,8 @@ internal class ChatTurnRunner(
         onReasoningDelta: (String) -> Unit,
         busySubmissionVersion: suspend () -> Long?,
         sealBusySubmissions: suspend (Long) -> Boolean,
+        beforePrompt: suspend () -> Unit,
+        afterPrompt: suspend () -> Unit,
     ): ChatTurnOutcome {
         onSession(sessionId)
         val follow = openFollow(sessionId)
@@ -276,8 +289,10 @@ internal class ChatTurnRunner(
             // The prompt goes out only after the stream is open: the Worker
             // publishes the turn's first frames as soon as it accepts it, and a
             // prompt sent first can outrun the subscription.
+            beforePrompt()
             if (promptRequestId == null) client.prompt(sessionId, prompt, mode = promptMode)
             else client.prompt(sessionId, prompt, requestId = promptRequestId, mode = promptMode)
+            afterPrompt()
             log("chat turn: session/prompt queued session=$sessionId")
             while (true) {
                 // Before the first durable event, keep the existing bounded

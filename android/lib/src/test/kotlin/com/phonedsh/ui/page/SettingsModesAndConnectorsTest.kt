@@ -192,17 +192,31 @@ class SettingsModesAndConnectorsTest {
     }
 
     @Test
-    fun `the example connector cannot connect`() {
+    fun `gmail and github follow the baseline order and open their pages`() {
+        // ConnectorsPage.swift:12: gmail, github, devices, webSearch, mcp.
+        assertEquals(
+            listOf(
+                DiscoverConnector.GMAIL,
+                DiscoverConnector.GITHUB,
+                DiscoverConnector.DEVICES,
+                DiscoverConnector.WEB_SEARCH,
+                DiscoverConnector.MCP,
+            ),
+            DiscoverConnector.entries.toList(),
+        )
         val opened = mutableListOf<DiscoverConnector>()
         compose.setContent {
             PdshTheme {
                 ConnectorsPage(onOpen = { opened += it }, onOpenPluginsTools = {}, languageId = "zh")
             }
         }
-        compose.onNodeWithTag(ConnectorsPageTags.ROW_PREFIX + "gmail").performClick()
-        compose.onNodeWithText("即将支持").assertIsDisplayed()
-        compose.onNodeWithTag(ConnectorsPageTags.SHEET_ACTION).assertIsNotEnabled()
-        assertEquals(emptyList<DiscoverConnector>(), opened)
+        compose.onNodeWithText("即将支持").assertDoesNotExist()
+        compose.onNodeWithTag(ConnectorsPageTags.ROW_PREFIX + "github").performClick()
+        compose.onNodeWithText("打开 GitHub").assertIsDisplayed()
+        compose.onNodeWithTag(ConnectorsPageTags.SHEET_ACTION)
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(timeoutMillis = 5_000) { opened.isNotEmpty() }
+        assertEquals(listOf(DiscoverConnector.GITHUB), opened)
     }
 
     /**

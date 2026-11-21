@@ -60,7 +60,8 @@ public enum BotEgressEffects {
         return [BotToolEffect(
             tool: tool, operation: operation, resource: directory, target: target,
             mutability: .write, policy: .ask, label: label, detail: detail,
-            ui: false, execution: nil, known: true, isMcp: false)]
+            ui: false, execution: nil, known: true, isMcp: false,
+            grantResource: directory)]
     }
 
     /// Standardized absolute target path for one `file_path` argument.
@@ -120,6 +121,6 @@ public enum BotEgressEffects {
             tool: toolName, operation: egressOperation(method: upper), resource: resource,
             target: target, mutability: .externalSend, policy: .ask,
             label: label, detail: detail, ui: false, execution: nil,
-            known: true, isMcp: false)
+            known: true, isMcp: false, grantResource: resource)
     }
 }

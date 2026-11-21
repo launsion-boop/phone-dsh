@@ -66,8 +66,70 @@ final class ProbeScenePhaseWiringTests: XCTestCase {
         XCTAssertFalse(keepAlive.contains("setActive("))
     }
 
+    /// A transcript adoption parked while the App was hidden must never be
+    /// committed over rows the event pump delivered afterwards: the App can
+    /// still execute in the background (Bot keep-alive, a recovering stream),
+    /// and those rows land on the old transcript, making the parked snapshot
+    /// older than the screen. `ChatModel` is App target code, so this guard
+    /// scans its source for both halves of the wiring: every handled event
+    /// reports the row change, and the commit decision replaces a superseded
+    /// snapshot with a foreground re-read instead of painting it.
+    func testParkedTranscriptAdoptionCannotOverwriteRowsDeliveredWhileHidden() throws {
+        let chat = try contents(probeRoot().appendingPathComponent("ChatModel.swift"))
+
+        let handle = try functionBody(of: "private func handle(_ event", in: chat)
+        XCTAssertTrue(handle.contains("noteRowsMayHaveChanged()"),
+                      "the pump's row mutations must reach the background gate")
+        let reported = try XCTUnwrap(handle.range(of: "noteRowsMayHaveChanged()"))
+        let viewed = try XCTUnwrap(handle.range(of: "handle(eventWhileViewingAnotherSession:"))
+        XCTAssertLessThan(viewed.upperBound, reported.lowerBound,
+                          "events consumed for another session's projection do not touch the viewed rows")
+
+        let adopt = try functionBody(of: "func adoptDeferredTranscriptIfForeground()", in: chat)
+        XCTAssertTrue(adopt.contains("beginParkedAdoptionCommit()"),
+                      "the commit must consult the gate's staleness verdict")
+        let decision = try XCTUnwrap(adopt.range(of: "beginParkedAdoptionCommit()"))
+        let applied = try XCTUnwrap(adopt.range(of: "applyAdoptedTranscript(rows: pending.items"))
+        let resync = try XCTUnwrap(adopt.range(of: "resyncTranscriptAfterStaleParkedAdoption"))
+        XCTAssertLessThan(decision.upperBound, applied.lowerBound,
+                          "the snapshot is only applied after the gate allows the commit")
+        XCTAssertLessThan(decision.upperBound, resync.lowerBound,
+                          "a superseded snapshot is replaced by a foreground re-read, not painted")
+    }
+
     private func probeRoot() -> URL {
         repoRoot().appendingPathComponent("examples/probe-app/PhoneDSHProbe")
+    }
+
+    /// Extracts a function body by brace balance; the first `{` after the
+    /// signature opens it, and nested closures/`if` bodies stay inside.
+    private func functionBody(of signature: String, in source: String) throws -> String {
+        guard let start = source.range(of: signature) else {
+            throw NSError(domain: "scene-phase-wiring", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "missing \(signature)",
+            ])
+        }
+        guard let open = source[start.upperBound...].firstIndex(of: "{") else {
+            throw NSError(domain: "scene-phase-wiring", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "\(signature) has no body",
+            ])
+        }
+        var depth = 0
+        var index = open
+        while index < source.endIndex {
+            let character = source[index]
+            if character == "{" { depth += 1 }
+            if character == "}" {
+                depth -= 1
+                if depth == 0 {
+                    return String(source[open...index])
+                }
+            }
+            index = source.index(after: index)
+        }
+        throw NSError(domain: "scene-phase-wiring", code: 3, userInfo: [
+            NSLocalizedDescriptionKey: "\(signature) body is not balanced",
+        ])
     }
 
     private func contents(_ url: URL) throws -> String {

@@ -703,6 +703,8 @@ final class BotEgressApprovalTests: XCTestCase {
         XCTAssertEqual(outside[0].resource, "dir=/dsh/workspace/other")
         XCTAssertEqual(outside[0].policy, .ask)
         XCTAssertTrue(outside[0].known)
+        XCTAssertEqual(outside[0].grantResource, "dir=/dsh/workspace/other")
+        XCTAssertTrue(outside[0].canUseStandingGrant)
 
         let sibling = BotEgressEffects.fileEffects(
             tool: "edit",

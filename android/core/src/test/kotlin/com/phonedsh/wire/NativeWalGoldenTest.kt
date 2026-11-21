@@ -1,4 +1,4 @@
-// The two WAL golden vectors, decoded through JNI on the Kotlin side.
+// The three WAL golden vectors, decoded through JNI on the Kotlin side.
 // SPDX-License-Identifier: MIT
 
 package com.phonedsh.wire
@@ -58,21 +58,27 @@ class NativeWalGoldenTest(private val vector: WalGoldenVector) {
             scan.getValue("valid_len").numberValue(),
         )
 
-        val mutations = vector.records.filter { it.member("kind").stringValue() == "mutation" }
+        // `first_mutation_mseq` / `last_mutation_mseq` span every record that
+        // advances mseq: `mutation` and `blob_write` (`wal.md` §14.2). Only the
+        // epoch close does not advance mseq.
+        val mseqRecordKinds = setOf("mutation", "blob_write")
+        val mseqRecords = vector.records.filter {
+            it.member("kind").stringValue() in mseqRecordKinds
+        }
         val closes = vector.records.filter { it.member("kind").stringValue() == "epoch_close" }
-        val firstMutation = mutations
+        val firstMseq = mseqRecords
             .firstOrNull()
             ?.member("fields")
             ?.member("mseq")
             ?.numberValue()
         assertEquals(
             "${vector.name}: first_mutation_mseq",
-            firstMutation,
+            firstMseq,
             optionalNumber(scan.getValue("first_mutation_mseq")),
         )
         assertEquals(
             "${vector.name}: last_mutation_mseq",
-            mutations
+            mseqRecords
                 .map { it.member("fields").member("mseq").numberValue() }
                 .maxOrNull() ?: 0L,
             scan.getValue("last_mutation_mseq").numberValue(),
@@ -107,8 +113,9 @@ class NativeWalGoldenTest(private val vector: WalGoldenVector) {
             )
 
             // Every member of the golden `fields` object (mseq, op, mode,
-            // mflags, append_from, path, data_len, data_hex, or wall_ms and
-            // durable_upto) must have the same value in the decoded record.
+            // mflags, append_from, path, data_len, data_hex, blob_len,
+            // blob_sha256, or wall_ms and durable_upto) must have the same
+            // value in the decoded record.
             for ((name, value) in golden.member("fields").objectMembers()) {
                 assertEquals("$label: $name", value, actual[name])
             }

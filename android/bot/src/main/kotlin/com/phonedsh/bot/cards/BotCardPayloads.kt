@@ -27,6 +27,12 @@ public class BotCardPayloadException(message: String) : Exception(message)
  * control flag is validated then stripped from the payload.
  */
 public object BotCardPayloads {
+    /** Exact non-action fillers; this refinement is intentionally steps-only. */
+    private val NON_ACTION_STEPS: Set<String> = setOf(
+        "暂时不用", "暂不需要", "不用了", "先这样", "不需要", "暂不操作", "暂不继续",
+        "没有了", "以上都不", "not now", "no thanks", "do nothing", "none of the above",
+        "skip", "none", "暂时不需要", "先不用", "以后再说", "暂不处理", "无需操作", "暂停，稍后继续",
+    )
     /** The five content cards that accept the optional `final` control flag. */
     public val CONTENT_CARD_NAMES: Set<String> = setOf(
         "show_attachment", "show_document", "show_progress", "show_checklist", "show_link",
@@ -92,10 +98,10 @@ public object BotCardPayloads {
                 val label = value.value.trim()
                 if (label.isEmpty()) invalid("steps[$index] 不能为空。")
                 val step = linkedMapOf<String, JsonValue>("label" to JsonString(label))
-                if (isSyntheticOther(step)) null else step
+                if (isSyntheticOther(step) || isNonActionStep(step)) null else step
             } else {
                 val step = normalizedChoice(value, "steps[$index]")
-                if (isSyntheticOther(step)) null else step
+                if (isSyntheticOther(step) || isNonActionStep(step)) null else step
             }
         }
         if (steps.size !in 2..4) invalid("show_next_steps 需要 2–4 个有效 steps。")
@@ -160,6 +166,11 @@ public object BotCardPayloads {
     private fun isSyntheticOther(choice: Map<String, JsonValue>): Boolean {
         val label = (choice["label"] as? JsonString)?.value?.trim()?.lowercase() ?: return false
         return label in setOf("其他", "其它", "other")
+    }
+
+    private fun isNonActionStep(choice: Map<String, JsonValue>): Boolean {
+        val label = (choice["label"] as? JsonString)?.value?.trim()?.lowercase() ?: return false
+        return label in NON_ACTION_STEPS
     }
 
     private fun attachment(args: Map<String, JsonValue>): JsonObject {

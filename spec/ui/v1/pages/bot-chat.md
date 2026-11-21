@@ -17,6 +17,25 @@
 - 待审批不在 composer 上方重复提示；审批操作只在消息流里的审批卡片内完成，头部 alerting 与侧边栏「N 项待审批」状态保留。长按消息提供复制、查看来源；桌面 hover 不搬到手机。
 - 现有 DSH 多 session 工作台保持独立，不重构成 Bot 主对话。
 
+### 2026-11-14 银灰单行活动进展补充
+
+用户确认的顶部补充覆盖原文字呼吸/sweep的冲突描述；头像胶囊、两侧入口及真实
+`BotHeaderPresence` / `BotActivityLineState` 数据和时序保持原行为。
+头像下方仍只有一条被动活动消息：13/18 单行、居中、长文本尾部省略、不可点击，
+不添加底色卡片、耗时第二行、展开按钮、阶段列表或模拟百分比。
+顶间距从 4pt 缩为 0pt，使活动消息更贴近头像；保留现有正文预留区与渐隐遮挡保护，
+状态切换不能推移正文或覆盖可读消息。
+
+正常活动采用组件私有银灰色配对（浅色约 #69717C、深色约 #B8BEC7），不用绿色；
+文字扫光保留始终可读的底字，亮银高光局部经过，不能让整行周期性消失。
+文字左侧固定约 5pt 的银灰亮点，间距约 7–8pt，不随长文本压扁；此亮点属于
+活动行而不是头像胶囊的徽标。活动中可有轻量亮点呼吸与约 2s 的重复扫光，
+文案变化用约 0.2–0.3s 的短距离滑入/淡入，不能靠虚构文案变化模拟进展。
+等待确认、失败、页面不活跃以及系统减少动态时，停下重复动画；减少动态/不活跃
+也取消切换位移动效。失败可保留现有危险语义色，正常与成功不使用绿色。
+移出页面后不保留无意义的无限动画工作；VoiceOver/TalkBack只朗读一次真实消息，
+亮点和扫光副本不单独朗读。iOS 与 Android 同步实现，不新增外部或持久化字段。
+
 ## 2. 手机尺寸换算
 
 结构、内容模型、空状态、超限处理和交互照 DSH Bot；视觉值只取 phoneDSH `tokens.json`，不复制桌面 CSS 色值或新增第二套 token；卡片表面本轮明确收紧为 16pt 圆角与 12pt 内距。用户最新明确要求：所有消息卡片必须比此前紧凑，不能呈现为全宽大窗口。卡片标题最多 2 行、摘要最多 2 行；超过时显示「展开」，展开后完整显示，不得用无上限的长文本撑开卡片。
@@ -42,6 +61,27 @@ document 卡只显示一个用户可读的类型名（文档、Markdown、PDF、
 
 会话纪元切换时追加一条 info notice（单个紧凑行）：说明被抹除的内容已从旧会话日志移除、对话已接续到新会话。`tone` 只是视觉提示，不是可见性开关：error/denial 用危险色，info 用中性色，任何非空 notice 文本都必须渲染；不得因 `tone=info` 把接续 notice 丢弃。notice 不得包含被抹除的文本或旧 session id；旧纪元中未命中的行仍按时间与新纪元拼接显示，墓碑行不显示。
 
+### 2026-11-14 用户确认的卡片展示修订
+
+本节覆盖上文冲突的旧视觉约束；不改变顶部头像/活动行，顶部新方案另行评审。
+以 `docs/previews/bot-cards-compare.html` 第 07 版为视觉参考，不使用 Tono 设计规范。
+选择/建议使用蓝色、文档紫色、任务绿色、授权琥珀色，保留深浅色与减少动态支持；
+图标固定等比，不因文本和窄屏挤压。现有 86% 最大内容宽度、44pt 命中区和结算语义保留。
+question/steps 的「建议」标签统一放右侧箭头前；steps 仅显示简短动作选项，省略
+prompt/help/description 的重复解释；question 的真实问题/帮助与拒绝选项仍保留。
+生成端遵守 cards.md §2 的非动作过滤，不能仅在 UI 藏掉已分配 ID 的选项。
+
+PDF、Markdown、HTML、TXT 等可预览文档统一使用标题、真实摘要、默认可见的有限正文/
+目录预览及底部文件名/格式入口；点击整卡走既有预览动作。没有提取结果时显示真实
+「暂无内容预览」占位，不能生成假正文/目录；文件访问边界、MIME/路径校验、打开能力
+与失败反馈保持原实现。不新增 wire 字段，不承诺新增格式解析器已存在。
+
+审批按钮顺序为「允许一次」「始终允许」「拒绝」，只有「始终允许」为高亮。
+`decision` 仍为 once/always/deny 的原枚举，不扩大授权范围：`alwaysScope=until`
+说明对同一既有授权范围持续有效；`session` 明示仅本次对话有效（按钮可统一文案，
+回执仍逐字区分本次对话）；`none` 不显示「始终允许」（不留一个永远点不了的灰按钮），按钮为「允许」「拒绝」，
+并说明每次都会先问，不绕过宿主限制。
+
 ## 3. 卡片清单
 
 P0 第一版必须实现：question、steps（含 recommended）、task、attachment、document、progress（cardKey 就地更新）、checklist、link、approval、automation routine 运行卡、agent-comm（Bot 间通讯）行、error/denial/info notice（解析与 fail-closed 规则保留；error/denial 不进入 Bot 消息流，error 转为头部状态行；会话纪元 info notice 仍按下文规则渲染）。
@@ -52,9 +92,9 @@ agent-comm 行与 `bot-drawer.md` §5 及 `spec/bot/v1/README.md` §1.1 使用�
 
 question/steps 选项为整行可点并支持 recommended，提交时只使用宿主写入卡片的 `optionID`；**没有“其他”选项、卡内输入框或自定义答案提交控件**。仅 question 支持关闭：关闭写 durable `card.dismissed`，不产生模型可见回合，宿主在下一次用户回合开头以 held 项告知模型视为不回答；关闭动作被接受后卡片收起为一行「已关闭」，动作失败则保留完整卡片可重试。steps 不提供关闭按钮，`cardDismiss` 对 steps 返回 rejected。用户需要自由回答时直接在 composer 输入，作为普通 `chat` 消息，而不是 `cardAnswer.customText`。审批为拒绝/允许一次/总是允许三选项加 alwaysScope（`alwaysScope=session` 时按钮与回执显示「本次对话都允许」，`until` 时显示「总是允许」），拒绝使用中性文字按钮，禁止把否定语义染红；决定后的卡片回执必须与用户按下的按钮一一对应（「已允许一次」/「本次对话都允许」/「已总是允许」），不能把会话授权显示成一次性允许。checklist 本地勾选和回传行为沿上游；link 仅打开 HTTP/HTTPS 且经系统安全外部打开策略。
 
-需要交互的四类卡片——question、steps、approval、带「把勾选结果发给 Bot」的 checklist——在以下任一情况发生后，从完整卡片收起为一行灰色摘要（id `bot.card.settled`：无卡片底、无描边、无按钮；12pt 语义色图标 + 13pt medium 次要色主文字 + 「 · 说明」13pt 三级色，单行尾部省略，最小高 28、左右 4）：用户操作被接受；宿主写回 answered 或已决定；发送勾选结果被接受；卡片位于最后一条用户文字之前且用户未操作（被下一条消息略过）。动作进行中（`.pending`，沿用现有 loading）和动作失败（`.failed`）保持完整卡片；失败后可重试。收起使用 0.25s easeInOut 动画，reduce motion 时不做动画。文案逐字为：question/steps 已选择「已选择：<选项 label>」，拿不到 label 时「已送出」，说明用卡片的问题或 prompt，steps 没有 prompt 时说明「建议下一步」；question/steps 被略过「已略过」，说明同上；question 被关闭「已关闭」；approval 保持已决定行，被下一条消息自动拒绝的为「已略过，视为拒绝」；checklist 已发送「已发送勾选结果」、说明「<标题> · 已完成 x/y」，被略过「已略过」、说明相同。收起动画结束后若卡片收起集合变化，消息流再滚到底一次，避免内容变短后底部留白。
+需要交互的四类卡片——question、steps、approval、带「把勾选结果发给 Bot」的 checklist——在以下任一情况发生后，从完整卡片收起为一行灰色摘要（id `bot.card.settled`：无卡片底、无描边、无按钮；12pt 语义色图标 + 13pt medium 次要色主文字 + 「 · 说明」13pt 三级色，单行尾部省略，最小高 28、左右 4）：用户操作被接受；宿主写回 answered、superseded 或已决定；发送勾选结果被接受；**checklist** 位于最后一条用户文字之前且用户未操作（被下一条消息略过）——question/steps 不再使用这条本地规则，其过期只由宿主的 durable `status:"superseded"` 决定。动作进行中（`.pending`，沿用现有 loading，选项行显示 spinner + 「正在送出…」，并立即插入 `local-<nonce>` 选择回显）和动作失败（`.failed`）保持完整卡片；失败后可重试，回显回滚。收起使用 0.25s easeInOut 动画，reduce motion 时不做动画。文案逐字为：question/steps 已选择「已选择：<选项 label>」，拿不到 label 时「已送出」，说明用卡片的问题或 prompt，steps 没有 prompt 时说明「建议下一步」；question/steps 被更新的提问卡取代「已过期，用最新那张」，说明同上；被本地或 durable 关闭「已关闭」；planner 拒绝（`card_expired`/`already_answered`/`answer_in_flight`/`card_dismissed`/`unknown_card`/`unknown_option`）在卡片上显示对应人话（「这张卡片已经过期，用最新那张」「已经选过了」「正在送出，稍等」「这张卡片已经关闭」「这张卡片已失效」），不写入 `runtimeNotice`；approval 保持已决定行；不再有「发消息自动拒绝」的收起态，待决定审批保持完整卡片；checklist 已发送「已发送勾选结果」、说明「<标题> · 已完成 x/y」，被略过「已略过」、说明相同。收起动画结束后若卡片收起集合变化，消息流再滚到底一次，避免内容变短后底部留白。
 
-审批仍待决定时用户发送下一条消息（`BotChatModel.send`）视为拒绝：对每张仍待决定的审批走现有 `decide(row:decision:.deny)` 路径，不新增协议字段或动作；拒绝动作在同一个 Task 中先于聊天 action 发出，本地 `actionStates` 已标 `.pending` 或 `.accepted` 的审批立即不再计入 `pendingApprovalCount`，头部随即离开「等你确认」。卡片是否收起统一由 `BotChatModel.settlement(for:)` 判断，`needsAttentionCount` 和「消息流跟随最新待处理卡」使用同一判断；`mutedCardIDs` 覆盖 question、steps 和 checklist。
+审批仍待决定时用户发送下一条消息**不自动拒绝**：待决定审批保持 `pending`，仍计入 `pendingApprovalCount` / `needsAttentionCount`，直到用户显式点选、宿主记录 durable 过期或被新事件取代；聊天发送与审批决定互不阻塞，连续发送仍可用。旧「发送即拒绝」路径与「已略过，视为拒绝」文案退役（PC-20261116-bot-approval-not-auto-denied）；卡片是否收起仍统一由 `BotChatModel.settlement(for:)` 判断，`mutedCardIDs` 只覆盖 checklist。
 
 所有卡片先验证 `body.type`、`cardType` 和必需数据。未登记或数据不足时不渲染，不用空白卡或猜测默认值补齐。
 
@@ -62,8 +102,16 @@ Task 卡在标题下显示独立验证结论（`body.verification`，P26 §2.8�
 
 ## 4. 最新基线的表现与接线
 
+**iOS 当前活动区域**以 [activity-evidence](../bot/ios/activity-evidence.md) 和
+[activity-ui-v2](../../../../docs/protocol-changes/PC-20261116-bot-activity-legibility-motion.md)
+为准：底部不可点击气泡、16pt 可缩放文字、正常 38pt 固定活动槽、轻量文字过渡；等待／回复
+只画三个点。下面旧的居中 `bot.activity.line`、13/18 与轮换条款为历史实现，不再描述当前
+iOS 聊天页。Android 不在本次改动范围。
+
 - Bot 色彩：用户气泡和推荐卡表面使用真实 Bot 色彩，但必须满足 phoneDSH 深浅色与对比度 token；不能把桌面任意色值直接用于正文或背景。推荐色不能掩盖文字层级或失败语义。
 - 状态行：头部头像胶囊正下方、水平居中只保留一条运行指示（id `bot.activity.line`），不带头像（动效由上方头部大肥鱼承担）；13/18 medium 次要色单行，左右各留 24pt，过长尾部省略，带从左到右的柔和高光（1.6s），文字不变时在 70%–100% 不透明度之间 1.4s 往返呼吸。状态行叠在消息流顶部、不占布局：下方垫一层页面底色到透明的渐变，消息流内容顶部常驻多留 14pt，所以状态行出现或消失时消息不移动。从点「发送」后（本地用户行已追加、host 尚未开始这一轮）起显示；这一轮开始（`runningTurnID` 被设置或 live 被创建）、发送失败、或附件导入后没有内容而移除本地行时结束等待，120s 内没有开始任何回合则自动隐藏；回合运行中（`runningTurnID != nil` 或 live 尚未结束且未被压住）持续显示，正文流式输出和待审批都不隐藏；用户停止或收到最终回复后状态行立即隐藏并一直压到 `turn/end`，已流出的文字保留到 durable 行接管，不随状态行一起清除，下一次发送或新回合开始时重新显示；整行不拦截触摸。文字按工具类别生成：`BotActivityPhrases` 把 Bot 可调用的 DSH 内置工具和 `mcp__phone__*` 工具映射到 `BotActivity.category`（thinking/reading/searching/browsing/running/writing/memory/messaging/reviewing/waiting/replying/generic）和一句中文动作短语，能带目标时只附人能读懂的目标（文件名、搜索词、网站域名、任务标题、Bot 名字、例行任务标题、设备显示名；沿用现有 target 42 字规则），格式为「 · 目标」；内部 ID（job/agent/task/routine/device/request 等）、安卓包名/权限和审批 `action` 不进入目标，没有人类可读值就不加目标；工具参数里有 `description`/`summary`/`label` 时优先显示模型写的这句——去首尾空白和句末标点，超过 20 个字符截断加「…」，类别仍按工具名判断。最后一个 `tool/call` 已有对应 `tool/result`、且之后没有新工具或流式输出时，类别为 reviewing、显示「看看结果」类短语（可带该工具目标），不再卡在上一条；`step/start` 后尚未出现新工具时回到 thinking；未知工具显示 generic 的「处理中」，不显示原始工具名；原始工具名只保留在 accessibility identifier，不进入可见文案；隐藏工具（`FishAction`）不产生状态行。待审批时类别固定为 waiting、文字固定「等你确认」且不轮换；正文正在流出（`pendingDelta`、`streamingText` 或尚未提交的 live buffer 非空）时类别为 replying，通用短语池为「正在回复…」「组织语言…」「写回复中…」，已提交成段的文字不算；waiting/replying 优先于工厂给出的活动，工厂没有活动时（刚发送、host 还没给事件）回退 thinking。子样式按类别选择 `BotFishWorkStyle`：reading、memory → `reading`；searching、browsing → `searching`；running → `running`；writing → `writing`；thinking、reviewing、messaging、waiting、replying、generic → `generic`；它只在 `.lively` 且 lifecycle 为 working 时生效，不是新的 lifecycle 状态。每条活动至少显示 800ms，期间到来的新活动只保留最新一条（latest-wins），到时再切换；只有 thinking/reviewing/generic/replying 且没有模型 description 时才按 2.4s 轮换该类别的通用短语（waiting 固定一句不轮换），每次进入新活动随机起点；具体工具短语和模型 description 不轮换。同一活动持续超过 60s，在末尾追加「 · N 分钟」，按分钟刷新。文字变化时旧文字上移 8pt 淡出、新文字从下方 8pt 上移淡入，同时带 2pt 模糊过渡，使用 spring(response 0.42, damping 0.9)，新旧文字在同一居中框内，宽度变化不左右跳；整行出现/消失为淡入淡出加 6pt 上下位移，0.25s；reduce motion 时以上动画全部关闭。状态来自当前 turn 的实时事件与 `BotRuntimePresentationFactory`/`BotFishDirector`；子样式只映射活动类别，不另写 lifecycle 状态映射，也不生成消息行。
+- 「需要登录」提示：当前选中的模型服务是 Tono 云端（`https://pdsh.tonoai.cn`），Tono 账号已退出、且这个服务没有保存密钥时，消息流与活动气泡带之间显示一张提示卡（id `bot.signin.banner`）：标题按账号状态为「还没登录 Tono 账号，消息发不出去」「Tono 账号已退出，消息暂时发不出去」（会话被服务端结束）或「Tono 账号需要重新验证，消息暂时发不出去」（满 180 天），右侧「去登录」（id `bot.signin.open`）以 sheet 打开 Tono 账号页。登录成功、保存了密钥或换成别的模型服务后提示立即消失；账号状态未知时（启动时）不显示。已登录但续期失败只能在发请求时得知，不在这里提示。它不拦截发送，也不替代回合失败的消息行（文案见 [projection.md §4.8](../../../bot/v1/projection.md)）。
+- 小智固件进度条（仅 DEBUG，仅绑定 `xiaozhi:` 键的设备 Bot）：消息流与活动气泡带之间的一张进度卡（id `bot.xiaozhi.progress`），显示手机上的编译进度和小智下载/安装固件的进度，规则见 [xiaozhi-firmware.md §9](../../../device/v1/xiaozhi-firmware.md)；没有进行中或刚结束的编译/刷入时不占位；其他 Bot 的页面不变。它不是工具行，也不是状态行。
 - Bot 消息流只显示用户消息、Agent 文字回答、卡片与审批行、agent-comm 行；空白或只有换行的回复片段不渲染气泡（避免开头一闪的空气泡）；不显示工具行、思考行或回合过程行，运行进度只通过 `bot.activity.line` 表达，回合结束后也不保留可展开的过程行。输入区（composerDock）高度变化时消息流滚到最新，状态行出现或消失不触发滚动；发送后等本地回显布局完成、经同一个合并滚动入口再滚一次，卡片收起为灰色摘要后的补滚也走该入口，保证最新内容不被输入框挤到下面；用户已离开尾部时以上自动滚动不抢回位置。
 - 输入区：Grok 式白色胶囊，最小高 52、圆角 26、细描边 + 浮动阴影；左右内边距各 8，左侧 36pt 圆形「+」、中间输入框、右侧 36pt 圆形发送/停止，三者在单行时垂直居中，多行增长时「+」与按钮贴底 8pt。占位「向 {name} 提问」，多行增长上限约 5 行。右侧按钮按状态切换但发送 id 不变：
   - 空闲且有文字 → 黑底白色 `arrow.up` 发送（id `bot.composer.send`）；空闲无文字 → 同一位置置灰禁用；
@@ -78,7 +126,7 @@ Task 卡在标题下显示独立验证结论（`body.verification`，P26 §2.8�
 
 ## 5. 验收
 
-每种 P0 卡片在浅色和深色模拟器截图，逐项对照上游内容模型、空状态、超限、按钮层级和交互。覆盖窄屏、长标题、动态字体、44pt 命中区、卡片关闭/选择、重复点击、迟到结果和 progress 同 key 更新。交互卡片的收起另需在浅色和深色验证：已选择、已略过、已关闭、审批已决定/发消息自动拒绝、勾选已发送；确认收起后只有一行摘要且没有按钮，并确认 reduce motion 下无动画。另需覆盖真实鱼头像的 idle/working/alerting/celebrate/sad、活动行显隐和推荐色对比度。模拟器结果不得写成真机结果。
+每种 P0 卡片在浅色和深色模拟器截图，逐项对照上游内容模型、空状态、超限、按钮层级和交互。覆盖窄屏、长标题、动态字体、44pt 命中区、卡片关闭/选择、重复点击、迟到结果和 progress 同 key 更新。交互卡片的收起另需在浅色和深色验证：已选择、已略过、已关闭、审批已决定、勾选已发送；确认收起后只有一行摘要且没有按钮，并确认 reduce motion 下无动画。另需覆盖真实鱼头像的 idle/working/alerting/celebrate/sad、活动行显隐和推荐色对比度。模拟器结果不得写成真机结果。
 
 ## 6. Grok 式改版结构与 id
 

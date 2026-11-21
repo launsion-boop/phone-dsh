@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+import CoreGraphics
 import Foundation
 import PhoneDSHAgentCore
 import PhoneDSHBot
@@ -394,6 +395,22 @@ enum BotActivityPhrases {
     }
 }
 
+/// The one sweeping glint shared by every activity surface: −1 → 1 every 1.6 s,
+/// so the 40–60% band crosses the words once per period. It lives beside the
+/// timing machine (and not in a view file) so the pure phase can be checked by
+/// the logic-only test targets; `BotActivityShimmerText` applies it to a mask
+/// offset only, never to layout.
+enum BotActivitySweep {
+    static let period: TimeInterval = 1.6
+
+    static func phase(at date: Date = Date()) -> CGFloat {
+        let seconds = date.timeIntervalSinceReferenceDate
+        let remainder = seconds.truncatingRemainder(dividingBy: period)
+        let fraction = remainder < 0 ? remainder / period + 1 : remainder / period
+        return CGFloat(fraction * 2 - 1)
+    }
+}
+
 /// Timing/selection machine for the one activity line. Each displayed
 /// activity is visible for at least 800 ms; newer activities replace each
 /// other only as the latest one, and switch when that window closes. Only
@@ -425,6 +442,7 @@ struct BotActivityLineState: Equatable {
     /// (turn end); a different activity arriving inside the 800 ms window is
     /// remembered as the latest pending one.
     mutating func receive(_ next: BotActivity?, at now: Int64,
+                          immediately: Bool = false,
                           randomStart: (Int) -> Int = { count in
                               count <= 1 ? 0 : Int.random(in: 0..<count)
                           }) {
@@ -445,7 +463,7 @@ struct BotActivityLineState: Equatable {
             refresh(at: now)
             return
         }
-        if activity == nil || now - displayedAt >= Self.minimumVisibleMillis {
+        if immediately || activity == nil || now - displayedAt >= Self.minimumVisibleMillis {
             show(next, at: now, startIndex: Self.startIndex(for: next, randomStart: randomStart))
         } else {
             pending = next

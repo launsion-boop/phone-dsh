@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "status": "parked",
+  "note": "A04 delivery selection / suggested attachment are not installed by the original-scope host; kept for a future implementation. Not read by the current validator.",
+  "suggestion": {
+    "valid": [
+      {
+        "suggestion_id": "sug:1",
+        "draft_id": "draft-1",
+        "revision": 3,
+        "artifact_kind": "delivery",
+        "resource": {
+          "id": "r1",
+          "name": "纪要.md",
+          "state": "current",
+          "source": {
+            "ref": "record://event/7",
+            "trust": "observation",
+            "state": "current"
+          },
+          "reason": "上周同一项目的最新纪要"
+        },
+        "parameters": [
+          {
+            "label": "收件人",
+            "value": "张三"
+          },
+          {
+            "label": "主题",
+            "value": "周报"
+          }
+        ],
+        "selected": true,
+        "created_at_ms": 1760000000000,
+        "updated_at_ms": 1760000001000,
+        "approval_digest": "sha256:34bb49134465e38e88ba891e590e0fa01692431bbb559fae031274fa97c1f856"
+      },
+      {
+        "suggestion_id": "sug:2",
+        "draft_id": "draft-1",
+        "revision": 3,
+        "artifact_kind": "draft",
+        "resource": {
+          "id": "r2",
+          "name": "报价.pdf",
+          "state": "changed",
+          "source": {
+            "ref": "record://session/gb-main#7",
+            "trust": "observation",
+            "state": "changed",
+            "reason": "source-changed"
+          }
+        },
+        "selected": false,
+        "created_at_ms": 1760000000000,
+        "updated_at_ms": 1760000001000,
+        "approval_digest": "sha256:15d7fa5e62fbfa70f98507dcbffc924fbcfbefb750627738f0f552f7485aab22"
+      },
+      {
+        "suggestion_id": "sug:3",
+        "draft_id": "draft-1",
+        "revision": 4,
+        "artifact_kind": "delivery",
+        "resource": {
+          "id": "r3",
+          "name": "历史纪要.md",
+          "state": "changed",
+          "source": {
+            "ref": "record://event/7",
+            "trust": "observation",
+            "state": "changed",
+            "reason": "source-changed"
+          }
+        },
+        "selected": true,
+        "created_at_ms": 1760000000000,
+        "updated_at_ms": 1760000001000,
+        "approval_digest": "sha256:95444fa1e2c08752158d7485b6ba8956fbe36dc1e0cdb0b1f3c110e1f47bd954"
+      }
+    ],
+    "invalid": [
+      {
+        "name": "digest-mismatch",
+        "instance": {
+          "suggestion_id": "sug:1",
+          "draft_id": "draft-1",
+          "revision": 3,
+          "artifact_kind": "delivery",
+          "resource": {
+            "id": "r1",
+            "name": "纪要.md",
+            "state": "current",
+            "source": {
+              "ref": "record://event/7",
+              "trust": "observation",
+              "state": "current"
+            },
+            "reason": "上周同一项目的最新纪要"
+          },
+          "parameters": [
+            {
+              "label": "收件人",
+              "value": "张三"
+            },
+            {
+              "label": "主题",
+              "value": "周报"
+            }
+          ],
+          "selected": true,
+          "created_at_ms": 1760000000000,
+          "updated_at_ms": 1760000001000,
+          "approval_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      {
+        "name": "selected-erased",
+        "instance": {
+          "suggestion_id": "sug:1",
+          "draft_id": "draft-1",
+          "revision": 3,
+          "artifact_kind": "delivery",
+          "resource": {
+            "id": "r4",
+            "name": "纪要.md",
+            "state": "erased",
+            "source": {
+              "ref": "record://event/7",
+              "trust": "observation",
+              "state": "erased",
+              "reason": "record-erased"
+            },
+            "reason": "上周同一项目的最新纪要"
+          },
+          "parameters": [
+            {
+              "label": "收件人",
+              "value": "张三"
+            },
+            {
+              "label": "主题",
+              "value": "周报"
+            }
+          ],
+          "selected": true,
+          "created_at_ms": 1760000000000,
+          "updated_at_ms": 1760000001000,
+          "approval_digest": "sha256:34bb49134465e38e88ba891e590e0fa01692431bbb559fae031274fa97c1f856"
+        }
+      }
+    ]
+  },
+  "user_actions": {
+    "valid": [
+      {
+        "nonce": "n-ua-1",
+        "botID": "bot-a",
+        "kind": "deliverySelection",
+        "rowID": "row-1",
+        "draftID": "draft-1",
+        "expectedRevision": 3,
+        "selectedResourceIDs": [
+          "r1",
+          "r3"
+        ]
+      }
+    ],
+    "invalid": [
+      {
+        "name": "duplicate-resource",
+        "instance": {
+          "nonce": "n",
+          "botID": "b",
+          "kind": "deliverySelection",
+          "rowID": "r",
+          "draftID": "d",
+          "expectedRevision": 1,
+          "selectedResourceIDs": [
+            "r1",
+            "r1"
+          ]
+        }
+      }
+    ]
+  }
+}

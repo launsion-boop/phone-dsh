@@ -1,0 +1,140 @@
+{
+  "auto_decisions" : [
+
+  ],
+  "budget" : {
+    "max_minutes" : 15,
+    "max_model_requests" : 40
+  },
+  "expect" : "pass",
+  "expectation_met" : true,
+  "finished_at" : "2026-11-17T06:15:47Z",
+  "id" : "AHA-DISCOVER",
+  "keep_bodies" : true,
+  "model" : {
+    "base_url_host" : "api.deepseek.com",
+    "name" : "deepseek-flash",
+    "real" : true
+  },
+  "repeat" : 1,
+  "repeats" : [
+    {
+      "actions" : [
+        {
+          "bot" : "main",
+          "detail" : "allow_once",
+          "index" : 0,
+          "replies" : [
+
+          ],
+          "status" : "ok",
+          "type" : "approval_policy",
+          "wall_ms" : 0
+        },
+        {
+          "bot" : "main",
+          "index" : 1,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 139,
+              "turn" : 1
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 20053
+        },
+        {
+          "bot" : "main",
+          "index" : 2,
+          "replies" : [
+            {
+              "bot" : "main",
+              "chars" : 144,
+              "turn" : 2
+            }
+          ],
+          "status" : "ok",
+          "type" : "user_message",
+          "wall_ms" : 19194
+        }
+      ],
+      "approval_requests" : {
+
+      },
+      "assertions" : [
+        {
+          "bot" : "main",
+          "detail" : "file exists: reports\/weekly.md",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "file_exists"
+        },
+        {
+          "bot" : "main",
+          "detail" : "file reports\/weekly.md matches \"(?m)^OWNER: 林$\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "file_regex"
+        },
+        {
+          "bot" : "main",
+          "detail" : "file reports\/weekly.md matches \"(?m)^#{1,6}[[:space:]]*.*风险\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "file_regex"
+        },
+        {
+          "bot" : "main",
+          "detail" : "reply does not contain \"OLD_GUIDE_9C1\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "reply_not_contains"
+        },
+        {
+          "bot" : "main",
+          "detail" : "reply does not contain \"周报-{\"",
+          "expect_ok" : true,
+          "ok" : true,
+          "type" : "reply_not_contains"
+        }
+      ],
+      "auto_decisions" : [
+
+      ],
+      "index" : 1,
+      "page_visibility" : {
+        "attached_with_visible_area" : true,
+        "document_visibility_state" : "visible",
+        "is_visible" : true,
+        "window_occlusion_visible" : true
+      },
+      "status" : "PASS",
+      "usage" : {
+        "max_minutes" : 15,
+        "max_model_requests" : 40,
+        "model_requests" : 13,
+        "recorded_model_requests" : 13,
+        "upstream_bytes_in" : 1360078,
+        "upstream_bytes_out" : 542358,
+        "upstream_requests" : 13,
+        "wall_s" : 44.860098958015442
+      },
+      "wall_s" : 44.860098958015442
+    }
+  ],
+  "run_status" : "PASS",
+  "schema_version" : 1,
+  "selftest" : false,
+  "started_at" : "2026-11-17T06:15:02Z",
+  "status" : "PASS",
+  "title" : "discover the current guideline instead of the archived one",
+  "upstream" : "real",
+  "usage" : {
+    "model_requests" : 13,
+    "upstream_bytes_in" : 1360078,
+    "upstream_bytes_out" : 542358,
+    "wall_s" : 44.860098958015442
+  }
+}

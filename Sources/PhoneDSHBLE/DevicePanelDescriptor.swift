@@ -217,7 +217,7 @@ private func devicePanelAdvertisedTools(_ tools: [JSONValue]) -> [String: JSONVa
 /// the §2 editor table.
 private func devicePanelPresetPropertySupported(_ property: JSONValue) -> Bool {
     guard case .object(let shape) = property,
-          Set(shape.keys).isSubset(of: Set(["type", "enum", "minimum", "maximum"])),
+          Set(shape.keys).isSubset(of: Set(["type", "enum", "minimum", "maximum", "title"])),
           case .string(let kind)? = shape["type"],
           ["boolean", "integer", "number", "string", "object"].contains(kind) else { return false }
     if let enumValue = shape["enum"] {

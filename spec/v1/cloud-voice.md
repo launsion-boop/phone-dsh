@@ -65,8 +65,21 @@ the newly resolved value differs. Every other status is reported as the turn's f
 
 ## 4. The turn
 
-The recognised text is sent as an ordinary user message to the current chat, through the same path
-as the composer. Right after recognition the phone says a short acknowledgement (「好的，马上处理」, synthesized
-once and kept in memory like 「我在」) so the user knows the command was understood; the reply is
-queued behind it. What is spoken back is the last assistant text of that chat turn. A turn that is
-still running in the chat when a new wake arrives keeps running; only its speech is stopped.
+For iOS TonoLink, the native consumer snapshots the existing local DSH session and allocates
+one request ID at wake, before recognition/unlock waits. Recognised non-volume text enters that
+session's durable SendOutbox through the same local admission path as the composer. Work that
+executes speaks only its answer. Only when admitted text cannot execute now (deferred, or no engine
+within the admission bound) does the phone say a short acknowledgement after durable enqueue
+(「已经记下了，打开手机后继续处理」, synthesized once and kept in memory like 「我在」); it confirms
+saved work, not execution. Missing targets
+or unavailable protected storage produce no acceptance; the phone says a short failure instead
+(「这条没有保存，请在手机上重试」 / 「请先在手机上打开一个对话」), never silence. A locked phone
+whose outbox is writable admits the text and defers it until the phone is unlocked. While the board's keep-alive holds the
+process resident, admitted text executes in the background; otherwise it waits for foreground.
+
+The spoken reply requires the exact authoritative user request, its observed turn and a completed
+terminal event; only settled assistant text of that turn is eligible. Another session's reply,
+a text match or a global running flag is not sufficient. A new wake stops old recognition/speech,
+but an already admitted task remains queued/running. See
+[voice admission and playback](../device/v1/tonolink-board.md#411-ios-voice-admission-and-playback).
+Cloud request/response formats and audio handling in §§1–3 are unchanged.

@@ -8,10 +8,10 @@
 `golden/drawer-gesture.golden.json`；`ui_check.py` 規則 12 從 token 值重算每個案例，golden 與 tokens 漂移即失敗。
 
 1. 打開只由導航鈕觸發（任務頁、Bot 頁、PC 佔位頁的抽屜鈕）；**沒有**邊緣右滑打開。已打開時再觸發不做任何事。打開前收起鍵盤。
-2. 拖動只跟隨向左：`offset = min(0, dx)`，向左不設下限（與 iOS `NativeShell.swift:415` 一致）。
+2. 拖動只跟隨向左：`offset = min(0, dx)`，向左不設下限（與 iOS `NativeShell.swift:422` 一致）。
 3. 只有 `|dx| > |dy|` 的移動才跟手（抽屜內上下滑列表不能帶走抽屜）；拖動距離（歐氏）未達 `dragMinimumDistance` 不算拖動。
 4. 拖動同時在遮罩和面板上生效。
-5. 進度 `progress = max(0, 1 + offset / width)`（打開時，`NativeShell.swift:392`），遮罩不透明度 = `scrimMaxOpacity × progress`。
+5. 進度 `progress = max(0, 1 + offset / width)`（打開時，`NativeShell.swift:399`），遮罩不透明度 = `scrimMaxOpacity × progress`。
 6. 鬆手：`dx < −closeThreshold × width` **或** `dx + velocity × velocityProjection < −closeThreshold × width` → 以 `closeMotion` 收起；
    否則以 `settleMotion` 回到 0。比較為嚴格小於。`dx` 是鬆手時的原始橫向位移（不經 `min(0, …)`），velocity 單位 pt/s（Android dp/s）。
 7. 點遮罩收起（`closeMotion`）。
@@ -51,11 +51,11 @@
    `.homeSheetChrome()` 為出處，且同一 `.sheet` body 內沒有 `.presentationDetents`；其他列必須以 `.presentationDetents(` 為出處。
    未列出的 sheet 一律 `default`。
 3. `.medium` 的螢幕佔比由系統決定（`mediumFraction`，`needsDeviceMeasure: true`）；不得寫死高度或比例。
-4. grabber：`homeSheetChrome()`（`HomeSpec.swift:213`）與 ConnectorsPage（`ConnectorsPage.swift:105`）可見；
+4. grabber：`homeSheetChrome()`（`HomeSpec.swift:213`）與 ConnectorsPage（`ConnectorsPage.swift:107`）可見；
    子代理目錄顯式隱藏（`NativeSubagentCatalogSheet.swift:434`）；其餘跟系統默認（隱藏）。
-5. 背景：`homeSheetChrome()` 與 ConnectorsPage 用 `colors.page`（`HomeSpec.swift:214`、`ConnectorsPage.swift:106`）；
+5. 背景：`homeSheetChrome()` 與 ConnectorsPage 用 `colors.page`（`HomeSpec.swift:214`、`ConnectorsPage.swift:108`）；
    子代理目錄用 `Color.clear`（`NativeSubagentCatalogSheet.swift:435`）；其餘系統默認。
-6. 圓角：ConnectorsPage 32（`ConnectorsPage.swift:107`）；子代理目錄 16（`NativeParityTokens.swift:114` 的 `radiusLG`）；
+6. 圓角：ConnectorsPage 32（`ConnectorsPage.swift:109`）；子代理目錄 16（`NativeParityTokens.swift:114` 的 `radiusLG`）；
    其餘系統默認，源碼不可讀，標 `needsDeviceMeasure: true`，不得猜。
 7. 彈出與收起動效由系統提供（`presentMotion` / `dismissMotion`，`needsDeviceMeasure: true`）；源碼沒有自訂 transition。
    Android 用平台 bottom sheet 動效，不自創時長；曲線與時長待真機量測。
@@ -67,16 +67,16 @@
 
 | 鍵 | 值 | 出處 |
 |---|---|---|
-| `defaultDetents` | `default`（系統默認 large） | `ChatPage.swift:496` |
+| `defaultDetents` | `default`（系統默認 large） | `ChatPage.swift:558` |
 | `mediumFraction` | 系統比例，`needsDeviceMeasure` | 系統 API，源碼不可讀 |
 | `detentSets` | `default` / `medium` / `medium+large` / `large` 四組 | 四個站點，見 tokens |
 | `pageDetents` | 20 個頁面 id：13 個顯式 detent 頁面 + 7 個 default `homeSheetChrome()` 頁面 → detent 組 | 13 個 `.presentationDetents` 站點 |
 | `grabberVisible` / `grabberHidden` | 可見 / 隱藏 | `HomeSpec.swift:213` / `NativeSubagentCatalogSheet.swift:434` |
 | `background` / `backgroundClear` | `colors.page` / `Color.clear` | `HomeSpec.swift:214` / `NativeSubagentCatalogSheet.swift:435` |
-| `cornerRadiusConnector` / `cornerRadiusCatalog` / `cornerRadiusDefault` | 32 / 16 / 系統 | `ConnectorsPage.swift:107` / `NativeParityTokens.swift:114` / 系統 |
+| `cornerRadiusConnector` / `cornerRadiusCatalog` / `cornerRadiusDefault` | 32 / 16 / 系統 | `ConnectorsPage.swift:109` / `NativeParityTokens.swift:114` / 系統 |
 | `presentMotion` / `dismissMotion` | 系統，`needsDeviceMeasure` | 系統 API |
 
-`chatSessions` 是 debug-only：只由 DEBUG 的 `PDSH_DEBUG_SHEET=sessions` 鉤子（`ChatPage.swift:805`）打開，產品沒有路由使用這個 id；Android 抽屜推送的 SessionsPage 不是這個 sheet。
+`chatSessions` 是 debug-only：只由 DEBUG 的 `PDSH_DEBUG_SHEET=sessions` 鉤子（`ChatPage.swift:905`）打開，產品沒有路由使用這個 id；Android 抽屜推送的 SessionsPage 不是這個 sheet。
 
 範圍外：sheet 內容、內部頁面結構、系統 share sheet 的內容（見 §3 `kind: share`）。
 
@@ -106,13 +106,13 @@
 | `drawerFolder` | `HomeDrawer.swift:467` | 在這裡新建會話；重命名（foldersEnabled）；刪除文件夾（destructive，foldersEnabled） |
 | `drawerSession` | `HomeDrawer.swift:567` | 編輯名稱；歸檔 |
 | `subagentRow` | `NativeSubagentCatalogSheet.swift:250` | 打開子會話（notExternal）；在側邊欄打開（hasAside） |
-| `userBubble` | `ChatPage.swift:4313` | 複製；分享（share，hasText） |
+| `userBubble` | `ChatPage.swift:4766` | 複製；分享（share，hasText） |
 | `assistantBody` | `ChatPage.swift:4325` | 複製全文（hasText） |
-| `disclosurePayload` | `ChatPage.swift:5132` | 複製事件數據 |
-| `botLink` | `BotWorkCardView.swift:224` | 打開鏈接；複製鏈接 |
-| `botRow` | `BotDrawer.swift:324` | 改名；外觀；設為主 Bot（notMainBot）；隱藏／取消隱藏；分隔線；刪除 Bot（destructive，notLastBot）或「這是最後一個 Bot，不能刪除。」（info，lastBot） |
-| `botMessageRow` | `BotChatPage.swift:802` | 複製；查看來源 |
-| `hostAddress` | `NativeShell.swift:636` | 刪除這個地址（destructive） |
+| `disclosurePayload` | `ChatPage.swift:5618` | 複製事件數據 |
+| `botLink` | `BotWorkCardView.swift:228` | 打開鏈接；複製鏈接 |
+| `botRow` | `BotDrawer.swift:341` | 改名；外觀；設為主 Bot（notMainBot）；隱藏／取消隱藏；分隔線；刪除 Bot（destructive，notLastBot）或「這是最後一個 Bot，不能刪除。」（info，lastBot） |
+| `botMessageRow` | `BotChatPage.swift:1260` | 複製；查看來源 |
+| `hostAddress` | `NativeShell.swift:643` | 刪除這個地址（destructive） |
 | `sessionsRow` | `SessionsPage.swift:612` | 重命名會話；歸檔會話 |
 
 ## 4. Push 與返回
@@ -120,10 +120,10 @@
 `tokens.json#interaction.push` 只放可從源碼與平台語意確定的常數；`golden/push-back.golden.json` 由它們重算 state 序列。
 本節直接對應 `README.md` §5 的 `back-gesture` 白名單條目：返回後頁面與棧深度相同，state 變更序列必須一致。
 
-1. 每個 tab 一個獨立 `NavigationStack`（`NativeShell.swift:249`，`stackScope: perTab`）；切 tab 不清空目標 tab 的棧。
+1. 每個 tab 一個獨立 `NavigationStack`（`NativeShell.swift:252`，`stackScope: perTab`）；切 tab 不清空目標 tab 的棧。
 2. 再點當前 tab 不做任何事（`HomeTabBar` 的 `guard tab != selection`），不得 pop-to-root。
 3. push 深度 +1，pop 深度 −1；深度 0 的返回退出應用（`rootBack: exit`，README §5）。
-4. tab bar 只在選中 tab 深度 0 且鍵盤收起時顯示（`NativeShell.swift:240`）；push 後隱藏（`NativeShell.swift:1218`），
+4. tab bar 只在選中 tab 深度 0 且鍵盤收起時顯示（`NativeShell.swift:243`）；push 後隱藏（`NativeShell.swift:1234`），
    pop 回根即恢復。Android 的 bottom bar 必須跟隨當前 tab 的深度，不得全域隱藏。
 5. 返回消費順序 `backOrder = sheet,drawer,stack,root`：先關 sheet，再按 §1 規則 9 收抽屜，再出棧，最後退出。
    一次返回只消費一層。
@@ -152,17 +152,17 @@
 5. 尺寸 36 pt 圓鈕（`geometry.sendButton`），點擊區域就是圓；`disabled` 時不得提交。
 6. 停止鍵與發送鍵不共享 transition：停止鍵出現/消失不動畫，發送鍵的 scale/opacity 只管自己。
 7. 無障礙標籤逐字照抄：發送鍵未運行時「发送消息」，運行中 steer 時「补充当前任务」、queue 時「排入下一轮」
-   （`sendButtonLabel`，`ChatPage.swift:3183-3186`）；停止鍵「停止执行」／正在停止時「正在停止」。
+   （`sendButtonLabel`，`ChatPage.swift:3614-3617`）；停止鍵「停止执行」／正在停止時「正在停止」。
 
 | 鍵 | 值 | 出處 |
 |---|---|---|
-| `motion` | `motion.composerSend`（120 ms easeOut） | `ChatPage.swift:2494` |
-| `transitionScale` | 0.8 | `ChatPage.swift:2493` |
-| `transitionOpacity` | 從 0（`.opacity`） | `ChatPage.swift:2493` |
+| `motion` | `motion.composerSend`（120 ms easeOut） | `ChatPage.swift:2920` |
+| `transitionScale` | 0.8 | `ChatPage.swift:2919` |
+| `transitionOpacity` | 從 0（`.opacity`） | `ChatPage.swift:2919` |
 | `buttonSize` | `geometry.sendButton`（36 pt） | `HomeSpec.swift:72` |
-| `enabledFill` / `enabledInk` | `colors.primaryButton` / `colors.primaryButtonInk` | `ChatPage.swift:2486-2488` |
-| `disabledFill` / `disabledInk` | `colors.userBubble` / `colors.iconMuted` | `ChatPage.swift:2486-2488` |
-| `disabledRule` / `stopRule` | `canSubmit` / `!canSubmit && model.turnRunning` | `ChatPage.swift:2492` / `2448` |
+| `enabledFill` / `enabledInk` | `colors.primaryButton` / `colors.primaryButtonInk` | `ChatPage.swift:2912-2914` |
+| `disabledFill` / `disabledInk` | `colors.userBubble` / `colors.iconMuted` | `ChatPage.swift:2912-2914` |
+| `disabledRule` / `stopRule` | `canSubmit` / `!canSubmit && model.turnRunning` | `ChatPage.swift:2918` / `2448` |
 
 ## 6. 按壓態
 
@@ -173,7 +173,7 @@
 3. 主操作鈕（`HomePrimaryButtonStyle`）：按下時整體 opacity 0.8；disabled 時底色 alpha 0.25。
 4. 按壓回饋用 `motion.pressed`（120 ms easeOut）；pressed 切換不改變版面尺寸。
 5. **不得縮放**：`scale` 固定 1.0。Android 不得加 scale、elevation 或 Material ripple；只畫上表規定的 overlay / fill。
-6. disabled 的元件不進 pressed 態。Bot 抽屜的 pill/列沿用同一組值（`BotDrawer.swift:814/826`），不另立數值。
+6. disabled 的元件不進 pressed 態。Bot 抽屜的 pill/列沿用同一組值（`BotDrawer.swift:916/826`），不另立數值。
 
 | 鍵 | 值 | 出處 |
 |---|---|---|

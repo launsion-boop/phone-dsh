@@ -12,6 +12,8 @@ struct PhonePermissionsPage: View {
     @State private var confirmation: PhoneCapability?
     @State private var disableNotice: PhoneCapability?
     @State private var audit: [PhoneCapabilityAuditRecord] = []
+    @State private var dshApprovals: [DSHApprovalGrant] = []
+    @State private var nextStepsUsage = BotNextStepsMetrics.snapshot()
     private let preview: Bool
     private let embedded: Bool
 
@@ -60,6 +62,8 @@ struct PhonePermissionsPage: View {
     private var permissionList: some View {
         List {
             capabilitySections
+            dshApprovalSection
+            nextStepsUsageSection
             auditSection
         }
         .homeGroupedList()
@@ -74,6 +78,64 @@ struct PhonePermissionsPage: View {
                         .listRowSeparatorTint(NativePagePalette.hairline)
                         .listRowBackground(NativePagePalette.page)
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var dshApprovalSection: some View {
+        Section("DSH 会话常用授权") {
+            if dshApprovals.isEmpty {
+                Text("暂无。只有在 DSH 会话里点过「总是允许」才会出现；24 小时后自动失效。")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .listRowBackground(NativePagePalette.page)
+            } else {
+                ForEach(dshApprovals) { grant in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(grant.scope)
+                            .font(.system(.subheadline, design: .monospaced))
+                        Text("会话 \(String(grant.sessionID.prefix(28)))")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Text(grant.decidedAt, style: .relative)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    .listRowBackground(NativePagePalette.page)
+                }
+                Button("清空 DSH 常用授权", role: .destructive) {
+                    DSHApprovalMemory.clearAll()
+                    dshApprovals = []
+                }
+                .listRowBackground(NativePagePalette.page)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var nextStepsUsageSection: some View {
+        Section("建议卡使用（本地）") {
+            if nextStepsUsage.turnsWithOptions == 0 {
+                Text("还没有足够的数据。此统计只留在本机，不上传。")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .listRowBackground(NativePagePalette.page)
+            } else {
+                Text("含 2–4 个下一步的回合：\(nextStepsUsage.turnsWithOptions)")
+                    .listRowBackground(NativePagePalette.page)
+                Text("其中出现建议卡：\(nextStepsUsage.turnsWithStepsCard)")
+                    .listRowBackground(NativePagePalette.page)
+                Text("使用率：\(Int((nextStepsUsage.usageRate * 100).rounded()))%")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(nextStepsUsage.usageRate >= 0.9
+                                     ? NativePagePalette.accent : NativePagePalette.warning)
+                    .listRowBackground(NativePagePalette.page)
+                Button("清空本地统计", role: .destructive) {
+                    BotNextStepsMetrics.clear()
+                    nextStepsUsage = BotNextStepsMetrics.snapshot()
+                }
+                .listRowBackground(NativePagePalette.page)
             }
         }
     }
@@ -233,6 +295,8 @@ struct PhonePermissionsPage: View {
         }
         await requester.refresh()
         await loadAudit()
+        dshApprovals = DSHApprovalMemory.activeGrants()
+        nextStepsUsage = BotNextStepsMetrics.snapshot()
     }
 
     private func loadAudit() async {

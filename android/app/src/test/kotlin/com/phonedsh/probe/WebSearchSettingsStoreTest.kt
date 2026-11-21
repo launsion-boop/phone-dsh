@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // `spec/v1/gateway-independent-search.md` §3 and §5: the document, the separate
-// key account, "a changed address deletes the key", "no key without an address",
+// key account, protection for an existing key, and no key without an address,
 // the Worker variables published only for a complete setup, and independent mode
 // replacing the official grant without a fallback. The base rules themselves are
 // judged by the shared cases in `:net`'s `IndependentSearchWebToolsTest`; here the
@@ -38,10 +38,12 @@ class WebSearchSettingsStoreTest {
         override val level: SecurityLevel = SecurityLevel.SOFTWARE
         val values = mutableMapOf<String, ByteArray>()
         var failDelete: Boolean = false
+        var failRead: Boolean = false
 
         override suspend fun put(key: String, value: ByteArray) { values[key] = value.copyOf() }
         override suspend fun get(key: String): SecureLookup =
-            values[key]?.let { SecureLookup.Found(it.copyOf()) } ?: SecureLookup.Absent
+            if (failRead) SecureLookup.Unreadable("fixture")
+            else values[key]?.let { SecureLookup.Found(it.copyOf()) } ?: SecureLookup.Absent
         override suspend fun delete(key: String) {
             if (failDelete) throw IllegalStateException("fixture delete failure")
             values.remove(key)
@@ -57,7 +59,7 @@ class WebSearchSettingsStoreTest {
     private fun configured(): WebSearchSettingsStore {
         assertTrue(store.setMode(WebSearchSettingsMode.SEARCH_API).changed)
         assertTrue(store.commitAddress(base).changed)
-        assertTrue(store.commitKey(searchKey).changed)
+        assertTrue(store.commitKey(searchKey, base).changed)
         return store
     }
 
@@ -69,6 +71,34 @@ class WebSearchSettingsStoreTest {
         return (root["bases"] as JsonArray).values.map { value ->
             val row = value as JsonObject
             (row["input"] as JsonString).value to (row["canonical"] as? JsonString)?.value
+        }
+    }
+
+    @Test
+    fun sharedAddressLifecycleCasesRunThroughTheRealStore() {
+        val root = requireNotNull(System.getProperty("pdsh.repo.root"))
+        val fixture = JsonValue.parse(File(root, "spec/ui/v1/fixtures/web-search-address-lifecycle.json").readText()) as JsonObject
+        for (item in (fixture["cases"] as JsonArray).values) {
+            val row = item as JsonObject
+            fun text(key: String) = (row[key] as JsonString).value
+            val localSecure = MapSecureStore()
+            val localKeys = ApiKeyStore(localSecure)
+            val localStore = WebSearchSettingsStore(directory.resolve(text("id") + ".json").toFile(), localKeys, log = {})
+            val prior = text("storedBase")
+            if (prior.isNotEmpty()) assertTrue(localStore.commitAddress(prior).changed)
+            if (text("credential") != "absent" && prior.isNotEmpty()) assertTrue(localStore.commitKey(searchKey, prior).changed)
+            if (text("credential") == "unreadable") localSecure.failRead = true
+            val result = if (text("operation") == "key-save") {
+                localStore.commitKey(searchKey, text("submitted"))
+            } else localStore.commitAddress(text("submitted"))
+            assertEquals(text("id"), text("result") == "saved", result.changed)
+            if (text("result") == "rejected") assertTrue(text("id"), !result.message.isNullOrBlank())
+            localSecure.failRead = false
+            val read = localStore.read()
+            val finalBase = (read as? WebSearchSettingsRead.Stored)?.settings?.baseUrl.orEmpty()
+            assertEquals(text("id"), text("finalBase"), finalBase)
+            if (text("credential") != "absent" && prior.isNotEmpty()) assertEquals(text("id"), searchKey, localStore.readKey())
+            if (text("id") == "stale-key-save-refused") assertEquals(text("id"), ApiKeyState.Absent, localStore.keyState())
         }
     }
 
@@ -114,19 +144,19 @@ class WebSearchSettingsStoreTest {
     @Test
     fun aKeyNeedsAStoredAddress() {
         store.setMode(WebSearchSettingsMode.SEARCH_API)
-        val result = store.commitKey(searchKey)
+        val result = store.commitKey(searchKey, base)
         assertFalse(result.changed)
         assertEquals(ApiKeyState.Absent, store.keyState())
     }
 
     @Test
-    fun aChangedAddressDeletesTheOldKeyFirst() {
+    fun aChangedAddressKeepsTheOldKeyAndBase() {
         configured()
         val result = store.commitAddress("https://other.example.com/v1/web")
-        assertTrue(result.changed)
-        assertEquals(ApiKeyState.Absent, store.keyState())
-        assertTrue(requireNotNull(result.message).contains("原来的密钥已删除"))
-        assertFalse(result.message!!.contains(searchKey))
+        assertFalse(result.changed)
+        assertEquals(searchKey, store.readKey())
+        assertEquals(WebSearchSettingsRead.Stored(WebSearchSettings(WebSearchSettingsMode.SEARCH_API, base)), store.read())
+        assertFalse(requireNotNull(result.message).contains(searchKey))
     }
 
     @Test
@@ -137,7 +167,7 @@ class WebSearchSettingsStoreTest {
     }
 
     @Test
-    fun aKeyThatCannotBeDeletedBlocksTheAddressChange() {
+    fun anExistingKeyBlocksTheAddressChangeWithoutDeletingIt() {
         configured()
         secure.failDelete = true
         assertFalse(store.commitAddress("https://other.example.com/v1/web").changed)
@@ -214,7 +244,7 @@ class WebSearchSettingsStoreTest {
         val noKey = WebSearchLaunchPlan.resolve(store.read(), store::keyState, true) { official }
         assertEquals(WebSearchLaunchPlan.Off(WebSearchLaunchPlan.NO_KEY), noKey)
         assertTrue(noKey.environment.isEmpty())
-        store.commitKey(searchKey)
+        store.commitKey(searchKey, base)
         val noEdge = WebSearchLaunchPlan.resolve(store.read(), store::keyState, false) { official }
         assertEquals(WebSearchLaunchPlan.Off(WebSearchLaunchPlan.NO_HOST_EDGE), noEdge)
         val unusable = WebSearchLaunchPlan.resolve(store.read(), { ApiKeyState.Unreadable("fixture") }, true) { official }
@@ -253,7 +283,7 @@ class WebSearchSettingsStoreTest {
         assertEquals(WebSearchLaunchPlan.NO_ADDRESS, pending.launchWarning)
 
         store.commitAddress(base)
-        store.commitKey(searchKey)
+        store.commitKey(searchKey, base)
         val ready = webSearchFacts(store, false, true, true, FactState.NO)
         assertEquals(FactState.YES, ready.hasCredential)
         assertNull(ready.launchWarning)
@@ -267,11 +297,22 @@ class WebSearchSettingsStoreTest {
     }
 
     @Test
+    fun keyActionWithoutAConfirmedBaseCannotWrite() {
+        assertTrue(store.commitAddress(base).changed)
+        val result = requireNotNull(handleWebSearchAction(PdshHostAction.CommitWebSearchKey(searchKey), store))
+        assertFalse(result.changed)
+        assertEquals(ApiKeyState.Absent, store.keyState())
+        assertEquals(base, webSearchSavedBase(store))
+        file.writeText("broken")
+        assertNull(webSearchSavedBase(store))
+    }
+
+    @Test
     fun theHostActionsLandInTheStoreAndTheirLinesNeverQuoteTheKey() {
         val results = listOf(
             handleWebSearchAction(PdshHostAction.SetWebSearchMode(WebSearchMode.SEARCH_API), store),
             handleWebSearchAction(PdshHostAction.CommitWebSearchAddress(" $base/ "), store),
-            handleWebSearchAction(PdshHostAction.CommitWebSearchKey(searchKey), store),
+            handleWebSearchAction(PdshHostAction.CommitWebSearchKey(searchKey), store, base),
         ).map(::requireNotNull)
         assertTrue(results.all { it.changed })
         assertEquals(searchKey, store.readKey())

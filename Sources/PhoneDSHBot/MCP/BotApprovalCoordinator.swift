@@ -210,7 +210,7 @@ public actor BotApprovalCoordinator {
         /// uses it to cancel exactly that call's interactive approvals.
         let callId: String
         let effects: [BotToolEffect]
-        let digest: String
+        var digest: String
         let action: String
         let detail: String
         let command: String
@@ -220,6 +220,9 @@ public actor BotApprovalCoordinator {
         let origin: String
         let requestedAt: Int64
         let expiresAt: Int64
+        /// G-2 delivery block carried by the same approval row. The decision
+        /// event repeats it so the projected row keeps its resources/status.
+        var delivery: BotJSONValue?
         var continuation: CheckedContinuation<BotApprovalOutcome, Never>?
         var timeout: Task<Void, Never>?
         /// Bounded interactive wait for a durable egress approval. It is
@@ -291,10 +294,23 @@ public actor BotApprovalCoordinator {
                         alwaysScope: String,
                         persistence: BotApprovalPersistence = .interactive,
                         origin: String = "structural",
+                        approvalID: String? = nil,
+                        digestOverride: String? = nil,
+                        extraData: [String: BotJSONValue] = [:],
                         onPending: (@Sendable (String) -> Void)? = nil,
                         interactiveWaitMilliseconds: Int64 = 0) async -> BotApprovalOutcome {
         await ensureRestored()
-        let deferConsumption = effects.allSatisfy { $0.execution != nil }
+        // A card whose effects cannot safely stand must not offer "always":
+        // unknown tools and destructive operations keep the one-shot answer
+        // only, and the card's scope says so.
+        let offeredScope = effects.allSatisfy(\.canUseStandingGrant) ? alwaysScope : "none"
+        // Only effects with a known follow-up consumption point may defer the
+        // one-shot grant. The image attach is consumed by BotMCPRuntime before
+        // the model egress; other external effects (BLE link/alert) are
+        // forwarded by native handlers and keep the original card consumption.
+        let deferConsumption = effects.allSatisfy {
+            $0.execution != nil || $0.operation == "model.image.attach"
+        }
         if let standing = await standingDecision(
             call: call, effects: effects, deferConsumption: deferConsumption) { return standing }
         // One Bot write already has a pending card for the same host+method.
@@ -305,16 +321,21 @@ public actor BotApprovalCoordinator {
             return Self.pendingOutcome(
                 approvalId: existing.id, expiresAt: existing.expiresAt)
         }
-        let approvalId = "approval-\(UUID().uuidString.lowercased())"
+        let approvalId = approvalID ?? "approval-\(UUID().uuidString.lowercased())"
         let principal = call.principal
-        let digest = call.attribution.argsDigest
+        let digest = digestOverride.flatMap(Self.digestValue)
+            ?? call.attribution.argsDigest
+        let delivery = extraData["delivery"]
         let requestedAt = now()
         let expiresAt = persistence.isPersistent ? requestedAt + durableExpiryMs : 0
+        // The projected row keeps the G-2 prefixed spelling; the coordinator
+        // compares the bare 64-hex form internally.
+        let rowDigest = delivery != nil ? "sha256:" + digest : digest
         var data: [String: BotJSONValue] = [
             "approvalID": .string(approvalId), "status": .string("pending"),
             "action": .string(action), "detail": .string(detail),
-            "digest": .string(digest), "command": .string(command),
-            "alwaysScope": .string(alwaysScope),
+            "digest": .string(rowDigest), "command": .string(command),
+            "alwaysScope": .string(offeredScope),
             "deferConsumption": .bool(deferConsumption),
             "effects": .array(effects.map(Self.effectJSON)),
             "persistent": .bool(persistence.isPersistent),
@@ -325,6 +346,7 @@ public actor BotApprovalCoordinator {
         if persistence.isPersistent {
             data["expiresAt"] = .number(Double(expiresAt))
         }
+        for (key, value) in extraData { data[key] = value }
         do {
             try await eventWriter.append(
                 type: "approval.requested", principal: principal, data: .object(data))
@@ -339,10 +361,10 @@ public actor BotApprovalCoordinator {
             pending[approvalId] = Pending(
                 principal: principal, callId: call.callId, effects: effects, digest: digest,
                 action: action, detail: detail, command: command,
-                alwaysScope: alwaysScope, deferConsumption: deferConsumption,
+                alwaysScope: offeredScope, deferConsumption: deferConsumption,
                 persistent: true, origin: origin, requestedAt: requestedAt,
-                expiresAt: expiresAt, continuation: nil, timeout: nil,
-                waitTimeout: nil)
+                expiresAt: expiresAt, delivery: delivery,
+                continuation: nil, timeout: nil, waitTimeout: nil)
             scheduleExpiry(approvalId: approvalId, expiresAt: expiresAt)
             onPending?(approvalId)
             let pendingOutcome = Self.pendingOutcome(
@@ -368,10 +390,10 @@ public actor BotApprovalCoordinator {
             pending[approvalId] = Pending(
                 principal: principal, callId: call.callId, effects: effects, digest: digest,
                 action: action, detail: detail, command: command,
-                alwaysScope: alwaysScope, deferConsumption: deferConsumption,
+                alwaysScope: offeredScope, deferConsumption: deferConsumption,
                 persistent: false, origin: origin, requestedAt: requestedAt,
-                expiresAt: 0, continuation: continuation, timeout: nil,
-                waitTimeout: nil)
+                expiresAt: 0, delivery: delivery, continuation: continuation,
+                timeout: nil, waitTimeout: nil)
             onPending?(approvalId)
             let timeoutMs = approvalTimeoutMs
             let timeout = Task { [weak self] in
@@ -421,7 +443,7 @@ public actor BotApprovalCoordinator {
             }
             return .stale(reason: "unknown_approval")
         }
-        guard let suppliedDigest = try? BotArgumentsDigest.validated(digest),
+        guard let suppliedDigest = Self.digestValue(digest),
               suppliedDigest == request.digest else { return .stale(reason: "digest_mismatch") }
         if request.persistent, request.expiresAt > 0, now() >= request.expiresAt {
             await expireDurable(approvalId: approvalId)
@@ -441,17 +463,33 @@ public actor BotApprovalCoordinator {
                     case .allowOnce:
                         effectiveScope = .once
                     case .always:
-                        switch request.alwaysScope {
-                        case "until": effectiveScope = .until
-                        case "session": effectiveScope = .session
-                        default: effectiveScope = .once
+                        if !effect.known {
+                            // An unclassified tool has no stable operation
+                            // classification; a standing decision would grant
+                            // every future call of that tool without looking
+                            // at arguments. Force this one to a consumed once.
+                            effectiveScope = .once
+                        } else {
+                            switch request.alwaysScope {
+                            case "until": effectiveScope = .until
+                            case "session": effectiveScope = .session
+                            default: effectiveScope = .once
+                            }
                         }
                     case .deny:
                         effectiveScope = .once
                     }
+                    // A once decision is exact. A standing decision uses the
+                    // effect's stable scope only when it has one (images use
+                    // model:image, file/network egress its directory/host);
+                    // destructive and unclassified effects keep their exact
+                    // resource, so "always" cannot widen them.
+                    let storedResource = effectiveScope == .once
+                        ? effect.resource
+                        : effect.stableGrantResource
                     let grant = try await grants.add(BotGrant(
                         botId: request.principal.botId, tool: effect.tool, operation: effect.operation,
-                        resource: effect.resource, scope: effectiveScope,
+                        resource: storedResource, scope: effectiveScope,
                         sessionId: request.principal.sessionId,
                         createdAt: now(), source: "approval-card", decision: .allow))
                     createdGrantIDs.append(grant.id)
@@ -471,6 +509,13 @@ public actor BotApprovalCoordinator {
                 "status": .string(allowed ? "allowed" : "denied"),
                 "alwaysScope": .string(decision == .always ? request.alwaysScope : effectiveScope.rawValue),
             ]
+            if let delivery = request.delivery {
+                decisionData["delivery"] = delivery
+                // The projected row must keep the G-2 prefixed delivery
+                // digest after the decision; the coordinator stores the bare
+                // 64-hex form for its own comparison.
+                decisionData["digest"] = .string("sha256:" + request.digest)
+            }
             if request.persistent {
                 decisionData["persistent"] = .bool(true)
                 decisionData["kind"] = .string(request.principal.kind.rawValue)
@@ -651,8 +696,35 @@ public actor BotApprovalCoordinator {
         return requests.count
     }
 
+    /// The coordinator stores the bare 64-hex form; a G-2 delivery digest
+    /// carries the frozen `sha256:` prefix on the row. Normalize at this one
+    /// boundary so the UI can keep the contract spelling and the plain tool
+    /// argsDigest keeps its old form.
+    private static func digestValue(_ value: String) -> String? {
+        var digest = value.lowercased()
+        if digest.hasPrefix("sha256:") { digest.removeFirst("sha256:".count) }
+        guard digest.count == 64, digest.allSatisfy({ $0.isHexDigit }) else { return nil }
+        return digest
+    }
+
     public func pendingDigest(approvalId: String) -> String? {
         pending[approvalId]?.digest
+    }
+
+    /// G-2 delivery selection: the approval row's digest must cover the draft
+    /// revision and selected resources. The coordinator stays the only owner
+    /// of the pending entry; the host only asks it to re-key that entry.
+    public func rebindPendingDigest(approvalId: String, expectedDigest: String,
+                                    digest: String,
+                                    delivery: BotJSONValue? = nil) -> Bool {
+        guard var request = pending[approvalId],
+              let expected = Self.digestValue(expectedDigest),
+              request.digest == expected,
+              let validated = Self.digestValue(digest) else { return false }
+        request.digest = validated
+        if let delivery { request.delivery = delivery }
+        pending[approvalId] = request
+        return true
     }
 
     /// Consumes the grants a durable egress decision handed to the waiting
@@ -709,14 +781,24 @@ public actor BotApprovalCoordinator {
     /// schedule/cancel the local "approval waiting" reminder.
     public func pendingNotificationRecords() async -> [BotApprovalNotificationRecord] {
         await ensureRestored()
+        // A live interactive device-app install card is included too: the Bot
+        // is blocked on it and the user is probably on another screen. Its
+        // reminder is cancelled by the same sync when the card is answered,
+        // cancelled or expires; no other interactive card is reminded.
+        let interactiveLifetime = approvalTimeoutMs
         return pending
-            .filter { $0.value.persistent }
+            .filter {
+                $0.value.persistent
+                    || $0.value.action == BotApprovalNotificationPlanner.deviceAppInstallAction
+                    || $0.value.action == BotApprovalNotificationPlanner.deviceAppRemoveAction
+            }
             .map { id, request in
                 BotApprovalNotificationRecord(
                     approvalID: id, botID: request.principal.botId,
                     action: request.action, detail: request.detail,
                     command: request.command, requestedAt: request.requestedAt,
-                    expiresAt: request.expiresAt)
+                    expiresAt: request.persistent
+                        ? request.expiresAt : request.requestedAt + interactiveLifetime)
             }
             .sorted { ($0.requestedAt, $0.approvalID) < ($1.requestedAt, $1.approvalID) }
     }
@@ -848,7 +930,7 @@ public actor BotApprovalCoordinator {
             // event log does not need to persist a call id for them.
             callId: "",
             effects: effects,
-            digest: data["digest"]?.stringValue ?? "",
+            digest: Self.digestValue(data["digest"]?.stringValue ?? "") ?? "",
             action: data["action"]?.stringValue ?? "",
             detail: data["detail"]?.stringValue ?? "",
             command: data["command"]?.stringValue ?? "",
@@ -857,6 +939,7 @@ public actor BotApprovalCoordinator {
             persistent: true,
             origin: data["origin"]?.stringValue ?? "structural",
             requestedAt: requestedAt, expiresAt: expiresAt,
+            delivery: data["delivery"],
             continuation: nil, timeout: nil, waitTimeout: nil)
     }
 
@@ -914,10 +997,21 @@ public actor BotApprovalCoordinator {
     }
 
     private func expireDurable(approvalId: String) async {
-        guard let request = pending[approvalId], request.persistent else { return }
-        pending.removeValue(forKey: approvalId)
+        guard let request = pending.removeValue(forKey: approvalId), request.persistent else { return }
         request.timeout?.cancel()
         request.waitTimeout?.cancel()
+        // Record the terminal state before the first suspension: the audit
+        // append below is an async hop, and `durableStatus`/`resolve` run on
+        // this actor while it is in flight. An expired todo must read
+        // `expired` for that whole window, never `unknown_approval`
+        // (`BotApprovalExpiryRaceTests`). The append still persists the
+        // durable `approval.decided`; if it fails, the in-memory decision
+        // stands and a restart re-expires from the stored requested event in
+        // `ensureRestored`.
+        let notice = BotApprovalResolutionNotice(
+            approvalID: approvalId, principal: request.principal,
+            allowed: false, expired: true, decision: .deny, decidedAt: now())
+        record(notice)
         try? await eventWriter.append(
             type: "approval.decided", principal: request.principal,
             data: .object([
@@ -930,10 +1024,6 @@ public actor BotApprovalCoordinator {
         request.continuation?.resume(returning: BotApprovalOutcome(
             ok: false, allowed: false, approvalId: approvalId,
             message: "approval expired"))
-        let notice = BotApprovalResolutionNotice(
-            approvalID: approvalId, principal: request.principal,
-            allowed: false, expired: true, decision: .deny, decidedAt: now())
-        record(notice)
         await deliver(notice)
     }
 

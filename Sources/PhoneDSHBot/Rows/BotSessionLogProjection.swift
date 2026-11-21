@@ -233,7 +233,7 @@ public struct BotRowProjectionSnapshot: Sendable, Equatable {
     }
 }
 
-private struct BotRowOrder: Comparable {
+private struct BotRowOrder: Comparable, Sendable {
     var time: Int64
     var source: Int
     var sourceSeq: Int
@@ -247,7 +247,7 @@ private struct BotRowOrder: Comparable {
     }
 }
 
-private struct BotRowDraft {
+private struct BotRowDraft: Sendable {
     var id: String
     var seq: Int
     var kind: BotRowKind
@@ -258,7 +258,7 @@ private struct BotRowDraft {
     var chatActionNonce: String? = nil
 }
 
-private enum BotRowMutation {
+private enum BotRowMutation: Sendable {
     case upsert(BotRowDraft, BotRowOrder)
     case delete(String, BotRowDraft, BotRowOrder)
 
@@ -284,6 +284,80 @@ public struct BotSessionEpochProjection: Sendable, Equatable {
         self.sessionID = sessionID
         self.events = events
     }
+}
+
+/// The one question/steps staleness rule (`spec/bot/v1/README.md`, P27).
+///
+/// A choice card is stale the moment a newer question or steps card is
+/// presented in the same Bot stream, and it stays stale even when the newer
+/// card is answered or dismissed. This function is the single implementation of
+/// that rule: the row projection paints the older card `status:"superseded"`
+/// from it and the action planner refuses the same card with `card_expired`, so
+/// the greyed-out card and the refusal cannot disagree.
+public enum BotChoiceCardStaleness {
+    /// The card kinds this rule applies to. Approvals, checklists and content
+    /// cards are never superseded by a newer card.
+    public static let choiceKinds: Set<String> = ["question", "steps"]
+
+    /// `cardID -> the newer cardID that superseded it`, for every choice card
+    /// that was still open when a newer choice card was presented.
+    ///
+    /// Events are ordered by `commitSeq` (then `time`, then `eventId`), the same
+    /// order the projection applies them in. A card that was answered or
+    /// dismissed *before* the newer card appeared was already closed and is not
+    /// reported; a card answered afterwards is still stale, because the
+    /// planner would have refused that answer.
+    public static func supersededCards(in events: [BotEvent], botID: String) -> [String: String] {
+        var superseded: [String: String] = [:]
+        var open: [String] = []
+        for event in events.sorted(by: stableUIEventOrder) {
+            guard event.principal.botId == nil || event.principal.botId == botID,
+                  let data = objectValue(event.data) else { continue }
+            switch event.type {
+            case "card.presented":
+                guard let cardID = cardIdentity(data, eventID: event.eventId),
+                      let kind = cardKind(data), choiceKinds.contains(kind) else { continue }
+                for openID in open { superseded[openID] = cardID }
+                open = [cardID]
+            case "card.answered", "card.dismissed":
+                guard let cardID = nonEmpty(data, "cardID") else { continue }
+                open.removeAll { $0 == cardID }
+            default:
+                continue
+            }
+        }
+        return superseded
+    }
+
+    /// The host-owned id of the card a `card.presented` event announces. The
+    /// card payload is flattened at the top level (`card.presented` adds `id`),
+    /// so this is the id the projection puts on the row and the id a later
+    /// `card.answered` / `card.dismissed` names.
+    static func cardIdentity(_ data: [String: BotJSONValue], eventID: String) -> String? {
+        let card = objectValue(data["card"]) ?? [:]
+        return nonEmpty(data, "id") ?? nonEmpty(data, "rowID")
+            ?? nonEmpty(card, "id") ?? nonEmpty(card, "rowID")
+            ?? "e-ui-\(eventID)"
+    }
+
+    /// The card kind from the same members the planner reads.
+    static func cardKind(_ data: [String: BotJSONValue]) -> String? {
+        let card = objectValue(data["card"]) ?? [:]
+        return nonEmpty(data, "cardType") ?? nonEmpty(card, "cardType")
+            ?? nonEmpty(data, "kind") ?? nonEmpty(card, "kind")
+    }
+}
+
+private struct BotDSHProjectionState: Sendable {
+    var turn = 0
+    var hiddenTurns: Set<Int> = []
+    var hiddenFallback = false
+    var awaitingCard = false
+    var suppressTrailingText = false
+    var toolNames: [String: String] = [:]
+    var toolFinals: [String: Bool] = [:]
+    var calls: [String: (name: String, rowID: String, body: BotRowBody)] = [:]
+    var seenEventIDs: Set<String> = []
 }
 
 public struct BotSessionLogProjector: Sendable {
@@ -325,6 +399,63 @@ public struct BotSessionLogProjector: Sendable {
         return apply(mutations, botID: botID)
     }
 
+    /// Internal, disposable acceleration for BotRowHistory. The public pure
+    /// projector remains the rebuild oracle. Non-append edits and attribution
+    /// changes invalidate a whole epoch; ordinary appends reduce only its tail.
+    struct IncrementalCache: Sendable {
+        fileprivate struct Epoch: Sendable {
+            var source: Int
+            var events: [BotDSHSessionEvent] = []
+            var held: [Int: String] = [:]
+            var requestNonces: [String: String] = [:]
+            var state = BotDSHProjectionState()
+            var mutations: [BotRowMutation] = []
+        }
+        fileprivate var botID: String?
+        fileprivate var epochs: [String: Epoch] = [:]
+        fileprivate(set) var processedEvents = 0
+    }
+
+    func project(botID: String, epochs: [BotSessionEpochProjection],
+                 uiEvents: [BotEvent], heldRequestNonces: [String: String],
+                 cache: inout IncrementalCache) -> BotRowProjectionSnapshot {
+        if cache.botID != botID {
+            cache = IncrementalCache()
+            cache.botID = botID
+        }
+        let active = Set(epochs.map(\.sessionID))
+        cache.epochs = cache.epochs.filter { active.contains($0.key) }
+        var mutations: [BotRowMutation] = []
+        for (source, epoch) in epochs.enumerated() {
+            let held = heldActionNonces(botID: botID, sessionID: epoch.sessionID,
+                                        sessionEvents: epoch.events, uiEvents: uiEvents)
+            var previous = cache.epochs[epoch.sessionID] ?? IncrementalCache.Epoch(source: source)
+            if previous.source != source || previous.held != held
+                || previous.requestNonces != heldRequestNonces
+                || previous.events.count > epoch.events.count
+                || !epoch.events.prefix(previous.events.count).elementsEqual(previous.events) {
+                previous = IncrementalCache.Epoch(source: source)
+            }
+            let suffix = Array(epoch.events.dropFirst(previous.events.count))
+            previous.mutations.append(contentsOf: projectDSH(
+                botID: botID, sessionID: epoch.sessionID, events: suffix,
+                heldActionNonces: held, heldRequestNonces: heldRequestNonces, source: source,
+                state: &previous.state, startIndex: previous.events.count))
+            cache.processedEvents += suffix.count
+            previous.events = epoch.events
+            previous.held = held
+            previous.requestNonces = heldRequestNonces
+            mutations.append(contentsOf: previous.mutations)
+            cache.epochs[epoch.sessionID] = previous
+        }
+        // UI outcomes can revise an earlier card, so this compact overlay is
+        // intentionally reprojected against the canonical full UI event set.
+        mutations.append(contentsOf: projectUI(botID: botID, events: uiEvents,
+                                               source: max(1, epochs.count)))
+        mutations.sort { $0.order < $1.order }
+        return apply(mutations, botID: botID)
+    }
+
     private func heldActionNonces(botID: String, sessionID: String,
                                   sessionEvents: [BotDSHSessionEvent], uiEvents: [BotEvent]) -> [Int: String] {
         let directNonces = Set(sessionEvents.compactMap { event -> String? in
@@ -349,6 +480,16 @@ public struct BotSessionLogProjector: Sendable {
     private func projectDSH(botID: String, sessionID: String, events: [BotDSHSessionEvent],
                             heldActionNonces: [Int: String], heldRequestNonces: [String: String],
                             source: Int) -> [BotRowMutation] {
+        var state = BotDSHProjectionState()
+        return projectDSH(botID: botID, sessionID: sessionID, events: events,
+                          heldActionNonces: heldActionNonces, heldRequestNonces: heldRequestNonces,
+                          source: source, state: &state, startIndex: 0)
+    }
+
+    private func projectDSH(botID: String, sessionID: String, events: [BotDSHSessionEvent],
+                            heldActionNonces: [Int: String], heldRequestNonces: [String: String],
+                            source: Int, state: inout BotDSHProjectionState,
+                            startIndex: Int) -> [BotRowMutation] {
         let ignored: Set<String> = [
             "session", "permission/preset", "sandbox/mode", "approval/policy",
             "system/message", "developer/message", "agent/inbox/spliced",
@@ -358,17 +499,24 @@ public struct BotSessionLogProjector: Sendable {
             "step/start", "step/end", "turn/start", "assistant/stream"
         ]
         var result: [BotRowMutation] = []
-        var turn = 0
-        var hiddenTurns: Set<Int> = []
-        var hiddenFallback = false
-        var awaitingCard = false
-        var suppressTrailingText = false
-        var toolNames: [String: String] = [:]
-        var toolFinals: [String: Bool] = [:]
-        var calls: [String: (name: String, rowID: String, body: BotRowBody)] = [:]
-        var seenEventIDs: Set<String> = []
+        var turn = state.turn
+        var hiddenTurns = state.hiddenTurns
+        var hiddenFallback = state.hiddenFallback
+        var awaitingCard = state.awaitingCard
+        var suppressTrailingText = state.suppressTrailingText
+        var toolNames = state.toolNames
+        var toolFinals = state.toolFinals
+        var calls = state.calls
+        var seenEventIDs = state.seenEventIDs
+        defer {
+            state = BotDSHProjectionState(turn: turn, hiddenTurns: hiddenTurns,
+                hiddenFallback: hiddenFallback, awaitingCard: awaitingCard,
+                suppressTrailingText: suppressTrailingText, toolNames: toolNames,
+                toolFinals: toolFinals, calls: calls, seenEventIDs: seenEventIDs)
+        }
 
-        for (index, event) in events.enumerated() {
+        for (relativeIndex, event) in events.enumerated() {
+            let index = startIndex + relativeIndex
             if let eventID = event.eventID, !seenEventIDs.insert(eventID).inserted { continue }
             let order = BotRowOrder(time: event.time, source: source, sourceSeq: event.seq, index: index)
             if event.type == "turn/start" {
@@ -535,6 +683,41 @@ public struct BotSessionLogProjector: Sendable {
                                   ]), trust: BotRowProvenance.model)
                 result.append(.upsert(draft, order))
             default:
+                if event.type == "routine.defined" || event.type == "routine.updated" {
+                    // A newly defined routine has no run yet, but its durable
+                    // definition is the row the user can suppress for future
+                    // deliveries (G-2 r8/r9). The snapshot event nests the
+                    // document; the live event has the routine at the root.
+                    var entries: [[String: BotJSONValue]] = []
+                    if let document = event.data["document"]?.objectValue,
+                       let routines = document["routines"]?.arrayValue {
+                        entries.append(contentsOf: routines.compactMap(objectValue))
+                    }
+                    if event.data["id"]?.stringValue != nil || event.data["routineID"]?.stringValue != nil {
+                        entries.append(event.data)
+                    }
+                    for routine in entries {
+                        guard let automationID = nonEmpty(routine, "id") ?? nonEmpty(routine, "routineID"),
+                              let name = nonEmpty(routine, "title") ?? nonEmpty(routine, "name") else { continue }
+                        var fields = fieldsFrom(routine)
+                        fields["routineID"] = .string(automationID)
+                        fields["title"] = .string(name)
+                        fields["status"] = .string((routine["enabled"]?.boolValue ?? true) ? "active" : "paused")
+                        fields["automationStatus"] = fields["status"]
+                        fields["automation"] = .object(routine.merging([
+                            "automationId": .string(automationID),
+                            "name": .string(name),
+                            "status": fields["status"] ?? .string("active"),
+                        ]) { _, new in new })
+                        let draft = draft(
+                            id: "e-\(botID)-routine-\(automationID)",
+                            event: event, kind: .message, role: nil,
+                            body: BotRowBody(type: .automation, additionalProperties: fields),
+                            trust: BotRowProvenance.model)
+                        result.append(.upsert(draft, order))
+                    }
+                    continue
+                }
                 if event.type.hasPrefix("automation/") || event.type.hasPrefix("routine/") {
                     let run = objectValue(event.data["automation"]) ?? objectValue(event.data["routine"])
                         ?? objectValue(event.data["run"]) ?? [:]
@@ -564,6 +747,7 @@ public struct BotSessionLogProjector: Sendable {
         var result: [BotRowMutation] = []
         var seenEventIDs: Set<String> = []
         let (answeredCards, dismissedCards) = cardOutcomes(botID: botID, events: events)
+        let supersededCards = BotChoiceCardStaleness.supersededCards(in: events, botID: botID)
         for (index, event) in events.sorted(by: stableUIEventOrder).enumerated() {
             // A physically erased payload must not be projected back into a
             // row: the header/digest stay, the content does not.
@@ -581,6 +765,44 @@ public struct BotSessionLogProjector: Sendable {
                                                                            trust: BotRowProvenance.projector, tainted: false),
                                               createdAt: event.time)
                 result.append(.delete(id, placeholder, order))
+                continue
+            }
+            if event.type == "routine.defined" || event.type == "routine.updated" {
+                // Durable BotEvent routine definitions (snapshot document or
+                // live root) become stable automation rows the UI can suppress
+                // before the first delivery.
+                var entries: [[String: BotJSONValue]] = []
+                if let document = objectValue(data["document"]),
+                   let routines = document["routines"]?.arrayValue {
+                    entries.append(contentsOf: routines.compactMap(objectValue))
+                }
+                if data["id"]?.stringValue != nil || data["routineID"]?.stringValue != nil {
+                    entries.append(data)
+                }
+                for routine in entries {
+                    guard let routineID = nonEmpty(routine, "id") ?? nonEmpty(routine, "routineID"),
+                          let title = nonEmpty(routine, "title") ?? nonEmpty(routine, "name") else { continue }
+                    var fields = fieldsFrom(routine)
+                    fields["routineID"] = .string(routineID)
+                    fields["title"] = .string(title)
+                    let status = (routine["enabled"]?.boolValue ?? true) ? "active" : "paused"
+                    fields["status"] = .string(status)
+                    fields["automationStatus"] = .string(status)
+                    fields["automation"] = .object(routine.merging([
+                        "automationId": .string(routineID),
+                        "name": .string(title),
+                        "status": .string(status),
+                    ]) { _, new in new })
+                    let placeholder = BotRowDraft(
+                        id: "e-\(botID)-routine-\(routineID)",
+                        seq: entrySeq(event.time, event.commitSeq ?? 0),
+                        kind: .message, role: nil,
+                        body: BotRowBody(type: .automation, additionalProperties: fields),
+                        provenance: BotRowProvenance(eventIDs: [event.eventId],
+                                                     trust: BotRowProvenance.model, tainted: false),
+                        createdAt: event.time)
+                    result.append(.upsert(placeholder, order))
+                }
                 continue
             }
             let supported = ["card.presented", "ui.send_to_user", "ui.notice", "ui.system_event",
@@ -601,9 +823,15 @@ public struct BotSessionLogProjector: Sendable {
             if event.type == "card.presented" {
                 // A closed card is locally hidden and must stay hidden after a cache rebuild.
                 if dismissedCards.contains(id) { continue }
+                // An answer recorded before a newer choice card appeared keeps
+                // its answered state; every other card that a newer choice card
+                // replaced is projected as superseded and cannot be tapped.
                 if let optionID = answeredCards[id] {
                     payload["status"] = .string("answered")
                     payload["answeredOptionID"] = .string(optionID)
+                } else if let newer = supersededCards[id] {
+                    payload["status"] = .string("superseded")
+                    payload["supersededBy"] = .string(newer)
                 }
             }
             var kind: BotRowKind = .sendMessage
@@ -824,6 +1052,21 @@ public struct BotSessionLogProjector: Sendable {
 public actor BotRowHistory {
     private var snapshot: BotRowProjectionSnapshot
     private let projector: BotSessionLogProjector
+    private var projectionCache = BotSessionLogProjector.IncrementalCache()
+    private var projectionCacheExpiry: Task<Void, Never>?
+
+    private func keepProjectionCacheWarm() {
+        projectionCacheExpiry?.cancel()
+        projectionCacheExpiry = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            await self?.expireProjectionCache()
+        }
+    }
+
+    private func expireProjectionCache() {
+        projectionCache = BotSessionLogProjector.IncrementalCache()
+        projectionCacheExpiry = nil
+    }
 
     public init(snapshot: BotRowProjectionSnapshot = .empty, projector: BotSessionLogProjector = BotSessionLogProjector()) {
         self.snapshot = snapshot
@@ -847,9 +1090,11 @@ public actor BotRowHistory {
     @discardableResult
     public func rebuild(botID: String, epochs: [BotSessionEpochProjection],
                         uiEvents: [BotEvent], heldRequestNonces: [String: String] = [:]) throws -> BotRowBatch {
+        keepProjectionCacheWarm()
         let projected = projector.project(botID: botID, epochs: epochs,
                                           uiEvents: uiEvents,
-                                          heldRequestNonces: heldRequestNonces)
+                                          heldRequestNonces: heldRequestNonces,
+                                          cache: &projectionCache)
         snapshot = reconciled(projected)
         return resetBatch()
     }
@@ -859,6 +1104,7 @@ public actor BotRowHistory {
     }
 
     public func watch(after cursor: Int) -> BotRowBatch {
+        keepProjectionCacheWarm()
         if cursor <= 0 || cursor > snapshot.cursor { return resetBatch() }
         let selected = snapshot.changes.filter { $0.updatedSeq > cursor }
         var latest: [String: BotRowChange] = [:]
@@ -999,7 +1245,22 @@ private func isApprovalTool(_ name: String) -> Bool {
 
 private func chatActionNonce(_ source: [String: BotJSONValue]?) -> String? {
     guard stringValue(source?["kind"]) == "user" else { return nil }
-    return BotTurnOrigin.userActionNonce(from: stringValue(source?["rpcId"]))
+    let rpcId = stringValue(source?["rpcId"])
+    return BotTurnOrigin.userActionNonce(from: rpcId) ?? cardAnswerActionNonce(rpcId)
+}
+
+/// A card tap is the user's action too: the option value is sent as an ordinary
+/// chat message whose request id carries the frozen `card-answer:<nonce>` origin
+/// (`spec/bot/v1/README.md` §4.1). Projecting that nonce lets the transcript
+/// retire the local `local-<nonce>` echo of the tapped option with the same rule
+/// it already uses for a typed message, so the choice never appears twice.
+private func cardAnswerActionNonce(_ rpcId: String?) -> String? {
+    guard let rpcId, rpcId.hasPrefix("card-answer:") else { return nil }
+    let nonce = String(rpcId.dropFirst("card-answer:".count))
+    guard nonce.unicodeScalars.contains(where: {
+        !CharacterSet.whitespacesAndNewlines.contains($0)
+    }) else { return nil }
+    return nonce
 }
 
 private func approvalStatus(_ text: String) -> String {

@@ -59,7 +59,7 @@ The original 19 Office tools keep their response shapes. `files.list` returns op
 `OfficeArtifactStore`, outside the workspace VFS; tools page text and render
 budgeted page images rather than materializing original documents in the VFS.
 
-**Settings → 通用设置 → 手机权限** contains 23 capability switches. A row requests
+**Settings → 通用设置 → 手机权限** lists 22 capabilities. A row requests
 system authorization only when the user activates it, never at App startup or from
 a background tool call. The switch is app-local and does not revoke system access.
 Health reads report “已请求”, never a fictitious granted state; limited photo/contact
@@ -82,7 +82,7 @@ implementations, without changing their response contracts.
   current location, local notifications, bounded clipboard, device state, and
   security-scoped folder bookmarks with measured file counts.
 - P1 tools: motion/activity, Bluetooth and local-network discovery, geofence
-  registration, FocusStatus, HomeKit reads/writes, MusicKit playback, ActivityKit
+  registration, FocusStatus, MusicKit playback, ActivityKit
   start/update, and Shortcuts deep links. A geofence call reports registration, not
   a later background event. A Shortcuts call reports `opened` and
   `completion=not_observed`; it never claims the shortcut completed.

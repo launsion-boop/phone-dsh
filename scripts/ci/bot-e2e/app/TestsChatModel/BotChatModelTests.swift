@@ -62,9 +62,11 @@ final class BotChatModelTests: XCTestCase {
     // MARK: - Activity line visibility across a turn
 
     /// The page's scroll target: the newest pending approval / question card
-    /// wins over trailing live text. #126 mounts the turn's streamed text after
-    /// the durable rows, so a tail scroll covered the card that was waiting for
-    /// the person (final-2: DB had approval.requested, UI showed no card).
+    /// wins even when the turn's narration streams after it. An approval that
+    /// prompted the explanation is created before the text, so the transcript
+    /// keeps it above the live text; a tail scroll would cover the card that
+    /// was waiting for the person (final-2: DB had approval.requested, UI
+    /// showed no card).
     func testNewestActionableCardWinsOverTrailingLiveText() {
         let questionBody = BotUIBody(type: "widget", values: [
             "cardType": .string("question"),
@@ -92,7 +94,7 @@ final class BotChatModelTests: XCTestCase {
 
         var decided = approval
         decided.body.values["status"] = .string("allowed")
-        decided.updatedSeq = 2
+        decided.updatedSeq = 4
         model.apply(BotUIRowBatch(rows: [decided], deletes: [], cursor: 2, reset: false))
         XCTAssertNil(model.newestActionableCard,
                      "a decided approval is no longer an actionable scroll target")
@@ -114,7 +116,7 @@ final class BotChatModelTests: XCTestCase {
         model.receive(.textDelta("我先看一下构建日志"))
         XCTAssertTrue(model.showsActivityLine)
         XCTAssertEqual(model.lineActivity?.category, .replying)
-        XCTAssertEqual(model.lineActivity?.detail, "")
+        XCTAssertEqual(model.lineActivity?.detail, "正在回复")
 
         // After the coalescer flushes, the uncommitted live buffer is the
         // signal, and it is still "replying".
@@ -147,7 +149,8 @@ final class BotChatModelTests: XCTestCase {
             ]),
         ]))
         XCTAssertFalse(model.isStreamingNow)
-        XCTAssertEqual(model.lineActivity?.category, .thinking)
+        XCTAssertEqual(model.lineActivity?.category, .replying)
+        XCTAssertEqual(model.lineActivity?.detail, "正在回复")
 
         model.receive(liveEvent("tool/call", turn: 1, seq: 4, data: [
             "callId": .string("call-read-1"),
@@ -155,7 +158,40 @@ final class BotChatModelTests: XCTestCase {
             "arguments": .string("{\"path\":\"/tmp/report.md\"}"),
         ]))
         XCTAssertTrue(model.showsActivityLine)
+        // Main #188: a short public sentence from the current step is the
+        // visible progress text; the tool call still moves the category to
+        // reading. This is the accepted publicText precedence, not a fallback
+        // that should be reverted to the tool object.
         XCTAssertEqual(model.lineActivity?.category, .reading)
+        XCTAssertEqual(model.lineActivity?.status, .toolRunning,
+                       "the new tool call must leave the reply stream state")
+        XCTAssertEqual(model.lineActivity?.detail, "先看一下报告")
+
+        // The public sentence is tied to this turn/step; the next turn must
+        // not inherit it (a stale publicText from another step would be a
+        // real defect, not the accepted short-progress precedence).
+        model.receive(liveEvent("turn/start", turn: 2, seq: 5))
+        model.receive(liveEvent("tool/call", turn: 2, seq: 6, data: [
+            "callId": .string("call-read-2"),
+            "name": .string("read"),
+            "arguments": .string("{\"path\":\"/tmp/other.md\"}"),
+        ]))
+        XCTAssertEqual(model.lineActivity?.category, .reading)
+        XCTAssertEqual(model.lineActivity?.detail, "在翻文件 · other.md",
+                       "without public progress the tool object is the fallback")
+    }
+
+    func testToolWithoutPublicTextFallsBackToToolObject() {
+        let model = BotChatModel(context: context)
+        model.receive(liveEvent("turn/start", turn: 1, seq: 1))
+        model.receive(liveEvent("tool/call", turn: 1, seq: 2, data: [
+            "callId": .string("call-read-plain"),
+            "name": .string("read"),
+            "arguments": .string("{\"path\":\"/tmp/report.md\"}"),
+        ]))
+        XCTAssertTrue(model.showsActivityLine)
+        XCTAssertEqual(model.lineActivity?.category, .reading)
+        XCTAssertEqual(model.lineActivity?.status, .toolRunning)
         XCTAssertEqual(model.lineActivity?.detail, "在翻文件 · report.md")
     }
 
@@ -230,9 +266,9 @@ final class BotChatModelTests: XCTestCase {
 
     // MARK: - Interactive card settlement
 
-    /// A send is the user's implicit deny for every approval still pending:
-    /// the existing approval action must reach the driver before the chat.
-    func testSendAutoDeclinesApprovalsBeforeChat() async throws {
+    /// Sending normal text is not an approval decision: the pending card and
+    /// its tool work stay alive until the user explicitly decides.
+    func testSendKeepsPendingApprovalUntilExplicitDecision() async throws {
         var performed: [String] = []
         let model = BotChatModel(
             rows: [approvalRow(id: "approval-auto")],
@@ -255,27 +291,68 @@ final class BotChatModelTests: XCTestCase {
 
         XCTAssertEqual(model.pendingApprovalCount, 1)
         model.send(text: "先继续，这个审批不用了。")
-        XCTAssertEqual(model.pendingApprovalCount, 0,
-                       "a send must clear pendingApprovalCount before the async deny finishes")
+        XCTAssertEqual(model.pendingApprovalCount, 1,
+                       "a normal send must not decide a pending approval")
+        // The implicit-deny marker set is gone: no send path may record an
+        // implicit decision, and the composer hint is the only feedback.
+        XCTAssertEqual(model.pendingApprovalCount, 1,
+                       "r4 removes implicit deny on send")
 
-        try await waitFor { performed.count == 2 }
-        XCTAssertEqual(performed, ["approval:deny", "chat"])
-        XCTAssertEqual(model.actionLog, ["approval:deny", "chat"])
-        XCTAssertTrue(model.autoDeclinedApprovalIDs.contains("approval-auto"))
+        try await waitFor { performed == ["chat"] }
+        XCTAssertEqual(performed, ["chat"])
+        XCTAssertFalse(model.actionLog.contains("approval:deny"),
+                       "a normal send must not emit approval.decided")
 
         let row = try XCTUnwrap(model.rows.first(where: { $0.id == "approval-auto" }))
-        let settlement = try XCTUnwrap(model.settlement(for: row))
-        XCTAssertEqual(settlement.title, "已略过，视为拒绝")
-        XCTAssertEqual(settlement.detail, "rm -f /tmp/phone-dsh-old-report.pdf")
-        XCTAssertEqual(model.needsAttentionCount, 0)
+        model.decide(row: row, decision: .deny)
+        try await waitFor { performed == ["chat", "approval:deny"] }
+        XCTAssertEqual(performed, ["chat", "approval:deny"],
+                       "only the explicit decision emits the approval action")
     }
 
-    func testSendClearsPendingApprovalCountImmediately() {
+    /// Combining external admission with continuous chat must preserve both
+    /// the stable nonce and the pending approval; a hand-over is not a deny.
+    func testAdmittedReplayKeepsOneEchoAndDoesNotDecideApproval() async throws {
+        var nonces: [String] = []
+        var approvals = 0
+        let model = BotChatModel(
+            rows: [approvalRow(id: "approval-admitted")],
+            context: context,
+            driver: driver { action in
+                switch action {
+                case .chat(let nonce, _, _, _):
+                    nonces.append(nonce)
+                    return nonces.count == 1
+                        ? .accepted(eventID: "evt-admitted")
+                        : .duplicate(eventID: "evt-admitted")
+                case .approval:
+                    approvals += 1
+                    return .accepted(eventID: "unexpected-approval")
+                default:
+                    return .rejected(reason: "unexpected action")
+                }
+            })
+
+        let first = await model.sendAdmitted(text: "整理评审资料", nonce: "admission-stable")
+        let replay = await model.sendAdmitted(text: "整理评审资料", nonce: "admission-stable")
+        XCTAssertEqual(first, .accepted)
+        XCTAssertEqual(replay, .accepted)
+        XCTAssertEqual(nonces, ["admission-stable", "admission-stable"])
+        XCTAssertEqual(model.rows.filter { $0.id == "local-admission-stable" }.count, 1)
+        XCTAssertEqual(approvals, 0)
+        XCTAssertEqual(model.pendingApprovalCount, 1)
+    }
+
+    func testSendDoesNotClearPendingApprovalCount() async throws {
         let model = BotChatModel(rows: [approvalRow(id: "approval-immediate")],
                                  context: context,
                                  driver: driver())
         XCTAssertEqual(model.pendingApprovalCount, 1)
         model.send(text: "下一条消息")
+        XCTAssertEqual(model.pendingApprovalCount, 1)
+        let row = try XCTUnwrap(model.rows.first(where: { $0.id == "approval-immediate" }))
+        model.decide(row: row, decision: .deny)
+        try await waitFor { model.actionLog.contains("approval:deny") }
         XCTAssertEqual(model.pendingApprovalCount, 0)
     }
 
@@ -366,6 +443,57 @@ final class BotChatModelTests: XCTestCase {
         XCTAssertEqual(model.needsAttentionCount, 0)
     }
 
+    // MARK: - Live text position
+
+    /// `show_next_steps`/`ask_user` are closing actions: their card arrives
+    /// after the answer text. It must stay below that text. Mounting every
+    /// durable row before the live turn put the card above the answer, and the
+    /// durable answer row then moved it below — the report's card-first jump
+    /// followed by the text reappearing above it.
+    func testClosingCardAfterLiveTextStaysBelowIt() {
+        let model = BotChatModel(context: context)
+        model.receive(liveEvent("turn/start", turn: 1, seq: 1))
+        model.receive(liveEvent("assistant/message", turn: 1, seq: 2, data: [
+            "message": .object([
+                "role": .string("assistant"),
+                "content": .array([
+                    .object(["type": .string("text"), "text": .string("结论已经写好。")]),
+                ]),
+            ]),
+        ]))
+        var card = pendingStepsRow(id: "closing-steps", seq: 3)
+        card.createdAt = Int(BotLiveFishProjection.now) + 5_000
+        model.apply(BotUIRowBatch(rows: [card], deletes: [], cursor: 1, reset: false))
+
+        let sections = model.transcriptSections(from: model.displayRows)
+        XCTAssertEqual(sections.leading.map(\.id), [])
+        XCTAssertEqual(sections.trailing.map(\.id), ["closing-steps"],
+                       "a card presented after the live answer must render below it")
+        XCTAssertEqual(model.newestActionableCard?.id, "closing-steps",
+                       "the scroll target is still the card, now the transcript's last row")
+    }
+
+    /// A card presented before the explanation (the approval that prompted it)
+    /// stays above the live text; the split must not move it below.
+    func testApprovalBeforeLiveTextStaysAboveIt() {
+        var approval = approvalRow(id: "approval-before-text")
+        approval.createdAt = Int(BotLiveFishProjection.now) - 5_000
+        let model = BotChatModel(rows: [approval], context: context)
+        model.receive(liveEvent("turn/start", turn: 1, seq: 1))
+        model.receive(liveEvent("assistant/message", turn: 1, seq: 2, data: [
+            "message": .object([
+                "role": .string("assistant"),
+                "content": .array([
+                    .object(["type": .string("text"), "text": .string("先说明会删什么。")]),
+                ]),
+            ]),
+        ]))
+
+        let sections = model.transcriptSections(from: model.displayRows)
+        XCTAssertEqual(sections.leading.map(\.id), ["approval-before-text"])
+        XCTAssertEqual(sections.trailing.map(\.id), [])
+    }
+
     // MARK: - Helpers
 
     private var context: BotRuntimeContext {
@@ -443,6 +571,18 @@ final class BotChatModelTests: XCTestCase {
             "cardType": "steps",
             "status": "answered",
             "answeredOptionID": "review",
+            "steps": [
+                ["id": "review", "label": "查看验收结果"],
+                ["id": "pr", "label": "创建 Pull Request"],
+            ],
+        ]))
+    }
+
+    /// An unanswered suggestion card: the closing action this test places
+    /// after the live answer.
+    private func pendingStepsRow(id: String, seq: Int) -> BotUIRow {
+        BotUIRow.fixture(id: id, seq: seq, body: BotUIBody(type: "widget", values: [
+            "cardType": "steps",
             "steps": [
                 ["id": "review", "label": "查看验收结果"],
                 ["id": "pr", "label": "创建 Pull Request"],

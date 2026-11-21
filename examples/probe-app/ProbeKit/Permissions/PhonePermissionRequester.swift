@@ -43,7 +43,7 @@ public final class PhonePermissionRequester: ObservableObject {
 
     public init() {
         var initial: [PhoneCapability: CapabilityStatus] = [:]
-        for capability in PhoneCapability.allCases {
+        for capability in PhoneCapability.available {
             initial[capability] = capability == .device || capability == .clipboard
                 ? .authorized : .notDetermined
         }
@@ -51,7 +51,7 @@ public final class PhonePermissionRequester: ObservableObject {
     }
 
     public func refresh() async {
-        for capability in PhoneCapability.allCases {
+        for capability in PhoneCapability.available {
             statuses[capability] = await status(for: capability)
         }
     }
@@ -121,7 +121,9 @@ public final class PhonePermissionRequester: ObservableObject {
             return PhoneFolderGrantStore.shared.hasGrants ? .authorized : .notDetermined
         case .device:
             return .authorized
-        case .locationAlways, .focus, .homekit, .music, .liveActivity, .shortcuts:
+        case .homekit:
+            return .unavailable
+        case .locationAlways, .focus, .music, .liveActivity, .shortcuts:
             return extended.status(for: capability)
         }
     }
@@ -191,9 +193,9 @@ public final class PhonePermissionRequester: ObservableObject {
             localNetworkStatus = result.status
         case .filesFolder:
             _ = try? await PhoneFolderGrantStore.shared.grantFolder()
-        case .locationAlways, .focus, .homekit, .music:
+        case .locationAlways, .focus, .music:
             _ = await extended.request(for: capability)
-        case .biometrics, .clipboard, .device, .liveActivity, .shortcuts:
+        case .biometrics, .clipboard, .device, .homekit, .liveActivity, .shortcuts:
             break
         }
         let updated = await status(for: capability)

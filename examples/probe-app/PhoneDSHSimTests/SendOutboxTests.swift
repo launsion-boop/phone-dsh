@@ -579,7 +579,7 @@ extension SendOutboxTests {
     // MARK: - Minimal JSON Schema subset used by the outbox schema
 
     private func outboxSchemaURL() -> URL {
-        URL(fileURLWithPath: #filePath)
+        URL(fileURLWithPath: #filePath).resolvingSymlinksInPath()
             .deletingLastPathComponent() // PhoneDSHSimTests
             .deletingLastPathComponent() // probe-app
             .deletingLastPathComponent() // examples

@@ -490,6 +490,11 @@ public data class PendingAnswer(
     public val initialProgress: PendingQuestionProgress? = null,
     public val form: QuestionFormState? = null,
     public val actionState: PendingAnswerActionState? = null,
+    /**
+     * The host computed a safe standing scope for this permission (iOS
+     * `ChatPermission.alwaysGrantKey != nil`), so the card may offer 总是允许.
+     */
+    public val allowsAlways: Boolean = false,
 ) {
     public val typedRequestId: StateRequestId get() = StateRequestId(requestId)
 }
@@ -1415,6 +1420,8 @@ public data class ChatScreenState(
                                 initialProgress = node.props.questionProgress(),
                                 form = node.props.questionForm(),
                                 actionState = uiLocal.pendingAnswerActions[StateRequestId(requestId)],
+                                allowsAlways = kind == PERMISSION && !node.props.string("alwaysScope").isNullOrEmpty() &&
+                                    node.props.boolean("alwaysOffered"),
                             ),
                         )
                     }

@@ -20,6 +20,17 @@ final class BotEvalCompositionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(files.count, 10,
             "the eval target must link the production Bot sources")
         for file in files {
+            if file.lastPathComponent == "BotWorkspaceModelImage+macOS.swift" {
+                // The only non-symlink source: a documented macOS-only shim
+                // for the iOS UIKit/Photos image bridge. It must stay guarded
+                // and fail closed; no other copied source is allowed.
+                let text = try String(contentsOf: file, encoding: .utf8)
+                XCTAssertTrue(text.contains("#if !canImport(UIKit)"),
+                              "the macOS shim must be compiled only without UIKit")
+                XCTAssertTrue(text.contains("BotWorkspaceModelImage"),
+                              "the shim must provide the production call shape")
+                continue
+            }
             let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
             XCTAssertEqual(attributes[.type] as? FileAttributeType, .typeSymbolicLink,
                            "\(file.lastPathComponent) must be a symlink, not a copied source")
@@ -61,6 +72,41 @@ final class BotEvalCompositionTests: XCTestCase {
         let after = try await service.load()
         XCTAssertEqual(after.routines.map(\.id), ["routine-refresh"])
         XCTAssertTrue(after.routines[0].enabled)
+        try await store.close()
+    }
+
+    /// Regression: the composition's gateway and BotMCPRuntime must use the
+    /// same injected clock. The eval baseline can be hours ahead of the wall
+    /// clock; a wall-clock gateway then stores an identity whose expiry is
+    /// already past for the runtime, so the next real tool call is rejected as
+    /// unattributed. With the shared clock the registration stays valid.
+    @MainActor
+    func testCompositionSharesInjectedClockWithIdentityGateway() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bot-clock-regression-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let wall = Int64(Date().timeIntervalSince1970 * 1_000)
+        let deterministicNoon = wall + 8 * 60 * 60 * 1_000
+        let store = try SQLiteDomainStore(
+            fileURL: root.appendingPathComponent("domain.sqlite"),
+            now: { deterministicNoon })
+        let profileStore = BotProfileStore(directory: root.appendingPathComponent("profiles"))
+        let launch = try await BotRuntimeComposition.prepare(
+            store: store, profileStore: profileStore, now: { deterministicNoon })
+        let runtime = launch.composition.runtime
+        let session = "clock-regression"
+        let issued = try await runtime.issueSessionToken(
+            botId: "main", sessionId: session, kind: .chat)
+        _ = try await runtime.registerIdentity(
+            runtimeId: BotMCPRuntime.defaultRuntimeID, sessionId: session,
+            callId: "clock-regression", name: "bash",
+            arguments: .object(["command": .string("printf clock")]), sessionToken: issued.token)
+        let identity = await runtime.identityForApproval(
+            runtimeId: BotMCPRuntime.defaultRuntimeID, callId: "clock-regression")
+        XCTAssertNotNil(identity,
+                        "gateway/runtime clocks diverged: an identity registered on the eval clock was pruned as expired")
+        XCTAssertEqual(identity?.callId, "clock-regression")
         try await store.close()
     }
 

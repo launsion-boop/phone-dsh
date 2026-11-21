@@ -26,6 +26,7 @@ struct DevicePanelRootForm {
 let devicePanelMaxProperties = 16
 let devicePanelMaxOptions = 32
 let devicePanelMaxOptionScalars = 64
+let devicePanelMaxTitleScalars = 20
 /// 2^53 - 1: the largest integer an IEEE-754 `Double` represents exactly.
 /// device-panel.md §2 rejects an integer slider bound whose absolute value
 /// exceeds it (including exactly 2^53, vector `integer_bound_beyond_safe`).
@@ -35,12 +36,17 @@ let devicePanelMaxSafeInteger: Double = 9_007_199_254_740_991
 ///
 /// A tool whose required argument has no supported editor is `agentOnly`; an
 /// unsupported optional argument gets no editor and the tool still renders.
-/// Editors are ordered by the argument name's Unicode code points, not by the
-/// wire object's member order.
+/// Required editors come first, then optional ones; each group is ordered by
+/// the argument name's Unicode code points, not by the wire object's member order.
 public func classifyDevicePanelTool(inputSchema: JSONValue) -> DevicePanelRender {
     guard let form = devicePanelRootForm(inputSchema) else { return .agentOnly }
     var editors: [DevicePanelEditor] = []
-    for arg in form.properties.keys.sorted(by: devicePanelScalarOrder) {
+    let ordered = form.properties.keys.sorted { lhs, rhs in
+        let lhsRequired = form.required.contains(lhs), rhsRequired = form.required.contains(rhs)
+        if lhsRequired != rhsRequired { return lhsRequired }
+        return devicePanelScalarOrder(lhs, rhs)
+    }
+    for arg in ordered {
         guard let property = form.properties[arg] else { continue }
         let required = form.required.contains(arg)
         if let editor = devicePanelEditor(arg: arg, property: property, required: required) {
@@ -75,8 +81,30 @@ func devicePanelRootForm(_ inputSchema: JSONValue) -> DevicePanelRootForm? {
     return DevicePanelRootForm(properties: properties, required: required)
 }
 
-/// device-panel.md §2 property → editor. The member set must be exactly one of
-/// the four table rows; any extra member (even `description`) is unsupported.
+/// device-panel.md §2: the display name of every argument that has an editor and
+/// a `title`. The request still uses the argument name.
+public func devicePanelEditorTitles(inputSchema: JSONValue) -> [String: String] {
+    guard let form = devicePanelRootForm(inputSchema) else { return [:] }
+    var titles: [String: String] = [:]
+    for (arg, property) in form.properties {
+        guard devicePanelEditor(arg: arg, property: property, required: form.required.contains(arg)) != nil,
+              case .object(let shape) = property, case .string(let title)? = shape["title"] else { continue }
+        titles[arg] = title
+    }
+    return titles
+}
+
+/// `title`: 1…20 Unicode scalars with no C0 control or DEL.
+func devicePanelTitleIsValid(_ value: JSONValue) -> Bool {
+    guard case .string(let title) = value else { return false }
+    let scalars = title.unicodeScalars
+    return (1...devicePanelMaxTitleScalars).contains(scalars.count)
+        && !scalars.contains { $0.value < 0x20 || $0.value == 0x7F }
+}
+
+/// device-panel.md §2 property → editor. Without its optional, valid `title`,
+/// the member set must be exactly one of the four table rows; any extra member
+/// (even `description`) is unsupported.
 private func devicePanelEditor(
     arg: String,
     property: JSONValue,
@@ -84,7 +112,8 @@ private func devicePanelEditor(
 ) -> DevicePanelEditor? {
     guard case .object(let shape) = property,
           case .string(let kind)? = shape["type"] else { return nil }
-    let members = Set(shape.keys)
+    if let title = shape["title"], !devicePanelTitleIsValid(title) { return nil }
+    let members = Set(shape.keys).subtracting(["title"])
     switch kind {
     case "boolean":
         guard members == Set(["type"]) else { return nil }

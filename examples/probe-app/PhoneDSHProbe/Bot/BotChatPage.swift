@@ -47,6 +47,8 @@ struct BotChatPage: View {
     @State private var composerDockHeight: CGFloat = 0
     /// Bumped by the send button so the transcript can scroll after layout.
     @State private var sendScrollTick = 0
+    /// A haptic turn is one this page sent; opening history must stay quiet.
+    @State private var hapticTurnActive = false
     /// One coalesced autoscroll at a time. A streamed answer changes its
     /// height on every delta; calling `scrollTo` synchronously from every
     /// `onChange` keeps the stack re-measuring while the keyboard is also
@@ -67,6 +69,12 @@ struct BotChatPage: View {
     /// stops the autoscroll; coming back re-enables it.
     @State private var followsTail = true
     @State private var userScrolling = false
+    /// The first tail placement after the page mounts is a plain jump, not
+    /// an animated follow. A restored transcript used to slide into place on
+    /// every launch because the coalesced follow animated its first two
+    /// passes; corrections inside this window are unanimated too.
+    @State private var initialTailPlacementPending = true
+    @State private var initialTailPlacedAt: Date?
     /// In an eager stack the history loader is always mounted, so `onAppear`
     /// no longer means "the reader reached the top". A one-shot visibility
     /// check restores the old auto-page without paging off-screen history.
@@ -76,6 +84,7 @@ struct BotChatPage: View {
     /// focused after the responder resigned and not reopen on the next tap.
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .callout) private var activityLineHeight = BotActivityBubble.lineHeight
 
     init(model: BotChatModel, isMainBot: Bool = false,
          cardActions: BotCardActions = BotCardActions(),
@@ -119,8 +128,8 @@ struct BotChatPage: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            transcript
-                .overlay(alignment: .top) { headerStatus }
+            transcript.modifier(XiaozhiChatProgressSlot(botID: model.context.botID)).modifier(BotSignInBannerSlot())
+            activityBubbleBand
             composerDock
         }
         .background(HomeSpec.page.ignoresSafeArea())
@@ -155,7 +164,8 @@ struct BotChatPage: View {
     /// Grok-style Bot header: one centered avatar+name capsule, and the DSH
     /// page's own 92×44 device/menu capsule on the trailing side. The leading
     /// spacer mirrors the trailing capsule so the Bot capsule is centered on
-    /// the screen and can never grow under the menu.
+    /// the screen and can never grow under the menu. The header has no activity
+    /// line of its own; the one activity surface is the bottom bubble.
     private var header: some View {
         HStack(spacing: 0) {
             if let openDrawer {
@@ -187,8 +197,8 @@ struct BotChatPage: View {
             } label: {
                 HStack(spacing: 8) {
                     // The only avatar on screen: its state, motion profile
-                    // and work style come from the same header lifecycle as
-                    // the status line under it.
+                    // and work style come from the same lifecycle as the
+                    // activity sentence in the bottom bubble.
                     BotFishView(state: presence.fishState, size: 32, appearance: model.appearance,
                                 crowned: isMainBot, reaction: model.reaction,
                                 motionProfile: presence.motion,
@@ -229,8 +239,8 @@ struct BotChatPage: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// One lifecycle for the whole header: fish state, motion and the status
-    /// line all read this value, so they always change together.
+    /// One lifecycle for the whole Bot page: fish state, motion and the
+    /// activity bubble all read this value, so they always change together.
     private var presence: BotHeaderPresence {
         BotHeaderPresence.resolve(turnActive: model.showsActivityLine,
                                   lineActivity: model.lineActivity,
@@ -239,30 +249,43 @@ struct BotChatPage: View {
                                   problem: model.runtimeNotice)
     }
 
-    /// One centered status line right under the header capsule. It floats
-    /// over the top of the transcript on a page-colored fade instead of
-    /// taking layout space, so showing or hiding it never moves a message.
-    private var headerStatus: some View {
-        ZStack(alignment: .top) {
-            if let activity = presence.line {
-                BotActivityLine(activity: activity, quiet: presence.lineIsQuiet,
-                                problem: presence.lineIsProblem)
-                    .padding(.top, 4)
-                    .padding(.bottom, 14)
-                    .background(alignment: .top) {
-                        LinearGradient(
-                            stops: [
-                                .init(color: HomeSpec.page, location: 0),
-                                .init(color: HomeSpec.page, location: 0.55),
-                                .init(color: HomeSpec.page.opacity(0), location: 1),
-                            ],
-                            startPoint: .top, endPoint: .bottom)
-                    }
-                    .transition(.opacity.combined(with: .offset(y: -6)))
+    /// The only activity surface: the bottom-leading bubble carries the
+    /// lifecycle's short sentence with a restrained transition and glint
+    /// immediately above the composer. It replaced the floating line under
+    /// the header, so the page draws no separate status line.
+    ///
+    /// Layout is deliberately inert. The band is a sibling between the
+    /// transcript's ScrollView and `BotComposerDock` — it is not in the scroll
+    /// content, not inside `BotComposerDockHeightKey`, and not observed by
+    /// `BotTranscriptViewportReader` or the tail preference. Its height is
+    /// pinned to the scaled activity line box in both states, so a bubble
+    /// appearing, disappearing or swapping to a longer sentence performs no
+    /// vertical layout pass, moves no message and cannot re-trigger autoscroll.
+    /// The cap is 94% of the transcript column; the bubble itself hugs its
+    /// text. `allowsHitTesting(false)` keeps the reserved band from stealing a
+    /// tap from the transcript or the composer.
+    private var activityBubbleBand: some View {
+        GeometryReader { proxy in
+            let contentWidth = max(0, proxy.size.width)
+            ZStack(alignment: .leading) {
+                if let activity = presence.line {
+                    BotActivityBubble(
+                        activity: activity,
+                        quiet: presence.lineIsQuiet,
+                        problem: presence.lineIsProblem,
+                        maxWidth: contentWidth > 0
+                            ? contentWidth * BotActivityBubble.maxWidthRatio
+                            : .infinity)
+                        .transition(.opacity)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity)
-        .animation(.easeInOut(duration: 0.25), value: presence.line != nil)
+        .frame(height: BotActivityBubble.bandHeight(forLineHeight: activityLineHeight))
+        .padding(.horizontal, HomeSpec.contentInset)
+        .padding(.top, 4)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2),
+                   value: presence.showsActivityBubble)
         .allowsHitTesting(false)
     }
 
@@ -304,10 +327,10 @@ struct BotChatPage: View {
                                 value: content.size.height)
                         }
                     }
-                    // Room for the header status line, reserved at all times
-                    // so the floating line never shifts the transcript when
-                    // it shows or hides (#132).
-                    .padding(.top, HomeSpec.blockGap + 14)
+                    // The status line under the header was removed, so the
+                    // transcript starts one block gap below the chrome; no
+                    // empty band is reserved for a floating line any more.
+                    .padding(.top, HomeSpec.blockGap)
                     .padding(.bottom, 16)
             }
             .coordinateSpace(name: "bot-transcript")
@@ -385,7 +408,9 @@ struct BotChatPage: View {
                         if BotTranscriptLayoutSupport.shouldScrollToTail(
                             contentHeight: scrollMetrics.contentHeight,
                             viewportHeight: scrollMetrics.viewportHeight) {
-                            proxy.scrollTo("bot-transcript-tail", anchor: .bottom)
+                            withAnimation(.easeOut(duration: 0.18)) {
+                                proxy.scrollTo("bot-transcript-tail", anchor: .bottom)
+                            }
                         } else if let first = model.displayRows.first?.id {
                             proxy.scrollTo(first, anchor: .top)
                         }
@@ -418,14 +443,33 @@ struct BotChatPage: View {
                 // A send is an explicit "show me the new turn": re-arm the
                 // tail even if a previous tap/drag had turned following off.
                 followsTail = true
+                hapticTurnActive = true
+                PhoneHaptics.thinking()
                 followNewestContent(proxy: proxy)
+            }
+            .onChange(of: model.runningTurnID) { _, running in
+                if running == nil {
+                    BotNextStepsMetrics.recordTurn(rows: model.displayRows)
+                }
+                if running != nil, hapticTurnActive {
+                    // The send cue may have fired a moment earlier; the
+                    // generator debounces it. If the send path missed, this
+                    // turn-start observer is the reliable cue.
+                    PhoneHaptics.thinking()
+                } else if running == nil, hapticTurnActive {
+                    hapticTurnActive = false
+                    PhoneHaptics.completed()
+                }
+            }
+            .onChange(of: model.pendingApprovalCount) { _, count in
+                if count > 0 { PhoneHaptics.approval() }
             }
             // #132 settled cards: once a handled card collapses into its
             // one-line summary (or an older card is skipped by the next user
             // message) the content gets shorter. Wait for the 0.25s collapse
             // animation, then give the shorter transcript one more scroll
-            // through the same coalesced tail path. The status line floats
-            // over the transcript and reserves its 14pt at all times, so its
+            // through the same coalesced tail path. The activity bubble lives
+            // in its own fixed band outside the scroll content, so its
             // show/hide is deliberately not a scroll trigger.
             .onChange(of: model.settledRowIDs) { _, _ in
                 followNewestContent(proxy: proxy,
@@ -474,30 +518,13 @@ struct BotChatPage: View {
     private func transcriptContent(proxy: ScrollViewProxy) -> some View {
         let window = transcriptWindow
         if window.hidden > 0 {
-            earlierRowsButton
+            historySentinel(proxy: proxy, expandWindow: true, anchor: window.rows.first?.id)
         } else if model.hasMoreHistory {
-            // Explicit instead of `onAppear`: an eager `VStack` mounts every
-            // row, so the old top loader would fire immediately even though it
-            // is off screen, paging history into the transcript in a loop.
-            Button {
-                loadHistory(proxy: proxy)
-            } label: {
-                HStack {
-                    if model.loadingHistory { ProgressView() }
-                    Text(model.loadingHistory ? "正在加载历史" : "向上加载历史")
-                        .botCaptionFont()
-                        .foregroundStyle(HomeSpec.textTertiary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.plain)
-            .disabled(model.loadingHistory)
-            .accessibilityIdentifier("bot.history.loader")
-            .onGeometryChange(for: CGFloat.self, of: { loader in
-                loader.frame(in: .named("bot-transcript")).maxY
-            }) { maxY in
-                historyLoaderFrameChanged(maxY, proxy: proxy)
-            }
+            // A passive top sentinel, not a button. It only pages when the
+            // reader actually reaches the top; the eager VStack mounts it on
+            // every launch, so visibility is the trigger, not `onAppear`.
+            historySentinel(proxy: proxy, expandWindow: false,
+                            anchor: model.visibleRows.first?.id)
         }
         if isEmpty {
             // The old outer `GeometryReader` made the whole transcript subtree
@@ -512,8 +539,14 @@ struct BotChatPage: View {
         }
         // #126: the transcript only shows user messages, answers, cards and
         // agent-comm rows. Finished process rows and live tool rows are gone;
-        // the activity line above the composer carries the running phase.
-        ForEach(window.rows) { row in
+        // the activity bubble above the composer carries the running phase.
+        //
+        // The live turn's text sits between the rows that existed before it
+        // and the rows it created after the text (a closing question/steps
+        // card). Keeping the live view in its own block preserves the scroll
+        // and identity behavior the dense-card fixtures pin.
+        let sections = model.transcriptSections(from: window.rows)
+        ForEach(sections.leading) { row in
             transcriptRow(row)
                 .id(row.id)
         }
@@ -524,6 +557,10 @@ struct BotChatPage: View {
         if let streaming = model.streamingText {
             BotStreamingRow(text: streaming)
                 .id("bot-live-stream")
+        }
+        ForEach(sections.trailing) { row in
+            transcriptRow(row)
+                .id(row.id)
         }
         // One-point tail probe: its minY in the scroll container's coordinate
         // space tells the page whether the reader is still at the tail. It
@@ -548,24 +585,39 @@ struct BotChatPage: View {
                                           eager: BotTranscriptStackMode.current == .eager)
     }
 
-    private var earlierRowsButton: some View {
-        Button {
-            eagerRowLimit += 40
-        } label: {
-            Text("显示更早的消息")
+    /// Top sentinel. Scrolling it into view expands the rendered window or
+    /// asks the runtime for one more history page; the user never has to tap
+    /// a "load earlier" button. A batch stays bounded (40 rendered / 50
+    /// runtime rows) so opening a long Bot session does not build the whole
+    /// transcript.
+    private func historySentinel(proxy: ScrollViewProxy, expandWindow: Bool,
+                                 anchor: String?) -> some View {
+        HStack(spacing: 6) {
+            if model.loadingHistory || historyAutoLoadScheduled {
+                ProgressView().controlSize(.mini)
+            }
+            Text(model.loadingHistory || historyAutoLoadScheduled
+                 ? "正在加载更早消息"
+                 : "上滑加载更早消息")
                 .botCaptionFont()
                 .foregroundStyle(HomeSpec.textTertiary)
-                .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("bot.history.local")
+        .frame(maxWidth: .infinity, minHeight: 36)
+        .accessibilityIdentifier("bot.history.loader")
+        .onGeometryChange(for: CGFloat.self, of: { row in
+            row.frame(in: .named("bot-transcript")).maxY
+        }) { maxY in
+            historyTopFrameChanged(maxY, proxy: proxy,
+                                   expandWindow: expandWindow, anchor: anchor)
+        }
     }
 
     /// Bring the newest *actionable* row (a pending approval or a question
-    /// card) above the keyboard. The same turn's streamed text is mounted after
-    /// the durable rows, so a plain tail scroll would cover the card with text
-    /// that arrived before it. Only when there is no such card does the tail
-    /// win.
+    /// card) above the keyboard. In the ordered transcript a closing
+    /// steps/question card sits below the answer, and an approval that
+    /// prompted the explanation sits above it; in both cases a plain tail
+    /// scroll can cover the card, so it wins over the tail. Only when there is
+    /// no such card does the tail win.
     private func followNewestContent(proxy: ScrollViewProxy,
                                      delay: UInt64 = 120_000_000) {
         if let card = model.newestActionableCard {
@@ -591,11 +643,21 @@ struct BotChatPage: View {
         // scroll on it pushes the rows up under a blank band. This is the Bug
         // where sending the first message (or a short new turn) made the page
         // look empty. Wait until the content actually overflows.
-        guard BotTranscriptLayoutSupport.shouldScrollToTail(
+        let hasRows = !model.displayRows.isEmpty || model.streamingText != nil || model.live != nil
+        let overflows = BotTranscriptLayoutSupport.shouldScrollToTail(
             contentHeight: scrollMetrics.contentHeight,
             viewportHeight: scrollMetrics.viewportHeight,
-            hasRows: !model.displayRows.isEmpty || model.streamingText != nil || model.live != nil)
-        else { return }
+            hasRows: hasRows)
+        if !overflows {
+            // A short transcript is already fully visible. It still counts as
+            // the initial placement once the viewport has been measured, but
+            // an empty page must keep the flag for the rows that arrive next.
+            if hasRows, scrollMetrics.contentHeight > 0, scrollMetrics.viewportHeight > 0 {
+                initialTailPlacementPending = false
+                if initialTailPlacedAt == nil { initialTailPlacedAt = Date() }
+            }
+            return
+        }
         // The newest trigger replaces the target, but it must not restart the
         // pending sleep. The run below reads this box on every pass, so a
         // continuous stream gets one scroll per settle window instead of a
@@ -606,8 +668,7 @@ struct BotChatPage: View {
         guard transcriptScrollTask == nil else { return }
         transcriptScrollTask = Task { @MainActor in
             defer { transcriptScrollTask = nil }
-            var arrivedGeneration: UInt64 = 0
-            var corrected = false
+            var lastPass: BotTranscriptLayoutSupport.ScrollPass?
             var first = true
             while !Task.isCancelled {
                 let wait = first ? delay : 180_000_000
@@ -615,21 +676,40 @@ struct BotChatPage: View {
                 if wait > 0 { try? await Task.sleep(nanoseconds: wait) }
                 guard !Task.isCancelled, followsTail, !preservingHistoryPosition,
                       model.scrollRequestID == nil else { return }
-                let generation = transcriptScrollRequest.generation
-                if generation == arrivedGeneration {
-                    // The last pass already covered this content. One more
-                    // settle window catches a Markdown/code/card height that
-                    // lands after the scroll; then stop until new content.
-                    if corrected { return }
-                    corrected = true
-                } else {
-                    arrivedGeneration = generation
-                    corrected = false
+                let target = transcriptScrollRequest.target
+                let pass = BotTranscriptLayoutSupport.ScrollPass(
+                    generation: transcriptScrollRequest.generation,
+                    contentHeight: scrollMetrics.contentHeight,
+                    target: String(describing: target))
+                // A late Markdown/card height may need one correction, but a
+                // pass with the same target and height must not animate the
+                // same position again. The old unconditional second pass was
+                // the launch slide/jitter.
+                guard BotTranscriptLayoutSupport.shouldPerformScrollPass(
+                    previous: lastPass, next: pass) else { return }
+                lastPass = pass
+                let initial = initialTailPlacementPending || isInitialTailSettling
+                if initialTailPlacementPending {
+                    initialTailPlacementPending = false
+                    initialTailPlacedAt = Date()
                 }
-                proxy.scrollTo(transcriptScrollRequest.target,
-                               anchor: transcriptScrollRequest.anchor)
+                if initial {
+                    proxy.scrollTo(target, anchor: transcriptScrollRequest.anchor)
+                } else {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        proxy.scrollTo(target, anchor: transcriptScrollRequest.anchor)
+                    }
+                }
             }
         }
+    }
+
+    /// The launch window in which corrections must not animate. A restored
+    /// transcript can still settle a Markdown/card height in the first frames;
+    /// animating those passes is what read as page jitter.
+    private var isInitialTailSettling: Bool {
+        guard let placedAt = initialTailPlacedAt else { return initialTailPlacementPending }
+        return Date().timeIntervalSince(placedAt) < 0.6
     }
 
     /// Near means the tail probe sits at or just above the viewport bottom.
@@ -713,34 +793,43 @@ struct BotChatPage: View {
                          renderProbe: transcriptProbe)
     }
 
-    private func loadHistory(proxy: ScrollViewProxy) {
-        guard !model.loadingHistory else { return }
-        let anchor = model.visibleRows.first?.id
-        preservingHistoryPosition = true
-        Task {
-            await model.loadHistory()
-            if let anchor { proxy.scrollTo(anchor, anchor: .top) }
-            preservingHistoryPosition = false
+    /// One auto-page per top arrival. The small defer lets the viewport
+    /// report its first height; the load itself runs outside layout. After a
+    /// page/window step the old anchor is put back at the top, which moves the
+    /// sentinel above the viewport and prevents a same-frame loop.
+    private func historyTopFrameChanged(_ maxY: CGFloat, proxy: ScrollViewProxy,
+                                        expandWindow: Bool, anchor: String?) {
+        // Do not page older rows while the restored transcript is still
+        // placing itself at the tail: the sentinel is visible for a frame and
+        // its re-anchor would fight the initial jump.
+        guard !initialTailPlacementPending,
+              model.hasMoreHistory || expandWindow,
+              !historyAutoLoadScheduled, !model.loadingHistory,
+              maxY.isFinite, maxY >= -1,
+              maxY <= scrollMetrics.viewportHeight + 1 else { return }
+        historyAutoLoadScheduled = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            guard historyAutoLoadScheduled else { return }
+            guard !model.loadingHistory else {
+                historyAutoLoadScheduled = false
+                return
+            }
+            if expandWindow {
+                eagerRowLimit += 40
+                if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            } else {
+                await model.loadHistory()
+                // Let the prepended rows mount before re-anchoring the old
+                // first row; otherwise the lazy placement can jump.
+                try? await Task.sleep(nanoseconds: 30_000_000)
+                if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            }
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            historyAutoLoadScheduled = false
         }
     }
 
-    /// Auto-page once when the top loader is actually in the viewport,
-    /// matching the old lazy-stack `onAppear` without making an off-screen
-    /// eager row page history on every launch. The small defer lets the
-    /// viewport reader report its first height; the load itself still runs
-    /// outside the layout callback.
-    private func historyLoaderFrameChanged(_ maxY: CGFloat, proxy: ScrollViewProxy) {
-        guard model.hasMoreHistory, !model.loadingHistory, !historyAutoLoadScheduled,
-              maxY.isFinite, maxY >= -1 else { return }
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            guard model.hasMoreHistory, !model.loadingHistory, !historyAutoLoadScheduled,
-                  scrollMetrics.viewportHeight > 0,
-                  maxY <= scrollMetrics.viewportHeight + 1 else { return }
-            historyAutoLoadScheduled = true
-            loadHistory(proxy: proxy)
-        }
-    }
 }
 
 /// The composer owns the draft, the focus and the attachment tray. Keeping
@@ -753,7 +842,7 @@ private struct BotComposerDock: View {
     var focus: FocusState<Bool>.Binding
     let initialComposerFocus: Bool
     /// Main's #126 scroll contract: after a send, let the local echo and the
-    /// activity line lay out, then scroll the transcript once.
+    /// activity bubble lay out, then scroll the transcript once.
     var onSend: () -> Void = {}
 
     @State private var draft: String
@@ -778,8 +867,8 @@ private struct BotComposerDock: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            // Failures are reported once, on the header status line; the
-            // composer carries no notice of its own.
+            // Failures are reported once, in the activity bubble above this
+            // dock; the composer carries no notice of its own.
             attachmentTray
             // Grok-style composer: one white r26 rounded card with the 36pt
             // attach button leading, the growing text field in the middle,
@@ -1052,6 +1141,10 @@ private struct BotComposerDock: View {
         draft = ""
         pendingAttachments = []
         attachmentNotice = nil
+        // Fire on the gesture itself: waiting for the runtime's accepted-send
+        // callback made this cue depend on a round trip (and feel like it was
+        // missing), while approval haptics already proved the generator works.
+        PhoneHaptics.thinking()
         model.send(text: text, files: files)
         onSend()
         focus.wrappedValue = true
@@ -1341,7 +1434,7 @@ private struct BotAnswerBubbleContent: View {
 
 /// The running turn in arrival order: committed text bubbles, then the text
 /// still streaming. Tool calls are not rendered in the Bot transcript; they
-/// exist only as the activity line's category/phrase.
+/// exist only as the activity bubble's category/phrase.
 private struct BotLiveTurnView: View {
     let live: BotLiveTurn
 
@@ -1352,6 +1445,7 @@ private struct BotLiveTurnView: View {
                     BotAnswerBubbleContent(text: text, streaming: false)
                         .padding(.horizontal, HomeSpec.contentInset)
                         .padding(.vertical, HomeSpec.blockGap / 2)
+                        .accessibilityIdentifier("bot.live.answer.text")
                 }
             }
             if BotAnswerBubbleContent.hasContent(live.buffer) {

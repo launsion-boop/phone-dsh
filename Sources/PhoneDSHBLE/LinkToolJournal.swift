@@ -38,6 +38,26 @@ struct LinkToolJournal {
         }
         return (intent, true)
     }
+    /// device-app-v1 §7: after an install ends, drop that install's *staging* intents
+    /// (`app.begin` / `app.put` / `app.abort`) so a transfer does not spend the lifetime
+    /// budget of 4096. Only the exact keys given are considered, and an intent of any
+    /// other tool (notably `app.commit` or any uncertain durable action) is never removed.
+    @discardableResult
+    func removeStagingIntents(keys: [String]) -> Int {
+        var removed = 0
+        for key in keys {
+            let file = directory.appendingPathComponent(SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined() + ".json")
+            guard let data = try? Data(contentsOf: file),
+                  let intent = try? JSONDecoder().decode(Intent.self, from: data),
+                  DeviceAppTools.staging.contains(intent.name) else { continue }
+            if (try? FileManager.default.removeItem(at: file)) != nil { removed += 1 }
+        }
+        if removed > 0 {
+            let fd = Darwin.open(directory.path, O_RDONLY)
+            if fd >= 0 { _ = Darwin.fsync(fd); Darwin.close(fd) }
+        }
+        return removed
+    }
     func find(deviceID: UUID, requestID: UUID) throws -> Intent {
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         guard files.count <= 4096 else { throw BLEFailure("Link intent storage corrupt") }

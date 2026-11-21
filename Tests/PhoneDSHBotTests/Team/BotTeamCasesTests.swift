@@ -201,11 +201,21 @@ final class BotTeamCasesTests: XCTestCase {
         let host = FakeBotTeamHost(roster: roster(object(root["roster"])))
         try await assertHostConfiguration(host, caseSpec)
         if let context = caseSpec["context"] as? [String: Any] {
+            var inbound: BotAgentInboundHop?
+            if let hop = context["inbound"] as? [String: Any] {
+                inbound = BotAgentInboundHop(
+                    senderID: hop["senderID"] as? String ?? "",
+                    requestID: hop["requestID"] as? String ?? "",
+                    threadID: hop["threadID"] as? String ?? "",
+                    delivery: hop["delivery"] as? String ?? "now",
+                    title: hop["title"] as? String)
+            }
             await host.setContext(BotAgentCommContext(
                 depth: context["depth"] as? Int ?? 0,
                 chain: context["chain"] as? [String] ?? [],
                 turn: context["turn"] as? Int ?? 0,
-                existingRowIDs: Set(context["existingRowIDs"] as? [String] ?? [])),
+                existingRowIDs: Set(context["existingRowIDs"] as? [String] ?? []),
+                inbound: inbound),
                 for: caseSpec["callerBotId"] as? String ?? "bot-a")
         }
         for seed in caseSpec["seedThreads"] as? [[String: Any]] ?? [] {
@@ -272,6 +282,11 @@ final class BotTeamCasesTests: XCTestCase {
                          expect["deliveries"] as? [[String: Any]] ?? [], name)
         try assertHeld(await host.heldRequests,
                        expect["held"] as? [[String: Any]] ?? [], name)
+        // `expect.wake` freezes the §2.3.1 wake policy: one target per reply at
+        // most, and nothing for a reply that is queued on either side.
+        let expectedWake = expect["wake"] as? [String] ?? []
+        let actualWake = await host.wakeRequests
+        XCTAssertEqual(actualWake, expectedWake, "\(name): wake requests")
 
         if let expected = expect["created"] as? [String: Any] {
             let created = await host.created

@@ -35,7 +35,7 @@ iOS 端已实现 §2 的分类器、§4.2 的求值器、§3 的调用路径与�
 
 否则整个工具是 `agent_only`。
 
-**属性 → 编辑器。** 属性 schema 的成员集合必须**恰好**是下表某一行，多一个成员（包括 `description`）就不受支持：
+**属性 → 编辑器。** 属性 schema 的成员集合去掉可选的 `title` 后必须**恰好**是下表某一行，多一个成员（包括 `description`）就不受支持：
 
 | 属性 schema | 编辑器 | 条件 |
 | --- | --- | --- |
@@ -44,9 +44,12 @@ iOS 端已实现 §2 的分类器、§4.2 的求值器、§3 的调用路径与�
 | `{type: "number", minimum, maximum}` | `slider`，`integer: false` | 两个界都是有限数，`minimum < maximum` |
 | `{type: "string", enum}` | `picker` | 1–32 个互不相同的字符串，每个 1–64 个 Unicode 标量值 |
 
+- `title`（JSON Schema 的标准关键字）是编辑器的显示名：1–20 个 Unicode 标量值的字符串，不含 U+0000–U+001F 与 U+007F；
+  存在但不满足这些条件时，该属性不受支持。没有 `title` 时显示参数名。`title` 只影响显示，请求里仍用参数名。
 - 必填属性不受支持时，整个工具是 `agent_only`。
 - 可选属性不受支持时，该属性没有编辑器，面板永远不发送它；工具仍可渲染。
-- 编辑器按参数名的 Unicode 码位升序排列（JSON 对象成员顺序不可移植）。工具按 `tools/list` 的数组顺序排列。
+- 必填参数的编辑器在前，可选的在后；每组内按参数名的 Unicode 码位升序排列（JSON 对象成员顺序不可移植）。
+  工具按 `tools/list` 的数组顺序排列。
 - 没有属性的工具是 `editors` 且列表为空：只有一个发送动作，参数是 `{}`。
 
 **编辑器是参数输入，不是设备状态。** 宿主无法从工具表得知一个工具是否只读，也无法得知两个工具之间的关系：
@@ -138,7 +141,7 @@ Agent 不会被告知面板操作，它要了解设备状态只能自己调用�
 - `tool` 不在 `tools` 中 → `tool_not_advertised`。
 - 没有 `preset`：该工具的 §2 分类不是 `editors` → `tool_not_supported`。
 - 有 `preset`：
-  - 工具的 `inputSchema` 不满足 §2 的根形式，或有属性 schema 用了 `type`、`enum`、`minimum`、`maximum` 之外的成员，
+  - 工具的 `inputSchema` 不满足 §2 的根形式，或有属性 schema 用了 `type`、`enum`、`minimum`、`maximum`、`title` 之外的成员（`title` 不参与预设校验），
     或 `type` 不是 `boolean`、`integer`、`number`、`string`、`object` 之一，或 `enum` 不是数组，
     或 `minimum`／`maximum` 出现在非数值类型上或不是有限数 → `tool_not_supported`。
   - `preset` 有 `properties` 之外的成员，缺少 `required` 的成员，或某个值不满足其属性的 `type`、`enum`、
@@ -150,11 +153,22 @@ Agent 不会被告知面板操作，它要了解设备状态只能自己调用�
 
 授权不是求值的一部分：描述引用了当前未授权的工具时仍可为 `ok`，对应控件按 §3 禁用。
 
+### 4.3 宿主区块
+
+宿主可以在面板顶部、设备工具之前，为它自己集成的设备放一个区块。区块的内容只来自手机自己的状态，
+不来自 `tools/list` 或描述；它不调用任何设备工具，也不改变工具区的编辑器、调用和结果规则。
+设备的描述不能隐藏、替换或改写这个区块。
+
+目前只有一个：蓝牙名以 `PhoneAgent` 开头的 TonoLink 板子，区块名为「手机控制」（iOS
+`TonoLinkPhoneControlSection`）。手机可以被 Agent 控制时，它只显示一行「就绪」；否则只列出缺少的
+条件和怎么补。机主通过 iOS 解锁手机。该区块只检查手机控制的准备条件
+（[tonolink-board.md](tonolink-board.md) §4.4）。
+
 ## 5. 平台
 
 | 端 | 状态 |
 | --- | --- |
-| iOS（Swift） | `implemented`：分类器、求值器、存储、准入与面板页；共享向量通过；面板 model 有 fake source 测试和一条真机测试（真实 BLE Link，`DevicePanelHardwareDeviceTests`）；没有触控级 UI 测试 |
+| iOS（Swift） | `implemented`（设备应用页见 §9）：分类器、求值器、存储、准入与面板页；共享向量通过；面板 model 有 fake source 测试和一条真机测试（真实 BLE Link，`DevicePanelHardwareDeviceTests`）；没有触控级 UI 测试 |
 | Android（Kotlin） | `target`，未实现，且受 GAP-20 阻塞：普通 Link 通道没有工具 RPC、持久意图与用户授权（[BLE Link](ble-link.md)「Android Link channel target」）。在该通道落地并有两端 runtime 证据之前，Android 不渲染面板，不调用 Link 工具，也不放置全部禁用的占位页 |
 | 固件（C） | 不变。本文不要求设备新增字段、工具或行为 |
 
@@ -185,3 +199,15 @@ python3 -m unittest discover -s spec/v1/tools -p 'test_device_panel_golden.py'
 该检查器固定向量内容、按 schema 校验，并用一份依本文写成的参考实现重放每一行。它是规范检查，不是 runtime 一致性：
 每一端必须让真实的分类器和求值器读这两份文件。调用路径的回归（`not_executed`、`outcome_unknown`、断线、撤销授权、
 并发准入）必须经真实的设备 store 与 journal，复用 [golden/pdsh-link.jsonl](golden/pdsh-link.jsonl)。
+
+## 9. 设备应用页（device-app-v1.6，iOS）
+
+一台设备的 Link 工具表同时含 `app.info`、`app.begin`、`app.put`、`app.abort`、`app.commit`、`app.run`、
+`app.stop`、`app.remove` 这八个名字（逐字相等，不做前缀或大小写匹配；与 [device-bot.md](device-bot.md) §5、
+[device-app.md](device-app.md) 同一条规则）时，设备的入口（Bot 信息页的设备行、蓝牙设备页的设备行、设备面板快捷
+入口）打开原生的「设备应用」页，而不是本文 §2 的通用面板。其他设备入口不变，仍是本文的面板。
+
+- 页面规则、动作与确认见 [device-app.md](device-app.md) §13：每个应用是两列网格里的一张卡片，卡片上有「打开」，「停止」（仅运行中）和「删除」在卡片的「…」菜单里。页面内有一个默认折叠的「高级」项，进入本文的通用面板
+  （原始 `tools/list`）；这条入口不是默认入口。
+- 页面读取与动作都走本文 §3 的调用路径（用户来源），不改 Link 的 wire、opcode、能力位、工具表或错误。
+- 页面不显示工具名、摘要、路径或错误码。

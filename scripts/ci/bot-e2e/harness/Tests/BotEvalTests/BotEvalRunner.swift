@@ -223,6 +223,23 @@ final class BotEvalRunnerTests: XCTestCase {
         environment["DEEPSEEK_BASE_URL"] = modelBaseURL.absoluteString
         environment["DEEPSEEK_API_KEY"] = ChatHostConfiguration.workerPlaceholderKey
         environment["PDSH_MODEL_NAME"] = modelName
+        // The eval harness selects the product model explicitly. Production
+        // reads the same non-secret document from the native settings store;
+        // this test-only override pins the requested reasoning effort so the
+        // real request/header (not the coding session) proves Flash/max.
+        if let data = try? JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "selectedId": "eval",
+            "providers": [[
+                "id": "eval",
+                "displayName": "Eval",
+                "baseURL": modelBaseURL.absoluteString,
+                "model": modelName,
+                "reasoningEffort": "max",
+            ]],
+        ]), let json = String(data: data, encoding: .utf8) {
+            environment["PDSH_MODEL_PROVIDER_JSON"] = json
+        }
         environment["DSH_TELEMETRY_DISABLED"] = "1"
         environment["PDSH_LLM_DELIVERY_IDLE_TIMEOUT_MS"] = "10000"
         let modelRule = ChatHostConfiguration.modelHostRule(for: modelBaseURL)
@@ -277,6 +294,16 @@ final class BotEvalRunnerTests: XCTestCase {
             try await pumped(timeout: 240) {
                 try await launch.composition.start(host: host)
             }
+            // The eval host, unlike the App UI, sends the first user action
+            // immediately after start. Wait for the production runtime
+            // readiness seam before it so a fast first tool call is not
+            // rejected by the identity claim that is still settling. This is
+            // an eval precondition; the production identity check still runs.
+            guard await launch.composition.waitUntilRuntimeReady(
+                timeoutMilliseconds: 30_000) else {
+                throw EvalRunnerError.invalid(
+                    "Bot runtime did not become ready before the scenario action")
+            }
             if let engine = engineHolder.engine {
                 do {
                     let visibility = try await harnessAssertPageVisible(
@@ -328,6 +355,7 @@ final class BotEvalRunnerTests: XCTestCase {
                     break
                 }
             }
+            await context.awaitConcurrentSends()
             let allEvents = try await BotProductionEventReader.all(domain: store)
             let calls = try await collectToolCalls(
                 events: allEvents, context: context)
@@ -462,6 +490,25 @@ final class BotEvalRunnerTests: XCTestCase {
                 status: "ok",
                 detail: "created \(profile.id)",
                 replies: [])
+
+        case "concurrent_user_message":
+            // Eval-only admission seam: schedule the production user action
+            // while the next action's turn is still running. The runner never
+            // writes the model prompt directly; the same `rows.perform`
+            // dispatcher accepts the correction and the product admission lane
+            // decides whether it steers into the open turn.
+            let botID = try context.botID(for: action.bot)
+            let unit = try await context.unit(for: botID)
+            let text = action.text ?? ""
+            let delay = action.delayMs ?? 500
+            let nonce = context.nonce("steer", action: action, repeat: index)
+            context.concurrentTasks.append(Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(max(0, delay)) * 1_000_000)
+                _ = try? await unit.rows.perform(BotUserAction(
+                    nonce: nonce, botID: botID, kind: .chat, text: text))
+            })
+            return EvalActionOutcome(status: "ok", detail: "scheduled delay_ms=\(delay)",
+                                     replies: [])
 
         case "user_message":
             let botID = try context.botID(for: action.bot)

@@ -30,9 +30,9 @@ class BotUICheckerTests(unittest.TestCase):
 
     def test_bad_string_anchor_is_rejected(self):
         with self.assertRaises(checker.CheckError):
-            checker.check_anchor("BotChatModel.swift", 453, "not on that line", "test")
+            checker.check_anchor("BotChatModel.swift", 487, "not on that line", "test")
         # The real anchor still resolves.
-        checker.check_anchor("BotChatModel.swift", 453, "已关闭", "test")
+        checker.check_anchor("BotChatModel.swift", 487, "已关闭", "test")
 
     def test_bad_source_expression_is_rejected(self):
         with self.assertRaises(checker.CheckError):
@@ -81,13 +81,31 @@ class BotUICheckerTests(unittest.TestCase):
         self.assertEqual(checker.cleaned_model_text("一" * 21), "一" * 19 + "…")
         self.assertEqual(checker.short_target("a" * 43), "a" * 39 + "…")
 
-    def test_settlement_beats_attention(self):
+    def test_only_checklists_are_muted(self):
         question = {"id": "q", "role": None, "body": {"type": "widget", "cardType": "question",
                     "question": "选一个", "options": ["a", "b"]}}
+        checklist = {"id": "c", "role": None, "body": {"type": "widget", "cardType": "checklist",
+                     "title": "检查", "items": ["a", "b"]}}
         user = {"id": "u", "kind": "sendMessage", "role": "user", "body": {"type": "text", "text": "继续"}}
-        state = {"rows": [question, user], "actionStates": {}, "dismissedCardIDs": [],
+        state = {"rows": [question, checklist, user], "actionStates": {}, "dismissedCardIDs": [],
                  "autoDeclinedApprovalIDs": [], "answeredOptionIDs": {}, "checklistProgress": {}}
-        self.assertEqual(checker.muted_ids(state, checker.visible_rows(state)), ["q"])
+        # Question/steps staleness is the durable P27 status, never this heuristic.
+        self.assertEqual(checker.muted_ids(state, checker.visible_rows(state)), ["c"])
+
+    def test_superseded_card_settles_even_with_a_pending_tap(self):
+        question = {"id": "q", "role": None,
+                    "body": {"type": "widget", "cardType": "question", "question": "选一个",
+                             "options": ["a", "b"], "status": "superseded",
+                             "supersededBy": "q2"}}
+        state = {"rows": [question], "actionStates": {"card:q": "pending"},
+                 "dismissedCardIDs": [], "autoDeclinedApprovalIDs": [],
+                 "answeredOptionIDs": {}, "checklistProgress": {}}
+        self.assertEqual(checker.settlement(state, question),
+                         checker.settle("minus.circle", "已过期，用最新那张", "选一个"))
+        # A pending tap without a durable terminal status keeps the full card.
+        question["body"] = {"type": "widget", "cardType": "question",
+                            "question": "选一个", "options": ["a", "b"]}
+        self.assertIsNone(checker.settlement(state, question))
 
     def test_fixture_cases_are_accounted_for(self):
         cases = checker._fixture_cases()

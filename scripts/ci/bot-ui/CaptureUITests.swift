@@ -10,13 +10,17 @@ final class BotCaptureUITests: XCTestCase {
         app = XCUIApplication()
     }
 
-    private func launch(_ fixture: String, dynamicType: Bool = false) {
+    private func launch(_ fixture: String, dynamicType: Bool = false,
+                        activityMotion: Bool = false, crossFade: Bool = false,
+                        diagnostics: Bool = true) {
         app.terminate()
         app.launchArguments = [
             "-BotUIFixture", fixture,
             "-BotUIAppearance", "light",
-            "-BotUIDiagnostics",
         ]
+        if diagnostics { app.launchArguments.append("-BotUIDiagnostics") }
+        if activityMotion { app.launchArguments.append("-BotUIActivityMotion") }
+        if crossFade { app.launchArguments.append("-BotUIPreferCrossFade") }
         if dynamicType {
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         }
@@ -27,6 +31,18 @@ final class BotCaptureUITests: XCTestCase {
         let element = app.descendants(matching: .any)["bot.fixture.actions"]
         XCTAssertTrue(element.waitForExistence(timeout: 3))
         return element.label
+    }
+
+    /// The one activity surface: the current activity sentence with its sweep.
+    private var activityBubble: XCUIElement {
+        app.descendants(matching: .any)
+            .matching(identifier: "bot.activity.bubble").firstMatch
+    }
+
+    /// The removed top-of-transcript line. It must never be mounted again.
+    private var activityLine: XCUIElement {
+        app.descendants(matching: .any)
+            .matching(identifier: "bot.activity.line").firstMatch
     }
 
     private func assertCount(_ token: String, _ expected: Int, file: StaticString = #filePath, line: UInt = #line) {
@@ -66,6 +82,32 @@ final class BotCaptureUITests: XCTestCase {
         XCTAssertFalse(app.buttons["bot.choice.custom.send"].exists)
     }
 
+    func testStepsHideDescriptionsAndKeepSuppliedActions() throws {
+        launch("steps")
+        let suggested = app.buttons["bot.choice.option.review"]
+        XCTAssertTrue(suggested.waitForExistence(timeout: 3))
+        XCTAssertTrue(suggested.label.contains("建议"), suggested.label)
+        XCTAssertTrue(app.buttons["bot.choice.option.pr"].exists)
+        XCTAssertTrue(app.buttons["bot.choice.option.notes"].exists)
+        XCTAssertFalse(app.staticTexts["先确认测试和截图证据"].exists)
+        XCTAssertFalse(app.staticTexts["不应出现在下一步卡片中的说明标题"].exists)
+    }
+
+    /// The reported bug: the Bot writes the answer, then presents a suggestion
+    /// card. The card used to mount above the still-live answer and the page
+    /// jumped to it; when the durable answer row landed, the text reappeared
+    /// above the card. The card must stay below the answer from the start.
+    func testClosingStepsCardStaysBelowTheLiveAnswer() throws {
+        launch("runningTextThenSteps")
+        let answer = app.descendants(matching: .any)
+            .matching(identifier: "bot.live.answer.text").firstMatch
+        let option = app.buttons["bot.choice.option.review"]
+        XCTAssertTrue(answer.waitForExistence(timeout: 3))
+        XCTAssertTrue(option.waitForExistence(timeout: 3))
+        XCTAssertLessThan(answer.frame.maxY, option.frame.minY,
+                          "the closing card must render below the answer, not above it")
+    }
+
     func testChecklistToggleAndSendBack() throws {
         launch("checklist")
         app.buttons["bot.checklist.item.c2"].tap()
@@ -95,8 +137,10 @@ final class BotCaptureUITests: XCTestCase {
         XCTAssertFalse(app.buttons["bot.approval.once"].exists)
 
         launch("overflow")
-        let always = app.buttons["bot.approval.always"]
-        XCTAssertFalse(always.exists)
+        let always = app.buttons["bot.approval.always.disabled"]
+        XCTAssertTrue(always.waitForExistence(timeout: 3))
+        XCTAssertFalse(always.isEnabled)
+        XCTAssertTrue(app.staticTexts["此操作仅支持单次授权"].exists)
         XCTAssertTrue(app.buttons["bot.approval.deny"].waitForExistence(timeout: 3))
     }
 
@@ -167,6 +211,9 @@ final class BotCaptureUITests: XCTestCase {
         // R5: the whole card is the button, and its VoiceOver label names the
         // action; there is no separate small control to hunt for.
         XCTAssertTrue(open.label.hasPrefix("打开"), open.label)
+        let preview = app.descendants(matching: .any)["bot.card.document.preview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 2))
+        XCTAssertTrue(preview.label.contains("Steering、停止和迟到输出"), preview.label)
         open.tap()
         XCTAssertTrue(app.navigationBars["文档"].waitForExistence(timeout: 2))
         // D2: an inline-content document renders its body. The old sheet
@@ -175,6 +222,8 @@ final class BotCaptureUITests: XCTestCase {
             NSPredicate(format: "label CONTAINS %@", "phoneDSH Bot 验收报告")).firstMatch
         XCTAssertTrue(heading.waitForExistence(timeout: 2))
         XCTAssertFalse(app.staticTexts["没有内嵌正文。"].exists)
+        XCTAssertTrue(app.buttons["bot.document.share"].waitForExistence(timeout: 2),
+                      "the document sheet must offer share")
 
         launch("link")
         app.buttons["bot.link.open.docs"].tap()
@@ -443,27 +492,126 @@ final class BotCaptureUITests: XCTestCase {
 
     /// A lost live `turn/end` must not pin the live turn forever. The 800ms
     /// durable watch is authoritative; once it carries the answer the stop
-    /// control, the activity line and the live text all give way to the
+    /// control, the one activity bubble and the live text all give way to the
     /// durable answer. #126 keeps no process/tool row in between.
     func testLostTurnEndSettlesToDurableRows() throws {
         launch("runningToolUnauthorized")
         let runtime = app.descendants(matching: .any)["bot.fixture.runtime"]
         XCTAssertTrue(runtime.waitForExistence(timeout: 5))
+        // The running fixture drives the bottom bubble from the same presence
+        // the old header line used; while the turn is live it must be there
+        // with a sentence, and the old top line must stay unmounted.
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5),
+                      "the running fixture did not show the activity bubble")
+        XCTAssertFalse(activityBubble.label.isEmpty,
+                       "the activity bubble has no sentence")
+        XCTAssertFalse(activityLine.exists,
+                       "the removed top activity line is still mounted")
         XCTAssertTrue(waitUntil(timeout: 8) { runtime.label.contains("running=none") },
                       "live turn did not settle: \(runtime.label)")
         XCTAssertFalse(app.buttons["bot.composer.stop"].exists)
         XCTAssertTrue(app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", "两次都没有连上 App")).firstMatch
             .waitForExistence(timeout: 4), "durable answer did not take over")
-        XCTAssertFalse(app.descendants(matching: .any)
-            .matching(identifier: "bot.activity.line").firstMatch.exists,
-            "the running activity line stayed after the durable turn settled")
+        XCTAssertFalse(activityBubble.exists,
+                       "the activity bubble stayed after the durable turn settled")
+        XCTAssertFalse(activityLine.exists,
+                       "the top activity line reappeared after the durable turn settled")
         XCTAssertFalse(app.descendants(matching: .any)
             .matching(identifier: "bot.tool.row").firstMatch.exists,
             "a process/tool row reappeared after #126")
         XCTAssertFalse(app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH %@", "已完成")).firstMatch.exists,
             "the removed finished-process row is still rendered")
+    }
+
+    /// The bubble is the one activity surface for every phase that has a
+    /// sentence: a running tool shows the task's real sentence (including its
+    /// `#174` object), an approval after its turn shows the static「等你确认」,
+    /// and a failure shows its report. The bubble stays inside the 38pt
+    /// band, is not a tap target, and no separate top line exists. Shimmer
+    /// on/off is visual (the quiet phases are unit-checked through
+    /// `lineIsQuiet`), so this test only proves the text surface.
+    func testActivityBubbleCarriesThePresenceSentence() throws {
+        launch("runningToolDescribed")
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 3) {
+            activityBubble.label.contains("#174")
+        }, "working bubble label: \(activityBubble.label)")
+        XCTAssertTrue(activityBubble.label.contains("main"),
+                      "the real task object must reach the bubble label")
+        XCTAssertGreaterThanOrEqual(activityBubble.frame.height, 37,
+                                    "bubble is shorter than the reserved band")
+        XCTAssertLessThanOrEqual(activityBubble.frame.height, 40,
+                                 "bubble is taller than the normal 38pt band")
+        XCTAssertFalse(app.buttons["bot.activity.bubble"].exists,
+                       "the activity bubble must remain a non-interactive text surface")
+        XCTAssertFalse(activityLine.exists,
+                       "the removed top activity line is still mounted")
+
+        // No running turn, one approval still pending: the waitingForYou
+        // phase keeps the bubble on the static「等你确认」sentence.
+        launch("approval")
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 3) { activityBubble.label == "等你确认" },
+                      "waiting bubble label: \(activityBubble.label)")
+        XCTAssertFalse(activityLine.exists,
+                       "the removed top activity line is still mounted")
+
+        launch("error")
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
+        XCTAssertTrue(activityBubble.label.contains("生成报告失败"),
+                      "problem bubble label: \(activityBubble.label)")
+        XCTAssertFalse(activityLine.exists,
+                       "the removed top activity line is still mounted")
+    }
+
+    func testActivityChangesKeepComposerAndBandStable() throws {
+        // The diagnostic footer prints changing detail strings and can wrap;
+        // it is not part of the production layout whose stability we check.
+        launch("runningToolDescribed", activityMotion: true, diagnostics: false)
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
+        let composer = app.descendants(matching: .any)
+            .matching(identifier: "bot.composer.input").firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        let composerY = composer.frame.minY
+        let bandY = activityBubble.frame.minY
+        for phrase in ["读取 #174 的资料笔记", "读取 main 侧的笔记",
+                       "#174 记录显示 3 个冲突文件，接着核对主干侧"] {
+            XCTAssertTrue(waitUntil(timeout: 7) { activityBubble.label == phrase },
+                          "activity did not change to \(phrase); current \(activityBubble.label)")
+            XCTAssertEqual(composer.frame.minY, composerY, accuracy: 1,
+                           "a text transition moved the composer")
+            XCTAssertEqual(activityBubble.frame.minY, bandY, accuracy: 1,
+                           "a text transition moved the reserved activity band")
+            XCTAssertEqual(activityBubble.frame.height, 38, accuracy: 1)
+        }
+        XCTAssertFalse(app.buttons["bot.activity.bubble"].exists)
+    }
+
+    func testActivitySupportsLargerTextAndCrossFadePreference() throws {
+        launch("runningToolDescribed", dynamicType: true,
+               activityMotion: true, crossFade: true, diagnostics: false)
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(activityBubble.frame.height, 40,
+                             "the activity line box did not scale with Dynamic Type")
+        XCTAssertTrue(waitUntil(timeout: 7) { activityBubble.label == "读取 #174 的资料笔记" })
+        XCTAssertFalse(app.buttons["bot.activity.bubble"].exists)
+        XCTAssertFalse(activityLine.exists)
+    }
+
+    func testWaitingAndReplyingUseDotsWithoutPlaceholderWords() throws {
+        launch("runningThinking", diagnostics: false)
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
+        XCTAssertEqual(activityBubble.label, "等待 Bot 回应")
+        XCTAssertFalse(app.staticTexts["等待响应"].exists)
+        XCTAssertFalse(app.buttons["bot.activity.bubble"].exists)
+
+        launch("runningStreamingWithLine", diagnostics: false)
+        XCTAssertTrue(activityBubble.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 3) { activityBubble.label == "Bot 正在生成答复" })
+        XCTAssertFalse(app.staticTexts["正在回复"].exists)
+        XCTAssertFalse(app.buttons["bot.activity.bubble"].exists)
     }
 
     // MARK: - Bot drawer

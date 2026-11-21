@@ -176,6 +176,8 @@ struct SettingsPage: View {
             link(NativeText("视觉模型", "Vision models"), icon: "eye") { VisionSettingsPage() }
             #if DEBUG
             link(NativeText("板子固件（USB）", "Board firmware (USB)"), icon: "cable.connector") { TonoLinkUSBOTAPage() }
+            link(NativeText("固件构建", "Firmware builder"), icon: "hammer") { FirmwareBuilderPage() }
+            link(NativeText("小智固件（仅 DEBUG）", "Xiaozhi firmware (DEBUG)"), icon: "antenna.radiowaves.left.and.right") { XiaozhiFirmwarePage() }
             #endif
         }
     }
@@ -429,7 +431,7 @@ struct SettingsPage: View {
             return false
         }.count
         return String(format: NativeText("%d / %d 已允许", "%d / %d allowed"),
-                      granted, PhoneCapability.allCases.count)
+                      granted, PhoneCapability.available.count)
     }
 }
 

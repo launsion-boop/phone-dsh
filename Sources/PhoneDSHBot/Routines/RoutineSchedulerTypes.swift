@@ -108,6 +108,45 @@ public struct RoutineCancellationResult: Sendable, Equatable {
     }
 }
 
+/// Result of one cloud-scheduled occurrence (`occurrence_key`) run through the
+/// existing routine claim/settle path. The cloud scheduler client maps this to
+/// a receipt; it never invents a second execution path of its own.
+public enum RoutineCloudRunOutcome: Sendable, Equatable {
+    /// This call claimed and ran the occurrence; `status` is the persisted
+    /// terminal run status (or `waiting-approval` is reported separately).
+    case settled(status: RoutineRunStatus, runId: String, attempt: Int)
+    /// A local run for the same occurrence (same deterministic run id, or the
+    /// same `scheduledFor`) already reached a terminal state. Nothing ran.
+    case alreadySettled(status: RoutineRunStatus, runId: String, attempt: Int)
+    /// The run parked on a durable approval. No delivery exists yet.
+    case waitingApproval(approvalID: String?, runId: String, attempt: Int)
+    /// The occurrence must not run now. Reasons are stable diagnostic codes
+    /// (`disabled`, `overlap`, `in_progress`, `needs_reconciliation`,
+    /// `waiting_approval`, `superseded`, `quiet`, `routine_not_found`,
+    /// `not_claimed`); they contain no user text.
+    case skipped(reason: String)
+    /// The engine/bot is not ready or another routine tick owns the scheduler.
+    /// The caller keeps the cloud lease and retries; no receipt is written.
+    case notReady
+
+    public var settledStatus: RoutineRunStatus? {
+        switch self {
+        case .settled(let status, _, _), .alreadySettled(let status, _, _): return status
+        default: return nil
+        }
+    }
+
+    public var runID: String? {
+        switch self {
+        case .settled(_, let runId, _), .alreadySettled(_, let runId, _),
+             .waitingApproval(_, let runId, _):
+            return runId
+        default:
+            return nil
+        }
+    }
+}
+
 public struct RoutineAutomation: Sendable, Equatable, Identifiable {
     public var id: String
     public var botId: String

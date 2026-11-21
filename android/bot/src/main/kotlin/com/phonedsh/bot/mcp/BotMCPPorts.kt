@@ -3,6 +3,8 @@ package com.phonedsh.bot.mcp
 
 import com.phonedsh.agentcore.JsonValue
 import com.phonedsh.bot.BotJson
+import com.phonedsh.bot.attachments.BotModelAttachmentRequest
+import com.phonedsh.bot.attachments.BotModelImage
 
 /**
  * The host side of the Bot MCP lane. B5a1 deliberately owns only these
@@ -14,6 +16,20 @@ import com.phonedsh.bot.BotJson
 /** The catalog a caller may see (`toolDefinitions(callerBotID:)`, §7.3). */
 public fun interface BotMCPToolCatalogProvider {
     public fun definitions(callerBotId: String?): List<BotMCPToolDefinition>
+}
+
+/**
+ * Resolves one existing image into encoded bytes for `attach_to_model`
+ * (`BotMCPRuntime.BotModelImageReader`). A null reader (tests/non-App hosts)
+ * makes the tool fail closed with `unsupported` instead of advertising a
+ * capability that cannot produce pixels.
+ *
+ * The App bridge enforces workspace containment and the platform image bounds;
+ * this port only receives the validated request and returns an already-encoded
+ * image, or throws [com.phonedsh.bot.attachments.BotModelImageException].
+ */
+public fun interface BotModelImageReader {
+    public suspend fun read(request: BotModelAttachmentRequest): BotModelImage
 }
 
 /**
@@ -427,4 +443,80 @@ public object BotMCPTypesJson {
         "ok" to com.phonedsh.agentcore.JsonBool(false),
         "error" to com.phonedsh.agentcore.JsonString(error),
     )
+}
+
+// ----------------------------------------------------------------------
+// G-2 (spec/bot/v2): RecordFeedback and BotDecisionContext
+// ----------------------------------------------------------------------
+
+/**
+ * One validated `RecordFeedback` call (`BotFeedback` in the Swift reference).
+ * The runtime has already checked the principal is a real user chat turn and
+ * parsed the frozen arguments of `record-feedback-tool.json`.
+ */
+public data class BotFeedbackRequest(
+    public val botId: String,
+    public val sessionId: String,
+    /** The tool call id; the origin nonce of the feedback. */
+    public val nonce: String,
+    /** `adopt` | `undo` | `correct` | `suppress`. */
+    public val action: String,
+    /** `proactive` | `routine` | `memory` | `task` | `delivery` | `feedback`. */
+    public val targetKind: String,
+    public val targetId: String,
+    public val targetVersion: Long? = null,
+    public val deliveryKey: String? = null,
+    /** `artifact` | `routine` | `class` | `user`. */
+    public val scope: String = "artifact",
+    public val disputedRefs: List<String> = emptyList(),
+    public val expiresAtMs: Long? = null,
+    /** G-2 r11: `correct` with real `disputed_refs` records the disputed-only shape. */
+    public val disputedOnly: Boolean = false,
+)
+
+/**
+ * The feedback store (`BotFeedbackCenter`). Returns the tool result object
+ * (`ok`, `accepted`, `status`, `action`, …) exactly as the Swift
+ * `BotFeedbackTools.encode` writes it. A thrown error becomes
+ * `execution_failed`.
+ */
+public interface BotFeedbackPort {
+    public suspend fun record(request: BotFeedbackRequest): JsonValue
+}
+
+/** One validated `bot-decision-context-request/v1` (`BotDecisionRequest`). */
+public data class BotDecisionRequest(
+    /** `pre_step` | `pre_delivery`. */
+    public val stage: String,
+    public val botId: String,
+    public val sessionId: String,
+    public val turnId: String,
+    public val step: Long,
+    public val query: String,
+    public val origin: String?,
+    /** `user` and/or `agent`. */
+    public val scopes: List<String>,
+    public val maxMaterials: Long,
+    public val maxCharacters: Long,
+    public val maxSnippetCharacters: Long,
+    public val deadlineMs: Long,
+)
+
+/**
+ * A decision-context failure. [code] must be one of the frozen result codes
+ * (`permission-denied`, `invalid-request`, `material-unavailable`); any other
+ * value is reported as `material-unavailable`.
+ */
+public class BotDecisionContextException(
+    public val code: String,
+    message: String,
+) : Exception(message)
+
+/**
+ * The session-bounded material service (`BotDecisionContextService`). It
+ * returns the material block object; it owns the authorization-revision and
+ * freshness checks of `decision-context.md` §1. Read-only, grants nothing.
+ */
+public interface BotDecisionContextPort {
+    public suspend fun materials(request: BotDecisionRequest): JsonValue
 }

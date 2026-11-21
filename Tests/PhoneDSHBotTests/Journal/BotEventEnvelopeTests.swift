@@ -42,7 +42,7 @@ final class BotEventEnvelopeTests: XCTestCase {
     func testPhoneGoldenDurableCasesUseRealEncoderAndDecoder() throws {
         let fixture = try loadPhoneFixture()
         let valid = try XCTUnwrap(fixture["validCases"] as? [[String: Any]])
-        XCTAssertEqual(valid.count, 13)
+        XCTAssertEqual(valid.count, 14)
         let codec = BotEventEnvelopeCodec()
         for vector in valid {
             let data = try JSONSerialization.data(withJSONObject: vector["event"] as! [String: Any])
@@ -88,6 +88,13 @@ final class BotEventEnvelopeTests: XCTestCase {
                 XCTAssertEqual(decoded.origin, .local(source: "memory-service"))
                 XCTAssertEqual(decoded.data["path"]?.stringValue, "agent/notes/plan.md")
                 XCTAssertEqual(decoded.data["expected_version"]?.intValue, 1)
+            case "feedback-recorded-suppress":
+                XCTAssertEqual(decoded.type, "feedback.recorded")
+                XCTAssertTrue(BotEventEnvelopeCodec.isDurable(decoded.type))
+                XCTAssertEqual(decoded.origin, .local(source: "card-bridge"))
+                XCTAssertEqual(decoded.principal.kind, "chat")
+                XCTAssertEqual(decoded.data["feedback_id"]?.stringValue, "feedback:bot-a:9")
+                XCTAssertEqual(decoded.data["action"]?.stringValue, "suppress")
             case "memory-document-deleted":
                 XCTAssertEqual(decoded.type, "memory.document_deleted")
                 XCTAssertTrue(BotEventEnvelopeCodec.isDurable(decoded.type))

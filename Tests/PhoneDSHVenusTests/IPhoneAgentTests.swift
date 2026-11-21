@@ -239,6 +239,23 @@ private func solidJPEG(_ gray: CGFloat) -> Data {
         XCTAssertTrue(text.contains("reply Answer or Finished now"), text)
     }
 
+    /// Seen on the device: Settings → Battery showed every figure, then it swiped up and down until
+    /// stopped. Before giving up it re-reads the screens it saw and answers from them, acting no more.
+    func testStoppedRunAnswersFromAScreenItAlreadySaw() async throws {
+        let up = "<action>Swipe(start=(499, 262), end=(499, 781))</action>", down = "<action>Swipe(start=(499, 874), end=(499, 437))</action>"
+        ScriptedModel.reset([down, up, down, up, down, up, down, up,
+                             "<action>CallUser(content='not shown')</action>", "<action>Answer(content='电量 86%，今天用了 7%')</action>"])
+        let phone = StillPhone(screens: (0..<20).map { solidJPEG($0 % 2 == 0 ? 1 : 0) })
+        let result = try await IPhoneAgent(device: phone, client: try client(), settle: .zero).run("查看电池用量")
+        XCTAssertTrue(result.finished)
+        XCTAssertEqual(result.answer, "电量 86%，今天用了 7%")
+        XCTAssertEqual(phone.actions.count, 6, "re-reading performs nothing on the phone")
+        let bodies = ScriptedModel.lock.withLock { ScriptedModel.bodies }
+        XCTAssertEqual(bodies.count, 10, "two distinct screens re-read, newest first")
+        let reread = (bodies[8]["messages"] as? [[String: Any]])?.first?["content"] as? String ?? ""
+        XCTAssertTrue(reread.contains("Do not navigate") && reread.contains("查看电池用量"), reread)
+    }
+
     func testModelIsToldWhenAnActionChangedNothing() async throws {
         ScriptedModel.reset(["<action>PressHome()</action>", "<action>Finished(content='ok')</action>"])
         let phone = StillPhone(screens: [solidJPEG(0.5)])
