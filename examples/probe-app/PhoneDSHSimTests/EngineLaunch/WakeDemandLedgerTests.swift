@@ -172,4 +172,30 @@ final class WakeDemandLedgerTests: XCTestCase {
         XCTAssertNil(earliest)
         XCTAssertNil(next)
     }
+
+    func testConnectorScanCadenceHonoursTheDemand() {
+        let now: Int64 = 1_800_000_000_000
+        func scan(_ key: String, dueAt: Int64) -> WakeDemand {
+            WakeDemand(source: .connectorScan, key: key, dueAtMs: dueAt,
+                       kind: .recurring, userVisible: false)
+        }
+        // A connector with no demand yet is due once: its first scan only
+        // establishes the cursor. An unauthorised connector never counts.
+        XCTAssertTrue(ConnectorScanCadence.hasDueWork(
+            authorized: ["gmail"], demands: [], nowMs: now))
+        XCTAssertFalse(ConnectorScanCadence.hasDueWork(
+            authorized: [], demands: [scan("gmail", dueAt: now - 1)], nowMs: now))
+        // A completed scan's future demand suppresses the scan; a due demand
+        // (or an overdue one) allows it.
+        let future = scan("gmail", dueAt: now + 60_000)
+        XCTAssertFalse(ConnectorScanCadence.hasDueWork(
+            authorized: ["gmail"], demands: [future], nowMs: now))
+        XCTAssertTrue(ConnectorScanCadence.hasDueWork(
+            authorized: ["gmail"], demands: [scan("gmail", dueAt: now)], nowMs: now))
+        XCTAssertTrue(ConnectorScanCadence.hasDueWork(
+            authorized: ["gmail"], demands: [scan("gmail", dueAt: now - 1)], nowMs: now))
+        // A second authorised connector without a demand makes the pass due.
+        XCTAssertTrue(ConnectorScanCadence.hasDueWork(
+            authorized: ["gmail", "github"], demands: [future], nowMs: now))
+    }
 }

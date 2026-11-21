@@ -1250,7 +1250,8 @@ private struct BotTranscriptRow: View {
                     .padding(.horizontal, HomeSpec.contentInset)
                     .padding(.vertical, HomeSpec.blockGap / 2)
             } else if row.body.type == "text" {
-                BotTextRow(row: row)
+                BotTextRow(row: row,
+                           queued: model.actionStates["chat:\(row.id)"] == .queued)
             } else if let card = BotUICardContent.parse(row: row) {
                 BotCardView(row: row, card: card, model: model, actions: actions)
                     .padding(.horizontal, HomeSpec.contentInset)
@@ -1331,6 +1332,10 @@ private struct BotAgentCommRow: View {
 
 private struct BotTextRow: View {
     let row: BotUIRow
+    /// The durable pending-action row exists but the Bot unit/engine is not up
+    /// yet; the local echo stays visible with this label until unit-start
+    /// replay turns it into the durable user row.
+    var queued: Bool = false
     private var isUser: Bool { row.role == "user" }
     private var text: String { row.body["text"]?.string ?? "" }
     private var attachments: [BotUIAttachment] {
@@ -1355,6 +1360,15 @@ private struct BotTextRow: View {
                         }
                         ForEach(attachments) { attachment in
                             BotUserAttachmentCard(attachment: attachment)
+                        }
+                        if queued {
+                            HStack(spacing: 4) {
+                                Image(systemName: "clock")
+                                Text("待发送，引擎就绪后自动发出")
+                            }
+                            .font(.system(size: 11))
+                            .foregroundStyle(HomeSpec.textSecondary)
+                            .accessibilityElement(children: .combine)
                         }
                     }
                     .padding(.horizontal, 16)

@@ -32,14 +32,50 @@ final class WakeSchedulerTests: XCTestCase {
         var nowMs: Int64 = 1_800_000_000_000
     }
 
-    private func makeScheduler(_ recorder: Recorder) -> WakeScheduler {
+    private func makeScheduler(_ recorder: Recorder,
+                               overdueRetryMs: Int64 = 60_000) -> WakeScheduler {
         WakeScheduler(
             ledger: WakeDemandLedger(directory: directory),
             projection: WakeScheduler.Projection(
                 wake: { recorder.wakeCount += 1 },
                 project: { recorder.projected.append($0) },
                 isResident: { recorder.resident }),
-            now: { recorder.nowMs })
+            now: { recorder.nowMs },
+            overdueRetryMs: overdueRetryMs)
+    }
+
+    /// A scheduler whose wake path mirrors `EngineLaunchOrchestrator`: it
+    /// refreshes the projection before deciding, then leaves an unconsumed
+    /// demand in place (an explicit stop, a failed boot, a gated step).
+    private final class RefreshingRef {
+        var scheduler: WakeScheduler?
+    }
+
+    func testOverdueDemandIsRetriedAtMostOncePerRetryWindow() async throws {
+        let recorder = Recorder()
+        let ref = RefreshingRef()
+        let scheduler = WakeScheduler(
+            ledger: WakeDemandLedger(directory: directory),
+            projection: WakeScheduler.Projection(
+                wake: {
+                    recorder.wakeCount += 1
+                    await ref.scheduler?.refresh()
+                },
+                project: { recorder.projected.append($0) },
+                isResident: { recorder.resident }),
+            now: { recorder.nowMs },
+            overdueRetryMs: 10_000)
+        ref.scheduler = scheduler
+        scheduler.start()
+        let now = recorder.nowMs
+        // A due routine the wake cannot consume (for example the user stopped
+        // the engine): without the retry window this is the reported 0-delay
+        // spin (tens of thousands of wakes per second).
+        try await scheduler.upsert(demand("stuck", dueAtMs: now - 1, kind: .recurring))
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(recorder.wakeCount, 1,
+                       "an unconsumed overdue demand must not re-arm the resident timer at zero delay")
+        scheduler.stop()
     }
 
     func testResidentTimerFiresAtTheEarliestDueTime() async throws {

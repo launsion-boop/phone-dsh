@@ -560,9 +560,37 @@
       "expect": "Bot 运行时未连接"
     },
     {
+      "id": "runtime.queuedSend",
+      "value": "待发送，引擎就绪后自动发出",
+      "source": "BotChatPage.swift:1367",
+      "expect": "待发送",
+      "note": "durable Bot send written while the engine/Bot unit is absent; the row stays optimistic and the pending-action replay delivers it"
+    },
+    {
+      "id": "runtime.engineNeedsReset",
+      "value": "引擎需要重启后才能继续",
+      "source": "BotProductionPage.swift:507",
+      "expect": "引擎需要重启",
+      "note": "terminal engine state on the Bot page; the banner carries the restart action"
+    },
+    {
+      "id": "runtime.engineStopped",
+      "value": "引擎已停止；消息会排队，点「启动」后自动发出",
+      "source": "BotProductionPage.swift:509",
+      "expect": "引擎已停止",
+      "note": "explicit user stop; queued sends resume after the start action"
+    },
+    {
+      "id": "runtime.engineStart",
+      "value": "启动",
+      "source": "BotProductionPage.swift:510",
+      "expect": "启动",
+      "note": "action label for the stopped-engine banner"
+    },
+    {
       "id": "realtime.degraded",
       "value": "实时更新中断，正在重连",
-      "source": "BotChatModel.swift:1588",
+      "source": "BotChatModel.swift:1598",
       "expect": "实时更新中断，正在重连",
       "note": "watch/live supervision degraded banner; cleared when the feed recovers"
     },
@@ -577,12 +605,6 @@
       "value": "附件「{name}」未附加：{reason}",
       "source": "BotChatModel.swift:667",
       "expect": "未附加"
-    },
-    {
-      "id": "runtime.connecting",
-      "value": "正在连接 Bot…",
-      "source": "BotProductionPage.swift:430",
-      "expect": "正在连接 Bot"
     },
     {
       "id": "info.rename.empty",

@@ -142,6 +142,24 @@ public struct WakeDemand: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+/// The connector scan's own due rule. The demand table (§10.3.2) is a wake
+/// hint, but the step must also honour it, or every wake (every foreground
+/// return) scans Gmail/GitHub regardless of the 30-minute interval. A connector
+/// with no demand yet is due once: its first scan only establishes the cursor.
+public enum ConnectorScanCadence {
+    public static func hasDueWork(authorized: Set<String>, demands: [WakeDemand],
+                                  nowMs: Int64) -> Bool {
+        for connector in authorized {
+            let demand = demands.first {
+                $0.source == .connectorScan && $0.key == connector
+            }
+            if demand == nil { return true }
+            if let demand, demand.dueAtMs <= nowMs { return true }
+        }
+        return false
+    }
+}
+
 /// The persisted document (host-private format).
 public struct WakeDemandDocument: Codable, Equatable, Sendable {
     public var version: Int

@@ -524,6 +524,12 @@ wake that cannot boot never drops a request: the request is already durable in t
 outbox or the wake inbox, and the next eligible wake executes it. A `failed` host goes through the
 existing backoff/recovery; only `needsReset` asks for the user.
 
+**Caller rule for expiry-only reasons.** The decision function is total over the golden's input
+shape. A decision vector that pairs `bgProcessing` or `bgAppRefresh` with a non-null
+`leaseRemainingMs` exists only to pin that pure function; an expiry-only callback has no measurable
+deadline (§10.2.3) and a conforming adapter MUST pass a `null` timed lease for it. Such a vector's
+`boot`/`resume` expectation is not permission for a BGTask to authorize an engine transition.
+
 #### 10.2.5 ReadySweep (nine steps, once per wake)
 
 After stage C the orchestrator runs the sweep in this fixed order:

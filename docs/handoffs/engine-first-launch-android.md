@@ -5,7 +5,7 @@
 ## 1. 先读
 
 1. 仓库根 `AGENTS.md`（尤其 §2 规则 1–3：一个边界一个权威、不只改一端、不放宽契约）。
-2. 变更单 [PC-20261120-engine-first-launch](../protocol-changes/PC-20261120-engine-first-launch.md)，revision 3。§3.1 是 ios-bot CCR 的裁定，§3.2 是 revision 3（宿主拥有的时间）。
+2. 变更单 [PC-20261120-engine-first-launch](../protocol-changes/PC-20261120-engine-first-launch.md)，revision 4。§3.1 是 ios-bot CCR 的裁定，§3.2 是 revision 3（宿主拥有的时间），§3.3 是 revision 4（expiry-only 回调）。
 3. 规范：
    - [host README §10.2](../../spec/host/v1/README.md)：单一编排者、WakeReason（13 个，封闭）、WakeLease、决策函数、ReadySweep 九步、静默启动可见性。
    - [host README §10.3](../../spec/host/v1/README.md)：五条不变量、WakeDemand、唤醒投影、OS 通道、第 8–9 步。
@@ -16,14 +16,16 @@
 
 | 文件 | 内容 | Kotlin 测试必须覆盖 |
 |---|---|---|
-| `spec/host/v1/golden/engine-launch.json`（revision 2）+ `schema/engine-launch.schema.json` | 常量、wakeReasons、decisions、steps、demandSources；决策 / sweep / 投影的正反向量 | `decisionVectors`、`invalidDecisionVectors`、`sweepVectors`、`invalidSweepVectors`、`projectionVectors`、`invalidProjectionVectors` 全部，拒绝原因要与 golden 一致 |
+| `spec/host/v1/golden/engine-launch.json`（revision 3）+ `schema/engine-launch.schema.json` | 常量、wakeReasons、decisions、steps、demandSources；决策 / sweep / 投影的正反向量 | `decisionVectors`、`invalidDecisionVectors`、`sweepVectors`、`invalidSweepVectors`、`projectionVectors`、`invalidProjectionVectors` 全部，拒绝原因要与 golden 一致 |
 | `spec/bot/v2/held-inbox-item.schema.json` + `golden/held-inbox.phone.json` | `connector-update` 两个封闭分支（gmail、github）及负例 | 正例编解码往返；6 个 schema 负例和语义负例都拒绝 |
 | `spec/bot/v2/connector-cursor.schema.json` + `golden/connector-cursor.json` | cursor 记录，GitHub cursor 是 `{since, lastModified}` | 有效、无效向量和变异 |
 | `spec/bot/v2/proactive-decision.schema.json`、`proactive-settings` 与 `golden/proactive.json` | `connector-update` 主动 kind | did / skip 向量 |
 
 参考 oracle：`python3 spec/host/v1/tools/test_engine_launch.py`。它独立实现了决策顺序、步骤门、投影与严格解码，并检查 README 表格与 golden 一致。Kotlin 的实现应该与它给出相同的答案。
 
-Android 的 `EngineLaunchPolicyTest` 直接运行共享启动决策正例。`ProactiveVectorTest` 与 `HeldInboxGoldenTest` 直接读取共享的 `proactive.json` 与 `held-inbox.phone.json`。已移除 `BotUiStrings.kt` 中过期的 `runtime.notReady`。
+**expiry-only 的调用方规则。** golden 里有 `bgProcessing`/`bgAppRefresh` 带非空 lease 的决策向量，那只是为了把**纯函数**定义成 total；这两种回调没有可测 deadline，调用方必须传 `null` lease（host §10.2.3 / §10.2.4）。不要把 golden 里那几条 `boot`/`resume` 当成“BGTask 可以启动引擎”的依据。Android 的 `EngineLaunchPolicy` 应保持纯函数，由 WorkManager/BGTask adapter 负责传 null。
+
+Android 的 `EngineLaunchPolicyTest` 目前只运行共享启动决策正例；`invalidDecisionVectors`、`sweepVectors`、`invalidSweepVectors`、`projectionVectors`、`invalidProjectionVectors` 补齐前不算完成本交接的验收。`ProactiveVectorTest` 与 `HeldInboxGoldenTest` 直接读取共享的 `proactive.json` 与 `held-inbox.phone.json`。已移除 `BotUiStrings.kt` 中过期的 `runtime.notReady`。
 
 ## 3. 架构要点（与 iOS 相同的不变量，不同的通道）
 
