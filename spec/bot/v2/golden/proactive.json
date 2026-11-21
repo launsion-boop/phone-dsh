@@ -14,7 +14,9 @@
     "Freeze on-mode deliveryKinds filtering: a non-deliverable kind records would/would-only-kind and contributes no fuse.",
     "Freeze dedupeKey derivation and replacement semantics: the key is a stable notification identifier, never a suppression window.",
     "Freeze notification copy defaults, trimming and 120/500-character clipping, plus the row deep link shape.",
-    "Freeze that a routine-due local notification is a separate RoutineScheduledNotification path, not a ProactiveDecision, and consumes no fuse."
+    "Freeze that a routine-due local notification is a separate RoutineScheduledNotification path, not a ProactiveDecision, and consumes no fuse.",
+    "Add connector-update to the proactive kind/deliveryKinds/dev decision enums: it uses the existing dnd/quiet-hours/fuse rules, and its candidate must carry explicit title/body (no new default copy).",
+    "Freeze the connector-update copy rule as decoder-level semantic negatives (decisions.semanticInvalid): a missing or blank title/body is rejected as proactive-candidate-missing-field before the decision chain; the schema cannot express this conditional."
   ],
   "settings": {
     "valid": {
@@ -2215,6 +2217,110 @@
             }
           }
         ]
+      },
+      {
+        "name": "connector-update-delivers-with-explicit-copy",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "connector-update"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1795168800000,
+            "candidate": {
+              "id": "connector-gmail-4100-4180",
+              "kind": "connector-update",
+              "botId": "bot-a",
+              "dedupeKey": "connector:gmail:4100:4180",
+              "trigger": "connector.scan",
+              "createdAt": 1795168799000,
+              "title": "Gmail · 2 封新邮件",
+              "body": "ada@example.com: 週報; lin@example.com: Re: 部署"
+            },
+            "expect": {
+              "id": "proactive:1795168800000:1",
+              "at": 1795168800000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "connector-update",
+              "botId": "bot-a",
+              "dedupeKey": "connector:gmail:4100:4180",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "Gmail · 2 封新邮件",
+                "body": "ada@example.com: 週報; lin@example.com: Re: 部署",
+                "kind": "connector-update",
+                "botId": "bot-a",
+                "dedupeKey": "connector:gmail:4100:4180",
+                "channel": "system-notification"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "connector-update-skips-in-quiet-hours",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "connector-update"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1795217400000,
+            "candidate": {
+              "id": "connector-gmail-4100-4180",
+              "kind": "connector-update",
+              "botId": "bot-a",
+              "dedupeKey": "connector:gmail:4100:4180",
+              "trigger": "connector.scan",
+              "createdAt": 1795217399000,
+              "title": "Gmail · 2 封新邮件",
+              "body": "ada@example.com: 週報; lin@example.com: Re: 部署"
+            },
+            "expect": {
+              "id": "proactive:1795217400000:1",
+              "at": 1795217400000,
+              "decision": "skip",
+              "reason": "quiet-hours",
+              "kind": "connector-update",
+              "botId": "bot-a",
+              "dedupeKey": "connector:gmail:4100:4180",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "Gmail · 2 封新邮件",
+                "body": "ada@example.com: 週報; lin@example.com: Re: 部署",
+                "kind": "connector-update",
+                "botId": "bot-a",
+                "dedupeKey": "connector:gmail:4100:4180",
+                "channel": "system-notification"
+              }
+            }
+          }
+        ]
       }
     ],
     "invalid": [
@@ -2381,6 +2487,89 @@
         },
         "error": "proactive-candidate-min-length",
         "path": "$.rowId"
+      }
+    ],
+    "semanticInvalid": [
+      {
+        "name": "connector-update-missing-title",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "connector-update"
+          ]
+        },
+        "candidate": {
+          "id": "connector-gmail-4100-4180",
+          "kind": "connector-update",
+          "botId": "bot-a",
+          "dedupeKey": "connector:gmail:4100:4180",
+          "trigger": "connector.scan",
+          "createdAt": 1795168799000,
+          "body": "ada@example.com: 週報; lin@example.com: Re: 部署"
+        },
+        "error": "proactive-candidate-missing-field",
+        "path": "$.title"
+      },
+      {
+        "name": "connector-update-blank-body",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "connector-update"
+          ]
+        },
+        "candidate": {
+          "id": "connector-gmail-4100-4180",
+          "kind": "connector-update",
+          "botId": "bot-a",
+          "dedupeKey": "connector:gmail:4100:4180",
+          "trigger": "connector.scan",
+          "createdAt": 1795168799000,
+          "title": "Gmail · 2 封新邮件",
+          "body": "   "
+        },
+        "error": "proactive-candidate-missing-field",
+        "path": "$.body"
+      },
+      {
+        "name": "connector-update-missing-both-reports-title",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "connector-update"
+          ]
+        },
+        "candidate": {
+          "id": "connector-gmail-4100-4180",
+          "kind": "connector-update",
+          "botId": "bot-a",
+          "dedupeKey": "connector:gmail:4100:4180",
+          "trigger": "connector.scan",
+          "createdAt": 1795168799000
+        },
+        "error": "proactive-candidate-missing-field",
+        "path": "$.title"
       }
     ]
   },

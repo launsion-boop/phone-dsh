@@ -1765,6 +1765,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // The Activity's onStart: the App is in the foreground again, so queued
         // sends that waited for execution eligibility are prepared now.
         appForeground = true
+        startPreparedEngine()
         chatSendQueue.onForeground()
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { appBotRuntime?.start() }
@@ -2419,6 +2420,10 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     @Volatile
     private var appForeground = false
 
+    private var userStoppedEngine = false
+    private var coldLaunchRequested = false
+    private var launchContentPrepared = false
+
     /** What the bubble of a queued send shows (the typed text, or its attachment names). */
     private val queuedBubbleText = java.util.concurrent.ConcurrentHashMap<String, String>()
 
@@ -2614,7 +2619,10 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // run on the host's scope. Observe engine.state for the outcome.
         viewModelScope.launch(Dispatchers.IO) {
             appBotRuntime?.start()
-            withContext(Dispatchers.Main) { host.start() }
+            withContext(Dispatchers.Main) {
+                launchContentPrepared = true
+                startPreparedEngine()
+            }
         }
         // C5: observe the PC client and load the identity/record in the
         // background. With no record this only creates the first-run identity;
@@ -2661,24 +2669,36 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         }
     }
 
+    private fun startPreparedEngine() {
+        if (!launchContentPrepared || coldLaunchRequested) return
+        val decision = EngineLaunchPolicy.decide(
+            foreground = appForeground,
+            residentAudio = false,
+            hostState = LaunchHostState.absent,
+            leaseRemainingMs = null,
+            userStopped = userStoppedEngine,
+            needsReset = host.state.value == com.phonedsh.controller.HostState.FAILED,
+        )
+        if (decision == LaunchDecision.BOOT) {
+            coldLaunchRequested = true
+            host.start()
+        }
+    }
+
     fun start() {
+        userStoppedEngine = false
+        coldLaunchRequested = true
         // The person asked for the engine: queued delivery is no longer paused.
         chatSendQueue.unpause()
         host.start()
     }
 
     fun stop() {
+        userStoppedEngine = true
         // An explicit stop pauses queued preparation first, including a boot that
         // queued work started: that boot must not drain afterwards.
         chatSendQueue.pause()
         host.stop()
-    }
-
-    private val nativeLaunchStarted = AtomicBoolean(false)
-
-    internal fun startNativeSurface() {
-        if (!nativeLaunchStarted.compareAndSet(false, true)) return
-        if (host.state.value == com.phonedsh.controller.HostState.FAILED) restartChatEngine() else start()
     }
 
     internal fun nativeEngineLifecycle(): com.phonedsh.ui.state.EngineLifecycleFacts {

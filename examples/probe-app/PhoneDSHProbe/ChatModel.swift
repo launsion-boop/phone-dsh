@@ -401,6 +401,10 @@ final class ChatModel {
             Task { @MainActor [weak self] in
                 self?.scheduleRecoveryQueueFlush()
                 self?.scheduleExternalAdmissionPass()
+                // PLAN §2.2: unlock is one wake cause. Without a lease its
+                // decision is `nativeOnly`/`defer` unless the process is
+                // resident (connected board audio).
+                _ = await EngineLaunchOrchestrator.shared.wake(.unlock, lease: nil)
             }
         }
         Task { @MainActor [weak self] in
@@ -783,7 +787,21 @@ final class ChatModel {
     var executionEligible: Bool {
         ChatDeliveryPreparation.executionEligible(
             foreground: UIApplication.shared.applicationState != .background,
-            keepingAlive: keepingAlive, residentAudio: SilentAudioKeepAlive.shared.isActive)
+            keepingAlive: keepingAlive, residentAudio: SilentAudioKeepAlive.shared.isActive,
+            leaseRemainingMs: activeWakeLease?.remainingMs(),
+            leaseThresholdMs: engineLeaseThresholdMs)
+    }
+    /// The lease threshold for the transition the current host state needs
+    /// (host §10.2: resume for a parked host, cold boot otherwise).
+    private var engineLeaseThresholdMs: Int64 {
+        guard host != nil else { return EngineLaunchThresholds.minLeaseForColdBootMs }
+        return parked ? EngineLaunchThresholds.minLeaseForResumeMs : 0
+    }
+    /// The orchestrator owns one wake at a time and keeps its lease on this
+    /// model so every eligibility gate inside phases A–D agrees.
+    func adoptWakeLease(_ lease: WakeLease?, reason: WakeReason? = nil) {
+        activeWakeLease = lease
+        activeWakeReason = reason
     }
     /// Queued sends are delivered only while the phone is unlocked: a locked phone still
     /// admits them durably (the outbox write decides), and the unlock notification or the
@@ -806,6 +824,41 @@ final class ChatModel {
     private var outboxNeedsDrain = false
     private var isDrainingOutbox = false
     private var isStartingEngine = false
+    /// The lease of the wake currently being served (host §10.2). It is the
+    /// third eligibility branch for the wake's whole span (phase A–D); the
+    /// orchestrator sets and clears it. `nil` outside an orchestrated wake.
+    @ObservationIgnored private(set) var activeWakeLease: WakeLease?
+    /// The reason of the orchestrator-owned wake (diagnostics only).
+    @ObservationIgnored private(set) var activeWakeReason: WakeReason?
+    /// Depth of an orchestrator-owned, silent engine start. The launch writes
+    /// no `Booting the Worker…` line and raises no user-facing error; the
+    /// status log still records what happened. User-triggered starts keep the
+    /// existing visible path.
+    private var silentLaunchDepth = 0
+    /// Bumped whenever a fresh Host is adopted; the ReadySweep merge key.
+    private(set) var engineIncarnation = 0
+    /// The engine state the launch policy decides from (host §10.2
+    /// `hostState`). A host that failed and needs a reset is `.failed`; an
+    /// absent host is `.absent`, a parked one `.parked`.
+    var engineHostState: EngineHostState {
+        guard host != nil else { return failedHost != nil ? .failed : .absent }
+        return parked ? .parked : .running
+    }
+    /// Manual-recovery flag (`engineNeedsReset`) is the launch policy input.
+    /// An explicit user stop pauses queued preparation (host §10.1); the
+    /// launch policy maps it to `.deferred`.
+    var engineUserStopped: Bool { queuedPreparationPaused }
+    /// True while the orchestrator owns a silent start.
+    var isSilentLaunch: Bool { silentLaunchDepth > 0 }
+    /// Tells the launch orchestrator that a fresh host was adopted. It runs a
+    /// sweep unless a wake is already in flight (that wake owns this
+    /// incarnation's sweep, §10.2.5 / I4).
+    private func announceEngineIncarnation() {
+        let incarnation = engineIncarnation
+        Task { @MainActor in
+            await EngineLaunchOrchestrator.shared.engineIncarnationAdopted(incarnation)
+        }
+    }
     /// Read-only projection currently painted by W1-A. Non-nil means the page
     /// is showing a materialized copy and no send may go to `sessionID` until
     /// the target is activated.
@@ -1509,7 +1562,23 @@ final class ChatModel {
         let resumeWatchdogTimeout: TimeInterval
     }
 
+    /// Phase A of the engine-first launch (PLAN §2.1): open and verify the Bot
+    /// SQLite store and prepare the composition **without touching the host**.
+    /// It does not consult execution eligibility or the anchor, and it is
+    /// idempotent: the launch orchestrator calls it first, the Bot page may
+    /// retry it, and a later engine start finds the prepared composition.
+    /// A failure is visible through `botRuntimeState` / `botRuntimeIssue`; it
+    /// raises no engine error banner here (the silent launch rule).
+    func prepareBotRuntimeAtLaunch() async -> BotRuntimeComposition? {
+        guard await prepareBotRuntime(reportingFailure: false) else { return nil }
+        return botLaunch?.composition
+    }
+
     private func prepareBotRuntime() async -> Bool {
+        await prepareBotRuntime(reportingFailure: !isSilentLaunch)
+    }
+
+    private func prepareBotRuntime(reportingFailure: Bool) async -> Bool {
         if let launch = botLaunch {
             if botListenerSupervisor == nil {
                 botListenerSupervisor = BotMCPListenerSupervisor(listener: launch.composition)
@@ -1535,7 +1604,11 @@ final class ChatModel {
             return true
         } catch {
             botRuntimeState = .failed("Bot 启动失败：\(error.localizedDescription)")
-            reportError("Bot 启动失败：\(error.localizedDescription)")
+            if reportingFailure {
+                reportError("Bot 启动失败：\(error.localizedDescription)")
+            } else {
+                Self.persistStatus("bot runtime prepare failed (launch): \(NativeLogRedaction.error(error))")
+            }
             return false
         }
     }
@@ -1636,6 +1709,129 @@ final class ChatModel {
         await start(autoRecover: autoRecover, backoffRetry: false)
     }
 
+    // MARK: Launch orchestration (host §10.2)
+
+    /// PLAN §2.6: decide whether the phone engine starts at launch. True when
+    /// the phone segment is selected, a durable Bot roster exists, or the send
+    /// outbox / external admission journal holds work. The Bot roster is read
+    /// before `prepare` bootstraps its first entry, so a fresh install with no
+    /// Bot and no queued work stays engine-free.
+    func shouldStartPhoneEngineAtLaunch(phoneSelected: Bool) async -> Bool {
+        guard pcRuntime == nil else { return false }
+        if phoneSelected { return true }
+        if outboxNeedsDrain || queuedSendCount > 0 { return true }
+        let pending = await externalAdmissions.sweptPendingRecords(
+            nowMs: ExternalAdmissionJournal.nowMs())
+        if !pending.isEmpty { return true }
+        return await hasDurableBotRoster()
+    }
+
+    private func hasDurableBotRoster() async -> Bool {
+        let directory = BotProfileStorage.directory()
+        return await Task.detached(priority: .utility) {
+            do {
+                let store = BotProfileStore(directory: directory)
+                return try await store.roster().bots.isEmpty == false
+            } catch {
+                return false
+            }
+        }.value
+    }
+
+    /// Phase A: everything that can paint before the engine exists (PLAN §2.1).
+    /// The Bot store is prepared first (it provides the roster and persisted
+    /// rows), then the session snapshot, then the outbox scan and one external
+    /// admission pass. All of it is engine-free and idempotent.
+    func prepareLaunchContentForWake(dispatchAdmissions: Bool = true) async {
+        _ = await prepareBotRuntimeAtLaunch()
+        guard !Task.isCancelled else { return }
+        restoreCachedTranscriptIfAvailable()
+        startOutboxStartupScanIfNeeded()
+        if dispatchAdmissions { scheduleExternalAdmissionPass() }
+    }
+
+    /// Phase B: boot on behalf of the launch orchestrator. Silent: no
+    /// `Booting the Worker…` status line and no user-facing error.
+    func startForWake(_ reason: WakeReason) async {
+        silentLaunchDepth += 1
+        defer { silentLaunchDepth -= 1 }
+        await start()
+    }
+
+    /// Phase B: resume a parked host on behalf of the launch orchestrator.
+    func resumeForWake(_ reason: WakeReason) async {
+        await resumeParkedHost()
+    }
+
+    /// Phase C: the consumers of the running engine are bound in order:
+    /// Bot composition → DSH session → Bot MCP listener. The first two happen
+    /// inside `start`/`resume` adoption; this heals the listener and reports
+    /// whether the running Worker still carries the live endpoint.
+    @discardableResult
+    func prepareConsumersForWake() async -> Bool {
+        guard let supervisor = botListenerSupervisor else { return true }
+        _ = await supervisor.foregroundBecameActive()
+        if !supervisor.hostEndpointIsCurrent {
+            appendStatus("Launch: Bot MCP listener moved to a new port; the Worker needs a rebuild on the next foreground")
+            return false
+        }
+        return true
+    }
+
+    /// Phase D step 1: the user's own queued sends.
+    @discardableResult
+    func drainOutboxForWake() async -> Bool {
+        guard outboxNeedsDrain || queuedSendCount > 0 else { return false }
+        await drainSendOutbox()
+        return true
+    }
+
+    /// Phase D step 2: already admitted external requests.
+    func runAdmissionPassForWake() async {
+        await scheduleExternalAdmissionPass().value
+    }
+
+    /// Ends a granted wake window (push / BGTask). `parkMarginMs` is the
+    /// latest stop point, not a mandatory wait: no turn parks immediately, a
+    /// running turn gets the rest of the window, a foreground return releases
+    /// the window without parking.
+    func finishWakeLeaseWindow(deadlineMs: Int64) async {
+        while true {
+            switch LeaseWindowPolicy.action(
+                isForeground: UIApplication.shared.applicationState == .active,
+                turnInFlight: isTurnInFlight,
+                nowMs: WakeLease.nowMs(),
+                deadlineMs: deadlineMs) {
+            case .releaseForeground:
+                return
+            case .parkNow:
+                await parkForWakeDeadline()
+                return
+            case .wait:
+                do { try await Task.sleep(nanoseconds: 200_000_000) } catch { return }
+            }
+        }
+    }
+
+    /// Park the host at lease deadline − `parkMarginMs`, before the OS window
+    /// closes. The push callback calls this and only then ends its background
+    /// task and completes the fetch.
+    func parkForWakeDeadline() async {
+        guard UIApplication.shared.applicationState == .background else { return }
+        guard let host, !parked, !hostLifecycleTransition else { return }
+        await parkHost(host)
+    }
+
+    /// True while a turn (DSH or any Bot) owns the engine; the push callback
+    /// uses its own keep-alive for that turn and parks at the deadline.
+    var isTurnInFlight: Bool { turnRunning || botTurnsRunning }
+
+    /// The launch orchestrator owns the lease for exactly one wake.
+    func clearWakeLease() {
+        activeWakeLease = nil
+        activeWakeReason = nil
+    }
+
     private func start(autoRecover: Bool, backoffRetry: Bool) async {
         // Every start except the scheduled backoff retry is a new intent: it
         // supersedes any pending retry, including a manual tap.
@@ -1670,19 +1866,28 @@ final class ChatModel {
         // Show the last conversation from disk immediately; the engine boots
         // in the background and replaces it when the host history arrives.
         restoreCachedTranscriptIfAvailable()
-        statusLine = "Booting the Worker…"
-        appendStatus("Booting the host (Worker bundle + image)…")
+        if isSilentLaunch {
+            // PLAN §2.1 phase B: an orchestrator-owned boot shows no status line.
+            appendStatus("Launch: booting the engine silently (reason=\"\(activeWakeReason?.rawValue ?? "none")\")")
+        } else {
+            statusLine = "Booting the Worker…"
+            appendStatus("Booting the host (Worker bundle + image)…")
+        }
         observeHost(launch.host)
         do {
             try await ADBMCPServer.shared.setWorkspaceDirectory(materializedWorkspace)
             await botLaunch?.composition.attachNativeMCP(PhoneNativeMCP.server)
             // Native preparation yields. Leaving foreground without a resident
-            // keep-alive is not permission to create WebContent.
+            // keep-alive or a live wake lease is not permission to create WebContent.
             guard executionEligible, !Task.isCancelled else {
                 hostEventTask?.cancel(); hostEventTask = nil
                 anchor.shutdown()
                 startDeferredUntilEligible = !Task.isCancelled
-                statusLine = "消息已保存，等待回到 App 后继续"
+                if !isSilentLaunch {
+                    statusLine = "消息已保存，等待回到 App 后继续"
+                } else {
+                    appendStatus("Launch: eligibility lost before WebContent creation; deferring the boot")
+                }
                 return
             }
             try await launch.host.start()
@@ -1694,7 +1899,7 @@ final class ChatModel {
             if let phoneError = error as? PhoneDSHError,
                case .backoffNotElapsed(let deadline) = phoneError {
                 hostEventTask?.cancel(); hostEventTask = nil
-                scheduleBackoffRetry(for: deadline)
+                scheduleBackoffRetry(for: deadline, launchInitiated: isSilentLaunch)
                 return
             }
             backoffRetryAttempts = 0
@@ -1719,6 +1924,12 @@ final class ChatModel {
             }
             return
         }
+        if !executionEligible, isSilentLaunch {
+            hostEventTask?.cancel(); hostEventTask = nil
+            try? await launch.host.stop()
+            anchor.shutdown()
+            return
+        }
         await adoptRunningHost(launch.host,
                                budgets: launch.budgets,
                                selectedProfile: launch.selectedProfile,
@@ -1728,14 +1939,26 @@ final class ChatModel {
     /// Handle a persisted D24 window: retry once the deadline passes, but only
     /// for a near deadline and at most `ChatBackoffRetry.maximumAttempts`
     /// consecutive times. There is exactly one scheduled retry Task.
-    private func scheduleBackoffRetry(for deadline: Date) {
+    ///
+    /// `launchInitiated` keeps the whole retry silent: an orchestrator-owned
+    /// launch shows no status line and raises no error even when the persisted
+    /// window is far away or the attempts are exhausted.
+    private func scheduleBackoffRetry(for deadline: Date, launchInitiated: Bool = false) {
         switch ChatBackoffRetry.decision(deadline: deadline,
                                          now: Date(),
                                          attempts: backoffRetryAttempts) {
         case .retry(let delay, let attempt):
             backoffRetryAttempts = attempt
+            // PLAN §2.9 I2: the retry deadline is a host WakeDemand, not only a
+            // process sleep. A suspend/kill no longer loses the retry.
+            let dueAtMs = Int64(deadline.timeIntervalSince1970 * 1000)
+            Task { @MainActor in
+                await EngineLaunchOrchestrator.shared.upsertWakeDemand(
+                    WakeDemand(source: .hostRetry, key: "engineBoot",
+                               dueAtMs: dueAtMs, kind: .once, userVisible: false))
+            }
             let seconds = max(1, Int(ceil(max(0, delay))))
-            statusLine = "引擎将在 \(seconds) 秒后自动启动"
+            if !launchInitiated { statusLine = "引擎将在 \(seconds) 秒后自动启动" }
             appendStatus("Engine backoff: auto-start \(attempt)/\(ChatBackoffRetry.maximumAttempts) in \(String(format: "%.1f", delay)) s")
             backoffRetryTask?.cancel()
             let nanoseconds = UInt64(max(0, delay) * 1_000_000_000)
@@ -1746,23 +1969,34 @@ final class ChatModel {
                 // A manual start or another path won the race; never stack a
                 // second boot on top of it.
                 guard self.host == nil, !self.busy, !self.parked else { return }
-                self.statusLine = "正在自动启动引擎…"
+                if launchInitiated {
+                    self.silentLaunchDepth += 1
+                } else {
+                    self.statusLine = "正在自动启动引擎…"
+                }
                 self.appendStatus("Engine backoff elapsed; retrying start()")
                 await self.start(autoRecover: false, backoffRetry: true)
+                if launchInitiated { self.silentLaunchDepth -= 1 }
                 // A rebuild that hit the persisted Backoff window finishes
                 // here; apply the queued session switch/prompts now.
                 self.scheduleRecoveryQueueFlush()
             }
         case .waitForManualStart(let remaining):
             backoffRetryTask?.cancel(); backoffRetryTask = nil
+            removeBackoffDemand()
             engineNeedsReset = true
             let seconds = max(1, Int(ceil(remaining)))
-            statusLine = "引擎将在 \(seconds) 秒后可启动，请稍后手动启动"
+            if !launchInitiated { statusLine = "引擎将在 \(seconds) 秒后可启动，请稍后手动启动" }
             appendStatus("Engine backoff deadline is far away; automatic retry disabled")
         case .exhausted(let attempts):
             backoffRetryTask?.cancel(); backoffRetryTask = nil
+            removeBackoffDemand()
             engineNeedsReset = true
-            reportError("引擎自动重试 \(attempts) 次仍未启动，请点击「重新启动引擎」")
+            if launchInitiated {
+                Self.persistStatus("Engine backoff exhausted (\(attempts)) during a silent launch")
+            } else {
+                reportError("引擎自动重试 \(attempts) 次仍未启动，请点击「重新启动引擎」")
+            }
         }
     }
 
@@ -1770,12 +2004,92 @@ final class ChatModel {
         backoffRetryTask?.cancel()
         backoffRetryTask = nil
         backoffRetryAttempts = 0
+        removeBackoffDemand()
+    }
+
+    private func removeBackoffDemand() {
+        Task { @MainActor in
+            await EngineLaunchOrchestrator.shared.removeWakeDemand(
+                source: .hostRetry, key: "engineBoot")
+        }
+    }
+
+    /// hostRetries demand entry: the backoff deadline passed while the process
+    /// was not running its sleep. Retry now, silently (this is not a user action
+    /// waiting on the engine).
+    func retryBackoffFromDemand() async {
+        guard host == nil, !busy, !parked, !hostLifecycleTransition else { return }
+        silentLaunchDepth += 1
+        defer { silentLaunchDepth -= 1 }
+        await start(autoRecover: false, backoffRetry: true)
+        scheduleRecoveryQueueFlush()
+    }
+
+    /// host §10.3.5: mirror the earliest active DSH schedule into the host
+    /// ledger through the existing `schedule/list` remote method. A failed
+    /// refresh keeps the previous demand (it is not proof of "no task"); an
+    /// empty page removes it.
+    @discardableResult
+    func refreshDshScheduleMirror() async -> Bool {
+        guard pcRuntime == nil, engineHostState == .running else { return false }
+        do {
+            let client = try await workspaceBackend.transport()
+            let result = try await client.call(
+                "schedule/list",
+                args: .object(["request": .object([
+                    "active": .bool(true),
+                    "limit": .number(1),
+                ])]))
+            let first = result["items"]?.arrayValue?.first
+            guard let scheduledAt = first?["scheduledAt"]?.stringValue,
+                  let dueAtMs = Self.epochMilliseconds(fromISO8601: scheduledAt) else {
+                await EngineLaunchOrchestrator.shared.removeWakeDemand(
+                    source: .dshSchedule, key: "schedule")
+                return true
+            }
+            await EngineLaunchOrchestrator.shared.upsertWakeDemand(WakeDemand(
+                source: .dshSchedule, key: "schedule", dueAtMs: dueAtMs,
+                kind: .recurring, userVisible: false))
+            return true
+        } catch {
+            Self.appendDiagnostic("dsh schedule mirror refresh failed: \(NativeLogRedaction.error(error))")
+            return false
+        }
+    }
+
+    private static func epochMilliseconds(fromISO8601 text: String) -> Int64? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: text) {
+            return Int64((date.timeIntervalSince1970 * 1000).rounded())
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        if let date = formatter.date(from: text) {
+            return Int64((date.timeIntervalSince1970 * 1000).rounded())
+        }
+        return nil
+    }
+
+    /// hostRetries demand entry: the outbox settle deadline passed while the
+    /// process was gone. Run the one settle pass now.
+    func flushSettleFromDemand() async {
+        outboxSettleTask?.cancel()
+        outboxSettleTask = nil
+        outboxSettleDeadline = nil
+        scheduleRecoveryQueueFlush()
     }
 
     private func makeHostLaunch() -> HostLaunch? {
         guard let bundle = WorkerBundleLocator.bundle() else {
             reportError("引擎停了")
             return nil
+        }
+        // A background relaunch can have no connected scene. PLAN §2.4: carry
+        // the anchor in an invisible window until a scene renders it back into
+        // the RootView overlay. If even that leaves it out of a window (no
+        // scene at all on this OS), the boot is refused as before.
+        if !anchor.isInWindow {
+            _ = OffscreenEngineWindow.shared.attach(anchor: anchor)
         }
         guard anchor.isInWindow else {
             reportError("页面还没进入窗口，请稍后重试")
@@ -2130,8 +2444,18 @@ final class ChatModel {
                                   budgets: BudgetTable,
                                   selectedProfile: ProviderProfile?,
                                   egressHosts: Set<String>) async {
+        // I4: every new engine instance owes one ReadySweep. Announcing at
+        // every exit of this adoption lets the orchestrator start that sweep
+        // even when the boot came from a button or a recovery path.
+        defer {
+            announceEngineIncarnation()
+            Task { @MainActor [weak self] in await self?.refreshDshScheduleMirror() }
+        }
         cancelBackoffRetry()
         host = newHost
+        // A fresh Host is a new engine instance: the ReadySweep merge key and
+        // the launch policy both read this generation.
+        engineIncarnation &+= 1
         await attachBotRuntime(to: newHost)
         failedHost = nil
         engineNeedsReset = false
@@ -3147,6 +3471,10 @@ final class ChatModel {
             hostLifecycleTransition = false
         }
         appendStatus("App in background: parking the host (in-flight work gets the drain window, then the turn is cancelled)…")
+        // I5: project the earliest WakeDemand before the host parks, then
+        // refresh the schedule mirror before the engine goes away.
+        await EngineLaunchOrchestrator.shared.appDidEnterBackground()
+        await refreshDshScheduleMirror()
         do {
             try await host.park()
             parked = true
@@ -3210,6 +3538,21 @@ final class ChatModel {
             try await host.resume()
             parked = false
             didResume = true
+            guard executionEligible else {
+                watchdog.cancel()
+                resumeWatchdogTask = nil
+                hostLifecycleTransition = false
+                foregroundResumeRequested = false
+                backgroundParkRequested = false
+                endResumeRecoveryObservation()
+                await parkForWakeDeadline()
+                return
+            }
+            // A resume is a new adopted incarnation for the sweep merge key
+            // (§10.2.5) and owes one ReadySweep (I4).
+            engineIncarnation &+= 1
+            announceEngineIncarnation()
+            Task { @MainActor [weak self] in await self?.refreshDshScheduleMirror() }
             appendStatus("Host resumed; the session continues from the WAL")
             refreshFiles()
             await reconcileTurnStateAfterResume()
@@ -3480,7 +3823,9 @@ final class ChatModel {
                     busy: self.busy || self.backoffRetryTask != nil,
                     transportReady: self.harness != nil && self.sessionID != nil,
                     requiresRecovery: self.engineNeedsReset, userPaused: self.queuedPreparationPaused,
-                    residentAudio: SilentAudioKeepAlive.shared.isActive)
+                    residentAudio: SilentAudioKeepAlive.shared.isActive,
+                    leaseRemainingMs: self.activeWakeLease?.remainingMs(),
+                    leaseThresholdMs: self.engineLeaseThresholdMs)
                 if decision == .ready || decision == .start || decision == .resume {
                     self.holdResidencyForBackgroundDelivery()
                 }
@@ -3494,13 +3839,22 @@ final class ChatModel {
                     guard !prepared else { return }
                     prepared = true
                     self.appendStatus("Queued delivery: preparing the engine")
-                    await self.start(autoRecover: true)
+                    if self.isAppForeground {
+                        await self.start(autoRecover: true)
+                    } else {
+                        // I3: a background boot has exactly one entry.
+                        _ = await EngineLaunchOrchestrator.shared.wake(.engineRecovered, lease: nil)
+                    }
                     guard !Task.isCancelled, !self.queuedPreparationPaused else { return }
                 case .resume:
                     guard !prepared, let host = self.host else { return }
                     prepared = true
                     self.appendStatus("Queued delivery: resuming the parked engine")
-                    await self.resumeHost(host)
+                    if self.isAppForeground {
+                        await self.resumeHost(host)
+                    } else {
+                        _ = await EngineLaunchOrchestrator.shared.wake(.engineRecovered, lease: nil)
+                    }
                     guard !Task.isCancelled, !self.queuedPreparationPaused else { return }
                 case .deferred:
                     self.appendStatus("Queued delivery saved; waiting for foreground or a resident keep-alive")
@@ -4006,7 +4360,7 @@ final class ChatModel {
             // It exists, so it is not reported missing either: the task stays with the cloud.
             if DeviceSessionCoordinator.shared.isDeviceSession(id) { return .unknown }
             // A parked host is not asked: the call would wait for a resume nobody requested.
-            if host != nil, !parked, let transport = try? await transportForManagement(),
+            if executionEligible, host != nil, !parked, let transport = try? await transportForManagement(),
                let value = try? await transport.call("session/list",
                                                      args: .object(["_request": .object([:])])),
                let rows = value["items"]?.arrayValue {
@@ -4401,15 +4755,28 @@ final class ChatModel {
 
     /// One wake-up for the earliest unknown send that still has to settle.
     private func scheduleOutboxSettleFlush(afterMs: Int64) {
-        let deadline = Date().addingTimeInterval(Double(max(afterMs, 100)) / 1_000)
+        let delay = max(afterMs, 100)
+        let deadline = Date().addingTimeInterval(Double(delay) / 1_000)
         if outboxSettleTask != nil, let current = outboxSettleDeadline, current <= deadline { return }
         outboxSettleTask?.cancel()
         outboxSettleDeadline = deadline
+        // PLAN §2.9 I2: the wake time is durable on the host; the sleep below
+        // is only the resident fast path.
+        let dueAtMs = Int64(deadline.timeIntervalSince1970 * 1000)
+        Task { @MainActor in
+            await EngineLaunchOrchestrator.shared.upsertWakeDemand(
+                WakeDemand(source: .hostRetry, key: "outboxSettle",
+                           dueAtMs: dueAtMs, kind: .once, userVisible: false))
+        }
         outboxSettleTask = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: .milliseconds(max(afterMs, 100))) } catch { return }
+            do { try await Task.sleep(for: .milliseconds(delay)) } catch { return }
             guard let self else { return }
             self.outboxSettleTask = nil
             self.outboxSettleDeadline = nil
+            Task { @MainActor in
+                await EngineLaunchOrchestrator.shared.removeWakeDemand(
+                    source: .hostRetry, key: "outboxSettle")
+            }
             self.scheduleRecoveryQueueFlush()
         }
     }
@@ -5154,6 +5521,8 @@ final class ChatModel {
             if outboxNeedsDrain { scheduleRecoveryQueueFlush() }
             // A turn end is the terminal evidence a linked admission waits for.
             if pcRuntime == nil { scheduleExternalAdmissionPass() }
+            // §10.3.5: the DSH schedule may have moved during the turn.
+            Task { @MainActor [weak self] in await self?.refreshDshScheduleMirror() }
             if keepingAlive, !botTurnsRunning {
                 Task { await self.finishBackgroundKeepAlive() }
             }
@@ -5436,6 +5805,8 @@ final class ChatModel {
             if outboxNeedsDrain { scheduleRecoveryQueueFlush() }
             // A turn end is the terminal evidence a linked admission waits for.
             if pcRuntime == nil { scheduleExternalAdmissionPass() }
+            // §10.3.5: the DSH schedule may have moved during the turn.
+            Task { @MainActor [weak self] in await self?.refreshDshScheduleMirror() }
             if keepingAlive, !botTurnsRunning { Task { await self.finishBackgroundKeepAlive() } }
         case .progress(let phase, let step, let total):
             if phase == "step" { activeStep = step }
@@ -6195,6 +6566,13 @@ final class ChatModel {
     }
 
     private func reportError(_ text: String) {
+        guard silentLaunchDepth == 0 else {
+            // PLAN §2.1 phase B: an orchestrator-owned boot never raises a
+            // user-facing engine error. The persisted status log keeps the
+            // fact; the page shows nothing until the user asks for the engine.
+            Self.persistStatus("silent launch error: \(NativeLogRedaction.value(text))")
+            return
+        }
         userFacingError = text
         statusLine = text
         // The user keeps the actionable wording on screen; the persisted

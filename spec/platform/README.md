@@ -257,6 +257,67 @@ Five entries stay `not-verified` (the three PCLink ones were added by `PC-202611
 
 
 
+## 14. Engine-first launch and remote wake
+
+The cross-platform launch rules are frozen in [host §10.2](../host/v1/README.md) (`WakeReason`,
+`WakeLease`, the provisional thresholds and ReadySweep) and the host-owned time model in
+[host §10.3](../host/v1/README.md) (`WakeDemand`, the wake projection and its OS channels). This section records the platform
+facts those rules depend on. It is a platform slice, not a second contract: a platform that cannot
+use an OS mechanism degrades to the native pass and the next foreground, and never invents a
+listener or a keep-alive to hide the difference.
+
+### 14.1 iOS
+
+- **Offscreen anchor window.** A background launch (push, `BGProcessingTask`, a restorable BLE
+  connection) can arrive with no connected scene, so SwiftUI's `WindowGroup` renders nothing and a
+  `WKWebView` anchor outside a window cannot start. The orchestrator may create one offscreen
+  `UIWindow` for the anchor: `makeKeyAndVisible` is **not** called, `alpha` is `0.01`, the size is
+  `2×2`, and the anchor moves back to the `RootView` overlay as soon as a scene connects. This adds
+  no scene, no visible UI and no background mode. Whether WebContent actually starts and how long
+  it survives is device behaviour, measured by the `ios-wake-spike` tool; a simulator result is
+  `NOT_RUN` for a device claim. If the measurement does not support it, push wake degrades to
+  "native pass + one `BGProcessingTask`" and foreground/board wake keep working.
+- **No audio extension.** A background push or background task uses only the time the system
+  granted (`beginBackgroundTask`, the task's expiration handler). The existing silent-audio
+  keep-alive keeps its existing users (an in-flight turn, a connected board); it is not opened to
+  run background tasks (App Store 2.5.4).
+- **Expiry-only callbacks.** Neither `BGProcessingTask` nor `BGAppRefreshTask` reports its
+  deadline up front. They permit native work that is cancelled in the expiration handler.
+  A silent APNs callback can request engine execution within Apple's documented 30-second
+  ceiling, measured from callback entry and subject to early expiration. User force-quit
+  and actual push delivery remain OS-controlled.
+- **Permitted identifiers and modes.** The `BGProcessing` and `BGAppRefresh` requests use
+  identifiers listed in `BGTaskSchedulerPermittedIdentifiers`. Revision 3 of the change record adds
+  exactly one `UIBackgroundModes` value, `fetch`, which `BGAppRefreshTask` requires (host §10.3.4);
+  no other mode is added and `audio` keeps its existing users only.
+- **Scheduled wakes are best-effort while suspended.** `BGAppRefreshTask` and `BGProcessingTask`
+  run when the system decides; `earliestBeginDate` is a lower bound, not a promise. Exact silent
+  wakes need a server push (host §10.3.4 `target` channel). A device run is the only evidence of
+  real scheduling latency; a simulator `BGTask` trigger is `NOT_RUN` for that claim.
+
+### 14.2 Android
+
+- **No push in v1.** The cloud device registration carries `push: null`
+  ([cloud-tasks §2](../v1/cloud-tasks.md)); there is no FCM or vendor push SDK, and none is added
+  by the launch work. Remote wake on Android therefore comes from `WorkManager`, an already
+  scheduled alarm/worker, or the next foreground — not from a push.
+- **WorkManager minimum interval.** A periodic `WorkManager` request has a minimum interval of 15
+  minutes; Doze and App Standby can delay it further. A one-shot worker has the same "the system
+  decides when" property. A worker is a wake lease source, not a promise of punctuality.
+- **Background `dataSync` foreground-service limit.** Starting a `dataSync` foreground service
+  from the background is restricted from Android 14 (API 34): only the platform's documented
+  exemptions allow it, and a `WorkManager` worker running in the background is not one. Such a
+  worker therefore does the native pass only (journal/outbox/held inbox, no engine) and lets the
+  next foreground or an exempt start boot the engine. Where a `dataSync` service is legal, it is
+  also subject to the platform's runtime cap. The Bot listener and routine scheduler keep their
+  existing foreground/Activity lifetime.
+- **Lease source.** WorkManager's stop signal cancels the native pass. It provides no numeric
+  engine lease. The Activity foreground grants normal execution eligibility.
+- **Wake projection channels (host §10.3).** Android maps `residentTimerAtMs` to an in-process
+  timer and `backgroundEarliestMs` to a one-shot `WorkManager` request with that initial delay. An
+  exact `AlarmManager` alarm needs `SCHEDULE_EXACT_ALARM`/`USE_EXACT_ALARM` and is a separate
+  Android decision; without it the projection is best-effort, as on iOS.
+
 ## Android module mapping inventory
 
 `android-module-map.json` is the reviewed P08/P12 inventory mapping every

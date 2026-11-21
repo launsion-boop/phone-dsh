@@ -115,6 +115,9 @@ that only exists to make one OS happy belongs to `spec/platform`, never here.
 | `schema/device-capabilities.schema.json` | manifest: capability map, limits, auth (`CONN` §4.5, `DRAFT` §5) |
 | `schema/device-receipt.schema.json` | applied/failed receipt of one downlink command (`DRAFT` §4) |
 | `schema/outbox-entry.schema.json` | one durable send-outbox entry: `rpcId`, state and timestamps (§10) |
+| `schema/engine-launch.schema.json` | the shared engine-launch vector document: closed wake reasons, decisions, steps, thresholds and per-step budgets (§10.2) |
+| `golden/engine-launch.json` | valid and invalid decision, sweep and wake-projection vectors, read directly by the Swift and Kotlin tests (§10.2, §10.3) |
+| `tools/test_engine_launch.py` | reference oracle for §10.2/§10.3: decision order, step gate, wake projection, strict decoders, README↔golden agreement and mutation checks |
 | `golden/*.json` | at least one instance per schema; event sequences prove resume |
 | `tools/host_check.py` | schema lint, golden validation, sequence and capability rules |
 | `tools/test_host_check.py` | mutation tests that keep the gate honest |
@@ -361,11 +364,12 @@ busy. Acceptance means the existing outbox entry is durable, not that execution 
 Foreground delivery joins one preparation task and uses existing start/resume transitions.
 Execution eligibility is one answer: the App is not in the background (a cold launch is still
 inactive), or the process is held resident by an audio keep-alive — the chat's own or another
-owner's, such as a connected TonoLink board. While eligible, queued work may start, resume or
-deliver through the existing transitions, in foreground or background, and a background
-delivery takes the chat's own keep-alive for that turn so the existing turn-end path decides
-whether to park. Without eligibility a background callback alone never authorizes WebContent
-boot/resume; a start refused for that reason runs at the next foreground return. Manual
+owner's, such as a connected TonoLink board — or the App holds a valid wake lease whose remaining
+time is at least the launch threshold for the host state (§10.2). While eligible, queued work may
+start, resume or deliver through the existing transitions, in foreground or background, and a
+background delivery takes the chat's own keep-alive for that turn so the existing turn-end path
+decides whether to park. Without eligibility a background callback alone never authorizes
+WebContent boot/resume; a start refused for that reason runs at the next foreground return. Manual
 recovery and explicit stop gates remain authoritative; an explicit stop pauses queued
 preparation even while a boot is in flight. Foreground return retries retained queued work.
 A first-ever UI send must establish a foreground session and then enqueue before submitting;
@@ -379,6 +383,311 @@ may defer an entry before calling transport, using submitting → outcomeUnknown
 with its original ID. This branch has direct proof that no transport attempt occurred. That
 proof does not survive a crash and cannot be inferred from a saved error string; recovered
 submitting/unknown entries still require authoritative reconciliation before retry.
+
+### 10.2 Engine-first launch, wake leases and ReadySweep (P06, `engine-launch-v1`)
+
+Status: normative, frozen by
+[PC-20261120-engine-first-launch](../../../docs/protocol-changes/PC-20261120-engine-first-launch.md).
+This section is language-neutral. Swift implements it first on iOS; Kotlin implements the same
+closed value sets, the same constants and the same pure functions on Android, and both ends test
+them by reading [golden/engine-launch.json](golden/engine-launch.json) with
+[schema/engine-launch.schema.json](schema/engine-launch.schema.json) directly. A hand-copied vector
+or a platform-only threshold is out of contract.
+
+**One orchestrator.** Each platform has exactly one launch orchestrator. It owns when the engine
+starts or resumes, which wake is being served, and whether a ReadySweep step may run. A wake source
+(§10.2.2) records the request durably and then calls that one orchestrator; it never starts the
+engine itself, never calls the Bot runtime, and never runs a sweep on its own.
+
+**ReadySweep ownership split (fixed).** The orchestrator runs steps 1–3 itself — `userOutbox`,
+`externalAdmission`, `cloudTaskPull` — and steps 8–9 — `dshSchedule`, `hostRetries` (§10.3.5).
+`BotRuntimeComposition.runReadySweep(_:)` runs steps 4–7 — `botHeldInbox`, `missedRoutines`,
+`connectorScan`, `approvalReminderSync`. The orchestrator merges
+both halves into **one** `ReadySweepReport`, ordered as §10.2.5 lists them; there is no second
+report and no second order. `EngineLaunchOutcome` and the report's wrapper types are app-internal:
+only the `decision` values and the step/outcome vocabulary in this section are contract.
+
+**Four stages, fixed order.** A wake runs the stages in this order and no stage invents work for
+another:
+
+| Stage | Content | Needs the engine |
+|---|---|---|
+| A | immediate content: restore the DSH transcript snapshot; open the Bot store and prepare the Bot composition without a host; render the roster and the persisted Bot rows (including held inbox and device-task results already written); scan the send outbox and the admission journal; pull cloud tasks | no |
+| B | ensure the engine: one idempotent boot/resume decision (§10.2.4) | — |
+| C | bind consumers in the existing order: Bot composition starts on the host, the DSH session adopts it, the MCP listener is checked | yes |
+| D | ReadySweep (§10.2.5) | yes |
+
+Stage A must finish before anything waits on the engine: the Bot page shows persisted content and
+the chat shows its snapshot even when the engine never becomes eligible.
+
+**Launch gating is not tab selection.** The local phone engine starts at launch, silently, when the
+app is on the phone backend, or at least one Bot exists, or the send outbox or the admission journal
+holds pending work. A UI segment or tab is never the only gate for Bot work; the PC relay keeps its
+existing path.
+
+#### 10.2.1 `WakeReason` (closed)
+
+`WakeReason` is a closed enumeration. A new transport adds a value only through a contract revision
+that also updates the golden; a free-form string is invalid and is rejected, never coerced.
+
+| Value | Origin | Lease source |
+|---|---|---|
+| `coldLaunch` | process start | none (a cold launch is still `inactive`, §10.1) |
+| `foreground` | scene becomes active / foreground return | none (foreground eligibility) |
+| `unlock` | protected data became available | none; eligibility still needs foreground, keep-alive or a lease |
+| `cloudTaskPush` | background push callback | `beginBackgroundTask` / the callback's granted time |
+| `boardWake` | connected TonoLink board | existing resident audio / `bluetooth-central` |
+| `bleRequest` | another trusted BLE device | existing resident audio, or a granted background task |
+| `lanRequest` | LAN device, TonoLink relay or Bot MCP HTTP listener request | `beginBackgroundTask` while the process is resident; unreachable while suspended |
+| `pcLinkRequest` | PCLink relay request | `beginBackgroundTask` while the process is resident |
+| `bgProcessing` | `BGProcessingTask` / one-shot background worker | expiry-only; native pass |
+| `routineNotificationTap` | user taps a routine-due local notification | none (user interaction = foreground) |
+| `engineRecovered` | the existing recovery finished | none |
+| `scheduledDemand` | the host's resident timer reached the earliest `WakeDemand` (§10.3) | none; eligibility comes from foreground or resident audio |
+| `bgAppRefresh` | `BGAppRefreshTask` submitted by the wake projection (§10.3.3) | expiry-only; native pass |
+
+#### 10.2.2 `WakeSource` adapters
+
+One adapter per channel. An adapter does exactly three things:
+
+1. receive the request and write it durably first — the external admission journal, the send outbox
+   or the Bot wake inbox as that channel already requires — before any engine action;
+2. call the one orchestrator with the `WakeReason` and the lease it was granted (or `nil`);
+3. return without starting the engine, calling the Bot runtime or running any sweep.
+
+The existing Bot-side `WakeSignalSource` is the Bot-channel adapter interface and is reused, not
+duplicated. Adapting a push, a board, a LAN/Bot MCP listener or a PCLink request is the host's job;
+the adapter never becomes a second launch path.
+
+**iOS reachability (platform fact, not a new feature).** Once the App is suspended, a local LAN
+listener receives no connection and BLE can wake it only through a registered restorable
+connection. A remote peer that cannot reach the phone therefore retries through the cloud task
+queue ([cloud-tasks.md](../../v1/cloud-tasks.md) §8) which wakes the phone with a background push.
+Reachability and the fallback decision belong to the requester; the phone adds no listener and no
+keep-alive for this.
+
+#### 10.2.3 `WakeLease`
+
+```json
+{"wakeId":"<lowercase UUIDv4>","reason":"cloudTaskPush","grantedAtMs":0,"deadlineMs":30000}
+```
+
+`wakeId` is generated once per wake. `deadlineMs` comes from the system, never from a fixed budget:
+a system-reported remaining window or a platform callback with a documented upper limit. The
+limit is measured from receipt of the callback and includes native preparation. An expiration or
+stop signal revokes the window even if the deadline has not elapsed. Revocation cancels the work
+owned by that wake and prevents new steps; an interrupted durable record remains retryable.
+`remainingMs = deadlineMs − now` at the point of the check, and is zero after revocation.
+
+An expiry-only callback (`BGTask` or the Android worker stop signal) has no measurable deadline
+and supplies a `null` timed lease. While backgrounded it permits only a cancellable native pass;
+it cannot alone authorize an engine transition or ReadySweep. Reproject from durable demand and
+wait for the next eligible wake. Do not continually submit a new processing window solely
+because the current processing callback lacks a deadline. A negative remaining value is invalid
+input.
+
+**Thresholds (provisional constants).** These are contract constants, not tuning knobs scattered in
+code. They are provisional values and are re-measured on a real device by the `ios-wake-spike`
+tool; a change is a contract revision, never a local edit.
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `minLeaseForColdBootMs` | `20000` | with no host (or a failed host), the lease must leave at least 20 s |
+| `minLeaseForResumeMs` | `8000` | with a parked host, the lease must leave at least 8 s |
+| `parkMarginMs` | `5000` | park the host and end the background task this long before the deadline |
+| `cloudPullFreshnessMs` | `30000` | `cloudTaskPull` is skipped when this wake already pulled successfully this recently |
+| `connectorScanIntervalMs` | `1800000` | the next `connectorScan` demand is due this long after a completed scan (§10.3.2) |
+| `minBackgroundDelayMs` | `60000` | a background wake request never asks to start earlier than this from now (§10.3.3) |
+
+#### 10.2.4 Decision function
+
+`EngineLaunchPolicy.decide(reason, foreground, residentAudio, hostState, leaseRemainingMs,
+userStopped, needsReset)` is pure and total over the decision input in the golden. `hostState` is
+one of `absent`, `parked`, `running`, `failed`. The result is one of `boot`, `resume`, `ready`,
+`nativeOnly`, `defer`, `needsAttention`, evaluated in this order:
+
+1. `needsReset` is true → `needsAttention`. This is the existing fail-loud reset path; a silent
+   retry is forbidden.
+2. `userStopped` is true → `defer`. An explicit stop is authoritative for every reason; queued work
+   is retained and retried when the gate clears.
+3. `hostState == running` → `ready`. The engine is already usable; a short lease does not stop it,
+   it only limits ReadySweep steps.
+4. `eligible = foreground || residentAudio || (leaseRemainingMs != null && leaseRemainingMs >=
+   requiredLease)`, where `requiredLease` is `minLeaseForResumeMs` for `parked` and
+   `minLeaseForColdBootMs` for `absent` and `failed`.
+5. not eligible → `nativeOnly`. Stage A still runs; schedule deferred work when eligible for
+   projection (§10.3.3).
+6. `parked` → `resume`; `absent` or `failed` → `boot`.
+
+`reason` selects the lease source and is recorded for diagnostics; it does not add a branch. A
+wake that cannot boot never drops a request: the request is already durable in the journal, the
+outbox or the wake inbox, and the next eligible wake executes it. A `failed` host goes through the
+existing backoff/recovery; only `needsReset` asks for the user.
+
+#### 10.2.5 ReadySweep (nine steps, once per wake)
+
+After stage C the orchestrator runs the sweep in this fixed order:
+
+| # | Step | Content |
+|---|---|---|
+| 1 | `userOutbox` | drain the user's queued send-outbox entries (highest priority) |
+| 2 | `externalAdmission` | one external-admission dispatch pass for records already admitted |
+| 3 | `cloudTaskPull` | pull → admit → ack cloud tasks; skipped when this wake already pulled successfully within `cloudPullFreshnessMs = 30000` |
+| 4 | `botHeldInbox` | replay durable Bot held-inbox items whose confirmation event is absent |
+| 5 | `missedRoutines` | catch up enabled routines whose `nextRunAt` is due; several missed slots collapse into one run |
+| 6 | `connectorScan` | metadata-only Gmail/GitHub delta scan by the persisted cursor, then a `connectorUpdate` held item |
+| 7 | `approvalReminderSync` | reconcile the approval-reminder projection with the durable pending approvals |
+| 8 | `dshSchedule` | refresh the host mirror of the engine's own schedule (§10.3.5) |
+| 9 | `hostRetries` | run due host retry demands, such as the outbox settle flush (§10.3.5) |
+
+**Step gate.** Immediately before a step, `ReadySweepPolicy.shouldRun(step, remainingMs)` decides
+`run` iff `remainingMs >= parkMarginMs + stepBudgetMs(step)`. The per-step budgets are provisional,
+like the three thresholds above:
+
+| Step | `stepBudgetMs` |
+|---|---|
+| `userOutbox` | 2000 |
+| `externalAdmission` | 2000 |
+| `cloudTaskPull` | 5000 |
+| `botHeldInbox` | 2000 |
+| `missedRoutines` | 5000 |
+| `connectorScan` | 10000 |
+| `approvalReminderSync` | 1000 |
+| `dshSchedule` | 3000 |
+| `hostRetries` | 2000 |
+
+A step that does not run is `skipped` with one of the closed reasons below, is left for the next
+wake, and is never half-run: each step either completes its durable write or leaves no partial state for the next
+wake to misread. A step that fails records `failed` with an internal reason and does not abort the
+remaining steps; it is retried by the next wake. Step results are the closed vocabulary
+`ran | skipped(reason) | failed(reason)`; `skipped` reasons are `lease`, `already-pulled`,
+`no-work` and `gate` (a user gate such as explicit stop), and no step failure presents a
+user-visible error by itself.
+
+**Idempotency.** Each step is idempotent: the outbox reuses its `rpcId` (§10), admission reuses
+`admissionId`/`downstreamId` ([external-admission.md](external-admission.md) §3), cloud pull and ack
+are lease-based and first-wins ([cloud-tasks.md](../../v1/cloud-tasks.md) §5), the held inbox
+reuses `requestId` (bot v2), a routine catch-up writes one run per due schedule and collapses
+several missed slots into one, the connector scan advances its cursor only after the held item is
+durable (write-before-enqueue) and dedupes by connector plus cursor interval, and the approval
+reminder sync reconciles a projection instead of appending.
+
+**Once per (`engineIncarnation`, `wakeId`).** `engineIncarnation` is a monotonically increasing
+integer owned by the orchestrator; it increments when a new host instance is adopted (boot or
+resume) and is stable while that host runs. The sweep for one pair runs at most once. A second wake
+that arrives while the first is in flight is merged: it does not boot again, does not queue a second
+sweep, and awaits the first sweep's report. Different `wakeId`s serialize; a wake during boot is
+merged into the boot, not replayed after it.
+
+#### 10.2.6 Silent-start visibility
+
+- A boot or resume initiated by the orchestrator writes **no** transcript status line (including
+  `Booting the Worker…` and any host-stage line) and presents **no** error. A failure follows the
+  existing backoff/reset path silently. Only a user action that is waiting on the engine and
+  ultimately fails uses the existing error path and its existing copy.
+- Stage A content is shown while the engine is absent: the Bot page renders the roster and the
+  persisted rows that already exist; it never shows an engine-waiting prompt. The deleted
+  `请先启动引擎` waiting copy (PC-20261120-engine-first-launch) must not be reintroduced.
+- A skipped or failed ReadySweep step adds no visible row, banner or notification. Proactive
+  delivery keeps its own rules (bot v2 §3); the sweep only produces the inputs.
+
+### 10.3 Host-owned time and intent (P06, `engine-launch-v1` revision 3)
+
+Status: normative, frozen by
+[PC-20261120-engine-first-launch](../../../docs/protocol-changes/PC-20261120-engine-first-launch.md)
+revision 4. Language-neutral, like §10.2; the same golden carries its vectors.
+
+**Premise.** The engine is replaceable execution capacity. iOS may suspend the process or terminate
+WebContent at any moment, and every timer inside the engine or inside process memory stops with it.
+Work whose existence or due time is known only to the engine, or only to memory, does not exist
+while they are gone. A scheduled task that never fires is one symptom of this; §10.2 alone does not
+remove the cause.
+
+#### 10.3.1 Invariants
+
+- **I1 — intent is durable on the host first.** Every request or plan that leads to engine work is
+  written to a host-side durable store — the send outbox (§10), the admission journal (§11), the Bot
+  wake inbox, the routine store, or the `WakeDemand` ledger below — before anything relies on it.
+  Work that exists only in the engine or only in memory is out of contract.
+- **I2 — time is owned by the host.** Every future due point is a `WakeDemand` in the host ledger.
+  An engine-internal scheduler is mirrored into the ledger (§10.3.5); its own timer still drives it
+  while the engine runs, but the mirror is what wakes the engine.
+- **I3 — one way in.** Only the orchestrator starts or resumes the engine (§10.2). A producer — a
+  user send, a push, BLE, LAN, PCLink, a due demand, a retry — writes durably and then calls the
+  orchestrator. "Run if the engine is up, otherwise wait for the foreground" is forbidden.
+- **I4 — one way out.** Every wake and every engine incarnation runs ReadySweep, which consumes
+  every due demand. ReadySweep steps are sources in a registry with a fixed order (§10.2.5); a step
+  answers whether it has due work and runs it, and adding a source does not change the orchestrator.
+- **I5 — project before suspending.** Whenever the ledger changes, when the App enters the
+  background, and before a host parks, the host recomputes the wake projection (§10.3.3) and
+  submits it to the OS channels (§10.3.4). A wake is a hint: losing one only delays work, because
+  the next wake of any kind runs every due demand.
+
+#### 10.3.2 `WakeDemand`
+
+A demand is one due point owned by one source:
+`{source, key, dueAtMs, kind: once|recurring, userVisible}`. `(source, key)` is the identity: an
+upsert replaces the previous demand of that identity, a remove deletes it, and both are idempotent.
+`key` matches `[A-Za-z0-9._:-]{1,128}`. `dueAtMs` is epoch milliseconds; a due point in the past is
+due now. The ledger is host-private storage on each platform (Application Support on iOS, files
+dir on Android); its file format is not shared and no other process reads it, but its semantics,
+the sources below and the projection are contract.
+
+| Source | Key | Written by | `dueAtMs` | Kind | `userVisible` |
+|---|---|---|---|---|---|
+| `botRoutine` | Bot id | the routine scheduler on every routine change, run end and quiet deferral | that Bot's earliest enabled `nextRunAt`; removed when none | `recurring` | `true` |
+| `connectorScan` | connector (`gmail`, `github`) | the connector scan, after each completed scan of an authorised connector | completion time + `connectorScanIntervalMs`; removed when the connector is not authorised | `recurring` | `false` |
+| `dshSchedule` | `schedule` | the host, from the engine's schedule mirror (§10.3.5) | the earliest active task's `scheduledAt`; removed when none | `recurring` | `false` |
+| `hostRetry` | `engineBoot`, `outboxSettle` | the host, when a retry is scheduled | the retry's deadline; removed when it ran | `once` | `false` |
+
+Queues that are already durable (the send outbox, the admission journal, the Bot held inbox, the
+cloud task queue) are due whenever they hold pending work. They need no demand; ReadySweep reads
+them directly (I4).
+
+#### 10.3.3 Wake projection
+
+`WakeProjection.plan(nowMs, resident, demands)` is pure and total over valid input:
+
+- no demands → `residentTimerAtMs = null`, `backgroundEarliestMs = null`, `dueNow = []`;
+- `earliest = min(dueAtMs)`;
+- `residentTimerAtMs = max(earliest, nowMs)` when `resident`, else `null`;
+- `backgroundEarliestMs = max(earliest, nowMs + minBackgroundDelayMs)` **whether or not the
+  process is resident**, because suspension can happen at any moment;
+- `dueNow` = demands with `dueAtMs <= nowMs`, ordered by `dueAtMs`, then by the source order of the
+  table above, then by `key`.
+
+Duplicate identities, an unknown source or kind, a negative `dueAtMs` or a malformed member are
+rejected input, never coerced. `resident` means the process is in the foreground or held by an
+existing audio keep-alive (§10.1); the projection never creates residency.
+
+#### 10.3.4 OS wake channels (iOS)
+
+| Channel | Precision | Silent | Status |
+|---|---|---|---|
+| host timer at `residentTimerAtMs` → `wake(.scheduledDemand)` | exact while resident | yes | normative |
+| `BGAppRefreshTask` with `earliestBeginDate = backgroundEarliestMs` → `wake(.bgAppRefresh)` | system-chosen, may be much later | yes | normative; needs `UIBackgroundModes` `fetch` |
+| `BGProcessingTask` with the same earliest date → `wake(.bgProcessing)` | usually while idle or charging | yes | normative |
+| local notification owned by a `userVisible` source (the existing routine-due notification) | exact | no; a tap wakes with `routineNotificationTap` | normative, unchanged copy |
+| cloud-scheduled background push at the earliest due point | near-exact | yes | `target` — needs a cloud-tasks contract revision and the cloud end; not a feature this round |
+
+**Platform fact.** Without a server push, a suspended iOS App cannot be woken silently at an exact
+time. This revision gives exact execution while resident, best-effort execution while suspended,
+and exact user-visible reminders through the source's own notification; silent exact wakes wait for
+the `target` channel. Android maps the same projection to its own channels (spec/platform).
+
+#### 10.3.5 Steps 8–9
+
+- `dshSchedule`. The engine's own scheduler (`@deepseek-ai/dsh-schedule`) runs due tasks by itself
+  once the engine runs, so the host never fires them. While the engine is ready the host refreshes
+  its mirror with the existing DSH remote `schedule/list` request `{active: true, limit: 1}`. The
+  first item's `scheduledAt` (ISO-8601) becomes the `dshSchedule` demand; an empty page removes it.
+  The mirror is also refreshed after each turn end and before a host parks (I5). It is a wake hint
+  only: it never decides an admission and never replaces the engine's own schedule state. A
+  failed refresh keeps the previous demand.
+- `hostRetries`. Runs every due `hostRetry` demand. `outboxSettle` performs the existing outbox
+  settle flush; `engineBoot` is consumed by the wake itself, because a due `engineBoot` demand makes
+  the orchestrator decide again (§10.2.4) before stage D. In-process sleeps may stay as the fast
+  path while resident; the demand is what survives suspension.
 
 ## 11. External admission journal (P06)
 

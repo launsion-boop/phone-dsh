@@ -55,27 +55,30 @@ final class BotProductionHub {
         defer { connecting = false }
         error = nil
         currentChat = chat
-        for _ in 0..<40 {
-            if let composition = chat.botRuntime {
-                let roster = composition.rosterModel
-                self.composition = composition
-                self.roster = roster
-                composition.onBotDeleted = { [weak self] botID in
-                    self?.dropCaches(botID)
-                    ChatModel.shared.withdrawExternalAdmissions(forDeletedBot: botID)
-                }
-                let initial = roster.selectedBotID
-                if let initial {
-                    do { try await select(initial) }
-                    catch { self.error = "Bot 运行时读取失败：\(error.localizedDescription)" }
-                }
-                startSelectionWatch()
-                return
-            }
-            if !chat.isStarted { await chat.start() }
-            try? await Task.sleep(nanoseconds: 250_000_000)
+        // Phase A only: open the Bot store and roster and put the persisted
+        // rows on screen. This never touches the host and never starts the
+        // engine; the launch orchestrator owns the engine and the ReadySweep.
+        guard let composition = await chat.prepareBotRuntimeAtLaunch() else {
+            error = chat.botRuntimeIssue ?? BotRuntimeError.unavailable.errorDescription
+            return
         }
-        error = "Bot 运行时还没有准备好。请先启动引擎，然后重试。"
+        await adopt(composition)
+    }
+
+    private func adopt(_ composition: BotRuntimeComposition) async {
+        let roster = composition.rosterModel
+        self.composition = composition
+        self.roster = roster
+        composition.onBotDeleted = { [weak self] botID in
+            self?.dropCaches(botID)
+            ChatModel.shared.withdrawExternalAdmissions(forDeletedBot: botID)
+        }
+        let initial = roster.selectedBotID
+        if let initial {
+            do { try await select(initial) }
+            catch { self.error = "Bot 运行时读取失败：\(error.localizedDescription)" }
+        }
+        startSelectionWatch()
     }
 
     func retry(chat: ChatModel) async {
@@ -112,14 +115,16 @@ final class BotProductionHub {
     /// The chat model of a Bot without switching the page to it, connecting the hub to the app's
     /// Bot runtime first when needed (a device's voice turn arrives while another page is open).
     func chatModel(ensuring botID: String) async throws -> BotChatModel {
-        // A process relaunched in the background has the Bot runtime but no engine: a send would
-        // reach no session. Start it (allowed while the board's keep-alive holds the app).
+        // PLAN §2.9 I3: a board/BLE channel never starts the engine itself.
+        // The voice admission is already durable, so this is only the wake
+        // hand-off to the one orchestrator; it decides boot/resume/defer from
+        // the foreground, residency and lease state. No local start, no poll.
         let chat = ChatModel.shared
         if !chat.isStarted {
-            await chat.start()
-            for _ in 0..<120 where !chat.isStarted { try? await Task.sleep(for: .milliseconds(250)) }
+            _ = await EngineLaunchOrchestrator.shared.wake(.boardWake, lease: nil)
         }
         if composition == nil { await connect(chat: chat) }
+        guard chat.isStarted else { throw BotRuntimeError.unavailable }
         guard let composition, let roster else { throw BotRuntimeError.unavailable }
         guard roster.bots.contains(where: { $0.id == botID }) else { throw BotTeamHostError.botNotFound(botID) }
         // A Bot that is not on screen may have no running unit (after a relaunch only the selected
@@ -490,12 +495,14 @@ struct BotProductionPage: View {
 
     @ViewBuilder
     private var runtimeBanner: some View {
+        // Phase A shows the persisted rows before the engine exists. The
+        // engine's own startup is silent (§10.2): no "connecting" line while a
+        // launch is in flight. Only a real recovery or a terminal issue is
+        // surfaced; the user's own waiting operation still reports its failure.
         if let issue = chat.botRuntimeIssue {
             banner(issue, isError: true)
         } else if chat.botRuntimeState == .recovering {
             banner("Bot 连接中断，正在重新同步…", isError: false)
-        } else if chat.botRuntimeState == .connecting {
-            banner("Bot 正在连接…", isError: false)
         }
     }
 

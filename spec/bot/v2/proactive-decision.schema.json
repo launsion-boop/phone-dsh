@@ -53,7 +53,8 @@
       "enum": [
         "task-done",
         "routine-result",
-        "reminder"
+        "reminder",
+        "connector-update"
       ]
     },
     "botId": {
@@ -100,7 +101,8 @@
           "enum": [
             "task-done",
             "routine-result",
-            "reminder"
+            "reminder",
+            "connector-update"
           ]
         },
         "botId": {
@@ -178,7 +180,8 @@
           "enum": [
             "task-done",
             "routine-result",
-            "reminder"
+            "reminder",
+            "connector-update"
           ]
         },
         "botId": {

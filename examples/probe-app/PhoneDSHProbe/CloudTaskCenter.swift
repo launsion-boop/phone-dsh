@@ -49,6 +49,11 @@ final class CloudTaskCenter {
     @ObservationIgnored private let bridge: CloudTaskAdmissionBridge
     @ObservationIgnored private var accountWatch: Task<Void, Never>?
     @ObservationIgnored private var registeredToken: Data?
+    /// When the last pull → admit → ack pass finished (`nil`: none this
+    /// process). ReadySweep step 3 skips the pull inside
+    /// `EngineLaunchThresholds.cloudPullFreshnessMs` of this instant.
+    private(set) var lastPullAt: Date?
+    @ObservationIgnored private var pushInFlight = false
 
     private init() {
         let bridge = CloudTaskAdmissionBridge(
@@ -128,18 +133,100 @@ final class CloudTaskCenter {
         refreshStatus(nil)
     }
 
-    /// §8: one pull → admit → ack pass for a task push; any other payload is not ours.
-    func handleRemoteNotification(_ userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
-        guard let report = await coordinator.handleRemoteNotification(userInfo) else { return .noData }
-        finish(report)
+    /// One pull → admit → ack; any remaining eligible fetch time can run a
+    /// wake. UIKit's 30 s ceiling includes the pull, and the assertion's
+    /// expiration handler can end it sooner.
+    func handleRemoteNotification(_ userInfo: [AnyHashable: Any], receivedAtMs: Int64) async -> UIBackgroundFetchResult {
+        guard CloudTasks.isTaskPush(userInfo), !pushInFlight else { return .noData }
+        pushInFlight = true
+        defer { pushInFlight = false }
+
+        let orchestration = EngineLaunchOrchestrator.shared
+        let revocation = WakeLease.Revocation()
+        let lease = WakeLease(reason: .cloudTaskPush, grantedAtMs: receivedAtMs,
+                              deadlineMs: receivedAtMs + 30_000, revocation: revocation)
+        // A Task on this actor starts after the assertion is requested below.
+        var assertion: UIBackgroundTaskIdentifier = .invalid
+        let push = Task { @MainActor in
+            await runPush(lease, engineAllowed: assertion != .invalid)
+        }
+        let cancelPush: @Sendable () -> Void = {
+            revocation.revoke()
+            push.cancel()
+        }
+        assertion = UIApplication.shared.beginBackgroundTask(withName: "cloud-task-wake") {
+            cancelPush()
+            Task { @MainActor in orchestration.cancelWake(lease) }
+        }
+
+        let cutoffMs = max(0, lease.remainingMs() - EngineLaunchThresholds.parkMarginMs)
+        let cutoff = Task { @MainActor in
+            do { try await Task.sleep(for: .milliseconds(cutoffMs)) } catch { return }
+            cancelPush()
+            orchestration.cancelWake(lease)
+        }
+        let result = await push.value
+        cutoff.cancel()
+        if assertion != .invalid { UIApplication.shared.endBackgroundTask(assertion) }
+        return result
+    }
+
+    private func runPush(_ lease: WakeLease, engineAllowed: Bool) async -> UIBackgroundFetchResult {
+        let report = await coordinator.run(.push, cancelWithCaller: true)
+        finish(report, dispatch: false)
+        let result: UIBackgroundFetchResult
         switch report.status {
         case .ready:
-            return report.pulled > 0 || report.terminalSettled > 0 ? .newData : .noData
+            result = report.pulled > 0 || report.terminalSettled > 0 ? .newData : .noData
         case .disabled, .signedOut:
             return .noData
         case .unavailable, .deviceLimit, .storeUnavailable, .failed:
-            return .failed
+            result = .failed
         }
+        guard enabled, signedIn else { return result }
+        let requiredMs = ChatModel.shared.engineHostState == .parked
+            ? EngineLaunchThresholds.minLeaseForResumeMs
+            : EngineLaunchThresholds.minLeaseForColdBootMs
+        guard engineAllowed, !Task.isCancelled, lease.remainingMs() >= requiredMs else {
+            _ = EngineLaunchProcessingTask.submit()
+            return result
+        }
+
+        let outcome = await EngineLaunchOrchestrator.shared.wake(.cloudTaskPush, lease: lease)
+        if lease.isExpired() {
+            await ChatModel.shared.parkForWakeDeadline()
+            _ = EngineLaunchProcessingTask.submit()
+            return result
+        }
+        switch outcome.decision {
+        case .ready, .boot, .resume:
+            await ChatModel.shared.finishWakeLeaseWindow(deadlineMs: lease.deadlineMs)
+            if lease.isExpired() { await ChatModel.shared.parkForWakeDeadline() }
+        case .nativeOnly:
+            _ = EngineLaunchProcessingTask.submit()
+        case .deferred, .needsAttention:
+            break
+        }
+        return result
+    }
+
+    /// ReadySweep step 3, using the existing durable pull path.
+    func runWakePull() async -> Bool {
+        guard enabled, signedIn else { return false }
+        let report = await coordinator.run(.appActive, cancelWithCaller: true)
+        guard !Task.isCancelled else { return false }
+        finish(report)
+        return report.status == .ready
+    }
+
+    /// Expiry-only callbacks may pull and durably admit; dispatch waits for an
+    /// eligible engine wake. Cancellation leaves unacknowledged leases retryable.
+    func pullForBackgroundTask() async -> Bool {
+        guard enabled, signedIn else { return true }
+        let report = await coordinator.run(.appActive, cancelWithCaller: true)
+        guard !Task.isCancelled else { return false }
+        finish(report, dispatch: false)
+        return report.status == .ready
     }
 
     // MARK: - Push address
@@ -199,10 +286,11 @@ final class CloudTaskCenter {
         finish(await coordinator.run(trigger))
     }
 
-    private func finish(_ report: CloudTaskPassReport) {
+    private func finish(_ report: CloudTaskPassReport, dispatch: Bool = true) {
+        if report.status == .ready { lastPullAt = Date() }
         refreshStatus(report.status)
         // Admitted records go to the existing dispatch entry; it decides when they run.
-        if !report.admitted.isEmpty { ChatModel.shared.scheduleExternalAdmissionPass() }
+        if dispatch, !report.admitted.isEmpty { ChatModel.shared.scheduleExternalAdmissionPass() }
     }
 
     private func refreshStatus(_ status: CloudTaskStatus?) {
@@ -214,6 +302,18 @@ final class CloudTaskCenter {
 /// UIKit hands remote-notification registration and background pushes to the
 /// application delegate only.
 final class ProbeAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // Both callbacks are expiry-only. Neither has a measurable lease.
+        EngineLaunchProcessingTask.register {
+            await EngineLaunchOrchestrator.shared.runExpiryOnlyWake()
+        }
+        EngineLaunchRefreshTask.register {
+            await EngineLaunchOrchestrator.shared.runExpiryOnlyWake()
+        }
+        return true
+    }
+
     func application(_ application: UIApplication,
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         CloudTaskCenter.shared.didRegisterForRemoteNotifications(deviceToken: deviceToken)
@@ -227,8 +327,9 @@ final class ProbeAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didReceiveRemoteNotification userInfo: [AnyHashable: Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        let receivedAtMs = WakeLease.nowMs()
         Task { @MainActor in
-            completionHandler(await CloudTaskCenter.shared.handleRemoteNotification(userInfo))
+            completionHandler(await CloudTaskCenter.shared.handleRemoteNotification(userInfo, receivedAtMs: receivedAtMs))
         }
     }
 }

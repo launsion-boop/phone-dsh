@@ -58,6 +58,7 @@ data class WakeInboxItem(
     val attempt: Int? = null,
     val runId: String? = null,
     val deliveryKey: String? = null,
+    val connectorUpdate: HeldConnectorUpdate? = null,
 ) {
     init {
         validate()
@@ -91,6 +92,18 @@ data class WakeInboxItem(
                 throw RoutineError.InvalidHeldItem("invalid device task result status: $value")
             }
         }
+        if (kind == HeldConnectorUpdate.KIND) {
+            val update = connectorUpdate ?: throw RoutineError.InvalidHeldItem("connector-update payload is required")
+            update.validate(requestId, text)
+            if (createdAt < 0 || (stagedAt ?: 0) < 0 || stagedKey?.isEmpty() == true) {
+                throw RoutineError.InvalidHeldItem("connector-update has invalid timestamps or staged key")
+            }
+            if (listOf(taskId, status, ranAt, routineId, attempt, runId, deliveryKey).any { it != null }) {
+                throw RoutineError.InvalidHeldItem("connector-update has an unrelated member")
+            }
+        } else if (connectorUpdate != null) {
+            throw RoutineError.InvalidHeldItem("unexpected connector-update payload")
+        }
         return this
     }
 
@@ -115,16 +128,22 @@ data class WakeInboxItem(
             "attempt" to attempt?.let { RoutineJson.number(it.toLong()) },
             "runId" to runId?.let(RoutineJson::string),
             "deliveryKey" to deliveryKey?.let(RoutineJson::string),
-        ),
+        ) + (connectorUpdate?.toMembers() ?: emptyList()),
     )
 
     companion object {
         fun fromJson(value: JsonValue?): WakeInboxItem {
             val members = (value as? JsonObject)?.members
                 ?: throw RoutineDecodeException("held inbox item must be an object")
+            val kind = members.requiredString("kind")
+            val update = if (kind == HeldConnectorUpdate.KIND) {
+                HeldConnectorUpdate.decode(members)
+            } else {
+                null
+            }
             return WakeInboxItem(
                 id = members.requiredString("id"),
-                kind = members.requiredString("kind"),
+                kind = kind,
                 fromAgentId = members.optionalString("fromAgentId"),
                 fromAgentName = members.optionalString("fromAgentName") ?: "",
                 title = members.optionalString("title"),
@@ -132,7 +151,9 @@ data class WakeInboxItem(
                 requestId = members.optionalString("requestId"),
                 threadId = members.optionalString("threadId"),
                 createdAt = members.requiredLong("createdAt"),
-                state = WakeInboxState.from(members.optionalString("state")),
+                state = WakeInboxState.from(
+                    if (update == null) members.optionalString("state") else members.requiredString("state"),
+                ),
                 stagedAt = members.optionalLong("stagedAt"),
                 stagedKey = members.optionalString("stagedKey"),
                 taskId = members.optionalString("taskId"),
@@ -142,6 +163,7 @@ data class WakeInboxItem(
                 attempt = members.optionalInt("attempt"),
                 runId = members.optionalString("runId"),
                 deliveryKey = members.optionalString("deliveryKey"),
+                connectorUpdate = update,
             )
         }
     }

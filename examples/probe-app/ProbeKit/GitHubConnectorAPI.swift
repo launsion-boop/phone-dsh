@@ -27,6 +27,29 @@ public struct GitHubConnectorAPI: Sendable {
         public let nextPage: Int?
     }
 
+    /// One notification's metadata. The subject title and repository name are
+    /// what the held-inbox item carries; the notification body/thread is never
+    /// fetched by the connector scan.
+    public struct Notification: Identifiable, Equatable, Sendable {
+        public let id: String
+        public let repositoryFullName: String
+        public let title: String
+        public let type: String
+        public let updatedAt: Date?
+        public let unread: Bool
+    }
+
+    /// One incremental `GET /notifications` result.
+    ///
+    /// `lastModified` is the response's `Last-Modified` header (the next
+    /// `If-Modified-Since` value). `notModified` is a `304`: nothing changed,
+    /// keep the cursor and emit no item.
+    public struct NotificationsPage: Equatable, Sendable {
+        public let notifications: [Notification]
+        public let lastModified: String?
+        public let notModified: Bool
+    }
+
     private let session: URLSession
 
     public init(session: URLSession? = nil) {
@@ -77,8 +100,109 @@ public struct GitHubConnectorAPI: Sendable {
         )
     }
 
+    /// Metadata-only incremental query for the connector delta scan.
+    ///
+    /// `since` is the stored ISO-8601 scan watermark; `ifModifiedSince` is the
+    /// stored `Last-Modified` response header. A `304` means nothing changed
+    /// and returns `notModified` with the same cursor. Notification bodies are
+    /// never requested: the page carries id, repository, subject title/type,
+    /// updated time and unread state only.
+    public func notifications(since: String?, ifModifiedSince: String?,
+                              limit: Int = 20,
+                              token: String) async throws -> NotificationsPage {
+        let capped = min(20, max(1, limit))
+        var query: [URLQueryItem] = [
+            URLQueryItem(name: "per_page", value: String(capped)),
+            URLQueryItem(name: "all", value: "true"),
+            URLQueryItem(name: "participating", value: "false"),
+        ]
+        if let since, !since.isEmpty {
+            guard Self.isSafeSince(since) else { throw GitHubConnectorError.invalidResponse }
+            query.append(URLQueryItem(name: "since", value: since))
+        }
+        var headers: [String: String] = [:]
+        if let ifModifiedSince, !ifModifiedSince.isEmpty {
+            guard Self.isSafeHeaderValue(ifModifiedSince) else {
+                throw GitHubConnectorError.invalidResponse
+            }
+            headers["If-Modified-Since"] = ifModifiedSince
+        }
+        let (data, response) = try await perform("notifications", query: query, token: token,
+                                                 extraHeaders: headers)
+        let lastModified = response.value(forHTTPHeaderField: "Last-Modified") ?? ifModifiedSince
+        switch response.statusCode {
+        case 200:
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let fallback = ISO8601DateFormatter()
+            fallback.formatOptions = [.withInternetDateTime]
+            let rows = try decode([RawNotification].self, from: data)
+            var notifications: [Notification] = []
+            for row in rows {
+                guard let notification = row.notification(formatter: formatter, fallback: fallback)
+                else { continue }
+                notifications.append(notification)
+                if notifications.count >= capped { break }
+            }
+            return NotificationsPage(notifications: notifications, lastModified: lastModified,
+                                     notModified: false)
+        case 304:
+            return NotificationsPage(notifications: [], lastModified: lastModified,
+                                     notModified: true)
+        case 401:
+            throw GitHubConnectorError.unauthorized
+        case 403:
+            if response.value(forHTTPHeaderField: "x-ratelimit-remaining") == "0" {
+                throw GitHubConnectorError.rateLimited
+            }
+            throw GitHubConnectorError.forbidden
+        case 429:
+            throw GitHubConnectorError.rateLimited
+        default:
+            throw GitHubConnectorError.serviceUnavailable
+        }
+    }
+
+    /// `since` is an ISO-8601 timestamp placed in the query string. Only the
+    /// characters an ISO-8601 instant needs are accepted, so a stored value
+    /// can never smuggle a second query parameter or a header break.
+    private static func isSafeSince(_ value: String) -> Bool {
+        guard !value.isEmpty, value.utf8.count <= 64 else { return false }
+        let allowed = Set("0123456789TtZz:+-.".utf8)
+        return value.utf8.allSatisfy { allowed.contains($0) }
+    }
+
+    private static func isSafeHeaderValue(_ value: String) -> Bool {
+        guard !value.isEmpty, value.utf8.count <= 128 else { return false }
+        return value.utf8.allSatisfy { (32...126).contains($0) }
+    }
+
     private func get(
         _ path: String, query: [URLQueryItem], token: String
+    ) async throws -> (Data, HTTPURLResponse) {
+        let (data, http) = try await perform(path, query: query, token: token, extraHeaders: [:])
+        switch http.statusCode {
+        case 200:
+            return (data, http)
+        case 401:
+            throw GitHubConnectorError.unauthorized
+        case 403:
+            if http.value(forHTTPHeaderField: "x-ratelimit-remaining") == "0" {
+                throw GitHubConnectorError.rateLimited
+            }
+            throw GitHubConnectorError.forbidden
+        case 429:
+            throw GitHubConnectorError.rateLimited
+        default:
+            throw GitHubConnectorError.serviceUnavailable
+        }
+    }
+
+    /// One authenticated GET without status interpretation beyond transport
+    /// failures, so the incremental notification query can accept a `304`.
+    private func perform(
+        _ path: String, query: [URLQueryItem], token: String,
+        extraHeaders: [String: String]
     ) async throws -> (Data, HTTPURLResponse) {
         guard Self.isValidToken(token) else { throw GitHubConnectorError.invalidResponse }
         var components = URLComponents()
@@ -94,25 +218,14 @@ public struct GitHubConnectorAPI: Sendable {
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
         request.setValue("phone-dsh", forHTTPHeaderField: "User-Agent")
+        for (name, value) in extraHeaders { request.setValue(value, forHTTPHeaderField: name) }
 
         do {
             let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse else { throw GitHubConnectorError.invalidResponse }
-            switch http.statusCode {
-            case 200:
-                return (data, http)
-            case 401:
-                throw GitHubConnectorError.unauthorized
-            case 403:
-                if http.value(forHTTPHeaderField: "x-ratelimit-remaining") == "0" {
-                    throw GitHubConnectorError.rateLimited
-                }
-                throw GitHubConnectorError.forbidden
-            case 429:
-                throw GitHubConnectorError.rateLimited
-            default:
-                throw GitHubConnectorError.serviceUnavailable
+            guard let http = response as? HTTPURLResponse else {
+                throw GitHubConnectorError.invalidResponse
             }
+            return (data, http)
         } catch let error as GitHubConnectorError {
             throw error
         } catch is CancellationError {
@@ -146,6 +259,49 @@ public struct GitHubConnectorAPI: Sendable {
                 return relation.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
                     .split(separator: " ").contains { $0.lowercased() == "next" }
             }
+        }
+    }
+
+    private struct RawNotification: Decodable {
+        struct Subject: Decodable {
+            let title: String?
+            let type: String?
+        }
+
+        struct Repository: Decodable {
+            let fullName: String?
+
+            enum CodingKeys: String, CodingKey {
+                case fullName = "full_name"
+            }
+        }
+
+        let id: String
+        let unread: Bool?
+        let reason: String?
+        let updatedAt: String?
+        let subject: Subject?
+        let repository: Repository?
+
+        enum CodingKeys: String, CodingKey {
+            case id, unread, reason, subject, repository
+            case updatedAt = "updated_at"
+        }
+
+        func notification(formatter: ISO8601DateFormatter,
+                          fallback: ISO8601DateFormatter) -> Notification? {
+            let identifier = id.trimmingCharacters(in: .whitespacesAndNewlines)
+            let repositoryName = repository?.fullName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !identifier.isEmpty, !repositoryName.isEmpty else { return nil }
+            let title = subject?.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let updated = updatedAt.flatMap { formatter.date(from: $0) ?? fallback.date(from: $0) }
+            return Notification(
+                id: identifier,
+                repositoryFullName: repositoryName,
+                title: title.isEmpty ? repositoryName : title,
+                type: subject?.type?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Notification",
+                updatedAt: updated,
+                unread: unread ?? true)
         }
     }
 

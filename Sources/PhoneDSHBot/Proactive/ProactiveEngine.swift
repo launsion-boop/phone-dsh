@@ -281,6 +281,12 @@ public actor ProactiveEngine: ProactiveConsidering {
         case .reminder:
             title = explicitTitle?.isEmpty == false ? explicitTitle! : "DSH Bot · 提醒"
             body = explicitBody?.isEmpty == false ? explicitBody! : "提醒时间到了"
+        case .connectorUpdate:
+            // Contract §3.0: connector-update has no default copy. The
+            // candidate must carry explicit, non-empty text (enforced by the
+            // candidate decoder / source); the engine never invents wording.
+            title = explicitTitle ?? ""
+            body = explicitBody ?? ""
         }
         return ProactiveNotification(title: title, body: body, kind: candidate.kind,
                                      botId: candidate.botId, dedupeKey: dedupeKey,

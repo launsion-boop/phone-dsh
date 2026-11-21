@@ -1,0 +1,567 @@
+{
+  "title": "HostEngineLaunchVectors v3",
+  "description": "The shared engine-launch vector document of spec/host/v1/README.md sections 10.2 and 10.3. It freezes the closed WakeReason, decision and ReadySweep step vocabularies, the provisional threshold and per-step-budget constants, the WakeDemand source set, and the valid/invalid decision, sweep and wake-projection vectors. Swift (iOS, this round) and Kotlin (Android, later) both read golden/engine-launch.json and this schema directly; neither end retypes a vector or a threshold. Identifiers use the section 10.2 spellings case-sensitively. Invalid vectors intentionally live outside the decision input domain: their wrapper is schema-valid and the end's real decoder must reject the inner input.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "revision",
+    "constants",
+    "wakeReasons",
+    "decisions",
+    "steps",
+    "decisionVectors",
+    "invalidDecisionVectors",
+    "sweepVectors",
+    "invalidSweepVectors",
+    "demandSources",
+    "projectionVectors",
+    "invalidProjectionVectors"
+  ],
+  "properties": {
+    "contract": {
+      "const": "engine-launch"
+    },
+    "revision": {
+      "const": 3
+    },
+    "constants": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minLeaseForColdBootMs",
+        "minLeaseForResumeMs",
+        "parkMarginMs",
+        "cloudPullFreshnessMs",
+        "stepBudgetMs",
+        "connectorScanIntervalMs",
+        "minBackgroundDelayMs"
+      ],
+      "properties": {
+        "minLeaseForColdBootMs": {
+          "const": 20000
+        },
+        "minLeaseForResumeMs": {
+          "const": 8000
+        },
+        "parkMarginMs": {
+          "const": 5000
+        },
+        "cloudPullFreshnessMs": {
+          "const": 30000
+        },
+        "stepBudgetMs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "userOutbox",
+            "externalAdmission",
+            "cloudTaskPull",
+            "botHeldInbox",
+            "missedRoutines",
+            "connectorScan",
+            "approvalReminderSync",
+            "dshSchedule",
+            "hostRetries"
+          ],
+          "properties": {
+            "userOutbox": {
+              "const": 2000
+            },
+            "externalAdmission": {
+              "const": 2000
+            },
+            "cloudTaskPull": {
+              "const": 5000
+            },
+            "botHeldInbox": {
+              "const": 2000
+            },
+            "missedRoutines": {
+              "const": 5000
+            },
+            "connectorScan": {
+              "const": 10000
+            },
+            "approvalReminderSync": {
+              "const": 1000
+            },
+            "dshSchedule": {
+              "const": 3000
+            },
+            "hostRetries": {
+              "const": 2000
+            }
+          }
+        },
+        "connectorScanIntervalMs": {
+          "const": 1800000
+        },
+        "minBackgroundDelayMs": {
+          "const": 60000
+        }
+      }
+    },
+    "wakeReasons": {
+      "description": "The closed WakeReason set of sections 10.2.1 and 10.3.4, in contract order.",
+      "type": "array",
+      "minItems": 13,
+      "maxItems": 13,
+      "items": {
+        "enum": [
+          "coldLaunch",
+          "foreground",
+          "unlock",
+          "cloudTaskPush",
+          "boardWake",
+          "bleRequest",
+          "lanRequest",
+          "pcLinkRequest",
+          "bgProcessing",
+          "routineNotificationTap",
+          "engineRecovered",
+          "scheduledDemand",
+          "bgAppRefresh"
+        ]
+      }
+    },
+    "decisions": {
+      "description": "The closed decision set of section 10.2.4, in evaluation order.",
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "enum": [
+          "boot",
+          "resume",
+          "ready",
+          "nativeOnly",
+          "defer",
+          "needsAttention"
+        ]
+      }
+    },
+    "steps": {
+      "description": "The closed ReadySweep step set of sections 10.2.5 and 10.3.5, in execution order.",
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {
+        "enum": [
+          "userOutbox",
+          "externalAdmission",
+          "cloudTaskPull",
+          "botHeldInbox",
+          "missedRoutines",
+          "connectorScan",
+          "approvalReminderSync",
+          "dshSchedule",
+          "hostRetries"
+        ]
+      }
+    },
+    "decisionVectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "input",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "input": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "reason",
+              "foreground",
+              "residentAudio",
+              "hostState",
+              "leaseRemainingMs",
+              "userStopped",
+              "needsReset"
+            ],
+            "properties": {
+              "reason": {
+                "enum": [
+                  "coldLaunch",
+                  "foreground",
+                  "unlock",
+                  "cloudTaskPush",
+                  "boardWake",
+                  "bleRequest",
+                  "lanRequest",
+                  "pcLinkRequest",
+                  "bgProcessing",
+                  "routineNotificationTap",
+                  "engineRecovered",
+                  "scheduledDemand",
+                  "bgAppRefresh"
+                ]
+              },
+              "foreground": {
+                "type": "boolean"
+              },
+              "residentAudio": {
+                "type": "boolean"
+              },
+              "hostState": {
+                "enum": [
+                  "absent",
+                  "parked",
+                  "running",
+                  "failed"
+                ]
+              },
+              "leaseRemainingMs": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "userStopped": {
+                "type": "boolean"
+              },
+              "needsReset": {
+                "type": "boolean"
+              }
+            }
+          },
+          "expected": {
+            "enum": [
+              "boot",
+              "resume",
+              "ready",
+              "nativeOnly",
+              "defer",
+              "needsAttention"
+            ]
+          }
+        }
+      }
+    },
+    "invalidDecisionVectors": {
+      "description": "Wrapper-valid cases whose inner input the real decoder MUST reject. The inner object is intentionally unrestricted; the rejection reason is data for the test report.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "input",
+          "reason"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "input": {
+            "type": "object"
+          },
+          "reason": {
+            "enum": [
+              "missing-member",
+              "member-type",
+              "unknown-reason",
+              "unknown-host-state",
+              "lease-negative",
+              "lease-not-integer"
+            ]
+          }
+        }
+      }
+    },
+    "sweepVectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "step",
+          "remainingMs",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "step": {
+            "enum": [
+              "userOutbox",
+              "externalAdmission",
+              "cloudTaskPull",
+              "botHeldInbox",
+              "missedRoutines",
+              "connectorScan",
+              "approvalReminderSync",
+              "dshSchedule",
+              "hostRetries"
+            ]
+          },
+          "remainingMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "expected": {
+            "enum": [
+              "run",
+              "skip"
+            ]
+          }
+        }
+      }
+    },
+    "invalidSweepVectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "input",
+          "reason"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "input": {
+            "type": "object"
+          },
+          "reason": {
+            "enum": [
+              "missing-member",
+              "member-type",
+              "unknown-step",
+              "remaining-negative"
+            ]
+          }
+        }
+      }
+    },
+    "demandSources": {
+      "description": "The closed WakeDemand source set of section 10.3.2, in tie-break order.",
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "enum": [
+          "botRoutine",
+          "connectorScan",
+          "dshSchedule",
+          "hostRetry"
+        ]
+      }
+    },
+    "projectionVectors": {
+      "description": "WakeProjection.plan vectors of section 10.3.3. Demands within one input are unique by (source, key).",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "input",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "input": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "nowMs",
+              "resident",
+              "demands"
+            ],
+            "properties": {
+              "nowMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "resident": {
+                "type": "boolean"
+              },
+              "demands": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "source",
+                    "key",
+                    "dueAtMs",
+                    "kind",
+                    "userVisible"
+                  ],
+                  "properties": {
+                    "source": {
+                      "enum": [
+                        "botRoutine",
+                        "connectorScan",
+                        "dshSchedule",
+                        "hostRetry"
+                      ]
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                    },
+                    "dueAtMs": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "kind": {
+                      "enum": [
+                        "once",
+                        "recurring"
+                      ]
+                    },
+                    "userVisible": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "residentTimerAtMs",
+              "backgroundEarliestMs",
+              "dueNow"
+            ],
+            "properties": {
+              "residentTimerAtMs": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "backgroundEarliestMs": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "dueNow": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "source",
+                    "key"
+                  ],
+                  "properties": {
+                    "source": {
+                      "enum": [
+                        "botRoutine",
+                        "connectorScan",
+                        "dshSchedule",
+                        "hostRetry"
+                      ]
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "invalidProjectionVectors": {
+      "description": "Wrapper-valid cases whose inner input the real decoder MUST reject.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "input",
+          "reason"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "input": {
+            "type": "object"
+          },
+          "reason": {
+            "enum": [
+              "missing-member",
+              "member-type",
+              "unknown-source",
+              "unknown-kind",
+              "duplicate-demand",
+              "due-negative"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

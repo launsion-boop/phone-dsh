@@ -15,6 +15,9 @@ import SwiftUI
 import PhoneDSH
 import PhoneDSHBLE
 #if DEBUG
+import BackgroundTasks
+#endif
+#if DEBUG
 import PhoneDSHVenus
 #endif
 
@@ -60,6 +63,10 @@ struct PhoneDSHProbeApp: App {
         // The phone task queue follows the account from launch, a background launch by a
         // task push included. It starts no engine and no timer.
         Task { @MainActor in CloudTaskCenter.shared.start() }
+        // PLAN §2.8: every channel (board, push, BGTask) delivers to the one
+        // launch orchestrator entry. Installing here covers a background
+        // relaunch by Bluetooth state restoration too.
+        Task { @MainActor in EngineLaunchOrchestrator.shared.installWakeSources() }
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment["PDSH_APPEARANCE"],
            let value = NativeAppearance(rawValue: raw) {
@@ -87,6 +94,12 @@ struct PhoneDSHProbeApp: App {
                 // Task here only leaves SwiftUI's synchronous callback.
                 .onChange(of: scenePhase) { _, newPhase in
                     Task { @MainActor in
+                        // I5: a scene-based SwiftUI App receives the background
+                        // transition here, not in the app delegate. Project the
+                        // earliest WakeDemand before the process can suspend.
+                        if newPhase == .background {
+                            await EngineLaunchOrchestrator.shared.appDidEnterBackground()
+                        }
                         #if PDSH_ENABLE_DEVICE_TASKS
                         await DeviceTaskManager.shared.sceneActive(newPhase == .active)
                         #endif
@@ -101,6 +114,10 @@ struct PhoneDSHProbeApp: App {
                                     await workspaceModels.scenePhaseChanged(true)
                                     // One pull → admit → ack pass (cloud-tasks.md §7); off = no-op.
                                     CloudTaskCenter.shared.appBecameActive()
+                                    // PLAN §2.1: foreground is one wake among
+                                    // the channels; the orchestrator decides
+                                    // boot/resume/sweep, never a call site.
+                                    _ = await EngineLaunchOrchestrator.shared.wake(.foreground, lease: nil)
                                 }
                             },
                             backgroundMatrix: { phase in
@@ -130,11 +147,15 @@ struct PhoneDSHProbeApp: App {
                     #if DEBUG
                     PCLinkDebugAutomation.shared.start(models: workspaceModels)
                     #endif
-                    // Boot the phone engine only for the phone segment; the
-                    // PC workspace starts its relay connection instead and the
-                    // phone starts lazily when the user switches back.
-                    if workspaceModels.isPhoneSelected {
-                        await ChatModel.shared.start()
+                    // Phase A always paints (Bot store + roster, snapshot,
+                    // outbox scan) without waiting for the engine.
+                    await ChatModel.shared.prepareLaunchContentForWake()
+                    // PLAN §2.6: the phone engine starts silently when the
+                    // phone segment is selected, at least one Bot exists, or
+                    // the outbox / admission journal holds pending work — not
+                    // only when the phone segment is selected.
+                    if await workspaceModels.shouldStartPhoneEngineAtLaunch() {
+                        _ = await EngineLaunchOrchestrator.shared.wake(.coldLaunch, lease: nil)
                     }
                 }
                 #if DEBUG
@@ -145,6 +166,14 @@ struct PhoneDSHProbeApp: App {
                 .task {
                     // DEBUG only, launch argument `-pdsh-selftest-device-app 1`; bypasses the install approval card.
                     await DeviceAppSelfTest.runIfRequested()
+                }
+                .task {
+                    // DEBUG only: prove the WakeDemand projection reaches the
+                    // OS (BGAppRefresh + BGProcessing) and record what the
+                    // scheduler reports as pending.
+                    if ProcessInfo.processInfo.environment["PDSH_BG_PROJECTION_SELFTEST"] == "1" {
+                        await Self.runBGProjectionSelfTest()
+                    }
                 }
                 .task {
                     // DEBUG only, launch argument `-pdsh-cleanup-leaked-bots dry|run` (one-shot, see the file).
@@ -223,6 +252,56 @@ extension PhoneDSHProbeApp {
         return environment["PDSH_TONOLINK_USB_OTA"] != nil || environment[FirmwareBuilderDiagnostics.environmentKey] != nil
     }
     #endif
+
+    /// DEBUG only: seed one future demand, project it onto the OS channels,
+    /// and record `BGTaskScheduler`'s pending requests for evidence.
+    @MainActor static func runBGProjectionSelfTest() async {
+        let key = "projection-selftest"
+        let dueAt = WakeDemandLedger.nowMs() + 120_000
+        await EngineLaunchOrchestrator.shared.upsertWakeDemand(WakeDemand(
+            source: .dshSchedule, key: key, dueAtMs: dueAt,
+            kind: .once, userVisible: false))
+        await EngineLaunchOrchestrator.shared.appDidEnterBackground()
+        try? await Task.sleep(for: .seconds(1))
+        let pending: [BGTaskRequest] = await withCheckedContinuation { continuation in
+            BGTaskScheduler.shared.getPendingTaskRequests { continuation.resume(returning: $0) }
+        }
+        let rows: [[String: Any]] = pending.map { request in
+            ["identifier": request.identifier,
+             "earliestBeginDate": request.earliestBeginDate.map(\.timeIntervalSince1970) ?? -1]
+        }
+        // Also submit both identifiers directly so a refusal is recorded
+        // instead of silently swallowed by the production submit().
+        var submitErrors: [String] = []
+        let refreshRequest = BGAppRefreshTaskRequest(identifier: EngineLaunchRefreshTask.identifier)
+        refreshRequest.earliestBeginDate = Date(timeIntervalSince1970: Double(dueAt) / 1000)
+        do { try BGTaskScheduler.shared.submit(refreshRequest) }
+        catch { submitErrors.append("refresh: \(error)") }
+        let processingRequest = BGProcessingTaskRequest(identifier: EngineLaunchProcessingTask.identifier)
+        processingRequest.earliestBeginDate = Date(timeIntervalSince1970: Double(dueAt) / 1000)
+        do { try BGTaskScheduler.shared.submit(processingRequest) }
+        catch { submitErrors.append("processing: \(error)") }
+        let afterRetry: [BGTaskRequest] = await withCheckedContinuation { continuation in
+            BGTaskScheduler.shared.getPendingTaskRequests { continuation.resume(returning: $0) }
+        }
+        let payload: [String: Any] = [
+            "dueAtMs": dueAt,
+            "requests": rows,
+            "requestsAfterDirectSubmit": afterRetry.map { request in
+                ["identifier": request.identifier,
+                 "earliestBeginDate": request.earliestBeginDate.map(\.timeIntervalSince1970) ?? -1]
+            },
+            "submitErrors": submitErrors,
+        ]
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) else { return }
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let directory = documents.appendingPathComponent("pdsh-reports", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? data.write(to: directory.appendingPathComponent("bg-projection.json"))
+        NSLog("PDSH_BG_PROJECTION %@", String(data: data, encoding: .utf8) ?? "")
+        await EngineLaunchOrchestrator.shared.removeWakeDemand(source: .dshSchedule, key: key)
+    }
 
     /// `PDSH_BLE_AUTOCONNECT=<name substring>` scans in-app and connects the first match through the
     /// ordinary BLE device store (Link tools such as light.set, and the board's HID bond).

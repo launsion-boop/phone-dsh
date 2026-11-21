@@ -51,7 +51,7 @@ PROACTIVE_SETTINGS_FIELDS = (
     "fuseWindowMs", "fuseMaxWakeups", "deliveryKinds",
 )
 PROACTIVE_MODES = ("off", "would", "on")
-PROACTIVE_KINDS = ("task-done", "routine-result", "reminder")
+PROACTIVE_KINDS = ("task-done", "routine-result", "reminder", "connector-update")
 PROACTIVE_DECISIONS = ("did", "would", "skip")
 PROACTIVE_REASONS = (
     "delivered", "would-mode", "would-only-kind", "mode-off", "fuse", "dnd",
@@ -1333,10 +1333,159 @@ def validate_wake_and_held() -> tuple[int, int]:
     check(held["enqueued"]["item"], "held-inbox-item.schema.json", "held-item")
     check(held["deviceTaskResult"], "held-inbox-item.schema.json", "held-device-task-result")
     check(held["agentHeld"], "held-inbox-item.schema.json", "held-agent-held")
+    for name in ("connectorUpdateGmail", "connectorUpdateGithub"):
+        check(held[name], "held-inbox-item.schema.json", f"held-{name}")
+        if not connector_update_is_consistent(held[name]):
+            raise AssertionError(
+                f"held-{name}: connector-update record is not self-consistent "
+                "(count, requestId, cursor interval or duplicate item id)")
     check_many(held["staged"]["items"], "held-inbox-item.schema.json", "held-staged")
     for index, case in enumerate(held_fixture["invalid"]):
         rejects(case, "held-inbox-item.schema.json", f"held.invalid[{index}]")
-    return len(held["staged"]["items"]), len(held_fixture["invalid"])
+    semantic_invalid = held_fixture.get("invalidConnectorUpdate", [])
+    for index, case in enumerate(semantic_invalid):
+        where = f"held.invalidConnectorUpdate[{index}]"
+        check(case["record"], "held-inbox-item.schema.json", where + ".record")
+        if connector_update_is_consistent(case["record"]):
+            raise AssertionError(f"{where}: negative case unexpectedly passes the reference rule")
+    return len(held["staged"]["items"]) + 2, len(held_fixture["invalid"]) + len(semantic_invalid)
+
+
+# ── connector cursor reference (spec/bot/v2/README.md §3.3.2) ──────────────
+
+GMAIL_HISTORY_RE = re.compile(r"^[0-9]{1,20}$")
+GITHUB_SINCE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+HTTP_DATE_RE = re.compile(r"^[A-Z][a-z]{2}, [0-9]{2} [A-Z][a-z]{2} [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT$")
+
+
+def connector_update_is_consistent(item) -> bool:
+    if not isinstance(item, dict):
+        return False
+    items = item.get("items")
+    if not isinstance(items, list) or not 1 <= len(items) <= 20:
+        return False
+    if item.get("count") != len(items):
+        return False
+    if item.get("cursorFrom") == item.get("cursorTo"):
+        return False
+    request_id = "{}:{}:{}".format(item.get("connector"), item.get("cursorFrom"), item.get("cursorTo"))
+    if item.get("requestId") != request_id:
+        return False
+    ids = [entry.get("id") for entry in items if isinstance(entry, dict)]
+    if len(ids) != len(items) or len(set(ids)) != len(ids):
+        return False
+    return True
+
+
+def connector_cursor_valid(connector: str, value) -> bool:
+    """The per-connector cursor shape frozen in README §3.3.2."""
+    if connector == "gmail":
+        return isinstance(value, str) and GMAIL_HISTORY_RE.fullmatch(value) is not None
+    if connector == "github":
+        if not isinstance(value, dict) or set(value) != {"since", "lastModified"}:
+            return False
+        since = value.get("since")
+        last_modified = value.get("lastModified")
+        if not isinstance(since, str) or GITHUB_SINCE_RE.fullmatch(since) is None:
+            return False
+        return last_modified is None or (
+            isinstance(last_modified, str) and HTTP_DATE_RE.fullmatch(last_modified) is not None)
+    return False
+
+
+def connector_scan(connector: str, stored, head, now: int):
+    """Recompute the durable cursor record and whether a delta is emitted."""
+    if connector not in ("gmail", "github"):
+        raise AssertionError(f"connector {connector!r} has no cursor grammar")
+    if not connector_cursor_valid(connector, head):
+        raise AssertionError(f"{connector}: head {head!r} does not match the cursor grammar")
+
+    def record(cursor, status: str, error=None):
+        value = {"version": 1, "connector": connector, "cursor": cursor,
+                 "updatedAt": now, "status": status}
+        if error is not None:
+            value["lastError"] = error
+        return value
+
+    if stored is None:
+        return record(head, "established"), False
+    if not connector_cursor_valid(connector, stored):
+        return record(head, "reset", "cursor-invalid"), False
+    if stored == head:
+        return record(head, "established"), False
+    if connector == "gmail":
+        regressed = int(head) < int(stored)
+    else:
+        regressed = head["since"] < stored["since"]
+        if not regressed and head["since"] == stored["since"]:
+            # Only the conditional-request token changed: advance the stored
+            # cursor but emit no connectorUpdate.
+            return record(head, "established"), False
+    if regressed:
+        return record(head, "reset", "cursor-regressed"), False
+    return record(head, "established"), True
+
+
+def validate_connector_cursor():
+    fixture = load("connector-cursor")
+    if fixture.get("vector") != "connector-cursor":
+        raise AssertionError("connector-cursor: vector must be connector-cursor")
+    validate_connector_cursor_fixture(fixture)
+    return len(fixture["valid"]), len(fixture["invalid"]), connector_cursor_mutations(fixture)
+
+
+def validate_connector_cursor_fixture(fixture) -> None:
+    for index, case in enumerate(fixture["valid"]):
+        record, emit = connector_scan(case["connector"], case.get("stored"),
+                                      case["head"], case["now"])
+        check(record, "connector-cursor.schema.json", f"connector-cursor.valid[{index}].record")
+        if record != case["expected"]["record"]:
+            raise AssertionError(
+                f"connector-cursor.valid[{index}]: {case['id']} record {record!r} != "
+                f"{case['expected']['record']!r}")
+        if emit != case["expected"]["emitConnectorUpdate"]:
+            raise AssertionError(
+                f"connector-cursor.valid[{index}]: {case['id']} emit {emit!r} != "
+                f"{case['expected']['emitConnectorUpdate']!r}")
+    for index, case in enumerate(fixture["invalid"]):
+        rejects(case["record"], "connector-cursor.schema.json",
+                f"connector-cursor.invalid[{index}]")
+
+
+def connector_cursor_mutations(fixture) -> int:
+    import copy
+
+    mutations = 0
+
+    def expect_failure(label, mutate):
+        nonlocal mutations
+        mutated = copy.deepcopy(fixture)
+        mutate(mutated)
+        try:
+            validate_connector_cursor_fixture(mutated)
+        except Exception:  # noqa: BLE001 - schema and reference failures both count
+            mutations += 1
+            return
+        raise AssertionError(f"connector-cursor mutation {label!r} unexpectedly passed")
+
+    ids = [case["id"] for case in fixture["valid"]]
+
+    def index_of(ident):
+        return ids.index(ident)
+
+    expect_failure(
+        "first-scan-emits",
+        lambda value: value["valid"][index_of("gmail-first-scan-establishes-only")]
+        ["expected"].__setitem__("emitConnectorUpdate", True))
+    expect_failure(
+        "incremental-cursor",
+        lambda value: value["valid"][index_of("gmail-incremental-emits-a-delta")]
+        ["expected"]["record"].__setitem__("cursor", "0"))
+    expect_failure(
+        "regression-status",
+        lambda value: value["valid"][index_of("gmail-regressed-cursor-resets-silently")]
+        ["expected"]["record"].__setitem__("status", "established"))
+    return mutations
 
 
 def validate_routine_document() -> tuple[int, int]:
@@ -1500,6 +1649,14 @@ def proactive_candidate_error(value):
             return ("proactive-candidate-type", "$.rowId")
         if not value["rowId"]:
             return ("proactive-candidate-min-length", "$.rowId")
+    if value["kind"] == "connector-update":
+        # bot v2 §3.0: connector-update has no default copy. A missing or blank
+        # (after trim) title/body is a candidate construction error, not a
+        # decision input. The JSON schema cannot express this conditional with
+        # the repository validator, so it is a semantic negative.
+        for field in ("title", "body"):
+            if not value.get(field, "").strip():
+                return ("proactive-candidate-missing-field", "$." + field)
     return None
 
 
@@ -1562,6 +1719,9 @@ def proactive_notification(candidate, dedupe_key):
     explicit_title = candidate.get("title")
     title = explicit_title.strip() if isinstance(explicit_title, str) else ""
     if not title:
+        if kind == "connector-update":
+            raise AssertionError(
+                "connector-update candidate must carry an explicit non-empty title")
         title = {
             "task-done": "DSH Bot · 后台任务",
             "routine-result": "DSH Bot · 定时执行",
@@ -1570,6 +1730,9 @@ def proactive_notification(candidate, dedupe_key):
     explicit_body = candidate.get("body")
     body = explicit_body.strip() if isinstance(explicit_body, str) else ""
     if not body:
+        if kind == "connector-update":
+            raise AssertionError(
+                "connector-update candidate must carry an explicit non-empty body")
         if kind == "task-done":
             if candidate.get("summary") is not None:
                 body = candidate["summary"]
@@ -1827,6 +1990,18 @@ def validate_proactive_fixture(fixture):
         rejects_schema(case["candidate"], candidate_schema, where + ".candidate")
         proactive_mismatch(where, proactive_candidate_error(case["candidate"]),
                            (case["error"], case["path"]))
+    semantic = decisions.get("semanticInvalid")
+    if not semantic:
+        raise AssertionError("proactive: decisions.semanticInvalid must be non-empty")
+    for index, case in enumerate(semantic):
+        where = "proactive.decisions.semanticInvalid[{}]".format(index)
+        check(case["settings"], "proactive-settings.schema.json", where + ".settings")
+        # Schema-valid on purpose: only the real decoder can reject these.
+        check_schema(case["candidate"], candidate_schema, where + ".candidate")
+        if case["candidate"].get("kind") != "connector-update":
+            raise AssertionError(where + ": semantic negatives cover connector-update copy only")
+        proactive_mismatch(where, proactive_candidate_error(case["candidate"]),
+                           (case["error"], case["path"]))
 
     routine_cases = fixture["routineDue"]["cases"]
     if not routine_cases:
@@ -1961,6 +2136,7 @@ def main() -> int:
     migration = validate_migration_vectors()
     erasure_cases, erasure_invalid, erasure_mutations = validate_erasure_vectors()
     held_valid, held_invalid = validate_wake_and_held()
+    cursor_valid, cursor_invalid, cursor_mutations = validate_connector_cursor()
     notifications_valid, notifications_invalid = validate_routine_notification()
     routine_docs_valid, routine_docs_invalid = validate_routine_document()
     (proactive_settings_valid, proactive_settings_invalid,
@@ -1978,6 +2154,8 @@ def main() -> int:
           f"migration {migration} bots; erasure {erasure_cases} valid / "
           f"{erasure_invalid} invalid / {erasure_mutations} mutations; "
           f"held {held_valid} valid / {held_invalid} invalid; "
+          f"connector cursor {cursor_valid} valid / {cursor_invalid} invalid / "
+          f"{cursor_mutations} mutations; "
           f"notifications {notifications_valid} valid / {notifications_invalid} invalid; "
           f"routine documents {routine_docs_valid} valid / {routine_docs_invalid} invalid; "
           f"proactive settings {proactive_settings_valid} valid / {proactive_settings_invalid} invalid; "

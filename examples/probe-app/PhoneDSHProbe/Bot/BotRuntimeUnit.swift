@@ -109,7 +109,8 @@ final class BotRuntimeUnit {
                      now: (@Sendable () -> Int64)? = nil,
                      sleep: RoutineScheduler.Sleeper? = nil,
                      feedback: BotFeedbackCenter? = nil,
-                     provenance: BotProvenanceService? = nil) async throws -> BotRuntimeUnit {
+                     provenance: BotProvenanceService? = nil,
+                     wakeDemandSink: (any BotWakeDemanding)? = nil) async throws -> BotRuntimeUnit {
         let memory = await runtime.memory(for: botID)
         let machine = await runtime.routineMachine
         let grants = await runtime.grants
@@ -148,6 +149,23 @@ final class BotRuntimeUnit {
             feedback: feedback,
             deliveryKinds: [.routineResult])
         let notificationScheduling = BotRuntimeUnit.notificationScheduling()
+        // PLAN §2.9 I2: every scheduler state change that can move the earliest
+        // routine due time re-projects one durable WakeDemand for this Bot.
+        // The sink is the App's ledger adapter; nil keeps the eval harness and
+        // unit tests unchanged.
+        let demandCache = BotWakeDemandCache()
+        let demandProjection: RoutineScheduler.DemandChanged? = wakeDemandSink.map { sink in
+            { [botID, machine] in
+                let routines = (try? await machine.list(botId: botID)) ?? []
+                if let demand = RoutineDemandProjection.demand(botID: botID, routines: routines) {
+                    if demandCache.shouldUpsert(dueAtMs: demand.dueAtMs) {
+                        await sink.upsert(demand)
+                    }
+                } else if demandCache.shouldRemove() {
+                    await sink.remove(source: BotWakeDemand.botRoutineSource, key: botID)
+                }
+            }
+        }
         let scheduler = RoutineScheduler(
             botId: botID, machine: machine, inbox: inbox, sink: routineOutbox,
             proactive: proactive,
@@ -175,7 +193,8 @@ final class BotRuntimeUnit {
                 guard milliseconds > 0 else { return }
                 try? await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
             },
-            leaseOwner: "bot-runtime-composition")
+            leaseOwner: "bot-runtime-composition",
+            onDemandChanged: demandProjection)
         await remote.installRoutineApprovalHandler { [scheduler] notice in
             await scheduler.approvalResolved(
                 approvalId: notice.approvalID, sessionId: notice.principal.sessionId,

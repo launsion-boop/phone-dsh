@@ -37,9 +37,19 @@
     <key>UIBackgroundModes</key>
     <array>
         <string>audio</string>
+        <!-- Spike-only: the engine-wake BGProcessingTask scenario. The normal
+             PhoneDSHProbe Info.plist already declares `processing`; this
+             separate spike plist is not the production configuration. -->
+        <string>processing</string>
+    </array>
+    <!-- Engine-wake BGProcessingTask scenario. A background push relaunch also
+         reuses the armed configuration written by the first launch. -->
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>$(PRODUCT_BUNDLE_IDENTIFIER).engine-wake.*</string>
     </array>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>The WP1 spike uses only loopback for the Worker and scripted model.</string>
+    <string>The engine-wake spike probes its own loopback/LAN listener to prove that a suspended app cannot receive a local request and that the cloud-task push fallback is required.</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsLocalNetworking</key>

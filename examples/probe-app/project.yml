@@ -237,6 +237,10 @@ targets:
       # copy the one contract-owned file instead of keeping a test-only clone.
       - path: ../../spec/v1/golden/github-oauth/github-oauth-cases.json
         buildPhase: resources
+      # The frozen engine-launch golden drives the decision/sweep tests
+      # directly (spec/host/v1/README.md §10.2); no vector is copied.
+      - path: ../../spec/host/v1/golden/engine-launch.json
+        buildPhase: resources
       # The production native MCP settings model is host-agnostic (the app
       # injects ChatModel) so the simulator suite can exercise the
       # unknown-registry settlement branches against a real settings document.
@@ -419,6 +423,10 @@ targets:
     sources:
       - path: PhoneDSHSimTests
       - path: PhoneDSHDeviceTests
+      # The frozen engine-launch golden drives the decision/sweep tests
+      # directly (spec/host/v1/README.md §10.2); no vector is copied.
+      - path: ../../spec/host/v1/golden/engine-launch.json
+        buildPhase: resources
       # Keep the device twin at parity with PhoneDSHSimTests: each shared
       # production presentation source is compiled into this test module too.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
