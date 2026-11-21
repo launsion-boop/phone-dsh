@@ -5,6 +5,14 @@ import PhoneDSH
 import PhoneDSHBot
 import ProbeKit
 
+/// Process-local authorization result for the cadence gate. A connector whose
+/// token was reported unauthorized keeps its demand removed (contract §10.3.2),
+/// and must not be treated as "never scanned, baseline due" on every following
+/// wake. A fresh launch clears it and retries once.
+private final class ConnectorRuntimeState {
+    var unavailable = Set<String>()
+}
+
 /// App-side assembly of the connector incremental scan (PLAN §2.5).
 ///
 /// The pure scanner and the Gmail/GitHub metadata clients live in
@@ -48,14 +56,35 @@ enum ConnectorSweepWiring {
             }))
         }
 
+        let authorized = Set(clients.map(\.connector.rawValue))
+        let runtime = ConnectorRuntimeState()
+        // A connector may have been authorised in an earlier run; its demand
+        // must not survive a sign-out. Remove it before scheduling anything
+        // (the sink is installed before this wiring by `BotRuntimeComposition`).
+        for connector in ConnectorKind.allCases where !authorized.contains(connector.rawValue) {
+            await composition.wakeDemandSink?.remove(
+                source: BotWakeDemand.connectorScanSource,
+                key: connector.rawValue)
+        }
         guard !clients.isEmpty else {
             composition.installConnectorSweep(nil, outbox: outbox)
-            // No authorized connector: remove its recurring demand so the host
-            // does not schedule wakes for a scan that cannot run.
+            composition.connectorScanDue = nil
+            // No authorized connector: remove any leftover recurring demand so
+            // the host does not schedule wakes for a scan that cannot run.
             if let demands = composition.wakeDemandSink {
                 await demands.removeAll(source: BotWakeDemand.connectorScanSource)
             }
             return
+        }
+        // The demand table (§10.3.2) is the cadence. Without this gate every
+        // wake scans every authorised connector, and a failed scan leaves an
+        // overdue demand that the resident timer would retry at zero delay.
+        composition.connectorScanDue = {
+            let demands = await EngineLaunchOrchestrator.shared.wakeDemands()
+            return ConnectorScanCadence.hasDueWork(
+                authorized: authorized.subtracting(runtime.unavailable),
+                demands: demands,
+                nowMs: WakeDemandLedger.nowMs())
         }
         let scanner = ConnectorDeltaScanner(clients: clients, cursors: cursors, sink: sink)
         composition.installConnectorSweep({
@@ -70,7 +99,11 @@ enum ConnectorSweepWiring {
                     switch result.outcome {
                     case .skipped(let reason) where reason == "unauthorized":
                         // Revoked/expired authorization: no next scan until the
-                        // user reconnects; never prompt from a wake.
+                        // user reconnects or the next launch; never prompt from
+                        // a wake. The process-local marker also stops the
+                        // "no demand => baseline" rule from re-scanning every
+                        // wake while the token stays invalid.
+                        runtime.unavailable.insert(result.connector.rawValue)
                         await demands.remove(source: BotWakeDemand.connectorScanSource,
                                              key: result.connector.rawValue)
                     case .skipped, .failed:
@@ -79,6 +112,7 @@ enum ConnectorSweepWiring {
                         break
                     case .baselineEstablished, .noNewItems, .enqueued,
                          .duplicate, .reset:
+                        runtime.unavailable.remove(result.connector.rawValue)
                         await demands.upsert(BotWakeDemand(
                             source: BotWakeDemand.connectorScanSource,
                             key: result.connector.rawValue,

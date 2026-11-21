@@ -63,7 +63,7 @@ enum BotChatModelError: LocalizedError {
 
 enum BotUIActionState: Equatable {
     case pending
-    case accepted
+    case accepted, queued // queued: durable send waiting for the unit; replay on unit start
     case failed(String)
 }
 
@@ -566,7 +566,7 @@ final class BotChatModel: ObservableObject {
     private func actionBlocksSettlement(_ key: String) -> Bool {
         switch actionStates[key] {
         case .pending, .failed: return true
-        default: return false
+        case .queued, .accepted, nil: return false
         }
     }
 
@@ -709,7 +709,7 @@ final class BotChatModel: ObservableObject {
     private static func retryState(_ state: BotUIActionState?) -> BotUIActionRetry.KeyState? {
         switch state {
         case .pending: return .pending
-        case .accepted: return .accepted
+        case .accepted, .queued: return .accepted
         case .failed: return .failed
         case nil: return nil
         }
@@ -1531,6 +1531,16 @@ final class BotChatModel: ObservableObject {
             }
         } else {
             let reason = result.reason ?? "动作未完成"
+            // A chat send is durable before the planner runs (the dispatcher
+            // writes the pending-action row first). When the only reason it
+            // cannot plan is an unavailable engine/Bot unit, the send is
+            // queued, not failed: keep the optimistic row, never surface the
+            // internal planner copy, and let the unit-start replay deliver it.
+            if case .chat = action, BotActionRetryPolicy.isRetryable(reason: reason) {
+                actionStates[key] = .queued
+                clearAwaitingTurn()
+                return
+            }
             actionStates[key] = .failed(reason)
             // The optimistic row only stands for a choice that reached the
             // model; a failure rolls it back.

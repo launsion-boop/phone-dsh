@@ -97,7 +97,7 @@ private struct BotChoiceCardView: View {
         if case .failed(let reason) = model.actionStates["dismiss:\(row.id)"] { return .failed(reason) }
         switch model.actionStates[key] {
         case .pending: return .pending
-        case .accepted: return .accepted
+        case .accepted, .queued: return .accepted
         case .failed(let reason): return .failed(reason)
         case nil: return answered ? .accepted : .idle
         }

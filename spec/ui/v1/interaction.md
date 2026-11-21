@@ -111,7 +111,7 @@
 | `disclosurePayload` | `ChatPage.swift:5618` | 複製事件數據 |
 | `botLink` | `BotWorkCardView.swift:228` | 打開鏈接；複製鏈接 |
 | `botRow` | `BotDrawer.swift:341` | 改名；外觀；設為主 Bot（notMainBot）；隱藏／取消隱藏；分隔線；刪除 Bot（destructive，notLastBot）或「這是最後一個 Bot，不能刪除。」（info，lastBot） |
-| `botMessageRow` | `BotChatPage.swift:1260` | 複製；查看來源 |
+| `botMessageRow` | `BotChatPage.swift:1261` | 複製；查看來源 |
 | `hostAddress` | `NativeShell.swift:643` | 刪除這個地址（destructive） |
 | `sessionsRow` | `SessionsPage.swift:612` | 重命名會話；歸檔會話 |
 
@@ -123,7 +123,7 @@
 1. 每個 tab 一個獨立 `NavigationStack`（`NativeShell.swift:252`，`stackScope: perTab`）；切 tab 不清空目標 tab 的棧。
 2. 再點當前 tab 不做任何事（`HomeTabBar` 的 `guard tab != selection`），不得 pop-to-root。
 3. push 深度 +1，pop 深度 −1；深度 0 的返回退出應用（`rootBack: exit`，README §5）。
-4. tab bar 只在選中 tab 深度 0 且鍵盤收起時顯示（`NativeShell.swift:243`）；push 後隱藏（`NativeShell.swift:1234`），
+4. tab bar 只在選中 tab 深度 0 且鍵盤收起時顯示（`NativeShell.swift:243`）；push 後隱藏（`NativeShell.swift:1242`），
    pop 回根即恢復。Android 的 bottom bar 必須跟隨當前 tab 的深度，不得全域隱藏。
 5. 返回消費順序 `backOrder = sheet,drawer,stack,root`：先關 sheet，再按 §1 規則 9 收抽屜，再出棧，最後退出。
    一次返回只消費一層。

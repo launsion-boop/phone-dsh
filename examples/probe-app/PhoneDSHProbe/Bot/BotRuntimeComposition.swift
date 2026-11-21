@@ -236,6 +236,10 @@ final class BotRuntimeComposition {
     /// durable; nil means the connector step reports `skipped("not-configured")`
     /// and never half-scans.
     var connectorSweep: (() async throws -> ConnectorSweepResult)?
+    /// The connector scan's own due gate (§10.3.2). The demand is a wake hint,
+    /// but the step must honour it too or every wake scans every authorised
+    /// connector. nil keeps the pre-cadence behaviour for harnesses/tests.
+    var connectorScanDue: (@MainActor () async -> Bool)?
     /// The durable connector-update outbox. Set by the same App wiring so the
     /// held-inbox replay step can re-enqueue an unacknowledged interval.
     private(set) var connectorUpdateOutbox: ConnectorUpdateOutbox?
@@ -547,11 +551,16 @@ final class BotRuntimeComposition {
         // ProbeKit is the App target's module; the BotE2E harness compiles
         // this file without it and keeps the step unconfigured.
         #if os(iOS) && canImport(ProbeKit)
-        await ConnectorSweepWiring.install(on: composition)
         // PLAN §2.9: the host owns future due times. Install the durable
-        // demand adapter before anything can schedule a routine, then project
-        // the current roster so a launch without an engine already has it.
+        // demand adapter first: the connector wiring removes demands for
+        // connectors that are no longer authorised, and that needs the sink.
         await WakeDemandWiring.install(on: composition)
+        // PLAN §2.5: the connector scan is assembled once, App-side, where the
+        // Gmail/GitHub authorization actually lives. It reads only metadata and
+        // writes one durable `connector-update` per cursor interval.
+        // ProbeKit is the App target's module; the BotE2E harness compiles
+        // this file without it and keeps the step unconfigured.
+        await ConnectorSweepWiring.install(on: composition)
         #endif
         // PLAN §2.8: the Bot wake surfaces are assembled here, before any host
         // exists, so a device task result or Bot MCP request that arrives while
@@ -979,12 +988,17 @@ final class BotRuntimeComposition {
             }
             try ensureCurrentBind(bindingEpoch, host: newHost)
 
-            // Always have the selected Bot and every routine owner attached
-            // before the outbox/schedulers start.
+            // Always have the selected Bot, the main Bot (connector updates and
+            // proactive delivery target its conversation) and every routine
+            // owner attached before the outbox/schedulers start.
             let selected = rosterModel.selectedBotID ?? rosterModel.mainBotID
             try await BotRebindDiagnostics.run("ensure-units", attempt: attempt) {
                 try self.ensureCurrentBind(bindingEpoch, host: newHost)
                 if let selected { _ = try await ensureUnit(for: selected) }
+                try Task.checkCancellation()
+                if let main = rosterModel.mainBotID, main != selected {
+                    _ = try? await ensureUnit(for: main, reason: "main-bot")
+                }
                 try Task.checkCancellation()
                 for botID in await routineOwnerBotIDs() where botID != selected {
                     _ = try? await ensureUnit(for: botID, reason: "routine-owner")
@@ -1510,6 +1524,9 @@ final class BotRuntimeComposition {
                 // The connector wiring is assembled by the App (tokens and the
                 // Gmail/GitHub clients are App-side); a build without it has no
                 // connector work rather than a half-scan.
+                return .none
+            }
+            if let connectorScanDue, await connectorScanDue() == false {
                 return .none
             }
             let sweep = try await connectorSweep()

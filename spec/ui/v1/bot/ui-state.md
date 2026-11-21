@@ -79,13 +79,20 @@ not invented for content that has no rows.
 - **No engine-waiting copy.** The page MUST NOT show an "engine is not ready / start the engine"
   prompt or any equivalent. The v2 `runtime.notReady` string was deleted by
   PC-20261120-engine-first-launch and MUST NOT be reintroduced.
-- **Sending while the engine is absent.** A send from the Bot page uses the existing durable queue
-  path and shows its existing `queued` projection; it is never refused because the runtime is not
-  connected, and it never calls `chat.start()` from the page.
+- **Sending while the engine is absent.** A send from the Bot page writes the existing durable
+  pending-action row before planning (`BotUserActionDispatcher`), so it is kept and replayed on
+  unit start. While the Bot unit is not up the page keeps the optimistic user row and shows the
+  quiet `runtime.queuedSend` line (「待发送，引擎就绪后自动发出」); the action is `queued`, never
+  `failed`, and the internal planner/`unavailable` reason never reaches the header. The composer
+  stays enabled; refusing the send, rolling the row back, or calling `chat.start()` from the page
+  is forbidden. A terminal planner rejection (an invalid action) still uses the existing failure
+  copy. The string is frozen in `strings.json` (`runtime.queuedSend`).
 - **Silent launch.** A boot or resume initiated by the orchestrator writes no transcript status
   line (including `Booting the Worker…`) and triggers no error row, banner or header problem state.
-  Only a user action that is itself waiting on the engine and ultimately fails uses the existing
-  failure copy.
+  This covers the resume watchdog, the one automatic rebuild after a failed resume, and the
+  automatic recovery scheduled by a silent boot; only a user action that is itself waiting on the
+  engine and ultimately fails uses the existing failure copy. A terminal `needsReset` state is not
+  a silence case: it is a durable state and the page shows a restart affordance.
 - **Loading, not empty.** A section with no snapshot yet shows its existing loading state; a failed
   read shows the existing failure and retry, never zero counts or a fabricated empty state.
 
