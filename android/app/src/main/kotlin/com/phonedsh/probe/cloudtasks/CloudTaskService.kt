@@ -38,7 +38,7 @@ internal data class CloudTaskUiFacts(
     val busy: Boolean = false,
 )
 
-/** The settings row's status line, in plain words (iOS `CloudTaskStatusText`; Android has no push). */
+/** The settings row's status line, in plain words (iOS `CloudTaskStatusText`). */
 internal object CloudTaskStatusText {
     const val OFF: String = "未开启"
     const val ON: String = "已开启"
@@ -90,6 +90,7 @@ internal class CloudTaskService(
     appVersion: String,
     clock: () -> Long = System::currentTimeMillis,
     sleepSeconds: (Long) -> Unit = { seconds -> Thread.sleep(seconds * 1000) },
+    fcmToken: () -> String? = { null },
 ) {
     val bridge = CloudTaskAdmissionBridge(journal, account, presence)
 
@@ -102,6 +103,7 @@ internal class CloudTaskService(
         terminals = bridge,
         appVersion = appVersion,
         clock = clock,
+        fcmToken = fcmToken,
     )
 
     /** The switch was turned off but the cloud did not confirm the DELETE. In memory only. */
@@ -124,7 +126,7 @@ internal class CloudTaskService(
      * One pull → admit → ack pass (Activity start, after sign-in, switch on).
      * Sends nothing while the feature is off or no account is signed in.
      */
-    fun runPass(): CloudTaskPassReport {
+    fun runPass(dispatch: Boolean = true): CloudTaskPassReport {
         if (!coordinator.isEnabled) {
             retryPendingDelete()
             return CloudTaskPassReport(CloudTaskPassStatus.DISABLED)
@@ -135,7 +137,7 @@ internal class CloudTaskService(
         }
         val report = coordinator.runPass()
         // Admitted records go to the existing dispatch entry; it decides when they run.
-        if (report.admittedIds.isNotEmpty()) runCatching(onAdmitted)
+        if (dispatch && report.admittedIds.isNotEmpty()) runCatching(onAdmitted)
         // A running pass publishes its own result.
         if (report.status != CloudTaskPassStatus.BUSY) publish(report)
         return report

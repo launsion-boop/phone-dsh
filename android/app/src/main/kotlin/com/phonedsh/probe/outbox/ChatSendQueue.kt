@@ -101,8 +101,10 @@ internal class ChatSendQueue(
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val waitPollMillis: Long = 100L,
     private val maxWaitPolls: Int = 300,
+    private val onSettleDue: ((Long) -> Unit)? = null,
 ) {
     private val gate = Mutex()
+    private val deliveryPass = Mutex()
 
     /** Entries a live sender of this process is delivering right now. Not persisted: a restart has no such proof. */
     private val inFlight = HashSet<String>()
@@ -351,7 +353,7 @@ internal class ChatSendQueue(
             flushRequested = false
             flushJob = scope.launch {
                 try {
-                    prepareAndDrain()
+                    deliveryPass.withLock { prepareAndDrain() }
                 } finally {
                     val again = synchronized(this@ChatSendQueue) {
                         flushJob = null
@@ -362,6 +364,12 @@ internal class ChatSendQueue(
             }
         }
     }
+
+    suspend fun drainForWake() = deliveryPass.withLock {
+        if (host.deliveryFacts().decide(paused) == ChatDeliveryPreparation.READY) drain()
+    }
+
+    suspend fun dispatchForWake() = deliveryPass.withLock { dispatchAdmissions() }
 
     private suspend fun prepareAndDrain() {
         dispatchAdmissions()
@@ -405,14 +413,16 @@ internal class ChatSendQueue(
     }
 
     /** Hands `dsh-session` admissions to the outbox. Needs no engine: it only writes files. */
-    private suspend fun dispatchAdmissions() {
-        withContext(io) {
-            val journal = journal.value ?: return@withContext
+    private suspend fun dispatchAdmissions(): Boolean {
+        val linked = withContext(io) {
+            val journal = journal.value ?: return@withContext false
             runCatching {
                 journal.runDispatchPass(OutboxAdmissionDispatcher(outbox, host::sessionExists, host::signedInAccountId))
             }.onFailure { host.log("admission journal: dispatch pass stopped (${it.javaClass.simpleName})") }
+                .getOrNull()?.linked?.isNotEmpty() == true
         }
         publish()
+        return linked
     }
 
     /**
@@ -571,6 +581,10 @@ internal class ChatSendQueue(
     private fun scheduleSettle(afterMs: Long) {
         synchronized(this) {
             val deadline = nowMs() + afterMs
+            if (onSettleDue != null) {
+                onSettleDue(deadline)
+                return
+            }
             if (settleJob?.isActive == true && settleDeadlineMs <= deadline) return
             settleJob?.cancel()
             settleDeadlineMs = deadline

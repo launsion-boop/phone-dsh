@@ -34,14 +34,21 @@ import com.phonedsh.bot.proactive.ProactiveSettings
 import com.phonedsh.bot.proactive.ProactiveSettingsPersistence
 import com.phonedsh.bot.proactive.ProactiveSettingsStore
 import com.phonedsh.bot.routines.BotRoutineStore
-import com.phonedsh.bot.routines.ImmediateRoutineRunner
-import com.phonedsh.bot.routines.RoutineExecutionResult
 import com.phonedsh.bot.routines.RoutineMachine
 import com.phonedsh.bot.routines.RoutineQuietSettings
 import com.phonedsh.bot.routines.RoutineResultSink
 import com.phonedsh.bot.routines.RoutineScheduler
 import com.phonedsh.bot.routines.RoutineAutomation
+import com.phonedsh.bot.session.BotSessionKind
+import com.phonedsh.bot.session.BotSessionRuntime
 import com.phonedsh.bot.session.BotSessionTransport
+import com.phonedsh.bot.authz.BotApprovalDurableStatus
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import com.phonedsh.bot.store.BotDomainStore
 import com.phonedsh.bot.wake.BotWakeInboxStore
 import com.phonedsh.bot.wake.WakeInbox
@@ -55,6 +62,14 @@ import com.phonedsh.loopback.BotMcpStartResult
 import com.phonedsh.loopback.NativeMcpRequest
 import com.phonedsh.loopback.NativeMcpServing
 import com.phonedsh.probe.bot.store.AndroidBotSqlDriver
+import com.phonedsh.bot.wake.ConnectorUpdateOutbox
+import com.phonedsh.bot.wake.DeviceTaskResultOutbox
+import com.phonedsh.probe.HostWakeScheduler
+import com.phonedsh.probe.WakeDemand
+import com.phonedsh.probe.WakeDemandKey
+import com.phonedsh.probe.WakeDemandKind
+import com.phonedsh.probe.WakeDemandSource
+import com.phonedsh.probe.connectors.GmailWakeScan
 import com.phonedsh.ui.bot.driver.BotChatDriver
 import com.phonedsh.ui.bot.state.BotDrawerIntent
 import java.io.File
@@ -74,13 +89,64 @@ interface AppBotMcpServer {
 interface AppBotRoutineService {
     fun start()
     fun stop()
+    suspend fun recoverHeldWake() {}
+    fun catchUpRoutines() {}
+    suspend fun scanConnectors() {}
+    fun reconcileApprovals() {}
+    fun close() {}
 }
 
 private class SchedulerRoutineService(
     private val scheduler: RoutineScheduler,
+    private val runner: AppBotRoutineRunner,
+    private val approvals: BotApprovalCoordinator,
+    private val replay: suspend () -> Unit,
+    private val scan: suspend () -> Unit,
+    private val refreshApprovals: () -> Unit,
 ) : AppBotRoutineService {
+    private val approvalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        approvals.setResolutionHandler { notice ->
+            if (notice.principal.botId == scheduler.botId && notice.principal.kind == BotSessionKind.ROUTINE) {
+                // The approval coordinator publishes while it holds its lock.
+                approvalScope.launch {
+                    scheduler.approvalResolved(notice.approvalID, notice.principal.sessionId,
+                        notice.allowed, notice.expired, notice.cancelled)
+                }
+            }
+        }
+    }
+
     override fun start() = scheduler.start()
     override fun stop() = scheduler.stop()
+    override suspend fun recoverHeldWake() = replay()
+    override fun catchUpRoutines() { scheduler.tick() }
+    override suspend fun scanConnectors() = scan()
+
+    override fun reconcileApprovals() {
+        approvals.restoreDurable()
+        for (waiting in scheduler.waitingApprovalEntries()) {
+            when (val status = approvals.durableStatus(waiting.approvalId)) {
+                BotApprovalDurableStatus.ALLOWED -> scheduler.approvalResolved(
+                    waiting.approvalId, waiting.sessionId, allowed = true)
+                BotApprovalDurableStatus.DENIED, BotApprovalDurableStatus.EXPIRED,
+                BotApprovalDurableStatus.CANCELLED -> {
+                    scheduler.approvalResolved(waiting.approvalId, waiting.sessionId, allowed = false,
+                        expired = status == BotApprovalDurableStatus.EXPIRED,
+                        cancelled = status == BotApprovalDurableStatus.CANCELLED)
+                }
+                else -> Unit
+            }
+        }
+        refreshApprovals()
+    }
+
+    override fun close() {
+        approvals.setResolutionHandler(null)
+        approvalScope.cancel()
+        runner.close()
+    }
 }
 
 /** Production Bot MCP listener, with failures logged and never thrown at the UI. */
@@ -167,6 +233,17 @@ class AppBotRuntime internal constructor(
     val platformConfig: BotPlatformConfig get() = platformState?.value ?: initialPlatform
     val platformState: StateFlow<BotPlatformConfig>? get() = rosterController?.state
 
+    internal suspend fun recoverHeldWake() = routines.recoverHeldWake()
+
+    internal fun catchUpRoutines() = routines.catchUpRoutines()
+
+    internal suspend fun scanConnectors() = routines.scanConnectors()
+
+    internal fun reconcileApprovals() = routines.reconcileApprovals()
+
+    internal suspend fun deliverAdmission(botId: String, text: String, downstreamId: String): Boolean =
+        rosterController?.driverFor(botId)?.deliverAdmission(text, downstreamId) == true
+
     fun handleDrawer(intent: BotDrawerIntent) {
         rosterController?.apply(intent)
     }
@@ -201,6 +278,7 @@ class AppBotRuntime internal constructor(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         stop()
+        runCatching { routines.close() }
         runCatching { mcpServer.stop() }
         if (rosterController != null) runCatching(rosterController::close)
         else runCatching { (driver as? AutoCloseable)?.close() }
@@ -221,9 +299,10 @@ class AppBotRuntime internal constructor(
             clock: () -> Long = { System.currentTimeMillis() },
             nativeMcp: NativeMcpServing? = null,
             nativeAdmission: () -> Boolean = { true },
+            routineAvailable: () -> Boolean = { false },
             materializedSessions: Path? = null,
         ): AppBotRuntime? = runCatching {
-            build(context, transport, logger, clock, nativeMcp, nativeAdmission, materializedSessions)
+            build(context, transport, logger, clock, nativeMcp, nativeAdmission, routineAvailable, materializedSessions)
         }.onFailure { error ->
             Log.w(
                 ListenerAppBotMcpServer.TAG,
@@ -238,6 +317,7 @@ class AppBotRuntime internal constructor(
             clock: () -> Long,
             nativeMcp: NativeMcpServing?,
             nativeAdmission: () -> Boolean,
+            routineAvailable: () -> Boolean,
             materializedSessions: Path?,
         ): AppBotRuntime {
             val store = BotDomainStore(AndroidBotSqlDriver.open(context))
@@ -252,34 +332,19 @@ class AppBotRuntime internal constructor(
                 botId = botId,
                 now = clock,
             )
-            val routineStore = BotRoutineStore(store, clock)
+            val hostWake = HostWakeScheduler.get(context)
+            val routineStore = BotRoutineStore(store, clock) { changedBot, snapshot ->
+                val identity = WakeDemandKey(WakeDemandSource.botRoutine, changedBot)
+                val due = snapshot.routines.filter { it.enabled }.mapNotNull { it.nextRunAt }.minOrNull()
+                if (due == null) hostWake.remove(identity)
+                else hostWake.set(WakeDemand(identity, due, WakeDemandKind.recurring, true))
+            }
+            val inboxes = ConcurrentHashMap<String, WakeInbox>()
+            fun inboxFor(id: String): WakeInbox = inboxes.computeIfAbsent(id) {
+                WakeInbox(BotWakeInboxStore(store, clock), id)
+            }
             val routineMachine = RoutineMachine(routineStore)
-            val wakeInbox = WakeInbox(BotWakeInboxStore(store, clock), botId)
-            val scheduler = RoutineScheduler(
-                botId = botId,
-                machine = routineMachine,
-                inbox = wakeInbox,
-                sink = object : RoutineResultSink {
-                    override fun deliver(automation: RoutineAutomation): Boolean = false
-                },
-                runner = ImmediateRoutineRunner {
-                    RoutineExecutionResult.failure(
-                        "routine execution runner is not connected in this build",
-                    )
-                },
-                settingsProvider = {
-                    val settings = proactiveSettings.load().normalized()
-                    RoutineQuietSettings(
-                        mode = settings.mode.wire,
-                        dnd = settings.dnd,
-                        quietStart = settings.quietStart,
-                        quietEnd = settings.quietEnd,
-                        routineQuietWeekends = settings.routineQuietWeekends,
-                        timeZone = settings.timeZone,
-                    )
-                },
-                clock = clock,
-            )
+            val wakeInbox = inboxFor(botId)
 
             val memoryLookup = AppBotMemoryLookup(memory, clock)
             val routineLookup = AppBotRoutineLookup(routineMachine, clock)
@@ -296,6 +361,34 @@ class AppBotRuntime internal constructor(
                 .onFailure { logger("bot grant recovery failed: ${it.message}") }
             val attribution = BotAttributionRegistry(clock)
             val approvals = BotApprovalCoordinator(grantStore, approvalLog, clock)
+            val routineRunner = AppBotRoutineRunner(
+                BotSessionRuntime(transport, botId = botId, tokens = sessionTokens), approvals,
+            )
+            val scheduler = RoutineScheduler(
+                botId = botId,
+                machine = routineMachine,
+                inbox = wakeInbox,
+                sink = object : RoutineResultSink {
+                    override fun deliver(automation: RoutineAutomation): Boolean = false
+                },
+                runner = routineRunner,
+                available = { routineAvailable() },
+                // Verification is a separate session capability; keep those
+                // runs due until Android's verifier flow is available.
+                canRunRoutine = { it.completionCriteria.isBlank() },
+                settingsProvider = {
+                    val settings = proactiveSettings.load().normalized()
+                    RoutineQuietSettings(
+                        mode = settings.mode.wire,
+                        dnd = settings.dnd,
+                        quietStart = settings.quietStart,
+                        quietEnd = settings.quietEnd,
+                        routineQuietWeekends = settings.routineQuietWeekends,
+                        timeZone = settings.timeZone,
+                    )
+                },
+                clock = clock,
+            )
             val identity = BotIdentityRegistrationService(
                 tokens = tokens,
                 attributions = attribution,
@@ -389,6 +482,7 @@ class AppBotRuntime internal constructor(
                     tokens = sessionTokens,
                     storeLock = storeLock,
                     materializedSessions = materializedSessions,
+                    heldInbox = inboxFor(selectedId),
                     resolveApproval = { action ->
                         val id = checkNotNull(action.approvalID)
                         val decision = checkNotNull(BotApprovalDecision.fromWire(checkNotNull(action.decision).wire))
@@ -404,6 +498,11 @@ class AppBotRuntime internal constructor(
             }
             notifyBotChanged = rosterController::domainChanged
             val platform = rosterController.state.value
+            val connectorOutboxes = ConcurrentHashMap<String, ConnectorUpdateOutbox>()
+            val deviceResults = DeviceTaskResultOutbox(store, clock)
+            fun connectorOutbox(id: String) = connectorOutboxes.computeIfAbsent(id) {
+                ConnectorUpdateOutbox(store, inboxFor(id))
+            }
             return AppBotRuntime(
                 store = store,
                 driver = platform.driver,
@@ -411,7 +510,26 @@ class AppBotRuntime internal constructor(
                 initialPlatform = platform,
                 proactiveSettings = proactiveSettings,
                 mcpServer = mcpServer,
-                routines = SchedulerRoutineService(scheduler),
+                routines = SchedulerRoutineService(
+                    scheduler, routineRunner, approvals,
+                    replay = {
+                        for (bot in rosterController.state.value.roster) {
+                            val inbox = inboxFor(bot.id)
+                            inbox.recover(excludingStagedPrefix = "held:")
+                            connectorOutbox(bot.id).redeliver()
+                            deviceResults.redeliver(bot.id, inbox)
+                            if (routineAvailable() && inbox.items().isNotEmpty()) {
+                                rosterController.driverFor(bot.id)?.wakeHeldMessages()
+                            }
+                        }
+                    },
+                    scan = {
+                        rosterController.mainBotId()?.let { id ->
+                            GmailWakeScan(context, connectorOutbox(id)).run()
+                        }
+                    },
+                    refreshApprovals = { rosterController.domainChanged(botId) },
+                ),
                 logger = logger,
                 rosterController = rosterController,
             )

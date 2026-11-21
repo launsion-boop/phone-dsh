@@ -1742,6 +1742,9 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                 logger = { line -> Log.i("AppBotRuntime", line) },
                 nativeMcp = AndroidAdbHost.get(getApplication()).server,
                 nativeAdmission = { controller.admission == Admission.OPEN },
+                routineAvailable = {
+                    appForeground && !userStoppedEngine && host.ready.value && controller.admission == Admission.OPEN
+                },
             )
         }.onSuccess { runtime ->
             runtime?.let {
@@ -1765,13 +1768,20 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // The Activity's onStart: the App is in the foreground again, so queued
         // sends that waited for execution eligibility are prepared now.
         appForeground = true
-        startPreparedEngine()
-        chatSendQueue.onForeground()
+        wakeScheduler.enterForeground { requestReadySweep() }
+        requestReadySweep()
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { appBotRuntime?.start() }
-                .onFailure { error ->
-                    Log.w(TAG_TURN, "Bot runtime start failed: ${error.javaClass.simpleName}")
+            botLifecycle.withLock {
+                if (!appForeground) return@withLock
+                runCatching { appBotRuntime?.start() }
+                    .onFailure { error ->
+                        Log.w(TAG_TURN, "Bot runtime start failed: ${error.javaClass.simpleName}")
+                    }
+                withContext(Dispatchers.Main) {
+                    launchContentPrepared = true
+                    startPreparedEngine()
                 }
+            }
         }
     }
 
@@ -1784,9 +1794,12 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
 
     internal fun stopBotRuntime() {
         appForeground = false
+        wakeScheduler.leaveForeground()
         if (!appBotRuntimeDelegate.isInitialized()) return
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { appBotRuntime?.stop() }
+            botLifecycle.withLock {
+                if (!appForeground) runCatching { appBotRuntime?.stop() }
+            }
         }
     }
     val handshake: StateFlow<HandshakeSummary?> = engine.handshake
@@ -2420,9 +2433,66 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     @Volatile
     private var appForeground = false
 
+    @Volatile
     private var userStoppedEngine = false
+    private val wakeScheduler by lazy { HostWakeScheduler.get(getApplication()) }
+    private val wakeRequests = kotlinx.coroutines.channels.Channel<Unit>(
+        kotlinx.coroutines.channels.Channel.CONFLATED,
+    )
+    private val outboxSettleDemand = WakeDemandKey(WakeDemandSource.hostRetry, "outboxSettle")
+    private val dshScheduleDemand = WakeDemandKey(WakeDemandSource.dshSchedule, "schedule")
+
+    private suspend fun runBotAdmissionWake() = withContext(Dispatchers.IO) {
+        val runtime = appBotRuntime ?: return@withContext
+        val journal = ProcessAdmissionJournal.get(getApplication<Application>().filesDir) ?: return@withContext
+        val currentAccount = CloudTaskCenter.active()?.signedInAccountId()
+        fun canRead(principal: String): Boolean =
+            principal == "local" || (currentAccount != null && principal == "account:$currentAccount")
+        val candidates = journal.dispatchable { it.target !is AdmissionTarget.Bot || !canRead(it.principal) }
+        for (candidate in candidates) {
+            if (!appForeground || userStoppedEngine || !host.ready.value || controller.admission != Admission.OPEN) return@withContext
+            val record = journal.record(candidate.admissionId) ?: continue
+            val target = record.target as? AdmissionTarget.Bot ?: continue
+            val text = record.text ?: continue
+            if (!record.stage.isPending || !canRead(record.principal)) continue
+            if (record.principal != "local" && currentAccount != CloudTaskCenter.active()?.signedInAccountId()) continue
+            if (record.stage == com.phonedsh.probe.admission.AdmissionStage.ADMITTED) {
+                if (record.expiresAtMs <= System.currentTimeMillis()) continue
+                if (runtime.platformConfig.roster.none { it.id == target.botId }) {
+                    journal.cancel(record.admissionId, "target_deleted")
+                    continue
+                }
+                journal.markDispatching(record.admissionId)
+            }
+            if (runtime.deliverAdmission(target.botId, text, record.downstreamId)) {
+                journal.markLinked(record.admissionId)
+            }
+        }
+    }
+
+    private fun requestReadySweep() {
+        if (appForeground && !userStoppedEngine && host.ready.value) wakeRequests.trySend(Unit)
+    }
+
+    private suspend fun refreshScheduleWakeDemand() {
+        val request = JsonObject(mapOf("request" to JsonObject(mapOf(
+            "active" to JsonBool(true), "limit" to JsonNumber("1"),
+        ))))
+        val reply = DshTurnClient(host.channel, ::logTurn).call("schedule/list", request, timeoutMillis = 5_000)
+        val rows = ((reply as? JsonObject)?.get("items") as? JsonArray)?.values
+            ?: error("schedule/list returned no items")
+        if (rows.isEmpty()) {
+            wakeScheduler.remove(dshScheduleDemand)
+        } else {
+            val scheduledAt = ((rows.first() as? JsonObject)?.get("scheduledAt") as? JsonString)?.value
+                ?: error("schedule/list returned an invalid due time")
+            val dueAtMs = java.time.Instant.parse(scheduledAt).toEpochMilli()
+            wakeScheduler.set(WakeDemand(dshScheduleDemand, dueAtMs, WakeDemandKind.recurring, false))
+        }
+    }
     private var coldLaunchRequested = false
     private var launchContentPrepared = false
+    private val botLifecycle = kotlinx.coroutines.sync.Mutex()
 
     /** What the bubble of a queued send shows (the typed text, or its attachment names). */
     private val queuedBubbleText = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -2500,6 +2570,9 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
             journal = lazy { ProcessAdmissionJournal.get(getApplication<Application>().filesDir) },
             host = chatSendHost,
             scope = turnScope,
+            onSettleDue = { deadline ->
+                wakeScheduler.keepEarliest(WakeDemand(outboxSettleDemand, deadline, WakeDemandKind.once, false))
+            },
         )
     }
 
@@ -2511,7 +2584,11 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     private val cloudTaskHooks = object : CloudTaskHostHooks {
         override fun presence(target: AdmissionTarget): CloudTaskTargetPresence = cloudTaskTargetPresence(target)
 
-        override fun onAdmitted() = chatSendQueue.onAdmission()
+        override val inForeground: Boolean get() = appForeground
+
+        override fun onAdmitted() {
+            requestReadySweep()
+        }
     }
 
     /**
@@ -2533,7 +2610,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         }
         is AdmissionTarget.DshSession -> {
             val known = chatSendHost.sessionExists(target.sessionId)
-            val listed = if (chatSendHost.deliveryFacts().transportReady) workerSessionIds() else null
+            val listed = if (appForeground && chatSendHost.deliveryFacts().transportReady) workerSessionIds() else null
             CloudTaskPresenceRule.session(known = known, listed = listed?.contains(target.sessionId))
         }
     }
@@ -2617,13 +2694,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         CloudTaskCenter.attach(cloudTaskHooks)
         // Asynchronous by contract: recovery, the final HELLO and engine.start()
         // run on the host's scope. Observe engine.state for the outcome.
-        viewModelScope.launch(Dispatchers.IO) {
-            appBotRuntime?.start()
-            withContext(Dispatchers.Main) {
-                launchContentPrepared = true
-                startPreparedEngine()
-            }
-        }
+        viewModelScope.launch(Dispatchers.IO) { appBotRuntime }
         // C5: observe the PC client and load the identity/record in the
         // background. With no record this only creates the first-run identity;
         // it never dials the relay.
@@ -2648,13 +2719,55 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                 }
             }
         }
+        viewModelScope.launch {
+            val sweep = ReadySweep(
+                mapOf(
+                    ReadySweepStep.userOutbox to { chatSendQueue.drainForWake() },
+                    ReadySweepStep.externalAdmission to {
+                        if (chatSendQueue.dispatchForWake()) requestReadySweep()
+                        runBotAdmissionWake()
+                    },
+                    ReadySweepStep.cloudTaskPull to {
+                        val center = CloudTaskCenter.get(getApplication())
+                        if (center.pullForReadySweep()) requestReadySweep()
+                    },
+                    ReadySweepStep.botHeldInbox to {
+                        withContext(Dispatchers.IO) { appBotRuntime?.recoverHeldWake() }
+                    },
+                    ReadySweepStep.missedRoutines to {
+                        withContext(Dispatchers.IO) { appBotRuntime?.catchUpRoutines() }
+                    },
+                    ReadySweepStep.connectorScan to { appBotRuntime?.scanConnectors() },
+                    ReadySweepStep.approvalReminderSync to {
+                        withContext(Dispatchers.IO) { appBotRuntime?.reconcileApprovals() }
+                    },
+                    ReadySweepStep.dshSchedule to { refreshScheduleWakeDemand() },
+                    ReadySweepStep.hostRetries to {
+                        if (wakeScheduler.consumeDue(outboxSettleDemand)) {
+                            chatSendQueue.drainForWake()
+                        }
+                    },
+                ),
+                onFailure = { step, failure ->
+                    Log.w(TAG_TURN, "ready sweep ${step.name} failed: ${failure.javaClass.simpleName}")
+                },
+            )
+            for (ignored in wakeRequests) {
+                if (appForeground && !userStoppedEngine && host.ready.value) {
+                    sweep.run {
+                        if (appForeground && !userStoppedEngine && host.ready.value) Long.MAX_VALUE else 0
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            host.ready.collect { ready -> if (ready) requestReadySweep() }
+        }
         turnScope.launch {
             engine.state.collect { next ->
                 when (next) {
                     is EngineHostState.Running -> {
                         if (runningSinceMillis == null) runningSinceMillis = clock.monotonicMillis()
-                        // The engine became ready: retained queued sends are looked at again.
-                        chatSendQueue.requestDelivery()
                     }
 
                     EngineHostState.Stopped, is EngineHostState.Failed ->
@@ -3200,7 +3313,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     private var chatPreparationJob: kotlinx.coroutines.Job? = null
     private val hostAutomation by lazy {
         HostAutomation({ endpoint, args -> DshTurnClient(host.channel, ::logTurn).call(endpoint, args) },
-            { mutableChat.value.workerSessionId }, turnScope)
+            { mutableChat.value.workerSessionId }, turnScope, onScheduleChanged = ::requestReadySweep)
     }
     internal val automation: StateFlow<com.phonedsh.ui.page.AutomationFacts> get() = hostAutomation.facts
     internal fun refreshAutomation() = hostAutomation.refresh()
@@ -4632,7 +4745,10 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                     chatSendQueue.onAuthoritativeUserMessage(rpcId)
                 }
             }
-            HostEventKind.TURN_ENDED -> chatSendQueue.onTurnEnded(event.turnEndReason)
+            HostEventKind.TURN_ENDED -> {
+                chatSendQueue.onTurnEnded(event.turnEndReason)
+                requestReadySweep()
+            }
             else -> Unit
         }
         if (event.kind == HostEventKind.TURN_STARTED) {
@@ -4950,6 +5066,8 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     }
 
     override fun onCleared() {
+        wakeScheduler.leaveForeground()
+        wakeRequests.close()
         CloudTaskCenter.detach(cloudTaskHooks)
         turnScope.cancel()
         if (appBotRuntimeDelegate.isInitialized()) appBotRuntime?.close()

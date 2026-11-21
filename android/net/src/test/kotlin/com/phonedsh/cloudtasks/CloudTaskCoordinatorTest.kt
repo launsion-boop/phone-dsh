@@ -35,7 +35,7 @@ class CloudTaskCoordinatorTest {
     private val sleeps = ArrayList<Long>()
     private val target = CloudTaskTarget(CloudTaskTargetKind.DSH_SESSION, "gb-main")
 
-    private fun coordinator(tokenSource: FakeTokens = tokens) = CloudTaskCoordinator(
+    private fun coordinator(tokenSource: FakeTokens = tokens, fcm: () -> String? = { null }) = CloudTaskCoordinator(
         client = CloudTaskClient(cloud, tokenSource) { sleeps += it },
         preferences = preferences,
         keys = keys,
@@ -44,6 +44,7 @@ class CloudTaskCoordinatorTest {
         terminals = terminals,
         appVersion = "1.4.0",
         clock = { now },
+        fcmToken = fcm,
     )
 
     private fun advance(ms: Long) {
@@ -88,6 +89,33 @@ class CloudTaskCoordinatorTest {
             cloud.seen.map { "${it.method} ${it.path}" })
         assertEquals("device_id=$DEVICE_ID&limit=16&lease_s=300&wait_s=0", cloud.seen.last().query)
         assertTrue(cloud.seen.all { it.authorization == "Bearer tok-1" })
+    }
+
+    @Test
+    fun tokenRefreshRegistersSameDeviceAndKeepsTheSealingKey() {
+        var token = "fixture:one"
+        val phone = coordinator(fcm = { token })
+        assertEquals(CloudTaskPassStatus.COMPLETED, phone.runPass().status)
+        val saved = cloud.devices.getValue(DEVICE_ID)
+        assertEquals(token, saved.body.obj("push")?.string("token"))
+        token = "fixture:two"
+        assertEquals(CloudTaskPassStatus.COMPLETED, phone.runPass().status)
+        val refreshed = cloud.devices.getValue(DEVICE_ID)
+        assertEquals(saved.keyId, refreshed.keyId)
+        assertEquals(saved.publicKey, refreshed.publicKey)
+        assertEquals(token, refreshed.body.obj("push")?.string("token"))
+        assertEquals(2, cloud.count("PUT", "/v1/phone/devices/$DEVICE_ID"))
+    }
+
+    @Test
+    fun olderCloudRejectsFcmOnceThenContinuesWithNullAddress() {
+        cloud.allowFcm = false
+        val phone = coordinator(fcm = { "fixture:one" })
+        assertEquals(CloudTaskPassStatus.COMPLETED, phone.runPass().status)
+        assertEquals(JsonValue.Null, cloud.devices.getValue(DEVICE_ID).body.get("push"))
+        assertEquals(2, cloud.count("PUT", "/v1/phone/devices/$DEVICE_ID"))
+        assertEquals(CloudTaskPassStatus.COMPLETED, phone.runPass().status)
+        assertEquals(2, cloud.count("PUT", "/v1/phone/devices/$DEVICE_ID"))
     }
 
     @Test

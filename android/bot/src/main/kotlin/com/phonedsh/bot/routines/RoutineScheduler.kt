@@ -35,6 +35,7 @@ class RoutineScheduler(
     private val runTimeoutMs: Long = 600_000,
     private val cancelGraceMs: Long = 5_000,
     private val leaseOwner: String = "local",
+    private val canRunRoutine: (Routine) -> Boolean = { true },
 ) {
     private data class ActiveRun(
         val claim: RoutineClaim,
@@ -118,7 +119,7 @@ class RoutineScheduler(
         val actions = machine.recover(
             botId, now, leaseOwner = leaseOwner, excludeRunIds = active.keys.toSet(),
         )
-        inbox.recover()
+        inbox.recover(excludingStagedPrefix = "held:")
         for (item in machine.pendingDeliveries(botId, now, includeDelivering = true)) {
             hold(item)
             if (!item.proactiveHandled) considerInterrupt(item)
@@ -158,7 +159,10 @@ class RoutineScheduler(
                 var routine = initial
                 val status = routine.runState?.status
                 if (!routine.enabled || status == RoutineRunStatus.NEEDS_RECONCILIATION) continue
-                if (status == RoutineRunStatus.WAITING_APPROVAL) continue
+                if (status == RoutineRunStatus.WAITING_APPROVAL) {
+                    if (available(botId)) routine.runState?.waitingApprovalId?.let(::applyEarlyApprovalIfAny)
+                    continue
+                }
                 if (status == RoutineRunStatus.STARTED) {
                     if (routine.id in active) machine.recordSkip(botId, routine.id, at = now)
                     continue
@@ -182,7 +186,7 @@ class RoutineScheduler(
                         continue
                     }
                 }
-                if (!available(botId) || busy(botId)) continue
+                if (!available(botId) || busy(botId) || !canRunRoutine(routine)) continue
                 val startedAt = clock()
                 val claim = machine.begin(
                     botId, routine.id, startedAt = startedAt, scheduledFor = nextRunAt,
@@ -246,7 +250,8 @@ class RoutineScheduler(
             .firstOrNull { it.runState?.waitingApprovalId == approvalId }
         if (routine != null) {
             if (allowed) {
-                resumeWaiting(routine, approvalId)
+                if (available(botId)) resumeWaiting(routine, approvalId)
+                else earlyApprovalDecisions[approvalId] = Triple(true, false, false)
             } else {
                 denyWaiting(routine, approvalId, expired = expired, cancelled = cancelled)
             }

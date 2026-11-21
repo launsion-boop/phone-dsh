@@ -483,6 +483,20 @@ android {
         // whether that registration exists.
         fun quoted(name: String): String =
             "\"" + providers.gradleProperty(name).getOrElse("").replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        // FirebaseInitProvider consumes the same resources as google-services.
+        // No values are shipped by default, and the service account stays server-side.
+        val fcmResources = mapOf(
+            "google_app_id" to "pdsh.fcm.appId",
+            "gcm_defaultSenderId" to "pdsh.fcm.senderId",
+            "project_id" to "pdsh.fcm.projectId",
+            "google_api_key" to "pdsh.fcm.apiKey",
+        ).mapValues { (_, property) -> providers.gradleProperty(property).orNull }
+        if (fcmResources.values.any { it != null }) {
+            require(fcmResources.values.all { it?.matches(Regex("[A-Za-z0-9:_-]+")) == true }) {
+                "Configure all four Android Firebase registration values"
+            }
+            for ((name, value) in fcmResources) resValue("string", name, requireNotNull(value))
+        }
         buildConfigField("String", "PDSH_GITHUB_OAUTH_ORIGIN", quoted("pdsh.github.oauthOrigin"))
         buildConfigField("String", "PDSH_GITHUB_OAUTH_CLIENT_ID", quoted("pdsh.github.oauthClientId"))
         buildConfigField("String", "PDSH_GITHUB_APP_SLUG", quoted("pdsh.github.appSlug"))
@@ -686,6 +700,7 @@ dependencies {
     // (wal/1) and the exec/1 bridge; :app constructs it and hands its
     // channelHandler to createDemoEngine, so the HELLO's caps are host-derived.
     implementation(project(":dsh"))
+    implementation("androidx.work:work-runtime:2.10.0")
     // The device implementations of the :platform SPI the host takes: Clock,
     // LifecycleSignals and Durability. SecureStore is not part of the host's
     // constructor today, so this module's AndroidSecureStore is not constructed.
@@ -740,6 +755,7 @@ dependencies {
     // 发现 › Gmail: Google Identity Services AuthorizationClient for the
     // gmail.readonly grant (PC-20261119-android-connectors). `:app` only.
     implementation("com.google.android.gms:play-services-auth:21.4.0")
+    implementation("com.google.firebase:firebase-messaging:24.1.2")
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.espresso.core)

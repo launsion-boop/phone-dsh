@@ -1,11 +1,37 @@
 # 交接给 Android：引擎优先启动、静默后台启动、远程唤醒与宿主拥有的时间
 
-记录时间：2026-11-20。iOS 端已在分支 `feat/engine-first-launch` 实现（PR 见本文件所在提交的 PR）。Android 已接入冷启动决策和连接器暂存消息。到期账本、系统调度、完整 ReadySweep 和增量扫描仍待实现。本文件是交接说明，不是契约：权威始终是下面列出的 spec、schema 和 golden。
+基线为 [PR #217](https://github.com/launsion-boop/phone-dsh/pull/217) 合并提交
+`09a3db1f5e330fed3ee3a85d7e6151d4aa057465`。Android 实现使用 host engine-launch v1
+共享向量 revision 3。以下是当前实施状态，后面的交接索引保留作代码和契约导航。
+
+- 进程前台启动和引擎 ready 边沿进入同一个合并式 ReadySweep。外部请求先读宿主准入账本，
+  Bot 的提交使用原 downstream id，待处理的 held 项重放沿用同一个 DSH 请求 id。
+- 宿主将 routine、DSH schedule、outbox settle 和 Gmail 的到期点落盘，同时投影到驻留计时器和
+  WorkManager。系统 Worker 可扫准入账本并拉取云任务，工作完成时交还系统窗口。已有连接且已开启
+  云任务的设备另外使用 15 分钟周期的原生补拉，系统可推迟。OS Worker 停止和首次解锁前读取失败
+  都不会改写未读的账本。
+- Gmail 复用已有 Google 授权。首次建立按账户隔离的基线，后续只取 History 和 From／Subject
+  元数据，先写持久事件与 held 项再推进 cursor。GitHub 通知接口不接受产品现有 GitHub App
+  用户令牌，见 [GitHub API 文档](https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28#list-notifications-for-the-authenticated-user)。
+- 前台可运行已有主 Bot 的普通 routine，审批状态按持久 ID 对账并恢复可继续的 run。带完成条件
+  验证的 routine 暂留在到期状态，等待独立 verifier 的实现。Android 仍缺 routine 到期系统通知及
+  审批系统通知投影；当前的审批对账只作用于 App 状态与 routine。
+- cloud-tasks v1.7 的 Android FCM 回调将任务提示交给 WorkManager。它复用 iOS 的账号、
+  云端任务队列、加密拉取和持久确认。在缺少配置或 Google Play 服务的设备保留择时补拉。
+  无法确认目标的任务留在云端，不抢先 ACK。TonoLink／BLE、LAN／PCLink 的挂起入口和设备端
+  能力仍待接线与真机验证。
+
+Android Firebase 客户端配置由 Gradle 注入 `pdsh.fcm.appId`、`pdsh.fcm.senderId`、
+`pdsh.fcm.projectId` 和 `pdsh.fcm.apiKey`。账号登录并开启云端任务后才请求 FCM token。
+服务端 Firebase 服务账号与 APNs 签名凭据由云端环境注入。真机送达、非 GMS 设备和后台执行
+时序仍需验证。
+
+本文件是交接说明，权威始终是下面列出的 spec、schema 和 golden。
 
 ## 1. 先读
 
 1. 仓库根 `AGENTS.md`（尤其 §2 规则 1–3：一个边界一个权威、不只改一端、不放宽契约）。
-2. 变更单 [PC-20261120-engine-first-launch](../protocol-changes/PC-20261120-engine-first-launch.md)，revision 3。§3.1 是 ios-bot CCR 的裁定，§3.2 是 revision 3（宿主拥有的时间）。
+2. 变更单 [PC-20261120-engine-first-launch](../protocol-changes/PC-20261120-engine-first-launch.md)，revision 3。§3.1 是 ios-bot CCR 的裁定，§3.2 是宿主拥有的时间，§3.3 是到期信号修订。
 3. 规范：
    - [host README §10.2](../../spec/host/v1/README.md)：单一编排者、WakeReason（13 个，封闭）、WakeLease、决策函数、ReadySweep 九步、静默启动可见性。
    - [host README §10.3](../../spec/host/v1/README.md)：五条不变量、WakeDemand、唤醒投影、OS 通道、第 8–9 步。
@@ -16,7 +42,7 @@
 
 | 文件 | 内容 | Kotlin 测试必须覆盖 |
 |---|---|---|
-| `spec/host/v1/golden/engine-launch.json`（revision 2）+ `schema/engine-launch.schema.json` | 常量、wakeReasons、decisions、steps、demandSources；决策 / sweep / 投影的正反向量 | `decisionVectors`、`invalidDecisionVectors`、`sweepVectors`、`invalidSweepVectors`、`projectionVectors`、`invalidProjectionVectors` 全部，拒绝原因要与 golden 一致 |
+| `spec/host/v1/golden/engine-launch.json`（revision 3）+ `schema/engine-launch.schema.json` | 常量、wakeReasons、decisions、steps、demandSources；决策 / sweep / 投影的正反向量 | `decisionVectors`、`invalidDecisionVectors`、`sweepVectors`、`invalidSweepVectors`、`projectionVectors`、`invalidProjectionVectors` 全部，拒绝原因要与 golden 一致 |
 | `spec/bot/v2/held-inbox-item.schema.json` + `golden/held-inbox.phone.json` | `connector-update` 两个封闭分支（gmail、github）及负例 | 正例编解码往返；6 个 schema 负例和语义负例都拒绝 |
 | `spec/bot/v2/connector-cursor.schema.json` + `golden/connector-cursor.json` | cursor 记录，GitHub cursor 是 `{since, lastModified}` | 有效、无效向量和变异 |
 | `spec/bot/v2/proactive-decision.schema.json`、`proactive-settings` 与 `golden/proactive.json` | `connector-update` 主动 kind | did / skip 向量 |
@@ -35,14 +61,15 @@ Android 的 `EngineLaunchPolicyTest` 直接运行共享启动决策正例。`Pro
 
 Android 通道映射（platform §14.2）：`residentTimerAtMs` 对应进程内定时器；`backgroundEarliestMs` 对应一次性 `WorkManager`，initial delay 取到这个时刻。精确 `AlarmManager` 需要 `SCHEDULE_EXACT_ALARM` / `USE_EXACT_ALARM`，是单独的 Android 决定。后台 Worker 只做原生 pass；只有在允许启动 `dataSync` 前台服务的豁免条件下才启动引擎。
 
-## 4. Android 现状的关键入口（已读代码）
+## 4. Android 入口
 
-- `android/app/.../probe/ProbeEngineViewModel.kt`：`init` 里已经先 `appBotRuntime?.start()` 再 `host.start()`，顺序接近阶段 A→B，但没有 ReadySweep，也没有账本。`startBotRuntime()` / `stopBotRuntime()` 跟随 Activity 的 `onStart` / `onStop`。
-- `android/app/.../probe/MainActivity.kt`：`onStart` 调用 `CloudTaskCenter.appBecameActive()`；`onStop` 停止 Bot runtime。
-- `android/app/.../probe/cloudtasks/`：无推送，`push: null`；没有编排者。
-- `android/bot/.../wake/WakeInboxModels.kt`：`WakeSignalSource` 接口已存在。
-- `android/net/.../connectors/{gmail,github}/`：需要增量查询（Gmail `history.list`，GitHub notifications 的 `since` + `If-Modified-Since`），只取元数据。
-- `android/dsh/.../background/`：`TombstoneScheduler`（WorkManager）、`dataSync` FGS。
+- `ProbeEngineViewModel` 的前台／ready 观察与 `ReadySweep` 执行九步。Bot 的启动、held、
+  routine 和审批用 `AppBotRuntime`。
+- `WakeDemandLedger` 和 `WakeProjection` 是本地账本与共享投影；`HostWakeScheduler` 提交
+  `HostWakeWorker`；`CloudTaskCenter` 做相同的 pull → admit → ack 原生流程。
+- `HostAutomation` 在 schedule 写入后请求重读，`ChatSendQueue` 投影 settle 重试日期。
+- `GmailWakeScan` 和 `ConnectorUpdateOutbox` 分别负责 Gmail cursor 与跨重启去重。两端
+  继续共用 held-inbox 和 connector-cursor 文档，Android 当前只接入 Gmail 的实际扫描。
 
 ## 5. iOS 实现可作对照（行为参考，不是可抄的契约）
 

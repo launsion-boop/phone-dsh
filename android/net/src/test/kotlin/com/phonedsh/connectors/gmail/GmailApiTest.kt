@@ -61,6 +61,33 @@ class GmailApiTest {
         )
 
     @Test
+    fun wakeHistoryUsesOnlyInboxMetadataAndKeepsItsProviderWatermark() = runBlocking<Unit> {
+        val (transport, api) = api { request ->
+            when (request.path) {
+                "/gmail/v1/users/me/profile" -> ok(
+                    """{"emailAddress":"qa@example.com","historyId":"4180"}""",
+                )
+                "/gmail/v1/users/me/history" -> ok(
+                    """{"historyId":"4180","history":[{"id":"4110","messagesAdded":[
+                       {"message":{"id":"inbox","labelIds":["INBOX"]}},
+                       {"message":{"id":"other","labelIds":["SENT"]}}]}]}""",
+                )
+                "/gmail/v1/users/me/messages/inbox" -> metadata("inbox")
+                else -> error("Unexpected request ${request.path}")
+            }
+        }
+        val mailbox = api.wakeMailbox("fixture")
+        assertEquals("4180", mailbox.historyId)
+        val page = api.wakeHistory("4100", "fixture")
+        assertEquals("4110", page.historyId)
+        assertEquals(listOf("inbox"), page.messages.map { it.id })
+        assertTrue(transport.requests[1].query.contains("startHistoryId" to "4100"))
+        assertTrue(transport.requests[1].query.contains("labelId" to "INBOX"))
+        assertTrue(transport.requests[2].query.contains("format" to "metadata"))
+        assertFalse(transport.requests.any { it.query.contains("format" to "full") })
+    }
+
+    @Test
     fun searchKeepsGmailQueryEncodingAndLoadsOnlyMetadata() = runBlocking<Unit> {
         val (transport, api) = api { request ->
             assertEquals("gmail.googleapis.com", request.uri.host)

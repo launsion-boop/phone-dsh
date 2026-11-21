@@ -38,6 +38,10 @@ sealed interface GmailBody {
 
 data class GmailMessage(val summary: GmailSummary, val body: GmailBody)
 
+data class GmailWakeMailbox(val email: String, val historyId: String)
+
+data class GmailWakeHistory(val historyId: String, val messages: List<GmailSummary>)
+
 class GmailHttpResponse(val status: Int, val body: ByteArray)
 
 /** One GET; throwing [IOException] means no answer. */
@@ -107,6 +111,58 @@ class GmailApi(private val transport: GmailHttpTransport = HttpUrlConnectionGmai
             }.awaitAll()
         }.filterNotNull()
         return GmailPage(messages, nextPageToken)
+    }
+
+    suspend fun wakeMailbox(token: String): GmailWakeMailbox {
+        val profile = get("profile", emptyList(), token)
+        val email = profile.requiredString("emailAddress")
+        if (email.isBlank()) invalid()
+        return GmailWakeMailbox(email, historyId(profile.requiredString("historyId")))
+    }
+
+    /** One bounded inbox history page. Reads message metadata only. */
+    suspend fun wakeHistory(startHistoryId: String, token: String): GmailWakeHistory {
+        var latest = historyId(startHistoryId)
+        val listing = get("history", listOf(
+            "startHistoryId" to latest, "historyTypes" to "messageAdded",
+            "labelId" to "INBOX", "maxResults" to "20",
+        ), token)
+        val ids = linkedSetOf<String>()
+        for (raw in listing.optionalArray("history").orEmpty()) {
+            val entry = raw as? JsonValue.Obj ?: invalid()
+            val entryId = historyId(entry.requiredString("id"))
+            val additions = entry.optionalArray("messagesAdded").orEmpty().mapNotNull { added ->
+                val message = (added as? JsonValue.Obj)?.optionalObject("message") ?: invalid()
+                val labels = message.optionalArray("labelIds")
+                if (labels != null && labels.none { (it as? JsonValue.Str)?.value == "INBOX" }) null
+                else message.requiredString("id")
+            }
+            if ((ids + additions).size > 20) {
+                // Advance only through whole history entries. A partial entry
+                // cannot safely share a cursor with its unread messages.
+                if (ids.isEmpty()) invalid()
+                break
+            }
+            ids += additions
+            if (entryId.toBigInteger() > latest.toBigInteger()) latest = entryId
+        }
+        val summaries = coroutineScope {
+            ids.map { id ->
+                async {
+                    try {
+                        summary(getMessage(id, "metadata", token))
+                    } catch (failure: GmailException) {
+                        if (failure.error == GmailError.NOT_FOUND) null else throw failure
+                    }
+                }
+            }.awaitAll().filterNotNull()
+        }
+        return GmailWakeHistory(latest, summaries)
+    }
+
+    private fun historyId(value: String): String {
+        if (value.length !in 1..20 || value.any { it !in '0'..'9' }) invalid()
+        return value
     }
 
     suspend fun message(id: String, token: String): GmailMessage {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // phone-dsh — :net / com.phonedsh.cloudtasks: phone task queue wire rules.
 //
-// The pure half of spec/v1/cloud-tasks.md (revision cloud-tasks-v1.6) on the
+// The pure half of spec/v1/cloud-tasks.md (revision cloud-tasks-v1.7) on the
 // phone side: the closed request bodies the phone sends (phone-device/v1,
 // phone-task-ack/v1), the open answers it reads (device ack, device list,
 // pull, ack result, error body), the terminal-stage mapping of §7 and the
@@ -161,7 +161,7 @@ class CloudTaskErrorBody(val code: String, val message: String, val serverTimeMs
 object CloudTaskWire {
     // v1.6 changes only the phone's behaviour after a push (host §10.2 wake lease); payload,
     // routes, ack and limits are byte-identical to v1.5. Not sent on the wire.
-    const val REVISION: String = "cloud-tasks-v1.6"
+    const val REVISION: String = "cloud-tasks-v1.7"
     const val SUITE: String = "hpke-p256-sha256-aes128gcm"
     const val INFO: String = "pdsh-phone-task/v1"
 
@@ -212,9 +212,14 @@ object CloudTaskWire {
 
     // ---- request bodies the phone sends
 
-    /** §2 registration body for this platform: `platform: "android"`, `push: null`. */
+    fun isFcmToken(value: String): Boolean = value.length in 1..4096 && value.all { it in '!'..'~' }
+
+    fun isTaskPush(data: Map<String, String>): Boolean =
+        data == mapOf("pdsh_v" to "1", "pdsh_kind" to "phone-tasks")
+
+    /** §2 Android registration with the optional system push address. */
     @Throws(CloudTaskWireException::class)
-    fun deviceBody(appVersion: String, key: CloudTaskPublicKey): ByteArray {
+    fun deviceBody(appVersion: String, key: CloudTaskPublicKey, fcmToken: String? = null): ByteArray {
         val body = JsonValue.obj(
             "schema" to JsonValue.Str(SCHEMA_DEVICE),
             "platform" to JsonValue.Str(PLATFORM_ANDROID),
@@ -224,7 +229,9 @@ object CloudTaskWire {
                 "suite" to JsonValue.Str(SUITE),
                 "public_key" to JsonValue.Str(base64UrlEncode(key.publicKey)),
             ),
-            "push" to JsonValue.Null,
+            "push" to (fcmToken?.let {
+                JsonValue.obj("provider" to JsonValue.Str("fcm"), "token" to JsonValue.Str(it))
+            } ?: JsonValue.Null),
         )
         validateRequest(body)
         return GatewayJson.canonicalBytes(body)
@@ -286,16 +293,21 @@ object CloudTaskWire {
                 val push = root.get("push")
                 if (push != JsonValue.Null) {
                     val value = push as? JsonValue.Obj ?: throw CloudTaskWireException("push")
-                    closed(value, listOf("provider", "environment", "topic", "token"))
-                    if (string(value, "provider") != "apns" || platform != "ios") {
-                        throw CloudTaskWireException("push provider")
+                    if (platform == PLATFORM_ANDROID) {
+                        closed(value, listOf("provider", "token"))
+                        if (string(value, "provider") != "fcm" || !isFcmToken(string(value, "token"))) {
+                            throw CloudTaskWireException("FCM address")
+                        }
+                    } else {
+                        closed(value, listOf("provider", "environment", "topic", "token"))
+                        if (string(value, "provider") != "apns") throw CloudTaskWireException("push provider")
+                        val environment = string(value, "environment")
+                        if (environment != "development" && environment != "production") {
+                            throw CloudTaskWireException("push environment")
+                        }
+                        if (!PUSH_TOPIC.matches(string(value, "topic"))) throw CloudTaskWireException("push topic")
+                        if (!PUSH_TOKEN.matches(string(value, "token"))) throw CloudTaskWireException("push token")
                     }
-                    val environment = string(value, "environment")
-                    if (environment != "development" && environment != "production") {
-                        throw CloudTaskWireException("push environment")
-                    }
-                    if (!PUSH_TOPIC.matches(string(value, "topic"))) throw CloudTaskWireException("push topic")
-                    if (!PUSH_TOKEN.matches(string(value, "token"))) throw CloudTaskWireException("push token")
                 }
             }
             SCHEMA_SUBMIT -> {

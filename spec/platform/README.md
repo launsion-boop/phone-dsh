@@ -297,10 +297,10 @@ listener or a keep-alive to hide the difference.
 
 ### 14.2 Android
 
-- **No push in v1.** The cloud device registration carries `push: null`
-  ([cloud-tasks §2](../v1/cloud-tasks.md)); there is no FCM or vendor push SDK, and none is added
-  by the launch work. Remote wake on Android therefore comes from `WorkManager`, an already
-  scheduled alarm/worker, or the next foreground — not from a push.
+- **FCM in cloud-tasks v1.7.** Android can register an FCM token when Google Play services
+  and an app Firebase configuration are available. An authenticated task pull follows a
+  data-only hint via WorkManager. A device without FCM uses best-effort polling or the
+  next foreground. No commercial vendor push service is selected here.
 - **WorkManager minimum interval.** A periodic `WorkManager` request has a minimum interval of 15
   minutes; Doze and App Standby can delay it further. A one-shot worker has the same "the system
   decides when" property. A worker is a wake lease source, not a promise of punctuality.

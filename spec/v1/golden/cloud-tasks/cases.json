@@ -1,6 +1,6 @@
 {
  "contract": "spec/v1/cloud-tasks.md",
- "revision": "cloud-tasks-v1.6",
+ "revision": "cloud-tasks-v1.7",
  "note": "Private scalars here are test-only values; never use them outside these vectors.",
  "constants": {
   "suite": "hpke-p256-sha256-aes128gcm",
@@ -18,6 +18,10 @@
     "v": 1,
     "kind": "phone-tasks"
    }
+  },
+  "fcmData": {
+   "pdsh_v": "1",
+   "pdsh_kind": "phone-tasks"
   }
  },
  "messages": {
@@ -125,6 +129,23 @@
        "state": "unknown"
       }
      ]
+    }
+   },
+   {
+    "id": "device-android-fcm",
+    "message": {
+     "schema": "phone-device/v1",
+     "platform": "android",
+     "app_version": "1.4.0",
+     "key": {
+      "key_id": "k-1",
+      "suite": "hpke-p256-sha256-aes128gcm",
+      "public_key": "BGD-1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p-2eQP-EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk"
+     },
+     "push": {
+      "provider": "fcm",
+      "token": "fixture:opaque_FCM-123"
+     }
     }
    }
   ],
@@ -778,6 +799,75 @@
     "id": "unknown-schema",
     "message": {
      "schema": "phone-task-submit/v2"
+    }
+   },
+   {
+    "id": "device-fcm-wrong-platform",
+    "message": {
+     "schema": "phone-device/v1",
+     "platform": "ios",
+     "app_version": "1.4.0",
+     "key": {
+      "key_id": "k-1",
+      "suite": "hpke-p256-sha256-aes128gcm",
+      "public_key": "BGD-1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p-2eQP-EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk"
+     },
+     "push": {
+      "provider": "fcm",
+      "token": "fixture:opaque_FCM-123"
+     }
+    }
+   },
+   {
+    "id": "device-fcm-empty-token",
+    "message": {
+     "schema": "phone-device/v1",
+     "platform": "android",
+     "app_version": "1.4.0",
+     "key": {
+      "key_id": "k-1",
+      "suite": "hpke-p256-sha256-aes128gcm",
+      "public_key": "BGD-1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p-2eQP-EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk"
+     },
+     "push": {
+      "provider": "fcm",
+      "token": ""
+     }
+    }
+   },
+   {
+    "id": "device-fcm-space",
+    "message": {
+     "schema": "phone-device/v1",
+     "platform": "android",
+     "app_version": "1.4.0",
+     "key": {
+      "key_id": "k-1",
+      "suite": "hpke-p256-sha256-aes128gcm",
+      "public_key": "BGD-1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p-2eQP-EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk"
+     },
+     "push": {
+      "provider": "fcm",
+      "token": "invalid token"
+     }
+    }
+   },
+   {
+    "id": "device-fcm-extra-member",
+    "message": {
+     "schema": "phone-device/v1",
+     "platform": "android",
+     "app_version": "1.4.0",
+     "key": {
+      "key_id": "k-1",
+      "suite": "hpke-p256-sha256-aes128gcm",
+      "public_key": "BGD-1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p-2eQP-EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk"
+     },
+     "push": {
+      "provider": "fcm",
+      "token": "fixture:opaque_FCM-123",
+      "topic": "forbidden"
+     }
     }
    }
   ]
