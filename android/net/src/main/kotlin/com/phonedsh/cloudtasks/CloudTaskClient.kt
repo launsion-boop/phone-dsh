@@ -187,17 +187,21 @@ class CloudTaskClient(
         body: ByteArray?,
         decode: (CloudTaskHttpAnswer) -> T?,
     ): CloudTaskReply<T> {
+        if (Thread.currentThread().isInterrupted) return CloudTaskReply.Unreachable
         var token = currentToken() ?: return CloudTaskReply.NoCredential
         val url = ORIGIN + pathAndQuery
         var credentialRetries = 0
         var identityRetries = 0
-        while (true) {
+        while (!Thread.currentThread().isInterrupted) {
             val headers = LinkedHashMap<String, String>()
             headers["authorization"] = "Bearer $token"
             headers["accept"] = "application/json"
             if (body != null) headers["content-type"] = "application/json"
             val answer = try {
                 transport.send(CloudTaskHttpRequest(method, url, headers, body))
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return CloudTaskReply.Unreachable
             } catch (_: Exception) {
                 return CloudTaskReply.Unreachable
             }
@@ -227,6 +231,7 @@ class CloudTaskClient(
             }
             return classify(answer, decode)
         }
+        return CloudTaskReply.Unreachable
     }
 
     private fun <T> classify(answer: CloudTaskHttpAnswer, decode: (CloudTaskHttpAnswer) -> T?): CloudTaskReply<T> {
