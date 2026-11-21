@@ -1817,6 +1817,7 @@ final class ChatModel {
     /// closes. The push callback calls this and only then ends its background
     /// task and completes the fetch.
     func parkForWakeDeadline() async {
+        guard UIApplication.shared.applicationState == .background else { return }
         guard let host, !parked, !hostLifecycleTransition else { return }
         await parkHost(host)
     }
@@ -3541,7 +3542,10 @@ final class ChatModel {
                 watchdog.cancel()
                 resumeWatchdogTask = nil
                 hostLifecycleTransition = false
-                await parkHost(host)
+                foregroundResumeRequested = false
+                backgroundParkRequested = false
+                endResumeRecoveryObservation()
+                await parkForWakeDeadline()
                 return
             }
             // A resume is a new adopted incarnation for the sweep merge key
