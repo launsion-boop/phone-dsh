@@ -282,10 +282,11 @@ public actor ProactiveEngine: ProactiveConsidering {
             title = explicitTitle?.isEmpty == false ? explicitTitle! : "DSH Bot · 提醒"
             body = explicitBody?.isEmpty == false ? explicitBody! : "提醒时间到了"
         case .connectorUpdate:
-            // The source provides the connector name and metadata summary; the
-            // fallback is only used by a caller that built the candidate itself.
-            title = explicitTitle?.isEmpty == false ? explicitTitle! : "DSH Bot · 连接器"
-            body = explicitBody?.isEmpty == false ? explicitBody! : "连接器有新内容"
+            // Contract §3.0: connector-update has no default copy. The
+            // candidate must carry explicit, non-empty text (enforced by the
+            // candidate decoder / source); the engine never invents wording.
+            title = explicitTitle ?? ""
+            body = explicitBody ?? ""
         }
         return ProactiveNotification(title: title, body: body, kind: candidate.kind,
                                      botId: candidate.botId, dedupeKey: dedupeKey,

@@ -146,12 +146,19 @@ public actor ProactiveSources {
         let title = update.connector == .gmail ? "Gmail" : "GitHub"
         let noun = update.count == 1 ? "new item" : "new items"
         let body = "\(update.count) \(noun)" + (detail.map { ": \($0)" } ?? "")
-        return ProactiveCandidate(
+        let candidate = ProactiveCandidate(
             id: key, kind: .connectorUpdate, botId: trimmed, dedupeKey: key,
             trigger: "connector.scan", sourceEventId: eventId,
             createdAt: nowProvider(), channel: "system-notification",
             title: title, body: body,
             summary: detail)
+        // The contract refuses a connector candidate without explicit copy.
+        // This source always builds both from the durable metadata; the guard
+        // keeps a future edit from silently falling back to engine defaults.
+        guard (try? ProactiveCandidateDecoder.validate(candidate)) != nil else {
+            return nil
+        }
+        return candidate
     }
 
     private func botId(_ event: BotEvent) -> String? {
