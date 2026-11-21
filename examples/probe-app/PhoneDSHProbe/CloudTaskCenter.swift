@@ -53,9 +53,7 @@ final class CloudTaskCenter {
     /// process). ReadySweep step 3 skips the pull inside
     /// `EngineLaunchThresholds.cloudPullFreshnessMs` of this instant.
     private(set) var lastPullAt: Date?
-    /// The background task that keeps this process alive for a push wake. It is
-    /// ended only after the engine is parked at the lease deadline.
-    @ObservationIgnored private var pushBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+    @ObservationIgnored private var pushInFlight = false
 
     private init() {
         let bridge = CloudTaskAdmissionBridge(
@@ -135,93 +133,100 @@ final class CloudTaskCenter {
         refreshStatus(nil)
     }
 
-    /// §8: one pull → admit → ack pass for a task push; any other payload is not ours.
-    ///
-    /// After the pass (the durable part, unchanged), a wake lease built from
-    /// `beginBackgroundTask` asks the launch orchestrator to boot or resume the
-    /// engine (host §10.2). The fetch is completed only after the host is
-    /// parked at `deadline − parkMarginMs`; a lease too short for the engine
-    /// transition behaves exactly like the pre-wake path and books a
-    /// `BGProcessingTask` instead.
-    func handleRemoteNotification(_ userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
-        guard let report = await coordinator.handleRemoteNotification(userInfo) else { return .noData }
-        finish(report)
+    /// One pull → admit → ack; any remaining eligible fetch time can run a
+    /// wake. UIKit's 30 s ceiling includes the pull, and the assertion's
+    /// expiration handler can end it sooner.
+    func handleRemoteNotification(_ userInfo: [AnyHashable: Any], receivedAtMs: Int64) async -> UIBackgroundFetchResult {
+        guard CloudTasks.isTaskPush(userInfo), !pushInFlight else { return .noData }
+        pushInFlight = true
+        defer { pushInFlight = false }
+
+        let orchestration = EngineLaunchOrchestrator.shared
+        let revocation = WakeLease.Revocation()
+        let lease = WakeLease(reason: .cloudTaskPush, grantedAtMs: receivedAtMs,
+                              deadlineMs: receivedAtMs + 30_000, revocation: revocation)
+        // A Task on this actor starts after the assertion is requested below.
+        var assertion: UIBackgroundTaskIdentifier = .invalid
+        let push = Task { @MainActor in
+            await runPush(lease, engineAllowed: assertion != .invalid)
+        }
+        let cancelPush: @Sendable () -> Void = {
+            revocation.revoke()
+            push.cancel()
+        }
+        assertion = UIApplication.shared.beginBackgroundTask(withName: "cloud-task-wake") {
+            cancelPush()
+            Task { @MainActor in orchestration.cancelWake(lease) }
+        }
+
+        let cutoffMs = max(0, lease.remainingMs() - EngineLaunchThresholds.parkMarginMs)
+        let cutoff = Task { @MainActor in
+            do { try await Task.sleep(for: .milliseconds(cutoffMs)) } catch { return }
+            cancelPush()
+            orchestration.cancelWake(lease)
+        }
+        let result = await push.value
+        cutoff.cancel()
+        if assertion != .invalid { UIApplication.shared.endBackgroundTask(assertion) }
+        return result
+    }
+
+    private func runPush(_ lease: WakeLease, engineAllowed: Bool) async -> UIBackgroundFetchResult {
+        let report = await coordinator.run(.push, cancelWithCaller: true)
+        finish(report, dispatch: false)
         let result: UIBackgroundFetchResult
         switch report.status {
         case .ready:
             result = report.pulled > 0 || report.terminalSettled > 0 ? .newData : .noData
         case .disabled, .signedOut:
-            result = .noData
+            return .noData
         case .unavailable, .deviceLimit, .storeUnavailable, .failed:
             result = .failed
         }
-        // A disabled or signed-out device has no work to wake for: keep the
-        // pre-wake behaviour (the pass above already did nothing).
-        if enabled, signedIn { await orchestratePushWake() }
-        return result
-    }
-
-    /// One pull pass for the launch orchestrator's ReadySweep step 3. Returns
-    /// false when the switch is off or no account is signed in (nothing sent).
-    func runWakePull() async -> Bool {
-        guard enabled, signedIn else { return false }
-        finish(await coordinator.run(.appActive))
-        return true
-    }
-
-    // MARK: - Push wake lease (host §10.2)
-
-    /// Asks the orchestrator for one `.cloudTaskPush` wake inside the OS window
-    /// and parks before it closes. Returns after the park.
-    private func orchestratePushWake() async {
-        let hostState = ChatModel.shared.engineHostState
-        let requiredMs = hostState == .parked
+        guard enabled, signedIn else { return result }
+        let requiredMs = ChatModel.shared.engineHostState == .parked
             ? EngineLaunchThresholds.minLeaseForResumeMs
             : EngineLaunchThresholds.minLeaseForColdBootMs
-        let remaining = UIApplication.shared.backgroundTimeRemaining
-        // A lease too short (or not granted at all) is the pre-wake path: the
-        // pass above already did pull → admit → ack, and the engine-free work
-        // is left to the next foreground / processing task.
-        guard remaining.isFinite, remaining * 1000 >= Double(requiredMs),
-              pushBackgroundTask == .invalid else {
+        guard engineAllowed, !Task.isCancelled, lease.remainingMs() >= requiredMs else {
             _ = EngineLaunchProcessingTask.submit()
-            return
+            return result
         }
-        pushBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "cloud-task-wake") { [weak self] in
-            Task { @MainActor in
-                await ChatModel.shared.parkForWakeDeadline()
-                self?.endPushBackgroundTask()
-            }
-        }
-        guard pushBackgroundTask != .invalid else {
-            _ = EngineLaunchProcessingTask.submit()
-            return
-        }
-        let grantedAt = Date()
-        let lease = WakeLease(reason: .cloudTaskPush,
-                              grantedAtMs: Int64(grantedAt.timeIntervalSince1970 * 1000),
-                              deadlineMs: Int64(grantedAt.timeIntervalSince1970 * 1000)
-                                  + Int64(min(remaining, 35) * 1000))
+
         let outcome = await EngineLaunchOrchestrator.shared.wake(.cloudTaskPush, lease: lease)
-        // The lease was enough for the decision; a native-only answer has no
-        // engine to park, so the window closes right away.
+        if lease.isExpired() {
+            await ChatModel.shared.parkForWakeDeadline()
+            _ = EngineLaunchProcessingTask.submit()
+            return result
+        }
         switch outcome.decision {
         case .ready, .boot, .resume:
-            // R16: release the window as soon as the sweep is done; only a
-            // running turn may use the rest of it, up to deadline − margin.
             await ChatModel.shared.finishWakeLeaseWindow(deadlineMs: lease.deadlineMs)
+            if lease.isExpired() { await ChatModel.shared.parkForWakeDeadline() }
         case .nativeOnly:
             _ = EngineLaunchProcessingTask.submit()
         case .deferred, .needsAttention:
             break
         }
-        endPushBackgroundTask()
+        return result
     }
 
-    private func endPushBackgroundTask() {
-        guard pushBackgroundTask != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(pushBackgroundTask)
-        pushBackgroundTask = .invalid
+    /// ReadySweep step 3, using the existing durable pull path.
+    func runWakePull() async -> Bool {
+        guard enabled, signedIn else { return false }
+        let report = await coordinator.run(.appActive, cancelWithCaller: true)
+        guard !Task.isCancelled else { return false }
+        finish(report)
+        return report.status == .ready
+    }
+
+    /// Expiry-only callbacks may pull and durably admit; dispatch waits for an
+    /// eligible engine wake. Cancellation leaves unacknowledged leases retryable.
+    func pullForBackgroundTask() async -> Bool {
+        guard enabled, signedIn else { return true }
+        let report = await coordinator.run(.appActive, cancelWithCaller: true)
+        guard !Task.isCancelled else { return false }
+        finish(report, dispatch: false)
+        return report.status == .ready
     }
 
     // MARK: - Push address
@@ -281,11 +286,11 @@ final class CloudTaskCenter {
         finish(await coordinator.run(trigger))
     }
 
-    private func finish(_ report: CloudTaskPassReport) {
-        lastPullAt = Date()
+    private func finish(_ report: CloudTaskPassReport, dispatch: Bool = true) {
+        if report.status == .ready { lastPullAt = Date() }
         refreshStatus(report.status)
         // Admitted records go to the existing dispatch entry; it decides when they run.
-        if !report.admitted.isEmpty { ChatModel.shared.scheduleExternalAdmissionPass() }
+        if dispatch, !report.admitted.isEmpty { ChatModel.shared.scheduleExternalAdmissionPass() }
     }
 
     private func refreshStatus(_ status: CloudTaskStatus?) {
@@ -299,32 +304,14 @@ final class CloudTaskCenter {
 final class ProbeAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        // Host §10.2 / PLAN §2.3: register the engine-launch BGProcessing task
-        // before launch finishes. The handler asks for exactly one
-        // `.bgProcessing` wake and parks before completing the OS task.
-        EngineLaunchProcessingTask.register(Self.engineWakeRunner(.bgProcessing))
-        // §10.3.4: the refresh arm carries the earliest WakeDemand due time
-        // when the App is suspended (needs UIBackgroundModes: fetch).
-        EngineLaunchRefreshTask.register(Self.engineWakeRunner(.bgAppRefresh))
-        return true
-    }
-
-    /// One BGTask window → one orchestrator wake with a lease built from the
-    /// window, then park before the task completes.
-    private static func engineWakeRunner(_ reason: WakeReason) -> EngineLaunchProcessingTask.Runner {
-        { window in
-            let grantedAtMs = WakeLease.nowMs()
-            let deadlineMs = grantedAtMs
-                + Int64(max(0, window.deadline.timeIntervalSinceNow) * 1000)
-            let lease = WakeLease(reason: reason,
-                                  grantedAtMs: grantedAtMs,
-                                  deadlineMs: deadlineMs)
-            let outcome = await EngineLaunchOrchestrator.shared.wake(reason, lease: lease)
-            // R17: do not interrupt a turn the sweep just started; park now
-            // only when nothing is running, otherwise at deadline − margin.
-            await ChatModel.shared.finishWakeLeaseWindow(deadlineMs: lease.deadlineMs)
-            return outcome.decision != .needsAttention
+        // Both callbacks are expiry-only. Neither has a measurable lease.
+        EngineLaunchProcessingTask.register {
+            await EngineLaunchOrchestrator.shared.runExpiryOnlyWake()
         }
+        EngineLaunchRefreshTask.register {
+            await EngineLaunchOrchestrator.shared.runExpiryOnlyWake()
+        }
+        return true
     }
 
     func application(_ application: UIApplication,
@@ -340,8 +327,9 @@ final class ProbeAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didReceiveRemoteNotification userInfo: [AnyHashable: Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        let receivedAtMs = WakeLease.nowMs()
         Task { @MainActor in
-            completionHandler(await CloudTaskCenter.shared.handleRemoteNotification(userInfo))
+            completionHandler(await CloudTaskCenter.shared.handleRemoteNotification(userInfo, receivedAtMs: receivedAtMs))
         }
     }
 }

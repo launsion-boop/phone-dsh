@@ -1,32 +1,65 @@
 // SPDX-License-Identifier: MIT
-// phone-dsh phone DSH — the `BGProcessingTask` window used when a wake's lease
-// was too short to boot the engine (PLAN §2.3, host §10.2).
-//
-// The App submits one request after such a wake; the system later launches the
-// App in the background and hands over a processing window. This file owns the
-// BackgroundTasks details only. The runner (the App) decides what to do with
-// the window — it asks `EngineLaunchOrchestrator` for one `.bgProcessing` wake
-// with a lease built from this window — and this wrapper completes the OS task
-// exactly once.
-//
-// The Info.plist `BGTaskSchedulerPermittedIdentifiers` must list the concrete
-// identifier. NOT_VERIFIED on a device: scheduling and entitlement behaviour.
-
+// BGTaskScheduler delivers expiry, but exposes no clock for its window.
 import Foundation
+
+/// Synchronizes the runner and OS expiration callback, including expiry before
+/// the task handle is installed. Only the winner reports completion.
+final class BackgroundWakeCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = false
+    private var work: Task<Void, Never>?
+
+    var isOpen: Bool { lock.withLock { !completed } }
+
+    func attach(_ task: Task<Void, Never>) {
+        let cancel = lock.withLock {
+            guard !completed else { return true }
+            work = task
+            return false
+        }
+        if cancel { task.cancel() }
+    }
+
+    func finish(expired: Bool, complete: () -> Void) {
+        let result: (won: Bool, work: Task<Void, Never>?) = lock.withLock {
+            guard !completed else { return (false, nil) }
+            completed = true
+            defer { work = nil }
+            return (true, work)
+        }
+        guard result.won else { return }
+        if expired { result.work?.cancel() }
+        complete()
+    }
+}
 
 #if canImport(UIKit) && canImport(BackgroundTasks) && os(iOS) && !targetEnvironment(macCatalyst)
 import BackgroundTasks
 import UIKit
 
-/// One `BGProcessingTask` execution window.
-public struct EngineLaunchProcessingWindow: Sendable {
-    /// When the window opened.
-    public let grantedAt: Date
-    /// Conservative lease deadline for this window. The OS expiry callback may
-    /// arrive earlier; ``isExpired`` reports that.
-    public let deadline: Date
-    /// True once the OS asked the task to finish.
-    public let isExpired: @Sendable () -> Bool
+private final class BackgroundWakeRegistration: @unchecked Sendable {
+    private let lock = NSLock()
+    private var attempted = false
+
+    func begin() -> Bool {
+        lock.withLock {
+            guard !attempted else { return false }
+            attempted = true
+            return true
+        }
+    }
+}
+
+private func runBackgroundWake(_ task: BGTask, runner: @escaping EngineLaunchProcessingTask.Runner) {
+    let gate = BackgroundWakeCompletion()
+    task.expirationHandler = {
+        gate.finish(expired: true) { task.setTaskCompleted(success: false) }
+    }
+    gate.attach(Task {
+        guard gate.isOpen, !Task.isCancelled else { return }
+        let success = await runner()
+        gate.finish(expired: false) { task.setTaskCompleted(success: success) }
+    })
 }
 
 /// Registers and submits the engine-launch `BGProcessingTask`.
@@ -38,22 +71,14 @@ public enum EngineLaunchProcessingTask {
         return bundle + ".engine-launch.processing"
     }
 
-    /// Conservative window assumed when the system does not reveal its own
-    /// budget up front. The freeze only needs a lease large enough to clear
-    /// the cold-boot threshold; the expiry callback shortens it.
-    public static let assumedWindowSeconds: TimeInterval = 25
-
-    /// Runs one window. Returns whether the wake should be reported as success.
-    public typealias Runner = @Sendable (EngineLaunchProcessingWindow) async -> Bool
-
-    private static let state = ProcessingState()
+    public typealias Runner = @Sendable () async -> Bool
+    private static let registration = BackgroundWakeRegistration()
 
     /// Registers the launch handler. Call before the App finishes launching.
     /// Returns false when the system refuses the identifier (missing plist
     /// entry, wrong OS, already registered).
     @discardableResult public static func register(_ runner: @escaping Runner) -> Bool {
-        state.setRunner(runner)
-        guard state.markRegistered() else { return false }
+        guard registration.begin() else { return false }
         return BGTaskScheduler.shared.register(
             forTaskWithIdentifier: identifier, using: nil
         ) { task in
@@ -61,7 +86,7 @@ public enum EngineLaunchProcessingTask {
                 task.setTaskCompleted(success: false)
                 return
             }
-            run(processing)
+            runBackgroundWake(processing, runner: runner)
         }
     }
 
@@ -87,88 +112,22 @@ public enum EngineLaunchProcessingTask {
     public static func cancel() {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
     }
-
-    private static func run(_ task: BGProcessingTask) {
-        guard let runner = state.runner() else {
-            task.setTaskCompleted(success: false)
-            return
-        }
-        let gate = CompletionGate()
-        let grantedAt = Date()
-        let window = EngineLaunchProcessingWindow(
-            grantedAt: grantedAt,
-            deadline: grantedAt.addingTimeInterval(assumedWindowSeconds),
-            isExpired: { gate.isExpired })
-        task.expirationHandler = { gate.finish(task, success: false) }
-        Task {
-            let success = await runner(window)
-            gate.finish(task, success: success)
-        }
-    }
-}
-
-/// Holder for the runner and the registration flag.
-private final class ProcessingState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedRunner: EngineLaunchProcessingTask.Runner?
-    private var registered = false
-
-    func setRunner(_ runner: @escaping EngineLaunchProcessingTask.Runner) {
-        lock.withLock { storedRunner = runner }
-    }
-
-    func runner() -> EngineLaunchProcessingTask.Runner? {
-        lock.withLock { storedRunner }
-    }
-
-    func markRegistered() -> Bool {
-        lock.withLock {
-            if registered { return false }
-            registered = true
-            return true
-        }
-    }
-}
-
-/// Completes the OS task at most once, from either the runner or the expiry
-/// handler.
-private final class CompletionGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var completed = false
-    private var expired = false
-
-    var isExpired: Bool {
-        lock.withLock { expired }
-    }
-
-    func finish(_ task: BGProcessingTask, success: Bool) {
-        let shouldComplete: Bool = lock.withLock {
-            expired = true
-            if completed { return false }
-            completed = true
-            return true
-        }
-        if shouldComplete { task.setTaskCompleted(success: success) }
-    }
 }
 
 /// The `BGAppRefreshTask` arm of the wake projection (PLAN §2.9 channel
 /// table): the same window shape as processing, but a refresh task is the
-/// system's normal "run briefly in the background" channel and needs
-/// `UIBackgroundModes: fetch`. Register and submit exactly like the processing
-/// arm; the App's runner asks for one `.scheduledDemand` wake.
+/// system's brief background channel and needs `UIBackgroundModes: fetch`.
 public enum EngineLaunchRefreshTask {
+    private static let registration = BackgroundWakeRegistration()
+
     public static var identifier: String {
         let bundle = Bundle.main.bundleIdentifier ?? "dev.phone-dsh.probe"
         return bundle + ".engine-launch.refresh"
     }
 
-    private static let state = RefreshState()
-
     @discardableResult
     public static func register(_ runner: @escaping EngineLaunchProcessingTask.Runner) -> Bool {
-        state.setRunner(runner)
-        guard state.markRegistered() else { return false }
+        guard registration.begin() else { return false }
         return BGTaskScheduler.shared.register(
             forTaskWithIdentifier: identifier, using: nil
         ) { task in
@@ -176,7 +135,7 @@ public enum EngineLaunchRefreshTask {
                 task.setTaskCompleted(success: false)
                 return
             }
-            run(refresh)
+            runBackgroundWake(refresh, runner: runner)
         }
     }
 
@@ -195,79 +154,13 @@ public enum EngineLaunchRefreshTask {
     public static func cancel() {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
     }
-
-    private static func run(_ task: BGAppRefreshTask) {
-        guard let runner = state.runner() else {
-            task.setTaskCompleted(success: false)
-            return
-        }
-        let gate = RefreshCompletionGate()
-        let grantedAt = Date()
-        let window = EngineLaunchProcessingWindow(
-            grantedAt: grantedAt,
-            deadline: grantedAt.addingTimeInterval(EngineLaunchProcessingTask.assumedWindowSeconds),
-            isExpired: { gate.isExpired })
-        task.expirationHandler = { gate.finish(task, success: false) }
-        Task {
-            let success = await runner(window)
-            gate.finish(task, success: success)
-        }
-    }
-}
-
-private final class RefreshState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedRunner: EngineLaunchProcessingTask.Runner?
-    private var registered = false
-
-    func setRunner(_ runner: @escaping EngineLaunchProcessingTask.Runner) {
-        lock.withLock { storedRunner = runner }
-    }
-
-    func runner() -> EngineLaunchProcessingTask.Runner? {
-        lock.withLock { storedRunner }
-    }
-
-    func markRegistered() -> Bool {
-        lock.withLock {
-            if registered { return false }
-            registered = true
-            return true
-        }
-    }
-}
-
-private final class RefreshCompletionGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var completed = false
-    private var expired = false
-
-    var isExpired: Bool { lock.withLock { expired } }
-
-    func finish(_ task: BGAppRefreshTask, success: Bool) {
-        let shouldComplete: Bool = lock.withLock {
-            expired = true
-            if completed { return false }
-            completed = true
-            return true
-        }
-        if shouldComplete { task.setTaskCompleted(success: success) }
-    }
 }
 
 #else
 
-/// macOS / no BackgroundTasks: the request is never booked.
-public struct EngineLaunchProcessingWindow: Sendable {
-    public let grantedAt: Date
-    public let deadline: Date
-    public let isExpired: @Sendable () -> Bool
-}
-
 public enum EngineLaunchProcessingTask {
     public static var identifier: String { "engine-launch.processing" }
-    public static let assumedWindowSeconds: TimeInterval = 25
-    public typealias Runner = @Sendable (EngineLaunchProcessingWindow) async -> Bool
+    public typealias Runner = @Sendable () async -> Bool
 
     @discardableResult
     public static func register(_ runner: @escaping Runner) -> Bool { false }

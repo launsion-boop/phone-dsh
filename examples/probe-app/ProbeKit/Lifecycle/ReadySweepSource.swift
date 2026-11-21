@@ -67,12 +67,16 @@ public final class ReadySweepRegistry {
                 report.record(step, .failed(reason: "source_unavailable"))
                 continue
             }
-            guard ReadySweepPolicy.shouldRun(step, remainingMs: context.remainingMs()) else {
+            guard !Task.isCancelled, ReadySweepPolicy.shouldRun(step, remainingMs: context.remainingMs()) else {
                 report.record(step, .skipped(.lease))
                 continue
             }
             guard await source.due(nowMs: nowMs) else {
                 report.record(step, .skipped(.noWork))
+                continue
+            }
+            guard !Task.isCancelled, ReadySweepPolicy.shouldRun(step, remainingMs: context.remainingMs()) else {
+                report.record(step, .skipped(.lease))
                 continue
             }
             report.record(step, await source.run(context))

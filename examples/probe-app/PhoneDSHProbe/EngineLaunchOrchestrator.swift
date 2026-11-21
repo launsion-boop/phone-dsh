@@ -208,6 +208,27 @@ final class EngineLaunchOrchestrator {
         }
     }
 
+    /// Expiry-only work is owned by the OS runner, so cancellation travels
+    /// with the native pass. It never enters the engine launch/merge lane.
+    func runExpiryOnlyWake() async -> Bool {
+        guard !Task.isCancelled else { return false }
+        await chat.prepareLaunchContentForWake(dispatchAdmissions: false)
+        guard !Task.isCancelled else { return false }
+        _ = await chat.externalAdmissionJournal.sweptPendingRecords(
+            nowMs: ExternalAdmissionJournal.nowMs())
+        guard !Task.isCancelled else { return false }
+        let pulled = await cloud.pullForBackgroundTask()
+        guard !Task.isCancelled else { return false }
+        await scheduler.refresh()
+        return pulled
+    }
+
+    func cancelWake(_ lease: WakeLease) {
+        // A shorter in-flight caller may have joined a different wake.
+        guard mergeState.inFlight?.lease?.wakeId == lease.wakeId else { return }
+        current?.cancel()
+    }
+
     private func startRun(_ request: WakeMergeState.Request,
                           key: WakeKey) -> Task<EngineLaunchOutcome, Never> {
         runGeneration += 1
@@ -265,6 +286,16 @@ final class EngineLaunchOrchestrator {
     // MARK: - One wake
 
     private func performWake(reason: WakeReason, lease: WakeLease?, wakeId: String) async -> EngineLaunchOutcome {
+        let deferred = EngineLaunchOutcome(wakeId: wakeId, reason: reason,
+                                           engineIncarnation: engineIncarnation,
+                                           decision: .deferred, engine: .notRequested)
+        guard !Task.isCancelled, lease?.isExpired() != true else { return deferred }
+        // Phase A only reads the wake's persisted content and queues recovery.
+        mergeState.enter(.stageA)
+        await chat.prepareLaunchContentForWake()
+        guard !Task.isCancelled, lease?.isExpired() != true else { return deferred }
+        await scheduler.refresh()
+        guard !Task.isCancelled, lease?.isExpired() != true else { return deferred }
         let decision = EngineLaunchPolicy.decide(
             reason: reason,
             foreground: UIApplication.shared.applicationState != .background,
@@ -273,15 +304,6 @@ final class EngineLaunchOrchestrator {
             leaseRemainingMs: lease?.remainingMs(),
             userStopped: chat.engineUserStopped,
             needsReset: chat.engineNeedsReset)
-
-        // Phase A — engine-free immediate content. Runs for every decision so
-        // the page paints before the engine exists and a deferred wake still
-        // keeps its durable queue moving.
-        mergeState.enter(.stageA)
-        await chat.prepareLaunchContentForWake()
-        // Residency may have changed since the last projection; re-arm the
-        // resident timer now (I5 also re-projects on every ledger write).
-        await scheduler.refresh()
 
         var engineResult: EngineLaunchOutcome.EngineResult = .notRequested
         var consumersBound = false
@@ -299,7 +321,8 @@ final class EngineLaunchOrchestrator {
                 await chat.resumeForWake(reason)
                 engineResult = chat.engineHostState == .running ? .resumed : .failed
             }
-            if engineResult == .booted || engineResult == .resumed {
+            if !Task.isCancelled, lease?.isExpired() != true,
+               engineResult == .booted || engineResult == .resumed {
                 // Phase C.
                 mergeState.enter(.stageC)
                 consumersBound = await chat.prepareConsumersForWake()
@@ -316,6 +339,8 @@ final class EngineLaunchOrchestrator {
         // could not bring the engine up produces no report at all; the durable
         // work stays where it is for the next eligible wake.
         var report: ReadySweepReport?
+        defer { chat.clearWakeLease() }
+        guard !Task.isCancelled, lease?.isExpired() != true else { return deferred }
         switch decision {
         case .ready:
             mergeState.enter(.stageD)
@@ -336,7 +361,6 @@ final class EngineLaunchOrchestrator {
             break
         }
 
-        chat.clearWakeLease()
         return EngineLaunchOutcome(wakeId: wakeId,
                                    reason: reason,
                                    engineIncarnation: engineIncarnation,
@@ -378,7 +402,9 @@ final class EngineLaunchOrchestrator {
     /// Lease fallback (§10.2.4 step 5, PLAN §2.3): the engine-free passes only.
     /// These are stage-A work, so they produce no ReadySweep report.
     private func runNativePasses(lease: WakeLease?) async {
+        guard !Task.isCancelled, lease?.isExpired() != true else { return }
         await chat.runAdmissionPassForWake()
+        guard !Task.isCancelled, lease?.isExpired() != true else { return }
         if let last = cloud.lastPullAt,
            Date().timeIntervalSince(last) * 1000
                < Double(EngineLaunchThresholds.cloudPullFreshnessMs) {

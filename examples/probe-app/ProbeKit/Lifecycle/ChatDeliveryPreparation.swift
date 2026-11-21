@@ -18,7 +18,7 @@ public enum ChatDeliveryPreparation: Equatable, Sendable {
                                          leaseThresholdMs: Int64 = EngineLaunchThresholds.minLeaseForColdBootMs) -> Bool {
         if foreground || keepingAlive || residentAudio { return true }
         guard let remaining = leaseRemainingMs else { return false }
-        return remaining >= leaseThresholdMs
+        return remaining > 0 && remaining >= leaseThresholdMs
     }
 
     public static func decide(foreground: Bool, keepingAlive: Bool, hostPresent: Bool,

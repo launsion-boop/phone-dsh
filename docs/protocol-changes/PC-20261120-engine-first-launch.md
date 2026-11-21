@@ -242,7 +242,9 @@ Acceptance commands are `python3 spec/host/v1/tools/test_engine_launch.py`,
 `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`,
 the scoped PhoneDSHSim EngineLaunch tests, and
 `bash android/tools/with-android-toolchain.sh ./gradlew :app:testDebugUnitTest :bot:test :net:test`.
-Physical APNs delivery and Android scheduler behaviour require device evidence.
+Physical APNs delivery and Android scheduler behaviour require device evidence. PCLink
+inbound wake and its cloud fallback remain P28 target work. The iOS LAN/Bot MCP receiver
+only acts while the app is reachable; there is no network listener while suspended.
 
 
 ## 4. 分工與證據

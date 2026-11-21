@@ -224,9 +224,16 @@ public actor CloudTaskCoordinator {
     /// becomes active, after sign-in and after a task push. Does nothing on
     /// the network while the feature is off or no account is signed in.
     @discardableResult
-    public func run(_ trigger: CloudTaskTrigger = .appActive) async -> CloudTaskPassReport {
+    public func run(_ trigger: CloudTaskTrigger = .appActive,
+                    cancelWithCaller: Bool = false) async -> CloudTaskPassReport {
+        guard !Task.isCancelled else { return CloudTaskPassReport(status: .failed(.transport)) }
         if trigger == .signedIn { registered = nil }
-        if let inFlight { return await inFlight.value }
+        if let inFlight {
+            // The bounded caller does not own an existing pass and must be
+            // free to end its OS window without waiting for or cancelling it.
+            if cancelWithCaller { return CloudTaskPassReport(status: .failed(.transport)) }
+            return await inFlight.value
+        }
         let task = Task { () -> CloudTaskPassReport in
             let report = await self.pass()
             self.lastReport = report
@@ -234,6 +241,13 @@ public actor CloudTaskCoordinator {
             return report
         }
         inFlight = task
+        if cancelWithCaller {
+            return await withTaskCancellationHandler {
+                await task.value
+            } onCancel: {
+                task.cancel()
+            }
+        }
         return await task.value
     }
 
@@ -309,10 +323,13 @@ public actor CloudTaskCoordinator {
         guard let deviceID = preferences.deviceID() else { report.status = .storeUnavailable; return report }
 
         do {
+            try Task.checkCancellation()
             try await register(deviceID: deviceID)
+            try Task.checkCancellation()
             try await sendTerminalAcks(deviceID: deviceID, report: &report)
             for _ in 0..<max(1, configuration.maxRounds) {
                 guard preferences.isEnabled else { break }
+                try Task.checkCancellation()
                 let pulled = try await client.pull(deviceID: deviceID, leaseSeconds: configuration.leaseSeconds)
                 guard !pulled.elements.isEmpty else { break }
                 report.pulled += pulled.elements.count
@@ -321,6 +338,7 @@ public actor CloudTaskCoordinator {
                 var acks: [CloudTaskAck] = []
                 var journalDeferred = false
                 for element in pulled.elements {
+                    try Task.checkCancellation()
                     switch element {
                     case .task(let task):
                         if let ack = try await decide(task, deviceID: deviceID, nowMs: nowMs) {
@@ -337,6 +355,7 @@ public actor CloudTaskCoordinator {
                 }
                 var start = 0
                 while start < acks.count {
+                    try Task.checkCancellation()
                     let chunk = Array(acks[start..<min(start + CloudTasks.batchMax, acks.count)])
                     start += chunk.count
                     _ = try await client.acknowledge(CloudTaskAckBatch(deviceID: deviceID, acks: chunk))
@@ -347,6 +366,8 @@ public actor CloudTaskCoordinator {
                 // A full journal or a failing disk will not improve within this pass.
                 if journalDeferred { break }
             }
+        } catch is CancellationError {
+            report.status = .failed(.transport)
         } catch let error as CloudTaskClientError {
             report.status = status(for: error)
         } catch {
@@ -416,6 +437,7 @@ public actor CloudTaskCoordinator {
             return ack(.rejected(.decryptFailed))
         }
         guard await host.targetExists(task.target) else { return ack(.rejected(.targetMissing)) }
+        try Task.checkCancellation()
         let result = await host.admit(CloudTaskAdmissionRequest(
             deviceID: deviceID, taskID: task.taskID, target: task.target, text: text, expiresAtMs: task.expiresAtMs))
         switch result {
@@ -438,6 +460,7 @@ public actor CloudTaskCoordinator {
         }
         var start = 0
         while start < pending.count {
+            try Task.checkCancellation()
             let chunk = Array(pending[start..<min(start + CloudTasks.batchMax, pending.count)])
             start += chunk.count
             let response = try await client.acknowledge(CloudTaskAckBatch(
@@ -455,6 +478,7 @@ public actor CloudTaskCoordinator {
             }
             var next = 0
             while next < followUp.count {
+                try Task.checkCancellation()
                 let pairs = Array(followUp[next..<min(next + CloudTasks.batchMax, followUp.count)])
                 next += pairs.count
                 let again = try await client.acknowledge(CloudTaskAckBatch(deviceID: deviceID, acks: pairs))

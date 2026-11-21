@@ -135,12 +135,15 @@ final class WakeLeaseTests: XCTestCase {
         XCTAssertFalse(lease.isExpired(nowMs: .max / 2))
     }
 
-    func testBackgroundTimeBuildsARealDeadline() {
-        let lease = WakeLease.fromBackgroundTime(.cloudTaskPush, remainingMs: 29.5,
-                                                 nowMs: 1_000)
-        XCTAssertEqual(lease.deadlineMs, 30_500)
-        let unbounded = WakeLease.fromBackgroundTime(.cloudTaskPush,
-                                                     remainingMs: .infinity, nowMs: 1_000)
-        XCTAssertEqual(unbounded.deadlineMs, .max)
+    func testEarlyRevocationInvalidatesTheLeaseAndEngineEligibility() {
+        let revocation = WakeLease.Revocation()
+        let lease = WakeLease(reason: .cloudTaskPush, grantedAtMs: 1_000,
+                              deadlineMs: 31_000, revocation: revocation)
+        XCTAssertEqual(lease.remainingMs(nowMs: 1_000), 30_000)
+        revocation.revoke()
+        XCTAssertTrue(lease.isExpired(nowMs: 1_100))
+        XCTAssertFalse(ChatDeliveryPreparation.executionEligible(
+            foreground: false, keepingAlive: false, residentAudio: false,
+            leaseRemainingMs: lease.remainingMs(nowMs: 1_100), leaseThresholdMs: 0))
     }
 }

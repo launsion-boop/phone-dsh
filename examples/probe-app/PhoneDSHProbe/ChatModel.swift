@@ -1742,11 +1742,12 @@ final class ChatModel {
     /// The Bot store is prepared first (it provides the roster and persisted
     /// rows), then the session snapshot, then the outbox scan and one external
     /// admission pass. All of it is engine-free and idempotent.
-    func prepareLaunchContentForWake() async {
+    func prepareLaunchContentForWake(dispatchAdmissions: Bool = true) async {
         _ = await prepareBotRuntimeAtLaunch()
+        guard !Task.isCancelled else { return }
         restoreCachedTranscriptIfAvailable()
         startOutboxStartupScanIfNeeded()
-        scheduleExternalAdmissionPass()
+        if dispatchAdmissions { scheduleExternalAdmissionPass() }
     }
 
     /// Phase B: boot on behalf of the launch orchestrator. Silent: no
@@ -1920,6 +1921,12 @@ final class ChatModel {
                     await self?.restartEngineWhenIdle()
                 }
             }
+            return
+        }
+        if !executionEligible, isSilentLaunch {
+            hostEventTask?.cancel(); hostEventTask = nil
+            try? await launch.host.stop()
+            anchor.shutdown()
             return
         }
         await adoptRunningHost(launch.host,
@@ -3530,6 +3537,13 @@ final class ChatModel {
             try await host.resume()
             parked = false
             didResume = true
+            guard executionEligible else {
+                watchdog.cancel()
+                resumeWatchdogTask = nil
+                hostLifecycleTransition = false
+                await parkHost(host)
+                return
+            }
             // A resume is a new adopted incarnation for the sweep merge key
             // (§10.2.5) and owes one ReadySweep (I4).
             engineIncarnation &+= 1
@@ -4342,7 +4356,7 @@ final class ChatModel {
             // It exists, so it is not reported missing either: the task stays with the cloud.
             if DeviceSessionCoordinator.shared.isDeviceSession(id) { return .unknown }
             // A parked host is not asked: the call would wait for a resume nobody requested.
-            if host != nil, !parked, let transport = try? await transportForManagement(),
+            if executionEligible, host != nil, !parked, let transport = try? await transportForManagement(),
                let value = try? await transport.call("session/list",
                                                      args: .object(["_request": .object([:])])),
                let rows = value["items"]?.arrayValue {
