@@ -9,7 +9,7 @@ import ProbeKit
 import SwiftUI
 
 enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
-    case gmail, github, devices, webSearch, mcp
+    case gmail, github, feishu, devices, webSearch, mcp
 
     var id: String { rawValue }
 
@@ -20,6 +20,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .mcp: return "server.rack"
         case .gmail: return "envelope.fill"
         case .github: return "GitHubMark"
+        case .feishu: return "doc.text.fill"
         }
     }
 
@@ -30,6 +31,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .mcp: return HomeSpec.textPrimary
         case .gmail: return Color(red: 0.92, green: 0.26, blue: 0.21)
         case .github: return Color(red: 0.13, green: 0.15, blue: 0.18)
+        case .feishu: return Color(red: 0.20, green: 0.44, blue: 1.0)
         }
     }
 
@@ -40,6 +42,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .mcp: return NativeText("自定义 MCP 服务", "Custom MCP server")
         case .gmail: return "Gmail"
         case .github: return "GitHub"
+        case .feishu: return NativeText("飞书", "Feishu")
         }
     }
 
@@ -50,6 +53,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .mcp: return NativeText("添加你自己的服务地址", "Add your own server")
         case .gmail: return NativeText("连接账号、搜索和阅读邮件", "Connect an account, search and read mail")
         case .github: return NativeText("浏览已授权的仓库", "Browse authorized repositories")
+        case .feishu: return NativeText("浏览云文档", "Browse cloud documents")
         }
     }
 
@@ -58,6 +62,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .devices: return NativeText("连接", "Connect")
         case .gmail, .github: return NativeText("打开", "Open")
+        case .feishu: return NativeText("连接", "Connect")
         case .webSearch: return NativeText("设置", "Set up")
         case .mcp: return NativeText("添加", "Add")
         }
@@ -121,6 +126,7 @@ struct ConnectorsPage: View {
         case .mcp: MCPSettingsPage()
         case .gmail: GmailConnectorPage()
         case .github: GitHubConnectorPage()
+        case .feishu: FeishuConnectorPage()
         }
     }
 
@@ -250,6 +256,7 @@ private struct ConnectorDetailSheet: View {
         case .mcp: return NativeText("添加服务", "Add a server")
         case .gmail: return NativeText("打开 Gmail", "Open Gmail")
         case .github: return NativeText("打开 GitHub", "Open GitHub")
+        case .feishu: return NativeText("打开飞书", "Open Feishu")
         }
     }
 
@@ -270,6 +277,9 @@ private struct ConnectorDetailSheet: View {
         case .github:
             return NativeText("连接 GitHub 账号后，可以在手机上查看你选择的仓库。",
                               "Connect a GitHub account to browse the repositories you choose on this phone.")
+        case .feishu:
+            return NativeText("通过 TonoLive 使用你已授权的飞书云文档。",
+                              "Use your authorized Feishu documents through TonoLive.")
         }
     }
 
@@ -318,6 +328,15 @@ private struct ConnectorDetailSheet: View {
                 ("lock.shield", NativeText("GitHub 授权", "GitHub authorization"),
                  NativeText("在 GitHub 授权。你可以随时断开连接，或到 GitHub 管理授权。",
                             "Authorize on GitHub. You can disconnect here or manage access on GitHub.")),
+            ]
+        case .feishu:
+            return [
+                ("doc.text", NativeText("访问云文档", "Cloud documents"),
+                 NativeText("使用 TonoLive 账号关联的飞书连接访问已授权的文档。",
+                            "Use the Feishu connection on your TonoLive account to access authorized documents.")),
+                ("lock.shield", NativeText("飞书授权", "Feishu authorization"),
+                 NativeText("首次连接按 TonoLive 提示创建应用并在飞书授权，无需填写应用凭据。",
+                            "On first connection, follow TonoLive to create and authorize an app in Feishu. No app credentials are required.")),
             ]
         }
     }
