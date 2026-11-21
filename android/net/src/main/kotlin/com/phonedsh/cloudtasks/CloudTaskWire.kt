@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // phone-dsh — :net / com.phonedsh.cloudtasks: phone task queue wire rules.
 //
-// The pure half of spec/v1/cloud-tasks.md (revision cloud-tasks-v1.5) on the
+// The pure half of spec/v1/cloud-tasks.md (revision cloud-tasks-v1.6) on the
 // phone side: the closed request bodies the phone sends (phone-device/v1,
 // phone-task-ack/v1), the open answers it reads (device ack, device list,
 // pull, ack result, error body), the terminal-stage mapping of §7 and the
@@ -159,7 +159,9 @@ class CloudTaskAckResponse(val results: List<CloudTaskAckResult>, val serverTime
 class CloudTaskErrorBody(val code: String, val message: String, val serverTimeMs: Long)
 
 object CloudTaskWire {
-    const val REVISION: String = "cloud-tasks-v1.5"
+    // v1.6 changes only the phone's behaviour after a push (host §10.2 wake lease); payload,
+    // routes, ack and limits are byte-identical to v1.5. Not sent on the wire.
+    const val REVISION: String = "cloud-tasks-v1.6"
     const val SUITE: String = "hpke-p256-sha256-aes128gcm"
     const val INFO: String = "pdsh-phone-task/v1"
 

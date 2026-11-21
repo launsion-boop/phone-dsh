@@ -214,6 +214,11 @@ launch orchestrator, the WakeDemand ledger, ReadySweep and connector scanning on
 started** and stay with the Android implementer
 ([handoff](../handoffs/engine-first-launch-android.md)).
 
+**cloud-tasks revision pin.** Moving `spec/v1/cloud-tasks.md` and its shared cases to `cloud-tasks-v1.6`
+also requires the constants that pin them: Swift `CloudTasks.revision` and Android
+`CloudTaskWire.REVISION` (owner decision 2026-11-20, android/net constant only). Neither is sent on
+the wire; the cloud end keeps its own imported package and needs no change.
+
 ## 4. 分工與證據
 
 - **獨占路徑（不可重疊）**
