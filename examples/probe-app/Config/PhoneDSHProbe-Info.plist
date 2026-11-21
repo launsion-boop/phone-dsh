@@ -69,9 +69,6 @@
 	     iOS 26 (PhoneDSH Background). iOS requires the concrete
 	     identifier family in BGTaskSchedulerPermittedIdentifiers; the runtime
 	     prefix is `<bundle id>.continued-processing.drain.`.
-	     The second entry is the engine-first launch fallback (host §10.2):
-	     when a wake's lease is too short to boot, the App submits one
-	     BGProcessingTaskRequest under this concrete identifier.
 	     NOT_VERIFIED on a device: entitlement/scheduling behaviour. -->
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
@@ -81,18 +78,17 @@
 	</array>
 	<!-- `audio`: the Chat page keeps a silent, mixWithOthers playback session
 	     while a turn is running in the background so the agent is not
-	     suspended mid-task (see BackgroundKeepAlive.swift). `location` is used
-	     only after explicit geofence confirmation and Always authorization;
-	     no region monitoring starts at App launch. `bluetooth-central`: the
-	     TonoLink board's wake word (ev wake) wakes the app in the background
-	     over its restorable ctrl link (TonoLinkVoiceHost.swift). -->
+	     suspended mid-task (see BackgroundKeepAlive.swift). `bluetooth-central`:
+	     the TonoLink board's wake word (ev wake) wakes the app in the background
+	     over its restorable ctrl link (TonoLinkVoiceHost.swift). Geofences use
+	     Core Location region monitoring after explicit confirmation and Always
+	     authorization; continuous background location updates are not used. -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
 		<string>bluetooth-central</string>
 		<string>processing</string>
 		<string>fetch</string>
-		<string>location</string>
 		<string>remote-notification</string>
 	</array>
 	<key>NSCalendarsFullAccessUsageDescription</key>
