@@ -40,6 +40,9 @@ public final class WakeScheduler {
 
     private let ledger: WakeDemandLedger
     private let projection: Projection
+    /// The scheduler's clock, injectable so the projection boundary is tested
+    /// deterministically (production uses the wall clock).
+    private let now: @MainActor () -> Int64
     private var timerTask: Task<Void, Never>?
     private var running = false
     private var projected = false
@@ -48,9 +51,11 @@ public final class WakeScheduler {
     /// projection is kept: an unreadable ledger is retried, never replaced.
     public private(set) var lastError: WakeDemandLedgerError?
 
-    public init(ledger: WakeDemandLedger, projection: Projection) {
+    public init(ledger: WakeDemandLedger, projection: Projection,
+                now: @escaping @MainActor () -> Int64 = { WakeDemandLedger.nowMs() }) {
         self.ledger = ledger
         self.projection = projection
+        self.now = now
     }
 
     public func start() {
@@ -97,8 +102,8 @@ public final class WakeScheduler {
     }
 
     /// The projection for the current ledger and residency (diagnostics/tests).
-    public func plan(nowMs: Int64 = WakeDemandLedger.nowMs()) async throws -> WakeProjection {
-        WakeProjection.plan(nowMs: nowMs, resident: projection.isResident(),
+    public func plan(nowMs: Int64? = nil) async throws -> WakeProjection {
+        WakeProjection.plan(nowMs: nowMs ?? now(), resident: projection.isResident(),
                             demands: try await ledger.all())
     }
 
@@ -109,7 +114,7 @@ public final class WakeScheduler {
     /// foreground (residency may have changed).
     public func refresh() async {
         guard running else { return }
-        let now = WakeDemandLedger.nowMs()
+        let current = now()
         let demands: [WakeDemand]
         do {
             demands = try await ledger.all()
@@ -121,20 +126,20 @@ public final class WakeScheduler {
             lastError = error as? WakeDemandLedgerError
             return
         }
-        let plan = WakeProjection.plan(nowMs: now, resident: projection.isResident(),
+        let plan = WakeProjection.plan(nowMs: current, resident: projection.isResident(),
                                        demands: demands)
         if !projected || projectedBackground != plan.backgroundEarliestMs {
             projected = true
             projectedBackground = plan.backgroundEarliestMs
             projection.project(plan.backgroundEarliestMs)
         }
-        rearm(plan.residentTimerAtMs, nowMs: now)
+        rearm(plan.residentTimerAtMs, nowMs: current)
     }
 
     /// The App is leaving the foreground / a host is about to park (I5): the
     /// resident timer may not run, so submit the projection to the OS now.
     public func enterBackground() async {
-        let now = WakeDemandLedger.nowMs()
+        let current = now()
         let demands: [WakeDemand]
         do {
             demands = try await ledger.all()
@@ -143,12 +148,12 @@ public final class WakeScheduler {
             lastError = error as? WakeDemandLedgerError
             return
         }
-        let plan = WakeProjection.plan(nowMs: now, resident: projection.isResident(),
+        let plan = WakeProjection.plan(nowMs: current, resident: projection.isResident(),
                                        demands: demands)
         projected = true
         projectedBackground = plan.backgroundEarliestMs
         projection.project(plan.backgroundEarliestMs)
-        rearm(plan.residentTimerAtMs, nowMs: now)
+        rearm(plan.residentTimerAtMs, nowMs: current)
     }
 
     private func rearm(_ residentTimerAtMs: Int64?, nowMs: Int64) {

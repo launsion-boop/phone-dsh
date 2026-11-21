@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Host §10.3.3–§10.3.4: the projection is pure; the scheduler applies it to
-// the resident timer and the OS background channels.
+// the resident timer and the OS background channels. The scheduler's clock is
+// injected so every assertion here is exact and deterministic.
 import XCTest
 import ProbeKit
 
@@ -28,6 +29,7 @@ final class WakeSchedulerTests: XCTestCase {
         var wakeCount = 0
         var projected: [Int64?] = []
         var resident = true
+        var nowMs: Int64 = 1_800_000_000_000
     }
 
     private func makeScheduler(_ recorder: Recorder) -> WakeScheduler {
@@ -36,14 +38,15 @@ final class WakeSchedulerTests: XCTestCase {
             projection: WakeScheduler.Projection(
                 wake: { recorder.wakeCount += 1 },
                 project: { recorder.projected.append($0) },
-                isResident: { recorder.resident }))
+                isResident: { recorder.resident }),
+            now: { recorder.nowMs })
     }
 
     func testResidentTimerFiresAtTheEarliestDueTime() async throws {
         let recorder = Recorder()
         let scheduler = makeScheduler(recorder)
         scheduler.start()
-        let dueAt = WakeDemandLedger.nowMs() + 80
+        let dueAt = recorder.nowMs + 80
         try await scheduler.upsert(demand("soon", dueAtMs: dueAt))
         let deadline = Date().addingTimeInterval(3)
         while recorder.wakeCount == 0, Date() < deadline {
@@ -58,49 +61,61 @@ final class WakeSchedulerTests: XCTestCase {
         recorder.resident = false
         let scheduler = makeScheduler(recorder)
         scheduler.start()
-        let now = WakeDemandLedger.nowMs()
+        let now = recorder.nowMs
         try await scheduler.upsert(demand("later", dueAtMs: now + 120_000))
         XCTAssertEqual(recorder.wakeCount, 0)
         XCTAssertEqual(recorder.projected.last, now + 120_000)
         scheduler.stop()
     }
 
-    /// The scheduler reads its own clock at refresh time, so an assertion on
-    /// an absolute millisecond must allow the few ms between the test's clock
-    /// read and the projection.
-    private func assertNear(_ value: Int64??, _ expected: Int64,
-                            accuracy: Int64 = 1_000) {
-        guard let value, let unwrapped = value else {
-            return XCTFail("no projection recorded")
-        }
-        XCTAssertLessThanOrEqual(abs(unwrapped - expected), accuracy,
-                                 "projected \(unwrapped), expected \(expected)")
-    }
-
     func testEveryLedgerChangeReprojectsTheClampedEarliest() async throws {
         let recorder = Recorder()
         let scheduler = makeScheduler(recorder)
         scheduler.start()
-        let now = WakeDemandLedger.nowMs()
+        let now = recorder.nowMs
         // Far future: the background request is the due time itself.
         try await scheduler.upsert(demand("later", dueAtMs: now + 180_000))
-        assertNear(recorder.projected.last, now + 180_000)
-        // Near future: clamped to now + minBackgroundDelayMs, but the resident
-        // timer stays exact.
+        XCTAssertEqual(recorder.projected.last, now + 180_000)
+        // Near future: clamped to now + minBackgroundDelayMs, while the
+        // resident timer stays exact.
         try await scheduler.upsert(demand("near", dueAtMs: now + 5_000))
-        assertNear(recorder.projected.last, now + 60_000)
+        XCTAssertEqual(recorder.projected.last, now + 60_000)
         try await scheduler.remove(source: .hostRetry, key: "near")
-        assertNear(recorder.projected.last, now + 180_000)
+        XCTAssertEqual(recorder.projected.last, now + 180_000)
         try await scheduler.removeAll(source: .hostRetry)
         XCTAssertEqual(recorder.projected.last, .some(nil))
         scheduler.stop()
     }
 
-    func testEnterBackgroundAlwaysProjects() async throws {
+    func testBackgroundBoundaryIsExactAtOneMillisecondAroundTheClamp() async throws {
         let recorder = Recorder()
         let scheduler = makeScheduler(recorder)
         scheduler.start()
-        let now = WakeDemandLedger.nowMs()
+        let now = recorder.nowMs
+
+        // earliest is 1 ms before now+minBackgroundDelayMs: clamped up.
+        try await scheduler.upsert(demand("before", dueAtMs: now + 59_999))
+        XCTAssertEqual(recorder.projected.last, now + 60_000)
+        try await scheduler.remove(source: .hostRetry, key: "before")
+        // Exactly at the boundary: max() keeps the same value.
+        try await scheduler.upsert(demand("boundary", dueAtMs: now + 60_000))
+        XCTAssertEqual(recorder.projected.last, now + 60_000)
+        try await scheduler.remove(source: .hostRetry, key: "boundary")
+        // A demand past the minimum delay: the due time wins.
+        try await scheduler.upsert(demand("past", dueAtMs: now + 60_001))
+        XCTAssertEqual(recorder.projected.last, now + 60_001)
+        try await scheduler.remove(source: .hostRetry, key: "past")
+        // Overdue demand: due now, background still clamped.
+        try await scheduler.upsert(demand("overdue", dueAtMs: now - 1_000))
+        XCTAssertEqual(recorder.projected.last, now + 60_000)
+        scheduler.stop()
+    }
+
+    func testEnterBackgroundAlwaysProjectsExactly() async throws {
+        let recorder = Recorder()
+        let scheduler = makeScheduler(recorder)
+        scheduler.start()
+        let now = recorder.nowMs
         try await scheduler.upsert(demand("later", dueAtMs: now + 120_000))
         let before = recorder.projected.count
         await scheduler.enterBackground()
