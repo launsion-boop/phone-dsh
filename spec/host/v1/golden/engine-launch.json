@@ -4,7 +4,7 @@
   "notes": "spec/host/v1/README.md §10.2: decision order, threshold constants and ReadySweep step gate; PC-20261120-engine-first-launch. Swift and Kotlin tests read this file directly; do not copy a vector.",
   "instance": {
     "contract": "engine-launch",
-    "revision": 2,
+    "revision": 3,
     "constants": {
       "minLeaseForColdBootMs": 20000,
       "minLeaseForResumeMs": 8000,
@@ -59,6 +59,45 @@
       "hostRetries"
     ],
     "decisionVectors": [
+      {
+        "id": "processing-callback-without-measured-lease",
+        "input": {
+          "reason": "bgProcessing",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "absent",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "nativeOnly"
+      },
+      {
+        "id": "app-refresh-callback-without-measured-lease",
+        "input": {
+          "reason": "bgAppRefresh",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "parked",
+          "leaseRemainingMs": null,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "nativeOnly"
+      },
+      {
+        "id": "push-window-revoked-before-resume",
+        "input": {
+          "reason": "cloudTaskPush",
+          "foreground": false,
+          "residentAudio": false,
+          "hostState": "parked",
+          "leaseRemainingMs": 0,
+          "userStopped": false,
+          "needsReset": false
+        },
+        "expected": "nativeOnly"
+      },
       {
         "id": "cold-launch-foreground-boots",
         "input": {

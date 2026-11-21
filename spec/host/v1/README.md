@@ -440,11 +440,11 @@ that also updates the golden; a free-form string is invalid and is rejected, nev
 | `bleRequest` | another trusted BLE device | existing resident audio, or a granted background task |
 | `lanRequest` | LAN device, TonoLink relay or Bot MCP HTTP listener request | `beginBackgroundTask` while the process is resident; unreachable while suspended |
 | `pcLinkRequest` | PCLink relay request | `beginBackgroundTask` while the process is resident |
-| `bgProcessing` | `BGProcessingTask` / one-shot background worker | the task's expiration handler |
+| `bgProcessing` | `BGProcessingTask` / one-shot background worker | expiry-only; native pass |
 | `routineNotificationTap` | user taps a routine-due local notification | none (user interaction = foreground) |
 | `engineRecovered` | the existing recovery finished | none |
 | `scheduledDemand` | the host's resident timer reached the earliest `WakeDemand` (§10.3) | none; eligibility comes from foreground or resident audio |
-| `bgAppRefresh` | `BGAppRefreshTask` submitted by the wake projection (§10.3.3) | the task's expiration handler |
+| `bgAppRefresh` | `BGAppRefreshTask` submitted by the wake projection (§10.3.3) | expiry-only; native pass |
 
 #### 10.2.2 `WakeSource` adapters
 
@@ -473,9 +473,18 @@ keep-alive for this.
 ```
 
 `wakeId` is generated once per wake. `deadlineMs` comes from the system, never from a fixed budget:
-the remaining background time, a `BGTask` expiration handler, or the Android worker's stop signal.
-`remainingMs = deadlineMs − now` at the point of the check. A missing lease is `null`; a negative
-remaining value is invalid input.
+a system-reported remaining window or a platform callback with a documented upper limit. The
+limit is measured from receipt of the callback and includes native preparation. An expiration or
+stop signal revokes the window even if the deadline has not elapsed. Revocation cancels the work
+owned by that wake and prevents new steps; an interrupted durable record remains retryable.
+`remainingMs = deadlineMs − now` at the point of the check, and is zero after revocation.
+
+An expiry-only callback (`BGTask` or the Android worker stop signal) has no measurable deadline
+and supplies a `null` timed lease. While backgrounded it permits only a cancellable native pass;
+it cannot alone authorize an engine transition or ReadySweep. Reproject from durable demand and
+wait for the next eligible wake. Do not continually submit a new processing window solely
+because the current processing callback lacks a deadline. A negative remaining value is invalid
+input.
 
 **Thresholds (provisional constants).** These are contract constants, not tuning knobs scattered in
 code. They are provisional values and are re-measured on a real device by the `ios-wake-spike`
@@ -506,8 +515,8 @@ one of `absent`, `parked`, `running`, `failed`. The result is one of `boot`, `re
 4. `eligible = foreground || residentAudio || (leaseRemainingMs != null && leaseRemainingMs >=
    requiredLease)`, where `requiredLease` is `minLeaseForResumeMs` for `parked` and
    `minLeaseForColdBootMs` for `absent` and `failed`.
-5. not eligible → `nativeOnly`. Stage A still runs; one deferred wake is scheduled
-   (`BGProcessingTask` on iOS, a one-shot worker on Android).
+5. not eligible → `nativeOnly`. Stage A still runs; schedule deferred work when eligible for
+   projection (§10.3.3).
 6. `parked` → `resume`; `absent` or `failed` → `boot`.
 
 `reason` selects the lease source and is recorded for diagnostics; it does not add a branch. A
@@ -582,11 +591,11 @@ merged into the boot, not replayed after it.
 - A skipped or failed ReadySweep step adds no visible row, banner or notification. Proactive
   delivery keeps its own rules (bot v2 §3); the sweep only produces the inputs.
 
-### 10.3 Host-owned time and intent (P06, `engine-launch-v1` revision 2)
+### 10.3 Host-owned time and intent (P06, `engine-launch-v1` revision 3)
 
 Status: normative, frozen by
 [PC-20261120-engine-first-launch](../../../docs/protocol-changes/PC-20261120-engine-first-launch.md)
-revision 3. Language-neutral, like §10.2; the same golden carries its vectors.
+revision 4. Language-neutral, like §10.2; the same golden carries its vectors.
 
 **Premise.** The engine is replaceable execution capacity. iOS may suspend the process or terminate
 WebContent at any moment, and every timer inside the engine or inside process memory stops with it.

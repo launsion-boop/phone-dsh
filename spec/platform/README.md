@@ -281,6 +281,11 @@ listener or a keep-alive to hide the difference.
   granted (`beginBackgroundTask`, the task's expiration handler). The existing silent-audio
   keep-alive keeps its existing users (an in-flight turn, a connected board); it is not opened to
   run background tasks (App Store 2.5.4).
+- **Expiry-only callbacks.** Neither `BGProcessingTask` nor `BGAppRefreshTask` reports its
+  deadline up front. They permit native work that is cancelled in the expiration handler.
+  A silent APNs callback can request engine execution within Apple's documented 30-second
+  ceiling, measured from callback entry and subject to early expiration. User force-quit
+  and actual push delivery remain OS-controlled.
 - **Permitted identifiers and modes.** The `BGProcessing` and `BGAppRefresh` requests use
   identifiers listed in `BGTaskSchedulerPermittedIdentifiers`. Revision 3 of the change record adds
   exactly one `UIBackgroundModes` value, `fetch`, which `BGAppRefreshTask` requires (host §10.3.4);
@@ -306,8 +311,8 @@ listener or a keep-alive to hide the difference.
   next foreground or an exempt start boot the engine. Where a `dataSync` service is legal, it is
   also subject to the platform's runtime cap. The Bot listener and routine scheduler keep their
   existing foreground/Activity lifetime.
-- **Lease source.** The Android coordinator's lease deadline is the worker's stop signal or the
-  Activity's foreground lifetime; `parkMarginMs` applies the same way as on iOS.
+- **Lease source.** WorkManager's stop signal cancels the native pass. It provides no numeric
+  engine lease. The Activity foreground grants normal execution eligibility.
 - **Wake projection channels (host §10.3).** Android maps `residentTimerAtMs` to an in-process
   timer and `backgroundEarliestMs` to a one-shot `WorkManager` request with that initial delay. An
   exact `AlarmManager` alarm needs `SCHEDULE_EXACT_ALARM`/`USE_EXACT_ALARM` and is a separate

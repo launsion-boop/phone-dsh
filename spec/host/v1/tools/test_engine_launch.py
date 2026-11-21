@@ -178,7 +178,7 @@ class EngineLaunchContractTests(unittest.TestCase):
     def test_golden_matches_schema(self):
         self.assertEqual(self.doc["schema"], "schema/engine-launch.schema.json")
         self.assertIsNone(validate_json(self.instance, load_json(SCHEMA), "engine-launch"))
-        self.assertEqual(self.instance["revision"], 2)
+        self.assertEqual(self.instance["revision"], 3)
 
     def test_decision_vectors(self):
         for vector in self.instance["decisionVectors"]:

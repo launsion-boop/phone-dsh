@@ -1,5 +1,5 @@
 {
-  "title": "HostEngineLaunchVectors v2",
+  "title": "HostEngineLaunchVectors v3",
   "description": "The shared engine-launch vector document of spec/host/v1/README.md sections 10.2 and 10.3. It freezes the closed WakeReason, decision and ReadySweep step vocabularies, the provisional threshold and per-step-budget constants, the WakeDemand source set, and the valid/invalid decision, sweep and wake-projection vectors. Swift (iOS, this round) and Kotlin (Android, later) both read golden/engine-launch.json and this schema directly; neither end retypes a vector or a threshold. Identifiers use the section 10.2 spellings case-sensitively. Invalid vectors intentionally live outside the decision input domain: their wrapper is schema-valid and the end's real decoder must reject the inner input.",
   "type": "object",
   "additionalProperties": false,
@@ -23,7 +23,7 @@
       "const": "engine-launch"
     },
     "revision": {
-      "const": 2
+      "const": 3
     },
     "constants": {
       "type": "object",

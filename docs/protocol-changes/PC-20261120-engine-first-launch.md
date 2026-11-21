@@ -11,7 +11,7 @@ status: frozen
 breaking: false
 version_decision: No version bump. host gains a new normative section §10.2 over the existing contract 1; cloud-tasks goes v1.5 to v1.6 as a documentation revision only (payload, routes, ack and limits are byte-identical); external-admission goes v1.1 to v1.2 with one clarifying sentence; bot v2 held-inbox-item gains two new closed connector-update variants while every existing variant and field is unchanged and an older reader keeps rejecting the unknown kind (fail-closed); proactive-decision gains connector-update as an additive kind and proactive-settings accepts it in deliveryKinds (old build skips the unknown kind in fuse restore, and no default copy is added); connector-cursor is a new host-private record whose GitHub cursor is {since,lastModified}. No wire field, Worker env, push payload or Android contract changes. Revision 3 adds host §10.3 (host-owned time: WakeDemand, wake projection, OS channels), two WakeReasons, two ReadySweep steps and engine-launch golden revision 2; it adds UIBackgroundModes `fetch` for BGAppRefreshTask.
 base: 87a2486edb715f8bff959c94621abe423163a951
-contract_revision: docs/protocol-changes/PC-20261120-engine-first-launch.md@3
+contract_revision: docs/protocol-changes/PC-20261120-engine-first-launch.md@4
 ```
 
 ## 1. 識別與角色
@@ -219,6 +219,32 @@ also requires the constants that pin them: Swift `CloudTasks.revision` and Andro
 `CloudTaskWire.REVISION` (owner decision 2026-11-20, android/net constant only). Neither is sent on
 the wire; the cloud end keeps its own imported package and needs no change.
 
+### 3.3 Revision 4 — expiry-only background callbacks
+
+CONTRACT CHANGE REQUEST (P06, engine-launch-v1 rev 2, host §10.2.3).
+At review head `89098887d66a51d8a29dd500cfee66578db0a487`, iOS guessed 25 seconds for
+BGTask and completed it without cancelling its runner. BGTaskScheduler and WorkManager
+deliver expiry/stop signals without a numeric deadline. Rev 4 freezes a cancellable
+native-only pass for those callbacks. Valid timed push windows count from callback entry
+and end on expiry, including early revocation. The foreground continues to own engine
+eligibility on Android.
+
+This is an execution change with no new wire or persistence fields. Old and new apps
+interoperate with the same cloud task service, APNs payload, admission records and ledger.
+No migration or release ordering. Any interrupted cloud lease or durable intent remains
+retryable. The shared vector artifact advances to revision 3 with no change to closed
+vocabularies, field shape, thresholds or existing rejection vectors.
+
+The coordinator owns the change and integrates both consumers. iOS ownership is the app
+orchestrator, CloudTaskCenter, background wrapper and lease gates. Android ownership is
+the app wake coordinator, WorkManager adapter and the four host demand producers.
+Acceptance commands are `python3 spec/host/v1/tools/test_engine_launch.py`,
+`bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`,
+the scoped PhoneDSHSim EngineLaunch tests, and
+`bash android/tools/with-android-toolchain.sh ./gradlew :app:testDebugUnitTest :bot:test :net:test`.
+Physical APNs delivery and Android scheduler behaviour require device evidence.
+
+
 ## 4. 分工與證據
 
 - **獨占路徑（不可重疊）**
@@ -307,3 +333,4 @@ Android 的到期账本、系统唤醒投影、完整 ReadySweep、连接器增�
 | 1 | contracts | Initial freeze: host §10.2 + golden, cloud-tasks v1.6, external-admission v1.2, bot v2 §3.3 + connectorUpdate/connector-cursor, UI deletion, platform §14. | `ios-launch`, `ios-bot`, `ios-wake-spike`, `integration-review`, Android |
 | 2 | contracts | Owner-accepted CCR from ios-bot (seq 61451/61452): `proactive-decision`/`proactive-settings` gain `connector-update` with did/skip vectors; §3.3 freezes the escaped `[connector]` held line and the `HeldMessages.block` opening description; five cursor/item/golden/routine questions answered in §3.1; `connector-cursor` GitHub cursor becomes `{since,lastModified}`. Owner ruling (seq 61474/61478): ReadySweep identifiers stay as committed, ownership split now explicit. No push payload/route/ack, UIBackgroundModes, audio-keepalive or push-SDK change. | `ios-launch`, `ios-bot`, `ios-wake-spike`, `integration-review`, Android |
 | 3 | owner (coordinator as contract owner, AGENTS.md §3.1) | User requirement: scheduled tasks must wake the engine; fix the class, not the instance. Host §10.3 host-owned time and intent, engine-launch golden revision 2, reference oracle, `fetch` mode, platform and bot v2 notes (§3.2). | `ios-launch`, `ios-bot`, Android (handoff) |
+| 4 | coordinator / contract owner | Freeze real system-window and cancellation semantics after the #217 review. | iOS and Android |
