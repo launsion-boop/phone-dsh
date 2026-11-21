@@ -4,8 +4,6 @@
 <dict>
 	<key>com.apple.developer.healthkit</key>
 	<true/>
-	<key>com.apple.developer.homekit</key>
-	<true/>
 	<!--
 	  Keychain access for the app's own items.
 

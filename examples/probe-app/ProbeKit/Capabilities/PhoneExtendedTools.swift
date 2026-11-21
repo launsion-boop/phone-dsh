@@ -2,7 +2,6 @@
 
 import ActivityKit
 import CoreLocation
-import HomeKit
 import MusicKit
 import UIKit
 
@@ -45,78 +44,6 @@ public struct PhoneExtendedTools {
         PhoneToolPayload(data: [
             "isFocused": permissions.focusStatus().map(NSNumber.init(value:)) ?? NSNull(),
             "source": "INFocusStatusCenter",
-        ])
-    }
-
-    public func homeList(object: [String: Any]) throws -> PhoneToolPayload {
-        let cursor = try PhoneToolEnvelope.integer(object, "cursor", default: 0, minimum: 0, maximum: 1000)
-        let limit = try PhoneToolEnvelope.integer(object, "limit", default: 20, minimum: 1, maximum: 50)
-        let homes = try permissions.homes().sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        guard cursor <= homes.count else { throw PhoneToolError.invalidArguments("cursor 超出结果范围") }
-        var truncated = false
-        let items = homes.dropFirst(cursor).prefix(limit).map { home -> [String: Any] in
-            let accessories = home.accessories.prefix(50).map { accessory -> [String: Any] in
-                if home.accessories.count > 50 { truncated = true }
-                let services = accessory.services.map { service -> [String: Any] in
-                    [
-                        "id": service.uniqueIdentifier.uuidString,
-                        "name": service.name,
-                        "characteristics": service.characteristics.map { characteristic in
-                            [
-                                "id": characteristic.uniqueIdentifier.uuidString,
-                                "type": characteristic.characteristicType,
-                                "value": characteristic.value ?? NSNull(),
-                                "properties": characteristic.properties,
-                            ]
-                        },
-                    ]
-                }
-                return [
-                    "id": accessory.uniqueIdentifier.uuidString,
-                    "name": accessory.name,
-                    "reachable": accessory.isReachable,
-                    "room": accessory.room?.name ?? NSNull(),
-                    "services": services,
-                ]
-            }
-            return ["id": home.uniqueIdentifier.uuidString, "name": home.name, "accessories": accessories]
-        }
-        let next = cursor + items.count
-        return PhoneToolPayload(data: ["items": items, "count": items.count, "total": homes.count],
-                                nextCursor: next < homes.count ? next : NSNull(),
-                                truncated: truncated || next < homes.count)
-    }
-
-    public func homeSet(object: [String: Any]) async throws -> PhoneToolPayload {
-        try PhoneToolEnvelope.requireConfirmation(object)
-        let homeID = try PhoneToolEnvelope.text(object, "homeId", limit: 64) ?? ""
-        let accessoryID = try PhoneToolEnvelope.text(object, "accessoryId", limit: 64) ?? ""
-        let characteristicID = try PhoneToolEnvelope.text(object, "characteristicId", limit: 64) ?? ""
-        let serviceID = try PhoneToolEnvelope.text(object, "serviceId", required: false, limit: 64)
-        guard object["value"] != nil else { throw PhoneToolError.invalidArguments("缺少 value") }
-        guard let home = try permissions.homes().first(where: { $0.uniqueIdentifier.uuidString == homeID }),
-              let accessory = home.accessories.first(where: { $0.uniqueIdentifier.uuidString == accessoryID }),
-              let service = accessory.services.first(where: {
-                  serviceID == nil || $0.uniqueIdentifier.uuidString == serviceID
-              }),
-              let characteristic = service.characteristics.first(where: {
-                  $0.uniqueIdentifier.uuidString == characteristicID
-              }) else {
-            throw PhoneToolError.noData("未找到对应的家庭、配件或特征")
-        }
-        let raw = object["value"]!
-        let value: Any?
-        switch raw {
-        case is NSNull: value = nil
-        case let bool as Bool: value = bool
-        case let string as String: value = string
-        case let number as NSNumber where number.doubleValue.isFinite: value = number
-        default: throw PhoneToolError.invalidArguments("value 仅支持布尔、有限数字、字符串或 null")
-        }
-        try await characteristic.writeValue(value)
-        return PhoneToolPayload(data: [
-            "status": "written", "homeId": homeID, "accessoryId": accessoryID,
-            "characteristicId": characteristicID,
         ])
     }
 

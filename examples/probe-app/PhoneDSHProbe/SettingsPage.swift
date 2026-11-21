@@ -431,7 +431,7 @@ struct SettingsPage: View {
             return false
         }.count
         return String(format: NativeText("%d / %d 已允许", "%d / %d allowed"),
-                      granted, PhoneCapability.allCases.count)
+                      granted, PhoneCapability.available.count)
     }
 }
 

@@ -24,7 +24,6 @@ public enum PhonePermissionPreviewData {
         .device: .authorized,
         .shortcuts: .authorized,
         .focus: .notDetermined,
-        .homekit: .notDetermined,
         .music: .notDetermined,
         .liveActivity: .authorized,
     ]
