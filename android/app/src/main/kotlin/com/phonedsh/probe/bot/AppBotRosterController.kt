@@ -90,6 +90,15 @@ internal class AppBotRosterController(
     }
 
     @Synchronized
+    fun mainBotId(): String? = roster.mainBotID
+
+    @Synchronized
+    fun driverFor(botId: String): AppBotChatDriver? {
+        if (roster.bots.none { it.id == botId }) return null
+        return drivers.getOrPut(botId) { newDriver(botId) }
+    }
+
+    @Synchronized
     fun domainChanged(botId: String?) {
         drivers[botId]?.domainChanged()
     }

@@ -124,7 +124,7 @@ internal class CloudTaskService(
      * One pull → admit → ack pass (Activity start, after sign-in, switch on).
      * Sends nothing while the feature is off or no account is signed in.
      */
-    fun runPass(): CloudTaskPassReport {
+    fun runPass(dispatch: Boolean = true): CloudTaskPassReport {
         if (!coordinator.isEnabled) {
             retryPendingDelete()
             return CloudTaskPassReport(CloudTaskPassStatus.DISABLED)
@@ -135,7 +135,7 @@ internal class CloudTaskService(
         }
         val report = coordinator.runPass()
         // Admitted records go to the existing dispatch entry; it decides when they run.
-        if (report.admittedIds.isNotEmpty()) runCatching(onAdmitted)
+        if (dispatch && report.admittedIds.isNotEmpty()) runCatching(onAdmitted)
         // A running pass publishes its own result.
         if (report.status != CloudTaskPassStatus.BUSY) publish(report)
         return report

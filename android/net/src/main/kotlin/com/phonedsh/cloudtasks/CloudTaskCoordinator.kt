@@ -220,6 +220,7 @@ class CloudTaskCoordinator(
      * running pass go round once more.
      */
     fun runPass(): CloudTaskPassReport {
+        if (Thread.currentThread().isInterrupted) throw InterruptedException()
         synchronized(flightLock) {
             if (running) {
                 again = true
@@ -283,13 +284,16 @@ class CloudTaskCoordinator(
         val deviceId = CloudTaskIdentity.deviceId(preferences)
             ?: return tally.report(CloudTaskPassStatus.NO_DEVICE_ID)
 
+        if (Thread.currentThread().isInterrupted) throw InterruptedException()
         ensureRegistered(deviceId, tally)?.let { return it }
+        if (Thread.currentThread().isInterrupted) throw InterruptedException()
         sendTerminals(deviceId, tally)?.let { return it }
 
         var drained = false
         var reRegistered = false
         var round = 0
         while (round < maxRounds) {
+            if (Thread.currentThread().isInterrupted) throw InterruptedException()
             if (!isEnabled) return tally.report(CloudTaskPassStatus.DISABLED)
             var pulledAtMs = clock()
             val tasks = when (val reply = client.pull(deviceId, CloudTaskWire.MAX_PULL, LEASE_SECONDS, 0)) {
@@ -321,6 +325,7 @@ class CloudTaskCoordinator(
             val fresh = ArrayList<String>()
             var deferred = 0
             for (element in tasks) {
+                if (Thread.currentThread().isInterrupted) throw InterruptedException()
                 val task = when (element) {
                     is CloudTaskPullElement.Task -> element.task
                     is CloudTaskPullElement.Undecodable -> {
@@ -342,6 +347,7 @@ class CloudTaskCoordinator(
             tally.admittedIds += fresh
             tally.deferred += deferred
             for (chunk in acks.chunked(CloudTaskWire.MAX_ACKS)) {
+                if (Thread.currentThread().isInterrupted) throw InterruptedException()
                 when (val reply = client.ack(deviceId, chunk)) {
                     is CloudTaskReply.Ok -> tally.acksAccepted += reply.value.results.count { it.accepted }
                     else -> return failure(reply, tally)
@@ -499,6 +505,7 @@ class CloudTaskCoordinator(
     // ---- terminal acks (§6, §7)
 
     private fun sendTerminals(deviceId: String, tally: Tally): CloudTaskPassReport? {
+        if (Thread.currentThread().isInterrupted) throw InterruptedException()
         repeat(MAX_TERMINAL_BATCHES) {
             val offered = try {
                 terminals.pending(deviceId, CloudTaskWire.MAX_ACKS)

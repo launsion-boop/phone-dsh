@@ -686,6 +686,7 @@ dependencies {
     // (wal/1) and the exec/1 bridge; :app constructs it and hands its
     // channelHandler to createDemoEngine, so the HELLO's caps are host-derived.
     implementation(project(":dsh"))
+    implementation("androidx.work:work-runtime:2.10.0")
     // The device implementations of the :platform SPI the host takes: Clock,
     // LifecycleSignals and Durability. SecureStore is not part of the host's
     // constructor today, so this module's AndroidSecureStore is not constructed.

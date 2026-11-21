@@ -295,6 +295,30 @@ public class BotSessionRuntime(
         return runTurn(sessionId, BotSessionKind.CHAT, text, id)
     }
 
+    /** One held-message turn on the existing main-chat session. */
+    public fun sendHeldInteraction(text: String, requestId: String): BotSessionTurnResult {
+        require(BotTurnOrigin.parse(requestId).held)
+        return runTurn(ensureMainSession(), BotSessionKind.CHAT, text, requestId, allowSteer = false)
+    }
+
+    /** The routine principal owns its own session and never steers the main chat. */
+    public fun runRoutineTurn(
+        text: String,
+        requestId: String,
+        resumeSessionId: String?,
+        onSession: (String) -> Unit,
+    ): BotSessionTurnResult {
+        require(BotTurnOrigin.parse(requestId).kind == BotTurnOriginKind.ROUTINE)
+        val kind = BotSessionKind.ROUTINE
+        val sessionId = resumeSessionId ?: createSession(kind)
+        onSession(sessionId)
+        return runTurn(sessionId, kind, text, requestId, allowSteer = false)
+    }
+
+    public fun cancelRoutineTurn(sessionId: String) {
+        cancelTurn(sessionId, includeQueued = false)
+    }
+
     /** `cancelMainTurn` (§6.3): no stale-turn id check. */
     public fun cancelMainTurn() {
         val sessionId = ensureMainSession()

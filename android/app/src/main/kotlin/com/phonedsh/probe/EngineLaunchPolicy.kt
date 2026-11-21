@@ -24,6 +24,7 @@ internal object EngineLaunchPolicy {
         userStopped: Boolean,
         needsReset: Boolean,
     ): LaunchDecision {
+        require(leaseRemainingMs == null || leaseRemainingMs >= 0)
         if (needsReset) return LaunchDecision.NEEDS_ATTENTION
         if (userStopped) return LaunchDecision.DEFER
         if (hostState == LaunchHostState.running) return LaunchDecision.READY

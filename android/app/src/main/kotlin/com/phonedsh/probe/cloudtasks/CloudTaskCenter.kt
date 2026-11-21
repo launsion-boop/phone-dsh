@@ -12,7 +12,11 @@ package com.phonedsh.probe.cloudtasks
 import android.content.Context
 import com.phonedsh.account.TonoAccountState
 import com.phonedsh.cloudtasks.HttpUrlConnectionCloudTaskTransport
+import com.phonedsh.cloudtasks.CloudTaskPassStatus
+import com.phonedsh.probe.HostWakeScheduler
 import com.phonedsh.probe.SecureStoreTonoAccountStore
+import com.phonedsh.probe.bot.AppBotProfileStore
+import java.io.File
 import com.phonedsh.probe.SharedPreferenceFile
 import com.phonedsh.probe.TonoAccountHost
 import com.phonedsh.probe.admission.AdmissionTarget
@@ -25,6 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 
 /** The two facts only the view model has. */
@@ -56,7 +61,7 @@ internal class CloudTaskCenter private constructor(context: Context) {
             loadRecord = SecureStoreTonoAccountStore(accountHost.secureStore)::load,
             sessionSignedIn = { accountHost.session.state is TonoAccountState.SignedIn },
         ),
-        presence = { target -> hooks?.presence(target) ?: CloudTaskTargetPresence.UNKNOWN },
+        presence = { target -> hooks?.presence(target) ?: cachedTargetPresence(target) },
         onAdmitted = { hooks?.onAdmitted() },
         appVersion = appVersion(appContext),
     )
@@ -83,6 +88,7 @@ internal class CloudTaskCenter private constructor(context: Context) {
                             else -> service.accountDidSignOut()
                         }
                     }
+                    HostWakeScheduler.get(appContext).setCloudPolling(signedIn && service.isEnabled)
                 }
             }
         }
@@ -93,14 +99,48 @@ internal class CloudTaskCenter private constructor(context: Context) {
         if (!passQueued.compareAndSet(false, true)) return
         lane.execute {
             passQueued.set(false)
-            runCatching { service.runPass() }
+            runCatching { service.runPass() }.onSuccess { report ->
+                if (report.status == CloudTaskPassStatus.COMPLETED) {
+                    lastSuccessfulWakePullMs = android.os.SystemClock.elapsedRealtime()
+                }
+            }
         }
+    }
+
+    /** One owned pass, with no engine or dispatch side effects for a background worker. */
+    suspend fun pullForWake(dispatch: Boolean) = runInterruptible(Dispatchers.IO) {
+        service.runPass(dispatch)
+    }
+
+    @Volatile private var lastSuccessfulWakePullMs: Long? = null
+
+    suspend fun pullForReadySweep(): Boolean {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (lastSuccessfulWakePullMs?.let { now - it < 30_000 } == true) return false
+        val report = pullForWake(dispatch = false)
+        if (report.status == CloudTaskPassStatus.COMPLETED) {
+            lastSuccessfulWakePullMs = android.os.SystemClock.elapsedRealtime()
+        }
+        return report.admittedIds.isNotEmpty()
     }
 
     /** The settings switch. */
     fun setEnabled(value: Boolean) {
         service.markBusy()
-        lane.execute { runCatching { service.setEnabled(value) } }
+        lane.execute {
+            runCatching { service.setEnabled(value) }
+            HostWakeScheduler.get(appContext).setCloudPolling(
+                service.isEnabled && service.signedInAccountId() != null,
+            )
+        }
+    }
+
+    /** A cold worker can authenticate a persisted Bot. Unknown sessions stay in the cloud. */
+    private fun cachedTargetPresence(target: AdmissionTarget): CloudTaskTargetPresence {
+        if (target !is AdmissionTarget.Bot) return CloudTaskTargetPresence.UNKNOWN
+        val profiles = AppBotProfileStore(File(appContext.filesDir, "PhoneDSHBot"), System::currentTimeMillis)
+        val present = runCatching { profiles.read().bots.any { it.id == target.botId } }.getOrDefault(false)
+        return if (present) CloudTaskTargetPresence.PRESENT else CloudTaskTargetPresence.UNKNOWN
     }
 
     /**
