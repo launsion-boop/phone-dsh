@@ -509,7 +509,6 @@ internal fun HostShell(
         chatMention = engine.chatMentionFacts(chatUi.chatId)
     }
     val chatScreenState = engine.chatSurfaceState(chatMention.files, chatMention.sessionTitles)
-    LaunchedEffect(Unit) { engine.startNativeSurface() }
     LaunchedEffect(state is EngineHostState.Running, chatUi.chatId) {
         if (state is EngineHostState.Running) engine.prepareChatSession()
     }

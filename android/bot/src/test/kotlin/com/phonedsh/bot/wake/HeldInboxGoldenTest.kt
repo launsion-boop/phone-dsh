@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 package com.phonedsh.bot.wake
 
+import com.phonedsh.agentcore.JsonObject
+import com.phonedsh.agentcore.JsonString
 import com.phonedsh.bot.routines.FakeClock
 import com.phonedsh.bot.routines.RoutineError
 import com.phonedsh.bot.routines.RoutineTestHarness
@@ -23,6 +25,40 @@ class HeldInboxGoldenTest {
 
     private fun itemFromGolden(value: com.phonedsh.agentcore.JsonValue): WakeInboxItem =
         WakeInboxItem.fromJson(value)
+
+    @Test
+    fun connectorUpdatesRoundTripAndRejectSharedInvalidItems() {
+        val golden = V2Golden.load("held-inbox.phone")
+        RoutineTestHarness(FakeClock(firstAt)).use { harness ->
+            for (name in listOf("connectorUpdateGmail", "connectorUpdateGithub")) {
+                val source = V2Golden.at(golden, "valid", name)!!
+                val result = harness.inbox.enqueue(itemFromGolden(source))
+                assertFalse(result.duplicate)
+                val canonical = JsonObject((source as JsonObject).members.filterValues {
+                    it !is com.phonedsh.agentcore.JsonNull
+                })
+                V2Golden.assertEquivalent(canonical, result.item.toJson(), name)
+                val update = requireNotNull(result.item.connectorUpdate)
+                val rendered = HeldMessages.block(listOf(result.item), lang = "en", timezone = "UTC")
+                assertTrue(rendered.contains("connector updates"))
+                assertTrue(rendered.contains("- [connector] ${update.connector} · ${update.items.size} item(s)"))
+                assertFalse(rendered.contains("- [agent]"))
+            }
+            assertEquals(2, harness.inbox.items().size)
+        }
+        val malformed = V2Golden.objects(golden, "invalid").filterIsInstance<JsonObject>().filter {
+            (it.members["kind"] as? JsonString)?.value == HeldConnectorUpdate.KIND
+        }.map { JsonObject(it.members - "reason") }
+        val semantic = V2Golden.objects(golden, "invalidConnectorUpdate").filterIsInstance<JsonObject>().map {
+            it.members.getValue("record")
+        }
+        assertEquals(9, malformed.size)
+        assertEquals(4, semantic.size)
+        for (item in malformed + semantic) {
+            val id = V2Golden.string(item, "id")
+            assertTrue(id, runCatching { itemFromGolden(item) }.isFailure)
+        }
+    }
 
     @Test
     fun enqueueAndDuplicateMatchTheGolden() {

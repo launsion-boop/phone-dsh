@@ -291,6 +291,15 @@ the wire; the cloud end keeps its own imported package and needs no change.
     本 revision 不重命名，只補 ownership split 句。
   - 沒有新 GAP；本單不關閉任何既有 GAP。
 
+### Android 对齐进度（2026-11-21）
+
+冷启动由宿主触发，聊天页不再重复触发。显式停止和待恢复状态沿用共享决策。
+`EngineLaunchPolicyTest` 直接读取 `engine-launch.json` 的决策正例。
+`HeldInboxGoldenTest` 直接读取 `held-inbox.phone.json`，验证两种连接器暂存记录、
+拒绝无效记录，并核对交给模型的连接器行。
+
+Android 的到期账本、系统唤醒投影、完整 ReadySweep、连接器增量扫描及真机远程唤醒待完成。
+
 ## 5. 修訂紀錄
 
 | revision | 由誰 | 原因（含收到的 CONTRACT CHANGE REQUEST） | 通知了哪些端 |

@@ -136,7 +136,6 @@ public object BotUiStrings {
     public const val ERROR_HISTORYFAILED: String = "历史加载失败：{error}"
     public const val ERROR_ATTACHMENTFAILED: String = "附件「{name}」未附加：{reason}"
     public const val RUNTIME_CONNECTING: String = "正在连接 Bot…"
-    public const val RUNTIME_NOTREADY: String = "Bot 运行时还没有准备好。请先启动引擎，然后重试。"
     public const val INFO_RENAME_EMPTY: String = "Bot 名不能为空。"
     public const val INFO_RENAME_SYNCFAILED: String = "名字已写入对话，但资料同步失败：{error}"
     public const val INFO_RENAME_FAILED: String = "改名失败：{error}"
@@ -265,7 +264,6 @@ public object BotUiStrings {
         "error.historyFailed" to ERROR_HISTORYFAILED,
         "error.attachmentFailed" to ERROR_ATTACHMENTFAILED,
         "runtime.connecting" to RUNTIME_CONNECTING,
-        "runtime.notReady" to RUNTIME_NOTREADY,
         "info.rename.empty" to INFO_RENAME_EMPTY,
         "info.rename.syncFailed" to INFO_RENAME_SYNCFAILED,
         "info.rename.failed" to INFO_RENAME_FAILED,

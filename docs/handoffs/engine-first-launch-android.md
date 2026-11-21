@@ -1,6 +1,6 @@
 # 交接给 Android：引擎优先启动、静默后台启动、远程唤醒与宿主拥有的时间
 
-记录时间：2026-11-20。iOS 端已在分支 `feat/engine-first-launch` 实现（PR 见本文件所在提交的 PR）。**Android 端未开始**，由 Android 同事实现；本轮没有改动 `android/**`。本文件是交接说明，不是契约：权威始终是下面列出的 spec、schema 和 golden。
+记录时间：2026-11-20。iOS 端已在分支 `feat/engine-first-launch` 实现（PR 见本文件所在提交的 PR）。Android 已接入冷启动决策和连接器暂存消息。到期账本、系统调度、完整 ReadySweep 和增量扫描仍待实现。本文件是交接说明，不是契约：权威始终是下面列出的 spec、schema 和 golden。
 
 ## 1. 先读
 
@@ -23,7 +23,7 @@
 
 参考 oracle：`python3 spec/host/v1/tools/test_engine_launch.py`。它独立实现了决策顺序、步骤门、投影与严格解码，并检查 README 表格与 golden 一致。Kotlin 的实现应该与它给出相同的答案。
 
-**已知会坏的 Android 测试**（契约单元已指出）：`android/bot` 的 `ProactiveVectorTest`、`HeldInboxGoldenTest` 读取共享的 `proactive.json` / `held-inbox.phone.json`，需要新增 `ProactiveKind.CONNECTOR_UPDATE` 和 connector-update held 分支；`android/lib` 的 `BotUiStrings.kt` 仍含已删除的 `runtime.notReady`，需要重新生成。
+Android 的 `EngineLaunchPolicyTest` 直接运行共享启动决策正例。`ProactiveVectorTest` 与 `HeldInboxGoldenTest` 直接读取共享的 `proactive.json` 与 `held-inbox.phone.json`。已移除 `BotUiStrings.kt` 中过期的 `runtime.notReady`。
 
 ## 3. 架构要点（与 iOS 相同的不变量，不同的通道）
 
@@ -59,7 +59,7 @@ Android 通道映射（platform §14.2）：`residentTimerAtMs` 对应进程内�
 
 ## 6. 验收（Android 端）
 
-- `bash android/tools/with-android-toolchain.sh ./gradlew -p android :bot:test :net:testDebugUnitTest :app:testDebugUnitTest --no-daemon`，其中必须有读取上面共享 golden 的测试。
+- `bash android/tools/with-android-toolchain.sh ./gradlew :bot:test :net:test :app:testDebugUnitTest --no-daemon`，其中必须有读取上面共享 golden 的测试。
 - `bash scripts/ci/check.sh --only phone-android-structure,phone-android-tests,phone-spec,phone-cross-tree`
 - 变更单中 Android 一端的状态从 `not started` 更新为实际状态，并按 AGENTS.md §3.5 给出交接证据。
 - 设备上的 WorkManager / FGS 时序只能用真机证明；模拟器结果记为 `NOT_RUN`，不能当作设备结论。
