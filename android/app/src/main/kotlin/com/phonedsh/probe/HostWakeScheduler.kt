@@ -144,6 +144,20 @@ internal class HostWakeScheduler private constructor(private val context: Contex
         if (next != null) submit(next, ExistingWorkPolicy.APPEND_OR_REPLACE)
     }
 
+    fun onCloudPush() {
+        try {
+            val request = OneTimeWorkRequestBuilder<HostWakeWorker>()
+                .setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
+                .setInputData(workDataOf("cloudPush" to true))
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                CLOUD_PUSH, ExistingWorkPolicy.APPEND_OR_REPLACE, request,
+            )
+        } catch (failure: IllegalStateException) {
+            Log.w(TAG, "Push scheduling unavailable: ${failure.javaClass.simpleName}")
+        }
+    }
+
     /** Periodic polling is the v1 cloud fallback when no push transport exists. */
     fun setCloudPolling(enabled: Boolean) {
         try {
@@ -179,6 +193,7 @@ internal class HostWakeScheduler private constructor(private val context: Contex
         private const val TAG = "PhoneDshWake"
         private const val WORK = "pdsh.host.wake"
         private const val CLOUD_POLL = "pdsh.host.cloud-poll"
+        private const val CLOUD_PUSH = "pdsh.host.cloud-push"
         @Volatile private var instance: HostWakeScheduler? = null
 
         fun get(context: Context): HostWakeScheduler = instance ?: synchronized(this) {
@@ -197,9 +212,14 @@ class HostWakeWorker(context: Context, parameters: WorkerParameters) : Coroutine
             ProcessAdmissionJournal.get(applicationContext.filesDir)?.sweep()
                 ?: return@withContext Result.retry()
             coroutineContext.ensureActive()
-            CloudTaskCenter.get(applicationContext).pullForWake(dispatch = false)
+            val push = inputData.getBoolean("cloudPush", false)
+            val center = CloudTaskCenter.get(applicationContext)
+            val report = center.pullForWake(dispatch = push && center.hasForegroundHost)
             coroutineContext.ensureActive()
-            if (!inputData.getBoolean("cloudPoll", false)) scheduler.projectAfterWorker()
+            if (!push && !inputData.getBoolean("cloudPoll", false)) scheduler.projectAfterWorker()
+            if (push && report.status == com.phonedsh.cloudtasks.CloudTaskPassStatus.UNREACHABLE) {
+                return@withContext Result.retry()
+            }
             Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled

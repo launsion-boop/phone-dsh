@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // phone-dsh SDK — PhoneDSH: phone task queue wire shapes (phone side).
 //
-// spec/v1/cloud-tasks.md, revision `cloud-tasks-v1.6`. Pure values: the closed
+// spec/v1/cloud-tasks.md, revision `cloud-tasks-v1.7`. Pure values: the closed
 // request validators, the typed bodies the phone sends, the open decoders for
 // what the cloud answers (unknown members are ignored, the named ones are
 // required), the sealing AAD and the push recogniser. The
@@ -15,7 +15,7 @@ import PhoneDSHGateway
 public enum CloudTasks {
     /// v1.6 changes only the phone's behaviour after a push (host §10.2 wake lease); the
     /// payload, routes, ack and limits are byte-identical to v1.5.
-    public static let revision = "cloud-tasks-v1.6"
+    public static let revision = "cloud-tasks-v1.7"
     /// The cloud origin of tono-account.md §1; the only host this feature contacts.
     public static let origin = URL(string: TonoCloudResponsePolicy.cloudOrigin)!
     public static let suite = "hpke-p256-sha256-aes128gcm"
@@ -311,12 +311,15 @@ public struct CloudTaskDeviceRegistration: Equatable, Sendable {
     public var appVersion: String
     public var key: CloudTaskDeviceKey
     public var push: CloudTaskPush?
+    public var fcmToken: String?
 
-    public init(platform: Platform = .ios, appVersion: String, key: CloudTaskDeviceKey, push: CloudTaskPush?) {
+    public init(platform: Platform = .ios, appVersion: String, key: CloudTaskDeviceKey,
+                push: CloudTaskPush?, fcmToken: String? = nil) {
         self.platform = platform
         self.appVersion = appVersion
         self.key = key
         self.push = push
+        self.fcmToken = fcmToken
     }
 
     /// Decodes a body that passes the contract's rules; anything else throws.
@@ -331,20 +334,35 @@ public struct CloudTaskDeviceRegistration: Equatable, Sendable {
         }
         let key = try CloudTaskDeviceKey(json: object["key"])
         var push: CloudTaskPush?
+        var fcmToken: String?
         if !(object["push"] is NSNull) {
-            push = try CloudTaskPush(json: object["push"])
-            guard platform == .ios else { throw CloudTaskWireError("push provider") }
+            if platform == .ios {
+                push = try CloudTaskPush(json: object["push"])
+            } else {
+                let address = try CloudTaskJSON.closed(object["push"], ["provider", "token"], "push")
+                guard address["provider"] as? String == "fcm",
+                      let token = address["token"] as? String, (1...4096).contains(token.utf8.count),
+                      token.utf8.allSatisfy({ (0x21...0x7e).contains($0) }) else {
+                    throw CloudTaskWireError("FCM address")
+                }
+                fcmToken = token
+            }
         }
-        self.init(platform: platform, appVersion: version, key: key, push: push)
+        self.init(platform: platform, appVersion: version, key: key, push: push, fcmToken: fcmToken)
     }
 
     var json: [String: Any] {
-        ["schema": Self.schema, "platform": platform.rawValue, "app_version": appVersion,
-         "key": key.json, "push": push.map { $0.json as Any } ?? NSNull()]
+        let address: Any
+        if let fcmToken { address = ["provider": "fcm", "token": fcmToken] }
+        else if let push { address = push.json }
+        else { address = NSNull() }
+        return ["schema": Self.schema, "platform": platform.rawValue, "app_version": appVersion,
+                "key": key.json, "push": address]
     }
 
     /// The request body. Throws instead of producing a body the contract rejects.
     public func encoded() throws -> Data {
+        guard push == nil || fcmToken == nil else { throw CloudTaskWireError("ambiguous push address") }
         let object = json
         _ = try Self(json: object)
         return CloudTaskJSON.encode(object)

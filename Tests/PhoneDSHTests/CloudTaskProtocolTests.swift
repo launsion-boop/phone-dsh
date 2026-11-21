@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// spec/v1/cloud-tasks.md (cloud-tasks-v1.6), phone side. The shared cases judge
+// spec/v1/cloud-tasks.md (cloud-tasks-v1.7), phone side. The shared cases judge
 // the real validators, body encoders, AAD builder, HPKE open and push
 // recogniser. Nothing here contacts pdsh.tonoai.cn. The private scalars come
 // from the shared vectors and are test-only values.
@@ -78,7 +78,7 @@ final class CloudTaskProtocolTests: XCTestCase {
             XCTAssertNoThrow(try CloudTaskWire.validateRequest(data: produced), id)
         }
         XCTAssertEqual(schemas, ["phone-device/v1", "phone-task-submit/v1", "phone-task-ack/v1"])
-        XCTAssertEqual(encoded, 3)
+        XCTAssertEqual(encoded, 4)
     }
 
     func testEveryInvalidMessageIsRejected() throws {

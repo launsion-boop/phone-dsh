@@ -38,7 +38,7 @@ internal data class CloudTaskUiFacts(
     val busy: Boolean = false,
 )
 
-/** The settings row's status line, in plain words (iOS `CloudTaskStatusText`; Android has no push). */
+/** The settings row's status line, in plain words (iOS `CloudTaskStatusText`). */
 internal object CloudTaskStatusText {
     const val OFF: String = "未开启"
     const val ON: String = "已开启"
@@ -90,6 +90,7 @@ internal class CloudTaskService(
     appVersion: String,
     clock: () -> Long = System::currentTimeMillis,
     sleepSeconds: (Long) -> Unit = { seconds -> Thread.sleep(seconds * 1000) },
+    fcmToken: () -> String? = { null },
 ) {
     val bridge = CloudTaskAdmissionBridge(journal, account, presence)
 
@@ -102,6 +103,7 @@ internal class CloudTaskService(
         terminals = bridge,
         appVersion = appVersion,
         clock = clock,
+        fcmToken = fcmToken,
     )
 
     /** The switch was turned off but the cloud did not confirm the DELETE. In memory only. */

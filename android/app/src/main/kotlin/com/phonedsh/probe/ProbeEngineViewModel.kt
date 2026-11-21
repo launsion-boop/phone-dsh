@@ -2584,7 +2584,11 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     private val cloudTaskHooks = object : CloudTaskHostHooks {
         override fun presence(target: AdmissionTarget): CloudTaskTargetPresence = cloudTaskTargetPresence(target)
 
-        override fun onAdmitted() = chatSendQueue.onAdmission()
+        override val inForeground: Boolean get() = appForeground
+
+        override fun onAdmitted() {
+            requestReadySweep()
+        }
     }
 
     /**

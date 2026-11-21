@@ -166,6 +166,7 @@ class CloudTaskCoordinator(
     private val unavailableHoldMs: Long = 10 * 60 * 1000L,
     private val newKeyPair: () -> CloudTaskKeyPair = { CloudTaskCrypto.generateKeyPair() },
     private val newKeyId: () -> String = { CloudTaskIdentity.newKeyId() },
+    private val fcmToken: () -> String? = { null },
 ) {
     private val flightLock = Any()
     private var running = false
@@ -176,6 +177,8 @@ class CloudTaskCoordinator(
 
     // In-memory only, all under workLock.
     private var registeredKeyId: String? = null
+    private var registeredFcmToken: String? = null
+    private var unsupportedFcmToken: String? = null
     private var lastKeyId: String? = null
     private var unsentRecord: CloudTaskKeyRecord? = null
     private val previousKeyIds = LinkedHashSet<String>()
@@ -427,7 +430,9 @@ class CloudTaskCoordinator(
      * otherwise create one, save it, then `PUT`. Returns a report on failure.
      */
     private fun ensureRegistered(deviceId: String, tally: Tally): CloudTaskPassReport? {
-        if (registeredKeyId != null) return null
+        val wantedToken = fcmToken()?.takeIf(CloudTaskWire::isFcmToken)
+        var effectiveToken = wantedToken?.takeUnless { it == unsupportedFcmToken }
+        if (registeredKeyId != null && registeredFcmToken == effectiveToken) return null
         val mine = when (val reply = client.listDevices()) {
             is CloudTaskReply.Ok -> reply.value.devices.firstOrNull { it.deviceId == deviceId }
             else -> return failure(reply, tally)
@@ -452,7 +457,21 @@ class CloudTaskCoordinator(
             return tally.report(CloudTaskPassStatus.KEY_STORE_UNAVAILABLE)
         }
         unsentRecord = record
-        var reply = client.registerDevice(deviceId, appVersion, record.public)
+        fun register(key: CloudTaskPublicKey): CloudTaskReply<CloudTaskDeviceAck> {
+            val reply = client.registerDevice(deviceId, appVersion, key, effectiveToken)
+            if (effectiveToken != null && reply is CloudTaskReply.Refused &&
+                reply.status == 400 && reply.code == "invalid_request"
+            ) {
+                val legacy = client.registerDevice(deviceId, appVersion, key)
+                if (legacy is CloudTaskReply.Ok) {
+                    unsupportedFcmToken = effectiveToken
+                    effectiveToken = null
+                }
+                return legacy
+            }
+            return reply
+        }
+        var reply = register(record.public)
         if (reply is CloudTaskReply.Refused && reply.status == 409 && reply.code == "key_mismatch") {
             // §2: the cloud holds another key under this `key_id`. A `key_id` names one key, so
             // create a new key with a new id and register again — once; a second refusal is reported.
@@ -466,7 +485,7 @@ class CloudTaskCoordinator(
             previousKeyIds += replaced
             record = created
             unsentRecord = created
-            reply = client.registerDevice(deviceId, appVersion, created.public)
+            reply = register(created.public)
         }
         return when (reply) {
             is CloudTaskReply.Ok -> {
@@ -475,6 +494,7 @@ class CloudTaskCoordinator(
                 if (mine != null && mine.key.keyId != record.keyId) previousKeyIds += mine.key.keyId
                 lastKeyId?.let { if (it != record.keyId) previousKeyIds += it }
                 registeredKeyId = record.keyId
+                registeredFcmToken = effectiveToken
                 lastKeyId = record.keyId
                 unsentRecord = null
                 null

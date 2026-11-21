@@ -18,6 +18,7 @@ import com.phonedsh.gateway.JsonValue
 import java.nio.charset.StandardCharsets
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -78,6 +79,25 @@ class CloudTaskGoldenTest {
         )
         assertArrayEquals(GatewayJson.canonicalBytes(golden), built)
         assertEquals(JsonValue.Null, (GatewayJson.parseOrNull(built) as JsonValue.Obj).get("push"))
+    }
+
+    @Test
+    fun fcmRegistrationAndHintMatchTheSharedContract() {
+        val golden = rows(cases.obj("messages")!!, "valid")
+            .first { it.string("id") == "device-android-fcm" }.obj("message")!!
+        val key = golden.obj("key")!!
+        val token = golden.obj("push")!!.string("token")!!
+        val built = CloudTaskWire.deviceBody(
+            golden.string("app_version")!!,
+            CloudTaskPublicKey(key.string("key_id")!!, CloudTaskWire.base64UrlDecode(key.string("public_key")!!)),
+            token,
+        )
+        assertArrayEquals(GatewayJson.canonicalBytes(golden), built)
+        val hint = cases.obj("constants")!!.obj("fcmData")!!
+        val data = mapOf("pdsh_v" to hint.string("pdsh_v")!!, "pdsh_kind" to hint.string("pdsh_kind")!!)
+        assertTrue(CloudTaskWire.isTaskPush(data))
+        assertFalse(CloudTaskWire.isTaskPush(data + ("pdsh_v" to "2")))
+        assertFalse(CloudTaskWire.isTaskPush(data + ("task_id" to "must-not-be-in-push")))
     }
 
     @Test

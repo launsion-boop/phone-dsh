@@ -16,9 +16,15 @@
 - 前台可运行已有主 Bot 的普通 routine，审批状态按持久 ID 对账并恢复可继续的 run。带完成条件
   验证的 routine 暂留在到期状态，等待独立 verifier 的实现。Android 仍缺 routine 到期系统通知及
   审批系统通知投影；当前的审批对账只作用于 App 状态与 routine。
-- v1 Android 没有 FCM／厂商推送接入，WorkManager 是系统择时的拉取通道。无运行时事实时，无法
-  确认目标的任务留在云端，不抢先 ACK。TonoLink／BLE、LAN／PCLink 的挂起入口和设备端能力仍待
-  接线与真机验证。
+- cloud-tasks v1.7 的 Android FCM 回调将任务提示交给 WorkManager。它复用 iOS 的账号、
+  云端任务队列、加密拉取和持久确认。在缺少配置或 Google Play 服务的设备保留择时补拉。
+  无法确认目标的任务留在云端，不抢先 ACK。TonoLink／BLE、LAN／PCLink 的挂起入口和设备端
+  能力仍待接线与真机验证。
+
+Android Firebase 客户端配置由 Gradle 注入 `pdsh.fcm.appId`、`pdsh.fcm.senderId`、
+`pdsh.fcm.projectId` 和 `pdsh.fcm.apiKey`。账号登录并开启云端任务后才请求 FCM token。
+服务端 Firebase 服务账号与 APNs 签名凭据由云端环境注入。真机送达、非 GMS 设备和后台执行
+时序仍需验证。
 
 本文件是交接说明，权威始终是下面列出的 spec、schema 和 golden。
 

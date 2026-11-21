@@ -87,6 +87,8 @@ internal class FakeCloud(var now: Long = 1_794_700_000_000) : CloudTaskTransport
     val loseRequestOnce = ArrayList<String>()
 
     /** Members added to every pull answer, to exercise closed decoding. */
+    var allowFcm = true
+
     var extraPullMember: Pair<String, JsonValue>? = null
 
     /** Served verbatim as the `tasks` of the next pull, once. */
@@ -147,6 +149,9 @@ internal class FakeCloud(var now: Long = 1_794_700_000_000) : CloudTaskTransport
     )
 
     private fun register(deviceId: String, body: JsonValue.Obj?): CloudTaskHttpAnswer {
+        if (!allowFcm && body?.obj("push")?.string("provider") == "fcm") {
+            return error(400, "invalid_request")
+        }
         try {
             CloudTaskWire.validateRequest(body ?: JsonValue.Null)
         } catch (_: CloudTaskWireException) {

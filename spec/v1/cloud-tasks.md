@@ -6,21 +6,21 @@ cases agree that openness reaches nested `target` and `sealed`; v1.3 names the a
 bytes that open but are not a task text; v1.4 forbids swapping the key under one `key_id`; v1.5 removes a
 self-contradictory empty-plaintext case and writes down the clock and re-send bounds; v1.6 lets a
 background push request a wake lease from the host orchestrator
-[host/v1/README.md §10.2](../host/v1/README.md) and leaves the payload, routes, ack and limits
+[host/v1/README.md §10.2](https://github.com/launsion-boop/phone-dsh/blob/8a9394708/spec/host/v1/README.md) and leaves the payload, routes, ack and limits
 byte-for-byte unchanged from v1.5; v1.7 adds the Android FCM transport). Each provider's
 online delivery requires configuration and device evidence.
 Owner: P05. Change record:
-[PC-20261116-cloud-task-queue](../../docs/protocol-changes/PC-20261116-cloud-task-queue.md).
-Shared cases: [golden/cloud-tasks/cases.json](golden/cloud-tasks/cases.json), the judge where this
+[PC-20261116-cloud-task-queue](https://github.com/launsion-boop/phone-dsh/blob/8a9394708/docs/protocol-changes/PC-20261116-cloud-task-queue.md).
+Shared cases: [golden/cloud-tasks/cases.json](https://github.com/launsion-boop/phone-dsh/blob/8a9394708/spec/v1/golden/cloud-tasks/cases.json), the judge where this
 text could be read two ways. Reference oracle: `spec/v1/tools/test_cloud_tasks.py`.
 
 Another client signed in to the same tono account leaves a task for one phone. The cloud keeps
 it durably until that phone confirms it wrote the task into its own admission journal
-([external-admission.md](../host/v1/external-admission.md)). The phone runs the task; the cloud
+([external-admission.md](https://github.com/launsion-boop/phone-dsh/blob/8a9394708/spec/host/v1/external-admission.md)). The phone runs the task; the cloud
 never does. This is the producer **and** consumer contract: the cloud service
 (`TonoTeam/phone-dsh-cloud`) imports this file and the cases as a whole package under
 `contracts/phone-tasks/v1/` (flat: this file, `cases.json`, the oracle; the oracle reads its cases
-from `PDSH_CLOUD_TASK_CASES` when set; links in this file resolve only in the source repository)
+from `PDSH_CLOUD_TASK_CASES` when set; links point to the frozen source revision)
 and does not edit them.
 
 ## 1. Boundaries

@@ -118,11 +118,12 @@ class CloudTaskClient(
 ) {
     private val policy = TonoCloudResponsePolicy.PRODUCTION
 
-    /** `PUT /v1/phone/devices/{device_id}` with `platform: "android"` and `push: null`. */
-    fun registerDevice(deviceId: String, appVersion: String, key: CloudTaskPublicKey): CloudTaskReply<CloudTaskDeviceAck> {
+    /** `PUT /v1/phone/devices/{device_id}` with the Android push address when available. */
+    fun registerDevice(deviceId: String, appVersion: String, key: CloudTaskPublicKey,
+                       fcmToken: String? = null): CloudTaskReply<CloudTaskDeviceAck> {
         if (!CloudTaskWire.isDeviceId(deviceId)) return CloudTaskReply.ProtocolError
         val body = try {
-            CloudTaskWire.deviceBody(appVersion, key)
+            CloudTaskWire.deviceBody(appVersion, key, fcmToken)
         } catch (_: CloudTaskWireException) {
             return CloudTaskReply.ProtocolError
         }

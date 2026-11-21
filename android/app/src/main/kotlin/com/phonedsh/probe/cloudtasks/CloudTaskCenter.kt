@@ -10,9 +10,12 @@
 package com.phonedsh.probe.cloudtasks
 
 import android.content.Context
+import com.google.firebase.FirebaseApp
 import com.phonedsh.account.TonoAccountState
 import com.phonedsh.cloudtasks.HttpUrlConnectionCloudTaskTransport
 import com.phonedsh.cloudtasks.CloudTaskPassStatus
+import com.phonedsh.cloudtasks.CloudTaskWire
+import com.phonedsh.platform.SecureLookup
 import com.phonedsh.probe.HostWakeScheduler
 import com.phonedsh.probe.SecureStoreTonoAccountStore
 import com.phonedsh.probe.bot.AppBotProfileStore
@@ -29,6 +32,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 
@@ -39,6 +43,8 @@ internal interface CloudTaskHostHooks {
 
     /** A pass admitted new records: the existing dispatch entry looks at the journal. */
     fun onAdmitted()
+
+    val inForeground: Boolean get() = false
 }
 
 internal class CloudTaskCenter private constructor(context: Context) {
@@ -64,9 +70,39 @@ internal class CloudTaskCenter private constructor(context: Context) {
         presence = { target -> hooks?.presence(target) ?: cachedTargetPresence(target) },
         onAdmitted = { hooks?.onAdmitted() },
         appVersion = appVersion(appContext),
+        fcmToken = ::readFcmToken,
     )
 
     val facts: StateFlow<CloudTaskUiFacts> = service.facts
+    val isEnabled: Boolean get() = service.isEnabled
+    val hasForegroundHost: Boolean get() = hooks?.inForeground == true
+
+    private fun readFcmToken(): String? {
+        if (FirebaseApp.getApps(appContext).isEmpty()) return null
+        return runBlocking(Dispatchers.IO) {
+            (accountHost.secureStore.get(FCM_TOKEN) as? SecureLookup.Found)?.value?.toString(Charsets.UTF_8)
+        }
+    }
+
+    fun pushTokenRotated(token: String) {
+        if (!CloudTaskWire.isFcmToken(token)) return
+        lane.execute {
+            runCatching {
+                if (readFcmToken() != token) {
+                    runBlocking(Dispatchers.IO) {
+                        accountHost.secureStore.put(FCM_TOKEN, token.toByteArray(Charsets.UTF_8))
+                    }
+                    service.runPass(dispatch = hasForegroundHost)
+                }
+            }
+        }
+    }
+
+    private fun refreshFcmTokenIfEnabled() {
+        if (service.isEnabled && service.signedInAccountId() != null) {
+            requestFcmToken(appContext, ::pushTokenRotated)
+        }
+    }
 
     init {
         // Follows the account: a sign-in runs a pass; a sign-out (the user's, or one
@@ -89,6 +125,7 @@ internal class CloudTaskCenter private constructor(context: Context) {
                         }
                     }
                     HostWakeScheduler.get(appContext).setCloudPolling(signedIn && service.isEnabled)
+                    if (signedIn) refreshFcmTokenIfEnabled()
                 }
             }
         }
@@ -99,6 +136,7 @@ internal class CloudTaskCenter private constructor(context: Context) {
         if (!passQueued.compareAndSet(false, true)) return
         lane.execute {
             passQueued.set(false)
+            refreshFcmTokenIfEnabled()
             runCatching { service.runPass() }.onSuccess { report ->
                 if (report.status == CloudTaskPassStatus.COMPLETED) {
                     lastSuccessfulWakePullMs = android.os.SystemClock.elapsedRealtime()
@@ -132,6 +170,7 @@ internal class CloudTaskCenter private constructor(context: Context) {
             HostWakeScheduler.get(appContext).setCloudPolling(
                 service.isEnabled && service.signedInAccountId() != null,
             )
+            if (value) refreshFcmTokenIfEnabled()
         }
     }
 
@@ -160,6 +199,7 @@ internal class CloudTaskCenter private constructor(context: Context) {
     fun signedInAccountId(): String? = runCatching { service.signedInAccountId() }.getOrNull()
 
     companion object {
+        private const val FCM_TOKEN = "cloud-tasks.fcm-token"
         @Volatile
         private var instance: CloudTaskCenter? = null
 
