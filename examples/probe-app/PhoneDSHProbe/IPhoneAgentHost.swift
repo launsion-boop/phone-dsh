@@ -118,67 +118,94 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
 
     // MARK: unlock from the mirrored screen (tonolink-board.md §4.4)
 
+    /// Everything the unlock decides goes to the voice log too: it is the only record of what
+    /// the screen was taken for. Never the passcode.
     private func unlockLog(_ line: String) {
         logger.info("\(line, privacy: .public)")
-        TonoLinkVoiceHost.shared.log(line)
+        TonoLinkVoiceHost.shared.log("unlock: " + line)
     }
 
     /// What the mirror shows about the lock, or nil when there is no usable frame or no clear answer.
-    private func lockScreen() async -> IPhoneLockScreen? {
-        guard let shot = try? await screen.snapshot(newerThan: nil, fresh: 2, timeout: .seconds(3)) else { return nil }
+    private func lockScreen(_ moment: String) async -> IPhoneLockScreen? {
+        guard let shot = try? await screen.snapshot(newerThan: nil, fresh: 2, timeout: .seconds(3)) else {
+            unlockLog("screen \(moment) = no frame")
+            return nil
+        }
         let frame = IPhoneFrame(jpeg: shot.jpeg, width: shot.width, height: shot.height, frame: shot.frame)
-        return try? await IPhoneLockScreen.classify(frame)
+        do {
+            let kind = try await IPhoneLockScreen.classify(frame)
+            unlockLog("screen \(moment) = \(kind?.rawValue ?? "unclear") frame=\(shot.frame)")
+            return kind
+        } catch {
+            unlockLog("screen \(moment) = model failed: \(error)")
+            return nil
+        }
     }
 
-    /// When the mirrored screen shows the lock, types the owner's saved passcode through the
-    /// board's keyboard over BLE, and only once the passcode page itself is on the screenshot.
-    /// No device-lock notification is used (Apple ITMS-90699): the app in front is not locked, and
-    /// otherwise the screenshot decides. Nothing is typed without a saved passcode, on an unclear
-    /// screenshot, or after three failures in a day. The passcode is never logged or put in an error.
-    func unlockIfPasscodeShown() async throws {
-        // In front with its data readable: the phone is in use, no model call is spent on it.
+    /// Protected data follows an unlock by a moment. Still unavailable after it: the phone is
+    /// locked and was not unlocked here (no saved passcode, or an unclear screenshot).
+    private func waitForProtectedData() async throws {
+        for _ in 0..<12 where !UIApplication.shared.isProtectedDataAvailable { try await Task.sleep(for: .milliseconds(250)) }
+        guard UIApplication.shared.isProtectedDataAvailable else {
+            throw IPhoneAgentError("请先解锁手机，再重试手机任务")
+        }
+    }
+
+    /// Task start (after the board's pointer woke the screen, so the frame is live): unlock when
+    /// the mirrored screen is the lock screen or the passcode page. The app in front is in use.
+    private func unlockIfLockShown() async throws {
         if UIApplication.shared.applicationState == .active, UIApplication.shared.isProtectedDataAvailable { return }
-        let before = await lockScreen()
-        logger.info("unlock: screen before = \(before?.rawValue ?? "unclear", privacy: .public)")
-        // Unlocked and in another app: a key now would land in that app.
-        if before == .other || (before == nil && UIApplication.shared.isProtectedDataAvailable) { return }
+        guard let kind = await lockScreen("at task start"), kind != .other else { return }
+        try await unlock()
+    }
+
+    /// Types the owner's saved passcode through the board's keyboard over BLE, and only once the
+    /// passcode page itself is on the screenshot. No device-lock notification is used (Apple
+    /// ITMS-90699): the screenshot decides. Nothing is typed without a saved passcode, on an
+    /// unclear screenshot, or after three failures in a day. The passcode is never logged or put
+    /// in an error. A ctrl link of its own, as before PC-20261117: the voice link carries one
+    /// command at a time and the turn's lights use it while a task runs.
+    func unlock() async throws {
         let store = TonoLinkUnlockStore.shared
         guard let passcode = store.passcode() else {
+            unlockLog("no saved passcode")
             throw IPhoneAgentError("手机锁着：请先解锁手机。在 TonoLink 面板的「手机控制」里存一次锁屏密码，以后会自动解锁")
         }
-        if let reason = store.refusal() { throw IPhoneAgentError(reason) }
-        let shared = await TonoLinkVoiceHost.shared.idleCtrlLink()
-        let own = shared == nil ? TonoLinkCtrlBLE(nameHint: TonoLinkVoiceHost.boardNamePrefix) : nil
-        defer { own?.disconnect() }
-        let link: TonoLinkCtrlLink = shared ?? own!
+        if let reason = store.refusal() { unlockLog("paused: 3 failures today"); throw IPhoneAgentError(reason) }
+        let link = TonoLinkCtrlBLE(nameHint: TonoLinkVoiceHost.boardNamePrefix)
+        defer { link.disconnect() }
         var seen: IPhoneLockScreen?
         let outcome = try await TonoLinkUnlock.run(link: link, seq: UInt16.random(in: 50_000...60_000), passcode: passcode,
                                                    stillLocked: { [weak self] in
-            seen = await self?.lockScreen()
-            // Type only when the passcode page is on the screenshot.
+            // The page slides in after the wake key: look up to three times. Type only on `passcode`.
+            for attempt in 1...3 {
+                seen = await self?.lockScreen("after wake key (\(attempt))")
+                if seen == .passcode || seen == .other { break }
+                try? await Task.sleep(for: .milliseconds(800))
+            }
             return seen == .passcode
         })
-        logger.info("unlock: screen after wake = \(seen?.rawValue ?? "unclear", privacy: .public)")
         switch outcome {
         case .unlockedByWake:
-            if seen == .other { return }   // no passcode was needed
+            if seen == .other { unlockLog("no passcode needed"); return }
+            unlockLog("passcode page not seen: nothing typed")
             throw IPhoneAgentError("手机锁着，但镜像画面上没有出现密码输入页，没有输入密码：请手动解锁手机")
         case .refused(let step, let answer):
-            unlockLog("unlock: board stopped at step \(step): \(answer)")
+            unlockLog("board stopped at step \(step): \(answer)")
             throw IPhoneAgentError("自动解锁没有完成：板子没有执行键盘命令，请手动解锁手机")
         case .typed:
-            break
+            unlockLog("typed")
         }
         let deadline = ContinuousClock.now + .seconds(8)
         while ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(1200))
-            if await lockScreen() == .other {
-                unlockLog("unlock: unlocked")
+            if await lockScreen("after typing") == .other {
+                unlockLog("unlocked")
                 return
             }
         }
         store.recordFailure()
-        unlockLog("unlock: still locked after typing (failures today \(store.failuresToday))")
+        unlockLog("still locked after typing (failures today \(store.failuresToday))")
         throw IPhoneAgentError("自动解锁没有成功（密码可能不对）：请手动解锁手机，或在 TonoLink 面板里重新保存密码")
     }
 
@@ -186,10 +213,6 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
 
     func prepare() async throws {
         screen.start()
-        try await unlockIfPasscodeShown()
-        guard UIApplication.shared.isProtectedDataAvailable else {
-            throw IPhoneAgentError("请先解锁手机，再重试手机任务")
-        }
         try await hands.ensureHID()
         // The board decides whether a mirror is running: the viewer keeps the last decoded frame
         // after a mirror ends, so a frame on hand is not proof of a live screen.
@@ -202,6 +225,9 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
             let warmup = ContinuousClock.now + .seconds(4)
             while ContinuousClock.now < warmup {
                 if (try? await screen.snapshot()) != nil {
+                    // Before anything taps: ensureHID's pointer move woke the screen, so this frame is live.
+                    try await unlockIfLockShown()
+                    try await waitForProtectedData()
                     await checkAssistiveButtonMoved()
                     await learnMirrorRouteIfNeeded()
                     return
@@ -520,6 +546,11 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
                 return "searched \(query) in Spotlight and pressed Return twice (the first only committed the keyboard's input)"
             }
             return "searched \(query) in Spotlight and pressed Return (top hit)"
+        case "unlock":
+            // The model saw the lock screen or the passcode page mid-task (§4.4). The screenshot
+            // check inside still decides whether anything is typed.
+            try await unlock()
+            return "unlocked the phone"
         case "wait":
             try await Task.sleep(for: .milliseconds(1500)); return "wait"
         case "pressback", "pressrecent", "getscreenshot":

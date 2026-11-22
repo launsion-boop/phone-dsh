@@ -321,3 +321,15 @@ final class IPhoneLockScreenTests: XCTestCase {
         XCTAssertNil(IPhoneLockScreen.parse(""))
     }
 }
+
+@MainActor final class IPhoneAgentUnlockActionTests: XCTestCase {
+    /// §4.4: a step that sees the lock asks for Unlock; it reaches the phone as an action (the
+    /// host decides from its own screenshot whether to type), and is not taken for a missing action.
+    func testUnlockIsAnActionThePhonePerforms() {
+        let action = IPhoneAction.parse("<think>输入密码 page</think><action>Unlock()</action>")
+        XCTAssertEqual(action.name, "unlock")
+        XCTAssertTrue(IPhoneAgent.knownActions.contains("unlock"))
+        XCTAssertTrue(IPhoneAgent.systemPrompt.contains("- Unlock()"))
+        XCTAssertTrue(IPhoneAgent.systemPrompt.contains("Never tap or type a passcode yourself"))
+    }
+}

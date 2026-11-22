@@ -265,23 +265,31 @@ Saving is the consent; clearing it turns the feature off. The passcode is one Ke
 it is never logged, shown, put in an error or sent anywhere but the board's keyboard. A
 passcode saved under the pre-PC-20261117 service is ignored.
 
-`IPhoneAgentHost.prepare()` runs this before HID setup:
+`IPhoneAgentHost.prepare()` runs this at task start, after HID is attached (the pointer move
+that follows wakes the screen, so the mirrored frame is live; a frame from before the screen
+slept would show whatever was in front) and before anything taps:
 
 1. App active with protected data available: the phone is in use; nothing is classified or typed.
-2. Otherwise the mirrored screenshot is classified as `passcode` (输入密码 with the keypad),
-   `lockScreen` (no keypad, or dark) or `other`. `other`, or no clear answer while protected
-   data is available, means unlocked: nothing is typed.
-3. Locked with no saved passcode, or after 3 failed attempts that day: refuse with a
-   manual-unlock hint.
+2. Otherwise the mirrored screenshot is classified as `passcode` (输入密码 above the row of
+   circles; the keypad is absent while the board's keyboard is attached), `lockScreen` (no
+   输入密码, or dark) or `other`. `other` or no clear answer: nothing is typed here.
+3. `passcode` or `lockScreen` with no saved passcode, or after 3 failed attempts that day:
+   refuse with a manual-unlock hint.
 4. Otherwise the §4.4 keyboard sequence (`hid_mode 1`, two `key backspace`, one `key` per
-   digit, `key enter` unless 4 or 6 digits) is sent over the BLE ctrl link. After the wake key
-   the screenshot is classified again, and **the digits are sent only when it shows the
-   passcode page**. `other` means the wake alone unlocked it; anything else refuses without typing.
+   digit, `key enter` unless 4 or 6 digits) is sent over a BLE ctrl link of its own (the voice
+   link carries one command at a time). After the wake key the screenshot is classified again,
+   up to three times, and **the digits are sent only when it shows the passcode page**. `other`
+   means the wake alone unlocked it; anything else refuses without typing.
 5. The attempt succeeded when a later screenshot is `other` (within 8 s); otherwise it counts
    as one failure and refuses.
 
+The agent's prompt also offers `Unlock()`: when a step's screenshot is the lock screen or the
+passcode page (the phone locked mid-task, or step 2 had no clear answer), the model asks for
+it and steps 3–5 run. The model never types or taps a passcode itself. Every decision is
+written to the DEBUG voice log (`unlock: screen … = …`), never the passcode.
+
 With no saved passcode the behaviour is the manual unlock of PC-20261117: `prepare()` refuses
-before HID setup if protected data is unavailable. If mirroring is down there is no screenshot,
+while protected data is unavailable. If mirroring is down there is no screenshot,
 so nothing is typed; a learned recovery route can send blind taps only with the app active in
 the foreground. Voice admission and delivery follow §4.1.1 and the host contract.
 
