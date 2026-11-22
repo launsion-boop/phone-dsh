@@ -15,7 +15,11 @@
     "identity_retry_default_seconds": 1,
     "identity_retry_cap_seconds": 30,
     "token_max_length": 4096,
-    "record_version": 1
+    "record_version": 1,
+    "wallet_path": "/v1/wallet",
+    "claim_path": "/v1/wallet/claim",
+    "micro_credits_per_credit": 1000000,
+    "micro_credits_max_digits": 30
   },
   "phones": [
     {"input": "10000000000", "canonical": "+8610000000000"},
@@ -265,5 +269,813 @@
      "expect": {"contacts": 3, "final_status": 503, "invalidations": 0, "sleeps_seconds": [1, 1]}},
     {"name": "identity-then-expired-then-ok", "responses": [{"status": 503, "code": "identity_unavailable"}, {"status": 401, "code": "credential_expired"}, {"status": 200}], "refresh": "new_value",
      "expect": {"contacts": 3, "final_status": 200, "invalidations": 1, "sleeps_seconds": [1]}}
+  ],
+  "wallet_responses": [
+    {
+      "name": "unclaimed",
+      "status": 200,
+      "body": {
+        "mode": "shadow",
+        "available_micro_credits": "0",
+        "reserved_micro_credits": "0",
+        "shadow_spent_micro_credits": "0",
+        "granted_micro_credits": "0",
+        "spent_micro_credits": "0",
+        "claimable": true
+      },
+      "expect": {
+        "outcome": "wallet",
+        "available_micro_credits": "0",
+        "claimable": true,
+        "mode": "shadow"
+      }
+    },
+    {
+      "name": "claimed-live",
+      "status": 200,
+      "body": {
+        "mode": "live",
+        "available_micro_credits": "3999876543",
+        "reserved_micro_credits": "0",
+        "shadow_spent_micro_credits": "0",
+        "granted_micro_credits": "4000000000",
+        "spent_micro_credits": "123457",
+        "claimable": false
+      },
+      "expect": {
+        "outcome": "wallet",
+        "available_micro_credits": "3999876543",
+        "claimable": false,
+        "mode": "live"
+      }
+    },
+    {
+      "name": "minimal-unknown-mode",
+      "status": 200,
+      "body": {
+        "available_micro_credits": "12",
+        "claimable": false,
+        "mode": "future",
+        "extra": {
+          "x": 1
+        }
+      },
+      "expect": {
+        "outcome": "wallet",
+        "available_micro_credits": "12",
+        "claimable": false,
+        "mode": "future"
+      }
+    },
+    {
+      "name": "no-mode",
+      "status": 200,
+      "body": {
+        "available_micro_credits": "5",
+        "claimable": false
+      },
+      "expect": {
+        "outcome": "wallet",
+        "available_micro_credits": "5",
+        "claimable": false,
+        "mode": null
+      }
+    },
+    {
+      "name": "available-number",
+      "status": 200,
+      "body": {
+        "mode": "shadow",
+        "available_micro_credits": 4000000000,
+        "reserved_micro_credits": "0",
+        "shadow_spent_micro_credits": "0",
+        "granted_micro_credits": "0",
+        "spent_micro_credits": "0",
+        "claimable": true
+      },
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "available-missing",
+      "status": 200,
+      "body": {
+        "claimable": true
+      },
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "available-negative",
+      "status": 200,
+      "body": {
+        "mode": "shadow",
+        "available_micro_credits": "-1",
+        "reserved_micro_credits": "0",
+        "shadow_spent_micro_credits": "0",
+        "granted_micro_credits": "0",
+        "spent_micro_credits": "0",
+        "claimable": true
+      },
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "available-fraction",
+      "status": 200,
+      "body": {
+        "mode": "shadow",
+        "available_micro_credits": "1.5",
+        "reserved_micro_credits": "0",
+        "shadow_spent_micro_credits": "0",
+        "granted_micro_credits": "0",
+        "spent_micro_credits": "0",
+        "claimable": true
+      },
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "available-empty",
+      "status": 200,
+      "body": {
+        "mode": "shadow",
+        "available_micro_credits": "",
+        "reserved_micro_credits": "0",
+        "shadow_spent_micro_credits": "0",
+        "granted_micro_credits": "0",
+        "spent_micro_credits": "0",
+        "claimable": true
+      },
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "available-fullwidth",
+      "status": 200,
+      "body": {
+        "mode": "shadow",
+        "available_micro_credits": "１２",
+        "reserved_micro_credits": "0",
+        "shadow_spent_micro_credits": "0",
+        "granted_micro_credits": "0",
+        "spent_micro_credits": "0",
+        "claimable": true
+      },
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "available-too-long",
+      "status": 200,
+      "body": {
+        "mode": "shadow",
+        "available_micro_credits": "1111111111111111111111111111111",
+        "reserved_micro_credits": "0",
+        "shadow_spent_micro_credits": "0",
+        "granted_micro_credits": "0",
+        "spent_micro_credits": "0",
+        "claimable": true
+      },
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "available-at-max-digits",
+      "status": 200,
+      "body": {
+        "mode": "shadow",
+        "available_micro_credits": "999999999999999999999999999999",
+        "reserved_micro_credits": "0",
+        "shadow_spent_micro_credits": "0",
+        "granted_micro_credits": "0",
+        "spent_micro_credits": "0",
+        "claimable": true
+      },
+      "expect": {
+        "outcome": "wallet",
+        "available_micro_credits": "999999999999999999999999999999",
+        "claimable": true,
+        "mode": "shadow"
+      }
+    },
+    {
+      "name": "claimable-string",
+      "status": 200,
+      "body": {
+        "mode": "shadow",
+        "available_micro_credits": "0",
+        "reserved_micro_credits": "0",
+        "shadow_spent_micro_credits": "0",
+        "granted_micro_credits": "0",
+        "spent_micro_credits": "0",
+        "claimable": "true"
+      },
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "claimable-missing",
+      "status": 200,
+      "body": {
+        "available_micro_credits": "0"
+      },
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "mode-not-string",
+      "status": 200,
+      "body": {
+        "mode": 1,
+        "available_micro_credits": "0",
+        "reserved_micro_credits": "0",
+        "shadow_spent_micro_credits": "0",
+        "granted_micro_credits": "0",
+        "spent_micro_credits": "0",
+        "claimable": true
+      },
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "optional-counter-invalid-ignored",
+      "status": 200,
+      "body": {
+        "mode": "shadow",
+        "available_micro_credits": "0",
+        "reserved_micro_credits": "0",
+        "shadow_spent_micro_credits": "0",
+        "granted_micro_credits": null,
+        "spent_micro_credits": 7,
+        "claimable": true
+      },
+      "expect": {
+        "outcome": "wallet",
+        "available_micro_credits": "0",
+        "claimable": true,
+        "mode": "shadow"
+      }
+    },
+    {
+      "name": "not-object",
+      "status": 200,
+      "body": [
+        1
+      ],
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "not-json",
+      "status": 200,
+      "body_text": "<html>",
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "not-released",
+      "status": 404,
+      "body": {
+        "error": {
+          "type": "not_found",
+          "code": "not_found"
+        }
+      },
+      "expect": {
+        "outcome": "unavailable"
+      }
+    },
+    {
+      "name": "unauthorized",
+      "status": 401,
+      "body": {
+        "error": {
+          "code": "credential_revoked"
+        }
+      },
+      "expect": {
+        "outcome": "unauthorized"
+      }
+    },
+    {
+      "name": "api-key-or-other-app",
+      "status": 403,
+      "body": {
+        "error": {
+          "code": "credential_not_allowed"
+        }
+      },
+      "expect": {
+        "outcome": "rejected"
+      }
+    },
+    {
+      "name": "rate-limited",
+      "status": 429,
+      "body": {
+        "error": {
+          "code": "rate_limited"
+        }
+      },
+      "expect": {
+        "outcome": "transient"
+      }
+    },
+    {
+      "name": "server",
+      "status": 503,
+      "body": {
+        "error": {
+          "code": "upstream_unavailable"
+        }
+      },
+      "expect": {
+        "outcome": "transient"
+      }
+    },
+    {
+      "name": "redirect",
+      "status": 302,
+      "body_text": "",
+      "expect": {
+        "outcome": "transient"
+      }
+    }
+  ],
+  "claim_responses": [
+    {
+      "name": "granted",
+      "status": 200,
+      "body": {
+        "granted_now": true,
+        "wallet": {
+          "mode": "shadow",
+          "available_micro_credits": "4000000000",
+          "reserved_micro_credits": "0",
+          "shadow_spent_micro_credits": "0",
+          "granted_micro_credits": "4000000000",
+          "spent_micro_credits": "0",
+          "claimable": false
+        }
+      },
+      "expect": {
+        "outcome": "claimed",
+        "granted_now": true,
+        "available_micro_credits": "4000000000",
+        "claimable": false
+      }
+    },
+    {
+      "name": "already-claimed-is-success",
+      "status": 200,
+      "body": {
+        "granted_now": false,
+        "wallet": {
+          "mode": "live",
+          "available_micro_credits": "0",
+          "reserved_micro_credits": "0",
+          "shadow_spent_micro_credits": "0",
+          "granted_micro_credits": "4000000000",
+          "spent_micro_credits": "4000000000",
+          "claimable": false
+        }
+      },
+      "expect": {
+        "outcome": "claimed",
+        "granted_now": false,
+        "available_micro_credits": "0",
+        "claimable": false
+      }
+    },
+    {
+      "name": "granted-now-missing",
+      "status": 200,
+      "body": {
+        "wallet": {
+          "mode": "shadow",
+          "available_micro_credits": "0",
+          "reserved_micro_credits": "0",
+          "shadow_spent_micro_credits": "0",
+          "granted_micro_credits": "0",
+          "spent_micro_credits": "0",
+          "claimable": false
+        }
+      },
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "granted-now-string",
+      "status": 200,
+      "body": {
+        "granted_now": "true",
+        "wallet": {
+          "mode": "shadow",
+          "available_micro_credits": "0",
+          "reserved_micro_credits": "0",
+          "shadow_spent_micro_credits": "0",
+          "granted_micro_credits": "0",
+          "spent_micro_credits": "0",
+          "claimable": false
+        }
+      },
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "wallet-missing",
+      "status": 200,
+      "body": {
+        "granted_now": true
+      },
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "wallet-invalid",
+      "status": 200,
+      "body": {
+        "granted_now": true,
+        "wallet": {
+          "available_micro_credits": 4000000000,
+          "claimable": false
+        }
+      },
+      "expect": {
+        "outcome": "protocol_error"
+      }
+    },
+    {
+      "name": "api-key",
+      "status": 403,
+      "body": {
+        "error": {
+          "type": "permission_error",
+          "code": "credential_not_allowed"
+        }
+      },
+      "expect": {
+        "outcome": "rejected"
+      }
+    },
+    {
+      "name": "not-released",
+      "status": 404,
+      "body_text": "",
+      "expect": {
+        "outcome": "unavailable"
+      }
+    },
+    {
+      "name": "unauthorized",
+      "status": 401,
+      "body": {
+        "error": {
+          "code": "invalid_credential"
+        }
+      },
+      "expect": {
+        "outcome": "unauthorized"
+      }
+    },
+    {
+      "name": "server",
+      "status": 502,
+      "body_text": "bad gateway",
+      "expect": {
+        "outcome": "transient"
+      }
+    }
+  ],
+  "credit_display": [
+    {
+      "micro": "0",
+      "expect": "0"
+    },
+    {
+      "micro": "4000000000",
+      "expect": "4000"
+    },
+    {
+      "micro": "3999876543",
+      "expect": "3999.87"
+    },
+    {
+      "micro": "1234567",
+      "expect": "1.23"
+    },
+    {
+      "micro": "1000000",
+      "expect": "1"
+    },
+    {
+      "micro": "1500000",
+      "expect": "1.5"
+    },
+    {
+      "micro": "1050000",
+      "expect": "1.05"
+    },
+    {
+      "micro": "999999",
+      "expect": "0.99"
+    },
+    {
+      "micro": "9999",
+      "expect": "0"
+    },
+    {
+      "micro": "0004000000",
+      "expect": "4"
+    },
+    {
+      "micro": "999999999999999999999999999999",
+      "expect": "999999999999999999999999.99"
+    }
+  ],
+  "credits_responses": [
+    {
+      "name": "anthropic-not-claimed",
+      "url": "https://pdsh.tonoai.cn/v1/llm/anthropic/v1/messages",
+      "status": 402,
+      "body": {
+        "type": "error",
+        "error": {
+          "type": "billing_error",
+          "code": "credits_not_claimed",
+          "message": "x"
+        }
+      },
+      "expect": {
+        "credits": "not_claimed"
+      }
+    },
+    {
+      "name": "anthropic-insufficient",
+      "url": "https://pdsh.tonoai.cn/v1/llm/anthropic/v1/messages",
+      "status": 402,
+      "body": {
+        "type": "error",
+        "error": {
+          "type": "billing_error",
+          "code": "insufficient_credits",
+          "message": "x"
+        }
+      },
+      "expect": {
+        "credits": "insufficient"
+      }
+    },
+    {
+      "name": "openai-insufficient",
+      "url": "https://pdsh.tonoai.cn/v1/llm/openai/chat/completions",
+      "status": 402,
+      "body": {
+        "error": {
+          "type": "billing_error",
+          "code": "insufficient_credits",
+          "message": "x"
+        }
+      },
+      "expect": {
+        "credits": "insufficient"
+      }
+    },
+    {
+      "name": "search-not-claimed",
+      "url": "https://pdsh.tonoai.cn/v1/web/search",
+      "status": 402,
+      "body": {
+        "error": {
+          "type": "billing_error",
+          "code": "credits_not_claimed",
+          "message": "x",
+          "request_id": "req_TEST"
+        }
+      },
+      "expect": {
+        "credits": "not_claimed"
+      }
+    },
+    {
+      "name": "tts-insufficient",
+      "url": "https://pdsh.tonoai.cn/v1/tts/speech",
+      "status": 402,
+      "body": {
+        "error": {
+          "type": "billing_error",
+          "code": "insufficient_credits"
+        }
+      },
+      "expect": {
+        "credits": "insufficient"
+      }
+    },
+    {
+      "name": "billing-type-only",
+      "url": "https://pdsh.tonoai.cn/v1/llm/anthropic/v1/messages",
+      "status": 402,
+      "body": {
+        "type": "error",
+        "error": {
+          "type": "billing_error",
+          "message": "x"
+        }
+      },
+      "expect": {
+        "credits": "unspecified"
+      }
+    },
+    {
+      "name": "code-in-type-not-code",
+      "url": "https://pdsh.tonoai.cn/v1/web/search",
+      "status": 402,
+      "body": {
+        "error": {
+          "type": "credits_not_claimed"
+        }
+      },
+      "expect": {
+        "credits": "unspecified"
+      }
+    },
+    {
+      "name": "unknown-code",
+      "url": "https://pdsh.tonoai.cn/v1/web/search",
+      "status": 402,
+      "body": {
+        "error": {
+          "code": "payment_required"
+        }
+      },
+      "expect": {
+        "credits": "unspecified"
+      }
+    },
+    {
+      "name": "not-json",
+      "url": "https://pdsh.tonoai.cn/v1/tts/speech",
+      "status": 402,
+      "body_text": "Payment Required",
+      "expect": {
+        "credits": "unspecified"
+      }
+    },
+    {
+      "name": "empty-body",
+      "url": "https://pdsh.tonoai.cn/v1/tts/speech",
+      "status": 402,
+      "body_text": "",
+      "expect": {
+        "credits": "unspecified"
+      }
+    },
+    {
+      "name": "padded-at-limit",
+      "url": "https://pdsh.tonoai.cn/v1/web/search",
+      "status": 402,
+      "body": {
+        "error": {
+          "code": "credits_not_claimed"
+        }
+      },
+      "pad_to_bytes": 16384,
+      "expect": {
+        "credits": "not_claimed"
+      }
+    },
+    {
+      "name": "over-limit",
+      "url": "https://pdsh.tonoai.cn/v1/web/search",
+      "status": 402,
+      "body": {
+        "error": {
+          "code": "credits_not_claimed"
+        }
+      },
+      "pad_to_bytes": 16385,
+      "expect": {
+        "credits": "unspecified"
+      }
+    },
+    {
+      "name": "other-origin",
+      "url": "https://api.example.invalid/v1/messages",
+      "status": 402,
+      "body": {
+        "error": {
+          "code": "insufficient_credits"
+        }
+      },
+      "expect": {
+        "credits": null
+      }
+    },
+    {
+      "name": "other-port",
+      "url": "https://pdsh.tonoai.cn:8443/v1/web/search",
+      "status": 402,
+      "body": {
+        "error": {
+          "code": "insufficient_credits"
+        }
+      },
+      "expect": {
+        "credits": null
+      }
+    },
+    {
+      "name": "code-on-403",
+      "url": "https://pdsh.tonoai.cn/v1/web/search",
+      "status": 403,
+      "body": {
+        "error": {
+          "code": "insufficient_credits"
+        }
+      },
+      "expect": {
+        "credits": null
+      }
+    },
+    {
+      "name": "code-on-200",
+      "url": "https://pdsh.tonoai.cn/v1/web/search",
+      "status": 200,
+      "body": {
+        "error": {
+          "code": "credits_not_claimed"
+        }
+      },
+      "expect": {
+        "credits": null
+      }
+    },
+    {
+      "name": "code-in-message-only",
+      "url": "https://pdsh.tonoai.cn/v1/web/search",
+      "status": 402,
+      "body": {
+        "error": {
+          "code": "x",
+          "message": "insufficient_credits"
+        }
+      },
+      "expect": {
+        "credits": "unspecified"
+      }
+    }
+  ],
+  "credits_guidance": [
+    {
+      "credits": "not_claimed",
+      "wallet_claimable": null,
+      "expect": "claim"
+    },
+    {
+      "credits": "not_claimed",
+      "wallet_claimable": false,
+      "expect": "claim"
+    },
+    {
+      "credits": "insufficient",
+      "wallet_claimable": null,
+      "expect": "exhausted"
+    },
+    {
+      "credits": "insufficient",
+      "wallet_claimable": true,
+      "expect": "exhausted"
+    },
+    {
+      "credits": "unspecified",
+      "wallet_claimable": true,
+      "expect": "claim"
+    },
+    {
+      "credits": "unspecified",
+      "wallet_claimable": false,
+      "expect": "exhausted"
+    },
+    {
+      "credits": "unspecified",
+      "wallet_claimable": null,
+      "expect": "unknown"
+    }
   ]
 }

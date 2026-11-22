@@ -128,7 +128,7 @@ struct BotChatPage: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            transcript.modifier(XiaozhiChatProgressSlot(botID: model.context.botID)).modifier(BotSignInBannerSlot())
+            transcript.modifier(XiaozhiChatProgressSlot(botID: model.context.botID)).modifier(BotSignInBannerSlot()).safeAreaInset(edge: .top, spacing: 0) { CloudCreditsBanner() } // tono-account.md §11
             activityBubbleBand
             composerDock
         }

@@ -10,6 +10,10 @@
 // forwarded exactly as before. The shared cases
 // (`spec/v1/golden/tono-account/cases.json`, `cloud_responses`) judge
 // `decide(url:status:headers:body:)`.
+//
+// §11 (PC-20261121-cloud-wallet-credits): a 402 from the cloud origin is a
+// credits answer. It is never re-sent; `creditsCondition(url:status:body:)`
+// classifies it (`credits_responses`) so the host can raise one notice.
 
 import Foundation
 
@@ -40,6 +44,19 @@ public struct TonoCloudResponsePolicy: Equatable, Sendable {
         /// Wait this many seconds and re-send.
         case retryAfter(TimeInterval)
     }
+
+    /// §11: what a cloud-origin 402 says about the account's credits.
+    public enum CreditsCondition: String, Equatable, Sendable {
+        /// `error.code` `credits_not_claimed`: the person has not claimed yet.
+        case notClaimed = "not_claimed"
+        /// `error.code` `insufficient_credits`: the credits are used up.
+        case insufficient
+        /// Any other cloud-origin 402 (no known code, unreadable body).
+        case unspecified
+    }
+
+    public static let creditsNotClaimedCode = "credits_not_claimed"
+    public static let insufficientCreditsCode = "insufficient_credits"
 
     /// The production cloud origin (`https://pdsh.tonoai.cn`).
     public static let cloudOrigin = "https://pdsh.tonoai.cn"
@@ -78,7 +95,28 @@ public struct TonoCloudResponsePolicy: Equatable, Sendable {
 
     /// True for a status whose body must be read before anything is forwarded.
     public func inspects(url: URL, status: Int) -> Bool {
-        (status == 401 || status == 503) && applies(to: url)
+        (status == 401 || status == 402 || status == 503) && applies(to: url)
+    }
+
+    /// §11: the credits condition of one answer, or `nil` when it is not a
+    /// 402 from an inspected origin. Only `error.code` is read.
+    public func creditsCondition(url: URL, status: Int, body: Data) -> CreditsCondition? {
+        guard status == 402, applies(to: url) else { return nil }
+        return Self.creditsCondition(status402Body: body)
+    }
+
+    /// §11 for a 402 already known to come from the cloud origin (the ASR
+    /// handshake passes an empty body when the platform hides it).
+    public static func creditsCondition(status402Body body: Data) -> CreditsCondition {
+        guard body.count <= inspectBodyLimit,
+              let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let error = object["error"] as? [String: Any],
+              let code = error["code"] as? String else { return .unspecified }
+        switch code {
+        case creditsNotClaimedCode: return .notClaimed
+        case insufficientCreditsCode: return .insufficient
+        default: return .unspecified
+        }
     }
 
     /// The decision for one complete (at most ``inspectBodyLimit`` bytes) answer.

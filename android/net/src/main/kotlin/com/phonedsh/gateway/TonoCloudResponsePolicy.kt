@@ -8,6 +8,10 @@
 // request before any model work, so the host may re-send them. The shared
 // cases (`spec/v1/golden/tono-account/cases.json`, `cloud_responses`) judge
 // [decide].
+//
+// §11 (PC-20261121-cloud-wallet-credits): a 402 from the cloud origin is a
+// credits answer. It is never re-sent; [creditsCondition] classifies it
+// (`credits_responses`) so the host can raise one notice.
 
 package com.phonedsh.gateway
 
@@ -45,12 +49,26 @@ class TonoCloudResponsePolicy(origins: Collection<String>) {
         data class RetryAfter(val seconds: Long) : Decision
     }
 
+    /** §11: what a cloud-origin 402 says about the account's credits. */
+    enum class CreditsCondition(val wire: String) {
+        NOT_CLAIMED("not_claimed"),
+        INSUFFICIENT("insufficient"),
+        UNSPECIFIED("unspecified"),
+    }
+
     val origins: Set<Origin> = origins.mapNotNull { Origin.of(it) }.toSet()
 
     fun applies(url: String): Boolean = Origin.of(url)?.let { it in origins } ?: false
 
     /** True for an answer whose body must be read before anything is forwarded. */
-    fun inspects(url: String, status: Int): Boolean = (status == 401 || status == 503) && applies(url)
+    fun inspects(url: String, status: Int): Boolean =
+        (status == 401 || status == 402 || status == 503) && applies(url)
+
+    /** §11: the credits condition, or `null` when this is not a 402 from an inspected origin. */
+    fun creditsCondition(url: String, status: Int, body: ByteArray?): CreditsCondition? {
+        if (status != 402 || !applies(url)) return null
+        return creditsConditionOf402(body)
+    }
 
     /** The decision for one complete answer of at most [INSPECT_BODY_LIMIT] bytes. */
     fun decide(url: String, status: Int, headers: Map<String, String>, body: ByteArray): Decision {
@@ -79,6 +97,20 @@ class TonoCloudResponsePolicy(origins: Collection<String>) {
 
         /** Never inspects anything. */
         val DISABLED: TonoCloudResponsePolicy = TonoCloudResponsePolicy(emptyList())
+
+        const val CREDITS_NOT_CLAIMED: String = "credits_not_claimed"
+        const val INSUFFICIENT_CREDITS: String = "insufficient_credits"
+
+        /** §11 for a 402 already known to come from the cloud origin; `null` body = unread. */
+        fun creditsConditionOf402(body: ByteArray?): CreditsCondition {
+            if (body == null || body.size > INSPECT_BODY_LIMIT) return CreditsCondition.UNSPECIFIED
+            val root = GatewayJson.parseOrNull(body) as? JsonValue.Obj ?: return CreditsCondition.UNSPECIFIED
+            return when (root.obj("error")?.string("code")) {
+                CREDITS_NOT_CLAIMED -> CreditsCondition.NOT_CLAIMED
+                INSUFFICIENT_CREDITS -> CreditsCondition.INSUFFICIENT
+                else -> CreditsCondition.UNSPECIFIED
+            }
+        }
 
         /** §6: non-negative ASCII decimal seconds, capped; anything else is the default. */
         fun retryAfterSeconds(raw: String?): Long {

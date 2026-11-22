@@ -2,7 +2,8 @@
 
 Status: normative for the iOS and Android hosts (`partial` until each end has runtime
 evidence, see the change record). Change record:
-[PC-20261108-tono-account-login](../../docs/protocol-changes/PC-20261108-tono-account-login.md).
+[PC-20261108-tono-account-login](../../docs/protocol-changes/PC-20261108-tono-account-login.md); wallet and credits (§10–§11):
+[PC-20261121-cloud-wallet-credits](../../docs/protocol-changes/PC-20261121-cloud-wallet-credits.md).
 Shared cases: [golden/tono-account/cases.json](golden/tono-account/cases.json) — the cases are
 the judge wherever this text and a case could be read two ways.
 
@@ -206,3 +207,80 @@ are checked against §2, these consumer rules stand: response members beyond `ac
 `refresh_token`, `expires_in`, `token_type`, `user.id`, `user.phone`; the 400/401/403 split of the
 token endpoint; whether model endpoints spell `credential_expired` in `error.code` or
 `error.type` (both are accepted); whether Android should get its own `client_id`.
+
+## 10. Wallet and claim (P05, P09)
+
+Change record: [PC-20261121-cloud-wallet-credits](../../docs/protocol-changes/PC-20261121-cloud-wallet-credits.md).
+Upstream source: the cloud team's "Phone DSH 云端对接说明" (2026-11-19 update, §4 积分和领取, §9).
+Both endpoints answer 404 until the cloud's next release; the host treats that as
+`unavailable` and shows nothing.
+
+Credits are carried as **micro-credits**: 1 credit = 1 000 000 micro-credits, as a JSON string of
+1–30 ASCII digits (`0`–`9`; no sign, point, exponent or full-width digit). Leading zeros are
+allowed and ignored.
+
+1. **Read.** `GET <cloud origin>/v1/wallet`, `Authorization: Bearer <access token>`,
+   `Accept: application/json`, no body, no redirect followed. Only while signed in (§3); the host
+   never reads or claims with an API key. Outcomes: `wallet_responses`.
+2. **Claim.** `POST <cloud origin>/v1/wallet/claim`, same headers, empty body. The cloud grants at
+   most once per account and answers every repeat with 200 and `granted_now: false`; that is a
+   success, never an error. At most one claim is in flight per process (the control is disabled
+   while it runs); a failed claim is re-sent only when the person taps again. Outcomes:
+   `claim_responses`.
+
+**Wallet object.** A JSON object with `available_micro_credits` (micro-credit string, required) and
+`claimable` (JSON boolean, required). `mode`, when present, must be a string and is kept as-is
+(`shadow`, `live`, or a future value); it is informational only. Every other member
+(`reserved_micro_credits`, `granted_micro_credits`, `spent_micro_credits`,
+`shadow_spent_micro_credits`, unknown members) is ignored, whatever its shape. A claim answer is a
+JSON object with `granted_now` (JSON boolean) and `wallet` (a valid wallet object).
+
+| Answer (read or claim) | Outcome |
+| --- | --- |
+| 2xx valid | `wallet` / `claimed {granted_now, wallet}` |
+| 2xx invalid (not JSON, not an object, a required member missing or of the wrong type) | `protocol_error` |
+| 401 | §5 applies first (`credential_expired` → refresh and re-send once); what remains is `unauthorized` |
+| 403 (API key → `credential_not_allowed`, another app's token, disabled account) | `rejected` |
+| 404 | `unavailable` |
+| 3xx, 429, other status, transport error | `transient` |
+
+**Display.** The host shows `available_micro_credits` ÷ 1 000 000, truncated (never rounded up)
+to two decimals, trailing zeros and a trailing point removed, ASCII digits, no grouping
+(`credit_display`). The 「领取积分」 control is shown exactly when the last `wallet` outcome had
+`claimable: true`. After `claimed` the host shows the returned wallet. The wallet is read when the
+account page or the credits notice (§11) appears and after every claim; it is not polled. Signing
+out drops the cached wallet. A wallet value never appears in logs beyond the outcome name.
+
+## 11. Credits answers (402) from the cloud origin (P05, P09)
+
+When the cloud wallet is `live`, a model (Anthropic or OpenAI format), Search/Fetch, TTS request or
+ASR handshake from an account with no claim or no credits is answered 402. For a request to the
+cloud origin (§5's exact origin rule) the host reads at most 16 384 body bytes of a 402 and
+classifies it (`credits_responses`):
+
+- `error` is an object whose `code` is the string `credits_not_claimed` → `not_claimed`;
+- … `insufficient_credits` → `insufficient`;
+- any other 402 from the cloud origin — `error.type: billing_error` without a known `code`, a code
+  only in `type` or `message`, a non-JSON or empty body, a body over the limit, or an ASR handshake
+  whose body the platform does not expose — → `unspecified`;
+- not 402, or another origin → no credits condition (existing rules only).
+
+Rules for every credits condition:
+
+1. **No retry.** The host never re-sends the request (not in §5's counters, not in the gateway's
+   429/5xx backoff, not in the voice client). A gateway-forwarded answer stays byte-identical, so
+   DSH shows its own error for that turn.
+2. **One notice.** The host raises one observable credits notice (P09) and re-reads the wallet
+   (§10.1). The guidance (`credits_guidance`) is `claim` for `not_claimed`; `exhausted` for
+   `insufficient`; for `unspecified` it follows the re-read wallet: `claimable: true` → `claim`,
+   `false` → `exhausted`, no `wallet` outcome → `unknown`.
+3. **Texts.** `claim`: 「还没有领取积分，领取后即可继续使用」 with the 「领取积分」 control.
+   `exhausted`: 「积分已用完」 and no retry control. `unknown`: 「云端服务需要积分，请在 Tono 账号中查看」.
+   A notice raised while the same guidance is already shown replaces it; it is dismissed by the
+   person, by a successful claim, or by signing out.
+4. A voice turn that ends in a credits condition fails like any other failed turn
+   ([cloud-voice.md](cloud-voice.md) §1); it does not claim on the person's behalf.
+
+Signed out with an API key, the cloud wallet is in `shadow` and the cloud does not answer 402; if it
+ever does, the same classification and notice apply, without a claim control (claiming needs a
+signed-in session, §10).

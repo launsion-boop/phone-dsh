@@ -145,6 +145,10 @@ public object UiPageTags {
     public const val TONO_ACCOUNT_STATUS: String = "pdsh.tonoaccount.status"
     public const val TONO_ACCOUNT_CLOUD_TASKS_TOGGLE: String = "pdsh.tonoaccount.cloudtasks.toggle"
     public const val TONO_ACCOUNT_CLOUD_TASKS_STATUS: String = "pdsh.tonoaccount.cloudtasks.status"
+    public const val TONO_ACCOUNT_CREDITS_AVAILABLE: String = "pdsh.tonoaccount.credits.available"
+    public const val TONO_ACCOUNT_CREDITS_CLAIM: String = "pdsh.tonoaccount.credits.claim"
+    public const val CREDITS_BANNER: String = "pdsh.credits.banner"
+    public const val CREDITS_BANNER_CLAIM: String = "pdsh.credits.banner.claim"
 
     public const val WEB_SEARCH_ROOT: String = "pdsh.websearch.root"
     public const val WEB_SEARCH_LIST: String = "pdsh.websearch.list"

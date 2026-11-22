@@ -72,6 +72,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
@@ -1267,6 +1268,8 @@ internal fun HostShell(
             enabled = hostBack.pushBack.canConsumeBack || probeOpen,
         )
         val note = notice ?: speechNotice ?: routeNote
+        // tono-account.md §11: the credits notice after a cloud 402.
+        val creditsNotice = tonoAccountFacts.creditsNotice
         val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         Box(Modifier.fillMaxSize().background(tokens.colors.selector)) {
             Column(
@@ -1277,7 +1280,7 @@ internal fun HostShell(
                     // statusBarsPadding sees zero instead of pushing the page
                     // header down a second time.
                     .then(
-                        if (note != null) {
+                        if (note != null || creditsNotice != null) {
                             Modifier.windowInsetsPadding(WindowInsets.statusBars)
                         } else {
                             Modifier
@@ -1285,6 +1288,14 @@ internal fun HostShell(
                     ),
             ) {
                 if (note != null) HostNoteBar(text = note)
+                if (creditsNotice != null) {
+                    CreditsNoticeBar(
+                        notice = creditsNotice,
+                        claiming = tonoAccountFacts.creditsClaiming,
+                        onClaim = { tonoAccount.handle(PdshHostAction.TonoAccountClaimCredits) },
+                        onDismiss = { tonoAccount.handle(PdshHostAction.TonoAccountDismissCreditsNotice) },
+                    )
+                }
                 // PR #60's bottom menu (`NativeShell.tabPages`): it belongs to the
                 // first-level pages only, and leaves while the keyboard is up so the
                 // composer rides the keyboard. The drawer is drawn over it below.
@@ -2438,6 +2449,8 @@ private fun actionLabel(action: PdshHostAction): String = when (action) {
     is PdshHostAction.TonoAccountSignIn -> "登录 Tono 账号"
     PdshHostAction.TonoAccountSignOut -> "退出 Tono 账号"
     is PdshHostAction.TonoAccountSetCloudTasks -> "云端任务开关"
+    PdshHostAction.TonoAccountClaimCredits -> "领取积分"
+    PdshHostAction.TonoAccountDismissCreditsNotice -> "关闭积分提示"
     is PdshHostAction.SaveMcpServer -> "保存 MCP 服务器"
     PdshHostAction.StopRuntime -> "停止本地引擎"
     PdshHostAction.RestartRuntime -> "启动本地引擎"
@@ -2615,6 +2628,55 @@ private fun preferenceRowLabel(rowId: String): String = when (rowId) {
     SettingsScreenState.CODE_FONT_SIZE_ROW_ID,
     SettingsScreenState.TERMINAL_FONT_SIZE_ROW_ID -> "字号大小"
     else -> rowId
+}
+
+/**
+ * spec/v1/tono-account.md §11 rule 3: after a cloud 402, 「领取积分」 when the
+ * account has not claimed, 「积分已用完」 without a retry control when it is used
+ * up. The failed request is never re-sent from here.
+ */
+@Composable
+private fun CreditsNoticeBar(notice: String, claiming: Boolean, onClaim: () -> Unit, onDismiss: () -> Unit) {
+    val tokens = PdshThemeValues.tokens
+    val type = PdshThemeValues.type
+    val text = when (notice) {
+        "claim" -> "还没有领取积分，领取后即可继续使用"
+        "exhausted" -> "积分已用完"
+        else -> "云端服务需要积分，请在 Tono 账号中查看"
+    }
+    androidx.compose.foundation.layout.Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(tokens.colors.code)
+            .testTag(com.phonedsh.ui.page.UiPageTags.CREDITS_BANNER)
+            .padding(horizontal = tokens.geometry.pageOuterMarginH, vertical = tokens.geometry.bannerInsetV),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
+    ) {
+        BasicText(
+            text = text,
+            style = type.caption.copy(color = tokens.colors.primary),
+            modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+        )
+        if (notice == "claim") {
+            BasicText(
+                text = "领取积分",
+                style = type.caption.copy(color = if (claiming) tokens.colors.tertiary else tokens.colors.accent),
+                modifier = Modifier
+                    .clickable(enabled = !claiming, role = Role.Button, onClick = onClaim)
+                    .testTag(com.phonedsh.ui.page.UiPageTags.CREDITS_BANNER_CLAIM)
+                    .padding(tokens.spacing.iconText),
+            )
+        }
+        BasicText(
+            text = "✕",
+            style = type.caption.copy(color = tokens.colors.secondary),
+            modifier = Modifier
+                .clickable(role = Role.Button, onClick = onDismiss)
+                .semantics { contentDescription = "关闭提示" }
+                .padding(tokens.spacing.iconText),
+        )
+    }
 }
 
 /** One host-owned line above the page: a disclosure, then a gesture's outcome. */

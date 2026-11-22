@@ -34,6 +34,7 @@ import com.phonedsh.gateway.GatewayPaths
 import com.phonedsh.gateway.GatewayUrls
 import com.phonedsh.gateway.ModelEndpoint
 import com.phonedsh.gateway.ModelProtocolRoute
+import com.phonedsh.account.TonoCloudCreditsSignal
 import com.phonedsh.gateway.TonoCloudResponsePolicy
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -80,6 +81,8 @@ class LoopbackModelProxy(
     private val cloudPolicy: TonoCloudResponsePolicy = TonoCloudResponsePolicy.PRODUCTION,
     /** Waits for a `Retry-After`; tests record instead of sleeping. */
     private val sleeper: suspend (Long) -> Unit = { millis -> delay(millis) },
+    /** tono-account.md §11: told once about each cloud-origin 402 (never re-sent). */
+    private val creditsHandler: (TonoCloudResponsePolicy.CreditsCondition) -> Unit = TonoCloudCreditsSignal::post,
 ) {
     /** Convenience form for a host that only has the configured base URL string. */
     constructor(
@@ -196,6 +199,7 @@ class LoopbackModelProxy(
             // re-sent with their own budgets; anything else keeps the surface below.
             if (!cloudPolicy.inspects(targetText, exchange.status)) break
             val answer = withContext(Dispatchers.IO) { readErrorBody(exchange) }
+            cloudPolicy.creditsCondition(targetText, exchange.status, answer)?.let(creditsHandler)
             val decision = answer?.let { cloudPolicy.decide(targetText, exchange.status, exchange.headers, it) }
                 ?: TonoCloudResponsePolicy.Decision.Forward
             when (decision) {

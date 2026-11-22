@@ -280,7 +280,7 @@ struct NativeShell: View {
                             } else {
                                 openDrawer()
                             }
-                        }, drawerExpanded: sidebarVisible)
+                        }, drawerExpanded: sidebarVisible).safeAreaInset(edge: .top, spacing: 0) { CloudCreditsBanner() } // tono-account.md §11
                         .environment(\.chatPageVisible,
                                      selectedTab == .tasks && models.isPhoneSelected && appModel.isSceneActive)
                         .modifier(tabRoot(.tasks))

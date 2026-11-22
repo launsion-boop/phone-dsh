@@ -10,6 +10,10 @@
 // drafts and sends 获取验证码 / 登录 / 退出登录. It never receives a token: the
 // signed-in facts are a four-digit phone hint and the re-verification date.
 //
+// 积分 (spec/v1/tono-account.md §10) is shown while signed in once the cloud
+// offers a wallet: 剩余积分 and, while the wallet says `claimable`, 领取积分.
+// The host reads and claims; the page only reports the tap.
+//
 // 云端任务 (spec/v1/cloud-tasks.md §7) is shown signed in or out: one switch,
 // off by default, and the host's plain-language status line. The host owns the
 // preference, the registration and every pull; the page only reports the tap.
@@ -74,6 +78,17 @@ public data class TonoAccountFacts(
     public val cloudTasksStatus: String = "未开启",
     /** A switch change is being applied; the switch is disabled meanwhile. */
     public val cloudTasksBusy: Boolean = false,
+    /** 积分 (spec/v1/tono-account.md §10): false hides the section (no wallet yet, 404). */
+    public val creditsShown: Boolean = true,
+    /** 剩余积分, already formatted (credits, two decimals); "—" before the first read. */
+    public val creditsAvailable: String = "—",
+    /** The wallet says `claimable`: 领取积分 appears. */
+    public val creditsClaimable: Boolean = false,
+    public val creditsClaiming: Boolean = false,
+    /** A failed read or claim, or `null` for the standard footer. */
+    public val creditsError: String? = null,
+    /** The §11 notice after a cloud 402: `claim`, `exhausted`, `unknown`, or `null`. */
+    public val creditsNotice: String? = null,
 ) {
     override fun toString(): String = "TonoAccountFacts(available=$available, signedIn=$signedIn, busy=$busy)"
 }
@@ -87,6 +102,7 @@ public fun TonoAccountPage(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
     onSetCloudTasks: (Boolean) -> Unit = {},
+    onClaimCredits: () -> Unit = {},
 ) {
     var phone by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
@@ -112,6 +128,30 @@ public fun TonoAccountPage(
                     InfoRow(title = "手机号", value = facts.phoneHint?.let { "尾号 $it" } ?: "已登录")
                 }
                 item(key = "account.reverify") { InfoRow(title = "需重新验证", value = facts.reverifyAt) }
+                if (facts.creditsShown) {
+                    item(key = "credits.header") { SettingsSectionLabel("积分") }
+                    item(key = "credits.available") {
+                        InfoRow(
+                            title = "剩余积分",
+                            value = facts.creditsAvailable,
+                            modifier = Modifier.testTag(UiPageTags.TONO_ACCOUNT_CREDITS_AVAILABLE),
+                        )
+                    }
+                    if (facts.creditsClaimable) {
+                        item(key = "credits.claim") {
+                            InfoRow(
+                                title = "领取积分",
+                                value = null,
+                                enabled = !busy && !facts.creditsClaiming,
+                                modifier = Modifier.testTag(UiPageTags.TONO_ACCOUNT_CREDITS_CLAIM),
+                                onClick = onClaimCredits,
+                            )
+                        }
+                    }
+                    item(key = "credits.footer") {
+                        SettingsFootnoteRow(text = facts.creditsError ?: "云端模型、语音和网页搜索按用量扣积分。每个账号可以领取一次。")
+                    }
+                }
                 item(key = "signout") {
                     InfoRow(
                         title = "退出登录",

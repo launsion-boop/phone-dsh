@@ -26,6 +26,9 @@ Exactly one value, sent as `Authorization: Bearer <value>`, and only to the clou
 A TTS `401` whose JSON `error.code`/`error.type` is `credential_expired`, or an ASR handshake answered
 `401`, invalidates the injected value once (tono-account.md §5); the request is re-sent once only if
 the newly resolved value differs. Every other status is reported as the turn's failure without retry.
+A `402` (TTS answer, or the ASR handshake, which answers 402 without upgrading) is a credits
+answer ([tono-account.md](tono-account.md) §11): the turn fails, nothing is re-sent, and the host
+raises the credits notice; iOS does not expose the handshake body, so an ASR 402 is `unspecified`.
 
 ## 2. Recognition (`wss://pdsh.tonoai.cn/v1/asr/stream`)
 

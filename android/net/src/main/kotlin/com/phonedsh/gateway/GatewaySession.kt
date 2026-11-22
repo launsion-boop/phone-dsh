@@ -18,6 +18,8 @@
 
 package com.phonedsh.gateway
 
+import com.phonedsh.account.TonoCloudCreditsSignal
+
 import java.nio.charset.StandardCharsets
 
 /** An upstream request as the Worker hands it to the gateway. */
@@ -107,6 +109,8 @@ class GatewaySession(
     private val cloudPolicy: TonoCloudResponsePolicy = TonoCloudResponsePolicy.PRODUCTION,
     /** Waits for a `Retry-After`; tests record instead of sleeping. */
     private val sleeper: (Long) -> Unit = { millis -> Thread.sleep(millis) },
+    /** tono-account.md §11: told once about each cloud-origin 402 (never re-sent). */
+    private val creditsHandler: (TonoCloudResponsePolicy.CreditsCondition) -> Unit = TonoCloudCreditsSignal::post,
 ) {
     fun exchange(request: GatewayRequest): GatewayOutcome {
         val method = request.method.trim().uppercase()
@@ -225,6 +229,7 @@ class GatewaySession(
                 // spec/v1/tono-account.md §5: the cloud origin's own rejections
                 // are re-sent with their own small budgets; anything else is
                 // forwarded exactly as before.
+                cloudPolicy.creditsCondition(currentUrl.raw, response.status, response.body)?.let(creditsHandler)
                 when (val decision = cloudPolicy.decide(currentUrl.raw, response.status, response.headers, response.body)) {
                     TonoCloudResponsePolicy.Decision.RefreshRetry ->
                         if (credential.carriesSecret && credentialRetries < TonoCloudResponsePolicy.CREDENTIAL_RETRY_MAX) {

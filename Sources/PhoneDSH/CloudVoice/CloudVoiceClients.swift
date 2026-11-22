@@ -2,6 +2,7 @@
 // phone-dsh — cloud speech clients for the TonoLink voice turn (spec/v1/cloud-voice.md §2, §3).
 
 import Foundation
+import PhoneDSHGateway
 
 /// One pdsh-asr.v1 recognition session (§2). One connection per turn; never reused or replayed.
 public actor CloudASRSession {
@@ -120,6 +121,11 @@ public actor CloudASRSession {
             let message: URLSessionWebSocketTask.Message
             do { message = try await task.receive() } catch {
                 handshakeStatus = (task.response as? HTTPURLResponse)?.statusCode
+                // tono-account.md §11: the handshake answers 402 without
+                // upgrading; its body is not exposed here, so `unspecified`.
+                if handshakeStatus == 402 {
+                    TonoCloudCreditsSignal.post(TonoCloudResponsePolicy.creditsCondition(status402Body: Data()))
+                }
                 transcript.closed()
                 conclude(nil)
                 return
@@ -183,6 +189,10 @@ public struct CloudTTSClient: Sendable {
                     guard status == 200 else {
                         var body = Data()
                         for try await byte in bytes { body.append(byte); if body.count >= 16_384 { break } }
+                        if status == 402 {
+                            // tono-account.md §11: no retry; one notice.
+                            TonoCloudCreditsSignal.post(TonoCloudResponsePolicy.creditsCondition(status402Body: body))
+                        }
                         throw Self.error(status: status, body: body)
                     }
                     var buffer = Data()
@@ -205,6 +215,11 @@ public struct CloudTTSClient: Sendable {
         let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
         let error = object?["error"] as? [String: Any]
         let code = (error?["code"] as? String) ?? (error?["type"] as? String)
+        if status == 402 {
+            let message = TonoCloudResponsePolicy.creditsCondition(status402Body: body) == .insufficient
+                ? "语音合成失败：积分已用完" : "语音合成失败：需要领取积分或积分不足"
+            return CloudVoiceError(status: status, code: code, message)
+        }
         return CloudVoiceError(status: status, code: code, "语音合成失败（HTTP \(status)\(code.map { " \($0)" } ?? "")）")
     }
 }

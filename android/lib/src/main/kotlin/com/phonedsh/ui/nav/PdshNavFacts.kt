@@ -577,6 +577,16 @@ public sealed interface PdshHostAction {
         override val wire: String = "tonoAccount.signOut"
     }
 
+    /** Tono 账号 → 积分 → 领取积分 (spec/v1/tono-account.md §10); idempotent at the cloud. */
+    public data object TonoAccountClaimCredits : PdshHostAction {
+        override val wire: String = "tonoAccount.claimCredits"
+    }
+
+    /** The credits notice (§11) was dismissed. */
+    public data object TonoAccountDismissCreditsNotice : PdshHostAction {
+        override val wire: String = "tonoAccount.dismissCreditsNotice"
+    }
+
     /** Tono 账号 → 云端任务 → 接收其他设备的任务: the host stores the switch and registers or deletes this phone. */
     public data class TonoAccountSetCloudTasks(public val enabled: Boolean) : PdshHostAction {
         override val wire: String = "tonoAccount.cloudTasks"
