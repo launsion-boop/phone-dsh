@@ -318,3 +318,25 @@ This section fixes the observable timing and the bound; it does not change the r
   and replay semantics are unchanged.
 - **Backpressure.** The downstream queue is bounded; when it is full the reader waits (does not
   drop) and the upstream connection applies backpressure. A dropped frame is never silent.
+
+### Android user-owned network settings (P05 / P09 / P18)
+
+The product network settings page owns an ordered list of bare DNS names or
+leftmost wildcard suffixes and a separate allow-all switch. The original iOS
+seed and shared cases are in [mobile-egress-settings](../ui/v1/fixtures/mobile-egress-settings.json).
+On Android one app-private atomic file (`egress-settings.json`) contains
+`version: 1`, `allowAll` (Boolean), and `hosts` (array of normalized names).
+Only an absent file starts with the shipped defaults. Invalid or unreadable
+data fails closed; retry re-reads it. An empty saved list denies new ordinary
+requests. The switch preserves the list while active; turning it off restores
+the list (or the shipped defaults when the stash is empty, as on iOS).
+A confirmed edit is visible to the next Android request and redirect check.
+Deletion and reset affect the stored rules, never a second UI-only list.
+
+The product list governs anonymous ordinary HTTP(S) reads. It supplies no
+credential, MCP grant, or network-write approval. Ordinary writes without the
+§5.1 approval seam are refused. Dedicated search, model, MCP and explicit
+diagnostic routes retain their own authorization and credential scopes.
+Diagnostic origin overrides remain isolated from product settings. Old builds
+ignore the new file; restart and rollback do not change existing credential
+or model data. No wire version changes.
