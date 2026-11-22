@@ -139,8 +139,19 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
             }
             let t0 = ContinuousClock.now
             let messages = Self.messages(task: task, turns: turns, feedback: feedback, jpeg: shot.jpeg)
-            let reply = try await Self.deadline(stepTimeout, "UI-Venus 请求") {
+            var reply = try await Self.deadline(stepTimeout, "UI-Venus 请求") {
                 try await self.client.chat(model: self.model, messages: messages, maxTokens: 512, timeout: 90)
+            }
+            // A reply that is all thinking (cut off at the token limit before any action) is not an
+            // action. It used to be "performed", fail as unsupported, and send the model back to
+            // repeat what had already worked (device log 2026-11-22: 设置 was open after step 1, then
+            // LaunchApp ⇄ a 16 s "Thought: …" until the loop guard). Ask once for the action alone.
+            if !Self.knownActions.contains(IPhoneAction.parse(reply).name) {
+                let note = Self.actionOnlyNote
+                let again = Self.messages(task: task, turns: turns, feedback: feedback.isEmpty ? note : feedback + " " + note, jpeg: shot.jpeg)
+                reply = try await Self.deadline(stepTimeout, "UI-Venus 请求") {
+                    try await self.client.chat(model: self.model, messages: again, maxTokens: 160, timeout: 60)
+                }
             }
             let modelSeconds = Self.seconds(ContinuousClock.now - t0)
             var action = IPhoneAction.parse(reply)
@@ -183,7 +194,8 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
             do {
                 executed = try await Self.deadline(stepTimeout, "动作") { try await self.device.perform(action) }
                 if ["launchapp", "launch"].contains(action.name) {
-                    nextFeedback = "Searched for \(action.text.isEmpty ? "the app" : action.text) and opened the top result: check that it is the right app."
+                    nextFeedback = "Searched for \(action.text.isEmpty ? "the app" : action.text) and opened the top result: check that it is the right app. "
+                        + "Any page of that app counts as the app being open; if opening it was the whole task, use Finished now and do not launch it again."
                 }
             } catch {
                 executed = "FAILED \(error)"
@@ -245,6 +257,12 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
             ]],
         ]
     }
+
+    /// Every action name the prompt offers or the phone performs. Anything else is not an action.
+    static let knownActions: Set<String> = visibleActions.union(["wait", "calluser", "answer", "finished",
+                                                                 "pressback", "pressrecent", "getscreenshot"])
+    static let actionOnlyNote = "Your last reply contained no action. Do not think again: reply with exactly one line, "
+        + "<action>…</action>. If the screen already shows what the task asked for, that line is Finished(content='…')."
 
     /// Actions that should visibly change the screen (Wait and the answers do not).
     static let visibleActions: Set<String> = ["click", "tap", "doubleclick", "longpress", "drag", "swipe", "scroll",

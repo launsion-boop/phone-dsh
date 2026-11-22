@@ -929,6 +929,12 @@ test('identity registration precedes the structural approval gate for bash', asy
 test('native phone tools and unrelated built-ins neither register nor ask for approval', async () => {
   assert.equal(needsIdentityRegistration('mcp__phone__android_connect'), false)
   assert.equal(needsStructuralApproval('mcp__phone__android_connect'), false)
+  // Device log 2026-11-22: a voice turn in the board's Bot called iphone_agent_run and got
+  // "App MCP does not recognize the tool". It is a native tool (native-mcp.md), forwarded as is.
+  assert.equal(needsIdentityRegistration('mcp__phone__iphone_agent_run'), false)
+  assert.equal(needsStructuralApproval('mcp__phone__iphone_agent_run'), false)
+  // Only the exact native name: a Bot tool that merely starts with it still registers.
+  assert.equal(needsIdentityRegistration('mcp__phone__iphone_agent_run_other'), true)
   assert.equal(needsIdentityRegistration('read'), false)
   assert.equal(needsStructuralApproval('read'), false)
   assert.equal(needsIdentityRegistration('bash'), true)
