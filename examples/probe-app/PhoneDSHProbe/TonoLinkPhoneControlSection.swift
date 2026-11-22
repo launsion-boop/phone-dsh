@@ -60,7 +60,11 @@ struct TonoLinkPhoneControlSection: View {
         let hands = IPhoneAgentHost.shared.hands
         if let status = try? await hands.phoneStatus() {
             let hid = status["hid"] as? [String: Any]
-            if hid?["keyboard"] as? Bool != true || hid?["absolute"] as? Bool != true {
+            // The keyboard and pointer are hidden between tasks on purpose (the phone gets its own
+            // keyboard back) and attached again when a task starts: `input_mode` false is the idle
+            // state, not a fault. Only a visible HID service that iOS has not subscribed to is one.
+            if hid?["input_mode"] as? Bool == true,
+               hid?["keyboard"] as? Bool != true || hid?["absolute"] as? Bool != true {
                 found.append("板子的键盘鼠标还没接上：在 设置 → 蓝牙 里连接 PhoneAgent")
             }
             if (status["airplay"] as? [String: Any])?["mirror_active"] as? Bool != true,
