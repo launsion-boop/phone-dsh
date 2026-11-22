@@ -246,5 +246,55 @@ class DeviceAppGoldenTest(unittest.TestCase):
         self.assertEqual(codes, {"size", "lex", "fstring", "import", "name", "underscore", "perm", "except", "exit_path"})
 
 
+ICON = DEVICE / "golden" / "device-app-icon.json"
+# Reviewed fixture revision device-app-v1.6 §13.1. Changing a vector needs a new contract revision.
+ICON_FROZEN = "151c4e3265fd4b6ee24b756ac7ba947dc99579a53fe431ef7f86873d10fe6a83"
+ICON_PALETTE = ["#5856D6", "#0FA3B1", "#E8890C", "#E5366B", "#1E7BF0", "#A04FD6", "#9C7A52", "#7F8F1A"]
+
+
+def fnv1a32(text: str) -> int:
+    h = 2166136261
+    for b in text.encode("utf-8"):
+        h = ((h ^ b) * 16777619) & 0xFFFFFFFF
+    return h
+
+
+def icon_glyph(title: str) -> str:
+    rest = title.lstrip("\u0020\u3000")
+    if not rest:
+        return "?"
+    c = rest[0]
+    return c.upper() if "a" <= c <= "z" else c
+
+
+class DeviceAppIconTest(unittest.TestCase):
+    """§13.1: the oracle for the shared icon vectors (phone page and device home screen)."""
+
+    def setUp(self):
+        self.raw = ICON.read_bytes()
+        self.doc = json.loads(self.raw.decode("utf-8"))
+
+    def test_pinned(self):
+        self.assertEqual(hashlib.sha256(self.raw).hexdigest(), ICON_FROZEN)
+
+    def test_palette_is_the_normative_one(self):
+        self.assertEqual([p["srgb"] for p in self.doc["palette"]], ICON_PALETTE)
+        self.assertEqual([p["index"] for p in self.doc["palette"]], list(range(8)))
+
+    def test_tint_vectors_replay(self):
+        ids = [v["id"] for v in self.doc["tint"] + self.doc["glyph"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        for v in self.doc["tint"]:
+            with self.subTest(v["id"]):
+                self.assertEqual(fnv1a32(v["name"]), v["fnv1a32"])
+                self.assertEqual(v["fnv1a32"] % len(ICON_PALETTE), v["index"])
+        self.assertGreater(len({v["index"] for v in self.doc["tint"]}), 4)
+
+    def test_glyph_vectors_replay(self):
+        for v in self.doc["glyph"]:
+            with self.subTest(v["id"]):
+                self.assertEqual(icon_glyph(v["title"]), v["glyph"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -53,6 +53,8 @@ public final class DeviceAppsPageModel: ObservableObject {
     @Published public private(set) var freeSpace: String?
     @Published public private(set) var banner: Banner?
     @Published public private(set) var busy = false
+    /// The app whose action is running (only its own button shows progress); nil for a refresh.
+    @Published public private(set) var busyRowID: String?
     /// The row waiting for the delete confirmation.
     @Published public var pendingDelete: DeviceAppsRow?
 
@@ -121,6 +123,44 @@ public final class DeviceAppsPageModel: ObservableObject {
         return (rows, result["free_bytes"]?.intValue, remembered)
     }
 
+    // MARK: Layout (device-app.md §13)
+
+    /// The 「正在运行」 card: the first running app. `app.stop` takes no name, so a device runs at most one.
+    public var runningRow: DeviceAppsRow? { rows.first(where: \.running) }
+
+    /// The 「设备上的应用」 list: every app but the one in the running card, in device order.
+    public var listRows: [DeviceAppsRow] {
+        guard let running = runningRow else { return rows }
+        return rows.filter { $0.id != running.id }
+    }
+
+    /// The header's device name: the Link name is device text, so it is shown plain and clipped like titles.
+    public static func deviceName(_ name: String) -> String {
+        let shown = DeviceAppToolEffects.display(name, max: 40)
+        return shown.isEmpty ? DeviceAppCustomerText.unknownDevice : shown
+    }
+
+    /// device-app.md §13.1 palette (sRGB, `0xRRGGBB`), shared with the device home screen. Index with
+    /// `iconTint(name:count:)` using `iconPalette.count`.
+    public static let iconPalette: [UInt32] = [0x5856D6, 0x0FA3B1, 0xE8890C, 0xE5366B, 0x1E7BF0, 0xA04FD6, 0x9C7A52, 0x7F8F1A]
+
+    /// §13.1 glyph: the first Unicode scalar after leading U+0020 / U+3000; ASCII a–z upper-cased, nothing
+    /// else case-mapped; "?" for an empty or all-space title. Titles are already sanitized.
+    public static func iconGlyph(title: String) -> String {
+        guard let first = title.unicodeScalars.first(where: { $0 != " " && $0 != "\u{3000}" }) else { return "?" }
+        if ("a"..."z").contains(first) { return String(first).uppercased() }
+        return String(first)
+    }
+
+    /// §13.1 tint, `0..<count`: FNV-1a-32 over the UTF-8 of the app `name`, so an app keeps its colour across
+    /// reads, launches and ends (Swift's `hashValue` is seeded per process and is not used).
+    public static func iconTint(name: String, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        var hash: UInt32 = 2_166_136_261
+        for byte in name.utf8 { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
+        return Int(hash % UInt32(count))
+    }
+
     // MARK: Actions
 
     public func refresh() async {
@@ -145,14 +185,14 @@ public final class DeviceAppsPageModel: ObservableObject {
     }
 
     public func open(_ row: DeviceAppsRow) async {
-        await act { [link] in
+        await act(row) { [link] in
             if let code = await link.run(row.id) { return Banner(text: DeviceAppCustomerText.runSentence(forCode: code), isError: true) }
             return Banner(text: DeviceAppCustomerText.opened(title: row.title), isError: false)
         }
     }
 
     public func stop(_ row: DeviceAppsRow) async {
-        await act { [link] in
+        await act(row) { [link] in
             if let code = await link.stop() { return Banner(text: DeviceAppCustomerText.stopSentence(forCode: code), isError: true) }
             return Banner(text: DeviceAppCustomerText.stopped(title: row.title), isError: false)
         }
@@ -165,7 +205,7 @@ public final class DeviceAppsPageModel: ObservableObject {
     public func confirmDelete() async {
         guard let row = pendingDelete else { return }
         pendingDelete = nil
-        await act { [link] in
+        await act(row) { [link] in
             if row.running, let code = await link.stop() {
                 return Banner(text: DeviceAppCustomerText.removeSentence(forCode: code == "device_not_connected" ? code : "stop_failed"), isError: true)
             }
@@ -174,9 +214,10 @@ public final class DeviceAppsPageModel: ObservableObject {
         }
     }
 
-    private func act(_ work: @escaping () async -> Banner) async {
+    private func act(_ row: DeviceAppsRow, _ work: @escaping () async -> Banner) async {
         guard !busy else { return }
-        busy = true; defer { busy = false }
+        busy = true; busyRowID = row.id
+        defer { busy = false; busyRowID = nil }
         banner = nil
         guard await link.connected() else { phase = .notConnected; banner = Banner(text: DeviceAppCustomerText.pageNotConnected, isError: true); return }
         let result = await work()

@@ -140,6 +140,8 @@ GOLDEN_READERS = (
     ("spec/v1/golden/upstream", "*.json", "spec/v1/tools/fixture_check.py", False),
     ("spec/v1/golden/trajectory", "notes.json", "spec/v1/tools/trajectory_norm.py", True),
     ("spec/device/v1/golden", "standard-gatt-discovery-mutations.json", "spec/v1/tools/test_spec_golden.py", False),
+    ("spec/device/v1/golden", "device-app-icon.json", "spec/v1/tools/test_device_app_golden.py", False),
+    ("spec/device/v1/golden", "device-app-icon.json", "Tests/PhoneDSHBotTests/DeviceApp/DeviceAppsPageModelTests.swift", False),
     ("spec/pclink/v1/golden", "pclink-v1-vectors.json", "spec/pclink/v1/tools/vectors.mjs", False),
     ("spec/pclink/v1/golden", "schema-samples.json", "spec/pclink/v1/tools/check_samples.py", False),
     ("spec/ui/v1/bot/golden", "*.json", "spec/ui/v1/bot/tools/check_bot_ui.py", False),

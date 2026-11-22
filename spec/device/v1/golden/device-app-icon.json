@@ -1,0 +1,175 @@
+{
+ "contract": "device-app-v1.6 §13.1",
+ "hash": "FNV-1a 32-bit over the UTF-8 bytes of the app name; index = hash mod len(palette)",
+ "palette": [
+  {
+   "index": 0,
+   "name": "indigo",
+   "srgb": "#5856D6"
+  },
+  {
+   "index": 1,
+   "name": "teal",
+   "srgb": "#0FA3B1"
+  },
+  {
+   "index": 2,
+   "name": "orange",
+   "srgb": "#E8890C"
+  },
+  {
+   "index": 3,
+   "name": "pink",
+   "srgb": "#E5366B"
+  },
+  {
+   "index": 4,
+   "name": "blue",
+   "srgb": "#1E7BF0"
+  },
+  {
+   "index": 5,
+   "name": "purple",
+   "srgb": "#A04FD6"
+  },
+  {
+   "index": 6,
+   "name": "brown",
+   "srgb": "#9C7A52"
+  },
+  {
+   "index": 7,
+   "name": "olive",
+   "srgb": "#7F8F1A"
+  }
+ ],
+ "tint": [
+  {
+   "id": "tint-empty",
+   "name": "",
+   "fnv1a32": 2166136261,
+   "index": 5
+  },
+  {
+   "id": "tint-a",
+   "name": "a",
+   "fnv1a32": 3826002220,
+   "index": 4
+  },
+  {
+   "id": "tint-clock",
+   "name": "clock",
+   "fnv1a32": 363073373,
+   "index": 5
+  },
+  {
+   "id": "tint-dice",
+   "name": "dice",
+   "fnv1a32": 1530380502,
+   "index": 6
+  },
+  {
+   "id": "tint-breathe",
+   "name": "breathe",
+   "fnv1a32": 1315064838,
+   "index": 6
+  },
+  {
+   "id": "tint-focus",
+   "name": "focus",
+   "fnv1a32": 337658899,
+   "index": 3
+  },
+  {
+   "id": "tint-focus_timer",
+   "name": "focus_timer",
+   "fnv1a32": 836589813,
+   "index": 5
+  },
+  {
+   "id": "tint-woodfish",
+   "name": "woodfish",
+   "fnv1a32": 4286992962,
+   "index": 2
+  },
+  {
+   "id": "tint-minesweeper",
+   "name": "minesweeper",
+   "fnv1a32": 3702844885,
+   "index": 5
+  },
+  {
+   "id": "tint-clock_face",
+   "name": "clock_face",
+   "fnv1a32": 1258852815,
+   "index": 7
+  },
+  {
+   "id": "tint-gauge_demo",
+   "name": "gauge_demo",
+   "fnv1a32": 789488974,
+   "index": 6
+  },
+  {
+   "id": "tint-pulse",
+   "name": "pulse",
+   "fnv1a32": 1426849438,
+   "index": 6
+  },
+  {
+   "id": "tint-vocab",
+   "name": "vocab",
+   "fnv1a32": 1087389900,
+   "index": 4
+  },
+  {
+   "id": "tint-rc_boat2",
+   "name": "rc_boat2",
+   "fnv1a32": 1856298437,
+   "index": 5
+  },
+  {
+   "id": "tint-aaaaaaaaaaaaaaaaaaaaaaaa",
+   "name": "aaaaaaaaaaaaaaaaaaaaaaaa",
+   "fnv1a32": 3519346685,
+   "index": 5
+  }
+ ],
+ "glyph": [
+  {
+   "id": "glyph-cjk",
+   "title": "呼吸 4-4-6",
+   "glyph": "呼"
+  },
+  {
+   "id": "glyph-ascii-upper",
+   "title": "dice",
+   "glyph": "D"
+  },
+  {
+   "id": "glyph-leading-space",
+   "title": "  clock",
+   "glyph": "C"
+  },
+  {
+   "id": "glyph-digit",
+   "title": "2048",
+   "glyph": "2"
+  },
+  {
+   "id": "glyph-empty",
+   "title": "",
+   "glyph": "?"
+  },
+  {
+   "id": "glyph-spaces-only",
+   "title": "   ",
+   "glyph": "?"
+  },
+  {
+   "id": "glyph-astral",
+   "title": "🎲骰子",
+   "glyph": "🎲"
+  }
+ ]
+}
