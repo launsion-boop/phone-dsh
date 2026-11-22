@@ -42,6 +42,7 @@ class BotWakeInboxStore(
         return document
     }
 
+    @Synchronized
     override fun <V> mutate(botId: String, body: (WakeInboxDocument) -> WakeInboxMutation<V>): V {
         val document = read(botId)
         val mutation = body(document)
@@ -196,10 +197,12 @@ class WakeInbox(
         }
     }
 
-    fun recover(kind: String? = null): Int = store.mutate(botId) { document ->
+    fun recover(kind: String? = null, excludingStagedPrefix: String? = null): Int = store.mutate(botId) { document ->
         var recovered = 0
         val items = document.items.map { existing ->
-            if (existing.state == WakeInboxState.STAGED && (kind == null || existing.kind == kind)) {
+            val excluded = excludingStagedPrefix != null &&
+                existing.stagedKey?.startsWith(excludingStagedPrefix) == true
+            if (!excluded && existing.state == WakeInboxState.STAGED && (kind == null || existing.kind == kind)) {
                 recovered += 1
                 existing.copy(state = WakeInboxState.PENDING, stagedAt = null, stagedKey = null)
             } else {

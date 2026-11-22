@@ -45,6 +45,7 @@ interface RoutineStore {
 class BotRoutineStore(
     private val store: BotDomainStore,
     private val clock: () -> Long = { System.currentTimeMillis() },
+    private val onChanged: (String, RoutineDocument) -> Unit = { _, _ -> },
 ) : RoutineStore {
     override fun read(botId: String): RoutineDocument {
         var document = RoutineDocument()
@@ -87,6 +88,7 @@ class BotRoutineStore(
             data = DurableSnapshot.envelope(mutation.document.toJson(), botId),
         )
         store.appendBatch(listOf(snapshot) + mutation.events)
+        onChanged(botId, mutation.document)
         return mutation.value
     }
 

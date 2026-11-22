@@ -48,6 +48,12 @@ import com.phonedsh.ui.bot.state.BotActivityCategory
 import com.phonedsh.ui.bot.state.BotActivityStatus
 import com.phonedsh.ui.bot.state.BotRuntimePresentation
 import com.phonedsh.ui.bot.state.BotUIHistoryPage
+import com.phonedsh.bot.wake.HeldMessages
+import com.phonedsh.bot.wake.WakeInbox
+import com.phonedsh.bot.wake.WakeInboxState
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -129,6 +135,7 @@ class AppBotChatDriver(
     private val resolveApproval: ((com.phonedsh.bot.rows.BotUserAction) -> BotActionResult)? = null,
     private val onTurnBoundary: (String, Boolean) -> Unit = { _, _ -> },
     materializedSessions: Path? = null,
+    private val heldInbox: WakeInbox? = null,
 ) : BotChatDriver, AutoCloseable {
     private val lock = Any()
     private val history = BotRowHistory()
@@ -291,6 +298,58 @@ class AppBotChatDriver(
     override fun liveFrames(): Flow<BotLiveFrame> = liveFrames
 
     override fun presentation(): Flow<BotRuntimePresentation> = presentationState.asStateFlow()
+
+    private val heldWakeLane = Mutex()
+
+    /**
+     * A staged request keeps its rpcId on retries. Only a positive journal
+     * read-back or a correlated engine reply removes it from the durable inbox.
+     */
+    internal suspend fun wakeHeldMessages() = heldWakeLane.withLock {
+        val inbox = heldInbox ?: return@withLock
+        withContext(Dispatchers.IO) {
+            if (runtime.isMainTurnBusy()) return@withContext
+            val items = inbox.items()
+            if (items.isEmpty()) return@withContext
+            val old = items.firstOrNull {
+                it.state == WakeInboxState.STAGED && it.stagedKey?.startsWith("held:") == true
+            }
+            val key = old?.stagedKey ?: "held:${UUID.randomUUID()}"
+            val session = runInterruptible { runtime.startMainSession() }
+            if (old != null && runInterruptible { hasUserMessageReceipt(session, key) }) {
+                inbox.commit(key)
+                return@withContext
+            }
+            val batch = if (old != null) items.filter { it.stagedKey == key }
+                else inbox.stage(now = clock(), key = key).items
+            if (batch.isEmpty()) return@withContext
+            val result = runInterruptible { runtime.sendHeldInteraction(HeldMessages.block(batch), key) }
+            if (result.status == "completed" || runInterruptible { hasUserMessageReceipt(session, key) }) {
+                inbox.commit(key)
+            }
+        }
+    }
+
+    /** DSH's own user/message receipt is the authority for dropping an admission. */
+    internal suspend fun deliverAdmission(text: String, downstreamId: String): Boolean =
+        heldWakeLane.withLock {
+            runInterruptible(Dispatchers.IO) {
+                if (runtime.isMainTurnBusy()) return@runInterruptible false
+                val requestId = "user-action:$downstreamId"
+                val sessionId = runtime.startMainSession()
+                if (hasUserMessageReceipt(sessionId, requestId)) return@runInterruptible true
+                val result = runtime.sendUserMessage(text, requestId)
+                result.status == "completed" || hasUserMessageReceipt(sessionId, requestId)
+            }
+        }
+
+    private fun hasUserMessageReceipt(sessionId: String, requestId: String): Boolean =
+        historyReader.load(sessionId).any { record ->
+            val source = (record.data["source"] as? JsonObject)
+                ?: ((record.data["message"] as? JsonObject)?.get("source") as? JsonObject)
+            (source?.get("rpcId") as? JsonString)?.value == requestId &&
+                (record.type == "user/message" || record.type == "message/user")
+        }
 
     /** Test/diagnostic hook: waits until the first session exists. */
     suspend fun startMainSession(): String = withContext(Dispatchers.IO) {

@@ -61,6 +61,26 @@ class HeldInboxGoldenTest {
     }
 
     @Test
+    fun acknowledgedConnectorIntervalStaysConsumedAfterRestart() {
+        val source = V2Golden.at(V2Golden.load("held-inbox.phone"), "valid", "connectorUpdateGmail")!!
+        val item = WakeInboxItem.fromJson(source)
+        val update = requireNotNull(item.connectorUpdate)
+        RoutineTestHarness(FakeClock(firstAt)).use { harness ->
+            ConnectorUpdateOutbox(harness.domain, harness.inbox).enqueue(update, firstAt)
+            val staged = harness.inbox.stage(now = secondAt, key = "held:stable-request")
+            assertEquals(1, staged.items.size)
+            assertEquals(0, harness.inbox.recover(excludingStagedPrefix = "held:"))
+            assertEquals("held:stable-request", harness.inbox.items().single().stagedKey)
+            assertEquals(1, harness.inbox.commit(staged.key))
+
+            val reopened = ConnectorUpdateOutbox(harness.domain, harness.inbox)
+            reopened.redeliver()
+            reopened.enqueue(update, secondAt)
+            assertTrue(harness.inbox.items().isEmpty())
+        }
+    }
+
+    @Test
     fun enqueueAndDuplicateMatchTheGolden() {
         val golden = V2Golden.load("held-inbox")
         val expected = V2Golden.at(golden, "valid", "enqueued", "item")!!

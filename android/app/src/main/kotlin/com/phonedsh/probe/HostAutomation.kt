@@ -15,6 +15,7 @@ internal class HostAutomation(
     private val sessionID: () -> String?,
     private val scope: CoroutineScope,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val onScheduleChanged: () -> Unit = {},
 ) {
     private val lock = Mutex()
     private var records: Map<String, JsonObject> = emptyMap()
@@ -57,6 +58,7 @@ internal class HostAutomation(
             check(updated?.text("id") == id && updated["code"] == null) { "schedule revision changed" }
             id
         }
+        onScheduleChanged()
         val refreshed = try {
             refreshNow()
         } catch (_: Exception) {
@@ -83,6 +85,7 @@ internal class HostAutomation(
             "id" to JsonString(id), "action" to JsonString("delete"),
         ))) as? JsonObject
         check((deleted?.get("deleted") as? JsonBool)?.value == true) { "schedule delete failed" }
+        onScheduleChanged()
         val refreshed = try {
             refreshNow()
         } catch (_: Exception) {
