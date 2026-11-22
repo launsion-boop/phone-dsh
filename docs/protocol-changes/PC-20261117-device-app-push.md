@@ -200,5 +200,7 @@ Worker 审批门（`approval-gate.ts` `AUTO_TOOLS`）：`DeviceAppStage`、`Devi
 - Protocol impact：P07（设备面板与 Link 用户来源调用，规则文本）、P26（device-app 客户文案与动作）、P09（页面契约）；
   无 wire、无新错误码。
 - 版式（v1.6 后续）：页面改为两列卡片网格（同一行卡片等高，标题最多两行），卡片上是「打开」，「停止」（仅运行中）与「删除」在卡片「…」菜单；契约文本与页面契约 `device-apps.json` 同步更新。无 wire、模型或授权变化；Protocol impact 不变（P07、P26、P09）。
+- 版式（v1.6 第二次）：用户反馈两列卡片「太乱」：每张卡都有一个同样的蓝色「打开」，卡片只有一行字，运行中最常用的「停止」藏在菜单里，结果文字插在顶部把列表往下推。改为：页头（设备名、连接状态、剩余空间）；运行中的应用单独一张「正在运行」卡片，直接露出「停止」（`app.stop` 不带名字，设备同一时刻最多运行一个）；其余应用为列表行，生成图标（标题首字，底色按 `name` 的 FNV-1a 稳定取色，不读也不新增图标字段）、标题、第二行、「打开」；「删除」在左滑；动作进行中只有该行按钮转圈；结果改为自动消失的浮层提示。`device-app.md` §13、`device-panel.md` §9、`spec/ui/v1/README.md` 页面表与页面契约 `device-apps.json` 同步。无 wire、工具、错误码、模型或授权变化；`app.json` 仍是封闭对象。Protocol impact 不变（P07、P26、P09）。
+- 共享图标（§13.1，v1.6 第二次）：手机「设备应用」页与 Passport 机身主屏用同一个生成图标——标题首个 Unicode 标量（只把 ASCII a–z 大写），底色 = 应用 `name` 的 FNV-1a-32 mod 8，取自固定的 8 色调色板（不含绿色）。共享向量 `spec/device/v1/golden/device-app-icon.json`，由 `test_device_app_golden.py` 钉住哈希并用参考实现重放；iOS `DeviceAppsPageModelTests` 与设备端 `speaker-touch-demo/passport-mpy/tests/test_home.py` 各自用真实函数跑同一文件。不经 wire 传任何东西；`app.json` 不变。机身主屏（`launcher.py` + 新 `home.py`）改为卡片列表：图标、标题（截断加「…」）、第二行「手机安装 / 自带」，设置改为主屏长按确定进入；这是设备端 UI，不是协议面。
 - 相容性：旧 App 仍打开通用面板（无新页）；新 App ↔ 旧固件：没有这八个工具的设备仍走通用面板；回滚即回到通用面板。
 

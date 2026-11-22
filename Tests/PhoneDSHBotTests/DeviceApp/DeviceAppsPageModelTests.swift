@@ -233,4 +233,83 @@ final class DeviceAppsPageModelTests: XCTestCase {
             XCTAssertFalse(text.contains("outcome_unknown") || text.contains("digest"), text)
         }
     }
+
+    // MARK: Layout (device-app.md §13, v1.6 list layout)
+
+    func testTheRunningAppHasItsOwnCardAndTheListHoldsTheRest() async {
+        let (model, _) = await make([app("clock", "时钟"), app("breathe", "呼吸 4-4-6", running: true), app("dice", "骰子")])
+        await model.refresh()
+        XCTAssertEqual(model.runningRow?.id, "breathe")
+        XCTAssertEqual(model.listRows.map(\.id), ["clock", "dice"], "device order, the running app left out")
+    }
+
+    func testWithNothingRunningEveryAppIsInTheList() async {
+        let (model, _) = await make([app("clock", "时钟"), app("dice", "骰子")])
+        await model.refresh()
+        XCTAssertNil(model.runningRow)
+        XCTAssertEqual(model.listRows.map(\.id), ["clock", "dice"])
+    }
+
+    func testASecondRunningAppStaysInTheListWithItsMark() async {
+        let (model, _) = await make([app("a", "甲", running: true), app("b", "乙", running: true)])
+        await model.refresh()
+        XCTAssertEqual(model.runningRow?.id, "a")
+        XCTAssertEqual(model.listRows.map(\.id), ["b"])
+        XCTAssertEqual(model.listRows.first?.running, true)
+    }
+
+    func testOnlyTheActingRowIsBusyAndItClearsAfterwards() async {
+        final class Box: @unchecked Sendable { weak var model: DeviceAppsPageModel?; var seen: String?? }
+        let box = Box()
+        let apps: [JSONValue] = [app("clock", "时钟"), app("dice", "骰子")]
+        let link = DeviceAppsLink(
+            connected: { true },
+            info: { .reply(.object(["ok": .bool(true), "apps": .array(apps)])) },
+            run: { _ in box.seen = await MainActor.run { box.model?.busyRowID }; return nil },
+            stop: { nil }, remove: { _ in nil })
+        let model = DeviceAppsPageModel(link: link)
+        box.model = model
+        await model.refresh()
+        XCTAssertNil(model.busyRowID, "a refresh marks no row")
+        await model.open(model.rows[1])
+        XCTAssertEqual(box.seen, .some("dice"), "while app.run is out, only that row is busy")
+        XCTAssertNil(model.busyRowID)
+        XCTAssertFalse(model.busy)
+    }
+
+    /// The shared §13.1 vectors (spec/device/v1/golden/device-app-icon.json) through the real functions.
+    func testTheSharedIconVectors() throws {
+        var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        var url: URL?
+        for _ in 0..<6 {
+            dir.deleteLastPathComponent()
+            let candidate = dir.appendingPathComponent("spec/device/v1/golden/device-app-icon.json")
+            if FileManager.default.fileExists(atPath: candidate.path) { url = candidate; break }
+        }
+        let doc = try JSONSerialization.jsonObject(with: Data(contentsOf: try XCTUnwrap(url))) as? [String: Any]
+        let palette = try XCTUnwrap(doc?["palette"] as? [[String: Any]])
+        XCTAssertEqual(palette.compactMap { ($0["srgb"] as? String).flatMap { UInt32($0.dropFirst(), radix: 16) } },
+                       DeviceAppsPageModel.iconPalette)
+        let tints = try XCTUnwrap(doc?["tint"] as? [[String: Any]])
+        XCTAssertGreaterThan(tints.count, 10)
+        for v in tints {
+            let name = try XCTUnwrap(v["name"] as? String)
+            XCTAssertEqual(DeviceAppsPageModel.iconTint(name: name, count: DeviceAppsPageModel.iconPalette.count),
+                           v["index"] as? Int, name)
+        }
+        let glyphs = try XCTUnwrap(doc?["glyph"] as? [[String: Any]])
+        for v in glyphs {
+            XCTAssertEqual(DeviceAppsPageModel.iconGlyph(title: try XCTUnwrap(v["title"] as? String)), v["glyph"] as? String,
+                           v["id"] as? String ?? "")
+        }
+        XCTAssertEqual(DeviceAppsPageModel.iconTint(name: "clock", count: 0), 0)
+    }
+
+    func testTheDeviceNameIsPlainClippedText() {
+        XCTAssertEqual(DeviceAppsPageModel.deviceName("AI Passport"), "AI Passport")
+        XCTAssertEqual(DeviceAppsPageModel.deviceName(""), DeviceAppCustomerText.unknownDevice)
+        let shown = DeviceAppsPageModel.deviceName("板\n子\u{202E}" + String(repeating: "长", count: 100))
+        XCTAssertFalse(shown.contains("\n") || shown.contains("\u{202E}"))
+        XCTAssertLessThanOrEqual(shown.unicodeScalars.count, 40)
+    }
 }

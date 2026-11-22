@@ -324,6 +324,7 @@ an interrupted install at boot.
 | --- | --- |
 | [schema/device-app-vector.schema.json](schema/device-app-vector.schema.json) | closed shape of one vector |
 | [golden/device-app.jsonl](golden/device-app.jsonl) | name, path, manifest, digest, static check and `app.put` vectors, valid and invalid |
+| [golden/device-app-icon.json](golden/device-app-icon.json) | §13.1 icon palette, tint (FNV-1a) and glyph vectors |
 | [spec/v1/tools/test_device_app_golden.py](../../v1/tools/test_device_app_golden.py) | pins the file hash, validates the schema, replays every vector through a reference oracle |
 
 The oracle is a spec checker, not runtime conformance. The phone's validator and the device's guard
@@ -369,11 +370,17 @@ generic panel; the page has a collapsed 「高级」 item that opens it.
   title get a second line `版本 N（名称）` so they can be told apart; a unique title has no second line. An
   empty device says `设备上还没有应用。让 Bot 给你做一个吧。`; a device that is not connected says
   `设备没连上，请靠近设备并确认蓝牙已开` and sends nothing.
-- **Layout.** Each app is a card in a two-column grid (equal card heights within a row, title up to two lines):
-  the card shows the title, the 运行中 mark, the second line, and a prominent 打开 button; 停止 (only while the
-  app runs) and 删除 are in the card's 「…」 menu.
-- **Actions.** Per card: 打开 (`app.run {name}`), 停止 (`app.stop`, only on the running card, in the menu), 删除
-  (`app.remove {name}`, in the menu; a running app is stopped first). Each is a deliberate tap of the user and is the authorization: the calls go
+- **Layout.** A header names the device (its Link name as plain, clipped text), whether it is connected, and the
+  free space. Below it, the running app (the first app with `running`; `app.stop` takes no name, so a device runs
+  at most one) sits alone in a 「正在运行」 card with its title, `长按确定键退出。` and a 停止 button. Every other app
+  is one row of a 「设备上的应用」 list: a generated icon, the title (up to two lines), the second line, and an
+  打开 button; a further app that also reports `running` keeps a 运行中 mark in its row. The icon is the
+  title's first character on a tint picked from the app `name` by a stable hash (FNV-1a over its UTF-8, so the
+  same app keeps its colour; §13.1); no icon field is read or added. 删除 is the row's (or the running card's)
+  trailing swipe. While an action runs, only its own button shows progress. The result
+  sentence is a toast over the page that goes away by itself (an error stays longer) or on a tap.
+- **Actions.** Per app: 打开 (`app.run {name}`, list rows), 停止 (`app.stop`, the running card's button), 删除
+  (`app.remove {name}`, trailing swipe; a running app is stopped first). Each is a deliberate tap of the user and is the authorization: the calls go
   out as the **user origin**, which the v1.3 waiver of §7 covers for exactly these eight names, so no
   Bot, approval card, standing grant or new switch is involved. 删除 asks one confirmation:
   `删除后不能恢复，需要的话让 Bot 重新做一个。` Nothing is sent before the user confirms.
@@ -384,3 +391,19 @@ generic panel; the page has a collapsed 「高级」 item that opens it.
 - No wire, tool, error-code or grant change; the page is the `device-panel` page spec's sibling
   (`spec/ui/v1/pages/device-apps.json`, `device-entry.json`).
 
+### 13.1 App icon (shared by the phone page and the device home screen)
+
+The phone's 「设备应用」 page and the device's own home screen draw the same generated icon for an app, so the
+customer recognises it on both. Both ends derive it from data they already have; nothing is sent.
+
+- **Glyph.** The first Unicode scalar of the displayed title after leading U+0020 and U+3000; an ASCII `a`–`z`
+  is upper-cased (no other case mapping). An empty or all-space title gives `?`. A device whose font lacks the
+  glyph draws its own fallback (the Passport draws `?`); the rule is unchanged.
+- **Tint.** `index = FNV-1a-32(UTF-8 of the app name) mod 8` (offset basis 2166136261, prime 16777619), into
+  the palette below. The app **name** is hashed, not the title, so a renamed title keeps its colour.
+- **Palette** (sRGB): 0 `#5856D6`, 1 `#0FA3B1`, 2 `#E8890C`, 3 `#E5366B`, 4 `#1E7BF0`, 5 `#A04FD6`,
+  6 `#9C7A52`, 7 `#7F8F1A`. Green is not in it: on the phone it marks the running app. Each end picks how the
+  tint is shown on its own background (the phone: glyph in the tint on a 15 % wash; the Passport: white glyph
+  on a solid tile), never a different hue.
+- **Vectors.** [golden/device-app-icon.json](golden/device-app-icon.json) (palette, tint and glyph vectors);
+  each end's tests run it through their real functions.

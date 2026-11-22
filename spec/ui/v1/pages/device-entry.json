@@ -9,8 +9,8 @@
   "source": {
     "file": "DeviceAppsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/DeviceAppsPage.swift",
-    "lines": 203,
-    "structLine": 186,
+    "lines": 319,
+    "structLine": 302,
     "renderedFrom": [
       "body"
     ],
@@ -23,7 +23,7 @@
   },
   "sections": [
     {
-      "id": "region-186",
+      "id": "region-302",
       "kind": "implicit",
       "title": null,
       "titleTemplate": null,
@@ -31,7 +31,7 @@
       "condition": null,
       "collection": null,
       "rows": [],
-      "provenance": "DeviceAppsPage.swift:186",
+      "provenance": "DeviceAppsPage.swift:302",
       "anchor": "struct DeviceEntryPage: View {",
       "extraction": "manual",
       "criterion": {
@@ -49,9 +49,9 @@
       "empty": [],
       "data": [
         {
-          "renders": "untitled section at 186",
+          "renders": "untitled section at 302",
           "when": null,
-          "provenance": "DeviceAppsPage.swift:186",
+          "provenance": "DeviceAppsPage.swift:302",
           "anchor": "struct DeviceEntryPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -77,11 +77,20 @@
   "subpages": [
     {
       "name": "DeviceAppsPage",
-      "line": 51,
+      "line": 53,
       "private": false,
       "embedded": false,
-      "sections": [],
-      "provenance": "DeviceAppsPage.swift:51"
+      "sections": [
+        {
+          "title": "正在运行",
+          "provenance": "DeviceAppsPage.swift:123"
+        },
+        {
+          "title": "设备上的应用",
+          "provenance": "DeviceAppsPage.swift:128"
+        }
+      ],
+      "provenance": "DeviceAppsPage.swift:53"
     }
   ],
   "unreachable": [],
