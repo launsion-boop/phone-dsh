@@ -769,6 +769,15 @@ struct ChatPage: View {
             }
         }
         .onAppear { onChatAppear() }
+        // SwiftUI reports `.active` before `UIApplication.applicationState`
+        // turns `.active`, so the scene-phase commit of a history adoption
+        // parked during a background launch can find the gate still closed.
+        // The page was already visible, so `onAppear` never runs again, and
+        // 「显示上次对话 · 引擎后台启动中…」 stayed up over a live session.
+        // didBecomeActive fires after the state is `.active`: commit again.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            model.adoptDeferredTranscriptIfForeground()
+        }
         .task {
             for await state in await TonoAccountSession.shared.states() { accountSignedIn = state.isSignedIn }
         }

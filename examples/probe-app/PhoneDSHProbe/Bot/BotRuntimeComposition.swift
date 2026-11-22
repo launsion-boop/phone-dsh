@@ -984,6 +984,21 @@ final class BotRuntimeComposition {
                 detail: BotRebindDiagnostics.channelDetail(await newHost.channelSelection())
             ) {
                 try self.ensureCurrentBind(bindingEpoch, host: newHost)
+                // host/v1 §10.2: one launch orchestrator owns when the engine
+                // starts or resumes. On a parked host `start()` *is* a resume,
+                // so a recovery bind that ran right after the App parked
+                // (iPhone19,4, 2026-11-22 12:51) booted a Worker in the
+                // background behind ChatModel. iOS then killed it in
+                // suspension, and the next foreground `resume()` returned early
+                // on `.running` with a dead channel: every Bot call timed out
+                // for four minutes. The bind only attaches to a host that is
+                // already up; the orchestrator's own resume emits the boot
+                // event that re-runs this bind.
+                let hostState = await newHost.state
+                guard hostState == .running || hostState == .starting else {
+                    throw BotMCPError.unavailable(
+                        "the host is \(hostState.rawValue); the launch orchestrator resumes it")
+                }
                 try await newHost.start()
             }
             try ensureCurrentBind(bindingEpoch, host: newHost)
