@@ -262,8 +262,10 @@ public fun NativeDeviceConnectionPage(
             item(key = "transport-header") {
                 SessionSectionLabel(UiStrings.DEVICE_SECTION_TRANSPORT)
             }
-            items(count = state.transmissions.size) { index ->
-                TransportRow(state.transmissions[index])
+            item(key = "transports") {
+                com.phonedsh.ui.surface.SettingsGroupCard {
+                    state.transmissions.forEach { TransportRow(it) }
+                }
             }
             item(key = "transport-footer") {
                 BasicText(
@@ -440,19 +442,19 @@ private fun TransportRow(row: DeviceTransmissionRow) {
 private fun DeviceUnavailable(title: String, hint: String, tag: String) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag(tag)
-            .padding(
-                horizontal = HomeMetrics.chromeInset,
-                vertical = tokens.geometry.cardOuterMarginV,
-            )
-            .semantics(mergeDescendants = true) { contentDescription = "$title. $hint" },
-        verticalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
-    ) {
-        BasicText(text = title, style = type.body.copy(color = tokens.colors.textPrimary))
-        BasicText(text = hint, style = type.listItem.copy(color = tokens.colors.textTertiary))
+    com.phonedsh.ui.surface.SettingsGroupCard {
+        Column(
+            modifier = Modifier.fillMaxWidth().testTag(tag)
+                .padding(horizontal = HomeMetrics.chromeInset, vertical = HomeMetrics.chromeInset * 2)
+                .semantics(mergeDescendants = true) { contentDescription = "$title. $hint" },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
+        ) {
+            com.phonedsh.ui.icon.PdshIconView(com.phonedsh.ui.icon.PdshIcon.DEVICE,
+                HomeMetrics.chromeInset * 3, tokens.colors.textTertiary, null)
+            BasicText(text = title, style = type.headline.copy(color = tokens.colors.textPrimary))
+            BasicText(text = hint, style = type.listItem.copy(color = tokens.colors.textSecondary))
+        }
     }
 }
 

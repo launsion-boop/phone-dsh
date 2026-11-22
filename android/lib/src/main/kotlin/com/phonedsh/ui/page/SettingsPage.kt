@@ -394,6 +394,7 @@ public data class SettingsFacts(
     public val defaultPermissionTier: PermissionTier? = null,
     /** Permission modes actually reported by `permissionPresets/catalog`; null means unread. */
     public val defaultPermissionAvailableTiers: Set<PermissionTier>? = null,
+    public val lockedPermissionOptions: List<Pair<PermissionTier, Boolean>>? = null,
     /** Whether the host reports this one field writable (not the provider-wide flag). */
     public val defaultPermissionWritable: Boolean = false,
     /** A confirmed permission default write is in flight. */
@@ -506,6 +507,7 @@ public data class SettingsScreenState(
     public val preferences: SettingsPreferences = SettingsPreferences(),
     public val defaultPermissionTier: PermissionTier? = null,
     public val defaultPermissionAvailableTiers: Set<PermissionTier>? = null,
+    public val lockedPermissionOptions: List<Pair<PermissionTier, Boolean>>? = null,
     public val defaultPermissionWritable: Boolean = false,
     public val defaultPermissionBusy: Boolean = false,
     public val defaultPermissionFailure: String? = null,
@@ -875,6 +877,7 @@ public data class SettingsScreenState(
                 preferences = preferences,
                 defaultPermissionTier = facts.defaultPermissionTier,
                 defaultPermissionAvailableTiers = facts.defaultPermissionAvailableTiers,
+                lockedPermissionOptions = facts.lockedPermissionOptions,
                 defaultPermissionWritable = facts.defaultPermissionWritable,
                 defaultPermissionBusy = facts.defaultPermissionBusy,
                 defaultPermissionFailure = facts.defaultPermissionFailure,
@@ -1078,6 +1081,7 @@ public data class PermissionDefaultsState(
             failure: String? = null,
             readOnlyReason: String? = null,
             startupLocked: Boolean = false,
+            lockedOptions: List<Pair<PermissionTier, Boolean>>? = null,
         ): PermissionDefaultsState {
             val lockReason = when {
                 writable -> null
@@ -1109,11 +1113,7 @@ public data class PermissionDefaultsState(
                     )
                     else -> null
                 },
-                options = listOf(
-                    PermissionTier.VIEW_ONLY,
-                    PermissionTier.WORKSPACE_WRITE,
-                    PermissionTier.FULL_ACCESS,
-                ).map { tier ->
+                options = (lockedOptions?.takeIf { !writable } ?: PermissionTier.entries.map { it to (it == selected) }).map { (tier, isSelected) ->
                     PermissionOptionView(
                         tier = tier,
                         title = UiStrings.settingsNativeText(languageId, SettingsScreenState.tierTitle(tier), when (tier) {
@@ -1121,7 +1121,7 @@ public data class PermissionDefaultsState(
                             PermissionTier.WORKSPACE_WRITE -> "Workspace write"
                             PermissionTier.FULL_ACCESS -> "Full access"
                         }),
-                        selected = tier == selected,
+                        selected = isSelected,
                         enabled = writable && !busy && availableTiers?.contains(tier) == true,
                     )
                 },
@@ -1211,14 +1211,18 @@ public fun SettingsPage(
         "dark" -> UiStrings.settingsNativeText(languageId, "深色", "Dark")
         else -> UiStrings.settingsNativeText(languageId, UiStrings.SETTINGS_PERMISSION_UNSET, "Not set")
     }
-    val fontSize = preferences.fontSizeConversation?.let { "$it pt" } ?: UiStrings.UNKNOWN
+    val fontSize = preferences.fontSizeConversation?.toString() ?: UiStrings.UNKNOWN
     val providerValue = when {
         state.providerSetupRequired == true -> "需要设置"
         state.modelProviderName != null -> state.modelProviderName
         else -> UiStrings.UNAVAILABLE
     }
     val folderValue = state.folderCount?.toString() ?: UiStrings.UNAVAILABLE
-    val archivedValue = state.archivedSessionCount?.toString() ?: UiStrings.UNAVAILABLE
+    val archivedValue = when (val count = state.archivedSessionCount) {
+        null -> UiStrings.UNAVAILABLE
+        0 -> null
+        else -> count.toString()
+    }
     val permissionSummary = state.phonePermissionSummary ?: UiStrings.UNKNOWN
 
     androidx.compose.foundation.layout.Column(
@@ -1327,6 +1331,7 @@ public fun SettingsPage(
                     selected = state.defaultPermissionTier,
                     languageId = state.preferences.language?.id,
                     availableTiers = state.defaultPermissionAvailableTiers,
+                    lockedOptions = state.lockedPermissionOptions,
                     writable = state.defaultPermissionWritable,
                     busy = state.defaultPermissionBusy,
                     failure = state.defaultPermissionFailure,
@@ -1362,7 +1367,7 @@ private fun SettingsIndexList(
     fontSize: String,
     providerValue: String,
     folderValue: String,
-    archivedValue: String,
+    archivedValue: String?,
     permissionSummary: String,
     connectedComputerValue: String?,
     onOpenConnectedComputer: (() -> Unit)?,
@@ -1395,7 +1400,11 @@ private fun SettingsIndexList(
         // opens 运行状态 (`profileSection`, `:258-289`).
         SettingsIndexSection("me.profile", "", listOf(
             SettingsIndexEntry("me.profile", "Phone DSH", com.phonedsh.ui.icon.PdshIcon.INFO,
-                subtitle = listOfNotNull(engineLabel, state.modelProviderName).joinToString(" · "),
+                subtitle = when (state.providerSetupRequired) {
+                    true -> native("待配置模型服务", "Model setup required") + "\n" +
+                        (state.modelProviderName ?: native("还没有配置模型服务", "No model service configured"))
+                    else -> listOfNotNull(engineLabel, state.modelProviderName).joinToString(" · ")
+                },
                 callback = { onNavigate(SettingsDestination.RUNTIME_DETAILS) }),
         ), modes = TAB_ONLY),
         // A failed engine surfaces its restart on the tab too (`:295-301`).
@@ -1671,7 +1680,7 @@ private fun SettingsIndexRow(entry: SettingsIndexEntry, dividerBelow: Boolean) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = SettingsRootRowHeight)
+                .heightIn(min = if (entry.id == "me.profile") 106.dp else SettingsRootRowHeight)
                 .then(if (click != null) Modifier.clickable(
                     enabled = entry.enabled,
                     role = if (entry.onToggle != null) Role.Switch else Role.Button,
@@ -1686,10 +1695,17 @@ private fun SettingsIndexRow(entry: SettingsIndexEntry, dividerBelow: Boolean) {
             androidx.compose.foundation.layout.Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = SettingsRootRowHeight),
+                    .heightIn(min = if (entry.id == "me.profile") 106.dp else SettingsRootRowHeight),
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
             ) {
-                com.phonedsh.ui.icon.PdshIconView(
+                if (entry.id == "me.profile") {
+                    androidx.compose.foundation.Image(
+                        painter = androidx.compose.ui.res.painterResource(com.phonedsh.lib.R.drawable.about_logo_background),
+                        contentDescription = null,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.padding(start = tokens.geometry.pageOuterMarginH).size(56.dp).clip(CircleShape),
+                    )
+                } else com.phonedsh.ui.icon.PdshIconView(
                     icon = entry.icon,
                     size = com.phonedsh.ui.HomeMetrics.composerIcon,
                     tint = tokens.colors.textPrimary,

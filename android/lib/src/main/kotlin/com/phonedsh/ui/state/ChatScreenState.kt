@@ -1192,6 +1192,7 @@ public data class ChatScreenState(
     public val contextPressure: ContextPressure? = null,
     public val contextBreakdown: ContextBreakdown? = null,
     public val composerStatsMode: ComposerStatsMode = ComposerStatsMode.DETAILED,
+    public val agentPreset: String? = null,
 ) {
     /** True when the list has nothing to show yet. */
     public val isEmpty: Boolean get() = rows.isEmpty()

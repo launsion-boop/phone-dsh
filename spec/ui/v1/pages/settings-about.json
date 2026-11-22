@@ -7,14 +7,14 @@
   "sectionNote": "flat List: one version row + one sentence; no group header",
   "title": {
     "text": "关于",
-    "provenance": "NativeShell.swift:1083",
+    "provenance": "NativeShell.swift:1091",
     "anchor": ".navigationTitle(\"关于\")"
   },
   "source": {
     "file": "NativeShell.swift",
     "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
-    "lines": 1335,
-    "structLine": 1055,
+    "lines": 1343,
+    "structLine": 1063,
     "renderedFrom": [
       "body"
     ],
@@ -27,7 +27,7 @@
   },
   "sections": [
     {
-      "id": "section-1058",
+      "id": "section-1066",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -47,7 +47,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeShell.swift:1065",
+          "provenance": "NativeShell.swift:1073",
           "anchor": "Text(\"Phone DSH\")",
           "extraction": "syntax"
         },
@@ -62,22 +62,22 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeShell.swift:1067",
+          "provenance": "NativeShell.swift:1075",
           "anchor": "Text(\"运行在手机上的 DeepSeek Harness\")",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeShell.swift:1058",
+      "provenance": "NativeShell.swift:1066",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row",
         "label": "Phone DSH",
-        "provenance": "NativeShell.swift:1065"
+        "provenance": "NativeShell.swift:1073"
       }
     },
     {
-      "id": "section-1075",
+      "id": "section-1083",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -97,7 +97,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeShell.swift:1076",
+          "provenance": "NativeShell.swift:1084",
           "anchor": "LabeledContent(\"版本\", value: Bundle.main.infoDictionary?[\"CFBundleShortVersionStr",
           "extraction": "syntax"
         },
@@ -112,23 +112,23 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeShell.swift:1077",
+          "provenance": "NativeShell.swift:1085",
           "anchor": "LabeledContent(\"构建\", value: Bundle.main.infoDictionary?[\"CFBundleVersion\"] as? S",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeShell.swift:1075",
+      "provenance": "NativeShell.swift:1083",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row",
         "label": "版本",
-        "provenance": "NativeShell.swift:1076"
+        "provenance": "NativeShell.swift:1084"
       },
       "footer": {
         "text": "会话记录和文件都保存在这台手机上。",
         "labelExpr": null,
-        "provenance": "NativeShell.swift:1079",
+        "provenance": "NativeShell.swift:1087",
         "anchor": "Text(\"会话记录和文件都保存在这台手机上。\")"
       }
     }
@@ -142,9 +142,9 @@
       "empty": [],
       "data": [
         {
-          "renders": "untitled section at 1058 | untitled section at 1075",
+          "renders": "untitled section at 1066 | untitled section at 1083",
           "when": null,
-          "provenance": "NativeShell.swift:1055",
+          "provenance": "NativeShell.swift:1063",
           "anchor": "struct SettingsAboutPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -154,13 +154,13 @@
         {
           "renders": "—",
           "when": null,
-          "provenance": "NativeShell.swift:1076",
+          "provenance": "NativeShell.swift:1084",
           "anchor": "LabeledContent(\"版本\", value: Bundle.main.infoDictionary?[\"CFBundleShortVersionStr"
         },
         {
           "renders": "—",
           "when": null,
-          "provenance": "NativeShell.swift:1077",
+          "provenance": "NativeShell.swift:1085",
           "anchor": "LabeledContent(\"构建\", value: Bundle.main.infoDictionary?[\"CFBundleVersion\"] as? S"
         }
       ],

@@ -121,11 +121,7 @@ public fun PCPairingPage(
 ) {
     SettingsSubPageFrame(
         title = UiStrings.PC_PAIRING_TITLE,
-        onBack = null,
-        rootTag = PCPairingPageTags.ROOT,
-        grouped = true,
-        modifier = modifier,
-        trailing = {
+        leadingAction = {
             SessionTextAction(
                 label = UiStrings.DISMISS,
                 onClick = onClose,
@@ -133,6 +129,9 @@ public fun PCPairingPage(
                 modifier = Modifier.testTag(PCPairingPageTags.CLOSE),
             )
         },
+        rootTag = PCPairingPageTags.ROOT,
+        grouped = true,
+        modifier = modifier,
     ) {
         LazyColumn(Modifier.fillMaxSize()) {
             when (state.stage) {
@@ -172,26 +171,32 @@ public fun PCPairingPage(
                 PCPairingStage.MANUAL,
                 -> {
                     item(key = "install") {
-                        PcPairingInstallSection(
-                            installCommand = installCommand,
-                            onCopyInstallCommand = onCopyInstallCommand,
-                        )
+                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = PcMetrics.SECTION_GAP)) {
+                            PcPairingInstallSection(
+                                installCommand = installCommand,
+                                onCopyInstallCommand = onCopyInstallCommand,
+                            )
+                        }
                     }
                     item(key = "scan") {
-                        PcPairingScanSection(
-                            state = state,
-                            onScan = onScan,
-                        )
+                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = PcMetrics.SECTION_GAP)) {
+                            PcPairingScanSection(
+                                state = state,
+                                onScan = onScan,
+                            )
+                        }
                     }
                     item(key = "other") {
-                        PcPairingOtherSection(
-                            state = state,
-                            onToggle = onToggleOtherWays,
-                            onLinkChange = onPairingLinkChange,
-                            onPairWithLink = onPairWithLink,
-                            onCodeChange = onPairingCodeChange,
-                            onPairManually = onPairManually,
-                        )
+                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = PcMetrics.SECTION_GAP)) {
+                            PcPairingOtherSection(
+                                state = state,
+                                onToggle = onToggleOtherWays,
+                                onLinkChange = onPairingLinkChange,
+                                onPairWithLink = onPairWithLink,
+                                onCodeChange = onPairingCodeChange,
+                                onPairManually = onPairManually,
+                            )
+                        }
                     }
                     // `.joining` in Swift is the same body with one extra section
                     // (`PCPairingPage.swift:36-38`); the host may project it before

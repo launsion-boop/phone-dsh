@@ -72,6 +72,13 @@ class ChatComposerIntegrationTest {
     }
 
     @Test
+    fun `speech capable host shows a disabled read aloud action before the first reply`() {
+        show(availability = ComposerAvailability(supportsSpeech = true))
+        compose.onNodeWithTag(UiPageTags.COMPOSER_ADD).performClick()
+        compose.onNodeWithText("朗读最近回复").assertIsDisplayed().assertIsNotEnabled()
+    }
+
+    @Test
     fun `host explicitly enables image import and receives the selected action`() {
         var images = 0
         var spoken = 0

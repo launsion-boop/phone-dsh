@@ -33,8 +33,8 @@ public object ConnectorsMetrics {
     /** Row spacing between tile, text and pill. Source: `:133` (`HStack(spacing: 14)`). Page-local. Confidence: exact. */
     public val rowSpacing: Dp get() = 14.dp
 
-    /** Row vertical padding. Source: `:147` (`.padding(.vertical, 4)`) over the list row's own inset. Page-local. Confidence: approximate. */
-    public val rowPaddingV: Dp get() = 10.dp
+    /** Row vertical padding. Source: `:147` (`.padding(.vertical, 4)`) plus native list insets. The combined 19pt inset gives an 82pt row with the 44pt tile. */
+    public val rowPaddingV: Dp get() = 19.dp
 
     /** Row separator leading inset. Source: `:151` (`listRowSeparatorLeading … 58`) plus the 16 pt card inset. Page-local. Confidence: approximate. */
     public val rowSeparatorInset: Dp get() = 74.dp
@@ -51,8 +51,8 @@ public object ConnectorsMetrics {
     /** Pill height. Source: `:181` (`.frame(height: 32)`). Page-local. Confidence: exact. */
     public val pillHeight: Dp get() = 32.dp
 
-    /** Sheet tile top. Source: `:200` (`.padding(.top, 28)`). Page-local. Confidence: exact. */
-    public val sheetTileTop: Dp get() = 28.dp
+    /** Material reserves the grabber area above the tile. Avoid a second top inset. */
+    public val sheetTileTop: Dp get() = 0.dp
 
     /** Sheet title size. Source: `:202` (`.font(.system(size: 24, weight: .bold))`). Page-local. Confidence: exact. */
     public val sheetTitleSize: TextUnit get() = 24.sp

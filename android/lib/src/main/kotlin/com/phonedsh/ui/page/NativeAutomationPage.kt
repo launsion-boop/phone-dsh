@@ -1056,7 +1056,7 @@ public fun NativeAutomationPage(
     val visibleRoute = if (editorOverlay) state.editorReturnRoute else state.route
     when (visibleRoute) {
         AutomationRoute.CATALOG -> AutomationFrame(
-            largeTitle = UiStrings.AUTOMATION_TITLE,
+            title = UiStrings.AUTOMATION_TITLE,
             // PR #60 moved the bar to iOS's sheet shape (`NativeAutomationPage.swift:68-82`):
             // `.topBarLeading` holds 刷新 and 新建, and `.confirmationAction` holds 完成,
             // which is the sheet's only close (the ✕ glyph is gone on both ends).

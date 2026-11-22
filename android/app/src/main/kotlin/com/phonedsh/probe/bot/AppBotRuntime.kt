@@ -87,6 +87,7 @@ interface AppBotMcpServer {
 
 /** The routine scheduler's foreground lifecycle, kept replaceable for tests. */
 interface AppBotRoutineService {
+    fun presence(botID: String, foreground: Boolean): com.phonedsh.bot.routines.RoutinePresence? = null
     fun start()
     fun stop()
     suspend fun recoverHeldWake() {}
@@ -117,6 +118,9 @@ private class SchedulerRoutineService(
             }
         }
     }
+
+    override fun presence(botID: String, foreground: Boolean) =
+        if (botID == scheduler.botId) scheduler.presenceSnapshot(foreground, keepingAlive = false) else null
 
     override fun start() = scheduler.start()
     override fun stop() = scheduler.stop()
@@ -234,6 +238,12 @@ class AppBotRuntime internal constructor(
     val platformState: StateFlow<BotPlatformConfig>? get() = rosterController?.state
 
     internal suspend fun recoverHeldWake() = routines.recoverHeldWake()
+
+    internal fun presence(botID: String, foreground: Boolean) = routines.presence(botID, foreground)
+
+    internal fun updateAppearance(botID: String, intent: com.phonedsh.ui.bot.state.BotAppearanceIntent) {
+        rosterController?.updateAppearance(botID, intent)
+    }
 
     internal fun catchUpRoutines() = routines.catchUpRoutines()
 

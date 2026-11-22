@@ -1014,7 +1014,7 @@ private fun FolderGroup(id: String, title: String, sessions: List<HomeDrawerSess
                             interactionSource = sessionInteraction,
                             modifier = Modifier.fillMaxWidth().height(SessionsMetrics.SESSION_ROW_HEIGHT_PT.dp)
                                 .background(
-                                    if (session.id == activeSessionId) tokens.colors.sessionSurface else Color.Transparent,
+                                    if (session.id == activeSessionId) tokens.colors.userBubble else Color.Transparent,
                                     sessionShape,
                                 )
                                 .rowPressed(sessionInteraction, enabled = onOpen != null, shape = sessionShape)

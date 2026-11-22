@@ -43,7 +43,6 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 `NativeParityTokens.swift`、`Components.swift` 等 owning 文件；旧名只通过 `aliases` 指向规范 leaf**，不复制第二张表；取不到就记 `unmeasured`，不写假值。Swift 只进入已复核的 JSON provenance，生成器不再并行解析 Swift/HTML。
 
 ## 1. 页面清单
-
 页面按真实文件反推。入口 = 从哪儿打开；导航关系 = 打开后怎么回去。P5 列：`must` = 必须 parity，`later` = 可延后。
 
 入口分三类，别混。**可达** = 产品里点得到；**预览专用** = 只有 DEBUG 的 `-uiPreview` 路由（`NativeShell.swift` 的 `PreviewScreen`），产品没有入口；**不可达** = 连预览路由都没有，只剩结构体。PR22 把首页改成 ChatPage、抽屉改成 HomeDrawer、设置改成一组分组索引：SessionsPage 只剩预览路由，about / network / 文件夹回到设置行，MCP 与局域网设备、SSH、蓝牙设备及 Android ADB 均有设置入口。
@@ -75,7 +74,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | VisionSettingsPage | UI-Venus 视觉模型：HTTPS OpenAI 兼容接口、模型名与密钥（Keychain），列出服务端模型；`iphone_agent_run` 读取此配置，见 [TonoLink 板子](../../device/v1/tonolink-board.md) | 设置 › 权限与隐私 › 视觉模型 | push；保存立即生效，换接口必须重填密钥 | later |
 | TonoLinkUSBOTAPage | **仅 DEBUG**：TonoLink 板子 USB/BLE 固件更新与开发者 Wi-Fi relay（无认证，见 [TonoLink 板子 §5](../../device/v1/tonolink-board.md)）；Release 不编译 | 设置 › 权限与隐私 › 板子固件（USB）（仅 DEBUG） | push；relay 只在打开开关期间监听 | later |
 | FirmwareBuilderPage | **仅 DEBUG**：在本机把包里工程的源码编译、链接成 ESP32 固件（WebAssembly 版 GCC cc1／cc1plus 与 binutils 跑在隐藏 WebView 中，离线）；目标由包决定：TonoLink（ESP32-S3）或 AI Passport 上的小智（ESP32-C3）；工具链与 SDK 包是未入库的应用资源（`examples/probe-app/Bundle/firmware-builder/README.md`），缺包时只显示原因；镜像存入 Documents/firmware-builder，只有 ESP32-S3（TonoLink）产物显示“刷到板子（USB）”并交给 TonoLinkUSBOTAPage，其他芯片显示用 esptool 刷写的说明；Release 不编译 | 设置 › 权限与隐私 › 固件构建（仅 DEBUG） | push；构建期间需保持前台，离开页面不取消构建 | later |
-| XiaozhiFirmwarePage | **仅 DEBUG**：小智固件 OTA 中继（Wi-Fi 8781）开关与 `http://<Wi-Fi IPv4>:8781/xiaozhi/ota/` 地址、来查询过的设备列表（MAC／版本／ELF／决策）、每台设备的「信任并创建 Bot」、已暂存镜像与刷入进度（放出／下载／安装／完成）、手机编译进度；产物由 FirmwareBuilderModel 在本机编译。Android 缺失 | 设置 › 小智固件（仅 DEBUG） | push；中继仅在开启且前台时监听 | later |
+| XiaozhiFirmwarePage | **仅 DEBUG**：小智固件 OTA 中继（Wi-Fi 8781）开关与本机 Wi-Fi IPv4 的 HTTP 地址（端口 8781、路径 `/xiaozhi/ota/`）、来查询过的设备列表（MAC／版本／ELF／决策）、每台设备的「信任并创建 Bot」、已暂存镜像与刷入进度（放出／下载／安装／完成）、手机编译进度；产物由 FirmwareBuilderModel 在本机编译。Android 缺失 | 设置 › 小智固件（仅 DEBUG） | push；中继仅在开启且前台时监听 | later |
 | SessionArtifactsPage | 本会话产物、未归属产物与预览 | 页头 `⋯` →「产物」 | sheet；预览子页 SessionArtifactPreviewPage | must |
 | SessionArtifactPreviewPage | 单个产物的内容预览 | SessionArtifactsPage 的行点击 | 内嵌 sheet，不单独成页 | must |
 | NativeDeviceConnectionPage | 已配对的真机连接与传输能力 | 页头设备按钮 →「设备连接」 | sheet；行打开 NativeDeviceSessionPage | must |
@@ -98,7 +97,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | ChatPreferencesPage | 聊天外观、字号、过程折叠、转录密度 | **不可达（全仓无调用点；设置已改分组索引）** | push | later |
 | NativeSettingsDocumentPage | 配置文件的只读查看与分享 | **不可达（全仓无调用点）** | sheet | later |
 | BluetoothDevicesPage | 蓝牙设备扫描与连接；完整结构契约待补；iOS 断连等待及不可用状态见 [P07 本地授权条款](../../device/v1/ble-link.md#ios-standard-gatt-authorization-ordering) | 设置 › 权限与隐私 › 蓝牙设备 | push；设备任务入口默认关闭 | must |
-| BotChatPage / BotDrawer / BotInfoPage（含记忆、例行任务、审批记录、常设授权、在场、打扰子页） | Bot 主对话、卡片/审批/附件、Bot 列表抽屉与管理、Bot 信息与数据子页；值类型与派生状态见 [bot/ui-state.md](bot/ui-state.md) | Bot tab：`HomeTabBar.swift:9-21` 的第一个 `HomeTab`；产品冷启动默认 Bot（`NativeShell.selectedTab`），从 Bot 页从头部 `bot.drawer.open` / `bot.info.open` 进入 | Bot tab 根页；抽屉与信息 sheet 返回；`botPageActive` 只在选中 Bot 且场景 active 时为真（`NativeShell.swift:379-382`） | must |
+| BotChatPage / BotDrawer / BotInfoPage（含记忆、例行任务、审批记录、常设授权、在场、打扰子页） | Bot 主对话、卡片/审批/附件、Bot 列表抽屉与管理、Bot 信息与数据子页；值类型与派生状态见 [bot/ui-state.md](bot/ui-state.md) | Bot tab：`HomeTabBar.swift:9-21` 的第一个 `HomeTab`；产品冷启动默认 Bot（`NativeShell.selectedTab`），从头部 `bot.drawer.open` / `bot.info.open` 进入 | Bot tab 根页；抽屉与信息 sheet 返回；`botPageActive` 只在选中 Bot 且场景 active 时为真（`NativeShell.swift:379-382`） | must |
 | DevicePanelPage | **iOS 已实现（`implemented`，真机已跑通开关与读回）**：单台已连接设备的原生工具面板——按设备自报的 `tools/list`／`inputSchema` 生成参数编辑器，可选采用模型生成的声明式描述（标签、分组、预设）；只渲染数据、不执行生成的代码，规则见 [设备面板](../../device/v1/device-panel.md)。Android 受 GAP-20 阻塞：不渲染、不调用、不放占位页 | 设置 › 权限与隐私 › 蓝牙设备 › 协商了 PDSH Tools v1 的设备 ›「设备面板」；设备应用页 ›「高级」 | push；采用确认为原生 sheet（工作区 `device-panels/*.json`），不在 WebView 内 | later |
 | DeviceAppsPage | **iOS 已实现（device-app-v1.6）**：Link 工具表含全部八个 `app.*` 名的设备，页头为设备名、连接状态与剩余空间，运行中的应用单独一张卡片（「停止」），其余应用为列表行（「打开」，左滑「删除」）；默认折叠的「高级」进入 DevicePanelPage。设备入口统一经 `DeviceEntryPage`（只做分流，不是独立页面）按工具表选本页或 DevicePanelPage。规则见 [设备面板 §9](../../device/v1/device-panel.md)、[device-app §13](../../device/v1/device-app.md)。Android 受 GAP-20 阻塞 | 设置 › 权限与隐私 › 蓝牙设备 › 设备应用目标设备 ›「设备应用」；Bot 信息页设备行；设备面板快捷入口 | push；每个动作是用户本人点按的 Link 调用（用户来源），不经 Bot | later |
 
@@ -109,7 +108,6 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 手机端视觉验收以当前 iOS 产品入口为准。清空数据、简体中文、默认字号，在相同逻辑宽度下对比明暗主题。冷启动到 Bot；显式诊断入口和通知仍到其指定页面。Bot 身份和头像读取实际选中资料；没有主机数据的页保持未知，权限与可用设备按平台事实显示。指定入口和无效投影的用例见 [mobile-entry](fixtures/mobile-entry.json)。清单里的历史快照只作为旧版本证据。
 
 ### 1.1 已知基线观察（只记录，不改基线）
-
 | 观察 | 证据 | P5 处置 |
 |---|---|---|
 | SessionActivityPage 的 sheet 已接线但无人置位 | `ChatPage.swift:87` 声明、`:547` 接线，全仓无 `showActivity = true` | 不实现；iOS 恢复入口再开 |
@@ -125,7 +123,6 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 ## 2. 组件语义清单
 
 行为定义，不写像素。每条都能从事件序列判定真值。
-
 | 组件 | 出现 | 折叠 / 展开 | 消失 |
 |---|---|---|---|
 | 工具行（tool run） | 首个 `tool_call` 起；连续工具行合并为一行 | 默认折叠，行内只留标题 + 首行摘要；`tool_result` 只改状态与摘要；点标题展开，展开后是白底 r18 列表卡 | 只随会话切换/回合清理消失 |

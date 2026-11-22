@@ -13,6 +13,15 @@ import org.junit.Test
 /** K6a: profile roster -> the drawer's plain `BotRosterEntry` values. */
 class AppBotRosterTest {
     @Test
+    fun freshMainBotUsesClassicAppearanceAndAnExistingNameIsPreserved() {
+        val fresh = AppBotRoster.entries(AppBotRoster.roster()).single()
+        assertEquals("大肥鱼", fresh.name)
+        assertEquals(com.phonedsh.bot.profile.BotFishAppearance.CLASSIC, fresh.appearance)
+        val existing = AppBotRoster.roster(listOf(BotProfile(id = "main", name = "Bot", nameExplicit = true)))
+        assertEquals("Bot", AppBotRoster.context(existing).botName)
+    }
+
+    @Test
     fun emptyProfilesStillProduceOneHonestMainRow() {
         val roster = AppBotRoster.roster()
         assertEquals("main", roster.mainBotID)

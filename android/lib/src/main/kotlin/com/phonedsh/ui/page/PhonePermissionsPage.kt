@@ -965,11 +965,6 @@ private fun CapabilityGroupCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(
-                width = tokens.stroke.hairline,
-                color = tokens.colors.border,
-                shape = RoundedCornerShape(tokens.radius.card),
-            )
             .padding(tokens.spacing.cardInset),
         verticalArrangement = Arrangement.spacedBy(tokens.spacing.cardInset),
     ) {
@@ -1011,6 +1006,7 @@ private fun CapabilityRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(vertical = tokens.spacing.iconText)
             .testTag(UiPageTags.PHONE_PERMISSIONS_ROW_PREFIX + row.capability.id)
             // The baseline dims a capability the system refuses
             // (`PhonePermissionsPage.swift:75`, `.opacity(0.4)`).
@@ -1022,6 +1018,16 @@ private fun CapabilityRow(
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
         ) {
+            val glyph = when (row.capability) {
+                PhoneCapability.CONTACTS -> com.phonedsh.ui.icon.PdshIcon.PEOPLE
+                PhoneCapability.CALENDAR, PhoneCapability.REMINDERS -> com.phonedsh.ui.icon.PdshIcon.CLOCK
+                PhoneCapability.MICROPHONE, PhoneCapability.SPEECH -> com.phonedsh.ui.icon.PdshIcon.MICROPHONE_PERMISSION
+                PhoneCapability.BLUETOOTH, PhoneCapability.LOCAL_NETWORK -> com.phonedsh.ui.icon.PdshIcon.DEVICE_RADIO
+                PhoneCapability.FILES_FOLDER -> com.phonedsh.ui.icon.PdshIcon.FOLDER
+                PhoneCapability.CLIPBOARD -> com.phonedsh.ui.icon.PdshIcon.COPY
+                else -> com.phonedsh.ui.icon.PdshIcon.DEVICE
+            }
+            com.phonedsh.ui.icon.PdshIconView(glyph, com.phonedsh.ui.HomeMetrics.composerIcon, tokens.colors.textPrimary, null)
             // The tap target is the whole text block, never the switch: a tap asks
             // for the capability, the switch is the app's own on/off.
             Column(

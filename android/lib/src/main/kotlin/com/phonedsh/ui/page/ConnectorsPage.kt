@@ -73,7 +73,6 @@ import com.phonedsh.ui.surface.SettingsGroupCard
 import com.phonedsh.ui.surface.SettingsHairline
 import com.phonedsh.ui.surface.SettingsNavBar
 import com.phonedsh.ui.surface.SettingsSectionLabel
-import com.phonedsh.ui.surface.SettingsSubPageGroupedTopInset
 import com.phonedsh.ui.surface.settingsLabelStyle
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
@@ -244,7 +243,7 @@ public fun ConnectorsPage(
         SettingsNavBar(title = UiStrings.settingsNativeText(languageId, "发现", "Discover"))
         LazyColumn(
             modifier = Modifier.fillMaxSize().testTag(ConnectorsPageTags.LIST),
-            contentPadding = PaddingValues(top = SettingsSubPageGroupedTopInset, bottom = ConnectorsMetrics.listBottom),
+            contentPadding = PaddingValues(top = 16.dp, bottom = ConnectorsMetrics.listBottom),
             verticalArrangement = Arrangement.spacedBy(SettingsCardGap),
         ) {
             item(key = "connectors") {

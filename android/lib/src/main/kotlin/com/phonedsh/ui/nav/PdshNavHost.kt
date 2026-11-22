@@ -572,6 +572,7 @@ public fun PdshNavHost(
      */
     botRoster: List<BotRosterEntry> = emptyList(),
     /** The Bot info page's load result (K5b); the default is its empty state. */
+    readBotPresence: (suspend (String) -> com.phonedsh.ui.bot.state.RoutinePresence?)? = null,
     botInfoState: BotInfoModelState = BotInfoModelState(),
     /** The Bot info page's profile description; empty renders the default line. */
     botDescription: String = "",
@@ -636,9 +637,10 @@ public fun PdshNavHost(
     // The pairing page's copy action uses Compose's Android clipboard seam, the
     // same one the chat/row copy controls use; no host callback or extra state.
     val clipboard = LocalClipboardManager.current
+    val modelFromMe = route == PdshRoute.ModelProvider && nav.selectedTab == HomeTab.ME
     RouteSurface(
-        presentation = route.presentation,
-        sheetPageId = sheetPageIdOf(route),
+        presentation = if (modelFromMe) PdshPresentation.PUSH else route.presentation,
+        sheetPageId = if (modelFromMe) null else sheetPageIdOf(route),
         onDismissRequest = onBack,
         sheetBackHost = sheetBackHost,
     ) {
@@ -661,6 +663,7 @@ public fun PdshNavHost(
                     active = nav.selectedTab == HomeTab.BOT && botDriver != null,
                     botRoster = botRoster,
                     botContext = botContext,
+                    readBotPresence = readBotPresence,
                     botInfoState = botInfoState,
                     botAppearance = botAppearance,
                     botIsMainBot = botIsMainBot,
@@ -1391,6 +1394,7 @@ private fun ChatRoute(
             addImages = available(PdshActionKey.IMAGE_IMPORT),
             addFiles = available(PdshActionKey.FILE_IMPORT),
             speakRecentReply = speakRecentReply != null,
+            supportsSpeech = onSpeakText != null,
             selectAccessMode = available(PdshActionKey.SELECT_PERMISSION_MODE),
             selectModel = available(PdshActionKey.SELECT_MODEL),
             answerQuestions = available(PdshActionKey.ANSWER_QUESTION),
@@ -1939,6 +1943,7 @@ private fun SettingsRoute(
                 selected = settings.defaultPermissionTier,
                 languageId = settings.preferences.language?.id,
                 availableTiers = settings.defaultPermissionAvailableTiers,
+                lockedOptions = settings.lockedPermissionOptions,
                 writable = settings.defaultPermissionWritable,
                 busy = settings.defaultPermissionBusy,
                 failure = settings.defaultPermissionFailure,

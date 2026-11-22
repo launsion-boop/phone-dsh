@@ -90,6 +90,20 @@ internal class AppBotRosterController(
     }
 
     @Synchronized
+    fun updateAppearance(botID: String, intent: com.phonedsh.ui.bot.state.BotAppearanceIntent) {
+        val profile = roster.bots.firstOrNull { it.id == botID } ?: return
+        val changed = when (intent) {
+            is com.phonedsh.ui.bot.state.BotAppearanceIntent.SelectColor -> profile.copy(fishColor = intent.color)
+            is com.phonedsh.ui.bot.state.BotAppearanceIntent.SelectHairstyle -> profile.copy(fishHairstyle = intent.hairstyle)
+            is com.phonedsh.ui.bot.state.BotAppearanceIntent.Rename -> profile.copy(name = checkedName(intent.name), nameExplicit = true)
+        }.copy(updatedAt = clock())
+        val next = roster.copy(bots = roster.bots.map { if (it.id == botID) changed else it })
+        store.write(next)
+        roster = next
+        current.value = platform()
+    }
+
+    @Synchronized
     fun mainBotId(): String? = roster.mainBotID
 
     @Synchronized

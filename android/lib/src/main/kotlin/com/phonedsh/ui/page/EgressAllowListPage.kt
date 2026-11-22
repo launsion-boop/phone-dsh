@@ -408,7 +408,7 @@ public fun EgressAllowListPage(
         SettingsSubPageFrame(
             title = UiStrings.EGRESS_TITLE,
             onBack = onBack,
-            backGlyph = SETTINGS_CLOSE_GLYPH,
+            backGlyph = com.phonedsh.ui.surface.BACK_GLYPH,
             rootTag = UiPageTags.EGRESS_ROOT,
         ) {
             when (state.status) {

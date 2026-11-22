@@ -51,6 +51,7 @@ import com.phonedsh.engine.KernelVerdict
 import com.phonedsh.engine.WebViewKernelReport
 import com.phonedsh.ui.page.NewSessionBlock
 import com.phonedsh.ui.page.PhoneCapability
+import com.phonedsh.ui.page.PhoneCapabilityStatus
 import com.phonedsh.ui.page.ProviderFailureReason
 import com.phonedsh.ui.page.ProviderKeyStatus
 import com.phonedsh.ui.page.ProviderModelDraft
@@ -247,12 +248,12 @@ internal fun buildNavFacts(
         inFlight = readings.permissionInFlight,
     )
     val phonePermissionSummary = phonePermissions.statuses?.takeIf { it.isNotEmpty() }?.let { statuses ->
-        val usable = statuses.values.count { it.permitsUse }
-        val measuredCount = statuses.size
+        val granted = statuses.values.count { it == PhoneCapabilityStatus.Authorized || it is PhoneCapabilityStatus.Limited }
+        val available = statuses.values.count { it != PhoneCapabilityStatus.Unavailable }
         com.phonedsh.ui.UiStrings.settingsNativeText(
             preferences.language?.id,
-            "$usable / $measuredCount 项权限可用",
-            "$usable of $measuredCount measured permissions available",
+            "$granted / $available 已允许",
+            "$granted / $available allowed",
         )
     }
 

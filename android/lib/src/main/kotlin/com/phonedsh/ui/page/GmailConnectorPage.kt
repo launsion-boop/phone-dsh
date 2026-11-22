@@ -61,7 +61,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.phonedsh.ui.UiStrings
-import com.phonedsh.ui.surface.SETTINGS_CLOSE_GLYPH
+import com.phonedsh.ui.surface.BACK_GLYPH
+import com.phonedsh.ui.surface.SettingsGroupCard
 import com.phonedsh.ui.surface.SettingsFootnoteRow
 import com.phonedsh.ui.surface.SettingsHairline
 import com.phonedsh.ui.surface.SettingsNavAction
@@ -162,8 +163,8 @@ public fun GmailConnectorPage(
     LaunchedEffect(facts.phase) { if (facts.phase != GmailAccountPhase.CONNECTED) draft = facts.query }
 
     SettingsSubPageFrame(
-        backGlyph = SETTINGS_CLOSE_GLYPH,
-        largeTitle = "Gmail",
+        backGlyph = BACK_GLYPH,
+        title = "Gmail",
         onBack = onBack,
         rootTag = GmailConnectorPageTags.ROOT,
         modifier = modifier,
@@ -175,7 +176,9 @@ public fun GmailConnectorPage(
             item(key = "account.header") { SettingsSectionLabel(native("Google 账号", "Google account")) }
             when (facts.phase) {
                 GmailAccountPhase.UNCONFIGURED -> item(key = "account.unconfigured") {
-                    GmailSecondaryText(native("当前版本未配置 Gmail 登录", "Gmail sign-in is not configured in this build"))
+                    SettingsGroupCard {
+                        GmailSecondaryText(native("当前版本未配置 Gmail 登录", "Gmail sign-in is not configured in this build"))
+                    }
                 }
                 GmailAccountPhase.DISCONNECTED, GmailAccountPhase.RECONNECT -> item(key = "account.connect") {
                     InfoRow(

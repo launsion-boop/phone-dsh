@@ -32,7 +32,6 @@ package com.phonedsh.ui.page
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +53,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
@@ -351,7 +354,7 @@ private fun AgentPresetsBody(
         // unverified geometry: `spec/ui/v1/tokens.json` declares no page-level card
         // gap, so the approval card's outer vertical margin carries the gap between
         // this page's cards (and the list's own top/bottom inset).
-        verticalArrangement = Arrangement.spacedBy(tokens.geometry.cardOuterMarginV),
+        verticalArrangement = Arrangement.Top,
         contentPadding = PaddingValues(vertical = tokens.geometry.cardOuterMarginV),
     ) {
         item(key = "creator") {
@@ -360,11 +363,7 @@ private fun AgentPresetsBody(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag(UiPageTags.AGENT_PRESETS_CREATOR)
-                    .border(
-                        width = tokens.stroke.hairline,
-                        color = tokens.colors.border,
-                        shape = RoundedCornerShape(tokens.radius.card),
-                    )
+                    .background(tokens.colors.surface, RoundedCornerShape(tokens.radius.card))
                     .padding(tokens.spacing.cardInset),
                 verticalArrangement = Arrangement.spacedBy(tokens.spacing.badgeInsetV),
             ) {
@@ -437,9 +436,11 @@ private fun AgentPresetsBody(
                     )
                 }
             }
-            items(items = presets, key = { it.id }) { row ->
+            itemsIndexed(items = presets, key = { _, row -> row.id }) { index, row ->
+                if (index == 0) Spacer(Modifier.height(32.dp))
                 AgentPresetCard(
                     row = row,
+                    first = index == 0, last = index == presets.lastIndex,
                     opening = openingPresetId != null,
                     onViewConfiguration = onViewConfiguration,
                     onUsePreset = onUsePreset,
@@ -488,6 +489,8 @@ private fun AgentPresetsBody(
 /** One preset: title and badges, wire id, description, broken reason, two actions. */
 @Composable
 private fun AgentPresetCard(
+    first: Boolean,
+    last: Boolean,
     row: AgentPresetRowView,
     opening: Boolean,
     onViewConfiguration: (String) -> Unit,
@@ -499,11 +502,12 @@ private fun AgentPresetCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag(UiPageTags.AGENT_PRESETS_ROW_PREFIX + row.id)
-            .border(
-                width = tokens.stroke.hairline,
-                color = tokens.colors.border,
-                shape = RoundedCornerShape(tokens.radius.card),
-            )
+            .background(tokens.colors.surface, RoundedCornerShape(
+                topStart = if (first) tokens.radius.card else 0.dp,
+                topEnd = if (first) tokens.radius.card else 0.dp,
+                bottomStart = if (last) tokens.radius.card else 0.dp,
+                bottomEnd = if (last) tokens.radius.card else 0.dp,
+            ))
             .padding(tokens.spacing.cardInset),
         verticalArrangement = Arrangement.spacedBy(tokens.spacing.badgeInsetV),
     ) {
@@ -515,7 +519,7 @@ private fun AgentPresetCard(
             BasicText(
                 text = row.title,
                 style = type.headline.copy(color = tokens.colors.primary),
-                modifier = Modifier.weight(1f),
+
             )
             if (row.isDefault) {
                 DefaultBadge()

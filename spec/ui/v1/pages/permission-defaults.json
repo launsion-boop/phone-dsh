@@ -7,14 +7,14 @@
   "sectionNote": null,
   "title": {
     "text": "新会话默认权限",
-    "provenance": "SettingsPage.swift:649",
+    "provenance": "SettingsPage.swift:647",
     "anchor": ".navigationTitle(NativeText(\"新会话默认权限\", \"Default permission\"))"
   },
   "source": {
     "file": "SettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
-    "lines": 671,
-    "structLine": 616,
+    "lines": 669,
+    "structLine": 614,
     "renderedFrom": [
       "body"
     ],
@@ -37,7 +37,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-623",
+          "id": "text-621",
           "label": null,
           "labelExpr": "nativeConfigurationError(model.defaultPermissionReadOnlyReason)",
           "kind": "text",
@@ -47,12 +47,12 @@
           "destination": null,
           "writes": false,
           "condition": "!model.canEditDefaultPermission",
-          "provenance": "SettingsPage.swift:623",
+          "provenance": "SettingsPage.swift:621",
           "anchor": "Text(nativeConfigurationError(model.defaultPermissionReadOnlyReason))",
           "extraction": "manual"
         },
         {
-          "id": "action-627",
+          "id": "action-625",
           "label": null,
           "labelExpr": "nativePermissionModeTitle(id: mode.id, fallback: mode.name)",
           "kind": "action",
@@ -62,18 +62,18 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "SettingsPage.swift:627",
+          "provenance": "SettingsPage.swift:625",
           "anchor": "Button {",
           "extraction": "manual",
           "collection": "model.defaultPermissionModes"
         }
       ],
-      "provenance": "SettingsPage.swift:621",
+      "provenance": "SettingsPage.swift:619",
       "anchor": "Section(NativeText(\"只影响之后新开的会话，当前会话保持不变。\", \"Only new sessions use this default; ",
       "extraction": "syntax"
     },
     {
-      "id": "section-642",
+      "id": "section-640",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -83,7 +83,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-642",
+          "id": "text-640",
           "label": null,
           "labelExpr": "error",
           "kind": "text",
@@ -93,22 +93,22 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:642",
+          "provenance": "SettingsPage.swift:640",
           "anchor": "Section { Text(error).foregroundStyle(.red) }",
           "extraction": "manual"
         }
       ],
-      "provenance": "SettingsPage.swift:642",
+      "provenance": "SettingsPage.swift:640",
       "anchor": "Section { Text(error).foregroundStyle(.red) }",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row-expression",
         "labelExpr": "error",
-        "provenance": "SettingsPage.swift:642"
+        "provenance": "SettingsPage.swift:640"
       }
     },
     {
-      "id": "section-645",
+      "id": "section-643",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -118,7 +118,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-645",
+          "id": "text-643",
           "label": null,
           "labelExpr": "nativeConfigurationError(error)",
           "kind": "text",
@@ -128,24 +128,24 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:645",
+          "provenance": "SettingsPage.swift:643",
           "anchor": "Section { Text(nativeConfigurationError(error)).foregroundStyle(.red) }",
           "extraction": "manual"
         }
       ],
-      "provenance": "SettingsPage.swift:645",
+      "provenance": "SettingsPage.swift:643",
       "anchor": "Section { Text(nativeConfigurationError(error)).foregroundStyle(.red) }",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row-expression",
         "labelExpr": "nativeConfigurationError(error)",
-        "provenance": "SettingsPage.swift:645"
+        "provenance": "SettingsPage.swift:643"
       }
     }
   ],
   "actions": [
     {
-      "id": "button-627",
+      "id": "button-625",
       "label": null,
       "labelExpr": "nativePermissionModeTitle(id: mode.id, fallback: mode.name)",
       "kind": "button",
@@ -154,7 +154,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SettingsPage.swift:627",
+      "provenance": "SettingsPage.swift:625",
       "anchor": "Button {",
       "extraction": "manual",
       "labelAlternatives": []
@@ -168,9 +168,9 @@
       "empty": [],
       "data": [
         {
-          "renders": "只影响之后新开的会话，当前会话保持不变。 | untitled section at 642 | untitled section at 645",
+          "renders": "只影响之后新开的会话，当前会话保持不变。 | untitled section at 640 | untitled section at 643",
           "when": null,
-          "provenance": "SettingsPage.swift:616",
+          "provenance": "SettingsPage.swift:614",
           "anchor": "private struct PermissionDefaultsPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -210,63 +210,63 @@
         },
         {
           "title": "对话",
-          "provenance": "SettingsPage.swift:185"
+          "provenance": "SettingsPage.swift:186"
         },
         {
           "title": "会话与文件",
-          "provenance": "SettingsPage.swift:212"
+          "provenance": "SettingsPage.swift:213"
         },
         {
           "title": "引擎",
-          "provenance": "SettingsPage.swift:222"
+          "provenance": "SettingsPage.swift:223"
         },
         {
           "title": "关于",
-          "provenance": "SettingsPage.swift:239"
+          "provenance": "SettingsPage.swift:240"
         }
       ],
       "provenance": "SettingsPage.swift:52"
     },
     {
       "name": "FontSizeSettingsPage",
-      "line": 467,
+      "line": 465,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:467"
+      "provenance": "SettingsPage.swift:465"
     },
     {
       "name": "ConversationSettingsPage",
-      "line": 505,
+      "line": 503,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "工作步骤",
-          "provenance": "SettingsPage.swift:510"
+          "provenance": "SettingsPage.swift:508"
         },
         {
           "title": "发送与用量",
-          "provenance": "SettingsPage.swift:529"
+          "provenance": "SettingsPage.swift:527"
         }
       ],
-      "provenance": "SettingsPage.swift:505"
+      "provenance": "SettingsPage.swift:503"
     },
     {
       "name": "ArchivedSessionsPage",
-      "line": 554,
+      "line": 552,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:554"
+      "provenance": "SettingsPage.swift:552"
     },
     {
       "name": "LicensesPage",
-      "line": 654,
+      "line": 652,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:654"
+      "provenance": "SettingsPage.swift:652"
     }
   ],
   "unreachable": [],
