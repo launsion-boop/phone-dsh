@@ -123,13 +123,13 @@
 1. 每個 tab 一個獨立 `NavigationStack`（`NativeShell.swift:252`，`stackScope: perTab`）；切 tab 不清空目標 tab 的棧。
 2. 再點當前 tab 不做任何事（`HomeTabBar` 的 `guard tab != selection`），不得 pop-to-root。
 3. push 深度 +1，pop 深度 −1；深度 0 的返回退出應用（`rootBack: exit`，README §5）。
-4. tab bar 只在選中 tab 深度 0 且鍵盤收起時顯示（`NativeShell.swift:243`）；push 後隱藏（`NativeShell.swift:1242`），
+4. 归档与关于等在根页内部呈现的子页同样计入返回层级。Bot 抽屉覆盖底栏，打开时底栏不能接收点击。Bot 和 DSH 输入时应保留页头、草稿及发送按钮；底栏随键盘隐藏，点空白处可收起键盘。tab bar 只在選中 tab 深度 0 且鍵盤收起時顯示（`NativeShell.swift:243`）；push 後隱藏（`NativeShell.swift:1242`），
    pop 回根即恢復。Android 的 bottom bar 必須跟隨當前 tab 的深度，不得全域隱藏。
 5. 返回消費順序 `backOrder = sheet,drawer,stack,root`：先關 sheet，再按 §1 規則 9 收抽屜，再出棧，最後退出。
    一次返回只消費一層。
 6. 預測性返回允許使用（`predictiveBack: allowed`，README §5 `back-gesture`）；手勢進行中不得提前改 state，
    取消時 depth 與 overlay 不變，提交後的序列與非預測返回完全相同。
-7. sheet 內的 `NavigationStack` 屬於 sheet 內部棧：系統返回先 pop 內部棧，深度 0 才關 sheet；不得把 sheet 內容
+7. 手机端「连接电脑」使用可下拉关闭的大弹层；关闭回到来源，扫码/编辑等内部返回仍按层级处理。sheet 內的 `NavigationStack` 屬於 sheet 內部棧：系統返回先 pop 內部棧，深度 0 才關 sheet；不得把 sheet 內容
    push 到宿主棧。（iOS 用左上返回鈕，沒有系統返回，這條是 Android 的對應行為。）
 8. 動效：iOS 用系統 `NavigationStack` push/pop，沒有 `.navigationTransition` 或 `matchedTransitionSource`
    （`systemMotion`，`needsDeviceMeasure: true`）；Android 用平台轉場，時長與曲線不得硬編碼。
