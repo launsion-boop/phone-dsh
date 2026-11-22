@@ -46,7 +46,6 @@ public enum PhoneToolCatalog {
         "motion.steps": PhoneToolRoute(capability: .motion, scope: "motion.steps.read"),
         "bluetooth.scan": PhoneToolRoute(capability: .bluetooth, scope: "bluetooth.scan"),
         "network.browse": PhoneToolRoute(capability: .localNetwork, scope: "network.local.browse"),
-        "location.geofence": PhoneToolRoute(capability: .locationAlways, scope: "location.geofence", writes: true),
         "focus.status": PhoneToolRoute(capability: .focus, scope: "focus.read"),
         "music.play": PhoneToolRoute(capability: .music, scope: "music.play", writes: true),
         "activity.start": PhoneToolRoute(capability: .liveActivity, scope: "activity.write", writes: true),

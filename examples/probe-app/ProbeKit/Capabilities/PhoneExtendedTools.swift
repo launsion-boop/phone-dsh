@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 
 import ActivityKit
-import CoreLocation
 import MusicKit
 import UIKit
 
@@ -30,14 +29,9 @@ public enum PhoneExternalAppHandoff {
 @MainActor
 public struct PhoneExtendedTools {
     private let permissions: PhoneExtendedPermissionController
-    private let geofenceService = PhoneGeofenceService()
 
     public init(permissions: PhoneExtendedPermissionController) {
         self.permissions = permissions
-    }
-
-    public func geofence(object: [String: Any]) throws -> PhoneToolPayload {
-        try geofenceService.perform(object: object)
     }
 
     public func focus() -> PhoneToolPayload {
@@ -112,101 +106,5 @@ public struct PhoneExtendedTools {
         PhoneLiveActivityAttributes.ContentState(
             title: try PhoneToolEnvelope.text(object, "title", limit: 200) ?? "",
             detail: try PhoneToolEnvelope.text(object, "detail", limit: 4000) ?? "")
-    }
-}
-
-@MainActor
-private final class PhoneGeofenceService {
-    private let manager = CLLocationManager()
-    private let delegate = PhoneGeofenceDelegate()
-
-    func perform(object: [String: Any]) throws -> PhoneToolPayload {
-        let action = try PhoneToolEnvelope.text(object, "action", required: false, limit: 12) ?? "start"
-        switch action {
-        case "list":
-            return PhoneToolPayload(data: [
-                "items": manager.monitoredRegions.map(Self.describe),
-                "events": delegate.events,
-            ])
-        case "start":
-            try PhoneToolEnvelope.requireConfirmation(object)
-            let identifier = try PhoneToolEnvelope.text(object, "id", limit: 128) ?? ""
-            guard CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else {
-                throw PhoneToolError.unavailable(.locationAlways, "当前设备不支持区域监测")
-            }
-            if let existing = manager.monitoredRegions.first(where: { $0.identifier == identifier }) {
-                return PhoneToolPayload(data: ["id": identifier, "status": "already_monitoring",
-                                                "region": Self.describe(existing)])
-            }
-            let latitude = try coordinate(object: object, key: "lat", minimum: -90, maximum: 90)
-            let longitude = try coordinate(object: object, key: "lng", minimum: -180, maximum: 180)
-            let radius = try coordinate(object: object, key: "radiusM", minimum: 10, maximum: 1000)
-            let region = CLCircularRegion(center: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
-                                          radius: radius, identifier: identifier)
-            region.notifyOnEntry = true
-            region.notifyOnExit = true
-            manager.delegate = delegate
-            manager.startMonitoring(for: region)
-            guard manager.monitoredRegions.contains(where: { $0.identifier == identifier }) else {
-                throw PhoneToolError.unavailable(.locationAlways, "系统没有注册这个区域")
-            }
-            return PhoneToolPayload(data: [
-                "id": identifier, "status": "monitoring", "region": Self.describe(region),
-                "delivery": "system_events_not_observed_by_this_call",
-            ])
-        case "stop":
-            try PhoneToolEnvelope.requireConfirmation(object)
-            let identifier = try PhoneToolEnvelope.text(object, "id", limit: 128) ?? ""
-            guard let region = manager.monitoredRegions.first(where: { $0.identifier == identifier }) else {
-                throw PhoneToolError.noData("未找到这个地理围栏")
-            }
-            manager.stopMonitoring(for: region)
-            return PhoneToolPayload(data: ["id": identifier, "status": "stopped"])
-        default:
-            throw PhoneToolError.invalidArguments("action 仅支持 start、stop 或 list")
-        }
-    }
-
-    private func coordinate(object: [String: Any], key: String,
-                            minimum: Double, maximum: Double) throws -> Double {
-        guard let value = object[key] as? NSNumber, value.doubleValue.isFinite,
-              value.doubleValue >= minimum, value.doubleValue <= maximum else {
-            throw PhoneToolError.invalidArguments("\(key) 必须在 \(minimum)...\(maximum) 范围内")
-        }
-        return value.doubleValue
-    }
-
-    private static func describe(_ region: CLRegion) -> [String: Any] {
-        guard let region = region as? CLCircularRegion else {
-            return ["id": region.identifier]
-        }
-        return [
-            "id": region.identifier,
-            "lat": region.center.latitude,
-            "lng": region.center.longitude,
-            "radiusM": region.radius,
-        ]
-    }
-}
-
-private final class PhoneGeofenceDelegate: NSObject, CLLocationManagerDelegate {
-    private(set) var events: [[String: Any]] = []
-
-    func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
-        record(region: region, state: "entered")
-    }
-
-    func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
-        record(region: region, state: "exited")
-    }
-
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        events.append(["state": "failed", "message": error.localizedDescription])
-    }
-
-    private func record(region: CLRegion, state: String) {
-        events.append(["id": region.identifier, "state": state,
-                       "at": PhoneToolEnvelope.iso8601(Date())])
-        if events.count > 50 { events.removeFirst(events.count - 50) }
     }
 }

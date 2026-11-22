@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // `HostPhonePermissions.kt` answers "what does the platform currently allow?"; this
-// file answers the other half of the same page — "for which of these 23 rows can a
+// file answers the other half of the same page — "for which of these 22 rows can a
 // system request be raised at all, and how?" The page renders the answer
 // (`PhoneGrantRoute`) and refuses to arm a 请求 for a row this file calls
 // `SYSTEM_SETTINGS` or `NONE`.
@@ -14,8 +14,8 @@
 //
 //  1. **the capability's mechanism** — a runtime (`dangerous`) permission can be
 //     requested with `requestPermissions`; a *special access* (notification-policy
-//     access behind 专注模式, background location, an app-op) has no prompt at all and
-//     is only changed in the system settings app; several of the page's 23 rows have
+//     access behind 专注模式 and an app-op) has no prompt at all and
+//     is only changed in the system settings app; several of the page's 22 rows have
 //     no Android mechanism whatsoever;
 //  2. **this build's merged manifest** — `requestPermissions` on a permission the
 //     manifest never declares returns DENIED immediately and shows no dialog, so a
@@ -36,11 +36,6 @@
 //    for none of them: a row that offered 请求 would open a dialog the platform would
 //    never show. If the manifest ever declares `READ_CONTACTS`, the 通讯录 row turns
 //    into `REQUEST` with no change here — the table reads the merged manifest;
-//  * `ACCESS_BACKGROUND_LOCATION` (后台定位) is the two-step case: from targetSdk 30
-//    on, `requestPermissions` for it raises **no dialog at all** (Android 11 removed
-//    the "allow all the time" option from the prompt), so the only honest route is
-//    the settings page. On API 29 the request exists, and then only *after* a
-//    foreground location grant — before that the platform refuses it outright;
 //  * 专注模式 (DND) is special access: the grant behind reading the interruption
 //    filter is `NotificationManager.isNotificationPolicyAccessGranted`, changed on
 //    `ACTION_NOTIFICATION_POLICY_ACCESS_DETAIL_SETTINGS`. `requestPermissions` has no
@@ -140,20 +135,6 @@ internal fun requestablePermissions(
             if (sdkInt >= 33) declared(readings, AndroidHostPermissions.POST_NOTIFICATIONS)
             else emptyList()
 
-        // Two-step: the background grant is requestable on API 29 only, and only
-        // once a foreground location grant exists. From 30 the platform shows no
-        // dialog for it at all, so the route is the settings page (see `grantRoutes`).
-        PhoneCapability.LOCATION_ALWAYS ->
-            if (sdkInt == 29 &&
-                readings.declares(AndroidHostPermissions.ACCESS_BACKGROUND_LOCATION) &&
-                (readings.granted(AndroidHostPermissions.ACCESS_FINE_LOCATION) ||
-                    readings.granted(AndroidHostPermissions.ACCESS_COARSE_LOCATION))
-            ) {
-                listOf(AndroidHostPermissions.ACCESS_BACKGROUND_LOCATION)
-            } else {
-                emptyList()
-            }
-
         // No Android mechanism, no grant, or no declaration this host can name:
         // 提醒事项/家庭/实时活动/快捷指令 have no framework, 本地网络/剪贴板/音乐 have no
         // authorization, 设备状态 needs none, 面容确认 is a per-use prompt (the page's
@@ -178,7 +159,7 @@ internal fun requestablePermissions(
 
 /**
  * The one route a grant can be obtained by, per capability — the page's
- * [PhoneGrantRoute] map, complete for all 23 rows.
+ * [PhoneGrantRoute] map, complete for all 22 rows.
  *
  * A row is `REQUEST` only when a dialog can really be raised (declared runtime
  * permission, right API level); `SYSTEM_SETTINGS` when the settings app is the only
@@ -199,10 +180,9 @@ internal fun phoneGrantRoutes(
 /**
  * True when the system settings app holds the switch for [capability] at all.
  *
- * Only three rows do: 专注模式 (Notification Policy Access is a special access with
+ * Only two rows do: 专注模式 (Notification Policy Access is a special access with
  * no prompt), 通知 (the app-op is always in the app's own settings, and below API 33
- * it is the *only* switch), and 后台定位 once it is declared on 30+ (the "Allow all
- * the time" radio only exists on the permission page when the manifest asks for it).
+ * it is the *only* switch).
  * A runtime permission the manifest does not declare has no toggle on that page, so
  * it stays `NONE` rather than sending the user to a page with nothing to switch.
  */
@@ -212,9 +192,6 @@ private fun settingsCanChange(
 ): Boolean = when (capability) {
     PhoneCapability.FOCUS -> true
     PhoneCapability.NOTIFICATIONS -> true
-    PhoneCapability.LOCATION_ALWAYS ->
-        readings.sdkInt >= 30 &&
-            readings.declares(AndroidHostPermissions.ACCESS_BACKGROUND_LOCATION)
     else -> false
 }
 

@@ -5,7 +5,7 @@
 // tell the user what the phone allows, so the assertions are about what a row may
 // *claim* and never about its pixels.
 //
-//  1. the matrix is the 23 iOS capabilities, in the baseline's group order;
+//  1. the matrix is the 22 Android capabilities, in the baseline's group order;
 //  2. an unread permission (`statuses == null`) never renders as granted — every
 //     row says 未知 and no control is armed;
 //  3. 已允许 appears only when the host reported `Authorized`;
@@ -47,26 +47,24 @@ class PhonePermissionsPageStateTest {
         .first { it.capability == capability }
 
     @Test
-    fun `the matrix is the 23 iOS capabilities in group order`() {
+    fun `the matrix is the 22 Android capabilities in group order`() {
         val state = state()
         assertEquals(
             listOf("个人信息", "设备与传感器", "系统与通知", "文件与数据", "家庭与媒体"),
             state.groups.map { it.title },
         )
-        assertEquals(listOf(5, 7, 5, 4, 2), state.groups.map { it.rows.size })
-        assertEquals(23, PhoneCapability.matrix.size)
+        assertEquals(listOf(5, 7, 5, 3, 2), state.groups.map { it.rows.size })
+        assertEquals(22, PhoneCapability.matrix.size)
         assertEquals(
             listOf(
                 "通讯录", "日历", "提醒事项", "健康", "照片",
                 "相机", "麦克风", "语音识别", "定位", "运动与健身", "蓝牙", "本地网络",
                 "通知", "面容确认", "专注模式", "实时活动", "快捷指令",
-                "文件与文件夹", "剪贴板", "设备状态", "后台定位",
+                "文件与文件夹", "剪贴板", "设备状态",
                 "家庭", "音乐",
             ),
             PhoneCapability.matrix.map { it.title },
         )
-        // The baseline's own grouping quirk (`PhoneCapability.swift:60`).
-        assertEquals(PhoneCapabilityGroup.FILES_DATA, PhoneCapability.LOCATION_ALWAYS.group)
     }
 
     @Test
@@ -74,7 +72,7 @@ class PhonePermissionsPageStateTest {
         val state = state()
         assertFalse(state.statusesKnown)
         val rows = state.groups.flatMap { it.rows }
-        assertEquals(23, rows.size)
+        assertEquals(22, rows.size)
         rows.forEach { row ->
             if (row.capability.readOnlyAlwaysOn) return@forEach
             assertNull(row.status)

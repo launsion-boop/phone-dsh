@@ -42,7 +42,7 @@ const GROUP_PREFIX: string = 'permission-group:';
 const ITEM_PREFIX: string = 'permission:';
 
 /**
- * One row of the 23-capability matrix: the page's id/title/purpose/group plus
+ * One row of the 22-capability matrix: the page's id/title/purpose/group plus
  * the HarmonyOS permission names that can answer it (empty when no permission
  * gates the capability).
  */
@@ -160,10 +160,6 @@ export class HostPhonePermissions {
     new PermissionSpec(
       'device', '设备状态', '只读显示设备型号、系统版本和当前时间，始终启用。',
       '文件与数据', []
-    ),
-    new PermissionSpec(
-      'locationAlways', '后台定位', '仅在明确创建地理围栏时注册区域监测，不伪造后台事件。',
-      '文件与数据', ['ohos.permission.LOCATION_IN_BACKGROUND']
     ),
     new PermissionSpec(
       'homekit', '家庭', '读取你授权的家庭与配件，并在确认后写入指定特征。',

@@ -108,16 +108,22 @@ final class PhonePermissionContractTests: XCTestCase {
             permissionStore: PhonePermissionStore(defaults: defaults),
             requester: PhonePermissionRequester(), audit: PhoneCapabilityAudit())
         let composite = CompositePhoneToolBridge(office: OfficeToolBridge(), phone: bridge)
-        XCTAssertEqual(composite.handles.count, 50)
+        XCTAssertEqual(composite.handles.count, 49)
         XCTAssertFalse(composite.supportsContext)
 
-        for tool in ["calendar.create_event", "contacts.search", "location.geofence", "focus.status",
+        for tool in ["calendar.create_event", "contacts.search", "focus.status",
                      "music.play", "activity.start", "shortcuts.run"] {
             let result = try await composite.callTool(name: tool, arguments: "{}")
             let value = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any])
             XCTAssertEqual((value["error"] as? [String: Any])?["code"] as? String,
                            "capability_disabled", tool)
         }
+
+        XCTAssertFalse(PhoneToolCatalog.routes.keys.contains("location.geofence"))
+        let retiredTool = try await composite.callTool(name: "location.geofence", arguments: "{}")
+        let retiredValue = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(retiredTool.utf8)) as? [String: Any])
+        XCTAssertEqual((retiredValue["error"] as? [String: Any])?["code"] as? String, "unknown_tool")
 
         let result = try await composite.callTool(name: "device.status", arguments: "{}")
         let value = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any])

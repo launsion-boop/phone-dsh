@@ -1,28 +1,16 @@
 // SPDX-License-Identifier: MIT
 
 import ActivityKit
-import CoreLocation
 import Intents
 import MusicKit
 import UIKit
 
 @MainActor
 public final class PhoneExtendedPermissionController {
-    private var alwaysManager: CLLocationManager?
-    private var alwaysDelegate: PhoneAlwaysLocationDelegate?
-
     public init() {}
 
     public func status(for capability: PhoneCapability) -> CapabilityStatus {
         switch capability {
-        case .locationAlways:
-            switch CLLocationManager.authorizationStatus() {
-            case .authorizedAlways: return .authorized
-            case .authorizedWhenInUse, .notDetermined: return .notDetermined
-            case .denied: return .denied
-            case .restricted: return .restricted
-            @unknown default: return .unavailable
-            }
         case .focus:
             switch INFocusStatusCenter.default.authorizationStatus {
             case .notDetermined: return .notDetermined
@@ -51,19 +39,6 @@ public final class PhoneExtendedPermissionController {
 
     public func request(for capability: PhoneCapability) async -> CapabilityStatus {
         switch capability {
-        case .locationAlways:
-            let manager = alwaysManager ?? CLLocationManager()
-            alwaysManager = manager
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                let delegate = PhoneAlwaysLocationDelegate { [weak self] in
-                    self?.alwaysDelegate = nil
-                    self?.alwaysManager = nil
-                    continuation.resume()
-                }
-                alwaysDelegate = delegate
-                manager.delegate = delegate
-                manager.requestAlwaysAuthorization()
-            }
         case .focus:
             await withCheckedContinuation { continuation in
                 INFocusStatusCenter.default.requestAuthorization { _ in
@@ -80,17 +55,5 @@ public final class PhoneExtendedPermissionController {
 
     public func focusStatus() -> Bool? {
         INFocusStatusCenter.default.focusStatus.isFocused
-    }
-}
-
-private final class PhoneAlwaysLocationDelegate: NSObject, CLLocationManagerDelegate {
-    private let updated: () -> Void
-
-    init(updated: @escaping () -> Void) {
-        self.updated = updated
-    }
-
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        updated()
     }
 }

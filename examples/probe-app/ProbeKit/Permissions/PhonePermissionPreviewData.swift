@@ -13,7 +13,6 @@ public enum PhonePermissionPreviewData {
         .microphone: .authorized,
         .speech: .notDetermined,
         .location: .authorized,
-        .locationAlways: .notDetermined,
         .motion: .notDetermined,
         .bluetooth: .notDetermined,
         .notifications: .authorized,
