@@ -57,11 +57,11 @@ public object ConnectorsMetrics {
     /** Sheet title size. Source: `:202` (`.font(.system(size: 24, weight: .bold))`). Page-local. Confidence: exact. */
     public val sheetTitleSize: TextUnit get() = 24.sp
 
-    /** Sheet title top. Source: `:204` (`.padding(.top, 16)`). Page-local. Confidence: exact. */
-    public val sheetTitleTop: Dp get() = 16.dp
+    /** Compact gap beneath the tile inside the platform medium sheet. */
+    public val sheetTitleTop: Dp get() = 6.dp
 
-    /** Sheet action top. Source: `:208` (`.padding(.top, 20)`). Page-local. Confidence: exact. */
-    public val sheetActionTop: Dp get() = 20.dp
+    /** Gap above the primary action inside the platform medium sheet. */
+    public val sheetActionTop: Dp get() = 8.dp
 
     /** Sheet action max width. Source: `:207` (`.frame(maxWidth: 260)`). Page-local. Confidence: exact. */
     public val sheetActionMaxWidth: Dp get() = 260.dp

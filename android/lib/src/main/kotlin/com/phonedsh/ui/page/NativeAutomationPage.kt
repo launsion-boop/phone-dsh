@@ -1347,7 +1347,10 @@ private fun AutomationEmptyBlock(onNewSchedule: (() -> Unit)?) {
         modifier = Modifier
             .fillMaxWidth()
             .testTag(UiPageTags.AUTOMATION_EMPTY)
-            .padding(vertical = ShellFilesMetrics.EMPTY_STATE_PADDING_V_PT.dp)
+            .padding(
+                top = ShellFilesMetrics.EMPTY_STATE_PADDING_V_PT.dp + com.phonedsh.ui.surface.SettingsRootRowHeight,
+                bottom = ShellFilesMetrics.EMPTY_STATE_PADDING_V_PT.dp,
+            )
             .semantics(mergeDescendants = true) {},
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(ShellFilesMetrics.EMPTY_STATE_GAP_PT.dp),
@@ -1374,8 +1377,7 @@ private fun AutomationEmptyBlock(onNewSchedule: (() -> Unit)?) {
                     // iOS `.padding(.top, 8)` on the button, on top of the stack's 8.
                     .padding(top = ShellFilesMetrics.EMPTY_STATE_GAP_PT.dp)
                     .testTag(UiPageTags.AUTOMATION_CTA)
-                    .clip(RoundedCornerShape(tokens.radius.card))
-                    // ios-sessions-schedules.png 新建任务 = #2F5BFF (page blue).
+                    .clip(androidx.compose.foundation.shape.CircleShape)
                     .background(tokens.colors.pageAccent)
                     .defaultMinSize(minHeight = SessionsMetrics.ctaHeight)
                     .clickable(role = Role.Button, onClick = onNewSchedule)

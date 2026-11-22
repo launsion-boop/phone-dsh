@@ -171,7 +171,7 @@ public fun PCPairingPage(
                 PCPairingStage.MANUAL,
                 -> {
                     item(key = "install") {
-                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = PcMetrics.SECTION_GAP)) {
+                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = com.phonedsh.ui.surface.SettingsSubPageGroupedTopInset + PcMetrics.SECTION_GAP)) {
                             PcPairingInstallSection(
                                 installCommand = installCommand,
                                 onCopyInstallCommand = onCopyInstallCommand,
@@ -179,7 +179,7 @@ public fun PCPairingPage(
                         }
                     }
                     item(key = "scan") {
-                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = PcMetrics.SECTION_GAP)) {
+                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = com.phonedsh.ui.surface.SettingsCardGap)) {
                             PcPairingScanSection(
                                 state = state,
                                 onScan = onScan,
@@ -187,7 +187,7 @@ public fun PCPairingPage(
                         }
                     }
                     item(key = "other") {
-                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = PcMetrics.SECTION_GAP)) {
+                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = com.phonedsh.ui.surface.SettingsCardGap)) {
                             PcPairingOtherSection(
                                 state = state,
                                 onToggle = onToggleOtherWays,

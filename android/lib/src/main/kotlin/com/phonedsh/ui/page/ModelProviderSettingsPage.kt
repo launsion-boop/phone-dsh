@@ -871,6 +871,7 @@ public fun ModelProviderSettingsPage(
                     modifier = Modifier
                         .fillMaxSize()
                         .testTag(UiPageTags.PROVIDER_LIST),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 20.dp),
                     verticalArrangement = Arrangement.Top,
                 ) {
                     serviceGroup(
@@ -954,7 +955,7 @@ private fun LazyListScope.serviceGroup(
             item(key = "services.empty") {
                 com.phonedsh.ui.surface.SettingsGroupCard {
                     Column(
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 204.dp).padding(24.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 214.dp).padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
                     ) {
@@ -978,7 +979,7 @@ private fun LazyListScope.serviceGroup(
         }
     }
     item(key = "actions.add") {
-        com.phonedsh.ui.surface.SettingsGroupCard {
+        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = com.phonedsh.ui.surface.SettingsCardGap)) {
             ProviderRowAction(
                 label = UiStrings.PROVIDER_ADD_SERVICE,
                 onClick = onOpenNew,
