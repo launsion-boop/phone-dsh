@@ -121,9 +121,9 @@ public final class PhonePermissionRequester: ObservableObject {
             return PhoneFolderGrantStore.shared.hasGrants ? .authorized : .notDetermined
         case .device:
             return .authorized
-        case .homekit:
+        case .homekit, .locationAlways:
             return .unavailable
-        case .locationAlways, .focus, .music, .liveActivity, .shortcuts:
+        case .focus, .music, .liveActivity, .shortcuts:
             return extended.status(for: capability)
         }
     }
@@ -193,9 +193,9 @@ public final class PhonePermissionRequester: ObservableObject {
             localNetworkStatus = result.status
         case .filesFolder:
             _ = try? await PhoneFolderGrantStore.shared.grantFolder()
-        case .locationAlways, .focus, .music:
+        case .focus, .music:
             _ = await extended.request(for: capability)
-        case .biometrics, .clipboard, .device, .homekit, .liveActivity, .shortcuts:
+        case .biometrics, .clipboard, .device, .homekit, .locationAlways, .liveActivity, .shortcuts:
             break
         }
         let updated = await status(for: capability)

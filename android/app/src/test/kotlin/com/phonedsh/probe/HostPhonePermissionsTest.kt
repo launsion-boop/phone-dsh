@@ -1,8 +1,8 @@
-// The 23 telephone-capability rows, asserted one by one.
+// The 22 telephone-capability rows, asserted one by one.
 // SPDX-License-Identifier: MIT
 //
 // This is the lane's contract test: `AndroidHostPermissions` reads the platform, but
-// the *decision* about what each of the page's 23 rows may say lives in
+// the *decision* about what each of the page's 22 rows may say lives in
 // `HostPhonePermissions.kt`. So each case below feeds a fixed set of readings and
 // asserts the whole matrix — which row carries which status, and what the page then
 // prints — instead of spot-checking one capability.
@@ -95,7 +95,6 @@ class HostPhonePermissionsTest {
                 Row(PhoneCapability.CLIPBOARD, null, null),
                 // Always on, no permission: the page prints 常开 for it anyway.
                 Row(PhoneCapability.DEVICE, PhoneCapabilityStatus.Authorized, ALWAYS_ON),
-                Row(PhoneCapability.LOCATION_ALWAYS, null, null),
                 Row(PhoneCapability.HOMEKIT, PhoneCapabilityStatus.Unavailable, UNAVAILABLE),
                 Row(PhoneCapability.MUSIC, null, null),
             ),
@@ -142,7 +141,6 @@ class HostPhonePermissionsTest {
                 Row(PhoneCapability.FILES_FOLDER, null, null),
                 Row(PhoneCapability.CLIPBOARD, null, null),
                 Row(PhoneCapability.DEVICE, PhoneCapabilityStatus.Authorized, ALWAYS_ON),
-                Row(PhoneCapability.LOCATION_ALWAYS, PhoneCapabilityStatus.Unavailable, UNAVAILABLE),
                 Row(PhoneCapability.HOMEKIT, PhoneCapabilityStatus.Unavailable, UNAVAILABLE),
                 Row(PhoneCapability.MUSIC, null, null),
             ),
@@ -160,7 +158,6 @@ class HostPhonePermissionsTest {
             AndroidHostPermissions.RECORD_AUDIO,
             AndroidHostPermissions.ACCESS_FINE_LOCATION,
             AndroidHostPermissions.ACCESS_COARSE_LOCATION,
-            AndroidHostPermissions.ACCESS_BACKGROUND_LOCATION,
             AndroidHostPermissions.ACTIVITY_RECOGNITION,
             AndroidHostPermissions.BLUETOOTH_SCAN,
             AndroidHostPermissions.POST_NOTIFICATIONS,
@@ -198,7 +195,6 @@ class HostPhonePermissionsTest {
                 Row(PhoneCapability.FILES_FOLDER, null, null),
                 Row(PhoneCapability.CLIPBOARD, null, null),
                 Row(PhoneCapability.DEVICE, PhoneCapabilityStatus.Authorized, ALWAYS_ON),
-                Row(PhoneCapability.LOCATION_ALWAYS, PhoneCapabilityStatus.Authorized, AUTHORIZED),
                 Row(PhoneCapability.HOMEKIT, PhoneCapabilityStatus.Unavailable, UNAVAILABLE),
                 Row(PhoneCapability.MUSIC, null, null),
             ),

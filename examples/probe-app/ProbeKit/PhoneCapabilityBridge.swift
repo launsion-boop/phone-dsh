@@ -138,8 +138,6 @@ private final class PhoneCapabilityEngine {
                 payload = try await device.bluetoothScan(object: object)
             case "network.browse":
                 payload = await device.browseNetwork()
-            case "location.geofence":
-                payload = try extended.geofence(object: object)
             case "focus.status":
                 payload = extended.focus()
             case "music.play":

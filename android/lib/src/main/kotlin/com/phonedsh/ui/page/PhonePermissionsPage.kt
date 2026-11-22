@@ -1,4 +1,4 @@
-// Phone permissions: the 23-capability matrix, capability for capability.
+// Phone permissions: the 22-capability matrix, capability for capability.
 // SPDX-License-Identifier: MIT
 //
 // Authority: `examples/probe-app/PhoneDSHProbe/PhonePermissionsPage.swift` at iOS
@@ -54,14 +54,13 @@
 // Five group sections whose titles come from the enum — the baseline renders
 // `Section(group.title)` (`PhonePermissionsPage.swift:72`), so the caption is data,
 // not a literal — followed by the one titled section, 最近使用审计. The five groups
-// keep the baseline's membership order, including its own quirk that 后台定位 sits
-// in 文件与数据 (`PhoneCapability.swift:60`).
+// keep the baseline's membership order.
 //
 // Chrome: there is **no** debug close X and **no** redundant intro row — PR #13
 // removed both. The only chrome is the sheet's 完成
 // (`PhonePermissionsPage.swift:33`): this is a capability surface, not a dialog.
 //
-// Copy: the 23 titles and purposes are the baseline's. Four purposes name an
+// Copy: the 22 titles and purposes are the baseline's. Four purposes name an
 // iOS-only mechanism (Face ID/Touch ID, ActivityKit, MusicKit, FocusStatus) and
 // are re-worded for the platform whose page this is; every other purpose is kept
 // verbatim. The iOS 18 `ContactAccessButton` for a limited contacts grant has no
@@ -119,7 +118,7 @@ import java.util.Locale
 import kotlin.math.max
 
 // ---------------------------------------------------------------------------
-// Vocabulary: the 23 capabilities and their five groups
+// Vocabulary: the 22 capabilities and their five groups
 // ---------------------------------------------------------------------------
 
 /**
@@ -138,7 +137,7 @@ public enum class PhoneCapabilityGroup(public val id: String, public val title: 
 }
 
 /**
- * One phone capability the agent can ask for — the 23 `PhoneCapability` cases.
+ * One phone capability the agent can ask for — the 22 `PhoneCapability` cases.
  *
  * @param id the wire id (`PhoneCapability.allCases` raw value).
  * @param title the capability's name (`PhoneCapability.swift:67`).
@@ -244,14 +243,6 @@ public enum class PhoneCapability(
         "只读显示设备型号、系统版本和当前时间，始终启用。",
         PhoneCapabilityGroup.FILES_DATA,
     ),
-    // The baseline's own grouping (`PhoneCapability.swift:60`): 后台定位 sits in
-    // 文件与数据, not in 设备与传感器. Mirrored, not corrected.
-    LOCATION_ALWAYS(
-        "locationAlways",
-        "后台定位",
-        "仅在明确创建地理围栏时注册区域监测，不伪造后台事件。",
-        PhoneCapabilityGroup.FILES_DATA,
-    ),
     HOMEKIT(
         "homekit", "家庭", "读取你授权的家庭与配件，并在确认后写入指定特征。", PhoneCapabilityGroup.HOME_MEDIA,
     ),
@@ -276,7 +267,7 @@ public enum class PhoneCapability(
         public fun inGroup(group: PhoneCapabilityGroup): List<PhoneCapability> =
             entries.filter { it.group == group }
 
-        /** The 23 capabilities in declaration order (the page's full matrix). */
+        /** The 22 capabilities in declaration order (the page's full matrix). */
         public val matrix: List<PhoneCapability> get() = entries.toList()
     }
 }
@@ -428,7 +419,7 @@ public enum class PhoneGrantRoute {
 
     /**
      * The grant is only changed in the system settings app: a special-access page
-     * (DND access, background location) has no `requestPermissions` dialog at all,
+     * (DND access) has no `requestPermissions` dialog at all,
      * and a revoked or 不再询问 permission is repaired there too.
      */
     SYSTEM_SETTINGS,

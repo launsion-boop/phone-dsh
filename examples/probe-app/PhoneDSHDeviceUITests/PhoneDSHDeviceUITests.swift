@@ -256,14 +256,14 @@ final class PhoneDSHDeviceUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Agent 预设"].waitForExistence(timeout: 10))
     }
 
-    func testPhonePermissionsCenterLists23CapabilitiesWithoutStartupPrompts() throws {
+    func testPhonePermissionsCenterLists21CapabilitiesWithoutStartupPrompts() throws {
         app.launchArguments = ["-uiPreview", "settings.permissions"]
         app.launch()
         XCTAssertTrue(app.navigationBars["手机权限"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["已请求（系统不告知是否被拒）"].waitForExistence(timeout: 5))
         for title in ["通讯录", "日历", "提醒事项", "健康", "照片", "定位", "运动与健身", "麦克风",
                       "语音识别", "相机", "蓝牙", "本地网络", "通知", "专注模式", "面容确认", "实时活动",
-                      "快捷指令", "文件与文件夹", "剪贴板", "设备状态", "后台定位", "家庭", "音乐"] {
+                      "快捷指令", "文件与文件夹", "剪贴板", "设备状态", "音乐"] {
             let row = app.staticTexts[title]
             for _ in 0..<10 where !row.exists { app.swipeUp() }
             XCTAssertTrue(row.exists, title)

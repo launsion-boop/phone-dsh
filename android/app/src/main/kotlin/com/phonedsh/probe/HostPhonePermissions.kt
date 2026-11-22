@@ -1,7 +1,7 @@
 // The phone-permissions matrix's host half: Android readings in, page statuses out.
 // SPDX-License-Identifier: MIT
 //
-// The page's 23 capabilities are iOS's vocabulary (`PhoneCapability`), and Android's
+// The page's 22 capabilities are iOS's vocabulary (`PhoneCapability`), and Android's
 // permission model is not iOS's. This file is the whole translation, one row per
 // capability, and its rule is: a status is reported only when something on this
 // device actually reports it. Everything else is left out of the map, because a
@@ -15,7 +15,7 @@
 //
 // Row by row
 // ----------
-//  * 通讯录 / 日历 / 相机 / 麦克风 / 语音识别 / 定位 / 运动与健身 / 蓝牙 / 后台定位:
+//  * 通讯录 / 日历 / 相机 / 麦克风 / 语音识别 / 定位 / 运动与健身 / 蓝牙:
 //    a declared runtime permission, read through `permissionStatus` below. Declared
 //    and granted → 已允许; declared, policy-denied → 受系统限制; declared, not granted
 //    and never asked → 未请求; declared, not granted and already asked (the user
@@ -107,7 +107,7 @@ internal fun phonePermissionsFacts(
         // page's 宿主没有报告使用审计, which is a different statement from an empty
         // list's 暂无使用记录.
         audit = null,
-        // The request half: for which of the 23 rows a system dialog can be raised at
+        // The request half: for which of the 22 rows a system dialog can be raised at
         // all. Reported for every capability (`PhonePermissionRequests.kt`), so a row
         // with no request path can never render 请求.
         grantRoutes = phoneGrantRoutes(readings),
@@ -230,11 +230,6 @@ private fun statusOf(
     PhoneCapability.FILES_FOLDER -> null
     PhoneCapability.CLIPBOARD -> null
     PhoneCapability.DEVICE -> PhoneCapabilityStatus.Authorized
-    PhoneCapability.LOCATION_ALWAYS -> hardware(
-        readings.locationPresent,
-        permissionStatus(readings, asked, AndroidHostPermissions.ACCESS_BACKGROUND_LOCATION),
-    )
-
     PhoneCapability.HOMEKIT -> PhoneCapabilityStatus.Unavailable
     PhoneCapability.MUSIC -> null
 }

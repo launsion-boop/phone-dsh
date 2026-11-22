@@ -36,6 +36,7 @@ public enum PhoneCapability: String, CaseIterable, Codable, Sendable, Identifiab
     case microphone
     case speech
     case location
+    // Retired with the geofence tool; retained for decoding historical audit records.
     case locationAlways
     case motion
     case bluetooth
@@ -46,14 +47,14 @@ public enum PhoneCapability: String, CaseIterable, Codable, Sendable, Identifiab
     case clipboard
     case filesFolder
     case device
-    // Retained for decoding historical permission audit records.
+    // Retained for decoding historical permission audit records and preferences.
     case homekit
     case music
     case liveActivity
     case shortcuts
 
-    /// Permissions offered by this app. The retired HomeKit value is kept for audit history.
-    public static let available = allCases.filter { $0 != .homekit }
+    /// Permissions offered by this app. Retired cases remain decodable for audit history.
+    public static let available = allCases.filter { $0 != .homekit && $0 != .locationAlways }
 
     public var group: PhoneCapabilityGroup {
         switch self {
@@ -77,7 +78,7 @@ public enum PhoneCapability: String, CaseIterable, Codable, Sendable, Identifiab
         case .microphone: return "麦克风"
         case .speech: return "语音识别"
         case .location: return "定位"
-        case .locationAlways: return "后台定位"
+        case .locationAlways: return "后台定位（已停用）"
         case .motion: return "运动与健身"
         case .bluetooth: return "蓝牙"
         case .notifications: return "通知"
@@ -105,7 +106,7 @@ public enum PhoneCapability: String, CaseIterable, Codable, Sendable, Identifiab
         case .microphone: return "仅在你发起录音时采集音频。"
         case .speech: return "将你选择的录音转换为文字。"
         case .location: return "仅在你查询时获取一次当前位置。"
-        case .locationAlways: return "仅在明确创建地理围栏时注册区域监测，不伪造后台事件。"
+        case .locationAlways: return "已停用；仅为读取历史授权记录保留，不会请求后台定位。"
         case .motion: return "读取你指定时间内的活动与步数。"
         case .bluetooth: return "仅在你发起扫描时发现附近蓝牙设备。"
         case .notifications: return "仅在你确认后发送本地通知，不接收远程推送。"

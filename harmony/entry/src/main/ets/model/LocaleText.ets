@@ -607,7 +607,6 @@ export class LocaleText {
     '文件与文件夹': 'Files & folders',
     '剪贴板': 'Clipboard',
     '设备状态': 'Device status',
-    '后台定位': 'Background location',
     '家庭': 'Home',
     '音乐': 'Music',
     '仅在你查询时读取联系人；电话和邮箱默认脱敏。':
@@ -648,8 +647,6 @@ export class LocaleText {
       'Reads or writes the system clipboard only when you explicitly invoke it.',
     '只读显示设备型号、系统版本和当前时间，始终启用。':
       'Shows device model, system version, and current time read-only; always enabled.',
-    '仅在明确创建地理围栏时注册区域监测，不伪造后台事件。':
-      'Registers region monitoring only when a geofence is explicitly created; does not fake background events.',
     '读取你授权的家庭与配件，并在确认后写入指定特征。':
       'Reads homes and accessories you authorize and writes specified characteristics after confirmation.',
     '通过系统音乐目录播放你指定的真实曲目。':

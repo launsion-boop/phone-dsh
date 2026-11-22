@@ -49,6 +49,8 @@ struct PhoneDSHProbeApp: App {
         // P18/D2: copy legacy bare-sessionID stores into the phone scope once.
         // The old keys stay readable so a rollback still finds the pre-D2 data.
         WorkspaceStorageMigration.runIfNeeded()
+        // P18: retire any OS geofences registered by an older app version.
+        PhoneGeofenceRetirement.runIfNeeded()
         // The board's wake word 你好小智 starts a voice turn (tonolink-board.md §4.1). Started here,
         // not in a scene task, so a background relaunch by Bluetooth state restoration listens too.
         #if DEBUG
