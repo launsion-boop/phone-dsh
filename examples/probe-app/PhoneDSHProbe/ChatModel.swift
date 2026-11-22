@@ -2453,20 +2453,28 @@ final class ChatModel {
     func adoptDeferredTranscriptIfForeground() {
         guard let pending = pendingTranscriptAdoption else { return }
         transcriptGate.isForeground = isAppForeground
-        guard transcriptGate.isForeground else { return }
+        guard transcriptGate.isForeground else {
+            Self.appendDiagnostic("transcript adoption still parked: scene=\(appIsActive ? "active" : "inactive") app_state=\(UIApplication.shared.applicationState.rawValue)")
+            return
+        }
         pendingTranscriptAdoption = nil
         // The commit decision is taken exactly once, whether the snapshot is
         // applied or replaced by a fresh read.
         let snapshotIsCurrent = transcriptGate.beginParkedAdoptionCommit()
         // A parked page belongs to the session it was loaded for. A switch (or
         // a newer adoption) makes it stale; never paint it late.
-        guard pending.sessionID == nil || pending.sessionID == sessionID else { return }
+        guard pending.sessionID == nil || pending.sessionID == sessionID else {
+            Self.appendDiagnostic("transcript adoption dropped: parked for another session")
+            return
+        }
         guard snapshotIsCurrent else {
+            Self.appendDiagnostic("transcript adoption superseded by live rows; re-reading")
             Task { [weak self] in
                 await self?.resyncTranscriptAfterStaleParkedAdoption()
             }
             return
         }
+        Self.appendDiagnostic("transcript adoption committed rows=\(pending.items.count)")
         flushStreamingText()
         streamDraftTracker.clearAll()
         applyAdoptedTranscript(rows: pending.items, hasMore: pending.hasMore,
@@ -3588,6 +3596,18 @@ final class ChatModel {
                 await rebuildEngineForMCPListenerChange(previousHost: host)
                 return
             }
+        }
+        // `host.resume()` returns at once on a `.running` host. A host that is
+        // running while this model parked it was booted behind the
+        // orchestrator, and iOS may have killed that Worker in suspension: the
+        // early return then left a dead channel that every call timed out on.
+        // Rebuild instead of trusting it.
+        if await host.state == .running {
+            hostLifecycleTransition = false
+            parked = false
+            await rebuildEngine(previousHost: host, status: ChatResumeRecovery.slowText,
+                                reason: "Host was running while parked (booted outside the launch orchestrator); rebuilding instead of resuming")
+            return
         }
         beginResumeRecoveryObservation()
         // The host owns the short resume budgets. This watchdog is only the
