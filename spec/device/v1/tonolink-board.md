@@ -278,8 +278,11 @@ slept would show whatever was in front) and before anything taps:
 4. Otherwise the §4.4 keyboard sequence (`hid_mode 1`, two `key backspace`, one `key` per
    digit, `key enter` unless 4 or 6 digits) is sent over a BLE ctrl link of its own (the voice
    link carries one command at a time). After the wake key the screenshot is classified again,
-   up to three times, and **the digits are sent only when it shows the passcode page**. `other`
-   means the wake alone unlocked it; anything else refuses without typing.
+   and **the digits are sent only when it shows the passcode page**. The wake key brings the
+   page up from a sleeping screen but not from a lock screen that is already lit; while the
+   answer is still `lockScreen` the host asks for the page with Space (the passcode field
+   ignores it) and then a swipe up from the bottom edge, classifying after each. `other` means
+   the phone unlocked without a passcode; anything else refuses without typing.
 5. The attempt succeeded when a later screenshot is `other` (within 8 s); otherwise it counts
    as one failure and refuses.
 

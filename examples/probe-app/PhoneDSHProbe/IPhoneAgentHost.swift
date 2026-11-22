@@ -177,11 +177,22 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         var seen: IPhoneLockScreen?
         let outcome = try await TonoLinkUnlock.run(link: link, seq: UInt16.random(in: 50_000...60_000), passcode: passcode,
                                                    stillLocked: { [weak self] in
-            // The page slides in after the wake key: look up to three times. Type only on `passcode`.
-            for attempt in 1...3 {
-                seen = await self?.lockScreen("after wake key (\(attempt))")
+            // Type only on `passcode`. The wake key (backspace) brings the page up from a sleeping
+            // screen, but on a lock screen that is already lit it does nothing (device run
+            // 2026-11-22 17:05Z: three looks, still the clock). Then ask for the page the way a
+            // person does: Space (the passcode field ignores it, PC-20261114), then a swipe up
+            // from the bottom edge. Neither can enter a digit.
+            guard let self else { return false }
+            let prompts: [(name: String, send: () async -> Void)] = [
+                ("wake key", {}),
+                ("space", { try? await self.hands.key("space") }),
+                ("swipe up", { try? await self.hands.swipe(from: TonoLinkPoint(500, 990), to: TonoLinkPoint(500, 350), ms: 300) }),
+            ]
+            for prompt in prompts {
+                await prompt.send()
+                try? await Task.sleep(for: .milliseconds(900))
+                seen = await self.lockScreen("after \(prompt.name)")
                 if seen == .passcode || seen == .other { break }
-                try? await Task.sleep(for: .milliseconds(800))
             }
             return seen == .passcode
         })
