@@ -27,8 +27,8 @@ import org.junit.Test
 class SendOutboxContractTest {
     private lateinit var root: File
     private val schema = HostSpec.obj("spec/host/v1/schema/outbox-entry.schema.json")
-    private val invalidCases =
-        HostSpec.obj("spec/host/v1/tools/outbox_invalid_cases.json").objects("invalid")
+    private val sharedCases = HostSpec.obj("spec/host/v1/tools/outbox_invalid_cases.json")
+    private val invalidCases = sharedCases.objects("invalid")
 
     @Before
     fun setUp() {
@@ -51,7 +51,7 @@ class SendOutboxContractTest {
     // ------------------------------------------------------------------ goldens
 
     @Test
-    fun `the six goldens decode and re-encode to the same value`() {
+    fun `the goldens decode and re-encode to the same value`() {
         for (name in GOLDENS) {
             val instance = HostSpec.goldenInstance(name)
             assertEquals(name, emptyList<String>(), SpecSchema.validate(schema, instance))
@@ -67,6 +67,9 @@ class SendOutboxContractTest {
         val unknown = SendOutboxCodec.decode(HostSpec.goldenInstance("outbox-entry-outcome-unknown.json"))
         assertEquals(SendOutboxState.OUTCOME_UNKNOWN, unknown.state)
         assertEquals(SendOutboxBackend.PC, unknown.backend)
+        val lost = SendOutboxCodec.decode(HostSpec.goldenInstance("outbox-entry-target-lost.json"))
+        assertEquals(SendOutboxState.TARGET_LOST, lost.state)
+        assertEquals(SendOutbox.TARGET_LOST_ERROR, lost.lastError)
     }
 
     @Test
@@ -100,6 +103,8 @@ class SendOutboxContractTest {
         store.markSubmitting(text.rpcId).also { check(it.rpcId) }
         store.markAccepted(text.rpcId).also { check(it.rpcId) }
         store.markDurable(text.rpcId).also { check(it.rpcId) }
+        val lost = store.enqueue("lost-session", "整理纪要")
+        store.markTargetLost(lost.rpcId).also { check(it.rpcId) }
 
         val attachments = (0 until 20).map {
             SendOutboxAttachmentInput(
@@ -128,6 +133,87 @@ class SendOutboxContractTest {
         store.markOutcomeUnknown(long.rpcId, "é".repeat(5_000))
         check(long.rpcId)
         assertEquals(1_024, store.entry(long.rpcId)?.lastError?.length)
+    }
+
+    // ------------------------------------------------- lost target (PC-20261122-outbox-lost-target)
+
+    @Test
+    fun `a stored lost golden is listed as lost and is never pending`() {
+        val instance = HostSpec.goldenInstance("outbox-entry-target-lost.json")
+        writeRaw(instance.string("rpcId"), instance)
+        val store = outbox()
+        assertEquals(listOf(instance.string("rpcId")), store.targetLost().map { it.rpcId })
+        assertTrue(store.pending().isEmpty())
+        assertFalse(store.observeAuthoritativeUserMessage(instance.string("rpcId")))
+        assertEquals(SendOutboxState.TARGET_LOST, store.entry(instance.string("rpcId"))?.state)
+    }
+
+    @Test
+    fun `discard deletes only a lost entry, the file first and then its bytes`() {
+        val store = outbox()
+        val entry = store.enqueue("lost-session", "看图", listOf(input("att-1")))
+        try {
+            store.discardTargetLost(entry.rpcId)
+            fail("a queued entry was discarded")
+        } catch (refused: SendOutboxException.NotTargetLost) {
+            assertEquals(SendOutboxState.QUEUED, refused.state)
+        }
+        store.markTargetLost(entry.rpcId)
+        assertTrue(store.discardTargetLost(entry.rpcId))
+        assertFalse(entryFile(entry.rpcId).exists())
+        assertFalse(store.attachmentDirectory(entry.rpcId).exists())
+    }
+
+    @Test
+    fun `resend commits a new entry for the live session before deleting the lost one`() {
+        val store = outbox()
+        val entry = store.enqueue("lost-session", "看图", listOf(input("att-1")))
+        store.markTargetLost(entry.rpcId)
+        try {
+            store.resendTargetLost(entry.rpcId, "lost-session")
+            fail("resent to the lost session")
+        } catch (_: SendOutboxException.ResendToLostSession) {
+        }
+        val replacement = store.resendTargetLost(entry.rpcId, "live-session")
+        assertTrue(replacement.rpcId != entry.rpcId)
+        assertTrue(SendOutboxCodec.isValidRpcId(replacement.rpcId))
+        assertEquals("live-session", replacement.sessionId)
+        assertEquals(SendOutboxState.QUEUED, replacement.state)
+        assertEquals(0, replacement.attempts)
+        assertEquals("看图", replacement.text)
+        assertEquals("abc", String(store.verifiedAttachmentData(replacement.rpcId).single().data))
+        assertFalse(entryFile(entry.rpcId).exists())
+        assertFalse(store.attachmentDirectory(entry.rpcId).exists())
+        assertEquals(listOf(replacement.rpcId), store.pending("live-session").map { it.rpcId })
+    }
+
+    @Test
+    fun `resend refuses modified bytes and keeps the lost entry`() {
+        val store = outbox()
+        val entry = store.enqueue("lost-session", "看图", listOf(input("att-1")))
+        store.markTargetLost(entry.rpcId)
+        File(store.directory, entry.attachments!![0].storePath).writeBytes("xyz".toByteArray())
+        try {
+            store.resendTargetLost(entry.rpcId, "live-session")
+            fail("modified bytes were resent")
+        } catch (_: SendOutboxException.AttachmentDigestMismatch) {
+        }
+        assertEquals(SendOutboxState.TARGET_LOST, store.entry(entry.rpcId)?.state)
+        assertTrue(store.pending().isEmpty())
+    }
+
+    @Test
+    fun `an unknown state is skipped and kept with its bytes (section 10 unknown-state rule)`() {
+        val case = invalidCases.single { it.string("id") == "unknown-state" }.child("case")
+        val rpcId = case.string("rpcId")
+        writeRaw(rpcId, case)
+        val store = outbox()
+        val bytes = File(store.attachmentDirectory(rpcId), "att-1").apply { parentFile!!.mkdirs() }
+        bytes.writeText("kept")
+        assertTrue(store.entries().isEmpty())
+        assertTrue(store.collectOrphanAttachments().isEmpty())
+        assertTrue(entryFile(rpcId).exists())
+        assertTrue(bytes.exists())
     }
 
     // ------------------------------------------------------------- invalid cases
@@ -184,15 +270,12 @@ class SendOutboxContractTest {
     }
 
     @Test
-    fun `the store allows exactly the six edges of section 10`() {
-        val allowed = setOf(
-            SendOutboxState.QUEUED to SendOutboxState.SUBMITTING,
-            SendOutboxState.SUBMITTING to SendOutboxState.ACCEPTED,
-            SendOutboxState.SUBMITTING to SendOutboxState.OUTCOME_UNKNOWN,
-            SendOutboxState.ACCEPTED to SendOutboxState.DURABLE,
-            SendOutboxState.OUTCOME_UNKNOWN to SendOutboxState.ACCEPTED,
-            SendOutboxState.OUTCOME_UNKNOWN to SendOutboxState.QUEUED,
-        )
+    fun `the store allows exactly the allowedTransitions of the shared fixture`() {
+        val allowed = sharedCases.objects("allowedTransitions").map {
+            SendOutboxState.fromWire(it.string("from"))!! to SendOutboxState.fromWire(it.string("to"))!!
+        }.toSet()
+        assertTrue(SendOutboxState.QUEUED to SendOutboxState.TARGET_LOST in allowed)
+        assertEquals(7, allowed.size)
         val rpcId = "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b"
         for (from in SendOutboxState.entries) {
             for (to in SendOutboxState.entries) {
@@ -332,6 +415,7 @@ class SendOutboxContractTest {
         SendOutboxState.ACCEPTED -> store.markAccepted(rpcId)
         SendOutboxState.DURABLE -> store.markDurable(rpcId)
         SendOutboxState.OUTCOME_UNKNOWN -> store.markOutcomeUnknown(rpcId, "cut")
+        SendOutboxState.TARGET_LOST -> store.markTargetLost(rpcId)
     }
 
     private companion object {
@@ -342,6 +426,7 @@ class SendOutboxContractTest {
             "outbox-entry-attachments-multiple.json",
             "outbox-entry-attachment-only.json",
             "outbox-entry-attachments-20.json",
+            "outbox-entry-target-lost.json",
         )
     }
 }

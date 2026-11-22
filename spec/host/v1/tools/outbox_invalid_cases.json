@@ -1,6 +1,36 @@
 {
   "schemaVersion": 1,
-  "note": "Negative cases for spec/host/v1/schema/outbox-entry.schema.json and the section 10 state machine. Read by tools/test_outbox_contract.py.",
+  "note": "Negative cases for spec/host/v1/schema/outbox-entry.schema.json and the section 10 state machine. Read by tools/test_outbox_contract.py. allowedTransitions is the complete edge set of section 10; every end's transition table must equal it.",
+  "allowedTransitions": [
+    {
+      "from": "queued",
+      "to": "submitting"
+    },
+    {
+      "from": "submitting",
+      "to": "accepted"
+    },
+    {
+      "from": "submitting",
+      "to": "outcomeUnknown"
+    },
+    {
+      "from": "accepted",
+      "to": "durable"
+    },
+    {
+      "from": "outcomeUnknown",
+      "to": "accepted"
+    },
+    {
+      "from": "outcomeUnknown",
+      "to": "queued"
+    },
+    {
+      "from": "queued",
+      "to": "targetLost"
+    }
+  ],
   "invalid": [
     {
       "id": "uuid-not-v4",
@@ -473,6 +503,74 @@
       },
       "reason": "illegal_transition",
       "schema": false
+    },
+    {
+      "id": "target-lost-to-queued",
+      "case": {
+        "from": "targetLost",
+        "to": "queued"
+      },
+      "reason": "illegal_transition",
+      "schema": false
+    },
+    {
+      "id": "target-lost-to-submitting",
+      "case": {
+        "from": "targetLost",
+        "to": "submitting"
+      },
+      "reason": "illegal_transition",
+      "schema": false
+    },
+    {
+      "id": "target-lost-to-durable",
+      "case": {
+        "from": "targetLost",
+        "to": "durable"
+      },
+      "reason": "illegal_transition",
+      "schema": false
+    },
+    {
+      "id": "outcome-unknown-to-target-lost",
+      "case": {
+        "from": "outcomeUnknown",
+        "to": "targetLost"
+      },
+      "reason": "illegal_transition",
+      "schema": false
+    },
+    {
+      "id": "submitting-to-target-lost",
+      "case": {
+        "from": "submitting",
+        "to": "targetLost"
+      },
+      "reason": "illegal_transition",
+      "schema": false
+    },
+    {
+      "id": "accepted-to-target-lost",
+      "case": {
+        "from": "accepted",
+        "to": "targetLost"
+      },
+      "reason": "illegal_transition",
+      "schema": false
+    },
+    {
+      "id": "target-lost-wrong-case",
+      "case": {
+        "v": 1,
+        "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+        "sessionId": "gb-main",
+        "text": "x",
+        "createdAtMs": 1,
+        "state": "target_lost",
+        "attempts": 0
+      },
+      "reason": "unknown_state",
+      "schema": true
     }
   ]
 }

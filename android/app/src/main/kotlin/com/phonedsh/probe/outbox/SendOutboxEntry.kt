@@ -22,6 +22,9 @@ internal enum class SendOutboxState(val wire: String) {
     ACCEPTED("accepted"),
     DURABLE("durable"),
     OUTCOME_UNKNOWN("outcomeUnknown"),
+
+    /** The engine proved the target session gone. Resting: only a user discard or resend removes it. */
+    TARGET_LOST("targetLost"),
     ;
 
     companion object {
@@ -118,14 +121,15 @@ internal data class SendOutboxEntry(
     val attachments: List<SendOutboxAttachment>? = null,
 )
 
-/** The six edges of section 10. There is no other edge. */
+/** The seven edges of section 10 (PC-20261122-outbox-lost-target added `queued → targetLost`). There is no other edge. */
 internal object SendOutboxTransition {
     fun allows(from: SendOutboxState, to: SendOutboxState): Boolean = when (from) {
-        SendOutboxState.QUEUED -> to == SendOutboxState.SUBMITTING
+        SendOutboxState.QUEUED -> to == SendOutboxState.SUBMITTING || to == SendOutboxState.TARGET_LOST
         SendOutboxState.SUBMITTING -> to == SendOutboxState.ACCEPTED || to == SendOutboxState.OUTCOME_UNKNOWN
         SendOutboxState.ACCEPTED -> to == SendOutboxState.DURABLE
         SendOutboxState.OUTCOME_UNKNOWN -> to == SendOutboxState.ACCEPTED || to == SendOutboxState.QUEUED
         SendOutboxState.DURABLE -> false
+        SendOutboxState.TARGET_LOST -> false
     }
 }
 

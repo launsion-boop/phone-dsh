@@ -23,9 +23,15 @@
 //   submitting → outcomeUnknown
 //   outcomeUnknown → accepted (read-back found it)
 //   outcomeUnknown → queued (read-back proved it absent)
+//   queued → targetLost (the engine answered session/not-found for the target)
 // `durable` is never stored as a resting state: the file is deleted instead,
 // then the attachment directory is unlinked. A transport interruption never
 // triggers an automatic resend.
+//
+// `targetLost` (PC-20261122-outbox-lost-target) has no outgoing edge. It is
+// never delivered, read back or moved; it leaves only by an explicit user
+// discard (delete) or resend (a new entry for the live session is committed,
+// then this one is deleted).
 
 import Foundation
 import Darwin
@@ -37,6 +43,9 @@ public enum SendOutboxState: String, Codable, CaseIterable, Sendable {
     case accepted
     case durable
     case outcomeUnknown
+    /// The engine proved the target session gone (`session/not-found`). A
+    /// resting state: only an explicit user discard or resend removes it.
+    case targetLost
 }
 
 public enum SendOutboxBackend: String, Codable, CaseIterable, Sendable {
@@ -272,6 +281,8 @@ public enum SendOutboxError: Error, Equatable, CustomStringConvertible {
     case unknownEntry
     case illegalTransition(from: SendOutboxState, to: SendOutboxState)
     case deleteRequiresDurable(SendOutboxState)
+    case notTargetLost(SendOutboxState)
+    case resendToLostSession
     case tooManyAttachments(Int)
     case duplicateAttachmentId(String)
     case invalidAttachmentId(String)
@@ -292,6 +303,10 @@ public enum SendOutboxError: Error, Equatable, CustomStringConvertible {
             return "illegal outbox transition \(from.rawValue) → \(to.rawValue)"
         case let .deleteRequiresDurable(state):
             return "outbox entry is \(state.rawValue), not durable"
+        case let .notTargetLost(state):
+            return "outbox entry is \(state.rawValue), not targetLost"
+        case .resendToLostSession:
+            return "a lost entry cannot be resent to its own session"
         case let .tooManyAttachments(count):
             return "outbox entry has \(count) attachments (maximum 20)"
         case let .duplicateAttachmentId(id):
@@ -318,7 +333,8 @@ public enum SendOutboxTransition {
              (.submitting, .outcomeUnknown),
              (.accepted, .durable),
              (.outcomeUnknown, .accepted),
-             (.outcomeUnknown, .queued):
+             (.outcomeUnknown, .queued),
+             (.queued, .targetLost):
             return true
         default:
             return false
@@ -609,6 +625,13 @@ public actor SendOutbox {
         guard entry.state == .durable else {
             throw SendOutboxError.deleteRequiresDurable(entry.state)
         }
+        try removeEntryAndAttachments(rpcId: rpcId)
+        return true
+    }
+
+    /// The entry file first, then its attachment directory. A failed unlink of
+    /// the bytes leaves an orphan for the next startup GC.
+    private func removeEntryAndAttachments(rpcId: String) throws {
         do {
             try fileManager.removeItem(at: fileURL(rpcId))
             try fsyncDirectory(directory)
@@ -620,7 +643,58 @@ public actor SendOutbox {
             try? fileManager.removeItem(at: attachmentDirectory)
             try? fsyncDirectory(attachmentsDirectory)
         }
+    }
+
+    // MARK: - Lost target (PC-20261122-outbox-lost-target)
+
+    /// The internal diagnostic written with `targetLost`; never user text.
+    public static let targetLostError = "session_not_found"
+
+    /// `queued → targetLost`. Call only with the engine's own
+    /// `session/not-found` verdict for this entry's session.
+    @discardableResult
+    public func markTargetLost(rpcId: String, now: Date = Date()) throws -> SendOutboxEntry {
+        try transition(rpcId, to: .targetLost, now: now) { entry in
+            entry.lastError = Self.targetLostError
+        }
+    }
+
+    /// Every entry the engine proved lost, oldest first, whatever its session.
+    public func targetLost() -> [SendOutboxEntry] {
+        entries().filter { $0.state == .targetLost }
+    }
+
+    /// The user discarded a lost entry: the file, then its attachment bytes.
+    @discardableResult
+    public func discardTargetLost(rpcId: String) throws -> Bool {
+        guard let entry = entry(rpcId: rpcId) else { return false }
+        guard entry.state == .targetLost else {
+            throw SendOutboxError.notTargetLost(entry.state)
+        }
+        try removeEntryAndAttachments(rpcId: rpcId)
         return true
+    }
+
+    /// The user resent a lost entry to `sessionID` (the session on screen). A
+    /// new entry with a new rpcId, the same text and copies of the verified
+    /// attachment bytes is committed first; only then is the lost one deleted.
+    /// A crash between the two leaves both (the lost row is offered again).
+    @discardableResult
+    public func resendTargetLost(rpcId: String, to sessionID: String,
+                                 now: Date = Date()) throws -> SendOutboxEntry {
+        guard let lost = entry(rpcId: rpcId) else { throw SendOutboxError.unknownEntry }
+        guard lost.state == .targetLost else { throw SendOutboxError.notTargetLost(lost.state) }
+        guard sessionID != lost.sessionId else { throw SendOutboxError.resendToLostSession }
+        let inputs = try verifiedAttachmentData(rpcId: rpcId).map {
+            SendOutboxAttachmentInput(id: $0.attachment.id, kind: $0.attachment.kind,
+                                      contentType: $0.attachment.contentType,
+                                      filename: $0.attachment.filename, data: $0.data)
+        }
+        let replacement = try enqueue(sessionID: sessionID, text: lost.text,
+                                      attachments: inputs,
+                                      backend: lost.backend ?? .local, now: now)
+        try removeEntryAndAttachments(rpcId: rpcId)
+        return replacement
     }
 
     // MARK: - Transition body

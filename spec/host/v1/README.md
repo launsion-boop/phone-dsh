@@ -273,7 +273,7 @@ authoritative-history equivalent for the delete condition (GAP-40). The schema s
 entry carries the durable guarantee.
 
 Text prompts and attachment sends use **one**
-outbox, the same `queued → submitting → accepted → durable` + `outcomeUnknown` machine, the same
+outbox, the same `queued → submitting → accepted → durable` + `outcomeUnknown` (+ `targetLost`) machine, the same
 enqueue-time lowercase UUIDv4 `rpcId`, and the same delete condition: an entry is deleted only
 after authoritative history contains a `user_message` whose `source.rpcId` equals it and the
 entry is `durable`. This is an explicit owner-authorized scope expansion from Rev 2, not a silent
@@ -311,13 +311,19 @@ references plus minimal metadata, never inline bytes.
   de-duplicates by it; a retry of the same entry reuses it.
 - **State machine.** `queued → submitting → accepted → durable`, plus
   `submitting → outcomeUnknown`. The only other allowed edges are
-  `outcomeUnknown → accepted` (read-back found the `rpcId`) and `outcomeUnknown → queued`
-  (read-back proved the message absent before a resend). No other edge exists; `durable` is not a
-  stored state after deletion (the file is removed).
+  `outcomeUnknown → accepted` (read-back found the `rpcId`), `outcomeUnknown → queued`
+  (read-back proved the message absent before a resend) and `queued → targetLost` (the engine
+  proved the target session gone; see *Lost target*). No other edge exists; `durable` is not a
+  stored state after deletion (the file is removed), and `targetLost` has no outgoing edge.
+- **Unknown state.** A consumer that reads an entry whose `state` it does not know leaves the file
+  untouched: it does not deliver, rewrite, delete or migrate it, and startup GC keeps its
+  `attachments/<rpcId>/` because the entry file exists. New states are added under this rule
+  without a `v` bump ([PC-20261122-outbox-lost-target](../../../docs/protocol-changes/PC-20261122-outbox-lost-target.md)).
 - **Delete condition.** An entry is deleted **only** after an authoritative history contains a
   `user_message` whose `source.rpcId` equals the entry's `rpcId`, and the entry is `durable`.
   A local `accepted` acknowledgement is not enough; an `outcomeUnknown` entry is not deleted
-  until the read-back resolves it.
+  until the read-back resolves it. The one exception is a `targetLost` entry, which is deleted
+  only by an explicit user action (*Lost target*).
 - **Outcome unknown.** A transport interruption after the request was written is
   `outcomeUnknown`, never an automatic resend. The host first reads the authoritative history
   (the same source that would make it `durable`); if the `rpcId` is present it becomes `accepted`
@@ -329,6 +335,20 @@ references plus minimal metadata, never inline bytes.
   without the inbox projection, a failed or non-advancing page read, or an unknown that has not
   yet settled (3 s, doubling per attempt up to 300 s) proves nothing. A user retry does not
   replace this proof.
+- **Lost target.** `queued → targetLost` is taken only on proof: the engine answered
+  `session/not-found` when the host opened or resumed the entry's `sessionId` to deliver it. A
+  transport failure, a timeout, an absent, parked or starting engine, a missing local cache or an
+  inconclusive read-back is not proof. The producer keeps every field and sets the internal
+  `lastError` to `session_not_found`. A `submitting`, `accepted` or `outcomeUnknown` entry never
+  becomes `targetLost`: it may already be in the lost session's history. A `targetLost` entry is
+  never submitted, read back, resumed by the startup scan, moved to another session, counted as
+  "排队中" or deleted automatically. The live chat page shows every `targetLost` entry, whatever its
+  session, and offers two explicit taps: **discard** deletes the entry (file first, then its
+  `attachments/<rpcId>/`); **resend** enqueues a *new* entry — new `rpcId`, the session on screen,
+  the same text, the attachment bytes copied and digest-verified by the ordinary enqueue — and
+  only after that entry is committed deletes the `targetLost` one. Nothing resends or discards a
+  lost entry without the tap. A crash between the two writes leaves both; the lost row is offered
+  again and a second resend needs a second tap.
 - **Attachment consistency at dispatch.** Immediately before a first submit, and again before any
   retry, verify every referenced file exists and its bytes match `sha256`. On a missing file or a
   digest mismatch the host MUST NOT submit the entry, MUST NOT fall back to a text-only send, and

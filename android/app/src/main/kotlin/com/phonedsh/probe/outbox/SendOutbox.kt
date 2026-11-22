@@ -21,6 +21,13 @@
 //   submitting → outcomeUnknown
 //   outcomeUnknown → accepted   (read-back found it)
 //   outcomeUnknown → queued     (read-back proved it absent)
+//   queued → targetLost         (the engine answered session/not-found)
+//
+// `targetLost` (PC-20261122-outbox-lost-target) has no outgoing edge: it is
+// never delivered, read back or moved, and leaves only by an explicit user
+// discard or resend. No Android caller produces it yet (spec GAP-51): the
+// queue never activates another session, and a `session/not-found` turn goes
+// through ChatTurnRunner's context-lost path instead.
 //
 // The store is blocking and serialises every operation on its own monitor; it
 // holds no Android object and opens with no engine. Callers run it off the main
@@ -41,6 +48,9 @@ internal sealed class SendOutboxException(message: String, cause: Throwable? = n
         SendOutboxException("illegal outbox transition ${from.wire} → ${to.wire}")
     class DeleteRequiresDurable(val state: SendOutboxState) :
         SendOutboxException("outbox entry is ${state.wire}, not durable")
+    class NotTargetLost(val state: SendOutboxState) :
+        SendOutboxException("outbox entry is ${state.wire}, not targetLost")
+    class ResendToLostSession : SendOutboxException("a lost entry cannot be resent to its own session")
     class TooManyAttachments(val count: Int) :
         SendOutboxException("outbox entry has $count attachments (maximum 20)")
     class DuplicateAttachmentId(val id: String) : SendOutboxException("duplicate attachment id $id")
@@ -174,7 +184,10 @@ internal class SendOutbox(
      */
     @Synchronized
     fun pending(sessionId: String? = null): List<SendOutboxEntry> =
-        entries().filter { it.state != SendOutboxState.DURABLE && (sessionId == null || it.sessionId == sessionId) }
+        entries().filter {
+            it.state != SendOutboxState.DURABLE && it.state != SendOutboxState.TARGET_LOST &&
+                (sessionId == null || it.sessionId == sessionId)
+        }
 
     // -------------------------------------------------------------- attachments
 
@@ -312,13 +325,71 @@ internal class SendOutbox(
     fun deleteIfDurable(rpcId: String): Boolean {
         val entry = entry(rpcId) ?: return false
         if (entry.state != SendOutboxState.DURABLE) throw SendOutboxException.DeleteRequiresDurable(entry.state)
+        removeEntryAndAttachments(rpcId)
+        return true
+    }
+
+    // -------------------------------------------- lost target (PC-20261122-outbox-lost-target)
+
+    /** `queued → targetLost`. Only with the engine's own `session/not-found` verdict for this entry's session. */
+    @Synchronized
+    @Throws(SendOutboxException::class)
+    fun markTargetLost(rpcId: String): SendOutboxEntry =
+        transition(rpcId, SendOutboxState.TARGET_LOST) { it.copy(lastError = TARGET_LOST_ERROR) }
+
+    /** Every entry the engine proved lost, oldest first, whatever its session. */
+    @Synchronized
+    fun targetLost(): List<SendOutboxEntry> = entries().filter { it.state == SendOutboxState.TARGET_LOST }
+
+    /** The user discarded a lost entry: the file, then its attachment bytes. */
+    @Synchronized
+    @Throws(SendOutboxException::class)
+    fun discardTargetLost(rpcId: String): Boolean {
+        val entry = entry(rpcId) ?: return false
+        if (entry.state != SendOutboxState.TARGET_LOST) throw SendOutboxException.NotTargetLost(entry.state)
+        removeEntryAndAttachments(rpcId)
+        return true
+    }
+
+    /**
+     * The user resent a lost entry to [sessionId] (the session on screen). A new
+     * entry with a new `rpcId`, the same text and copies of the verified bytes is
+     * committed first; only then is the lost one deleted. A crash between the two
+     * leaves both, and the lost row is offered again.
+     */
+    @Synchronized
+    @Throws(SendOutboxException::class)
+    fun resendTargetLost(rpcId: String, sessionId: String): SendOutboxEntry {
+        val lost = entry(rpcId) ?: throw SendOutboxException.UnknownEntry()
+        if (lost.state != SendOutboxState.TARGET_LOST) throw SendOutboxException.NotTargetLost(lost.state)
+        if (sessionId == lost.sessionId) throw SendOutboxException.ResendToLostSession()
+        val inputs = verifiedAttachmentData(rpcId).map {
+            SendOutboxAttachmentInput(
+                id = it.attachment.id,
+                kind = it.attachment.kind,
+                contentType = it.attachment.contentType,
+                filename = it.attachment.filename,
+                data = it.data,
+            )
+        }
+        val replacement = enqueue(
+            sessionId = sessionId,
+            text = lost.text,
+            attachments = inputs,
+            backend = lost.backend ?: SendOutboxBackend.LOCAL,
+        )
+        removeEntryAndAttachments(rpcId)
+        return replacement
+    }
+
+    /** The entry file first, then its attachment directory; a lost unlink of the bytes is found by startup GC. */
+    private fun removeEntryAndAttachments(rpcId: String) {
         try {
             files.deleteDurably(entryFile(rpcId))
         } catch (failure: IOException) {
             throw SendOutboxException.Storage(failure.message ?: "delete failed", failure)
         }
         removeAttachmentDirectory(rpcId)
-        return true
     }
 
     private fun transition(
@@ -420,6 +491,9 @@ internal class SendOutbox(
 
     companion object {
         const val DIRECTORY_NAME: String = "send-outbox"
+
+        /** The internal diagnostic written with `targetLost`; never user text. */
+        const val TARGET_LOST_ERROR: String = "session_not_found"
         private const val SUFFIX: String = ".json"
     }
 }

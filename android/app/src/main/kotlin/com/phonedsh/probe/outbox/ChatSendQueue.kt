@@ -377,7 +377,8 @@ internal class ChatSendQueue(
         // instead of booting twice.
         var prepared = false
         repeat(maxWaitPolls) {
-            if (withContext(io) { outbox.entries() }.isEmpty()) return
+            // A lost entry waits for the person, not the engine: it never boots one.
+            if (withContext(io) { outbox.entries() }.none { it.state != SendOutboxState.TARGET_LOST }) return
             when (host.deliveryFacts().decide(paused)) {
                 ChatDeliveryPreparation.READY -> {
                     drain()
@@ -455,6 +456,9 @@ internal class ChatSendQueue(
                 SendOutboxState.ACCEPTED -> if (!isInFlight(entry.rpcId)) reconcile(entry.rpcId)
                 SendOutboxState.OUTCOME_UNKNOWN -> if (!reconcile(entry.rpcId)) blocked.add(entry.sessionId)
                 SendOutboxState.QUEUED -> if (!deliver(entry)) blocked.add(entry.sessionId)
+                // Resting (host/v1 §10 Lost target): it waits for the person, never for the engine,
+                // and it does not hold a FIFO of any live session.
+                SendOutboxState.TARGET_LOST -> Unit
             }
         }
         publish()

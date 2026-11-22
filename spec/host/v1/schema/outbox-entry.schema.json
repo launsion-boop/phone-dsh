@@ -1,6 +1,6 @@
 {
   "title": "HostSendOutboxEntry v1",
-  "description": "One durable send-outbox entry of the host. The rpcId is a lowercase UUIDv4 generated at enqueue and is the idempotency key of the user message; the entry is deleted only after an authoritative user_message with that source.rpcId has been observed. Text may be empty only when attachments is non-empty; a text-only entry keeps minLength 1. Optional attachments are references plus metadata, never inline bytes: bytes live under send-outbox/attachments/<rpcId>/<attachmentId> in the same durable app-container tree, not in Library/Caches and not in /dsh/tmp. The bound of 20 mirrors the host-declared per-message image limit. The state machine, store lifecycle and crash rules are fixed by spec/host/v1/README.md section 10 and docs/protocol-changes/PC-20261112-w1-browse-outbox.md (Rev 4).",
+  "description": "One durable send-outbox entry of the host. The rpcId is a lowercase UUIDv4 generated at enqueue and is the idempotency key of the user message; the entry is deleted only after an authoritative user_message with that source.rpcId has been observed. Text may be empty only when attachments is non-empty; a text-only entry keeps minLength 1. Optional attachments are references plus metadata, never inline bytes: bytes live under send-outbox/attachments/<rpcId>/<attachmentId> in the same durable app-container tree, not in Library/Caches and not in /dsh/tmp. The bound of 20 mirrors the host-declared per-message image limit. The state machine, store lifecycle and crash rules are fixed by spec/host/v1/README.md section 10 and docs/protocol-changes/PC-20261112-w1-browse-outbox.md (Rev 4). targetLost (PC-20261122-outbox-lost-target) is a resting state reached only from queued on the engine's session/not-found verdict; it leaves only by an explicit user discard or resend.",
   "type": "object",
   "oneOf": [
     {
@@ -37,7 +37,8 @@
             "submitting",
             "accepted",
             "durable",
-            "outcomeUnknown"
+            "outcomeUnknown",
+            "targetLost"
           ]
         },
         "attempts": {
@@ -165,7 +166,8 @@
             "submitting",
             "accepted",
             "durable",
-            "outcomeUnknown"
+            "outcomeUnknown",
+            "targetLost"
           ]
         },
         "attempts": {
