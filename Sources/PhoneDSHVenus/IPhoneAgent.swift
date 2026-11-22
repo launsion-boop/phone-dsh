@@ -259,7 +259,7 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
     }
 
     /// Every action name the prompt offers or the phone performs. Anything else is not an action.
-    static let knownActions: Set<String> = visibleActions.union(["wait", "calluser", "answer", "finished",
+    static let knownActions: Set<String> = visibleActions.union(["wait", "calluser", "answer", "finished", "unlock",
                                                                  "pressback", "pressrecent", "getscreenshot"])
     static let actionOnlyNote = "Your last reply contained no action. Do not think again: reply with exactly one line, "
         + "<action>…</action>. If the screen already shows what the task asked for, that line is Finished(content='…')."
@@ -326,6 +326,9 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
     - PressHome()
     > Return to the system home screen.
 
+    - Unlock()
+    > Use only when the screenshot is the iPhone lock screen (large clock) or the passcode page (输入密码 / Enter Passcode with a row of small circles). The automation enters the owner's saved passcode. Never tap or type a passcode yourself.
+
     - PressEnter()
     > Perform an Enter key action.
 
@@ -344,6 +347,7 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
     - The round grey AssistiveTouch button floating on the right edge is part of the automation tool: never tap it.
     - To open an app, use `LaunchApp` with its name: it searches the phone and opens the best match. Do not look for app icons on the home screen. If a different app opened, use `LaunchApp` again with the app's English name.
     - When the task asks you to read, check or report something, use `Answer` as soon as the screen shows it. Do not leave that screen first (for example back to a list or the home screen), even if the task also says to go back afterwards: answering is the end of the task.
+    - If the phone is locked (lock screen or passcode page), use `Unlock` before anything else. If `Unlock` was not executed, use `CallUser` with the reason; do not try other actions on a locked phone.
     - If a system permission or privacy prompt is in front (for example 允许 / 不允许, 共享联系人, 位置, 通知), do not choose for the user: use `CallUser` and say what the prompt asks.
     - Answer in Chinese.
 
@@ -379,5 +383,43 @@ public enum IPhoneGrounding {
         let action = IPhoneAction.parse(try await client.chat(model: model, messages: messages, maxTokens: 128, timeout: 60))
         guard ["click", "tap"].contains(action.name), let point = action.points.first else { return nil }
         return IPhoneAction.normalized(point, width: frame.width, height: frame.height)
+    }
+}
+
+/// What the mirrored screen shows about the lock (tonolink-board.md §4.4). The app registers no
+/// device-lock notification; the passcode page is recognised on the screenshot, like any other screen.
+public enum IPhoneLockScreen: String, Sendable, Equatable {
+    /// The passcode entry page: 输入密码 / Enter Passcode above the row of circles (the keypad is
+    /// absent while the board's keyboard is attached).
+    case passcode
+    /// The lock screen (clock, notifications) without the keypad, or a dark sleeping screen.
+    case lockScreen
+    /// Anything else: the phone is in use.
+    case other
+
+    public static let prompt = """
+        You classify one iPhone screenshot. Decide which of these it is:
+        PASSCODE: the lock-screen passcode entry page. It shows 输入密码 or Enter Passcode above a row of small empty circles, usually with 紧急情况 / 取消 (Emergency / Cancel) at the bottom. The numeric keypad may be missing (a hardware keyboard is attached).
+        LOCKSCREEN: the lock screen (large clock, date, notifications, flashlight and camera buttons) without 输入密码, or an all-dark sleeping screen.
+        OTHER: anything else (home screen, an app, Control Center, Spotlight).
+        Output only <action>Answer(content='PASSCODE')</action>, <action>Answer(content='LOCKSCREEN')</action> or <action>Answer(content='OTHER')</action>.
+        """
+
+    /// nil when the reply names none of the three: the caller must not type a passcode on a guess.
+    public static func parse(_ reply: String) -> IPhoneLockScreen? {
+        let action = IPhoneAction.parse(reply)
+        let word = (action.text.isEmpty ? action.raw : action.text).uppercased()
+        let kinds: [(word: String, kind: IPhoneLockScreen)] = [("PASSCODE", .passcode), ("LOCKSCREEN", .lockScreen), ("OTHER", .other)]
+        let hits = kinds.filter { word.contains($0.word) }.map(\.kind)
+        return hits.count == 1 ? hits[0] : nil
+    }
+
+    public static func classify(_ frame: IPhoneFrame, client: VenusClient = VenusClient(),
+                                model: String = IPhoneAgent.defaultModel) async throws -> IPhoneLockScreen? {
+        let messages: [[String: Any]] = [["role": "user", "content": [
+            ["type": "text", "text": prompt],
+            ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + frame.jpeg.base64EncodedString()]],
+        ]]]
+        return parse(try await client.chat(model: model, messages: messages, maxTokens: 64, timeout: 30))
     }
 }
