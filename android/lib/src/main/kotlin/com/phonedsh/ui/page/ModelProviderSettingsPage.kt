@@ -67,6 +67,10 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -86,6 +90,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.password
@@ -97,6 +102,9 @@ import com.phonedsh.ui.surface.BACK_GLYPH
 import com.phonedsh.ui.nav.PdshBackLevel
 import com.phonedsh.ui.nav.RouteBackLevel
 import com.phonedsh.ui.surface.SettingsHairline
+import com.phonedsh.ui.sheet.PdshSheet
+import com.phonedsh.ui.sheet.SheetChrome
+import com.phonedsh.ui.sheet.SheetInnerNavigation
 import com.phonedsh.ui.surface.SettingsSectionLabel
 import com.phonedsh.ui.surface.SettingsSubPageFrame
 import com.phonedsh.ui.surface.SettingsNavAction
@@ -790,34 +798,12 @@ public fun ModelProviderSettingsPage(
     }
 
     SettingsSubPageFrame(
-        // The source page, editor and advanced page all use inline navigation
-        // titles; no 34pt large-title scaffold belongs to this NavigationStack.
-        title = when {
-            editing != null && advanced -> UiStrings.PROVIDER_ADVANCED
-            editing != null && editing.isNew -> UiStrings.PROVIDER_ADD_SERVICE
-            editing != null -> UiStrings.PROVIDER_EDITOR_EDIT_TITLE
-            embedded -> null
-            else -> UiStrings.MODEL_PROVIDER_TITLE
-        },
-        largeTitle = null,
-        backGlyph = if (editorMain) UiStrings.CANCEL else BACK_GLYPH,
-        embedded = embedded && editing == null,
-        onBack = when {
-            editorMain -> cancelEditor
-            editing != null -> leaveEditorLevel
-            else -> onBack
-        },
-        trailing = if (editorMain) {
-            {
-                SettingsNavAction(
-                    text = UiStrings.SAVE,
-                    onClick = submitEditor,
-                    enabled = editing?.canSave == true && !editorBusy,
-                )
-            }
-        } else null,
+        title = if (embedded) null else UiStrings.MODEL_PROVIDER_TITLE,
+        embedded = embedded,
+        backGlyph = BACK_GLYPH,
+        onBack = onBack,
         rootTag = UiPageTags.PROVIDER_ROOT,
-        modifier = modifier,
+        modifier = if (editing == null) modifier else modifier.clearAndSetSemantics { },
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             if (state.failure != null) {
@@ -830,37 +816,7 @@ public fun ModelProviderSettingsPage(
                     onRetry = onRetry,
                 )
             }
-            if (editing != null && advanced) {
-                ProviderAdvancedEditor(
-                    draft = editing,
-                    keyStatus = state.rows.firstOrNull { it.id == editing.id }?.keyStatus
-                        ?: ProviderKeyStatus.NOT_CONFIGURED,
-                    connectionTest = state.connectionTest?.takeIf {
-                        it.isNew == editing.isNew && (editing.isNew || it.profileId == editing.id)
-                    },
-                    onDraftChange = { draft = it },
-                    onTest = { onTest(editing) },
-                )
-            } else if (editing != null) {
-                ProviderEditor(
-                    draft = editing,
-                    keyStatus = state.rows.firstOrNull { it.id == editing.id }?.keyStatus
-                        ?: ProviderKeyStatus.NOT_CONFIGURED,
-                    connectionTest = state.connectionTest?.takeIf {
-                        it.isNew == editing.isNew && (editing.isNew || it.profileId == editing.id)
-                    },
-                    catalog = editingCatalog,
-                    saveFact = saveFact,
-                    onDraftChange = { draft = it },
-                    onGetModels = {
-                        val requestId = java.util.UUID.randomUUID().toString()
-                        catalogRequestId = requestId
-                        appliedCatalogRequestId = null
-                        onGetModels(editing, requestId)
-                    },
-                    onOpenAdvanced = { advanced = true },
-                )
-            } else if (state.isUnknown) {
+            if (state.isUnknown) {
                 EmptyHint(
                     title = UiStrings.PROVIDER_UNKNOWN_STATE,
                     hint = UiStrings.PROVIDER_UNKNOWN_HINT,
@@ -920,6 +876,68 @@ public fun ModelProviderSettingsPage(
                 containerColor = dialogPalette.container,
                 textContentColor = dialogPalette.content,
             )
+        }
+    }
+    if (editing != null) {
+        // Leave the underlying navigation context visible above the large sheet.
+        val windowHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+        val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val maxEditorHeight = (windowHeight - statusBar - 56.dp).coerceAtLeast(1.dp)
+        PdshSheet(
+            pageId = "modelProvider",
+            chrome = SheetChrome.HomeSheet,
+            onDismissRequest = cancelEditor,
+            innerNavigation = SheetInnerNavigation {
+                if (advanced) { advanced = false; true } else false
+            },
+        ) {
+            SettingsSubPageFrame(
+                modifier = Modifier.heightIn(max = maxEditorHeight),
+                // The large sheet already clears the status bar and draws its grabber.
+                navigationBarModifier = Modifier.consumeWindowInsets(WindowInsets.statusBars).heightIn(min = 44.dp),
+                title = when {
+                    advanced -> UiStrings.PROVIDER_ADVANCED
+                    editing.isNew -> UiStrings.PROVIDER_ADD_SERVICE
+                    else -> UiStrings.PROVIDER_EDITOR_EDIT_TITLE
+                },
+                backGlyph = if (editorMain) UiStrings.CANCEL else BACK_GLYPH,
+                onBack = leaveEditorLevel,
+                trailing = if (editorMain) {
+                    { SettingsNavAction(text = UiStrings.SAVE, onClick = submitEditor, enabled = editing.canSave && !editorBusy) }
+                } else null,
+            ) {
+                if (advanced) {
+                    ProviderAdvancedEditor(
+                        draft = editing,
+                        keyStatus = state.rows.firstOrNull { it.id == editing.id }?.keyStatus
+                            ?: ProviderKeyStatus.NOT_CONFIGURED,
+                        connectionTest = state.connectionTest?.takeIf {
+                            it.isNew == editing.isNew && (editing.isNew || it.profileId == editing.id)
+                        },
+                        onDraftChange = { draft = it },
+                        onTest = { onTest(editing) },
+                    )
+                } else {
+                    ProviderEditor(
+                        draft = editing,
+                        keyStatus = state.rows.firstOrNull { it.id == editing.id }?.keyStatus
+                            ?: ProviderKeyStatus.NOT_CONFIGURED,
+                        connectionTest = state.connectionTest?.takeIf {
+                            it.isNew == editing.isNew && (editing.isNew || it.profileId == editing.id)
+                        },
+                        catalog = editingCatalog,
+                        saveFact = saveFact,
+                        onDraftChange = { draft = it },
+                        onGetModels = {
+                            val requestId = java.util.UUID.randomUUID().toString()
+                            catalogRequestId = requestId
+                            appliedCatalogRequestId = null
+                            onGetModels(editing, requestId)
+                        },
+                        onOpenAdvanced = { advanced = true },
+                    )
+                }
+            }
         }
     }
 }

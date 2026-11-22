@@ -111,6 +111,8 @@ class GatewaySession(
     private val sleeper: (Long) -> Unit = { millis -> Thread.sleep(millis) },
     /** tono-account.md §11: told once about each cloud-origin 402 (never re-sent). */
     private val creditsHandler: (TonoCloudResponsePolicy.CreditsCondition) -> Unit = TonoCloudCreditsSignal::post,
+    /** Ordinary anonymous reads have no principal capable of approving network writes. */
+    private val anonymousReadsOnly: Boolean = false,
 ) {
     fun exchange(request: GatewayRequest): GatewayOutcome {
         val method = request.method.trim().uppercase()
@@ -125,6 +127,11 @@ class GatewaySession(
         // Default deny, before credential resolution and before any connection.
         if (!egress.permits(url)) {
             return preflightDeny(GatewayFailure.hostNotAllowed(url.host))
+        }
+
+        if (anonymousReadsOnly && ((method != "GET" && method != "HEAD") || request.body.isNotEmpty() ||
+                request.headers.keys.any { it.lowercase() in METHOD_OVERRIDE_HEADERS })) {
+            return preflightDeny(GatewayFailure(GatewayFailureCode.EGRESS_APPROVAL_DENIED, "network write approval required"))
         }
 
         val scopes = ArrayList<CredentialScope>(1)
@@ -453,6 +460,8 @@ class GatewaySession(
     }
 
     companion object {
+        private val METHOD_OVERRIDE_HEADERS = setOf("x-http-method-override", "x-http-method", "x-method-override")
+
         const val DEFAULT_QUOTA_BYTES: Int = 128 * 1024 * 1024
         const val DEFAULT_MAX_REDIRECTS: Int = 10
         const val JSON_WITH_UTF8: String = "application/json; charset=utf-8"

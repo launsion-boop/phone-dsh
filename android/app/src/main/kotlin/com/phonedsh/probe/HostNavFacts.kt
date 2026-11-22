@@ -304,7 +304,8 @@ internal fun buildNavFacts(
                 lastError = runtimeLastError(turn, readings.hostFailure),
             ),
         ),
-        // The App's own /v1/http policy is exactly this one exact-origin rule.
+        // Explicit diagnostic launches use this one exact-origin rule. The product shell
+        // supplies the persisted policy from NetworkAccessSettings for ordinary launches.
         // With no grant the route is closed (503), which is 未知 rather than an
         // empty rule table: "deny all" is a policy, "not configured" is not.
         egress = EgressAllowListFacts(

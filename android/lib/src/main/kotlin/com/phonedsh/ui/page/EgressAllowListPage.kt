@@ -59,6 +59,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.unit.dp
+import com.phonedsh.ui.surface.SettingsCardMargin
+import com.phonedsh.ui.surface.SettingsCardRadius
+import com.phonedsh.ui.surface.SettingsHairline
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -75,6 +82,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import com.phonedsh.ui.UiStrings
+import java.net.IDN
 import com.phonedsh.ui.menu.ContextMenuRowState
 import com.phonedsh.ui.menu.PdshContextMenu
 import com.phonedsh.ui.theme.LocalUiTokens
@@ -82,7 +90,6 @@ import com.phonedsh.ui.theme.LocalUiType
 import com.phonedsh.ui.surface.SettingsSubPageFrame
 import com.phonedsh.ui.surface.SettingsFormRow
 import com.phonedsh.ui.surface.SettingsSectionHeader
-import com.phonedsh.ui.surface.SETTINGS_CLOSE_GLYPH
 import com.phonedsh.ui.surface.settingsFootnoteStyle
 
 // ---------------------------------------------------------------------------
@@ -106,16 +113,14 @@ public data class EgressRule(
 )
 
 /**
- * The host's read-only snapshot of the allow list.
+ * The host's published snapshot of the allow list.
  *
  * @param rules the parsed entries; `null` means the host did not report the list
  *   (未知), while `emptyList()` is the deny-all policy and must never be shown as
  *   an ordinary empty state.
  * @param failure the host's read failure; non-null when the last read failed.
  * @param writable whether the host publishes a command that persists an edit.
- *   The default is [FactState.NO]: the Android host adapter has no egress-write
- *   command yet, so the baseline's controls are rendered (their labels are the
- *   contract's actions) but disabled. A host that adds the commands reports
+ *   The default is [FactState.NO] for hosts without an editor. A writable product host reports
  *   [FactState.YES] and wires the page's four write callbacks;
  *   [FactState.UNKNOWN] is treated like NO, because a host that did not answer
  *   cannot enable a button that would then do nothing.
@@ -125,6 +130,8 @@ public data class EgressAllowListFacts(
     public val rules: List<EgressRule>? = null,
     public val failure: String? = null,
     public val writable: FactState = FactState.NO,
+    /** A saved product list stays visible when the allow-all switch is on. */
+    public val allowAllOverride: Boolean? = null,
 )
 
 // ---------------------------------------------------------------------------
@@ -183,7 +190,19 @@ public enum class EgressRuleProblem {
  * (`NativeShell.swift:696`-`:703`), so the page does the same and the duplicate
  * check cannot be fooled by case or padding.
  */
-public fun egressEntryValue(raw: String): String = raw.trim().lowercase()
+public fun egressEntryValue(raw: String): String {
+    val value = raw.trim().lowercase()
+    val wildcard = value.startsWith("*.")
+    val host = value.removePrefix("*.")
+    val ascii = try {
+        IDN.toASCII(host, IDN.USE_STD3_ASCII_RULES).lowercase()
+    } catch (_: IllegalArgumentException) {
+        return value // The label validator below reports malformed input in the editor.
+    }
+    return if (wildcard) "*.$ascii" else ascii
+}
+
+private val DNS_LABEL = Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
 /**
  * Validates a typed address against the baseline's rule and the current list.
@@ -197,11 +216,9 @@ public fun egressEntryValue(raw: String): String = raw.trim().lowercase()
  */
 public fun validateEgressEntry(raw: String, existing: Collection<String>): EgressRuleProblem? {
     val value = egressEntryValue(raw)
-    val looksLikeHost = value.contains(".") &&
-        !value.contains("/") &&
-        !value.contains(":") &&
-        !value.contains(" ") &&
-        !value.contains("@")
+    val host = value.removePrefix("*.").removeSuffix(".")
+    val looksLikeHost = host.length <= 253 && '.' in value &&
+        host.split('.').all { label -> DNS_LABEL.matches(label) }
     if (!looksLikeHost) return EgressRuleProblem.NOT_A_HOST
     if (existing.any { egressEntryValue(it) == value }) return EgressRuleProblem.DUPLICATE
     return null
@@ -241,6 +258,7 @@ public data class EgressAllowListScreenState(
     public val grammarExpanded: Boolean,
     public val failure: String?,
     public val canWrite: Boolean = false,
+    public val showsSavedList: Boolean = false,
 ) {
     /** True only for an empty rule table: the deny-all policy. */
     public val denyAll: Boolean get() = status == EgressStatus.DENY_ALL
@@ -283,7 +301,7 @@ public data class EgressAllowListScreenState(
             val status = when {
                 facts.failure != null -> EgressStatus.FAILED
                 rawRules == null -> EgressStatus.UNKNOWN
-                rawRules.isEmpty() -> EgressStatus.DENY_ALL
+                rawRules.isEmpty() && facts.allowAllOverride != true -> EgressStatus.DENY_ALL
                 else -> EgressStatus.READY
             }
             val rules = if (status == EgressStatus.READY) {
@@ -315,9 +333,9 @@ public data class EgressAllowListScreenState(
             } else {
                 emptyList()
             }
-            val allowAll = status == EgressStatus.READY && facts.rules.orEmpty().any { rule ->
-                rule.scheme == null && rule.host == "*" && rule.port == null
-            }
+            val allowAll = status == EgressStatus.READY && (facts.allowAllOverride ?: rules.any {
+                it.form == "*"
+            })
             return EgressAllowListScreenState(
                 status = status,
                 rules = rules,
@@ -331,6 +349,7 @@ public data class EgressAllowListScreenState(
                 grammarExpanded = local.fold.isExpanded(GRAMMAR_SECTION_ID),
                 failure = facts.failure,
                 canWrite = facts.writable == FactState.YES,
+                showsSavedList = facts.allowAllOverride != null,
             )
         }
 
@@ -340,6 +359,14 @@ public data class EgressAllowListScreenState(
             rule.port?.let { append(':').append(it) }
         }
     }
+}
+
+public sealed interface EgressSettingsAction {
+    public data class Add(val host: String) : EgressSettingsAction
+    public data class Remove(val host: String) : EgressSettingsAction
+    public data class AllowAll(val enabled: Boolean) : EgressSettingsAction
+    public data object Restore : EgressSettingsAction
+    public data object Reload : EgressSettingsAction
 }
 
 /** The local UI events of the egress page: only the group folds. */
@@ -486,6 +513,7 @@ private fun EgressContent(
         modifier = Modifier
             .fillMaxSize()
             .testTag(UiPageTags.EGRESS_LIST),
+        contentPadding = PaddingValues(top = if (state.showsSavedList) 50.dp else 0.dp, bottom = 20.dp),
         verticalArrangement = Arrangement.Top,
     ) {
         // `NativeShell.swift:465`-`:471`: the untitled first section is the
@@ -534,7 +562,7 @@ private fun EgressContent(
             }
 
             EgressStatus.READY -> {
-                if (state.allowAll) {
+                if (state.allowAll && !state.showsSavedList) {
                     item(key = "egress.allow-all.banner") {
                         SettingsFormRow(
                             title = UiStrings.EGRESS_POLICY,
@@ -549,6 +577,9 @@ private fun EgressContent(
                     items(count = state.rules.size, key = { index -> state.rules[index].id }) { index ->
                         EgressRuleRow(
                             rule = state.rules[index],
+                            savedList = state.showsSavedList,
+                            first = index == 0,
+                            last = index == state.rules.lastIndex,
                             canWrite = canWrite,
                             onDeleteRequest = onDeleteRequest,
                         )
@@ -561,7 +592,7 @@ private fun EgressContent(
         // `:482`: the empty list can always be restored to the shipped defaults;
         // under the allow-all switch the baseline keeps the stashed list and shows
         // the same row (`:475`-`:487`).
-        if (state.rules.isEmpty() || state.allowAll) {
+        if (state.rules.isEmpty() || (state.allowAll && !state.showsSavedList)) {
             item(key = "egress.restore") {
                 // The baseline's row is a bare text button with the accent ink and a
                 // 48 pt floor (`NativeShell.swift:483`), not a form row: it has no
@@ -640,7 +671,8 @@ private fun AllowAllBlock(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .defaultMinSize(minHeight = tokens.geometry.pageRowMinHeight)
+                .background(tokens.colors.surface, RoundedCornerShape(SettingsCardRadius))
+                .heightIn(min = 78.dp).padding(horizontal = 16.dp)
                 .semantics(mergeDescendants = true) {},
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
@@ -652,25 +684,18 @@ private fun AllowAllBlock(
                     .weight(1f)
                     .testTag(UiPageTags.EGRESS_ALLOW_ALL_TOGGLE),
             )
-            // Every colour this switch draws is named here, from the page's own
-            // token table. Left to `SwitchDefaults`, the unchecked track is the
-            // Material baseline's `surfaceVariant` = #E6E0E9 — the stray colour
-            // the parity measurement found on this page (8 584 px of it), which no
-            // token in `spec/ui/v1/tokens.json` owns. The green on-state is
-            // `colors.switchOn` (#34C759, the UIKit `systemGreen` the baseline's
-            // untinted `Toggle` uses); the off-state track is the same
-            // `colors.borderLight` the settings index's own switch draws.
+            // The native switch uses primary ink when on and a neutral grey track when off.
             Switch(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
                 enabled = canWrite,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = tokens.colors.input,
-                    checkedTrackColor = tokens.colors.switchOn,
-                    checkedBorderColor = tokens.colors.switchOn,
+                    checkedThumbColor = tokens.colors.surface,
+                    checkedTrackColor = tokens.colors.textPrimary,
+                    checkedBorderColor = tokens.colors.textPrimary,
                     uncheckedThumbColor = tokens.colors.input,
-                    uncheckedTrackColor = tokens.colors.borderLight,
-                    uncheckedBorderColor = tokens.colors.borderLight,
+                    uncheckedTrackColor = tokens.colors.textPrimary.copy(alpha = 0.22f),
+                    uncheckedBorderColor = tokens.colors.textPrimary.copy(alpha = 0.22f),
                     disabledCheckedThumbColor = tokens.colors.input,
                     disabledCheckedTrackColor = tokens.colors.border,
                     disabledCheckedBorderColor = tokens.colors.border,
@@ -708,6 +733,9 @@ private fun AllowAllBlock(
 @Composable
 private fun EgressRuleRow(
     rule: EgressRuleView,
+    savedList: Boolean,
+    first: Boolean,
+    last: Boolean,
     canWrite: Boolean,
     onDeleteRequest: (EgressRuleView) -> Unit,
 ) {
@@ -731,7 +759,20 @@ private fun EgressRuleRow(
         modifier = Modifier.testTag(UiPageTags.EGRESS_RULE),
         onClick = { onDeleteRequest(rule) },
     ) {
-        SettingsFormRow(
+        if (savedList) {
+            val radius = SettingsCardRadius
+            val shape = RoundedCornerShape(
+                topStart = if (first) radius else 0.dp, topEnd = if (first) radius else 0.dp,
+                bottomStart = if (last) radius else 0.dp, bottomEnd = if (last) radius else 0.dp,
+            )
+            Column(Modifier.fillMaxWidth().padding(horizontal = SettingsCardMargin).background(tokens.colors.surface, shape)) {
+                Box(Modifier.fillMaxWidth().heightIn(min = 78.dp).padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.CenterStart) {
+                    BasicText(rule.form, style = LocalUiType.current.body.copy(color = tokens.colors.textPrimary))
+                }
+                if (!last) SettingsHairline(Modifier.padding(horizontal = 16.dp))
+            }
+        } else SettingsFormRow(
             title = rule.form,
             subtitleContent = {
                 Row(
@@ -827,7 +868,11 @@ private fun AddRuleOverlay(
                 singleLine = true,
                 textStyle = type.body.copy(color = tokens.colors.primary),
                 cursorBrush = SolidColor(tokens.colors.accent),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri,
+                    autoCorrectEnabled = false,
+                    imeAction = ImeAction.Done,
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag(UiPageTags.EGRESS_ADD_FIELD),

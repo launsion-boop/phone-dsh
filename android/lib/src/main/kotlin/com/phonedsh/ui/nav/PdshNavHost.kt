@@ -70,6 +70,7 @@ import com.phonedsh.ui.page.ConfigurationUiEvent
 import com.phonedsh.ui.page.ConfigurationWriteReceipt
 import com.phonedsh.ui.page.ConfigurationWriteRequest
 import com.phonedsh.ui.page.EgressAllowListLocalState
+import com.phonedsh.ui.page.EgressSettingsAction
 import com.phonedsh.ui.page.EgressAllowListPage
 import com.phonedsh.ui.page.EgressAllowListScreenState
 import com.phonedsh.ui.page.EgressAllowListUiEvent
@@ -588,6 +589,7 @@ public fun PdshNavHost(
      * `BotChatPage`'s `onChange(of: runningTurnID)`.
      */
     botNextSteps: com.phonedsh.ui.bot.state.BotNextStepsMetrics? = null,
+    onEgressSettings: ((EgressSettingsAction) -> Unit)? = null,
 ) {
     val route = nav.current
     val botScope = rememberCoroutineScope()
@@ -841,7 +843,7 @@ public fun PdshNavHost(
             )
             is PdshRoute.McpEditor -> McpEditorRoute(route, facts, onBack, onHostAction)
             PdshRoute.Runtime -> RuntimeRoute(facts, onBack, onHostAction, backLevel)
-            PdshRoute.Egress -> EgressRoute(facts, onBack)
+            PdshRoute.Egress -> EgressRoute(facts, onBack, onEgressSettings)
             PdshRoute.Tools -> ToolsRoute(facts, onBack)
             PdshRoute.Export -> ExportRoute(onBack)
             is PdshRoute.Workbench ->
@@ -2292,12 +2294,18 @@ private fun RuntimeRoute(
 private fun EgressRoute(
     facts: PdshNavFacts,
     onBack: () -> Unit,
+    onEdit: ((EgressSettingsAction) -> Unit)?,
 ) {
     var local by remember { mutableStateOf(EgressAllowListLocalState()) }
     EgressAllowListPage(
         state = EgressAllowListScreenState.from(facts.egress, local),
         onBack = onBack,
         onToggleSection = { id -> local = local.apply(EgressAllowListUiEvent.ToggleSection(id)) },
+        onAddRule = onEdit?.let { edit -> { edit(EgressSettingsAction.Add(it)) } },
+        onRemoveRule = onEdit?.let { edit -> { edit(EgressSettingsAction.Remove(it.id)) } },
+        onToggleAllowAll = onEdit?.let { edit -> { edit(EgressSettingsAction.AllowAll(it)) } },
+        onRestoreDefaults = onEdit?.let { edit -> { edit(EgressSettingsAction.Restore) } },
+        onRetry = onEdit?.let { edit -> { edit(EgressSettingsAction.Reload) } },
     )
 }
 

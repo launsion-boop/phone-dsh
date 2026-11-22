@@ -1009,6 +1009,7 @@ public fun SettingsSubPageFrame(
     trailing: (@Composable () -> Unit)? = null,
     leadingAction: (@Composable () -> Unit)? = null,
     showSheetHandle: Boolean = backGlyph == SETTINGS_CLOSE_GLYPH && onBack != null,
+    navigationBarModifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
     val tokens = LocalUiTokens.current
@@ -1028,6 +1029,7 @@ public fun SettingsSubPageFrame(
         if (!embedded) {
             SettingsNavBar(
                 title = title,
+                modifier = navigationBarModifier,
                 leading = leadingAction ?: if (onBack != null) {
                     {
                         SettingsNavAction(

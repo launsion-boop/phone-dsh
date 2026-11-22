@@ -16,6 +16,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -143,11 +145,11 @@ class ModelProviderSettingsPageTest {
         // The source keeps Test disabled until the new provider has a name, URL,
         // model and valid model row; fill the required name before exercising it.
         nameField.performTextInput("测试服务")
-        compose.onNodeWithTag("pdsh.provider.advanced").performScrollTo().performClick()
-        compose.onNodeWithTag("pdsh.provider.test").performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithTag("pdsh.provider.advanced").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithTag("pdsh.provider.test").performScrollTo().assertIsEnabled().performSemanticsAction(SemanticsActions.OnClick)
         assertTrue(requireNotNull(testedDraft).isNew)
         compose.onNodeWithText(UiStrings.PROVIDER_TESTING).performScrollTo().assertIsDisplayed()
-        compose.onNodeWithContentDescription(UiStrings.BACK).performClick()
+        compose.onNodeWithContentDescription(UiStrings.BACK).performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithText("测试服务").performScrollTo().assertIsDisplayed()
 
         // The host publishes only a safe result fact. Recomposition must retain
@@ -397,6 +399,7 @@ class ModelProviderSettingsPageTest {
         compose.onNodeWithTag(UiPageTags.PROVIDER_LIST)
             .performScrollToNode(hasTestTag(UiPageTags.PROVIDER_ADD))
         compose.onNodeWithTag(UiPageTags.PROVIDER_ADD).performClick()
+        compose.onNodeWithTag(com.phonedsh.ui.sheet.PdshSheetTags.DRAG_HANDLE, useUnmergedTree = true).assertExists()
         compose.onNodeWithTag(UiPageTags.PROVIDER_LIST).assertDoesNotExist()
         assertInlineTitle(UiStrings.PROVIDER_ADD_SERVICE)
         compose.onNodeWithText(UiStrings.PROVIDER_SECTION_CONNECTION).performScrollTo().assertIsDisplayed()
@@ -408,7 +411,7 @@ class ModelProviderSettingsPageTest {
         compose.onNodeWithText(UiStrings.PROVIDER_DEFAULT_MODEL).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText(UiStrings.PROVIDER_MODEL_ID).assertDoesNotExist()
 
-        compose.onNodeWithTag("pdsh.provider.advanced").performScrollTo().performClick()
+        compose.onNodeWithTag("pdsh.provider.advanced").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
         assertInlineTitle(UiStrings.PROVIDER_ADVANCED)
         compose.onNodeWithText(UiStrings.PROVIDER_ADVANCED_SECTION).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText(UiStrings.PROVIDER_REASONING_EFFORT).performScrollTo().assertIsDisplayed()
@@ -441,7 +444,7 @@ class ModelProviderSettingsPageTest {
         compose.onNodeWithTag(UiPageTags.PROVIDER_LIST)
             .performScrollToNode(hasTestTag(UiPageTags.PROVIDER_ADD))
         compose.onNodeWithTag(UiPageTags.PROVIDER_ADD).performClick()
-        compose.onNodeWithTag("pdsh.provider.advanced").performScrollTo().performClick()
+        compose.onNodeWithTag("pdsh.provider.advanced").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithText(UiStrings.PROVIDER_ADVANCED).assertIsDisplayed()
         compose.onNodeWithContentDescription(UiStrings.BACK).assertIsDisplayed()
     }
@@ -468,7 +471,7 @@ class ModelProviderSettingsPageTest {
         compose.waitForIdle()
         assertTrue(backLevel.available)
 
-        compose.onNodeWithTag("pdsh.provider.advanced").performScrollTo().performClick()
+        compose.onNodeWithTag("pdsh.provider.advanced").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithText(UiStrings.PROVIDER_ADVANCED).assertIsDisplayed()
         compose.runOnIdle { assertTrue(backLevel.consume()) }
         compose.onNodeWithText(UiStrings.PROVIDER_ADD_SERVICE).assertIsDisplayed()
@@ -515,7 +518,7 @@ class ModelProviderSettingsPageTest {
         compose.onNodeWithTag(UiPageTags.PROVIDER_LIST)
             .performScrollToNode(hasTestTag(UiPageTags.PROVIDER_ADD))
         compose.onNodeWithTag(UiPageTags.PROVIDER_ADD).performClick()
-        compose.onNodeWithText(UiStrings.CANCEL).performClick()
+        compose.onNodeWithText(UiStrings.CANCEL).performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithTag(UiPageTags.PROVIDER_LIST).assertIsDisplayed()
         compose.onNodeWithTag("pdsh.provider.field.${UiStrings.PROVIDER_FIELD_NAME}").assertDoesNotExist()
     }
@@ -553,7 +556,7 @@ class ModelProviderSettingsPageTest {
         compose.onNodeWithTag(UiPageTags.PROVIDER_ADD).performClick()
         val nameField = compose.onNodeWithTag("pdsh.provider.field.${UiStrings.PROVIDER_FIELD_NAME}")
         nameField.performTextInput("用户服务")
-        compose.onNodeWithText(UiStrings.SAVE).performClick()
+        compose.onNodeWithText(UiStrings.SAVE).performSemanticsAction(SemanticsActions.OnClick)
         assertEquals("用户服务", submitted?.name)
         assertTrue(requestId?.isNotBlank() == true)
         compose.onNodeWithText("保存中…").assertIsDisplayed()
@@ -609,7 +612,7 @@ class ModelProviderSettingsPageTest {
         compose.onNodeWithTag(UiPageTags.PROVIDER_ADD).performClick()
         compose.onNodeWithTag("pdsh.provider.field.${UiStrings.PROVIDER_FIELD_NAME}")
             .performTextInput("新服务")
-        compose.onNodeWithText(UiStrings.SAVE).performClick()
+        compose.onNodeWithText(UiStrings.SAVE).performSemanticsAction(SemanticsActions.OnClick)
         compose.waitForIdle()
         compose.onNodeWithTag(UiPageTags.PROVIDER_LIST).assertIsDisplayed()
         compose.onNodeWithTag("pdsh.provider.field.${UiStrings.PROVIDER_FIELD_NAME}").assertDoesNotExist()

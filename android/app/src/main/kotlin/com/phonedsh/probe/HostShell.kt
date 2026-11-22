@@ -1113,7 +1113,9 @@ internal fun HostShell(
     // platform really carries this app's back gesture through the invoker. It is
     // measured by the back callback (one gesture moves it), so it is applied here
     // rather than inside the remembered walk.
+    val networkSettings by engine.networkSettingsFacts.collectAsState()
     val shownFacts = PredictiveBack.measured(facts).copy(
+        egress = if (engine.usesProductNetworkSettings) networkSettings else facts.egress,
         bluetooth = bluetoothFacts,
         ssh = sshFacts,
         androidAdb = androidAdbFacts,
@@ -1358,6 +1360,7 @@ internal fun HostShell(
                             probeOpen = false
                             resetTo(PdshRoute.Chat)
                         },
+                        onEgressSettings = if (engine.usesProductNetworkSettings) engine::editNetworkSettings else null,
                         onHostAction = { action ->
                             // L72: one action is a navigation edge, not a handoff —
                             // `OpenWorkspaceFiles` is the documented "this folder
@@ -2541,8 +2544,7 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
 
     // The rules are real: they are the App's own /v1/http policy. The note is
     // what keeps them from being mistaken for the DSH settings allow-list.
-    PdshRoute.Egress ->
-        "本机 App 的出网规则（不是 DSH 设置里的白名单）"
+    PdshRoute.Egress -> null
 
     is PdshRoute.Workbench ->
         "本宿主未实现文件内容读取；预览保持待读"

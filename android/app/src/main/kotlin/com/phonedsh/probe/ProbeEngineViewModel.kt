@@ -74,6 +74,7 @@ import com.phonedsh.gateway.CredentialScope
 import com.phonedsh.gateway.CredentialUnavailableException
 import com.phonedsh.gateway.GatewayCredential
 import com.phonedsh.gateway.GatewayCredentialProvider
+import com.phonedsh.ui.page.EgressSettingsAction
 import com.phonedsh.gateway.GatewayHttpEgress
 import com.phonedsh.gateway.GatewaySession
 import com.phonedsh.gateway.HttpUrlConnectionGatewayTransport
@@ -1042,24 +1043,33 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         }
     }
 
-    /**
-     * The one upstream session, or `null` when the launch named no egress grant.
-     *
-     * The transport is the production `HttpURLConnection` hop. The credential comes
-     * from the launch's model endpoint when it names one — the same object the model
-     * proxy uses — and falls back to anonymous otherwise. Anonymous is not a silent
-     * downgrade: [ProbeLaunchConfig.modelCredentialProvider] only returns non-null by
-     * the time this runs, and its own resolve is fail-closed for the model origin.
-     */
-    private val gateway: GatewaySession? = launchConfig.egressGrant()?.let { grant ->
+    private val networkSettings = NetworkAccessSettings.get(getApplication())
+    private val diagnosticGrant = launchConfig.egressGrant()
+    internal val networkSettingsFacts get() = networkSettings.facts
+    internal val usesProductNetworkSettings get() = diagnosticGrant == null
+    private val networkSettingsIo = Dispatchers.IO.limitedParallelism(1)
+
+    internal fun editNetworkSettings(action: EgressSettingsAction) {
+        if (!usesProductNetworkSettings) return
+        viewModelScope.launch(networkSettingsIo) {
+            when (action) {
+                is EgressSettingsAction.Add -> networkSettings.add(action.host)
+                is EgressSettingsAction.Remove -> networkSettings.remove(action.host)
+                is EgressSettingsAction.AllowAll -> networkSettings.toggle(action.enabled)
+                EgressSettingsAction.Restore -> networkSettings.restore()
+                EgressSettingsAction.Reload -> networkSettings.refresh()
+            }
+        }
+    }
+
+    private val gateway = diagnosticGrant?.let { grant ->
         GatewaySession(
             transport = HttpUrlConnectionGatewayTransport(),
             credentialProvider = modelCredential ?: AnonymousCredentialProvider,
             egress = AllowListEgressPolicy(listOf(grant)),
         )
-    }
-
-    private val diagnosticHttpEgress = gateway?.let { GatewayHttpEgress(it) }
+    } ?: networkSettings.readGateway()
+    private val ordinaryHttpEgress = GatewayHttpEgress(gateway)
 
     /**
      * Which web-search grant this launch mounts (`spec/v1/gateway-independent-search.md`
@@ -1091,7 +1101,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                 store.readKey(plan.launch.credentialAccount)
             },
             transport = HttpUrlConnectionGatewayTransport(),
-            fallback = diagnosticHttpEgress,
+            fallback = ordinaryHttpEgress,
         )
         is WebSearchLaunchPlan.Independent -> IndependentSearchWebToolsEgress(
             base = plan.base,
@@ -1102,12 +1112,12 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                 TonoAccountHost.activeSession()?.let { TonoAccountKeySource.overlay(plan.base, it, stored) } ?: stored
             },
             transport = HttpUrlConnectionGatewayTransport(),
-            fallback = diagnosticHttpEgress,
+            fallback = ordinaryHttpEgress,
         )
         is WebSearchLaunchPlan.Off -> null
     }
 
-    private val httpEgress = AppBotMcpEgress(webSearchEgress ?: diagnosticHttpEgress)
+    private val httpEgress = AppBotMcpEgress(webSearchEgress ?: ordinaryHttpEgress)
 
     /**
      * What this launch can honestly say about model traffic (P27).
