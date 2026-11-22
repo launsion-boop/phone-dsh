@@ -15,6 +15,12 @@ export const NATIVE_PHONE_TOOL_PREFIX = 'mcp__phone__android_'
 // PR59's native-MCP BLE tools have their own per-connection grant and are
 // forwarded by the Bot server; they are not Bot-owned phone tools.
 export const NATIVE_BLE_TOOL_PREFIX = 'mcp__phone__ble_'
+// The iPhone agent tool is native too (spec/v1/native-mcp.md "iPhone agent tool": the Bot
+// listener forwards it like every other native tool). Its authorization is the native
+// server's: the journal-key receipt written before the phone is touched and the one-task
+// guard. Registering it as a Bot tool was refused by the App as `unknown_tool`, so a voice
+// turn routed to the board's Bot could never operate the phone.
+export const NATIVE_IPHONE_AGENT_TOOL = 'mcp__phone__iphone_agent_run'
 export const DEFAULT_IDENTITY_TIMEOUT_MS = 5_000
 /**
  * One registration must outlive the interactive 300 s approval card plus
@@ -102,13 +108,14 @@ export function identityRegisterUrl(env: NodeJS.ProcessEnv = process.env): strin
 
 /**
  * Tools whose identity the App's Bot runtime needs before execution. Native
- * Android tools are served by the App's native MCP handler (which keeps its
+ * Android, BLE and iPhone-agent tools are served by the App's native MCP handler (which keeps its
  * own authorization and receipts) and non-phone built-ins are not Bot
  * tools, so neither is registered here.
  */
 export function needsIdentityRegistration(name: string): boolean {
   if (name.startsWith(NATIVE_PHONE_TOOL_PREFIX)) return false
   if (name.startsWith(NATIVE_BLE_TOOL_PREFIX)) return false
+  if (name === NATIVE_IPHONE_AGENT_TOOL) return false
   if (name === 'bash' || name === 'write' || name === 'edit') return true
   // read_image is a Worker fs tool, but its approval card is hosted by the
   // App's structural gate; without a registered identity the card is

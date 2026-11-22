@@ -519,6 +519,13 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
             return nil
         }
         let frame = IPhoneFrame(jpeg: after.jpeg, width: after.width, height: after.height, frame: after.frame)
+        #if DEBUG
+        // The menu as the grounding model saw it (Documents/iphone-agent/assistive-menu.jpg): a wrong
+        // 主屏幕 point opens something else, and no step screenshot shows the menu itself.
+        if let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            try? after.jpeg.write(to: folder.appendingPathComponent("iphone-agent/assistive-menu.jpg"))
+        }
+        #endif
         guard let point = try await IPhoneGrounding.locate(Self.assistiveHome, in: frame) else {
             try? await hands.key("esc")   // a menu opened but it is not AssistiveTouch's: close it
             return nil

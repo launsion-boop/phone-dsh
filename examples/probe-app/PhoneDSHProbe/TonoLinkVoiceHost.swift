@@ -57,8 +57,12 @@ import ProbeKit
     /// One long-lived, restorable link to the user's board (callmate's recipe): iOS keeps a
     /// parked connect while the app is suspended and wakes it for the board's `ev wake`.
     private func supervise() async {
-        let board = BLEDeviceTrustMemory().rememberedBoards().first
-        let link = TonoLinkCtrlBLE(nameHint: "PhoneAgent", peripheralID: board, restoreIdentifier: Self.restoreIdentifier)
+        // The TonoLink board among the remembered ones, never "the first": with an AI Passport
+        // also remembered, half the launches parked this link on a device that has no ctrl
+        // service and the wake word was never heard (device log 2026-11-22).
+        let board = BLEDeviceTrustMemory().rememberedBoard(namePrefix: Self.boardNamePrefix)
+        log("voice link board=\(board?.uuidString ?? "none (scan by name)")")
+        let link = TonoLinkCtrlBLE(nameHint: Self.boardNamePrefix, peripheralID: board, restoreIdentifier: Self.restoreIdentifier)
         link.onAudio = { [weak self] data in self?.receiveAudio(data) }
         link.onLine = { [weak self] line in self?.receive(line) }
         link.onReady = { [weak self] in self?.linkReady(link) }
@@ -114,6 +118,8 @@ import ProbeKit
     }
 
     static let restoreIdentifier = "dev.phone-dsh.tonolink-voice"
+    /// BLE name prefix of a TonoLink board (`PhoneAgent-7356`).
+    static let boardNamePrefix = "PhoneAgent"
     /// How long a background board drop keeps the keep-alive (and the armed speaker profile
     /// active) for a reconnect; after it the App may suspend until the board wakes it.
     static let backgroundReconnectGrace: TimeInterval = 600
