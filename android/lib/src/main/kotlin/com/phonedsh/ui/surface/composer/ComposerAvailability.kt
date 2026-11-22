@@ -12,4 +12,5 @@ public data class ComposerAvailability(
     public val dismissQuestions: Boolean = false,
     public val approvePlans: Boolean = false,
     public val requestPlanChanges: Boolean = false,
+    public val supportsSpeech: Boolean = speakRecentReply,
 )

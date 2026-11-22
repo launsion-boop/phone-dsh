@@ -70,6 +70,7 @@ import com.phonedsh.ui.page.ConfigurationUiEvent
 import com.phonedsh.ui.page.ConfigurationWriteReceipt
 import com.phonedsh.ui.page.ConfigurationWriteRequest
 import com.phonedsh.ui.page.EgressAllowListLocalState
+import com.phonedsh.ui.page.EgressSettingsAction
 import com.phonedsh.ui.page.EgressAllowListPage
 import com.phonedsh.ui.page.EgressAllowListScreenState
 import com.phonedsh.ui.page.EgressAllowListUiEvent
@@ -572,6 +573,7 @@ public fun PdshNavHost(
      */
     botRoster: List<BotRosterEntry> = emptyList(),
     /** The Bot info page's load result (K5b); the default is its empty state. */
+    readBotPresence: (suspend (String) -> com.phonedsh.ui.bot.state.RoutinePresence?)? = null,
     botInfoState: BotInfoModelState = BotInfoModelState(),
     /** The Bot info page's profile description; empty renders the default line. */
     botDescription: String = "",
@@ -587,6 +589,7 @@ public fun PdshNavHost(
      * `BotChatPage`'s `onChange(of: runningTurnID)`.
      */
     botNextSteps: com.phonedsh.ui.bot.state.BotNextStepsMetrics? = null,
+    onEgressSettings: ((EgressSettingsAction) -> Unit)? = null,
 ) {
     val route = nav.current
     val botScope = rememberCoroutineScope()
@@ -636,9 +639,10 @@ public fun PdshNavHost(
     // The pairing page's copy action uses Compose's Android clipboard seam, the
     // same one the chat/row copy controls use; no host callback or extra state.
     val clipboard = LocalClipboardManager.current
+    val modelFromMe = route == PdshRoute.ModelProvider && nav.selectedTab == HomeTab.ME
     RouteSurface(
-        presentation = route.presentation,
-        sheetPageId = sheetPageIdOf(route),
+        presentation = if (modelFromMe) PdshPresentation.PUSH else route.presentation,
+        sheetPageId = if (modelFromMe) null else sheetPageIdOf(route),
         onDismissRequest = onBack,
         sheetBackHost = sheetBackHost,
     ) {
@@ -661,6 +665,7 @@ public fun PdshNavHost(
                     active = nav.selectedTab == HomeTab.BOT && botDriver != null,
                     botRoster = botRoster,
                     botContext = botContext,
+                    readBotPresence = readBotPresence,
                     botInfoState = botInfoState,
                     botAppearance = botAppearance,
                     botIsMainBot = botIsMainBot,
@@ -838,7 +843,7 @@ public fun PdshNavHost(
             )
             is PdshRoute.McpEditor -> McpEditorRoute(route, facts, onBack, onHostAction)
             PdshRoute.Runtime -> RuntimeRoute(facts, onBack, onHostAction, backLevel)
-            PdshRoute.Egress -> EgressRoute(facts, onBack)
+            PdshRoute.Egress -> EgressRoute(facts, onBack, onEgressSettings)
             PdshRoute.Tools -> ToolsRoute(facts, onBack)
             PdshRoute.Export -> ExportRoute(onBack)
             is PdshRoute.Workbench ->
@@ -1391,6 +1396,7 @@ private fun ChatRoute(
             addImages = available(PdshActionKey.IMAGE_IMPORT),
             addFiles = available(PdshActionKey.FILE_IMPORT),
             speakRecentReply = speakRecentReply != null,
+            supportsSpeech = onSpeakText != null,
             selectAccessMode = available(PdshActionKey.SELECT_PERMISSION_MODE),
             selectModel = available(PdshActionKey.SELECT_MODEL),
             answerQuestions = available(PdshActionKey.ANSWER_QUESTION),
@@ -1939,6 +1945,7 @@ private fun SettingsRoute(
                 selected = settings.defaultPermissionTier,
                 languageId = settings.preferences.language?.id,
                 availableTiers = settings.defaultPermissionAvailableTiers,
+                lockedOptions = settings.lockedPermissionOptions,
                 writable = settings.defaultPermissionWritable,
                 busy = settings.defaultPermissionBusy,
                 failure = settings.defaultPermissionFailure,
@@ -2287,12 +2294,18 @@ private fun RuntimeRoute(
 private fun EgressRoute(
     facts: PdshNavFacts,
     onBack: () -> Unit,
+    onEdit: ((EgressSettingsAction) -> Unit)?,
 ) {
     var local by remember { mutableStateOf(EgressAllowListLocalState()) }
     EgressAllowListPage(
         state = EgressAllowListScreenState.from(facts.egress, local),
         onBack = onBack,
         onToggleSection = { id -> local = local.apply(EgressAllowListUiEvent.ToggleSection(id)) },
+        onAddRule = onEdit?.let { edit -> { edit(EgressSettingsAction.Add(it)) } },
+        onRemoveRule = onEdit?.let { edit -> { edit(EgressSettingsAction.Remove(it.id)) } },
+        onToggleAllowAll = onEdit?.let { edit -> { edit(EgressSettingsAction.AllowAll(it)) } },
+        onRestoreDefaults = onEdit?.let { edit -> { edit(EgressSettingsAction.Restore) } },
+        onRetry = onEdit?.let { edit -> { edit(EgressSettingsAction.Reload) } },
     )
 }
 

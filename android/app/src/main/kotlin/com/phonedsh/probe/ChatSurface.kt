@@ -369,6 +369,7 @@ internal fun chatScreenState(
     }
     return base.copy(
         rows = rows,
+        agentPreset = ui.sessionSnapshot.agentPreset,
         // The transcript's empty-state choice is a host fact, not a projection: the
         // page shows A/B/C from these two readings.
         empty = when {

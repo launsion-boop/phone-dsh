@@ -89,6 +89,7 @@ public fun BotPageLayer(
     active: Boolean,
     botRoster: List<BotRosterEntry>,
     botContext: BotUiContext,
+    readBotPresence: (suspend (String) -> com.phonedsh.ui.bot.state.RoutinePresence?)? = null,
     botInfoState: BotInfoModelState,
     botAppearance: BotFishAppearance,
     botIsMainBot: Boolean,
@@ -105,6 +106,7 @@ public fun BotPageLayer(
         onOpenInfo: () -> Unit,
     ) -> Unit,
 ) {
+    val infoBack = remember { com.phonedsh.ui.nav.PdshBackLevel() }
     var overlay by remember { mutableStateOf(BotPageOverlay.NONE) }
 
     // The Bot tab owns these surfaces: leaving the tab or losing the driver
@@ -144,16 +146,26 @@ public fun BotPageLayer(
                 fish = fish,
                 isOpen = true,
             )
-            BotPageOverlay.INFO -> BotInfoPage(
-                state = botInfoState,
-                appearance = botAppearance,
-                isMainBot = botIsMainBot,
-                onIntent = onBotInfoIntent,
-                fish = fish,
-                onAppearanceIntent = onBotAppearanceIntent,
-                botDescription = botDescription,
-                onBack = { overlay = BotPageOverlay.NONE },
-            )
+            BotPageOverlay.INFO -> com.phonedsh.ui.sheet.PdshSheet(
+                pageId = "botInfo",
+                innerNavigation = com.phonedsh.ui.sheet.SheetInnerNavigation(infoBack::consume),
+                chrome = com.phonedsh.ui.sheet.SheetChrome.HomeSheet,
+                onDismissRequest = { overlay = BotPageOverlay.NONE },
+            ) {
+                BotInfoPage(
+                    profileName = botContext.botName,
+                    backLevel = infoBack,
+                    readPresence = readBotPresence?.let { read -> { read(botContext.botID) } },
+                    state = botInfoState,
+                    appearance = botAppearance,
+                    isMainBot = botIsMainBot,
+                    onIntent = onBotInfoIntent,
+                    fish = fish,
+                    onAppearanceIntent = onBotAppearanceIntent,
+                    botDescription = botDescription,
+                    onBack = { overlay = BotPageOverlay.NONE },
+                )
+            }
             BotPageOverlay.APPEARANCE -> AppearanceOverlay(
                 appearance = botAppearance,
                 isMainBot = botIsMainBot,

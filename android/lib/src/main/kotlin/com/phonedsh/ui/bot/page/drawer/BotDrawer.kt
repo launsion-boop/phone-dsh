@@ -420,7 +420,7 @@ private fun BotDrawerPanel(
                 .fillMaxWidth()
                 .verticalScroll(scrollState)
                 .padding(
-                    top = tokens.geometry.pageHeaderMinHeight,
+                    top = BotDrawerMetrics.CHROME_INSET,
                     bottom = drawerNavigationBarInset() + BotDrawerMetrics.CHROME_INSET,
                 ),
         ) {

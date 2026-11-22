@@ -83,6 +83,7 @@ public fun ConnectedComputerPage(
 
     SettingsSubPageFrame(
         title = UiStrings.PC_CONNECTED_TITLE,
+        backGlyph = com.phonedsh.ui.surface.BACK_GLYPH,
         onBack = onBack,
         rootTag = ConnectedComputerPageTags.ROOT,
         grouped = true,
@@ -92,7 +93,9 @@ public fun ConnectedComputerPage(
             val record = state.record
             if (record == null) {
                 item(key = "empty") {
-                    ConnectedComputerEmptySection(onOpenPairing = onOpenPairing)
+                    com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = com.phonedsh.ui.surface.SettingsSubPageGroupedTopInset + PcMetrics.SECTION_GAP)) {
+                        ConnectedComputerEmptySection(onOpenPairing = onOpenPairing)
+                    }
                 }
             } else {
                 item(key = "computer") {

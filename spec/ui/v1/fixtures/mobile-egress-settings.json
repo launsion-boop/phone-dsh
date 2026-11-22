@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "defaults": ["wttr.in", "api.open-meteo.com", "geocoding-api.open-meteo.com", "api.github.com", "raw.githubusercontent.com", "github.com", "pypi.org", "files.pythonhosted.org", "registry.npmjs.org", "cdn.jsdelivr.net", "unpkg.com", "en.wikipedia.org", "zh.wikipedia.org", "example.com"],
+  "valid": ["example.org", "*.example.org"],
+  "normalized": {"  BÜCHER.example  ": "xn--bcher-kva.example", "*.org": "*.org", "example.org.": "example.org."},
+  "invalid": ["*", "a.com,b.com", "https://example.org", "example.org/private", "a@example.org", "example.org:443", "a..org"]
+}

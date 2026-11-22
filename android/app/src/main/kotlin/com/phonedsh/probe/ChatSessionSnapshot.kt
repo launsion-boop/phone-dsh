@@ -22,6 +22,7 @@ internal data class ChatSessionSnapshot(
     val currentModel: String? = null,
     val currentProvider: String? = null,
     val currentEffort: String? = null,
+    val agentPreset: String? = null,
     val sessionStats: SessionStats? = null,
     val tokenUsage: SessionTokenUsage? = null,
     val contextPressure: ContextPressure? = null,
@@ -206,6 +207,7 @@ internal fun sessionSnapshotOf(
         ComposerCommand(name, description, hasInput = row["input"] != null && row["input"] != JsonNull)
     }
     return ChatSessionSnapshot(
+        agentPreset = values?.string("agentPreset")?.takeIf(String::isNotBlank),
         goal = if (objective == null) GoalBarState.Hidden else GoalBarState.Visible(
             phase = goal.string("phase") ?: "active", objective = objective,
         ),

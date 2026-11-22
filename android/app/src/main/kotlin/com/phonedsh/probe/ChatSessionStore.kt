@@ -261,6 +261,9 @@ internal class ChatSessionStore(private val store: DomainStore) {
     )
 
     /** Every decodable record, newest first. */
+    /** Corrupt or older records still occupy a slot. Only seed a genuinely new store. */
+    fun isFreshConversationStore(): Boolean = store.list(DOMAIN, PREFIX, 1).isEmpty()
+
     fun loadAll(): List<ChatRecord> {
         if (store.usageBytes(DOMAIN) == 0L) return emptyList()
         return store.list(DOMAIN, PREFIX, MAXIMUM_RECORDS)

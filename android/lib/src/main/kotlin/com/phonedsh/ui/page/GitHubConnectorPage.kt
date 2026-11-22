@@ -48,7 +48,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.phonedsh.ui.UiStrings
-import com.phonedsh.ui.surface.SETTINGS_CLOSE_GLYPH
+import com.phonedsh.ui.surface.BACK_GLYPH
+import com.phonedsh.ui.surface.SettingsGroupCard
 import com.phonedsh.ui.surface.SettingsFootnoteRow
 import com.phonedsh.ui.surface.SettingsSectionLabel
 import com.phonedsh.ui.surface.SettingsSubPageFrame
@@ -153,8 +154,8 @@ public fun GitHubConnectorPage(
     }
 
     SettingsSubPageFrame(
-        backGlyph = SETTINGS_CLOSE_GLYPH,
-        largeTitle = "GitHub",
+        backGlyph = BACK_GLYPH,
+        title = "GitHub",
         onBack = onBack,
         rootTag = GitHubConnectorPageTags.ROOT,
         modifier = modifier,
@@ -168,22 +169,22 @@ public fun GitHubConnectorPage(
                     item(key = "account.header") {
                         SettingsSectionLabel(native("GitHub 账号", "GitHub account"))
                     }
-                    if (!facts.configured) {
-                        item(key = "account.unconfigured") {
-                            GitHubNoticeText(
-                                native("此版本暂未启用 GitHub 连接。", "GitHub connection is unavailable in this build."),
-                                Modifier.testTag(GitHubConnectorPageTags.UNCONFIGURED),
-                            )
-                        }
-                    }
                     item(key = "account.connect") {
-                        InfoRow(
-                            title = native("连接 GitHub", "Connect GitHub"),
-                            value = null,
-                            enabled = facts.configured && !facts.needsDeleteRetry,
-                            modifier = Modifier.testTag(GitHubConnectorPageTags.CONNECT),
-                            onClick = { onAction(GitHubConnectorAction.CONNECT) },
-                        )
+                        SettingsGroupCard {
+                            if (!facts.configured) {
+                                    GitHubNoticeText(
+                                        native("此版本暂未启用 GitHub 连接。", "GitHub connection is unavailable in this build."),
+                                        Modifier.testTag(GitHubConnectorPageTags.UNCONFIGURED),
+                                    )
+                            }
+                                InfoRow(
+                                    title = native("连接 GitHub", "Connect GitHub"),
+                                    value = null,
+                                    enabled = facts.configured && !facts.needsDeleteRetry,
+                                    modifier = Modifier.testTag(GitHubConnectorPageTags.CONNECT),
+                                    onClick = { onAction(GitHubConnectorAction.CONNECT) },
+                                )
+                        }
                     }
                     item(key = "account.footer") {
                         SettingsFootnoteRow(

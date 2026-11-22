@@ -165,7 +165,8 @@ import java.util.UUID
 
 /** The installed app opens the real conversation; the diagnostic face is opt-in. */
 internal fun initialHostNavState(probeFaceOnLaunch: Boolean): PdshNavState =
-    PdshNavState(listOf(if (probeFaceOnLaunch) PdshRoute.Home else PdshRoute.Chat))
+    if (probeFaceOnLaunch) PdshNavState(listOf(PdshRoute.Home))
+    else PdshNavState(stacks = mapOf(HomeTab.BOT to listOf(PdshRoute.Bot)), selectedTab = HomeTab.BOT)
 
 internal const val PCLINK_INSTALL_COMMAND: String =
     "curl -fsSL https://raw.githubusercontent.com/launsion-boop/phone-dsh/main/pclink/install.sh | bash"
@@ -210,7 +211,7 @@ internal fun PushBackState.mirroredTo(nav: PdshNavState, tab: HomeTab = selected
  */
 internal data class HostBackChain(
     val nav: PdshNavState = productFloor,
-    val pushBack: PushBackState = PushBackState(),
+    val pushBack: PushBackState = PushBackState(selectedTab = nav.selectedTab),
 ) {
     private companion object {
         /** The product floor; the diagnostic `Home` face is built explicitly. */
@@ -640,8 +641,9 @@ internal fun HostShell(
             engine.refreshConfiguration()?.let { notice = "本会话设置部分读取失败：$it" }
         }
     }
-    LaunchedEffect(state is EngineHostState.Running, chatUi.workerSessionId) {
-        if (state is EngineHostState.Running) engine.refreshAutomation()
+    val workerReady by engine.workerReady.collectAsState()
+    LaunchedEffect(workerReady, nav.current == PdshRoute.Automation, chatUi.workerSessionId) {
+        if (workerReady && nav.current == PdshRoute.Automation) engine.refreshAutomation()
     }
     val searchBase = remember(settingsRevision) { webSearchSavedBase(WebSearchSettingsStore.active()) }
     val facts: PdshNavFacts = remember(
@@ -1089,6 +1091,7 @@ internal fun HostShell(
                 },
                 defaultPermissionTier = permissionDefaults.currentTier,
                 defaultPermissionAvailableTiers = permissionDefaults.availableTiers,
+                lockedPermissionOptions = permissionDefaults.lockedOptions,
                 defaultPermissionWritable = permissionDefaults.writable,
                 defaultPermissionBusy = permissionDefaults.busy,
                 defaultPermissionFailure = permissionDefaults.failure,
@@ -1110,7 +1113,9 @@ internal fun HostShell(
     // platform really carries this app's back gesture through the invoker. It is
     // measured by the back callback (one gesture moves it), so it is applied here
     // rather than inside the remembered walk.
+    val networkSettings by engine.networkSettingsFacts.collectAsState()
     val shownFacts = PredictiveBack.measured(facts).copy(
+        egress = if (engine.usesProductNetworkSettings) networkSettings else facts.egress,
         bluetooth = bluetoothFacts,
         ssh = sshFacts,
         androidAdb = androidAdbFacts,
@@ -1319,6 +1324,16 @@ internal fun HostShell(
                         nav = nav,
                         facts = shownFacts,
                         botDriver = botPlatform?.driver,
+                        botFish = { lifecycle, appearance, crowned, size, paused, modifier ->
+                            com.phonedsh.ui.bot.fish.BotFishView(lifecycle, appearance, crowned, size, paused, modifier)
+                        },
+                        readBotPresence = engine::readBotPresence,
+                        onBotAppearanceIntent = { intent -> botPlatform?.context?.botID?.let { engine.updateBotAppearance(it, intent) } },
+                        onBotInfoIntent = { intent ->
+                            if (intent is com.phonedsh.ui.bot.state.BotInfoIntent.Rename) {
+                                botPlatform?.context?.botID?.let { engine.handleBotDrawer(com.phonedsh.ui.bot.state.BotDrawerIntent.Rename(it, intent.name)) }
+                            }
+                        },
                         botNextSteps = engine.botNextSteps,
                         botContext = botPlatform?.context
                             ?: com.phonedsh.ui.bot.state.BotUiContext(
@@ -1345,6 +1360,7 @@ internal fun HostShell(
                             probeOpen = false
                             resetTo(PdshRoute.Chat)
                         },
+                        onEgressSettings = if (engine.usesProductNetworkSettings) engine::editNetworkSettings else null,
                         onHostAction = { action ->
                             // L72: one action is a navigation edge, not a handoff —
                             // `OpenWorkspaceFiles` is the documented "this folder
@@ -1856,6 +1872,14 @@ internal fun HostShell(
             }
             if (drawerOpen || drawerMounted) {
                 val groupedIds = drawerFolders.orEmpty().map { it.id }.toSet()
+                val nowMs = System.currentTimeMillis()
+                val zone = java.time.ZoneId.systemDefault()
+                fun drawerSession(record: ChatRecord) = HomeDrawerSession(
+                    id = record.id,
+                    title = record.title.ifBlank { UiStrings.SESSION_TITLE_NEW },
+                    relativeTime = com.phonedsh.ui.page.relativeTime(record.updatedAtMs, nowMs, zone),
+                    running = record.id == chatUi.chatId && chatUi.running,
+                )
                 val drawerFacts = HomeDrawerFacts(
                     folders = drawerFolders?.map { folder ->
                         HomeDrawerFolder(
@@ -1864,13 +1888,13 @@ internal fun HostShell(
                             isDefault = folder.id == ChatSessionStore.DEFAULT_WORKSPACE_GROUP_ID,
                             sessions = drawerRecords.orEmpty().filter { !it.archived && it.workspaceGroupId == folder.id }
                                 .sortedByDescending { it.updatedAtMs }
-                                .map { HomeDrawerSession(it.id, it.title.ifBlank { UiStrings.SESSION_TITLE_NEW }, running = it.id == chatUi.chatId && chatUi.running) },
+                                .map(::drawerSession),
                         )
                     },
                     unassignedSessions = drawerRecords?.filter {
                         !it.archived && (it.workspaceGroupId == null || it.workspaceGroupId !in groupedIds)
                     }?.sortedByDescending { it.updatedAtMs }
-                        ?.map { HomeDrawerSession(it.id, it.title.ifBlank { UiStrings.SESSION_TITLE_NEW }, running = it.id == chatUi.chatId && chatUi.running) },
+                        ?.map(::drawerSession),
                     activeSessionId = chatUi.chatId.takeIf(String::isNotBlank),
                     languageId = preferences.language?.id,
                     engine = when {
@@ -2520,8 +2544,7 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
 
     // The rules are real: they are the App's own /v1/http policy. The note is
     // what keeps them from being mistaken for the DSH settings allow-list.
-    PdshRoute.Egress ->
-        "本机 App 的出网规则（不是 DSH 设置里的白名单）"
+    PdshRoute.Egress -> null
 
     is PdshRoute.Workbench ->
         "本宿主未实现文件内容读取；预览保持待读"

@@ -164,7 +164,7 @@ class BotPageLayerTest {
 
         compose.onNodeWithTag(BotChatTags.INFO_OPEN).performClick()
         compose.onNodeWithTag(BotInfoTags.ROOT).assertIsDisplayed()
-        compose.onNodeWithContentDescription(UiStrings.BACK).performClick()
+        compose.onNodeWithText(BotInfoCopy.DONE).performSemanticsAction(SemanticsActions.OnClick)
 
         compose.onNodeWithTag(BotInfoTags.ROOT).assertDoesNotExist()
         compose.onNodeWithTag(BotChatTags.EMPTY).assertIsDisplayed()
@@ -197,9 +197,9 @@ class BotPageLayerTest {
         )
 
         compose.onNodeWithTag(BotChatTags.INFO_OPEN).performClick()
-        compose.onNodeWithContentDescription(BotInfoCopy.REFRESH).performClick()
+        compose.onNodeWithContentDescription(BotInfoCopy.REFRESH).performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(listOf(BotInfoIntent.Load), infoIntents)
-        compose.onNodeWithContentDescription(UiStrings.BACK).performClick()
+        compose.onNodeWithText(BotInfoCopy.DONE).performSemanticsAction(SemanticsActions.OnClick)
 
         openDrawer()
         compose.onNodeWithTag(BotDrawerTags.row(mainBot.id))

@@ -22,13 +22,17 @@ import com.phonedsh.ui.bot.state.BotUiContext
  */
 object AppBotRoster {
     const val DEFAULT_BOT_ID: String = "main"
-    const val DEFAULT_BOT_NAME: String = "Bot"
+    const val DEFAULT_BOT_NAME: String = "大肥鱼"
 
     fun profile(
         id: String = DEFAULT_BOT_ID,
         name: String = DEFAULT_BOT_NAME,
         description: String = "",
-    ): BotProfile = BotProfile(id = id, name = name, description = description)
+    ): BotProfile = BotProfile(
+        id = id, name = name, description = description,
+        fishColor = BotFishAppearance.CLASSIC.color.takeIf { id == DEFAULT_BOT_ID },
+        fishHairstyle = BotFishAppearance.CLASSIC.hairstyle.takeIf { id == DEFAULT_BOT_ID },
+    )
 
     fun roster(
         profiles: List<BotProfile> = listOf(profile()),

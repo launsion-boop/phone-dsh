@@ -15,6 +15,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChatSessionSnapshotTest {
+    @Test fun `archiving every conversation does not make its store eligible for a first launch seed`() {
+        val store = chatStore()
+        assertTrue(store.isFreshConversationStore())
+        store.save(ChatRecord("already-archived", "", 10, emptyList(), emptyList(), archived = true))
+        assertFalse(store.isFreshConversationStore())
+    }
+
     private fun json(text: String): JsonValue = JsonValue.parse(text)
 
     private fun domainStore() = DomainStoreCore(

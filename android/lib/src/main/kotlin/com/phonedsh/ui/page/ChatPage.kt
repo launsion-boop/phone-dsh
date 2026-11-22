@@ -401,6 +401,7 @@ public fun ChatPage(
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
     ) {
         ChatHeader(
+            agentPreset = state.agentPreset,
             title = headerTitle,
             onOpenSessions = onOpenSessions,
             onStartRename = { renaming = true },
@@ -751,6 +752,7 @@ internal fun ChatPage(
  */
 @Composable
 private fun ChatHeader(
+    agentPreset: String?,
     title: String,
     onOpenSessions: () -> Unit,
     onStartRename: () -> Unit,
@@ -828,7 +830,11 @@ private fun ChatHeader(
                     modifier = Modifier.fillMaxSize().testTag(UiPageTags.CHAT_HEADER_MENU)
                         .semantics { contentDescription = "更多" },
                 )
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenu(
+                    expanded = menuOpen, onDismissRequest = { menuOpen = false },
+                    modifier = Modifier.widthIn(min = 232.dp),
+                    shape = RoundedCornerShape(24.dp), containerColor = tokens.colors.surface,
+                ) {
                     val subagentRows = subagents
                     if (subagentRows != null && subagentRows.isNotEmpty() && onOpenSubagentCatalog != null) {
                         DropdownMenuItem(
@@ -844,13 +850,15 @@ private fun ChatHeader(
                     if (scheduleRows != null && scheduleRows.isNotEmpty() && onOpenSchedules != null) {
                         DropdownMenuItem(text = { Text("${UiStrings.CHAT_SCHEDULES_TITLE}（${scheduleRows.size}）") }, onClick = { menuOpen = false; onOpenSchedules() })
                     }
-                    onOpenArtifacts?.let { action -> DropdownMenuItem(text = { Text(UiStrings.HEADER_ARTIFACTS) }, onClick = { menuOpen = false; action() }) }
-                    onOpenWorkbench?.let { action -> DropdownMenuItem(text = { Text(UiStrings.HEADER_WORKBENCH) }, onClick = { menuOpen = false; action() }) }
-                    DropdownMenuItem(text = { Text(UiStrings.HEADER_EXPORT) }, onClick = { menuOpen = false; onExportTranscript() })
-                    DropdownMenuItem(text = { Text(UiStrings.HEADER_RUN_STATUS) }, onClick = { menuOpen = false; onOpenRunStatus() })
-                    DropdownMenuItem(text = { Text(UiStrings.HEADER_SESSION_SETTINGS) }, onClick = { menuOpen = false; onOpenSessionSettings() })
+                    onOpenArtifacts?.let { action -> DropdownMenuItem(text = { Text(UiStrings.HEADER_ARTIFACTS) }, leadingIcon = { PdshIconView(PdshIcon.ARCHIVE, 18.dp, tokens.colors.textPrimary, null) }, onClick = { menuOpen = false; action() }) }
+                    onOpenWorkbench?.let { action -> DropdownMenuItem(text = { Text(UiStrings.HEADER_WORKBENCH) }, leadingIcon = { PdshIconView(PdshIcon.FOLDER, 18.dp, tokens.colors.textPrimary, null) }, onClick = { menuOpen = false; action() }) }
+                    DropdownMenuItem(text = { Text(UiStrings.HEADER_EXPORT) }, leadingIcon = { PdshIconView(PdshIcon.DOCUMENT, 18.dp, tokens.colors.textPrimary, null) }, onClick = { menuOpen = false; onExportTranscript() })
+                    DropdownMenuItem(text = { Text(UiStrings.HEADER_RUN_STATUS) }, leadingIcon = { PdshIconView(PdshIcon.WAVEFORM, 18.dp, tokens.colors.textPrimary, null) }, onClick = { menuOpen = false; onOpenRunStatus() })
+                    DropdownMenuItem(text = { Text(UiStrings.HEADER_SESSION_SETTINGS) }, leadingIcon = { PdshIconView(PdshIcon.PUZZLE, 18.dp, tokens.colors.textPrimary, null) }, onClick = { menuOpen = false; onOpenSessionSettings() })
                     androidx.compose.material3.HorizontalDivider()
-                    DropdownMenuItem(text = { Text("折叠时机") }, onClick = {}, enabled = false)
+                    agentPreset?.let { preset ->
+                        DropdownMenuItem(text = { Text("Agent 预设：$preset") }, onClick = {}, enabled = false)
+                    }
                     CollapseTiming.entries.forEach { option ->
                         DropdownMenuItem(
                             text = { Text(option.chatMenuLabel()) },
@@ -859,7 +867,7 @@ private fun ChatHeader(
                                 menuOpen = false
                             },
                             enabled = onSetCollapseTiming != null,
-                            trailingIcon = if (collapseTiming == option) {
+                            leadingIcon = if (collapseTiming == option) {
                                 { PdshIconView(PdshIcon.CHECK, ChatMetrics.CHAT_HEADER_MORE_ICON_PT.dp, tokens.colors.textPrimary, "当前选择") }
                             } else null,
                             modifier = Modifier.testTag(collapseTimingTag(option)),
@@ -3685,33 +3693,41 @@ private fun ComposerControls(
             ) {
                 PdshIconView(PdshIcon.PLUS, HomeMetrics.COMPOSER_ICON_PT.dp, tokens.colors.primaryButton, null)
             }
-            DropdownMenu(expanded = addOpen, onDismissRequest = { addOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text(UiStrings.COMPOSER_ADD_COMMAND) },
-                    onClick = {
-                        addOpen = false
-                        // iOS: a leading `/` opens the command menu in place.
-                        onPickSlashTrigger(onDraftChange)
-                    },
+            DropdownMenu(
+                expanded = addOpen, onDismissRequest = { addOpen = false },
+                shape = RoundedCornerShape(22.dp), containerColor = tokens.colors.surface,
+            ) {
+                if (availability.addFiles) DropdownMenuItem(
+                    text = { Text(UiStrings.COMPOSER_ADD_FILE) },
+                    leadingIcon = { PdshIconView(PdshIcon.DOCUMENT, 18.dp, tokens.colors.textPrimary, null) },
+                    onClick = { addOpen = false; onAddFiles() },
+                )
+                if (availability.supportsSpeech) DropdownMenuItem(
+                    text = { Text("朗读最近回复") },
+                    enabled = availability.speakRecentReply && onSpeakRecentReply != null,
+                    onClick = { addOpen = false; onSpeakRecentReply?.invoke() },
+                )
+                if (availability.addImages) DropdownMenuItem(
+                    text = { Text(UiStrings.COMPOSER_ADD_IMAGE) },
+                    leadingIcon = { PdshIconView(PdshIcon.DEVICE, 18.dp, tokens.colors.textPrimary, null) },
+                    onClick = { addOpen = false; onAddImages() },
                 )
                 DropdownMenuItem(
                     text = { Text(UiStrings.COMPOSER_ADD_REFERENCE) },
+                    leadingIcon = { PdshIconView(PdshIcon.NETWORK, 18.dp, tokens.colors.textPrimary, null) },
                     onClick = {
                         addOpen = false
                         onPickReferenceTrigger(onDraftChange)
                     },
                 )
-                if (availability.addImages) DropdownMenuItem(
-                    text = { Text(UiStrings.COMPOSER_ADD_IMAGE) },
-                    onClick = { addOpen = false; onAddImages() },
-                )
-                if (availability.addFiles) DropdownMenuItem(
-                    text = { Text(UiStrings.COMPOSER_ADD_FILE) },
-                    onClick = { addOpen = false; onAddFiles() },
-                )
-                if (availability.speakRecentReply && onSpeakRecentReply != null) DropdownMenuItem(
-                    text = { Text("朗读最近回复") },
-                    onClick = { addOpen = false; onSpeakRecentReply() },
+                DropdownMenuItem(
+                    text = { Text(UiStrings.COMPOSER_ADD_COMMAND) },
+                    leadingIcon = { PdshIconView(PdshIcon.COMMAND, 18.dp, tokens.colors.textPrimary, null) },
+                    onClick = {
+                        addOpen = false
+                        // iOS: a leading `/` opens the command menu in place.
+                        onPickSlashTrigger(onDraftChange)
+                    },
                 )
             }
         }
@@ -3887,14 +3903,14 @@ private fun ModelMenuButton(
                 .testTag(UiPageTags.COMPOSER_MODEL_MENU),
             verticalAlignment = Alignment.CenterVertically,
             // HomeSpec.swift modelNameBlock uses six points between name and effort.
-            horizontalArrangement = Arrangement.spacedBy(ChatMetrics.MODEL_EFFORT_GAP_PT.dp),
+            horizontalArrangement = Arrangement.spacedBy(ChatMetrics.MODEL_EFFORT_GAP_PT.dp, Alignment.End),
         ) {
             BasicText(
                 text = menu.label,
                 style = modelStyle,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).testTag(COMPOSER_MODEL_LABEL_TAG),
+                modifier = Modifier.weight(1f, fill = false).testTag(COMPOSER_MODEL_LABEL_TAG),
             )
             if (menu.effortTitle != null) {
                 BasicText(

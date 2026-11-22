@@ -3,6 +3,7 @@
 package com.phonedsh.ui.page
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -50,16 +51,16 @@ public fun PermissionDefaultsPage(
                         ),
                         modifier = Modifier.testTag(PERMISSION_DEFAULTS_NOTE_TAG),
                     )
-                    state.statusMessage?.let { message ->
-                        androidx.compose.foundation.text.BasicText(
-                            text = message,
-                            style = com.phonedsh.ui.theme.LocalUiType.current.secondary.copy(
-                                color = if (state.failure != null) LocalUiTokens.current.colors.danger else LocalUiTokens.current.colors.textSecondary,
-                            ),
-                            modifier = Modifier.fillMaxWidth().testTag(PERMISSION_DEFAULTS_STATUS_TAG),
-                        )
-                    }
                     SettingsGroupCard {
+                        state.statusMessage?.let { message ->
+                            androidx.compose.foundation.text.BasicText(
+                                text = message,
+                                style = com.phonedsh.ui.theme.LocalUiType.current.secondary.copy(
+                                    color = if (state.failure != null) LocalUiTokens.current.colors.danger else LocalUiTokens.current.colors.textSecondary,
+                                ),
+                                modifier = Modifier.fillMaxWidth().padding(com.phonedsh.ui.HomeMetrics.chromeInset).testTag(PERMISSION_DEFAULTS_STATUS_TAG),
+                            )
+                        }
                         state.options.forEachIndexed { index, option ->
                             SettingsRowFrame(
                                 dividerBelow = index != state.options.lastIndex,
@@ -69,7 +70,7 @@ public fun PermissionDefaultsPage(
                                 modifier = Modifier.testTag("$PERMISSION_DEFAULTS_OPTION_PREFIX${option.tier.name}"),
                                 stateValue = if (option.selected) "已选择" else null,
                             ) {
-                                SettingsRowLabel(text = option.title, modifier = Modifier.weight(1f))
+                                SettingsRowLabel(text = option.title, enabled = option.enabled, modifier = Modifier.weight(1f))
                                 if (option.selected) {
                                     PdshIconView(PdshIcon.CHECK, com.phonedsh.ui.HomeMetrics.composerIcon, LocalUiTokens.current.colors.accent, "已选择")
                                 }

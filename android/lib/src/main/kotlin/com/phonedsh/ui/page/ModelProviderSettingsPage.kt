@@ -67,6 +67,10 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -86,6 +90,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.password
@@ -97,10 +102,17 @@ import com.phonedsh.ui.surface.BACK_GLYPH
 import com.phonedsh.ui.nav.PdshBackLevel
 import com.phonedsh.ui.nav.RouteBackLevel
 import com.phonedsh.ui.surface.SettingsHairline
+import com.phonedsh.ui.sheet.PdshSheet
+import com.phonedsh.ui.sheet.SheetChrome
+import com.phonedsh.ui.sheet.SheetInnerNavigation
 import com.phonedsh.ui.surface.SettingsSectionLabel
 import com.phonedsh.ui.surface.SettingsSubPageFrame
 import com.phonedsh.ui.surface.SettingsNavAction
 import com.phonedsh.ui.surface.settingsFootnoteStyle
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.widthIn
+import com.phonedsh.ui.icon.PdshIcon
+import com.phonedsh.ui.icon.PdshIconView
 import com.phonedsh.ui.surface.settingsLabelStyle
 import com.phonedsh.ui.surface.settingsValueStyle
 import com.phonedsh.ui.theme.LocalUiTokens
@@ -786,34 +798,12 @@ public fun ModelProviderSettingsPage(
     }
 
     SettingsSubPageFrame(
-        // The source page, editor and advanced page all use inline navigation
-        // titles; no 34pt large-title scaffold belongs to this NavigationStack.
-        title = when {
-            editing != null && advanced -> UiStrings.PROVIDER_ADVANCED
-            editing != null && editing.isNew -> UiStrings.PROVIDER_ADD_SERVICE
-            editing != null -> UiStrings.PROVIDER_EDITOR_EDIT_TITLE
-            embedded -> null
-            else -> UiStrings.MODEL_PROVIDER_TITLE
-        },
-        largeTitle = null,
-        backGlyph = if (editorMain) UiStrings.CANCEL else BACK_GLYPH,
-        embedded = embedded && editing == null,
-        onBack = when {
-            editorMain -> cancelEditor
-            editing != null -> leaveEditorLevel
-            else -> onBack
-        },
-        trailing = if (editorMain) {
-            {
-                SettingsNavAction(
-                    text = UiStrings.SAVE,
-                    onClick = submitEditor,
-                    enabled = editing?.canSave == true && !editorBusy,
-                )
-            }
-        } else null,
+        title = if (embedded) null else UiStrings.MODEL_PROVIDER_TITLE,
+        embedded = embedded,
+        backGlyph = BACK_GLYPH,
+        onBack = onBack,
         rootTag = UiPageTags.PROVIDER_ROOT,
-        modifier = modifier,
+        modifier = if (editing == null) modifier else modifier.clearAndSetSemantics { },
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             if (state.failure != null) {
@@ -826,37 +816,7 @@ public fun ModelProviderSettingsPage(
                     onRetry = onRetry,
                 )
             }
-            if (editing != null && advanced) {
-                ProviderAdvancedEditor(
-                    draft = editing,
-                    keyStatus = state.rows.firstOrNull { it.id == editing.id }?.keyStatus
-                        ?: ProviderKeyStatus.NOT_CONFIGURED,
-                    connectionTest = state.connectionTest?.takeIf {
-                        it.isNew == editing.isNew && (editing.isNew || it.profileId == editing.id)
-                    },
-                    onDraftChange = { draft = it },
-                    onTest = { onTest(editing) },
-                )
-            } else if (editing != null) {
-                ProviderEditor(
-                    draft = editing,
-                    keyStatus = state.rows.firstOrNull { it.id == editing.id }?.keyStatus
-                        ?: ProviderKeyStatus.NOT_CONFIGURED,
-                    connectionTest = state.connectionTest?.takeIf {
-                        it.isNew == editing.isNew && (editing.isNew || it.profileId == editing.id)
-                    },
-                    catalog = editingCatalog,
-                    saveFact = saveFact,
-                    onDraftChange = { draft = it },
-                    onGetModels = {
-                        val requestId = java.util.UUID.randomUUID().toString()
-                        catalogRequestId = requestId
-                        appliedCatalogRequestId = null
-                        onGetModels(editing, requestId)
-                    },
-                    onOpenAdvanced = { advanced = true },
-                )
-            } else if (state.isUnknown) {
+            if (state.isUnknown) {
                 EmptyHint(
                     title = UiStrings.PROVIDER_UNKNOWN_STATE,
                     hint = UiStrings.PROVIDER_UNKNOWN_HINT,
@@ -867,6 +827,7 @@ public fun ModelProviderSettingsPage(
                     modifier = Modifier
                         .fillMaxSize()
                         .testTag(UiPageTags.PROVIDER_LIST),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 20.dp),
                     verticalArrangement = Arrangement.Top,
                 ) {
                     serviceGroup(
@@ -917,6 +878,68 @@ public fun ModelProviderSettingsPage(
             )
         }
     }
+    if (editing != null) {
+        // Leave the underlying navigation context visible above the large sheet.
+        val windowHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+        val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val maxEditorHeight = (windowHeight - statusBar - 56.dp).coerceAtLeast(1.dp)
+        PdshSheet(
+            pageId = "modelProvider",
+            chrome = SheetChrome.HomeSheet,
+            onDismissRequest = cancelEditor,
+            innerNavigation = SheetInnerNavigation {
+                if (advanced) { advanced = false; true } else false
+            },
+        ) {
+            SettingsSubPageFrame(
+                modifier = Modifier.heightIn(max = maxEditorHeight),
+                // The large sheet already clears the status bar and draws its grabber.
+                navigationBarModifier = Modifier.consumeWindowInsets(WindowInsets.statusBars).heightIn(min = 44.dp),
+                title = when {
+                    advanced -> UiStrings.PROVIDER_ADVANCED
+                    editing.isNew -> UiStrings.PROVIDER_ADD_SERVICE
+                    else -> UiStrings.PROVIDER_EDITOR_EDIT_TITLE
+                },
+                backGlyph = if (editorMain) UiStrings.CANCEL else BACK_GLYPH,
+                onBack = leaveEditorLevel,
+                trailing = if (editorMain) {
+                    { SettingsNavAction(text = UiStrings.SAVE, onClick = submitEditor, enabled = editing.canSave && !editorBusy) }
+                } else null,
+            ) {
+                if (advanced) {
+                    ProviderAdvancedEditor(
+                        draft = editing,
+                        keyStatus = state.rows.firstOrNull { it.id == editing.id }?.keyStatus
+                            ?: ProviderKeyStatus.NOT_CONFIGURED,
+                        connectionTest = state.connectionTest?.takeIf {
+                            it.isNew == editing.isNew && (editing.isNew || it.profileId == editing.id)
+                        },
+                        onDraftChange = { draft = it },
+                        onTest = { onTest(editing) },
+                    )
+                } else {
+                    ProviderEditor(
+                        draft = editing,
+                        keyStatus = state.rows.firstOrNull { it.id == editing.id }?.keyStatus
+                            ?: ProviderKeyStatus.NOT_CONFIGURED,
+                        connectionTest = state.connectionTest?.takeIf {
+                            it.isNew == editing.isNew && (editing.isNew || it.profileId == editing.id)
+                        },
+                        catalog = editingCatalog,
+                        saveFact = saveFact,
+                        onDraftChange = { draft = it },
+                        onGetModels = {
+                            val requestId = java.util.UUID.randomUUID().toString()
+                            catalogRequestId = requestId
+                            appliedCatalogRequestId = null
+                            onGetModels(editing, requestId)
+                        },
+                        onOpenAdvanced = { advanced = true },
+                    )
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -948,11 +971,16 @@ private fun LazyListScope.serviceGroup(
     run {
         if (state.rows.isEmpty()) {
             item(key = "services.empty") {
-                EmptyHint(
-                    title = UiStrings.PROVIDER_EMPTY,
-                    hint = UiStrings.PROVIDER_EMPTY_HINT,
-                    tag = UiPageTags.PROVIDER_EMPTY,
-                )
+                com.phonedsh.ui.surface.SettingsGroupCard {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 214.dp).padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+                    ) {
+                        PdshIconView(PdshIcon.DATABASE, 38.dp, LocalUiTokens.current.colors.textSecondary, null)
+                        EmptyHint(title = UiStrings.PROVIDER_EMPTY, hint = UiStrings.PROVIDER_EMPTY_HINT, tag = UiPageTags.PROVIDER_EMPTY)
+                    }
+                }
             }
         }
         items(items = state.rows, key = { row -> "row.${row.id}" }) { row ->
@@ -969,12 +997,14 @@ private fun LazyListScope.serviceGroup(
         }
     }
     item(key = "actions.add") {
-        ProviderRowAction(
-            label = UiStrings.PROVIDER_ADD_SERVICE,
-            onClick = onOpenNew,
-            enabled = state.canWrite,
-            tag = UiPageTags.PROVIDER_ADD,
-        )
+        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = com.phonedsh.ui.surface.SettingsCardGap)) {
+            ProviderRowAction(
+                label = UiStrings.PROVIDER_ADD_SERVICE,
+                onClick = onOpenNew,
+                enabled = state.canWrite,
+                tag = UiPageTags.PROVIDER_ADD,
+            )
+        }
     }
     if (state.selected != null) {
         item(key = "actions.edit-default") {
@@ -986,7 +1016,7 @@ private fun LazyListScope.serviceGroup(
         }
     }
     item(key = "apply.hint") {
-        ProviderFooterLine(text = state.restartHint)
+        ProviderFooterLine(text = state.restartHint, restartNotice = true)
     }
     if (state.canStartEngine) {
         item(key = "apply.start") {
@@ -1129,11 +1159,11 @@ private const val CHECK_STROKE_RATIO: Float = 0.11f
 
 /** A 13 pt secondary line in the sub-page's footnote rhythm. */
 @Composable
-private fun ProviderFooterLine(text: String) {
+private fun ProviderFooterLine(text: String, restartNotice: Boolean = false) {
     val tokens = LocalUiTokens.current
     BasicText(
         text = text,
-        style = settingsFootnoteStyle().copy(color = tokens.colors.secondary),
+        style = settingsFootnoteStyle().copy(color = if (restartNotice) tokens.colors.pageWarning else tokens.colors.secondary),
         modifier = Modifier
             .fillMaxWidth()
             .padding(
@@ -1246,69 +1276,75 @@ private fun ProviderEditor(
         if (saveInProgress) ProviderProgressLine(UiStrings.PROVIDER_SAVING)
         SettingsHairline()
         SettingsSectionLabel(UiStrings.PROVIDER_SECTION_CONNECTION)
-        ProviderField(
-            label = UiStrings.PROVIDER_FIELD_NAME,
-            value = draft.name,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
-            onValueChange = { onDraftChange(draft.copy(name = it)) },
-        )
-        ProviderField(
-            label = if (keyStatus == ProviderKeyStatus.CONFIGURED) {
-                UiStrings.PROVIDER_KEY_FIELD_REPLACE
-            } else {
-                UiStrings.PROVIDER_KEY_FIELD
-            },
-            value = draft.apiKey,
-            secure = true,
-            onValueChange = { onDraftChange(draft.copy(apiKey = it, removeStoredKey = false)) },
-        )
-        ProviderField(
-            label = UiStrings.PROVIDER_API_URL,
-            value = draft.endpoint,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Uri,
-                capitalization = KeyboardCapitalization.None,
-                autoCorrectEnabled = false,
-            ),
-            onValueChange = { onDraftChange(draft.copy(endpoint = it)) },
-        )
-        SessionTextAction(
-            label = UiStrings.PROVIDER_IMPORT_CLIPBOARD,
-            onClick = {
-                clipboard.getText()?.text?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
-                    onDraftChange(draft.copy(apiKey = value, removeStoredKey = false))
-                }
-            },
-            tone = SessionActionTone.ACCENT,
-            modifier = Modifier.padding(horizontal = tokens.geometry.pageOuterMarginH),
-        )
+        com.phonedsh.ui.surface.SettingsGroupCard {
+            ProviderField(
+                label = UiStrings.PROVIDER_FIELD_NAME,
+                value = draft.name,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                onValueChange = { onDraftChange(draft.copy(name = it)) },
+            )
+            ProviderField(
+                label = if (keyStatus == ProviderKeyStatus.CONFIGURED) {
+                    UiStrings.PROVIDER_KEY_FIELD_REPLACE
+                } else {
+                    UiStrings.PROVIDER_KEY_FIELD
+                },
+                value = draft.apiKey,
+                secure = true,
+                onValueChange = { onDraftChange(draft.copy(apiKey = it, removeStoredKey = false)) },
+            )
+            ProviderField(
+                label = UiStrings.PROVIDER_API_URL,
+                value = draft.endpoint,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    capitalization = KeyboardCapitalization.None,
+                    autoCorrectEnabled = false,
+                ),
+                onValueChange = { onDraftChange(draft.copy(endpoint = it)) },
+            )
+            SessionTextAction(
+                label = UiStrings.PROVIDER_IMPORT_CLIPBOARD,
+                onClick = {
+                    clipboard.getText()?.text?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
+                        onDraftChange(draft.copy(apiKey = value, removeStoredKey = false))
+                    }
+                },
+                tone = SessionActionTone.ACCENT,
+                modifier = Modifier.padding(horizontal = tokens.geometry.pageOuterMarginH),
+            )
+        }
         ProviderFooterLine(text = UiStrings.PROVIDER_CONNECTION_FOOTER)
 
         SettingsSectionLabel(UiStrings.MODEL_LABEL)
-        SessionTextAction(
-            label = if (fetching) UiStrings.PROVIDER_FETCHING else UiStrings.PROVIDER_FETCH,
-            onClick = onGetModels,
-            tone = SessionActionTone.ACCENT,
-            enabled = draft.endpoint.isNotBlank() && !fetching && !saveInProgress,
-            modifier = Modifier
-                .padding(horizontal = tokens.geometry.pageOuterMarginH)
-                .testTag(PROVIDER_FETCH_TAG),
-        )
-        ProviderPickerRow(
-            label = UiStrings.PROVIDER_DEFAULT_MODEL,
-            value = draft.model,
-            options = draft.models.map { it.id }.filter { it.isNotBlank() }
-                .map { ProviderPickerOption(it, it) },
-            onSelect = { onDraftChange(draft.copy(model = it)) },
-        )
+        com.phonedsh.ui.surface.SettingsGroupCard {
+            SessionTextAction(
+                label = if (fetching) UiStrings.PROVIDER_FETCHING else UiStrings.PROVIDER_FETCH,
+                onClick = onGetModels,
+                tone = SessionActionTone.ACCENT,
+                enabled = draft.endpoint.isNotBlank() && !fetching && !saveInProgress,
+                modifier = Modifier
+                    .padding(horizontal = tokens.geometry.pageOuterMarginH)
+                    .testTag(PROVIDER_FETCH_TAG),
+            )
+            ProviderPickerRow(
+                label = UiStrings.PROVIDER_DEFAULT_MODEL,
+                value = draft.model,
+                options = draft.models.map { it.id }.filter { it.isNotBlank() }
+                    .map { ProviderPickerOption(it, it) },
+                onSelect = { onDraftChange(draft.copy(model = it)) },
+            )
+        }
         catalog?.message?.let { message -> ProviderFooterLine(text = message) }
         ProviderFooterLine(text = UiStrings.PROVIDER_MODEL_FOOTER)
 
-        ProviderRowAction(
-            label = UiStrings.PROVIDER_ADVANCED,
-            onClick = onOpenAdvanced,
-            modifier = Modifier.testTag(PROVIDER_ADVANCED_TAG),
-        )
+        com.phonedsh.ui.surface.SettingsGroupCard {
+            ProviderRowAction(
+                label = UiStrings.PROVIDER_ADVANCED,
+                onClick = onOpenAdvanced,
+                modifier = Modifier.testTag(PROVIDER_ADVANCED_TAG),
+            )
+        }
         ProviderFooterLine(text = UiStrings.PROVIDER_ADVANCED_FOOTER)
         connectionTest?.message?.let { message ->
             BasicText(
@@ -1458,19 +1494,14 @@ private fun ProviderField(
     tag: String? = null,
 ) {
     val tokens = LocalUiTokens.current
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(
-                horizontal = tokens.geometry.pageOuterMarginH,
-                vertical = tokens.spacing.badgeInsetV,
-            ),
-        verticalArrangement = Arrangement.spacedBy(tokens.spacing.badgeInsetV),
+    Row(
+        modifier = modifier.fillMaxWidth().heightIn(min = 50.dp)
+            .padding(horizontal = tokens.geometry.pageOuterMarginH),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        BasicText(
-            text = label,
-            style = settingsFootnoteStyle().copy(color = tokens.colors.secondary),
-        )
+        BasicText(text = label, style = settingsLabelStyle().copy(color = tokens.colors.textPrimary),
+            modifier = Modifier.widthIn(min = 88.dp))
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
@@ -1494,9 +1525,16 @@ private fun ProviderField(
                 color = if (enabled) tokens.colors.primary else tokens.colors.tertiary,
             ),
             cursorBrush = SolidColor(tokens.colors.accent),
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = tokens.geometry.pageRowMinHeight)
+            decorationBox = { field ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (value.isEmpty() && (secure || label == UiStrings.PROVIDER_FIELD_NAME)) {
+                        BasicText(if (secure) "粘贴或输入 API 密钥" else "例如 DeepSeek",
+                            style = settingsValueStyle().copy(color = tokens.colors.textPlaceholder))
+                    }
+                    field()
+                }
+            },
+            modifier = Modifier.weight(1f)
                 .then(if (secure) Modifier.semantics { password() } else Modifier)
                 .testTag(tag ?: (PROVIDER_FIELD_TAG_PREFIX + label)),
         )

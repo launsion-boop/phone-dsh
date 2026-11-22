@@ -2295,7 +2295,7 @@ internal fun pinnedFirst(
 }
 
 /** One Chinese relative time, the same thresholds as the iOS baseline. */
-internal fun relativeTime(updatedAtMs: Long, nowMs: Long, zone: ZoneId): String {
+public fun relativeTime(updatedAtMs: Long, nowMs: Long, zone: ZoneId): String {
     val delta = nowMs - updatedAtMs
     return when {
         delta < MINUTE_MS -> UiStrings.JUST_NOW

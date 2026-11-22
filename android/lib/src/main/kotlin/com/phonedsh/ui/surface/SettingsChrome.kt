@@ -55,6 +55,9 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
+import com.phonedsh.ui.icon.PdshIcon
+import com.phonedsh.ui.icon.PdshIconView
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
@@ -446,17 +449,24 @@ public fun SettingsNavAction(
     enabled: Boolean = true,
 ) {
     val tokens = LocalUiTokens.current
-    BasicText(
-        text = text,
-        style = LocalUiType.current.pageTitle.copy(
-            color = if (enabled) tokens.colors.textPrimary else tokens.colors.textTertiary,
-        ),
+    Box(
         modifier = modifier
             .then(if (tag != null) Modifier.testTag(tag) else Modifier)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .background(tokens.colors.surface)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = description }
-            .padding(vertical = tokens.spacing.iconText, horizontal = tokens.spacing.iconText),
-    )
+            .heightIn(min = 40.dp).widthIn(min = 40.dp)
+            .padding(horizontal = tokens.spacing.iconText),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (text == BACK_GLYPH) {
+            PdshIconView(PdshIcon.CHEVRON_LEFT, 18.dp, tokens.colors.textPrimary, null)
+        } else {
+            BasicText(text = text, style = LocalUiType.current.pageTitle.copy(
+                color = if (enabled) tokens.colors.textPrimary else tokens.colors.textTertiary))
+        }
+    }
 }
 
 /**
@@ -997,7 +1007,9 @@ public fun SettingsSubPageFrame(
     rootTag: String? = null,
     embedded: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
+    leadingAction: (@Composable () -> Unit)? = null,
     showSheetHandle: Boolean = backGlyph == SETTINGS_CLOSE_GLYPH && onBack != null,
+    navigationBarModifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
     val tokens = LocalUiTokens.current
@@ -1017,7 +1029,8 @@ public fun SettingsSubPageFrame(
         if (!embedded) {
             SettingsNavBar(
                 title = title,
-                leading = if (onBack != null) {
+                modifier = navigationBarModifier,
+                leading = leadingAction ?: if (onBack != null) {
                     {
                         SettingsNavAction(
                             text = backGlyph,

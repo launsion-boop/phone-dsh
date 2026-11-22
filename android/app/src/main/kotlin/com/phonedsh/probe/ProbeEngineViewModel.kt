@@ -74,6 +74,7 @@ import com.phonedsh.gateway.CredentialScope
 import com.phonedsh.gateway.CredentialUnavailableException
 import com.phonedsh.gateway.GatewayCredential
 import com.phonedsh.gateway.GatewayCredentialProvider
+import com.phonedsh.ui.page.EgressSettingsAction
 import com.phonedsh.gateway.GatewayHttpEgress
 import com.phonedsh.gateway.GatewaySession
 import com.phonedsh.gateway.HttpUrlConnectionGatewayTransport
@@ -678,6 +679,9 @@ internal data class PermissionDefaultsHostState(
     val readOnlyReason: String? = com.phonedsh.ui.UiStrings.DEFAULT_PERMISSION_STARTUP_LOCKED_REASON,
 ) {
     val currentTier: com.phonedsh.ui.page.PermissionTier? get() = tierForPermissionMode(currentModeId)
+    val lockedOptions get() = availableModeIds?.takeIf { startupLocked }?.mapNotNull { id ->
+        tierForPermissionMode(id)?.let { it to (id == currentModeId) }
+    }
     val availableTiers: Set<com.phonedsh.ui.page.PermissionTier>? get() = availableModeIds?.mapNotNull(::tierForPermissionMode)?.toSet()
 }
 
@@ -1039,24 +1043,33 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         }
     }
 
-    /**
-     * The one upstream session, or `null` when the launch named no egress grant.
-     *
-     * The transport is the production `HttpURLConnection` hop. The credential comes
-     * from the launch's model endpoint when it names one — the same object the model
-     * proxy uses — and falls back to anonymous otherwise. Anonymous is not a silent
-     * downgrade: [ProbeLaunchConfig.modelCredentialProvider] only returns non-null by
-     * the time this runs, and its own resolve is fail-closed for the model origin.
-     */
-    private val gateway: GatewaySession? = launchConfig.egressGrant()?.let { grant ->
+    private val networkSettings = NetworkAccessSettings.get(getApplication())
+    private val diagnosticGrant = launchConfig.egressGrant()
+    internal val networkSettingsFacts get() = networkSettings.facts
+    internal val usesProductNetworkSettings get() = diagnosticGrant == null
+    private val networkSettingsIo = Dispatchers.IO.limitedParallelism(1)
+
+    internal fun editNetworkSettings(action: EgressSettingsAction) {
+        if (!usesProductNetworkSettings) return
+        viewModelScope.launch(networkSettingsIo) {
+            when (action) {
+                is EgressSettingsAction.Add -> networkSettings.add(action.host)
+                is EgressSettingsAction.Remove -> networkSettings.remove(action.host)
+                is EgressSettingsAction.AllowAll -> networkSettings.toggle(action.enabled)
+                EgressSettingsAction.Restore -> networkSettings.restore()
+                EgressSettingsAction.Reload -> networkSettings.refresh()
+            }
+        }
+    }
+
+    private val gateway = diagnosticGrant?.let { grant ->
         GatewaySession(
             transport = HttpUrlConnectionGatewayTransport(),
             credentialProvider = modelCredential ?: AnonymousCredentialProvider,
             egress = AllowListEgressPolicy(listOf(grant)),
         )
-    }
-
-    private val diagnosticHttpEgress = gateway?.let { GatewayHttpEgress(it) }
+    } ?: networkSettings.readGateway()
+    private val ordinaryHttpEgress = GatewayHttpEgress(gateway)
 
     /**
      * Which web-search grant this launch mounts (`spec/v1/gateway-independent-search.md`
@@ -1088,7 +1101,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                 store.readKey(plan.launch.credentialAccount)
             },
             transport = HttpUrlConnectionGatewayTransport(),
-            fallback = diagnosticHttpEgress,
+            fallback = ordinaryHttpEgress,
         )
         is WebSearchLaunchPlan.Independent -> IndependentSearchWebToolsEgress(
             base = plan.base,
@@ -1099,12 +1112,12 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                 TonoAccountHost.activeSession()?.let { TonoAccountKeySource.overlay(plan.base, it, stored) } ?: stored
             },
             transport = HttpUrlConnectionGatewayTransport(),
-            fallback = diagnosticHttpEgress,
+            fallback = ordinaryHttpEgress,
         )
         is WebSearchLaunchPlan.Off -> null
     }
 
-    private val httpEgress = AppBotMcpEgress(webSearchEgress ?: diagnosticHttpEgress)
+    private val httpEgress = AppBotMcpEgress(webSearchEgress ?: ordinaryHttpEgress)
 
     /**
      * What this launch can honestly say about model traffic (P27).
@@ -1781,6 +1794,24 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                     launchContentPrepared = true
                     startPreparedEngine()
                 }
+            }
+        }
+    }
+
+    internal suspend fun readBotPresence(botID: String) = withContext(Dispatchers.IO) {
+        appBotRuntime?.presence(botID, appForeground)?.let { fact ->
+            com.phonedsh.ui.bot.state.RoutinePresence(
+                com.phonedsh.ui.bot.state.RoutinePresenceLevel.fromWire(fact.level.rawValue),
+                fact.deferred.map { com.phonedsh.ui.bot.state.RoutinePresenceDeferred(it.routineId, it.title, it.scheduledFor, it.deferredUntil) },
+                fact.scheduledNotificationCount,
+            )
+        }
+    }
+
+    internal fun updateBotAppearance(botID: String, intent: com.phonedsh.ui.bot.state.BotAppearanceIntent) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { appBotRuntime?.updateAppearance(botID, intent) }.onFailure {
+                Log.w(TAG_TURN, "Bot appearance change failed: ${it.javaClass.simpleName}")
             }
         }
     }
@@ -3316,6 +3347,8 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
             { mutableChat.value.workerSessionId }, turnScope, onScheduleChanged = ::requestReadySweep)
     }
     internal val automation: StateFlow<com.phonedsh.ui.page.AutomationFacts> get() = hostAutomation.facts
+    internal val workerReady get() = host.ready
+
     internal fun refreshAutomation() = hostAutomation.refresh()
     internal fun handleAutomationAction(action: com.phonedsh.ui.nav.PdshHostAction): Boolean {
         when (action) {
@@ -5008,7 +5041,19 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                             LogcatHostLog.warn("chat: stale turn repair failed session=${record.id} (${reasonOf(failure as? Exception ?: Exception(failure))})")
                         },
                     )
-                    loaded to chatStore.currentSessionId()
+                    val persistedId = chatStore.currentSessionId()
+                    if (loaded.isEmpty() && persistedId == null && mutableChat.value.chatId.isEmpty() &&
+                        !probeFaceOnLaunch() && chatStore.isFreshConversationStore()
+                    ) {
+                        val id = "chat-${UUID.randomUUID()}"
+                        val request = StateRequestId("initial-session:$id")
+                        val receipt = createHostChatSession(chatStore, id, clock.nowMillis(),
+                            ChatSessionStore.DEFAULT_WORKSPACE_GROUP_ID, request)
+                        check(receipt.confirms(request, id, null)) { "initial conversation not confirmed" }
+                        listOf(checkNotNull(chatStore.load(id))) to id
+                    } else {
+                        loaded to persistedId
+                    }
                 }
                     .onFailure { LogcatHostLog.warn("chat: store not restored (${reasonOf(it as? Exception ?: Exception(it))})") }
                     .getOrDefault(emptyList<ChatRecord>() to null)

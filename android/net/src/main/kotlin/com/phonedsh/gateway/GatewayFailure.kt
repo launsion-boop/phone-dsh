@@ -16,6 +16,7 @@ enum class GatewayFailureCode(
     val proxyStatus: Int,
     val proxyError: String,
 ) {
+    EGRESS_APPROVAL_DENIED("egress_approval_denied", 403, "egress_approval_denied"),
     HOST_NOT_ALLOWED("host_not_allowed", 403, "forbidden"),
     INVALID_REQUEST("invalid_request", 400, "bad_request"),
     CREDENTIAL_UNAVAILABLE("credential_unavailable", 502, "credential_unavailable"),

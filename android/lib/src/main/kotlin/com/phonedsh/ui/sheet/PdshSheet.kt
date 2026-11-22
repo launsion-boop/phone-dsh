@@ -9,6 +9,11 @@ package com.phonedsh.ui.sheet
 
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.findViewTreeOnBackPressedDispatcherOwner
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.BottomSheetDefaults
@@ -147,8 +152,11 @@ public fun PdshSheet(
         contentColor = contentColor,
         dragHandle = if (chrome.grabberVisible()) {
             {
-                BottomSheetDefaults.DragHandle(
-                    modifier = Modifier.testTag(PdshSheetTags.DRAG_HANDLE),
+                Box(
+                    Modifier.padding(vertical = 8.dp)
+                        .size(width = 36.dp, height = 4.dp)
+                        .background(tokens.colors.textPlaceholder, RoundedCornerShape(2.dp))
+                        .testTag(PdshSheetTags.DRAG_HANDLE),
                 )
             }
         } else {

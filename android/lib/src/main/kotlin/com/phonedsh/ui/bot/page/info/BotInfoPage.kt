@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -115,12 +116,23 @@ public fun BotInfoPage(
     onBack: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
     now: Long = System.currentTimeMillis(),
+    profileName: String = "",
+    backLevel: com.phonedsh.ui.nav.PdshBackLevel? = null,
+    readPresence: (suspend () -> com.phonedsh.ui.bot.state.RoutinePresence?)? = null,
 ) {
     var route by remember(initialSection) {
         mutableStateOf(initialSection?.toRoute() ?: BotInfoRoute.ROOT)
     }
+    com.phonedsh.ui.nav.RouteBackLevel(backLevel, enabled = route != BotInfoRoute.ROOT) { route = BotInfoRoute.ROOT }
     // The 刷新 control re-asks the driver; the local route is untouched.
-    val refresh = { onIntent(BotInfoIntent.Load) }
+    var refreshCount by remember { mutableStateOf(0) }
+    var presence by remember(profileName) { mutableStateOf<com.phonedsh.ui.bot.state.RoutinePresence?>(null) }
+    androidx.compose.runtime.LaunchedEffect(profileName, refreshCount) {
+        presence = try { readPresence?.invoke() } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) { null }
+    }
+    val refresh = { refreshCount++; onIntent(BotInfoIntent.Load) }
 
     when (route) {
         BotInfoRoute.ROOT -> BotInfoRoot(
@@ -128,6 +140,8 @@ public fun BotInfoPage(
             appearance = appearance,
             isMainBot = isMainBot,
             botDescription = botDescription,
+            profileName = profileName,
+            presence = presence,
             onIntent = onIntent,
             onAppearanceIntent = onAppearanceIntent,
             fish = fish,
@@ -180,6 +194,8 @@ private fun BotInfoRoot(
     appearance: BotFishAppearance,
     isMainBot: Boolean,
     botDescription: String,
+    profileName: String,
+    presence: com.phonedsh.ui.bot.state.RoutinePresence?,
     onIntent: (BotInfoIntent) -> Unit,
     onAppearanceIntent: (BotAppearanceIntent) -> Unit,
     fish: BotFishSlot,
@@ -192,47 +208,30 @@ private fun BotInfoRoot(
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
-    val botName = state.snapshot?.botName.orEmpty()
+    val botName = state.snapshot?.botName ?: profileName
     var draftName by remember(botName) { mutableStateOf(botName) }
     var renameError by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     val trimmedDraft = BotNameValidation.trimmed(draftName)
     val nameChanged = trimmedDraft.isNotEmpty() && trimmedDraft != botName
 
-    PageFrame(
-        title = BotInfoCopy.TITLE,
-        onBack = onBack,
-        rootTag = BotInfoTags.ROOT,
-        modifier = modifier,
-        actions = {
-            Box(
-                Modifier
-                    .size(BotInfoMetrics.ACTION)
-                    .clickable(role = Role.Button, onClick = onRefresh)
-                    .semantics { contentDescription = BotInfoCopy.REFRESH },
-                contentAlignment = Alignment.Center,
-            ) {
-                PdshIconView(
-                    PdshIcon.REFRESH,
-                    BotInfoMetrics.ENTRY_ICON_SIZE,
-                    tokens.colors.textSecondary,
-                    null,
-                )
-            }
-            if (onBack != null) {
-                BasicText(
-                    text = BotInfoCopy.DONE,
-                    style = type.secondary.copy(
-                        color = tokens.colors.primaryButton,
-                        fontWeight = FontWeight.SemiBold,
-                    ),
-                    modifier = Modifier
-                        .clickable(role = Role.Button, onClick = onBack)
-                        .padding(horizontal = BotInfoMetrics.ENTRY_GAP),
-                )
-            }
-        },
-    ) {
+    Column(modifier.fillMaxSize().background(tokens.colors.page).testTag(BotInfoTags.ROOT)) {
+        com.phonedsh.ui.surface.SettingsNavBar(
+            title = BotInfoCopy.TITLE,
+            leading = {
+                Box(
+                    Modifier.size(BotInfoMetrics.ACTION).background(tokens.colors.surface, CircleShape)
+                        .clickable(role = Role.Button, onClick = onRefresh)
+                        .semantics { contentDescription = BotInfoCopy.REFRESH },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PdshIconView(PdshIcon.REFRESH, BotInfoMetrics.ENTRY_ICON_SIZE, tokens.colors.textPrimary, null)
+                }
+            },
+            trailing = {
+                if (onBack != null) com.phonedsh.ui.surface.SettingsNavAction(text = BotInfoCopy.DONE, onClick = onBack)
+            },
+        )
         LazyColumn(
             modifier = Modifier.fillMaxSize().testTag(BotInfoTags.LIST),
             verticalArrangement = Arrangement.spacedBy(BotInfoMetrics.HEADER_GAP),
@@ -268,7 +267,7 @@ private fun BotInfoRoot(
             }
             item(key = "appearance") {
                 SessionSectionLabel(BotInfoCopy.APPEARANCE_SECTION)
-                Column(
+                com.phonedsh.ui.surface.SettingsGroupCard(
                     Modifier
                         .fillMaxWidth()
                         .padding(vertical = BotInfoMetrics.APPEARANCE_PADDING_V)
@@ -283,7 +282,7 @@ private fun BotInfoRoot(
                 }
             }
             item(key = "presence") {
-                BotInfoPresenceSection(state = state)
+                BotInfoPresenceSection(presence ?: state.snapshot?.presence)
             }
             item(key = "disruption") {
                 BotInfoDisruptionSection(state = state, onIntent = onIntent)
@@ -356,7 +355,7 @@ private fun BotInfoHeader(
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(vertical = BotInfoMetrics.HEADER_PADDING_V)
+            .padding(top = BotInfoMetrics.HEADER_PADDING_V * 4, bottom = BotInfoMetrics.HEADER_PADDING_V * 2)
             .testTag(BotInfoTags.HEADER),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(BotInfoMetrics.HEADER_GAP),
@@ -403,12 +402,7 @@ private fun BotInfoNameSection(
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
     SessionSectionLabel(BotInfoCopy.NAME_SECTION)
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = tokens.geometry.pageOuterMarginH),
-        verticalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
-    ) {
+    com.phonedsh.ui.surface.SettingsGroupCard {
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
@@ -417,7 +411,7 @@ private fun BotInfoNameSection(
             cursorBrush = SolidColor(tokens.colors.primaryButton),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = tokens.spacing.iconText)
+                .padding(tokens.geometry.pageOuterMarginH)
                 .semantics { contentDescription = BotInfoCopy.NAME_PLACEHOLDER }
                 .testTag(BotInfoTags.NAME),
             decorationBox = { inner ->
@@ -459,9 +453,8 @@ private fun BotInfoNameSection(
 }
 
 @Composable
-private fun BotInfoPresenceSection(state: BotInfoModelState) {
+private fun BotInfoPresenceSection(presence: com.phonedsh.ui.bot.state.RoutinePresence?) {
     val tokens = LocalUiTokens.current
-    val presence = state.snapshot?.presence
     SessionSectionLabel(BotInfoCopy.PRESENCE_SECTION)
     Column(
         Modifier
@@ -490,15 +483,11 @@ private fun BotInfoPresenceSection(state: BotInfoModelState) {
             },
             tag = BotInfoTags.PRESENCE_LEVEL,
         )
-        if (presence.level ==
-            com.phonedsh.ui.bot.state.RoutinePresenceLevel.SCHEDULED_NOTIFICATION
-        ) {
-            BotInfoValueRow(
-                label = BotInfoCopy.PRESENCE_NOTIFICATIONS,
-                value = "${presence.scheduledNotificationCount} 条",
-                tag = BotInfoTags.PRESENCE_NOTIFICATIONS,
-            )
-        }
+        BotInfoValueRow(
+            label = BotInfoCopy.PRESENCE_NOTIFICATIONS,
+            value = "${presence.scheduledNotificationCount} 条",
+            tag = BotInfoTags.PRESENCE_NOTIFICATIONS,
+        )
         if (presence.deferred.isEmpty()) {
             BasicText(
                 text = BotInfoCopy.PRESENCE_NONE_DEFERRED,
