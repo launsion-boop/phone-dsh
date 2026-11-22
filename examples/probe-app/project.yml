@@ -250,6 +250,10 @@ targets:
       - path: PhoneDSHProbe/DailyBriefModel.swift
       # The Bot chat's Tono sign-in rule (pure; the banner view stays out of the suite).
       - path: PhoneDSHProbe/Bot/BotSignInRequirement.swift
+      # The boot's missing-remembered-session rule (pure).
+      - path: PhoneDSHProbe/ChatSessionBoot.swift
+      # The unit-start replay window for queued Bot sends (pure).
+      - path: PhoneDSHProbe/Bot/BotPendingActionReplayWindow.swift
       # NativeConversationModels / NativeTranscriptProjector moved into
       # ProbeKit/Transcript, and the perf helpers into ProbeKit/Perf;
       # the test targets import ProbeKit instead.

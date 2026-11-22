@@ -81,7 +81,7 @@ not invented for content that has no rows.
   PC-20261120-engine-first-launch and MUST NOT be reintroduced.
 - **Sending while the engine is absent.** A send from the Bot page writes the existing durable
   pending-action row before planning (`BotUserActionDispatcher`), so it is kept and replayed on
-  unit start. While the Bot unit is not up the page keeps the optimistic user row and shows the
+  unit start when it is at most 15 minutes old ([store.md](../../bot/v1/store.md) §10.5). While the Bot unit is not up the page keeps the optimistic user row and shows the
   quiet `runtime.queuedSend` line (「待发送，引擎就绪后自动发出」); the action is `queued`, never
   `failed`, and the internal planner/`unavailable` reason never reaches the header. The composer
   stays enabled; refusing the send, rolling the row back, or calling `chat.start()` from the page
