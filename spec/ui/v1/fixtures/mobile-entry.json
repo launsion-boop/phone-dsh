@@ -1,0 +1,5 @@
+{
+  "product": {"selectedTab": "BOT", "surface": "bot"},
+  "diagnostics": {"selectedTab": "TASKS", "surface": "probe"},
+  "invalidProduct": {"selectedTab": "TASKS", "surface": "chat"}
+}
