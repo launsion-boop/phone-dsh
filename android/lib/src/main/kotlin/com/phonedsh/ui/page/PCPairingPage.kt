@@ -170,8 +170,13 @@ public fun PCPairingPage(
                 PCPairingStage.PAIRING_CODE,
                 PCPairingStage.MANUAL,
                 -> {
+                    // The initial guide has grouped-list spacing. Once expanded, keep
+                    // the input and its pending/cancel action together above the fold.
+                    val guide = state.stage == PCPairingStage.IDLE
+                    val firstInset = if (guide) com.phonedsh.ui.surface.SettingsSubPageGroupedTopInset + PcMetrics.SECTION_GAP else PcMetrics.SECTION_GAP
+                    val sectionGap = if (guide) com.phonedsh.ui.surface.SettingsCardGap else PcMetrics.SECTION_GAP
                     item(key = "install") {
-                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = com.phonedsh.ui.surface.SettingsSubPageGroupedTopInset + PcMetrics.SECTION_GAP)) {
+                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = firstInset)) {
                             PcPairingInstallSection(
                                 installCommand = installCommand,
                                 onCopyInstallCommand = onCopyInstallCommand,
@@ -179,7 +184,7 @@ public fun PCPairingPage(
                         }
                     }
                     item(key = "scan") {
-                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = com.phonedsh.ui.surface.SettingsCardGap)) {
+                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = sectionGap)) {
                             PcPairingScanSection(
                                 state = state,
                                 onScan = onScan,
@@ -187,7 +192,7 @@ public fun PCPairingPage(
                         }
                     }
                     item(key = "other") {
-                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = com.phonedsh.ui.surface.SettingsCardGap)) {
+                        com.phonedsh.ui.surface.SettingsGroupCard(Modifier.padding(top = sectionGap)) {
                             PcPairingOtherSection(
                                 state = state,
                                 onToggle = onToggleOtherWays,
