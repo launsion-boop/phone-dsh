@@ -45,3 +45,29 @@ enum BotSignInRequirement: Equatable {
         }
     }
 }
+
+/// Whether the selected model service still needs setting up — the 「待配置模型服务」 state of the
+/// chat page and Settings. spec/v1/tono-account.md §4: on the cloud origin a signed-in Tono session
+/// replaces the stored key, so a cloud profile is ready when signed in or when a key is stored; any
+/// other profile needs its stored key. Pure, so it is unit-testable without Keychain or UserDefaults.
+enum ModelProviderReadiness {
+    static func needsSetup(profileBaseURL: String?, keyStatus: ModelProviderAPIKeyStatus?, signedIn: Bool) -> Bool {
+        guard let profileBaseURL else { return true }          // no model service selected
+        if keyStatus == .present { return false }
+        return !(signedIn && CloudVoiceCredential.isCloudOrigin(profileBaseURL))
+    }
+
+    /// The rule over the live settings. `signedIn` comes from the page's observed account state, so the
+    /// label changes as soon as the user signs in or out.
+    static func needsSetup(signedIn: Bool) -> Bool {
+        let settings = PhoneModelProviderSettings.shared
+        guard let profile = (try? settings.load())?.selected else { return true }
+        return needsSetup(profileBaseURL: profile.baseURL,
+                          keyStatus: try? settings.apiKeyStatus(for: profile.id),
+                          signedIn: signedIn)
+    }
+}
+
+extension TonoAccountState {
+    var isSignedIn: Bool { if case .signedIn = self { return true } else { return false } }
+}

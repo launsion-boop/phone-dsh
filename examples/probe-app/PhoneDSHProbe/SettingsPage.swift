@@ -381,10 +381,7 @@ struct SettingsPage: View {
     }
 
     private var providerNeedsKey: Bool {
-        guard let profile = (try? PhoneModelProviderSettings.shared.load())?.selected,
-              let status = try? PhoneModelProviderSettings.shared.apiKeyStatus(for: profile.id)
-        else { return true }
-        return status != .present
+        ModelProviderReadiness.needsSetup(signedIn: account.isSignedIn)
     }
 
     private var modelLine: String {

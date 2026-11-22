@@ -9,7 +9,7 @@
   "source": {
     "file": "SettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
-    "lines": 672,
+    "lines": 669,
     "structLine": 52,
     "renderedFrom": [
       "body",
@@ -1417,7 +1417,7 @@
         {
           "renders": "还没有配置模型服务",
           "when": null,
-          "provenance": "SettingsPage.swift:392",
+          "provenance": "SettingsPage.swift:389",
           "anchor": "return NativeText(\"还没有配置模型服务\", \"No model provider yet\")"
         }
       ],
@@ -1448,7 +1448,7 @@
         {
           "renders": "未设置",
           "when": null,
-          "provenance": "SettingsPage.swift:423",
+          "provenance": "SettingsPage.swift:420",
           "anchor": "guard let id = configuration.defaultPermissionMode else { return NativeText(\"未设置"
         }
       ],
@@ -1468,57 +1468,57 @@
   "subpages": [
     {
       "name": "FontSizeSettingsPage",
-      "line": 468,
+      "line": 465,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:468"
+      "provenance": "SettingsPage.swift:465"
     },
     {
       "name": "ConversationSettingsPage",
-      "line": 506,
+      "line": 503,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "工作步骤",
-          "provenance": "SettingsPage.swift:511"
+          "provenance": "SettingsPage.swift:508"
         },
         {
           "title": "发送与用量",
-          "provenance": "SettingsPage.swift:530"
+          "provenance": "SettingsPage.swift:527"
         }
       ],
-      "provenance": "SettingsPage.swift:506"
+      "provenance": "SettingsPage.swift:503"
     },
     {
       "name": "ArchivedSessionsPage",
-      "line": 555,
+      "line": 552,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:555"
+      "provenance": "SettingsPage.swift:552"
     },
     {
       "name": "PermissionDefaultsPage",
-      "line": 617,
+      "line": 614,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "只影响之后新开的会话，当前会话保持不变。",
-          "provenance": "SettingsPage.swift:622"
+          "provenance": "SettingsPage.swift:619"
         }
       ],
-      "provenance": "SettingsPage.swift:617"
+      "provenance": "SettingsPage.swift:614"
     },
     {
       "name": "LicensesPage",
-      "line": 655,
+      "line": 652,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:655"
+      "provenance": "SettingsPage.swift:652"
     }
   ],
   "unreachable": [],

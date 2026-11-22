@@ -40,3 +40,42 @@ final class BotSignInRequirementTests: XCTestCase {
         }
     }
 }
+
+/// The chat page and Settings label 「待配置模型服务」 (spec/v1/tono-account.md §4). Regression for the
+/// real-device case where a phone signed in to Tono on the 「Tono 云端」 profile, with no stored key,
+/// kept showing 「待配置模型服务」 although the cloud route uses the account token.
+final class ModelProviderReadinessTests: XCTestCase {
+    private let cloud = "https://pdsh.tonoai.cn/v1/llm/anthropic"
+    private let other = "https://api.deepseek.com/anthropic"
+
+    func testSignedInCloudProfileWithoutKeyIsReady() {
+        XCTAssertFalse(ModelProviderReadiness.needsSetup(profileBaseURL: cloud, keyStatus: .missing, signedIn: true))
+        XCTAssertFalse(ModelProviderReadiness.needsSetup(profileBaseURL: cloud, keyStatus: nil, signedIn: true))
+    }
+
+    func testSignedOutCloudProfileWithoutKeyNeedsSetup() {
+        XCTAssertTrue(ModelProviderReadiness.needsSetup(profileBaseURL: cloud, keyStatus: .missing, signedIn: false))
+    }
+
+    func testAStoredKeyIsEnoughAnywhere() {
+        XCTAssertFalse(ModelProviderReadiness.needsSetup(profileBaseURL: cloud, keyStatus: .present, signedIn: false))
+        XCTAssertFalse(ModelProviderReadiness.needsSetup(profileBaseURL: other, keyStatus: .present, signedIn: false))
+    }
+
+    func testTheTonoSessionNeverStandsInForAnotherProvidersKey() {
+        XCTAssertTrue(ModelProviderReadiness.needsSetup(profileBaseURL: other, keyStatus: .missing, signedIn: true))
+        XCTAssertTrue(ModelProviderReadiness.needsSetup(profileBaseURL: other, keyStatus: .unreadable, signedIn: true))
+        // Same host, another port or scheme is not the cloud origin.
+        XCTAssertTrue(ModelProviderReadiness.needsSetup(profileBaseURL: "http://pdsh.tonoai.cn/v1/llm/anthropic",
+                                                        keyStatus: .missing, signedIn: true))
+    }
+
+    func testNoSelectedProfileNeedsSetup() {
+        XCTAssertTrue(ModelProviderReadiness.needsSetup(profileBaseURL: nil, keyStatus: nil, signedIn: true))
+    }
+
+    func testTheAccountStateMapsToSignedIn() {
+        XCTAssertFalse(TonoAccountState.signedOut(notice: nil).isSignedIn)
+        XCTAssertFalse(TonoAccountState.signedOut(notice: .sessionEnded).isSignedIn)
+    }
+}

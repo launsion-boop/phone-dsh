@@ -76,7 +76,7 @@
 | `cornerRadiusConnector` / `cornerRadiusCatalog` / `cornerRadiusDefault` | 32 / 16 / 系統 | `ConnectorsPage.swift:109` / `NativeParityTokens.swift:114` / 系統 |
 | `presentMotion` / `dismissMotion` | 系統，`needsDeviceMeasure` | 系統 API |
 
-`chatSessions` 是 debug-only：只由 DEBUG 的 `PDSH_DEBUG_SHEET=sessions` 鉤子（`ChatPage.swift:905`）打開，產品沒有路由使用這個 id；Android 抽屜推送的 SessionsPage 不是這個 sheet。
+`chatSessions` 是 debug-only：只由 DEBUG 的 `PDSH_DEBUG_SHEET=sessions` 鉤子（`ChatPage.swift:908`）打開，產品沒有路由使用這個 id；Android 抽屜推送的 SessionsPage 不是這個 sheet。
 
 範圍外：sheet 內容、內部頁面結構、系統 share sheet 的內容（見 §3 `kind: share`）。
 
@@ -106,9 +106,9 @@
 | `drawerFolder` | `HomeDrawer.swift:467` | 在這裡新建會話；重命名（foldersEnabled）；刪除文件夾（destructive，foldersEnabled） |
 | `drawerSession` | `HomeDrawer.swift:567` | 編輯名稱；歸檔 |
 | `subagentRow` | `NativeSubagentCatalogSheet.swift:250` | 打開子會話（notExternal）；在側邊欄打開（hasAside） |
-| `userBubble` | `ChatPage.swift:4766` | 複製；分享（share，hasText） |
-| `assistantBody` | `ChatPage.swift:4325` | 複製全文（hasText） |
-| `disclosurePayload` | `ChatPage.swift:5618` | 複製事件數據 |
+| `userBubble` | `ChatPage.swift:4769` | 複製；分享（share，hasText） |
+| `assistantBody` | `ChatPage.swift:4328` | 複製全文（hasText） |
+| `disclosurePayload` | `ChatPage.swift:5621` | 複製事件數據 |
 | `botLink` | `BotWorkCardView.swift:228` | 打開鏈接；複製鏈接 |
 | `botRow` | `BotDrawer.swift:341` | 改名；外觀；設為主 Bot（notMainBot）；隱藏／取消隱藏；分隔線；刪除 Bot（destructive，notLastBot）或「這是最後一個 Bot，不能刪除。」（info，lastBot） |
 | `botMessageRow` | `BotChatPage.swift:1261` | 複製；查看來源 |
@@ -152,17 +152,17 @@
 5. 尺寸 36 pt 圓鈕（`geometry.sendButton`），點擊區域就是圓；`disabled` 時不得提交。
 6. 停止鍵與發送鍵不共享 transition：停止鍵出現/消失不動畫，發送鍵的 scale/opacity 只管自己。
 7. 無障礙標籤逐字照抄：發送鍵未運行時「发送消息」，運行中 steer 時「补充当前任务」、queue 時「排入下一轮」
-   （`sendButtonLabel`，`ChatPage.swift:3614-3617`）；停止鍵「停止执行」／正在停止時「正在停止」。
+   （`sendButtonLabel`，`ChatPage.swift:3617-3620`）；停止鍵「停止执行」／正在停止時「正在停止」。
 
 | 鍵 | 值 | 出處 |
 |---|---|---|
-| `motion` | `motion.composerSend`（120 ms easeOut） | `ChatPage.swift:2920` |
-| `transitionScale` | 0.8 | `ChatPage.swift:2919` |
-| `transitionOpacity` | 從 0（`.opacity`） | `ChatPage.swift:2919` |
+| `motion` | `motion.composerSend`（120 ms easeOut） | `ChatPage.swift:2923` |
+| `transitionScale` | 0.8 | `ChatPage.swift:2922` |
+| `transitionOpacity` | 從 0（`.opacity`） | `ChatPage.swift:2922` |
 | `buttonSize` | `geometry.sendButton`（36 pt） | `HomeSpec.swift:72` |
-| `enabledFill` / `enabledInk` | `colors.primaryButton` / `colors.primaryButtonInk` | `ChatPage.swift:2912-2914` |
-| `disabledFill` / `disabledInk` | `colors.userBubble` / `colors.iconMuted` | `ChatPage.swift:2912-2914` |
-| `disabledRule` / `stopRule` | `canSubmit` / `!canSubmit && model.turnRunning` | `ChatPage.swift:2918` / `2448` |
+| `enabledFill` / `enabledInk` | `colors.primaryButton` / `colors.primaryButtonInk` | `ChatPage.swift:2915-2917` |
+| `disabledFill` / `disabledInk` | `colors.userBubble` / `colors.iconMuted` | `ChatPage.swift:2915-2917` |
+| `disabledRule` / `stopRule` | `canSubmit` / `!canSubmit && model.turnRunning` | `ChatPage.swift:2921` / `2448` |
 
 ## 6. 按壓態
 

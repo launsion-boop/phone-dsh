@@ -51,6 +51,8 @@ struct ChatPage: View {
     /// Set a few seconds after the page appears: if no engine start has begun by then (the
     /// launch start did not run), the start card is shown.
     @State private var engineLaunchGraceOver = false
+    /// The Tono session (spec/v1/tono-account.md §4): signed in, the cloud profile needs no stored key.
+    @State private var accountSignedIn = TonoAccountSession.shared.hasSession
     @State private var showDeviceConnections = false
     @State private var deviceCoordinator = DeviceSessionCoordinator.shared
     @Environment(\.colorScheme) private var colorScheme
@@ -215,9 +217,7 @@ struct ChatPage: View {
     }
 
     private var providerNeedsKey: Bool {
-        guard let profile = (try? PhoneModelProviderSettings.shared.load())?.selected else { return true }
-        guard let status = try? PhoneModelProviderSettings.shared.apiKeyStatus(for: profile.id) else { return true }
-        return status != .present
+        ModelProviderReadiness.needsSetup(signedIn: accountSignedIn)
     }
 
     private var sessionKey: String { model.currentSessionID ?? "new" }
@@ -727,6 +727,9 @@ struct ChatPage: View {
             }
         }
         .onAppear { onChatAppear() }
+        .task {
+            for await state in await TonoAccountSession.shared.states() { accountSignedIn = state.isSignedIn }
+        }
         .onChange(of: presentationVisible) { _, visible in
             if visible { onChatAppear() }
             else {
