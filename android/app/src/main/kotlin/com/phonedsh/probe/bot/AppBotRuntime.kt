@@ -493,6 +493,7 @@ class AppBotRuntime internal constructor(
                     storeLock = storeLock,
                     materializedSessions = materializedSessions,
                     heldInbox = inboxFor(selectedId),
+                    attachmentContext = context.applicationContext,
                     resolveApproval = { action ->
                         val id = checkNotNull(action.approvalID)
                         val decision = checkNotNull(BotApprovalDecision.fromWire(checkNotNull(action.decision).wire))

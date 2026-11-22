@@ -215,6 +215,13 @@ class PdshSheetRoutesTest {
     }
 
     @Test
+    fun `PC pairing mounts a dismissible large sheet`() {
+        assertEquals(PdshPresentation.SHEET, PdshRoute.PcPairing.presentation)
+        val id = requireNotNull(sheetPageIdOf(PdshRoute.PcPairing))
+        assertEquals(UiTokenData.sheet.defaultDetents, SheetDetents.forPage(id))
+    }
+
+    @Test
     fun `the audited routes keep the SHEET presentation form`() {
         sheetRoutes.forEach { route ->
             assertEquals("$route stays a modal route", PdshPresentation.SHEET, route.presentation)

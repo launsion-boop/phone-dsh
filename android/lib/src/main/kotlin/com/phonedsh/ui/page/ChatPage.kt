@@ -392,7 +392,12 @@ public fun ChatPage(
             UiStrings.NEW_SESSION
         }
     }
-    Box(modifier = modifier.fillMaxSize().then(surface).testTag(UiTags.CHAT_ROOT)) {
+    val rootFocus = LocalFocusManager.current
+    val rootKeyboard = LocalSoftwareKeyboardController.current
+    Box(modifier = modifier.fillMaxSize().then(surface).testTag(UiTags.CHAT_ROOT)
+        .then(if (imeVisible) Modifier.pointerInput(rootFocus, rootKeyboard) {
+            detectTapGestures { rootFocus.clearFocus(); rootKeyboard?.hide() }
+        } else Modifier)) {
     Column(
         modifier = Modifier
             .fillMaxSize()

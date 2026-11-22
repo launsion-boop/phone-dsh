@@ -62,6 +62,7 @@ import java.util.UUID
 public data class BotDraftAttachment(
     public val id: String,
     public val attachment: BotAttachment,
+    public val sourceUri: String? = null,
 ) {
     public companion object {
         /** A draft chip built from a fixture attachment (previews/tests). */
@@ -69,6 +70,13 @@ public data class BotDraftAttachment(
             BotDraftAttachment(id = attachment.path.ifEmpty { attachment.name }, attachment = attachment)
     }
 }
+
+/** Android picker URIs stay in the local draft until the Worker confirms its import. */
+public interface BotDraftImporter {
+    public suspend fun importDraft(messageID: String, files: List<BotDraftAttachment>): BotDraftImportResult
+}
+
+public data class BotDraftImportResult(val files: List<BotAttachment>, val errors: List<String>)
 
 /** One segment of the running turn (`BotLiveTurn.Segment`). */
 public sealed interface BotLiveSegment {
@@ -212,6 +220,7 @@ public data class BotChatSnapshot(
     public val runningTurnID: String?,
     public val awaitingTurn: Boolean,
     public val scrollRequestID: String?,
+    public val importingAttachments: Boolean = false,
 ) {
     /** True when the message area has no content (`bot.chat.empty`). */
     public val isEmpty: Boolean
@@ -277,6 +286,8 @@ public class BotChatModel(
     private var draft: String = ""
     private val draftAttachments: MutableList<BotDraftAttachment> = mutableListOf()
     private var attachmentNotice: String? = null
+    private var importJob: Job? = null
+    private var importingAttachments = false
     private var scrollRequestID: String? = null
     private var botName: String = botName
     private var appearance: BotFishAppearance = appearance
@@ -436,6 +447,15 @@ public class BotChatModel(
         return true
     }
 
+    public fun acceptPickedAttachments(files: List<BotDraftAttachment>, errors: List<String>) {
+        val room = (com.phonedsh.bot.attachments.BotAttachmentPolicy.MAX_COUNT - draftAttachments.size).coerceAtLeast(0)
+        draftAttachments.addAll(files.take(room))
+        attachmentNotice = (errors + if (files.size > room) listOf("每条消息最多 10 个附件。") else emptyList())
+            .joinToString("\n").ifEmpty { null }
+        noteInteraction()
+        tick()
+    }
+
     public fun removeDraftAttachment(index: Int) {
         if (index !in draftAttachments.indices) return
         draftAttachments.removeAt(index)
@@ -465,10 +485,38 @@ public class BotChatModel(
 
     /** Sends the current draft and attachments as one `chat` action. */
     public fun send() {
-        send(
-            text = draft,
-            attachments = draftAttachments.map { it.attachment },
-        )
+        if (importingAttachments) return
+        val picked = draftAttachments.toList()
+        if (picked.none { it.sourceUri != null }) {
+            send(draft, picked.map { it.attachment })
+            return
+        }
+        val importer = driver as? BotDraftImporter ?: return
+        noteInteraction()
+        clearRuntimeNotice()
+        val text = draft
+        val nonce = UUID.randomUUID().toString()
+        draft = ""
+        draftAttachments.clear()
+        attachmentNotice = null
+        importingAttachments = true
+        tick()
+        importJob = scope.launch {
+            try {
+                val result = try {
+                    importer.importDraft(nonce, picked)
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    BotDraftImportResult(emptyList(), picked.map { "附件「${it.attachment.name}」未附加：工作区未确认导入。" })
+                }
+                if (text.isNotBlank() || result.files.isNotEmpty()) dispatchMessage(text.trim(), result.files, nonce)
+                attachmentNotice = result.errors.joinToString("\n").ifEmpty { null }
+            } finally {
+                importingAttachments = false
+                tick()
+            }
+        }
     }
 
     /**
@@ -483,7 +531,10 @@ public class BotChatModel(
         draft = ""
         draftAttachments.clear()
         attachmentNotice = null
-        val nonce = UUID.randomUUID().toString()
+        dispatchMessage(trimmed, attachments, UUID.randomUUID().toString())
+    }
+
+    private fun dispatchMessage(trimmed: String, attachments: List<BotAttachment>, nonce: String) {
         val localID = "${BotTranscriptState.LOCAL_PREFIX}$nonce"
         val rows = LinkedHashMap<String, JsonValue>()
         rows["text"] = JsonString(trimmed)
@@ -720,6 +771,7 @@ public class BotChatModel(
 
     /** Cancels every model job. The page calls this in `DisposableEffect`. */
     public fun close() {
+        importJob?.cancel()
         watchJob?.cancel()
         presentationJob?.cancel()
         liveJob?.cancel()
@@ -788,6 +840,7 @@ public class BotChatModel(
             deepLinkError = deepLinkError,
             draft = draft,
             draftAttachments = draftAttachments.toList(),
+            importingAttachments = importingAttachments,
             attachmentNotice = attachmentNotice,
             runningTurnID = runningTurnID,
             awaitingTurn = awaitingTurn,

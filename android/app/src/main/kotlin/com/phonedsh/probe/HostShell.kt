@@ -1252,12 +1252,17 @@ internal fun HostShell(
         val stackBackLayer = remember(backLevel) {
             observingBackLayer(TokenBackLayer.STACK) { backLevel.consume() }
         }
+        val meChild = !probeOpen && nav.current == PdshRoute.MeTab && backLevel.available
+        val rootChildLayer = remember(backLevel) {
+            observingBackLayer(TokenBackLayer.ROOT) { backLevel.consume() }
+        }
+        var botDrawerVisible by remember { mutableStateOf(false) }
         val activityBackDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
         BackCoordinator(
             state = hostBack.pushBack,
             onStateChange = { next -> applyPushState(next) },
-            layers = remember(sheetBackLayer, stackBackLayer) {
-                listOf(sheetBackLayer, stackBackLayer)
+            layers = remember(sheetBackLayer, stackBackLayer, rootChildLayer, meChild) {
+                if (meChild) listOf(sheetBackLayer, stackBackLayer, rootChildLayer) else listOf(sheetBackLayer, stackBackLayer)
             },
             // Only the diagnostic face intercepts the root; anywhere else the
             // platform's default exit stays in charge (`BackCoordinator` then
@@ -1270,7 +1275,7 @@ internal fun HostShell(
             } else {
                 null
             },
-            enabled = hostBack.pushBack.canConsumeBack || probeOpen,
+            enabled = hostBack.pushBack.canConsumeBack || meChild || probeOpen,
         )
         val note = notice ?: speechNotice ?: routeNote
         // tono-account.md §11: the credits notice after a cloud 402.
@@ -1310,7 +1315,7 @@ internal fun HostShell(
                 // §4 rule 4: the bar follows the *selected tab's* contract depth
                 // and leaves while the keyboard is up. `PushBackState` owns both
                 // facts; the host only supplies the measured IME state.
-                val showTabBar = homeTab != null &&
+                val showTabBar = homeTab != null && !meChild && !botDrawerVisible &&
                     hostBack.withKeyboard(imeVisible).pushBack.tabBarVisible
                 Box(
                     Modifier
@@ -1324,6 +1329,7 @@ internal fun HostShell(
                         nav = nav,
                         facts = shownFacts,
                         botDriver = botPlatform?.driver,
+                        onBotDrawerVisibility = { botDrawerVisible = it },
                         botFish = { lifecycle, appearance, crowned, size, paused, modifier ->
                             com.phonedsh.ui.bot.fish.BotFishView(lifecycle, appearance, crowned, size, paused, modifier)
                         },

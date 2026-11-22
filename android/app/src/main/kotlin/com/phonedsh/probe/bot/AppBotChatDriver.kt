@@ -7,6 +7,11 @@ import com.phonedsh.agentcore.JsonObject
 import com.phonedsh.agentcore.JsonString
 import com.phonedsh.agentcore.JsonValue
 import com.phonedsh.bot.BotJson
+import android.content.Context
+import android.net.Uri
+import com.phonedsh.ui.bot.driver.BotDraftImporter
+import com.phonedsh.ui.bot.driver.BotDraftImportResult
+import com.phonedsh.ui.bot.driver.BotDraftAttachment
 import com.phonedsh.bot.attachments.BotAttachment
 import com.phonedsh.bot.attachments.BotAttachmentPrompt
 import com.phonedsh.bot.fish.BotFishLifecycle
@@ -136,7 +141,17 @@ class AppBotChatDriver(
     private val onTurnBoundary: (String, Boolean) -> Unit = { _, _ -> },
     materializedSessions: Path? = null,
     private val heldInbox: WakeInbox? = null,
-) : BotChatDriver, AutoCloseable {
+    private val attachmentContext: Context? = null,
+) : BotChatDriver, BotDraftImporter, AutoCloseable {
+    override suspend fun importDraft(messageID: String, files: List<BotDraftAttachment>) =
+        withContext(Dispatchers.IO) {
+            val app = attachmentContext
+            if (app == null) BotDraftImportResult(emptyList(), listOf("附件未附加：工作区不可用。"))
+            else BotWorkspaceAttachmentImport(app.cacheDir,
+                { uri -> app.contentResolver.openInputStream(Uri.parse(uri)) },
+                transport, runtime::startMainSession, botId).run(messageID, files)
+        }
+
     private val lock = Any()
     private val history = BotRowHistory()
 

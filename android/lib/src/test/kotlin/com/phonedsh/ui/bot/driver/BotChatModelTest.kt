@@ -28,6 +28,33 @@ class BotChatModelTest {
     private val fixtures = SpecFixtures.repoJson("spec/ui/v1/bot/golden/fixtures.json")
     private val now = 1_760_000_000_000L
 
+    @Test
+    fun `picked files are sent only after commit and a newer draft is preserved`() {
+        val fixture = FixtureBotChatDriver.fromJson(fixtures, "empty")
+        val completion = kotlinx.coroutines.CompletableDeferred<BotDraftImportResult>()
+        val importer = object : BotChatDriver by fixture, BotDraftImporter {
+            override suspend fun importDraft(messageID: String, files: List<BotDraftAttachment>): BotDraftImportResult {
+                assertEquals("content://test/file", files.single().sourceUri)
+                return completion.await()
+            }
+        }
+        val chat = BotChatModel(BotUiContext(botID = "main", botName = "Bot"), importer,
+            scope = CoroutineScope(Dispatchers.Unconfined))
+        val meta = com.phonedsh.bot.attachments.BotAttachment("notes.txt", "", 3, "text/plain", "file")
+        chat.acceptPickedAttachments(listOf(BotDraftAttachment("one", meta, "content://test/file")), emptyList())
+        chat.setDraft("first")
+        chat.send()
+        chat.send()
+        assertTrue(fixture.performed.isEmpty())
+        chat.setDraft("next")
+        val stored = meta.copy(path = "/dsh/workspace/.dshbot/agents/main/imports/attachments-id/notes.txt")
+        completion.complete(BotDraftImportResult(listOf(stored), emptyList()))
+        assertEquals(listOf(stored), fixture.performed.single().attachments)
+        assertEquals("first", fixture.performed.single().text)
+        assertEquals("next", chat.state.value.draft)
+        chat.close()
+    }
+
     private data class Harness(val model: BotChatModel, val driver: FixtureBotChatDriver)
 
     private fun model(
