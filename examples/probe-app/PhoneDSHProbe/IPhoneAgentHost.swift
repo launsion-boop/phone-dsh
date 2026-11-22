@@ -126,9 +126,16 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
     }
 
     /// What the mirror shows about the lock, or nil when there is no usable frame or no clear answer.
-    private func lockScreen(_ moment: String) async -> IPhoneLockScreen? {
-        guard let shot = try? await screen.snapshot(newerThan: nil, fresh: 2, timeout: .seconds(3)) else {
-            unlockLog("screen \(moment) = no frame")
+    /// `after`: only a frame decoded after that count is looked at. The mirror stops while the
+    /// screen sleeps and the viewer keeps the last picture, so the frame on hand may be the app
+    /// that was in front before the phone locked (device run 2026-11-22 17:10Z: the home screen).
+    private func lockScreen(_ moment: String, after mark: Int? = nil) async -> IPhoneLockScreen? {
+        let shot: TonoLinkScreenShot
+        do {
+            if let mark { shot = try await screen.snapshot(newerThan: mark, fresh: 1, timeout: .seconds(2)) }
+            else { shot = try await screen.snapshot(newerThan: nil, fresh: 2, timeout: .seconds(3)) }
+        } catch {
+            unlockLog("screen \(moment) = no \(mark == nil ? "" : "new ")frame")
             return nil
         }
         let frame = IPhoneFrame(jpeg: shot.jpeg, width: shot.width, height: shot.height, frame: shot.frame)
@@ -143,7 +150,7 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
     }
 
     /// Protected data follows an unlock by a moment. Still unavailable after it: the phone is
-    /// locked and was not unlocked here (no saved passcode, or an unclear screenshot).
+    /// locked and was not unlocked here.
     private func waitForProtectedData() async throws {
         for _ in 0..<12 where !UIApplication.shared.isProtectedDataAvailable { try await Task.sleep(for: .milliseconds(250)) }
         guard UIApplication.shared.isProtectedDataAvailable else {
@@ -151,12 +158,23 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         }
     }
 
-    /// Task start (after the board's pointer woke the screen, so the frame is live): unlock when
-    /// the mirrored screen is the lock screen or the passcode page. The app in front is in use.
-    private func unlockIfLockShown() async throws {
-        if UIApplication.shared.applicationState == .active, UIApplication.shared.isProtectedDataAvailable { return }
-        guard let kind = await lockScreen("at task start"), kind != .other else { return }
-        try await unlock()
+    /// Task start and every step. Two signals, neither a lock notification:
+    /// - protected data unavailable (about 10 s after locking): the phone is locked, unlock;
+    /// - before that, with the app not in front: a frame decoded after a pointer nudge. A lock
+    ///   screen or passcode page on it means locked; no new frame means the screen sleeps or sits
+    ///   still, which says nothing, so nothing is sent (the next step looks again).
+    private func unlockIfLocked(_ moment: String) async throws {
+        if !UIApplication.shared.isProtectedDataAvailable {
+            unlockLog("\(moment): protected data unavailable, the phone is locked")
+            try await unlock(surelyLocked: true)
+            return
+        }
+        guard UIApplication.shared.applicationState != .active else { return }
+        let mark = screen.frameCount
+        try? await hands.hover(TonoLinkPoint(480, 520))
+        try? await hands.hover(TonoLinkPoint(520, 480))
+        guard let kind = await lockScreen("\(moment), after a pointer move", after: mark), kind != .other else { return }
+        try await unlock(surelyLocked: false)
     }
 
     /// Types the owner's saved passcode through the board's keyboard over BLE, and only once the
@@ -165,7 +183,7 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
     /// unclear screenshot, or after three failures in a day. The passcode is never logged or put
     /// in an error. A ctrl link of its own, as before PC-20261117: the voice link carries one
     /// command at a time and the turn's lights use it while a task runs.
-    func unlock() async throws {
+    func unlock(surelyLocked: Bool = false) async throws {
         let store = TonoLinkUnlockStore.shared
         guard let passcode = store.passcode() else {
             unlockLog("no saved passcode")
@@ -175,13 +193,14 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         let link = TonoLinkCtrlBLE(nameHint: TonoLinkVoiceHost.boardNamePrefix)
         defer { link.disconnect() }
         var seen: IPhoneLockScreen?
+        let before = screen.frameCount   // frames after this were decoded with the screen lit by the wake key
         let outcome = try await TonoLinkUnlock.run(link: link, seq: UInt16.random(in: 50_000...60_000), passcode: passcode,
                                                    stillLocked: { [weak self] in
-            // Type only on `passcode`. The wake key (backspace) brings the page up from a sleeping
-            // screen, but on a lock screen that is already lit it does nothing (device run
-            // 2026-11-22 17:05Z: three looks, still the clock). Then ask for the page the way a
-            // person does: Space (the passcode field ignores it, PC-20261114), then a swipe up
-            // from the bottom edge. Neither can enter a digit.
+            // Type only on `passcode`. The wake key (backspace) lights a sleeping screen; if the
+            // passcode page is not up yet, ask for it the way a person does: Space (the passcode
+            // field ignores it, PC-20261114), then a swipe up from the bottom edge. Neither can
+            // enter a digit. They are sent only on a lock screen: one that the screenshot shows,
+            // or, with no clear picture, one that protected data proves.
             guard let self else { return false }
             let prompts: [(name: String, send: () async -> Void)] = [
                 ("wake key", {}),
@@ -189,10 +208,14 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
                 ("swipe up", { try? await self.hands.swipe(from: TonoLinkPoint(500, 990), to: TonoLinkPoint(500, 350), ms: 300) }),
             ]
             for prompt in prompts {
+                let mark = self.screen.frameCount
                 await prompt.send()
                 try? await Task.sleep(for: .milliseconds(900))
-                seen = await self.lockScreen("after \(prompt.name)")
+                // A frame from after the prompt when there is one, else the one on hand.
+                seen = await self.lockScreen("after \(prompt.name)", after: mark)
+                if seen == nil, self.screen.frameCount > before { seen = await self.lockScreen("after \(prompt.name), latest") }
                 if seen == .passcode || seen == .other { break }
+                guard seen == .lockScreen || (seen == nil && surelyLocked) else { break }
             }
             return seen == .passcode
         })
@@ -237,7 +260,7 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
             while ContinuousClock.now < warmup {
                 if (try? await screen.snapshot()) != nil {
                     // Before anything taps: ensureHID's pointer move woke the screen, so this frame is live.
-                    try await unlockIfLockShown()
+                    try await unlockIfLocked("task start")
                     try await waitForProtectedData()
                     await checkAssistiveButtonMoved()
                     await learnMirrorRouteIfNeeded()
@@ -497,6 +520,12 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
     }
 
     func screenshot(after frame: Int?) async throws -> IPhoneFrame {
+        // The phone may lock mid-task, or have locked moments before the task (§4.4): a step
+        // never runs on a locked phone. A failed unlock ends the task with its reason.
+        if !UIApplication.shared.isProtectedDataAvailable {
+            try await unlockIfLocked("step")
+            try await waitForProtectedData()
+        }
         let shot = try await screen.snapshot(newerThan: frame)
         return IPhoneFrame(jpeg: shot.jpeg, width: shot.width, height: shot.height, frame: shot.frame)
     }
