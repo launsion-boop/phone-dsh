@@ -381,3 +381,40 @@ public enum IPhoneGrounding {
         return IPhoneAction.normalized(point, width: frame.width, height: frame.height)
     }
 }
+
+/// What the mirrored screen shows about the lock (tonolink-board.md §4.4). The app registers no
+/// device-lock notification; the passcode page is recognised on the screenshot, like any other screen.
+public enum IPhoneLockScreen: String, Sendable, Equatable {
+    /// The passcode entry page: 输入密码 / Enter Passcode with the numeric keypad.
+    case passcode
+    /// The lock screen (clock, notifications) without the keypad, or a dark sleeping screen.
+    case lockScreen
+    /// Anything else: the phone is in use.
+    case other
+
+    public static let prompt = """
+        You classify one iPhone screenshot. Decide which of these it is:
+        PASSCODE: the lock-screen passcode entry page. It shows 输入密码 or Enter Passcode, a row of empty circles and a numeric keypad (0-9).
+        LOCKSCREEN: the lock screen without a keypad (large clock, date, notifications, flashlight and camera buttons), or an all-dark sleeping screen.
+        OTHER: anything else (home screen, an app, Control Center, Spotlight).
+        Output only <action>Answer(content='PASSCODE')</action>, <action>Answer(content='LOCKSCREEN')</action> or <action>Answer(content='OTHER')</action>.
+        """
+
+    /// nil when the reply names none of the three: the caller must not type a passcode on a guess.
+    public static func parse(_ reply: String) -> IPhoneLockScreen? {
+        let action = IPhoneAction.parse(reply)
+        let word = (action.text.isEmpty ? action.raw : action.text).uppercased()
+        let kinds: [(word: String, kind: IPhoneLockScreen)] = [("PASSCODE", .passcode), ("LOCKSCREEN", .lockScreen), ("OTHER", .other)]
+        let hits = kinds.filter { word.contains($0.word) }.map(\.kind)
+        return hits.count == 1 ? hits[0] : nil
+    }
+
+    public static func classify(_ frame: IPhoneFrame, client: VenusClient = VenusClient(),
+                                model: String = IPhoneAgent.defaultModel) async throws -> IPhoneLockScreen? {
+        let messages: [[String: Any]] = [["role": "user", "content": [
+            ["type": "text", "text": prompt],
+            ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + frame.jpeg.base64EncodedString()]],
+        ]]]
+        return parse(try await client.chat(model: model, messages: messages, maxTokens: 64, timeout: 30))
+    }
+}

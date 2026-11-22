@@ -251,18 +251,39 @@ Consumer rules: the phone sends `fx` best effort. The ctrl link carries one comm
 the phone queues light changes and the next `listen` waits for them; a refused or lost `fx` never
 fails the turn and is never retried. The phone does not send `wake` (the board lights it itself).
 
-### 4.4 Manual unlock on iOS
+### 4.4 Unlock from the mirrored screen on iOS
 
-The owner unlocks the phone using iOS. Neither a TonoLink wake nor an agent request
-asks for a lock-screen passcode, reads a previously saved passcode, or sends a
-passcode sequence to the board. The app uses UIKit protected-data availability
-for protected-data access and does not subscribe to device lock notifications.
+The app registers no device-lock notification of any kind (Apple ITMS-90699 rejected a build
+for `com.apple.springboard.lockstate`; that string stays forbidden in the app executable, see
+`ios_app_binary_forbidden_strings` in the shared voice fixture). It uses UIKit protected-data
+availability for protected-data access, and it learns that the phone is locked the way it
+learns anything else about the screen: from the mirrored screenshot.
 
-`IPhoneAgentHost.prepare()` refuses with a manual-unlock hint before HID setup if
-protected data is unavailable. If mirroring is down, a learned recovery route
-can send blind taps only with the app active in the foreground. A live mirror
-continues to use the regular screen and HID flow. Voice admission and delivery
-follow §4.1.1 and the host contract.
+The owner may save the phone's numeric passcode (4–10 digits) in the phone-control panel.
+Saving is the consent; clearing it turns the feature off. The passcode is one Keychain item
+(`com.tono.phonedsh.tonolink-passcode`, this device only, readable after the first unlock);
+it is never logged, shown, put in an error or sent anywhere but the board's keyboard. A
+passcode saved under the pre-PC-20261117 service is ignored.
+
+`IPhoneAgentHost.prepare()` runs this before HID setup:
+
+1. App active with protected data available: the phone is in use; nothing is classified or typed.
+2. Otherwise the mirrored screenshot is classified as `passcode` (输入密码 with the keypad),
+   `lockScreen` (no keypad, or dark) or `other`. `other`, or no clear answer while protected
+   data is available, means unlocked: nothing is typed.
+3. Locked with no saved passcode, or after 3 failed attempts that day: refuse with a
+   manual-unlock hint.
+4. Otherwise the §4.4 keyboard sequence (`hid_mode 1`, two `key backspace`, one `key` per
+   digit, `key enter` unless 4 or 6 digits) is sent over the BLE ctrl link. After the wake key
+   the screenshot is classified again, and **the digits are sent only when it shows the
+   passcode page**. `other` means the wake alone unlocked it; anything else refuses without typing.
+5. The attempt succeeded when a later screenshot is `other` (within 8 s); otherwise it counts
+   as one failure and refuses.
+
+With no saved passcode the behaviour is the manual unlock of PC-20261117: `prepare()` refuses
+before HID setup if protected data is unavailable. If mirroring is down there is no screenshot,
+so nothing is typed; a learned recovery route can send blind taps only with the app active in
+the foreground. Voice admission and delivery follow §4.1.1 and the host contract.
 
 Existing board keyboard verbs, validation, acknowledgements and sequence numbers
 are unchanged. The `unlock_commands` and `unlock_rejected` vectors in

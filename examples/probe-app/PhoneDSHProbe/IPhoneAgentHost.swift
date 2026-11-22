@@ -116,13 +116,80 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         }
     }
 
+    // MARK: unlock from the mirrored screen (tonolink-board.md §4.4)
+
+    private func unlockLog(_ line: String) {
+        logger.info("\(line, privacy: .public)")
+        TonoLinkVoiceHost.shared.log(line)
+    }
+
+    /// What the mirror shows about the lock, or nil when there is no usable frame or no clear answer.
+    private func lockScreen() async -> IPhoneLockScreen? {
+        guard let shot = try? await screen.snapshot(newerThan: nil, fresh: 2, timeout: .seconds(3)) else { return nil }
+        let frame = IPhoneFrame(jpeg: shot.jpeg, width: shot.width, height: shot.height, frame: shot.frame)
+        return try? await IPhoneLockScreen.classify(frame)
+    }
+
+    /// When the mirrored screen shows the lock, types the owner's saved passcode through the
+    /// board's keyboard over BLE, and only once the passcode page itself is on the screenshot.
+    /// No device-lock notification is used (Apple ITMS-90699): the app in front is not locked, and
+    /// otherwise the screenshot decides. Nothing is typed without a saved passcode, on an unclear
+    /// screenshot, or after three failures in a day. The passcode is never logged or put in an error.
+    func unlockIfPasscodeShown() async throws {
+        // In front with its data readable: the phone is in use, no model call is spent on it.
+        if UIApplication.shared.applicationState == .active, UIApplication.shared.isProtectedDataAvailable { return }
+        let before = await lockScreen()
+        logger.info("unlock: screen before = \(before?.rawValue ?? "unclear", privacy: .public)")
+        // Unlocked and in another app: a key now would land in that app.
+        if before == .other || (before == nil && UIApplication.shared.isProtectedDataAvailable) { return }
+        let store = TonoLinkUnlockStore.shared
+        guard let passcode = store.passcode() else {
+            throw IPhoneAgentError("手机锁着：请先解锁手机。在 TonoLink 面板的「手机控制」里存一次锁屏密码，以后会自动解锁")
+        }
+        if let reason = store.refusal() { throw IPhoneAgentError(reason) }
+        let shared = await TonoLinkVoiceHost.shared.idleCtrlLink()
+        let own = shared == nil ? TonoLinkCtrlBLE(nameHint: TonoLinkVoiceHost.boardNamePrefix) : nil
+        defer { own?.disconnect() }
+        let link: TonoLinkCtrlLink = shared ?? own!
+        var seen: IPhoneLockScreen?
+        let outcome = try await TonoLinkUnlock.run(link: link, seq: UInt16.random(in: 50_000...60_000), passcode: passcode,
+                                                   stillLocked: { [weak self] in
+            seen = await self?.lockScreen()
+            // Type only when the passcode page is on the screenshot.
+            return seen == .passcode
+        })
+        logger.info("unlock: screen after wake = \(seen?.rawValue ?? "unclear", privacy: .public)")
+        switch outcome {
+        case .unlockedByWake:
+            if seen == .other { return }   // no passcode was needed
+            throw IPhoneAgentError("手机锁着，但镜像画面上没有出现密码输入页，没有输入密码：请手动解锁手机")
+        case .refused(let step, let answer):
+            unlockLog("unlock: board stopped at step \(step): \(answer)")
+            throw IPhoneAgentError("自动解锁没有完成：板子没有执行键盘命令，请手动解锁手机")
+        case .typed:
+            break
+        }
+        let deadline = ContinuousClock.now + .seconds(8)
+        while ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(1200))
+            if await lockScreen() == .other {
+                unlockLog("unlock: unlocked")
+                return
+            }
+        }
+        store.recordFailure()
+        unlockLog("unlock: still locked after typing (failures today \(store.failuresToday))")
+        throw IPhoneAgentError("自动解锁没有成功（密码可能不对）：请手动解锁手机，或在 TonoLink 面板里重新保存密码")
+    }
+
     // MARK: IPhoneAgentDevice
 
     func prepare() async throws {
+        screen.start()
+        try await unlockIfPasscodeShown()
         guard UIApplication.shared.isProtectedDataAvailable else {
             throw IPhoneAgentError("请先解锁手机，再重试手机任务")
         }
-        screen.start()
         try await hands.ensureHID()
         // The board decides whether a mirror is running: the viewer keeps the last decoded frame
         // after a mirror ends, so a frame on hand is not proof of a live screen.

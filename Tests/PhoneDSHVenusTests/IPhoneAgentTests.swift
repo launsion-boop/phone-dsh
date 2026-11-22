@@ -306,3 +306,18 @@ private func solidJPEG(_ gray: CGFloat) -> Data {
         XCTAssertEqual(IPhoneAction.parse("<think>t</think><action>LaunchApp(app='小红书')").text, "小红书")
     }
 }
+
+/// tonolink-board.md §4.4: the passcode is typed only when the screenshot is unambiguously the
+/// passcode page, so a reply that names none or several of the three kinds is no answer.
+final class IPhoneLockScreenTests: XCTestCase {
+    func testOnlyAnUnambiguousReplyClassifiesTheScreen() {
+        XCTAssertEqual(IPhoneLockScreen.parse("<action>Answer(content='PASSCODE')</action>"), .passcode)
+        XCTAssertEqual(IPhoneLockScreen.parse("<think>keypad</think><action>Answer(content='passcode')</action>"), .passcode)
+        XCTAssertEqual(IPhoneLockScreen.parse("<action>Answer(content='LOCKSCREEN')</action>"), .lockScreen)
+        XCTAssertEqual(IPhoneLockScreen.parse("<action>Answer(content='OTHER')</action>"), .other)
+        XCTAssertNil(IPhoneLockScreen.parse("<action>Answer(content='PASSCODE or LOCKSCREEN')</action>"))
+        XCTAssertNil(IPhoneLockScreen.parse("<action>Click(point=(500, 500))</action>"))
+        XCTAssertNil(IPhoneLockScreen.parse("Thought: the screen shows a keypad, so it might be"))
+        XCTAssertNil(IPhoneLockScreen.parse(""))
+    }
+}

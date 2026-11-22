@@ -124,6 +124,14 @@ import ProbeKit
     /// active) for a reconnect; after it the App may suspend until the board wakes it.
     static let backgroundReconnectGrace: TimeInterval = 600
 
+    /// The connected ctrl link, free for one more command sequence (the unlock keys, §4.4): it
+    /// carries one command at a time, so the light changes queued on it finish first.
+    func idleCtrlLink() async -> TonoLinkCtrlLink? {
+        await lightChain?.value
+        guard let ctrl, ctrl.isConnected else { return nil }
+        return ctrl
+    }
+
     /// True while the board's link is up: a wake may arrive, so the chat host stays alive in the background.
     var isArmed: Bool { ctrl?.isConnected == true }
 
