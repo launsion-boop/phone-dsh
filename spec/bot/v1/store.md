@@ -916,7 +916,10 @@ persists the action before planning, in a transaction independent of the action 
   `nonce`, so replay is oldest-first and deterministic within one millisecond.
   `pendingActionRecords(botID:)` additionally exposes `created_at_ms` and `attempts`.
 - **Replay.** After a unit's main session starts, the App loads the rows for that Bot and
-  re-dispatches them sequentially through the same dispatcher. Replay is safe to run with
+  re-dispatches them sequentially through the same dispatcher. Automatic replay is bounded
+  (PC-20261122-bot-queued-send-replay): only `chat` rows whose `created_at_ms` is at most
+  900 000 ms (15 minutes) older than the start of the pass are dispatched; other kinds and
+  older chat rows are not dispatched automatically and stay retained under the rule below. Replay is safe to run with
   no network: every dispatch throws or returns a retryable rejection before commit, the
   rows stay, and the App does not crash. Nonce idempotency (§10.3) makes a replay after a
   committed-but-uncleared crash return `duplicate` instead of a second turn.

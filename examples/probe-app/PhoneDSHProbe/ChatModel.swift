@@ -685,6 +685,8 @@ final class ChatModel {
 
     private var host: PhoneDSHHost?
     private var botLaunch: BotRuntimeComposition.Launch?
+    /// The one Bot runtime preparation in flight (see `prepareBotRuntime`).
+    private var botPrepareTask: Task<Bool, Never>?
     /// Heals the App-owned Bot MCP listener before foreground/resume/cold boot.
     private var botListenerSupervisor: BotMCPListenerSupervisor?
     /// UI-visible Bot runtime state; set by the composition whenever the Host
@@ -1586,6 +1588,29 @@ final class ChatModel {
             botRuntimeState = launch.composition.state
             return true
         }
+        // Single flight: the launch orchestrator (phase A, for the Bot page)
+        // and the silent engine boot both prepare at launch. Each used to pass
+        // the `botLaunch == nil` check above, suspend on the store open and
+        // build its own composition; the page kept the first one, the host
+        // bound the second, and every Bot send hit the never-connected
+        // planner (`unavailable`, 「待发送」 forever). Later callers join the
+        // preparation already in flight.
+        if let inFlight = botPrepareTask {
+            let ok = await inFlight.value
+            if !ok, reportingFailure, case .failed(let text) = botRuntimeState { reportError(text) }
+            return ok
+        }
+        let task = Task { @MainActor [weak self] () -> Bool in
+            guard let self else { return false }
+            return await self.buildBotRuntime(reportingFailure: reportingFailure)
+        }
+        botPrepareTask = task
+        let ok = await task.value
+        botPrepareTask = nil
+        return ok
+    }
+
+    private func buildBotRuntime(reportingFailure: Bool) async -> Bool {
         botRuntimeState = .preparing
         do {
             // Opening and verifying the SQLite store must not run on the main
@@ -2499,8 +2524,22 @@ final class ChatModel {
             if persistedSessionID != nil && requestedSessionID == nil {
                 WorkspaceStorage.setCurrentSessionID(nil, for: .phone)
             }
-            let session = try await harness.openSession(HarnessSessionRequest(
-                sessionID: requestedSessionID, workspace: "/dsh/workspace"))
+            let session: HarnessSession
+            var resumedSession = requestedSessionID != nil
+            do {
+                session = try await harness.openSession(HarnessSessionRequest(
+                    sessionID: requestedSessionID, workspace: "/dsh/workspace"))
+            } catch where ChatSessionBoot.isMissingRememberedSession(error, requested: requestedSessionID) {
+                // The remembered session is gone from this engine (its Worker
+                // data no longer has it). Retrying the same id fails every boot
+                // and leaves queued sends waiting forever, so forget it and
+                // start a fresh session; the old cached transcript is replaced.
+                appendStatus("Remembered session is not in the engine; creating a new session")
+                WorkspaceStorage.setCurrentSessionID(nil, for: .phone)
+                resumedSession = false
+                session = try await harness.openSession(HarnessSessionRequest(
+                    sessionID: nil, workspace: "/dsh/workspace"))
+            }
             resetSessionLedgers()
             self.sessionID = session.id
             WorkspaceStorage.setCurrentSessionID(session.id, for: .phone)
@@ -2565,7 +2604,7 @@ final class ChatModel {
             Task { await self.refreshTrajectory() }
             Task { await self.loadCommands() }
             statusLine = "Session \(session.id.prefix(8)) open — type a task"
-            appendStatus("Session \(requestedSessionID == nil ? "created" : "resumed"): \(session.id); egress hosts=\(egressHosts.count)")
+            appendStatus("Session \(resumedSession ? "resumed" : "created"): \(session.id); egress hosts=\(egressHosts.count)")
         } catch {
             reportError("会话打开失败：\(Self.condensed(String(describing: error)))")
         }

@@ -483,12 +483,11 @@ enum BotProductionSessionEpochs {
 /// launch never retries a dead network for long; the row itself stays pending
 /// across launches regardless.
 enum BotPendingActionReplayPolicy {
-    /// Automatic replay at launch/bind was removed: it started unsolicited
-    /// turns (and the activity bubble + transcript scroll that follow them)
-    /// for a message the user had already stopped waiting on. Rows stay
-    /// durable; an explicit retry surface is the follow-up. Set this to true
-    /// only with that surface in place.
-    static let automaticReplay = false
+    /// Automatic replay at launch/bind is on, bounded by
+    /// `BotPendingActionReplayWindow`: only a chat send at most 15 minutes old
+    /// is dispatched. An unbounded replay (turned off in 20574440) started
+    /// unsolicited turns for messages the user had stopped waiting on.
+    static let automaticReplay = true
     static let attemptsPerAction = 2
     static let backoffMilliseconds: Int64 = 250
 }
@@ -791,7 +790,11 @@ actor BotProductionRowService {
         let botID = environment.botID
         let pending: [BotUserAction]
         do {
-            pending = try await environment.domain.pendingActions(botID: botID)
+            // §10.5: only recent chat sends are replayed automatically; older
+            // rows and other kinds stay retained without starting a turn.
+            pending = BotPendingActionReplayWindow.replayable(
+                try await environment.domain.pendingActionRecords(botID: botID),
+                nowMS: botProductionNowMilliseconds())
         } catch {
             report.loadFailed = true
             report.lastErrorType = Self.errorTypeToken(error)
