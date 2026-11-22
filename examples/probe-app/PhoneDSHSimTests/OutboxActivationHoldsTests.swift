@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import PhoneDSHAgentCore
+import ProbeKit
 import XCTest
 
 /// Real-device regression (iPhone19,4, 2026-11-22): six queued sends targeted a session that only
@@ -40,6 +41,32 @@ final class OutboxActivationHoldsTests: XCTestCase {
         holds.markMissing("lost")
         holds.beginPass(incarnation: 4)
         XCTAssertFalse(holds.isKnownMissing("lost"))
+    }
+
+    private func entry(_ session: String, _ state: SendOutboxState) -> SendOutboxEntry {
+        SendOutboxEntry(rpcId: "6b1e0f2a-93c4-4d7e-a5b6-0c1d2e3f4a5b", sessionId: session,
+                        text: "x", createdAtMs: 1, state: state, attempts: 0)
+    }
+
+    /// PC-20261122-outbox-lost-target: only this engine's not-found verdict
+    /// for a queued entry is proof for `queued → targetLost`.
+    func testOnlyAQueuedEntryOfAKnownMissingSessionIsProvenLost() {
+        var holds = OutboxActivationHolds()
+        holds.beginPass(incarnation: 5)
+        holds.hold("busy")
+        XCTAssertFalse(holds.provesTargetLost(entry("busy", .queued)),
+                       "a transient activation failure is not proof")
+        holds.markMissing("lost")
+        XCTAssertTrue(holds.provesTargetLost(entry("lost", .queued)))
+        for state in [SendOutboxState.submitting, .accepted, .outcomeUnknown, .targetLost] {
+            XCTAssertFalse(holds.provesTargetLost(entry("lost", state)), state.rawValue)
+        }
+        XCTAssertFalse(holds.provesTargetLost(entry("live", .queued)))
+        holds.beginPass(incarnation: 5)
+        XCTAssertTrue(holds.provesTargetLost(entry("lost", .queued)), "same engine, same verdict")
+        holds.beginPass(incarnation: 6)
+        XCTAssertFalse(holds.provesTargetLost(entry("lost", .queued)),
+                       "a new engine must answer again before anything is marked")
     }
 
     func testOnlyTheEngineNotFoundCodeMarksASessionMissing() {

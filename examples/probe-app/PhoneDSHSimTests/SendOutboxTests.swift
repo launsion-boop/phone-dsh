@@ -576,6 +576,222 @@ extension SendOutboxTests {
         XCTAssertTrue(twentyErrors.isEmpty, twentyErrors.joined(separator: "\n"))
     }
 
+    // MARK: - Lost target (PC-20261122-outbox-lost-target), shared fixtures
+
+    private func hostSpecURL(_ relative: String) -> URL {
+        outboxSchemaURL()
+            .deletingLastPathComponent() // schema
+            .deletingLastPathComponent() // host/v1
+            .appendingPathComponent(relative)
+    }
+
+    private func sharedCases() throws -> [String: Any] {
+        let data = try Data(contentsOf: hostSpecURL("tools/outbox_invalid_cases.json"))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func goldenInstance(_ name: String) throws -> [String: Any] {
+        let data = try Data(contentsOf: hostSpecURL("golden/\(name)"))
+        let wrapper = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try XCTUnwrap(wrapper["instance"] as? [String: Any])
+    }
+
+    /// The Swift edge table must be exactly the fixture's `allowedTransitions`,
+    /// and every `illegal_transition` case must be refused by it.
+    func testTransitionTableEqualsTheSharedFixture() throws {
+        let cases = try sharedCases()
+        let edges = try XCTUnwrap(cases["allowedTransitions"] as? [[String: String]])
+        var expected = Set<String>()
+        for edge in edges {
+            let from = try XCTUnwrap(SendOutboxState(rawValue: edge["from"] ?? ""), "\(edge)")
+            let to = try XCTUnwrap(SendOutboxState(rawValue: edge["to"] ?? ""), "\(edge)")
+            expected.insert("\(from.rawValue)>\(to.rawValue)")
+        }
+        XCTAssertTrue(expected.contains("queued>targetLost"))
+        for from in SendOutboxState.allCases {
+            for to in SendOutboxState.allCases {
+                XCTAssertEqual(SendOutboxTransition.allows(from: from, to: to),
+                               expected.contains("\(from.rawValue)>\(to.rawValue)"),
+                               "\(from.rawValue) → \(to.rawValue)")
+            }
+        }
+        let invalid = try XCTUnwrap(cases["invalid"] as? [[String: Any]])
+        var checked = 0
+        for item in invalid where (item["reason"] as? String) == "illegal_transition" {
+            let pair = try XCTUnwrap(item["case"] as? [String: String])
+            let from = try XCTUnwrap(SendOutboxState(rawValue: pair["from"] ?? ""))
+            let to = try XCTUnwrap(SendOutboxState(rawValue: pair["to"] ?? ""))
+            XCTAssertFalse(SendOutboxTransition.allows(from: from, to: to), "\(item["id"] ?? "")")
+            checked += 1
+        }
+        XCTAssertGreaterThanOrEqual(checked, 11)
+    }
+
+    /// Every schema-invalid shared case is refused by the real decoder, and the
+    /// lost-target golden is decoded by the real store as a resting entry.
+    func testSharedGoldensAndSchemaCasesThroughTheRealDecoder() async throws {
+        let schema = try loadOutboxSchema()
+        let invalid = try XCTUnwrap(try sharedCases()["invalid"] as? [[String: Any]])
+        for item in invalid where (item["schema"] as? Bool) == true {
+            let object = try XCTUnwrap(item["case"])
+            let data = try JSONSerialization.data(withJSONObject: object)
+            XCTAssertThrowsError(try JSONDecoder().decode(SendOutboxEntry.self, from: data),
+                                 "\(item["id"] ?? "")")
+        }
+        for name in ["outbox-entry-queued.json", "outbox-entry-outcome-unknown.json",
+                     "outbox-entry-attachment.json", "outbox-entry-attachments-multiple.json",
+                     "outbox-entry-attachment-only.json", "outbox-entry-attachments-20.json",
+                     "outbox-entry-target-lost.json"] {
+            let instance = try goldenInstance(name)
+            XCTAssertTrue(schemaErrors(instance, schema: schema, path: "$", root: schema).isEmpty, name)
+            let data = try JSONSerialization.data(withJSONObject: instance)
+            XCTAssertNoThrow(try JSONDecoder().decode(SendOutboxEntry.self, from: data), name)
+        }
+        let lost = try goldenInstance("outbox-entry-target-lost.json")
+        let rpcId = try XCTUnwrap(lost["rpcId"] as? String)
+        try writeRaw(lost, rpcId: rpcId)
+        let queue = freshQueue()
+        let stored = await queue.entry(rpcId: rpcId)
+        XCTAssertEqual(stored?.state, .targetLost)
+        XCTAssertEqual(stored?.lastError, SendOutbox.targetLostError)
+        let pending = await queue.pending()
+        XCTAssertTrue(pending.isEmpty, "a lost entry is never resumed or delivered")
+        let listed = await queue.targetLost()
+        XCTAssertEqual(listed.map(\.rpcId), [rpcId])
+    }
+
+    func testOnlyAQueuedEntryBecomesTargetLostAndItHasNoOutgoingEdge() async throws {
+        let queue = freshQueue()
+        let entry = try await queue.enqueue(sessionID: "session-lost", text: "整理纪要")
+        let lost = try await queue.markTargetLost(rpcId: entry.rpcId)
+        XCTAssertEqual(lost.state, .targetLost)
+        XCTAssertEqual(lost.attempts, 0)
+        XCTAssertEqual(lost.lastError, "session_not_found")
+        let schema = try loadOutboxSchema()
+        let written = try JSONSerialization.jsonObject(with: Data(contentsOf: entryFile(entry.rpcId)))
+        let errors = schemaErrors(written, schema: schema, path: "$", root: schema)
+        XCTAssertTrue(errors.isEmpty, errors.joined(separator: "\n"))
+        do {
+            _ = try await queue.markSubmitting(rpcId: entry.rpcId)
+            XCTFail("targetLost → submitting is illegal")
+        } catch {
+            XCTAssertEqual(error as? SendOutboxError,
+                           .illegalTransition(from: .targetLost, to: .submitting))
+        }
+        let deleted = try await queue.observeAuthoritativeUserMessage(rpcId: entry.rpcId)
+        XCTAssertFalse(deleted)
+        do {
+            _ = try await queue.deleteIfDurable(rpcId: entry.rpcId)
+            XCTFail("a lost entry is not durable")
+        } catch {
+            XCTAssertEqual(error as? SendOutboxError, .deleteRequiresDurable(.targetLost))
+        }
+
+        let unknown = try await queue.enqueue(sessionID: "session-lost", text: "y")
+        _ = try await queue.markSubmitting(rpcId: unknown.rpcId)
+        _ = try await queue.markOutcomeUnknown(rpcId: unknown.rpcId, lastError: "closed")
+        do {
+            _ = try await queue.markTargetLost(rpcId: unknown.rpcId)
+            XCTFail("outcomeUnknown may already be in the lost history")
+        } catch {
+            XCTAssertEqual(error as? SendOutboxError,
+                           .illegalTransition(from: .outcomeUnknown, to: .targetLost))
+        }
+        do {
+            _ = try await queue.discardTargetLost(rpcId: unknown.rpcId)
+            XCTFail("discard is only for lost entries")
+        } catch {
+            XCTAssertEqual(error as? SendOutboxError, .notTargetLost(.outcomeUnknown))
+        }
+    }
+
+    func testDiscardDeletesTheLostEntryThenItsBytes() async throws {
+        let queue = freshQueue()
+        let entry = try await queue.enqueue(sessionID: "session-lost", text: "看图",
+                                            attachments: [attachmentInput()])
+        _ = try await queue.markTargetLost(rpcId: entry.rpcId)
+        let removed = try await queue.discardTargetLost(rpcId: entry.rpcId)
+        XCTAssertTrue(removed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: entryFile(entry.rpcId).path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: queue.attachmentDirectory(rpcId: entry.rpcId).path))
+    }
+
+    func testResendCommitsANewEntryForTheLiveSessionBeforeDeletingTheLostOne() async throws {
+        let queue = freshQueue()
+        let bytes = Data("image-bytes".utf8)
+        let entry = try await queue.enqueue(sessionID: "session-lost", text: "看图",
+                                            attachments: [attachmentInput(bytes: bytes)])
+        do {
+            _ = try await queue.resendTargetLost(rpcId: entry.rpcId, to: "session-live")
+            XCTFail("a queued entry is not resendable")
+        } catch {
+            XCTAssertEqual(error as? SendOutboxError, .notTargetLost(.queued))
+        }
+        _ = try await queue.markTargetLost(rpcId: entry.rpcId)
+        do {
+            _ = try await queue.resendTargetLost(rpcId: entry.rpcId, to: "session-lost")
+            XCTFail("resend never targets the lost session")
+        } catch {
+            XCTAssertEqual(error as? SendOutboxError, .resendToLostSession)
+        }
+        let replacement = try await queue.resendTargetLost(rpcId: entry.rpcId, to: "session-live")
+        XCTAssertNotEqual(replacement.rpcId, entry.rpcId)
+        XCTAssertTrue(SendOutbox.isValidRpcId(replacement.rpcId))
+        XCTAssertEqual(replacement.sessionId, "session-live")
+        XCTAssertEqual(replacement.state, .queued)
+        XCTAssertEqual(replacement.attempts, 0)
+        XCTAssertEqual(replacement.text, "看图")
+        XCTAssertEqual(replacement.attachments?.first?.sha256, SendOutbox.sha256Hex(bytes))
+        let loaded = try await queue.verifiedAttachmentData(rpcId: replacement.rpcId)
+        XCTAssertEqual(loaded.first?.data, bytes)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: entryFile(entry.rpcId).path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: queue.attachmentDirectory(rpcId: entry.rpcId).path))
+        let pending = await queue.pending(sessionID: "session-live")
+        XCTAssertEqual(pending.map(\.rpcId), [replacement.rpcId])
+    }
+
+    func testResendRefusesModifiedBytesAndKeepsTheLostEntry() async throws {
+        let queue = freshQueue()
+        let entry = try await queue.enqueue(sessionID: "session-lost", text: "看图",
+                                            attachments: [attachmentInput()])
+        _ = try await queue.markTargetLost(rpcId: entry.rpcId)
+        let attachment = try XCTUnwrap(entry.attachments?.first)
+        try Data("tampered".utf8).write(to: attachmentFile(entry, attachment))
+        do {
+            _ = try await queue.resendTargetLost(rpcId: entry.rpcId, to: "session-live")
+            XCTFail("modified bytes are never resent")
+        } catch {
+            XCTAssertEqual(error as? SendOutboxError, .attachmentDigestMismatch(attachment.id))
+        }
+        let kept = await queue.entry(rpcId: entry.rpcId)
+        XCTAssertEqual(kept?.state, .targetLost)
+        let pending = await queue.pending()
+        XCTAssertTrue(pending.isEmpty)
+    }
+
+    /// The section 10 unknown-state rule is what makes rollback safe: a state
+    /// this build does not know is skipped, kept, and its bytes survive GC.
+    func testAnUnknownStateIsSkippedAndKeptWithItsBytes() async throws {
+        let invalid = try XCTUnwrap(try sharedCases()["invalid"] as? [[String: Any]])
+        let unknownCase = try XCTUnwrap(invalid.first { ($0["id"] as? String) == "unknown-state" })
+        let object = try XCTUnwrap(unknownCase["case"] as? [String: Any])
+        let rpcId = try XCTUnwrap(object["rpcId"] as? String)
+        try writeRaw(object, rpcId: rpcId)
+        let queue = freshQueue()
+        let bytes = queue.attachmentDirectory(rpcId: rpcId).appendingPathComponent("att-1")
+        try FileManager.default.createDirectory(at: bytes.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data("kept".utf8).write(to: bytes)
+        let entries = await queue.entries()
+        XCTAssertTrue(entries.isEmpty)
+        let removed = await queue.collectOrphanAttachments()
+        XCTAssertTrue(removed.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: entryFile(rpcId).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bytes.path))
+    }
+
     // MARK: - Minimal JSON Schema subset used by the outbox schema
 
     private func outboxSchemaURL() -> URL {

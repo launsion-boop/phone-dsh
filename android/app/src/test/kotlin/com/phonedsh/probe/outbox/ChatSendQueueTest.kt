@@ -384,6 +384,29 @@ class ChatSendQueueTest {
         assertNull("an invalid session is not accepted", enqueue(host, "x", "bad session id"))
     }
 
+    // ---------------------------------------- lost target (PC-20261122-outbox-lost-target)
+
+    @Test
+    fun `a lost entry is never delivered, never boots the engine and never holds the live session`() {
+        val store = outbox()
+        val lost = store.enqueue(SESSION, "for a session the engine lost").also { store.markTargetLost(it.rpcId) }
+        val host = process { facts = ready.copy(hostPresent = false, transportReady = false) }
+        host.queue.startup()
+        host.queue.onForeground()
+        host.queue.requestDelivery()
+        assertEquals(0, host.startEngineCalls)
+        assertTrue(host.transport.isEmpty())
+        assertEquals(SendOutboxState.TARGET_LOST, outbox().entry(lost.rpcId)?.state)
+
+        // A live send in the same session is delivered past it.
+        host.facts = ready
+        val live = enqueue(host, "a live send")!!
+        await("delivery") { outbox().entry(live.rpcId) == null }
+        assertEquals(listOf(live.rpcId), host.transport)
+        assertEquals(SendOutboxState.TARGET_LOST, outbox().entry(lost.rpcId)?.state)
+        assertTrue(host.readBacks.isEmpty())
+    }
+
     // ------------------------------------------------------------- preparation
 
     @Test

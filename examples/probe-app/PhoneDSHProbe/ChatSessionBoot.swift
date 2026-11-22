@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import PhoneDSHAgentCore
+import ProbeKit
 
 /// Boot-time session recovery rule for the phone DSH chat (pure, so the
 /// simulator suite can exercise it without booting an engine).
@@ -26,9 +27,9 @@ enum ChatSessionBoot {
 /// A held session skips its own later entries so FIFO holds inside it, but it
 /// never blocks another session's entries. A session the engine reported as
 /// not found is remembered for that engine incarnation, so a drain does not
-/// repaint its cached tail and re-ask the engine on every pass. The entries
-/// themselves are untouched: §10 has no edge out of `queued` for a lost
-/// target, so they stay retained.
+/// repaint its cached tail and re-ask the engine on every pass. That verdict is
+/// the proof for §10 `queued → targetLost` (PC-20261122-outbox-lost-target);
+/// entries in any other state keep their own rules.
 struct OutboxActivationHolds {
     private(set) var held: Set<String> = []
     private var missing: Set<String> = []
@@ -49,6 +50,12 @@ struct OutboxActivationHolds {
     func isKnownMissing(_ sessionID: String) -> Bool { missing.contains(sessionID) }
 
     mutating func hold(_ sessionID: String) { held.insert(sessionID) }
+
+    /// True only for a `queued` entry whose session this engine incarnation
+    /// answered `session/not-found` for. Nothing else is proof.
+    func provesTargetLost(_ entry: SendOutboxEntry) -> Bool {
+        entry.state == .queued && missing.contains(entry.sessionId)
+    }
 
     mutating func markMissing(_ sessionID: String) {
         missing.insert(sessionID)

@@ -31,7 +31,9 @@ ALLOWED = {
     ("accepted", "durable"),
     ("outcomeUnknown", "accepted"),
     ("outcomeUnknown", "queued"),  # only after a read-back proves the message absent
+    ("queued", "targetLost"),  # only on the engine's session/not-found verdict
 }
+STATES = {"queued", "submitting", "accepted", "durable", "outcomeUnknown", "targetLost"}
 
 
 def attachment_problem(case):
@@ -96,13 +98,26 @@ class OutboxContractTests(unittest.TestCase):
         self.assertTrue(transition_cases)
         self.assertTrue(attachment_cases)
 
+    def test_fixture_edge_set_is_the_section_10_table(self) -> None:
+        fixture = json.loads(CASES.read_text(encoding="utf-8"))["allowedTransitions"]
+        pairs = {(edge["from"], edge["to"]) for edge in fixture}
+        self.assertEqual(len(pairs), len(fixture), "duplicate edge in allowedTransitions")
+        self.assertEqual(pairs, ALLOWED)
+        state_enum = set(self.schema["oneOf"][0]["properties"]["state"]["enum"])
+        self.assertEqual(state_enum, STATES)
+        for variant in self.schema["oneOf"]:
+            self.assertEqual(set(variant["properties"]["state"]["enum"]), STATES)
+        self.assertFalse({s for s, _ in ALLOWED if s == "targetLost"},
+                         "targetLost has no outgoing edge")
+
     def test_positive_goldens_validate(self) -> None:
         for name in ("outbox-entry-queued.json",
                      "outbox-entry-outcome-unknown.json",
                      "outbox-entry-attachment.json",
                      "outbox-entry-attachments-multiple.json",
                      "outbox-entry-attachment-only.json",
-                     "outbox-entry-attachments-20.json"):
+                     "outbox-entry-attachments-20.json",
+                     "outbox-entry-target-lost.json"):
             wrapper = load_json(CONTRACT / "golden" / name)
             validate_json(wrapper["instance"], self.schema, name)
 

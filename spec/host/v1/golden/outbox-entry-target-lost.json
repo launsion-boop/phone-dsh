@@ -1,0 +1,16 @@
+{
+  "name": "outbox-entry-target-lost",
+  "schema": "schema/outbox-entry.schema.json",
+  "instance": {
+    "v": 1,
+    "rpcId": "6b1e0f2a-93c4-4d7e-a5b6-0c1d2e3f4a5b",
+    "sessionId": "session-941c1a02",
+    "text": "把今天的会议纪要整理一下",
+    "createdAtMs": 1794398650000,
+    "state": "targetLost",
+    "attempts": 0,
+    "lastError": "session_not_found",
+    "backend": "local"
+  },
+  "notes": "docs/protocol-changes/PC-20261122-outbox-lost-target.md:§2 — the engine answered session/not-found for the entry's session; the entry keeps its fields and waits for an explicit discard or resend."
+}
