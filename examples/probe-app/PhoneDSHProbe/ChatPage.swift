@@ -465,6 +465,48 @@ struct ChatPage: View {
             errorBanner(error)
         }
         if let error = model.commandsError { commandErrorBanner(error) }
+        if !model.lostSends.isEmpty { lostSendsBanner(model.lostSends) }
+    }
+
+    /// host/v1 §10 Lost target: sends whose session the engine no longer has.
+    /// They are not 排队中; each waits for the person to resend it to the
+    /// session on screen or to delete it. Nothing here acts on its own.
+    private func lostSendsBanner(_ entries: [SendOutboxEntry]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("\(entries.count) 条消息的原对话已不在引擎中")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(ChatPage.warning)
+            ForEach(entries, id: \.rpcId) { entry in
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(lostSendPreview(entry))
+                        .font(.system(size: 13))
+                        .foregroundStyle(ChatPage.inkSecondary)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("发到当前对话") {
+                        Task { _ = await model.resendLostSend(rpcId: entry.rpcId) }
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ChatPage.accent)
+                    .disabled(model.lostSendResendTarget == nil)
+                    .accessibilityIdentifier("chat.lost-send.resend")
+                    Button("删除") {
+                        Task { await model.discardLostSend(rpcId: entry.rpcId) }
+                    }
+                    .font(.system(size: 13))
+                    .foregroundStyle(ChatPage.inkSecondary)
+                    .accessibilityIdentifier("chat.lost-send.discard")
+                }
+            }
+        }
+        .padding(.horizontal, HomeSpec.contentInset)
+        .padding(.vertical, 6)
+        .accessibilityIdentifier("chat.lost-sends")
+    }
+
+    private func lostSendPreview(_ entry: SendOutboxEntry) -> String {
+        let label = (entry.attachments ?? []).map { "[\($0.filename)]" }.joined(separator: " ")
+        return [entry.text, label].filter { !$0.isEmpty }.joined(separator: " ")
     }
 
     private var pageStack: some View {

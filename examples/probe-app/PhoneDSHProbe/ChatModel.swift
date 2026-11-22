@@ -416,13 +416,8 @@ final class ChatModel {
             // entry file are orphans; a directory whose entry still exists is
             // a consistency failure handled at dispatch, never GC'd here.
             _ = await self.sendOutbox.collectOrphanAttachments()
-            let entries = await self.sendOutbox.entries()
-            self.queuedSendCount = entries.filter {
-                $0.state == .queued || $0.state == .submitting
-                    || $0.state == .accepted || $0.state == .outcomeUnknown
-            }.count
-            self.outboxNeedsDrain = !entries.isEmpty
-            if !entries.isEmpty { self.scheduleRecoveryQueueFlush() }
+            await self.refreshQueuedSendCount()
+            if self.outboxNeedsDrain { self.scheduleRecoveryQueueFlush() }
         }
     }
 
@@ -826,6 +821,10 @@ final class ChatModel {
     /// Durable send queue (P06/W1-C). The file is the source of truth; this
     /// count only drives the lightweight queued hint.
     private(set) var queuedSendCount = 0
+    /// Entries the engine proved lost (`targetLost`, any session), oldest
+    /// first. Shown on the live page; only an explicit tap resends or discards
+    /// one (PC-20261122-outbox-lost-target).
+    private(set) var lostSends: [SendOutboxEntry] = []
     private var outboxNeedsDrain = false
     private var isDrainingOutbox = false
     private var isStartingEngine = false
@@ -4655,9 +4654,12 @@ final class ChatModel {
             $0.state == .queued || $0.state == .submitting
                 || $0.state == .accepted || $0.state == .outcomeUnknown
         }.count
+        let lost = entries.filter { $0.state == .targetLost }
+        if lost != lostSends { lostSends = lost }
         // A durable file is a delivered message waiting for its delete; it
-        // still needs one drain pass after the engine answers.
-        outboxNeedsDrain = !entries.isEmpty
+        // still needs one drain pass after the engine answers. A lost entry
+        // needs none: it waits for the person, not for the engine.
+        outboxNeedsDrain = entries.contains { $0.state != .targetLost }
     }
 
     /// Delivers queued entries in per-session FIFO order. A target that is not
@@ -4668,9 +4670,8 @@ final class ChatModel {
         isDrainingOutbox = true
         defer { isDrainingOutbox = false }
         let entries = await sendOutbox.entries()
-        guard !entries.isEmpty else {
-            queuedSendCount = 0
-            outboxNeedsDrain = false
+        guard entries.contains(where: { $0.state != .targetLost }) else {
+            await refreshQueuedSendCount()
             return
         }
         guard host != nil, !busy, !hostLifecycleTransition, !parked, !engineNeedsReset,
@@ -4699,6 +4700,12 @@ final class ChatModel {
                 await reconcileOutboxEntry(entry)
                 continue
             }
+            // The engine said this entry's session is gone: the entry leaves
+            // the queue as targetLost and waits for the person (§10 Lost target).
+            if outboxHolds.provesTargetLost(entry) {
+                await markOutboxTargetLost(entry)
+                continue
+            }
             // host/v1 §10: FIFO per session, sessions independent. A session
             // that could not be activated holds only its own later entries.
             if outboxHolds.isHeld(entry.sessionId) { continue }
@@ -4708,6 +4715,10 @@ final class ChatModel {
                     break
                 }
                 guard await activateSessionForOutbox(entry.sessionId) else {
+                    if outboxHolds.provesTargetLost(entry) {
+                        await markOutboxTargetLost(entry)
+                        continue
+                    }
                     if !outboxHolds.isHeld(entry.sessionId) {
                         appendStatus("Queued delivery held: target session could not be activated")
                     }
@@ -4881,12 +4892,70 @@ final class ChatModel {
             discardOutboxActivationPreview(id)
             if ChatSessionBoot.isMissingSession(error) {
                 outboxHolds.markMissing(id)
-                appendStatus("Queued send target is not in the engine; its entries stay queued (session=\(id))")
+                appendStatus("Queued send target is not in the engine; its queued entries become targetLost (session=\(id))")
             } else {
                 appendStatus("Queued send activation failed: \(NativeLogRedaction.localizedError(error))")
             }
             return false
         }
+    }
+
+    /// `queued → targetLost` on the engine's `session/not-found` verdict for
+    /// this engine incarnation. Any other state is left to its own rules.
+    private func markOutboxTargetLost(_ entry: SendOutboxEntry) async {
+        guard entry.state == .queued else { return }
+        if (try? await sendOutbox.markTargetLost(rpcId: entry.rpcId)) != nil {
+            appendStatus("Queued send marked targetLost: the engine has no session \(entry.sessionId)")
+        }
+    }
+
+    /// The session a lost entry would be resent to: the one on screen. Nil
+    /// when there is none (the button is disabled) or it is a device session.
+    var lostSendResendTarget: String? {
+        guard pcRuntime == nil,
+              let target = currentSessionID ?? sessionID,
+              !DeviceSessionCoordinator.shared.isDeviceSession(target) else { return nil }
+        return target
+    }
+
+    /// The person tapped 「发到当前对话」 on a lost entry. A new entry for the
+    /// session on screen is committed first; then the lost one is deleted.
+    @discardableResult
+    func resendLostSend(rpcId: String) async -> Bool {
+        guard let target = lostSendResendTarget else { return false }
+        let entry: SendOutboxEntry
+        do {
+            entry = try await sendOutbox.resendTargetLost(rpcId: rpcId, to: target)
+        } catch {
+            reportError("没能重发这条消息：\(Self.condensed(String(describing: error)))")
+            await refreshQueuedSendCount()
+            return false
+        }
+        if currentSessionID == target {
+            let label = (entry.attachments ?? []).map { "[\($0.filename)]" }.joined(separator: " ")
+            let rowID = "\(target):prompt:\(entry.rpcId)"
+            var input = ChatItem(id: rowID, kind: .user, title: "You",
+                                 text: [entry.text, label].filter { !$0.isEmpty }
+                                    .joined(separator: "\n"))
+            input.promptRequestID = entry.rpcId
+            NativeTranscriptProjector.acceptInput(input, in: &items)
+            markQueued(itemID: rowID, requestID: entry.rpcId)
+        }
+        appendStatus("Lost send resent by the user to the session on screen")
+        await refreshQueuedSendCount()
+        queuedPreparationPaused = false
+        scheduleRecoveryQueueFlush()
+        return true
+    }
+
+    /// The person tapped 「删除」 on a lost entry.
+    func discardLostSend(rpcId: String) async {
+        do {
+            _ = try await sendOutbox.discardTargetLost(rpcId: rpcId)
+        } catch {
+            reportError("没能删除这条消息：\(Self.condensed(String(describing: error)))")
+        }
+        await refreshQueuedSendCount()
     }
 
     /// Puts back the page an outbox activation replaced with the target's
