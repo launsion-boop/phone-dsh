@@ -677,6 +677,9 @@ final class ChatModel {
     /// rows belong to the previewed session, `sessionID` still names the old
     /// one, so a prompt would land in the wrong conversation.
     private(set) var cachedPreview = CachedPreviewCoordinator()
+    /// Which queued-send targets the current drain could not activate, and
+    /// which the engine reported as gone (host/v1 §10 per-session FIFO).
+    private var outboxHolds = OutboxActivationHolds()
     /// True between the background park and the foreground resume (D14).
     private(set) var parked = false
     /// True while the app is in the background and the silent audio session
@@ -4675,6 +4678,7 @@ final class ChatModel {
             await refreshQueuedSendCount()
             return
         }
+        outboxHolds.beginPass(incarnation: engineIncarnation)
         for entry in entries {
             if entry.state == .durable {
                 _ = try? await sendOutbox.deleteIfDurable(rpcId: entry.rpcId)
@@ -4695,14 +4699,20 @@ final class ChatModel {
                 await reconcileOutboxEntry(entry)
                 continue
             }
+            // host/v1 §10: FIFO per session, sessions independent. A session
+            // that could not be activated holds only its own later entries.
+            if outboxHolds.isHeld(entry.sessionId) { continue }
             if entry.sessionId != sessionID {
                 guard !turnRunning, !keepingAlive else {
                     appendStatus("Queued delivery held: target session is not active (turnRunning=\(turnRunning) keepingAlive=\(keepingAlive) active=\(sessionID == nil ? "none" : "other"))")
                     break
                 }
                 guard await activateSessionForOutbox(entry.sessionId) else {
-                    appendStatus("Queued delivery held: target session could not be activated")
-                    break
+                    if !outboxHolds.isHeld(entry.sessionId) {
+                        appendStatus("Queued delivery held: target session could not be activated")
+                    }
+                    outboxHolds.hold(entry.sessionId)
+                    continue
                 }
             }
             guard let activeHarness = harness, let deliveryHost = host,
@@ -4851,6 +4861,9 @@ final class ChatModel {
         // Never steal the screen from a session the person is reading now.
         if let viewed = viewedSessionID, viewed != id { return false }
         if id == sessionID { return true }
+        // The engine already said this session is gone; asking again would
+        // only repaint its cached tail over the live page.
+        if outboxHolds.isKnownMissing(id) { return false }
         busy = true
         defer { busy = false }
         do {
@@ -4858,11 +4871,29 @@ final class ChatModel {
             self.harness = resolved
             let applied = try await openAndActivateSession(
                 id: id, preset: nil, harness: resolved, isStillWanted: { true })
+            if !applied { discardOutboxActivationPreview(id) }
             return applied && sessionID == id
         } catch {
-            appendStatus("Queued send activation failed: \(NativeLogRedaction.localizedError(error))")
+            // `openAndActivateSession` painted the target's cached tail before
+            // the open. Leaving it up kept 「显示上次对话 · 引擎后台启动中…」 on
+            // screen and made `currentSessionID` (the preview) the target of
+            // every new send, so they queued behind the same dead session.
+            discardOutboxActivationPreview(id)
+            if ChatSessionBoot.isMissingSession(error) {
+                outboxHolds.markMissing(id)
+                appendStatus("Queued send target is not in the engine; its entries stay queued (session=\(id))")
+            } else {
+                appendStatus("Queued send activation failed: \(NativeLogRedaction.localizedError(error))")
+            }
             return false
         }
+    }
+
+    /// Puts back the page an outbox activation replaced with the target's
+    /// cached tail. Only that preview: a preview the person opened stays.
+    private func discardOutboxActivationPreview(_ id: String) {
+        guard cachedPreview.previewSessionID == id else { return }
+        discardCachedPreview()
     }
 
     func steer(_ text: String) async -> Bool {
