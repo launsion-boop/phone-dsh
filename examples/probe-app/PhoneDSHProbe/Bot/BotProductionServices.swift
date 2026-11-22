@@ -42,7 +42,11 @@ protocol BotProductionTurnStopping: Actor {
 
 actor BotProductionUnavailablePlanner: BotUserActionPlanning {
     func plan(_ action: BotUserAction, trust: BotUserActionTrust) async throws -> BotUserActionPlanOutcome {
-        .rejected(reason: BotProductionError.brainUnavailable.localizedDescription)
+        // The one retryable token, not a user-facing sentence: a send written
+        // while the engine is absent is durable and replayed on unit start.
+        // The UI keeps the optimistic row and shows the queued label; it must
+        // not roll the row back with the internal `brainUnavailable` copy.
+        .rejected(reason: "unavailable")
     }
 }
 

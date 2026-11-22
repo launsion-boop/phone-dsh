@@ -1,7 +1,7 @@
 {
   "name": "engine-launch",
   "schema": "schema/engine-launch.schema.json",
-  "notes": "spec/host/v1/README.md §10.2: decision order, threshold constants and ReadySweep step gate; PC-20261120-engine-first-launch. Swift and Kotlin tests read this file directly; do not copy a vector.",
+  "notes": "spec/host/v1/README.md §10.2: decision order, threshold constants and ReadySweep step gate; PC-20261120-engine-first-launch. Swift and Kotlin tests read this file directly; do not copy a vector. Decision vectors for `bgProcessing`/`bgAppRefresh` with a non-null lease pin the total decision function only: an expiry-only callback has no measurable deadline (README §10.2.3) and a conforming caller MUST pass a null lease.",
   "instance": {
     "contract": "engine-launch",
     "revision": 3,

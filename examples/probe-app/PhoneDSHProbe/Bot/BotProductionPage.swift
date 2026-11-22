@@ -499,20 +499,30 @@ struct BotProductionPage: View {
         // engine's own startup is silent (§10.2): no "connecting" line while a
         // launch is in flight. Only a real recovery or a terminal issue is
         // surfaced; the user's own waiting operation still reports its failure.
-        if let issue = chat.botRuntimeIssue {
+        if chat.engineNeedsReset {
+            // The engine failed and needs the user's one explicit reset. This
+            // is a terminal state, not the silent boot path: without this line
+            // the Bot page looks usable while every send is queued and no
+            // restart affordance exists on this page.
+            banner("引擎需要重启后才能继续", isError: true)
+        } else if chat.engineUserStopped {
+            banner("引擎已停止；消息会排队，点「启动」后自动发出", isError: false,
+                   actionTitle: "启动")
+        } else if let issue = chat.botRuntimeIssue {
             banner(issue, isError: true)
         } else if chat.botRuntimeState == .recovering {
             banner("Bot 连接中断，正在重新同步…", isError: false)
         }
     }
 
-    private func banner(_ text: String, isError: Bool) -> some View {
+    private func banner(_ text: String, isError: Bool,
+                        actionTitle: String = "重试") -> some View {
         HStack(spacing: 8) {
             Text(text)
                 .botSecondaryFont()
                 .foregroundStyle(isError ? NativeParityTokens.error : HomeSpec.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Button("重试") {
+            Button(actionTitle) {
                 Task { await hub.retry(chat: chat) }
             }
             .botSecondaryFont(weight: .medium)

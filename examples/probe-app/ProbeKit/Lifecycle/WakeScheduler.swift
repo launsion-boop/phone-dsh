@@ -43,6 +43,20 @@ public final class WakeScheduler {
     /// The scheduler's clock, injectable so the projection boundary is tested
     /// deterministically (production uses the wall clock).
     private let now: @MainActor () -> Int64
+    /// The minimum delay between two resident-timer attempts for the *same*
+    /// overdue demand set. Without it, `refresh()` re-arms a due demand at
+    /// `now`, and a wake that cannot consume it (an explicit stop, a failed
+    /// boot, a gated/failed step) re-arms the timer again at zero delay: an
+    /// unbounded main-actor loop. The first attempt stays immediate; only the
+    /// retries are spaced. A changed overdue set or a consumed demand is
+    /// immediate again.
+    private let overdueRetryMs: Int64
+    private var overdueSignature: [String]?
+    /// Set when the resident timer for the current overdue set actually
+    /// fires. Arming alone is not a retry: a second `refresh()` before the
+    /// first timer runs must not replace the immediate attempt with the retry
+    /// window (that would delay the first due work by the window).
+    private var overdueFiredAtMs: Int64?
     private var timerTask: Task<Void, Never>?
     private var running = false
     private var projected = false
@@ -52,10 +66,12 @@ public final class WakeScheduler {
     public private(set) var lastError: WakeDemandLedgerError?
 
     public init(ledger: WakeDemandLedger, projection: Projection,
-                now: @escaping @MainActor () -> Int64 = { WakeDemandLedger.nowMs() }) {
+                now: @escaping @MainActor () -> Int64 = { WakeDemandLedger.nowMs() },
+                overdueRetryMs: Int64 = 60_000) {
         self.ledger = ledger
         self.projection = projection
         self.now = now
+        self.overdueRetryMs = max(1, overdueRetryMs)
     }
 
     public func start() {
@@ -133,7 +149,7 @@ public final class WakeScheduler {
             projectedBackground = plan.backgroundEarliestMs
             projection.project(plan.backgroundEarliestMs)
         }
-        rearm(plan.residentTimerAtMs, nowMs: current)
+        rearm(residentFireAt(plan: plan, demands: demands, nowMs: current), nowMs: current)
     }
 
     /// The App is leaving the foreground / a host is about to park (I5): the
@@ -153,7 +169,40 @@ public final class WakeScheduler {
         projected = true
         projectedBackground = plan.backgroundEarliestMs
         projection.project(plan.backgroundEarliestMs)
-        rearm(plan.residentTimerAtMs, nowMs: current)
+        rearm(residentFireAt(plan: plan, demands: demands, nowMs: current), nowMs: current)
+    }
+
+    /// `plan.residentTimerAtMs` is `max(earliest, now)` for an overdue demand,
+    /// i.e. `now`. Re-arming that value from inside the wake it just started is
+    /// the zero-delay loop described on ``overdueRetryMs``. This keeps the
+    /// first attempt immediate and spaces retries of the same overdue set,
+    /// while still honouring an earlier *future* demand if one exists.
+    private func residentFireAt(plan: WakeProjection, demands: [WakeDemand],
+                                nowMs: Int64) -> Int64? {
+        // Include the due time: a producer moving an overdue demand to a new
+        // time is new intent and must be attempted immediately, not held in
+        // the previous set's retry window.
+        let overdue = demands.filter { $0.dueAtMs <= nowMs }
+            .map { "\($0.id)@\($0.dueAtMs)" }
+            .sorted()
+        guard !overdue.isEmpty, var fireAt = plan.residentTimerAtMs else {
+            overdueSignature = nil
+            overdueFiredAtMs = nil
+            return plan.residentTimerAtMs
+        }
+        if overdueSignature != overdue {
+            overdueSignature = overdue
+            overdueFiredAtMs = nil
+        } else if let firedAt = overdueFiredAtMs {
+            let retryAt = firedAt + overdueRetryMs
+            let nextFuture = demands.lazy
+                .map(\.dueAtMs)
+                .filter { $0 > nowMs }
+                .min()
+            let clampAt = min(retryAt, nextFuture ?? retryAt)
+            fireAt = max(fireAt, clampAt)
+        }
+        return fireAt
     }
 
     private func rearm(_ residentTimerAtMs: Int64?, nowMs: Int64) {
@@ -167,6 +216,9 @@ public final class WakeScheduler {
             }
             guard !Task.isCancelled, let self else { return }
             self.timerTask = nil
+            if self.overdueSignature != nil {
+                self.overdueFiredAtMs = self.now()
+            }
             await self.projection.wake()
             // Deliberately no immediate re-arm: a due demand that its producer
             // has not yet acknowledged must not spin the timer. The producer's

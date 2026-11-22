@@ -1754,12 +1754,19 @@ final class ChatModel {
     /// `Booting the Worker…` status line and no user-facing error.
     func startForWake(_ reason: WakeReason) async {
         silentLaunchDepth += 1
-        defer { silentLaunchDepth -= 1 }
+        defer { silentLaunchDepth = max(0, silentLaunchDepth - 1) }
         await start()
     }
 
     /// Phase B: resume a parked host on behalf of the launch orchestrator.
+    /// A resume owns the same silent visibility as a boot (host §10.2.6): the
+    /// resume watchdog, its one automatic rebuild and the manual-restart
+    /// fallback must not write a status line or raise a user error when the
+    /// wake started them. The depth also covers the synchronous rebuild this
+    /// method awaits; detached recovery tasks capture the flag separately.
     func resumeForWake(_ reason: WakeReason) async {
+        silentLaunchDepth += 1
+        defer { silentLaunchDepth = max(0, silentLaunchDepth - 1) }
         await resumeParkedHost()
     }
 
@@ -1918,8 +1925,20 @@ final class ChatModel {
             anchor.shutdown()
             if autoRecover, !autoRecoveryAttempted {
                 autoRecoveryAttempted = true
+                // The automatic rebuild runs after `start()` has returned, so
+                // the depth from `startForWake` is already gone. Capture it
+                // and keep the whole recovery silent when it came from an
+                // orchestrator wake (host §10.2.6).
+                let silentRecovery = isSilentLaunch
                 Task { @MainActor [weak self] in
-                    await self?.restartEngineWhenIdle()
+                    guard let self else { return }
+                    if silentRecovery { self.silentLaunchDepth += 1 }
+                    defer {
+                        if silentRecovery {
+                            self.silentLaunchDepth = max(0, self.silentLaunchDepth - 1)
+                        }
+                    }
+                    await self.restartEngineWhenIdle()
                 }
             }
             return
@@ -1952,17 +1971,17 @@ final class ChatModel {
             // PLAN §2.9 I2: the retry deadline is a host WakeDemand, not only a
             // process sleep. A suspend/kill no longer loses the retry.
             let dueAtMs = Int64(deadline.timeIntervalSince1970 * 1000)
-            Task { @MainActor in
-                await EngineLaunchOrchestrator.shared.upsertWakeDemand(
-                    WakeDemand(source: .hostRetry, key: "engineBoot",
-                               dueAtMs: dueAtMs, kind: .once, userVisible: false))
-            }
             let seconds = max(1, Int(ceil(max(0, delay))))
             if !launchInitiated { statusLine = "引擎将在 \(seconds) 秒后自动启动" }
             appendStatus("Engine backoff: auto-start \(attempt)/\(ChatBackoffRetry.maximumAttempts) in \(String(format: "%.1f", delay)) s")
             backoffRetryTask?.cancel()
             let nanoseconds = UInt64(max(0, delay) * 1_000_000_000)
             backoffRetryTask = Task { @MainActor [weak self] in
+                // Write the host-owned retry before the in-process fast path:
+                // a kill between the two must leave the deadline on disk.
+                await EngineLaunchOrchestrator.shared.upsertWakeDemand(
+                    WakeDemand(source: .hostRetry, key: "engineBoot",
+                               dueAtMs: dueAtMs, kind: .once, userVisible: false))
                 try? await Task.sleep(nanoseconds: nanoseconds)
                 guard !Task.isCancelled, let self else { return }
                 self.backoffRetryTask = nil
@@ -2300,7 +2319,11 @@ final class ChatModel {
         isStartingEngine = true
         engineStartAttempts += 1
         defer { busy = false; isStartingEngine = false }
-        statusLine = "Restarting the engine…"
+        if isSilentLaunch {
+            appendStatus("Restarting the engine silently (orchestrator recovery)")
+        } else {
+            statusLine = "Restarting the engine…"
+        }
         appendStatus("User reset: clearing the persisted failed controller")
         do {
             try await failed.stop()
@@ -3580,7 +3603,7 @@ final class ChatModel {
                         afterResumeFailure: resumeAutoRebuildsUsed) {
                     case .rebuildEngine:
                         resumeAutoRebuildsUsed += 1
-                        resumeSlowNotice = true
+                        if !isSilentLaunch { resumeSlowNotice = true }
                         rebuildNeeded = true
                     case .offerManualRestart:
                         reportEngineRecoveryFailure()
@@ -3637,7 +3660,7 @@ final class ChatModel {
                 return
             }
             self.resumeAutoRebuildsUsed += 1
-            self.resumeSlowNotice = true
+            if !self.isSilentLaunch { self.resumeSlowNotice = true }
             await self.rebuildEngineAfterResumeFailure(previousHost: host)
         }
     }
@@ -3649,7 +3672,7 @@ final class ChatModel {
             try? await Task.sleep(
                 for: .milliseconds(Int(ChatResumeRecovery.slowThreshold * 1_000)))
             guard !Task.isCancelled, let self, self.isHostRecovering else { return }
-            self.resumeSlowNotice = true
+            if !self.isSilentLaunch { self.resumeSlowNotice = true }
         }
     }
 
@@ -3689,9 +3712,9 @@ final class ChatModel {
                                reason: String) async {
         guard !engineRebuildInProgress else { return }
         engineRebuildInProgress = true
-        resumeSlowNotice = true
+        if !isSilentLaunch { resumeSlowNotice = true }
         let desiredSessionID = sessionID
-        statusLine = status
+        if !isSilentLaunch { statusLine = status }
         appendStatus(reason)
         defer { engineRebuildInProgress = false }
         var stopped = false
@@ -4763,12 +4786,12 @@ final class ChatModel {
         // PLAN §2.9 I2: the wake time is durable on the host; the sleep below
         // is only the resident fast path.
         let dueAtMs = Int64(deadline.timeIntervalSince1970 * 1000)
-        Task { @MainActor in
+        outboxSettleTask = Task { @MainActor [weak self] in
+            // Durable before the sleep: the retry survives a suspension or a
+            // kill instead of existing only in this process.
             await EngineLaunchOrchestrator.shared.upsertWakeDemand(
                 WakeDemand(source: .hostRetry, key: "outboxSettle",
                            dueAtMs: dueAtMs, kind: .once, userVisible: false))
-        }
-        outboxSettleTask = Task { @MainActor [weak self] in
             do { try await Task.sleep(for: .milliseconds(delay)) } catch { return }
             guard let self else { return }
             self.outboxSettleTask = nil

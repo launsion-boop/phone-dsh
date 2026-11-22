@@ -31,12 +31,12 @@ Android Firebase 客户端配置由 Gradle 注入 `pdsh.fcm.appId`、`pdsh.fcm.s
 ## 1. 先读
 
 1. 仓库根 `AGENTS.md`（尤其 §2 规则 1–3：一个边界一个权威、不只改一端、不放宽契约）。
-2. 变更单 [PC-20261120-engine-first-launch](../protocol-changes/PC-20261120-engine-first-launch.md)，revision 3。§3.1 是 ios-bot CCR 的裁定，§3.2 是宿主拥有的时间，§3.3 是到期信号修订。
+2. 变更单 [PC-20261120-engine-first-launch](../protocol-changes/PC-20261120-engine-first-launch.md)，revision 4。§3.1 是 ios-bot CCR 的裁定，§3.2 是 revision 3（宿主拥有的时间），§3.3 是 revision 4（expiry-only 回调）。
 3. 规范：
    - [host README §10.2](../../spec/host/v1/README.md)：单一编排者、WakeReason（13 个，封闭）、WakeLease、决策函数、ReadySweep 九步、静默启动可见性。
    - [host README §10.3](../../spec/host/v1/README.md)：五条不变量、WakeDemand、唤醒投影、OS 通道、第 8–9 步。
    - [bot v2 §3.3](../../spec/bot/v2/README.md)：Bot 负责的第 4–7 步，connectorUpdate held 项，connector cursor，routine / connector 的 demand。
-   - [platform §14.2](../../spec/platform/README.md)：Android 的平台事实（无推送、WorkManager 最小 15 分钟、Android 14+ 后台启动 `dataSync` FGS 的限制、投影通道映射）。
+   - [platform §14.2](../../spec/platform/README.md)：Android 的平台事实（FCM、WorkManager 周期最短 15 分钟、Android 14+ 后台启动 `dataSync` FGS 的限制、投影通道映射）。
 
 ## 2. 两端必须直接读取的共享文件（不准手抄）
 
@@ -49,7 +49,9 @@ Android Firebase 客户端配置由 Gradle 注入 `pdsh.fcm.appId`、`pdsh.fcm.s
 
 参考 oracle：`python3 spec/host/v1/tools/test_engine_launch.py`。它独立实现了决策顺序、步骤门、投影与严格解码，并检查 README 表格与 golden 一致。Kotlin 的实现应该与它给出相同的答案。
 
-Android 的 `EngineLaunchPolicyTest` 直接运行共享启动决策正例。`ProactiveVectorTest` 与 `HeldInboxGoldenTest` 直接读取共享的 `proactive.json` 与 `held-inbox.phone.json`。已移除 `BotUiStrings.kt` 中过期的 `runtime.notReady`。
+**expiry-only 的调用方规则。** golden 里有 `bgProcessing`/`bgAppRefresh` 带非空 lease 的决策向量，那只是为了把**纯函数**定义成 total；这两种回调没有可测 deadline，调用方必须传 `null` lease（host §10.2.3 / §10.2.4）。不要把 golden 里那几条 `boot`/`resume` 当成“BGTask 可以启动引擎”的依据。Android 的 `EngineLaunchPolicy` 应保持纯函数，由 WorkManager/BGTask adapter 负责传 null。
+
+Android 的 `EngineLaunchPolicyTest` 运行共享启动决策正例。`WakeSchedulerContractTest` 直接读取 `sweepVectors`、`projectionVectors` 和 `invalidProjectionVectors`。启动决策和步骤门的负例覆盖仍待补齐。`ProactiveVectorTest` 与 `HeldInboxGoldenTest` 直接读取共享的 `proactive.json` 与 `held-inbox.phone.json`。已移除 `BotUiStrings.kt` 中过期的 `runtime.notReady`。
 
 ## 3. 架构要点（与 iOS 相同的不变量，不同的通道）
 

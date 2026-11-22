@@ -206,6 +206,15 @@ public protocol BotCardAnswerPromptResuming: Actor {
 /// every non-throwing outcome would lose exactly the message this outbox
 /// exists to protect, so only terminal outcomes clear it and unknown reasons
 /// fail safe by staying pending.
+/// Whether a rejected/stale action is worth retrying later. The UI uses this
+/// to keep an optimistic row and show the queued state instead of rolling the
+/// row back as a failure when the engine/Bot unit is not up yet.
+public enum BotActionRetryPolicy {
+    public static func isRetryable(reason: String) -> Bool {
+        !BotPendingActionOutcome.isTerminal(reason: reason)
+    }
+}
+
 enum BotPendingActionOutcome {
     /// Reasons that are known to be transient. `BotRemoteActionPlanner` returns
     /// several of these as non-throwing `.rejected` outcomes rather than throws.
