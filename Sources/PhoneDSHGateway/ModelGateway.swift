@@ -568,6 +568,8 @@ public actor ModelGateway {
     private nonisolated let purposeAbsentOnce = GatewayOnceFlag()
     /// spec/v1/tono-account.md §5: which origins get the 401/503 inspection.
     private nonisolated let cloudResponsePolicy: TonoCloudResponsePolicy
+    /// spec/v1/tono-account.md §11: told about each cloud-origin 402.
+    private nonisolated let cloudCreditsHandler: (@Sendable (TonoCloudResponsePolicy.CreditsCondition) -> Void)?
     private nonisolated let responseLog: (any ResponseLogging)?
     private nonisolated let responseOutcomeHandler: (@Sendable (GatewayResponseReceipt) -> Void)?
     private nonisolated let clock: any GatewayClock
@@ -604,6 +606,8 @@ public actor ModelGateway {
     ///   - cloudResponsePolicy: The origins whose 401 `credential_expired` /
     ///     503 `identity_unavailable` answers are re-sent
     ///     (spec/v1/tono-account.md §5). Production keeps the default.
+    ///   - cloudCreditsHandler: Called once per cloud-origin 402 with its
+    ///     credits condition (§11). The answer itself is forwarded unchanged.
     public init(configuration: ModelGatewayConfiguration,
                 credentialProvider: any CredentialProvider,
                 responseLog: (any ResponseLogging)? = nil,
@@ -614,9 +618,11 @@ public actor ModelGateway {
                 modelPurposeProvider: (any ModelPurposeProviding)? = nil,
                 officialDeepSeekWebCredentialProvider: (any CredentialProvider)? = nil,
                 upstreamDiagnostics: GatewayUpstreamDiagnostics = .standardError,
-                cloudResponsePolicy: TonoCloudResponsePolicy = .production) {
+                cloudResponsePolicy: TonoCloudResponsePolicy = .production,
+                cloudCreditsHandler: (@Sendable (TonoCloudResponsePolicy.CreditsCondition) -> Void)? = nil) {
         self.configuration = configuration
         self.cloudResponsePolicy = cloudResponsePolicy
+        self.cloudCreditsHandler = cloudCreditsHandler
         self.credentialProvider = credentialProvider
         self.officialDeepSeekWebCredentialProvider = officialDeepSeekWebCredentialProvider
         self.responseLog = responseLog
@@ -1032,6 +1038,11 @@ public actor ModelGateway {
                 let inspection = await Self.inspectCloudAnswer(&events,
                                                                url: url,
                                                                policy: cloudResponsePolicy)
+                // §11: a credits answer is forwarded unchanged and never
+                // re-sent; the host only learns that it happened.
+                if let credits = inspection.credits {
+                    cloudCreditsHandler?(credits)
+                }
                 switch inspection.decision {
                 case .refreshRetry where carriesHostCredential
                     && credentialRetries < TonoCloudResponsePolicy.credentialRetryMax
@@ -1315,12 +1326,17 @@ public actor ModelGateway {
         _ events: inout AsyncStream<UpstreamAttemptEvent>.Iterator,
         url: URL,
         policy: TonoCloudResponsePolicy
-    ) async -> (decision: TonoCloudResponsePolicy.Decision, consumed: [UpstreamAttemptEvent]) {
-        guard let first = await events.next() else { return (.forward, []) }
+    ) async -> (decision: TonoCloudResponsePolicy.Decision,
+                credits: TonoCloudResponsePolicy.CreditsCondition?,
+                consumed: [UpstreamAttemptEvent]) {
+        guard let first = await events.next() else { return (.forward, nil, []) }
         guard case .response(let status, let headers) = first,
               policy.inspects(url: url, status: status) else {
-            return (.forward, [first])
+            return (.forward, nil, [first])
         }
+        // §11: a 402 that cannot be read in full is still a credits answer.
+        let unreadCredits: TonoCloudResponsePolicy.CreditsCondition? =
+            status == 402 ? .unspecified : nil
         var consumed = [first]
         var body = Data()
         while let event = await events.next() {
@@ -1331,14 +1347,16 @@ public actor ModelGateway {
             case .data(let data):
                 body.append(data)
                 if body.count > TonoCloudResponsePolicy.inspectBodyLimit {
-                    return (.forward, consumed)
+                    return (.forward, unreadCredits, consumed)
                 }
             case .finished(let error):
-                guard error == nil else { return (.forward, consumed) }
-                return (policy.decide(url: url, status: status, headers: headers, body: body), consumed)
+                guard error == nil else { return (.forward, unreadCredits, consumed) }
+                return (policy.decide(url: url, status: status, headers: headers, body: body),
+                        policy.creditsCondition(url: url, status: status, body: body),
+                        consumed)
             }
         }
-        return (.forward, consumed)
+        return (.forward, unreadCredits, consumed)
     }
 
     // MARK: - Resumed delivery

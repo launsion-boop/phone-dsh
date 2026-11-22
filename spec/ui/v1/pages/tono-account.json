@@ -7,16 +7,17 @@
   "sectionNote": null,
   "title": {
     "text": "Tono 账号",
-    "provenance": "TonoAccountPage.swift:52",
+    "provenance": "TonoAccountPage.swift:54",
     "anchor": ".navigationTitle(\"Tono 账号\")"
   },
   "source": {
     "file": "TonoAccountPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/TonoAccountPage.swift",
-    "lines": 121,
+    "lines": 149,
     "structLine": 10,
     "renderedFrom": [
       "body",
+      "creditsSection",
       "cloudTaskSection"
     ],
     "sectionOrder": "declaration order inside the page struct"
@@ -48,7 +49,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "TonoAccountPage.swift:25",
+          "provenance": "TonoAccountPage.swift:26",
           "anchor": "LabeledContent(\"手机号\", value: summary.phoneHint.map { \"尾号 \\($0)\" } ?? \"已登录\")",
           "extraction": "syntax"
         },
@@ -63,17 +64,17 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "TonoAccountPage.swift:26",
+          "provenance": "TonoAccountPage.swift:27",
           "anchor": "LabeledContent(\"需重新验证\", value: summary.reverifyAt.formatted(date: .abbreviated, ",
           "extraction": "syntax"
         }
       ],
-      "provenance": "TonoAccountPage.swift:24",
+      "provenance": "TonoAccountPage.swift:25",
       "anchor": "Section(\"当前账号\") {",
       "extraction": "syntax"
     },
     {
-      "id": "section-28",
+      "id": "section-30",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -93,23 +94,23 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "TonoAccountPage.swift:29",
+          "provenance": "TonoAccountPage.swift:31",
           "anchor": "Button(\"退出登录\", role: .destructive) { signOut() }.disabled(busy)",
           "extraction": "syntax"
         }
       ],
-      "provenance": "TonoAccountPage.swift:28",
+      "provenance": "TonoAccountPage.swift:30",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "退出登录",
-        "provenance": "TonoAccountPage.swift:29"
+        "provenance": "TonoAccountPage.swift:31"
       },
       "footer": {
         "text": "退出后，云端模型和网页搜索改用你在「模型服务」和「网页搜索」里粘贴的密钥。",
         "labelExpr": null,
-        "provenance": "TonoAccountPage.swift:31",
+        "provenance": "TonoAccountPage.swift:33",
         "anchor": "Text(\"退出后，云端模型和网页搜索改用你在「模型服务」和「网页搜索」里粘贴的密钥。\")"
       }
     },
@@ -134,7 +135,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "TonoAccountPage.swift:35",
+          "provenance": "TonoAccountPage.swift:37",
           "anchor": "TextField(\"手机号\", text: $phone)",
           "extraction": "syntax"
         },
@@ -149,7 +150,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "TonoAccountPage.swift:37",
+          "provenance": "TonoAccountPage.swift:39",
           "anchor": "Button(\"获取验证码\") { requestCode() }.disabled(busy)",
           "extraction": "syntax"
         },
@@ -164,7 +165,7 @@
           "destination": null,
           "writes": true,
           "condition": "challenge != nil",
-          "provenance": "TonoAccountPage.swift:39",
+          "provenance": "TonoAccountPage.swift:41",
           "anchor": "TextField(\"验证码\", text: $code)",
           "extraction": "syntax"
         },
@@ -179,20 +180,72 @@
           "destination": null,
           "writes": false,
           "condition": "challenge != nil",
-          "provenance": "TonoAccountPage.swift:41",
+          "provenance": "TonoAccountPage.swift:43",
           "anchor": "Button(\"登录\") { signIn() }.disabled(busy)",
           "extraction": "syntax"
         }
       ],
-      "provenance": "TonoAccountPage.swift:44",
+      "provenance": "TonoAccountPage.swift:46",
       "anchor": "Text(\"手机号登录\")",
       "extraction": "syntax",
       "hasHeader": true,
       "footer": {
         "text": null,
         "labelExpr": "statusText",
-        "provenance": "TonoAccountPage.swift:46",
+        "provenance": "TonoAccountPage.swift:48",
         "anchor": "Text(statusText)"
+      }
+    },
+    {
+      "id": "积分",
+      "title": "积分",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": "!credits.unavailable",
+      "collection": null,
+      "rows": [
+        {
+          "id": "剩余积分",
+          "label": "剩余积分",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "credits.wallet?.displayCredits ?? \"—\"",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "TonoAccountPage.swift:71",
+          "anchor": "LabeledContent(\"剩余积分\", value: credits.wallet?.displayCredits ?? \"—\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "领取积分",
+          "label": "领取积分",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "credits.wallet?.claimable == true",
+          "provenance": "TonoAccountPage.swift:74",
+          "anchor": "Button(\"领取积分\") { Task { await credits.claim() } }",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "TonoAccountPage.swift:79",
+      "anchor": "Text(\"积分\")",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "云端模型、语音和网页搜索按用量扣积分。每个账号可以领取一次。",
+        "labelExpr": null,
+        "provenance": "TonoAccountPage.swift:81",
+        "anchor": "Text(credits.errorText ?? \"云端模型、语音和网页搜索按用量扣积分。每个账号可以领取一次。\")"
       }
     },
     {
@@ -216,7 +269,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "TonoAccountPage.swift:62",
+          "provenance": "TonoAccountPage.swift:90",
           "anchor": "Toggle(\"接收其他设备的任务\", isOn: Binding(",
           "extraction": "syntax"
         },
@@ -231,19 +284,19 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "TonoAccountPage.swift:67",
+          "provenance": "TonoAccountPage.swift:95",
           "anchor": "LabeledContent(\"状态\", value: cloudTasks.statusText)",
           "extraction": "syntax"
         }
       ],
-      "provenance": "TonoAccountPage.swift:70",
+      "provenance": "TonoAccountPage.swift:98",
       "anchor": "Text(\"云端任务\")",
       "extraction": "syntax",
       "hasHeader": true,
       "footer": {
         "text": "开启后，你在其他已登录设备上留给这台手机的任务，会加密保存在云端，直到这台手机取走。任务在这台手机上运行，需要权限时仍会照常询问你。",
         "labelExpr": null,
-        "provenance": "TonoAccountPage.swift:72",
+        "provenance": "TonoAccountPage.swift:100",
         "anchor": "Text(\"开启后，你在其他已登录设备上留给这台手机的任务，会加密保存在云端，直到这台手机取走。任务在这台手机上运行，需要权限时仍会照常询问你。\")"
       }
     }
@@ -259,7 +312,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "TonoAccountPage.swift:29",
+      "provenance": "TonoAccountPage.swift:31",
       "anchor": "Button(\"退出登录\", role: .destructive) { signOut() }.disabled(busy)",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -274,7 +327,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "TonoAccountPage.swift:37",
+      "provenance": "TonoAccountPage.swift:39",
       "anchor": "Button(\"获取验证码\") { requestCode() }.disabled(busy)",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -289,8 +342,23 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "TonoAccountPage.swift:41",
+      "provenance": "TonoAccountPage.swift:43",
       "anchor": "Button(\"登录\") { signIn() }.disabled(busy)",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "领取积分",
+      "label": "领取积分",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await credits.claim() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "TonoAccountPage.swift:74",
+      "anchor": "Button(\"领取积分\") { Task { await credits.claim() } }",
       "extraction": "syntax",
       "labelAlternatives": []
     },
@@ -304,7 +372,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "TonoAccountPage.swift:62",
+      "provenance": "TonoAccountPage.swift:90",
       "anchor": "Toggle(\"接收其他设备的任务\", isOn: Binding(",
       "extraction": "syntax"
     }
@@ -317,7 +385,7 @@
       "empty": [],
       "data": [
         {
-          "renders": "当前账号 | untitled section at 28 | 手机号登录 | 云端任务",
+          "renders": "当前账号 | untitled section at 30 | 手机号登录 | 积分 | 云端任务",
           "when": null,
           "provenance": "TonoAccountPage.swift:10",
           "anchor": "struct TonoAccountPage: View {",
@@ -325,20 +393,26 @@
         }
       ],
       "failure": [],
-      "unknown": [],
+      "unknown": [
+        {
+          "renders": "—",
+          "when": "!credits.unavailable",
+          "provenance": "TonoAccountPage.swift:71",
+          "anchor": "LabeledContent(\"剩余积分\", value: credits.wallet?.displayCredits ?? \"—\")"
+        }
+      ],
       "loading": []
     },
     "absent": [
       "empty",
       "failure",
-      "unknown",
       "loading"
     ],
     "coverage": {
       "empty": 0,
       "data": 1,
       "failure": 0,
-      "unknown": 0,
+      "unknown": 1,
       "loading": 0
     }
   },
@@ -347,9 +421,9 @@
   "extraction": {
     "tool": "extract_ios_pages.py",
     "mode": "syntax",
-    "sectionKeywordsInPage": 4,
+    "sectionKeywordsInPage": 5,
     "regionsExtracted": 0,
-    "sectionsExtracted": 4,
+    "sectionsExtracted": 5,
     "warnings": []
   }
 }

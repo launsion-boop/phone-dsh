@@ -41,10 +41,14 @@ class HttpUrlConnectionTonoAccountTransport(
             connection.readTimeout = readTimeoutMillis
             connection.requestMethod = request.method
             for ((name, value) in request.headers) connection.setRequestProperty(name, value)
-            connection.doOutput = true
-            // Buffered on purpose: the JDK connection drops a 401 body in
-            // streaming mode, and these bodies are small.
-            connection.outputStream.use { it.write(request.body) }
+            // A GET (the cloud wallet read) must not open an output stream:
+            // the JDK would turn it into a POST.
+            if (request.method != "GET") {
+                connection.doOutput = true
+                // Buffered on purpose: the JDK connection drops a 401 body in
+                // streaming mode, and these bodies are small.
+                connection.outputStream.use { it.write(request.body) }
+            }
             val status = connection.responseCode
             val headers = LinkedHashMap<String, String>()
             for ((name, values) in connection.headerFields) {

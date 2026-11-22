@@ -17,6 +17,7 @@ struct TonoAccountPage: View {
 
     private let session = TonoAccountSession.shared
     @State private var cloudTasks = CloudTaskCenter.shared
+    @State private var credits = CloudCreditsCenter.shared
 
     var body: some View {
         Form {
@@ -25,6 +26,7 @@ struct TonoAccountPage: View {
                     LabeledContent("手机号", value: summary.phoneHint.map { "尾号 \($0)" } ?? "已登录")
                     LabeledContent("需重新验证", value: summary.reverifyAt.formatted(date: .abbreviated, time: .omitted))
                 }
+                creditsSection
                 Section {
                     Button("退出登录", role: .destructive) { signOut() }.disabled(busy)
                 } footer: {
@@ -52,7 +54,33 @@ struct TonoAccountPage: View {
         .navigationTitle("Tono 账号")
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            for await value in await session.states() { state = value }
+            for await value in await session.states() {
+                state = value
+                if case .signedIn = value { await credits.refresh() }
+            }
+        }
+        .onAppear { credits.start() }
+    }
+
+    /// Cloud credits (spec/v1/tono-account.md §10): hidden until the cloud
+    /// offers a wallet; 「领取积分」 only while the wallet says `claimable`.
+    @ViewBuilder
+    private var creditsSection: some View {
+        if !credits.unavailable {
+            Section {
+                LabeledContent("剩余积分", value: credits.wallet?.displayCredits ?? "—")
+                    .accessibilityIdentifier("tonoAccount.credits.available")
+                if credits.wallet?.claimable == true {
+                    Button("领取积分") { Task { await credits.claim() } }
+                        .disabled(credits.claiming)
+                        .accessibilityIdentifier("tonoAccount.credits.claim")
+                }
+            } header: {
+                Text("积分")
+            } footer: {
+                Text(credits.errorText ?? "云端模型、语音和网页搜索按用量扣积分。每个账号可以领取一次。")
+                    .foregroundStyle(credits.errorText == nil ? Color.secondary : Color.red)
+            }
         }
     }
 

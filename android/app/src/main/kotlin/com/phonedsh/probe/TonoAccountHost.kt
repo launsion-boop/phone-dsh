@@ -23,6 +23,11 @@ import com.phonedsh.account.TonoAccountNotice
 import com.phonedsh.account.TonoAccountSession
 import com.phonedsh.account.TonoAccountState
 import com.phonedsh.account.TonoAccountStore
+import com.phonedsh.account.TonoCloudCreditsSignal
+import com.phonedsh.account.TonoCloudWalletClient
+import com.phonedsh.account.TonoCloudWalletProtocol
+import com.phonedsh.account.TonoWalletClaimOutcome
+import com.phonedsh.account.TonoWalletReadOutcome
 import com.phonedsh.account.TonoDeviceInfo
 import com.phonedsh.platform.SecureLookup
 import com.phonedsh.platform.SecureStore
@@ -85,10 +90,88 @@ internal class TonoAccountHost private constructor(context: Context) {
     private val state = MutableStateFlow(TonoAccountFacts(available = true))
     val facts: StateFlow<TonoAccountFacts> = state.asStateFlow()
 
+    /** spec/v1/tono-account.md §10: wallet read/claim with the user token only. */
+    private val wallet = TonoCloudWalletClient(HttpUrlConnectionTonoAccountTransport(), session)
+    private var claiming = false
+
     init {
         scope.launch {
             val flow = withContext(Dispatchers.IO) { session.stateFlow }
-            flow.collect { value -> state.update { project(value, it) } }
+            flow.collect { value ->
+                state.update { project(value, it) }
+                if (value is TonoAccountState.SignedIn) refreshCredits()
+            }
+        }
+        // §11: a cloud 402 (gateway or search) becomes one notice and a wallet re-read.
+        scope.launch {
+            TonoCloudCreditsSignal.conditions.collect { condition ->
+                state.update { it.copy(creditsNotice = TonoCloudWalletProtocol.guidance(condition, null).wire) }
+                val claimable = refreshCredits()
+                state.update { it.copy(creditsNotice = TonoCloudWalletProtocol.guidance(condition, claimable).wire) }
+            }
+        }
+    }
+
+    /** §10.1; returns the wallet's `claimable` when a wallet was read. */
+    private suspend fun refreshCredits(): Boolean? {
+        val outcome = withContext(Dispatchers.IO) { runCatching { wallet.read() }.getOrNull() }
+        return when (outcome) {
+            null -> {
+                state.update { it.copy(creditsAvailable = "—", creditsClaimable = false, creditsError = null) }
+                null
+            }
+            is TonoWalletReadOutcome.Wallet -> {
+                state.update {
+                    it.copy(
+                        creditsShown = true,
+                        creditsAvailable = outcome.wallet.displayCredits,
+                        creditsClaimable = outcome.wallet.claimable,
+                        creditsError = null,
+                    )
+                }
+                outcome.wallet.claimable
+            }
+            TonoWalletReadOutcome.Unavailable -> {
+                state.update { it.copy(creditsShown = false, creditsClaimable = false, creditsError = null) }
+                null
+            }
+            TonoWalletReadOutcome.Unauthorized, TonoWalletReadOutcome.Rejected -> {
+                state.update { it.copy(creditsError = "无法读取积分：账号凭据被拒绝，请重新登录。") }
+                null
+            }
+            TonoWalletReadOutcome.ProtocolError, TonoWalletReadOutcome.Transient -> {
+                state.update { it.copy(creditsError = "暂时无法读取积分，请稍后再试。") }
+                null
+            }
+        }
+    }
+
+    /** §10.2: one claim in flight; `granted_now: false` is a success. */
+    private fun claimCredits() {
+        if (claiming) return
+        claiming = true
+        state.update { it.copy(creditsClaiming = true) }
+        scope.launch {
+            val outcome = withContext(Dispatchers.IO) { runCatching { wallet.claim() }.getOrNull() }
+            claiming = false
+            state.update { current ->
+                val done = current.copy(creditsClaiming = false)
+                when (outcome) {
+                    null -> done.copy(creditsError = "领取失败，请稍后再试。")
+                    is TonoWalletClaimOutcome.Claimed -> done.copy(
+                        creditsShown = true,
+                        creditsAvailable = outcome.wallet.displayCredits,
+                        creditsClaimable = outcome.wallet.claimable,
+                        creditsError = null,
+                        creditsNotice = current.creditsNotice.takeUnless { it == "claim" },
+                    )
+                    TonoWalletClaimOutcome.Unavailable -> done.copy(creditsShown = false, creditsError = "云端暂未开放领取积分。")
+                    TonoWalletClaimOutcome.Rejected -> done.copy(creditsError = "领取失败：请用 Tono 账号登录后再领取。")
+                    TonoWalletClaimOutcome.Unauthorized -> done.copy(creditsError = "领取失败：登录已失效，请重新登录。")
+                    TonoWalletClaimOutcome.ProtocolError, TonoWalletClaimOutcome.Transient ->
+                        done.copy(creditsError = "领取失败，请稍后再试。")
+                }
+            }
         }
     }
 
@@ -118,6 +201,8 @@ internal class TonoAccountHost private constructor(context: Context) {
             }
             // The 云端任务 switch: its own busy flag and status line, on its own lane.
             is PdshHostAction.TonoAccountSetCloudTasks -> CloudTaskCenter.get(appContext).setEnabled(action.enabled)
+            PdshHostAction.TonoAccountClaimCredits -> claimCredits()
+            PdshHostAction.TonoAccountDismissCreditsNotice -> state.update { it.copy(creditsNotice = null) }
             else -> return
         }
     }
@@ -164,6 +249,10 @@ internal class TonoAccountHost private constructor(context: Context) {
                 available = true,
                 signedIn = false,
                 phoneHint = null,
+                creditsAvailable = "—",
+                creditsClaimable = false,
+                creditsError = null,
+                creditsNotice = null,
                 reverifyAt = "",
                 codeSent = challenge != null,
                 status = when {

@@ -3876,7 +3876,10 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                                        botEgressApprover: configuration.egressAuthorizer
                                            as? any BotEgressWriteApproving,
                                        officialDeepSeekWebCredentialProvider: configuration.officialDeepSeekWebCredentialProvider,
-                                       upstreamDiagnostics: gatewayDiagnostics)
+                                       upstreamDiagnostics: gatewayDiagnostics,
+                                       // tono-account.md §11: the credits UI
+                                       // listens; the 402 itself is forwarded.
+                                       cloudCreditsHandler: { TonoCloudCreditsSignal.post($0) })
             let coordinator = PhoneDSHChannelCoordinator(eventBus: eventBus)
             // D15: build the facade handoff owner over this exact live log,
             // fence authority and controller. A host without a configured
