@@ -17,8 +17,8 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .devices: return "dot.radiowaves.left.and.right"
         case .webSearch: return "globe"
-        case .mcp: return "server.rack"
-        case .gmail: return "envelope.fill"
+        case .mcp: return "MCPMark"
+        case .gmail: return "GmailMark"
         case .github: return "GitHubMark"
         }
     }
@@ -28,8 +28,8 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .devices: return Color(red: 0.19, green: 0.69, blue: 0.78)
         case .webSearch: return Color(red: 0.20, green: 0.78, blue: 0.35)
         case .mcp: return HomeSpec.textPrimary
-        case .gmail: return Color(red: 0.92, green: 0.26, blue: 0.21)
-        case .github: return Color(red: 0.13, green: 0.15, blue: 0.18)
+        case .gmail: return .primary // The original-color asset ignores this tint.
+        case .github: return HomeSpec.textPrimary
         }
     }
 
@@ -161,20 +161,20 @@ private struct ConnectorTile: View {
 
     var body: some View {
         Group {
-            if connector == .github {
+            switch connector {
+            case .gmail, .github, .mcp:
                 Image(connector.icon)
                     .resizable()
-                    .renderingMode(.template)
                     .scaledToFit()
                     .frame(width: size * 0.46, height: size * 0.46)
-            } else {
+            case .devices, .webSearch:
                 Image(systemName: connector.icon)
                     .font(.system(size: size * 0.46, weight: .medium))
             }
         }
         .foregroundStyle(connector.tint)
         .frame(width: size, height: size)
-        .background(Color(red: 0.95, green: 0.95, blue: 0.95),
+        .background(HomeSpec.userBubble,
                     in: RoundedRectangle(cornerRadius: size * 0.27, style: .continuous))
         .accessibilityHidden(true)
     }
