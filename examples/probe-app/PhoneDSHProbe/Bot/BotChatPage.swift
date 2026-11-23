@@ -851,6 +851,9 @@ private struct BotComposerDock: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showPhotos = false
     @State private var showFiles = false
+    @State private var showingSignIn = false
+    /// A send was held for sign-in; the sheet's dismissal retries it once.
+    @State private var sendAfterSignIn = false
 
     init(model: BotChatModel, focus: FocusState<Bool>.Binding,
          initialComposerFocus: Bool, initialComposerText: String,
@@ -946,6 +949,22 @@ private struct BotComposerDock: View {
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data],
                       allowsMultipleSelection: true) { result in
             importPickedFiles(result)
+        }
+        // spec/ui/v1/pages/bot-chat.md 「需要登录」: a held send opens the Tono account page; when
+        // the sheet closes signed in, the kept draft goes out without a second tap.
+        .sheet(isPresented: $showingSignIn, onDismiss: {
+            guard sendAfterSignIn else { return }
+            sendAfterSignIn = false
+            if !BotSignInRequirement.current().holdsSend { send() }
+        }) {
+            NavigationStack {
+                TonoAccountPage()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("完成") { showingSignIn = false }
+                        }
+                    }
+            }
         }
     }
 
@@ -1138,6 +1157,14 @@ private struct BotComposerDock: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let files = pendingAttachments.map(\.url)
         guard !text.isEmpty || !files.isEmpty else { return }
+        // A cloud model service without a Tono session or stored key cannot answer: ask for the
+        // sign-in instead of admitting a turn that can only fail. The draft and files stay.
+        if BotSignInRequirement.current().holdsSend {
+            focus.wrappedValue = false
+            sendAfterSignIn = true
+            showingSignIn = true
+            return
+        }
         draft = ""
         pendingAttachments = []
         attachmentNotice = nil
