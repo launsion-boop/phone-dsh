@@ -83,6 +83,12 @@ PDF、Markdown、HTML、TXT 等可预览文档统一使用标题、真实摘要�
 回执仍逐字区分本次对话）；`none` 不显示「始终允许」（不留一个永远点不了的灰按钮），按钮为「允许」「拒绝」，
 并说明每次都会先问，不绕过宿主限制。
 
+当宿主的效果带 `actionClass` 时，「始终允许」只覆盖这个动作类，卡片在按钮下方显示
+「「总是允许」只覆盖同类操作：<类名>」（id `bot.approval.class-scope`；`exec:delete` →
+「删除文件或目录」，`exec:git-reset` →「丢弃 Git 未提交改动」）。没有类的效果沿用旧文案；
+`exec:unknown` 不带类，卡片退回 `none`，只给一次性许可。同一轮已经排队的同类审批在按下
+「始终允许」后由宿主自动按 `allowOnce` 结束，不重复弹卡。
+
 ## 3. 卡片清单
 
 P0 第一版必须实现：question、steps（含 recommended）、task、attachment、document、progress（cardKey 就地更新）、checklist、link、approval、automation routine 运行卡、agent-comm（Bot 间通讯）行、error/denial/info notice（解析与 fail-closed 规则保留；error/denial 不进入 Bot 消息流，error 转为头部状态行；会话纪元 info notice 仍按下文规则渲染）。

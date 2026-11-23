@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import PhoneDSHBot
 
 /// A conservative, tool-aware gate for DSH's app-local "always allow".
 ///
@@ -27,6 +28,13 @@ enum DSHApprovalPolicy {
     ]
 
     /// The key to persist, or nil when this request must stay one-shot.
+    ///
+    /// A standing answer is stored per *action class*, not per command text:
+    /// after one "always" for a delete, the next delete of a different path is
+    /// the same decision for the person. Classes come from the same host
+    /// classifier the Bot gate uses, so the workbench and a Bot agree on what
+    /// "same kind of command" means. A command the classifier cannot place
+    /// (`exec:unknown`) never gets a standing key.
     static func grantKey(tool: String, arguments: [String: String]) -> String? {
         let name = tool.lowercased()
         if name == "bash" {
@@ -34,52 +42,39 @@ enum DSHApprovalPolicy {
                 .trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else {
                 return nil
             }
-            guard !isDestructiveBash(command), isReadOnlyBash(command) else { return nil }
-            return "bash:read-only"
+            switch BotShellActionClassifier.classify(command: command) {
+            case .execRead: return "bash:read"
+            case .execDelete: return "bash:delete"
+            case .execGitReset: return "bash:git-reset"
+            case .execUnknown: return nil
+            }
         }
         if destructiveTools.contains(name) { return nil }
         guard safeTools.contains(name) else { return nil }
         return "tool:\(name)"
     }
 
-    static func isDestructiveBash(_ command: String) -> Bool {
-        let patterns = [
-            #"(?:^|[;&|]\s*)rm\s+"#,
-            #"(?:^|[;&|]\s*)sudo\s+rm\s+"#,
-            #"(?:^|[;&|]\s*)git\s+reset\s+[^\n]*--hard"#,
-            #"(?:^|[;&|]\s*)find\s+[^\n]*(?:\s|^)-delete(?:\s|$)"#,
-            #"(?:^|[;&|]\s*)(?:dd|mkfs|shred|truncate)\b"#,
-            #"(?:^|[;&|]\s*)chmod\s+-R\b"#,
-            #"(?:^|[;&|]\s*)chown\s+-R\b"#,
-        ]
-        return patterns.contains {
-            command.range(of: $0, options: [.regularExpression, .caseInsensitive]) != nil
-        }
-    }
-
-    /// Only a single, clearly read-only command may get a standing DSH grant.
-    /// Shell separators and pipes are rejected: `ls; rm ...` and `cat x | …`
-    /// are not read-only as a whole. This intentionally errs toward asking.
+    /// Only a single, clearly read-only command is a read. Shell separators
+    /// and pipes are rejected: `ls; rm ...` and `cat x | …` are not read-only
+    /// as a whole. This intentionally errs toward asking.
     static func isReadOnlyBash(_ command: String) -> Bool {
-        let text = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty,
-              !text.contains(";"), !text.contains("|"), !text.contains("&"),
-              !text.contains("<"), !text.contains(">"), !text.contains("`"),
-              !text.contains("$("), !text.contains("\n"), !text.contains("\r") else { return false }
-        let tokens = text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        guard let first = tokens.first else { return false }
-        if first == "git" {
-            guard tokens.count > 1 else { return false }
-            return ["status", "diff", "log", "show", "rev-parse", "ls-files"].contains(tokens[1])
+        BotShellActionClassifier.isPlainReadOnly(command)
+    }
+}
+
+enum DSHApprovalScopeTitle {
+    /// The stored key is a class id; the settings row says what it covers.
+    static func title(_ scope: String) -> String {
+        switch scope {
+        case "bash:read": return "只读命令（bash:read）"
+        case "bash:delete": return "删除文件或目录（bash:delete）"
+        case "bash:git-reset": return "丢弃 Git 未提交改动（bash:git-reset）"
+        default:
+            if scope.hasPrefix("tool:") {
+                return "只读工具 \(scope.dropFirst(5))"
+            }
+            return scope
         }
-        if first == "find" {
-            return !tokens.dropFirst().contains { ["-delete", "-exec", "-execdir", "-ok"].contains($0) }
-        }
-        let allowed: Set<String> = [
-            "ls", "pwd", "cat", "head", "tail", "grep", "rg", "wc",
-            "stat", "du", "df", "echo", "which", "date", "whoami", "true",
-        ]
-        return allowed.contains(first)
     }
 }
 

@@ -109,6 +109,8 @@ P05/P16/P26 的出口与身份增量（`mcp-egress-capability-v1`，见 [PC-2026
 - 每个 Gateway principal 都有宿主生成的随机 `incarnation`。工具归属在注册时绑定该代次，解析时必须仍与当前 session 代次一致；重签、rotate、revoke 或重启后的旧调用不得借用新 principal。token 仍只存摘要，不把 Bearer token 写入事件或审计。
 - `BotExecutionPrincipal` 的已验证构造只在 `PhoneDSHBot` 宿主模块内使用；MCP 不得从工具参数反序列化 `userUI`、`certain` 或 trust。UI 写操作仍只能经 `BotUserActionDispatcher` 盖 `owner_direct`，effects 在执行点由宿主重新推导。
 
+- **按动作类常设授权（`action-class-v1`）。** `bash` 的破坏性效果携带宿主派生、不可由模型声明的 `actionClass`：`rm`/`find -delete` 为 `exec:delete`，`git reset --hard` 为 `exec:git-reset`。用户选「始终允许」时，Grant 以 `operation = <actionClass>`、`canonicalResource = "*"`、`scope = until` 持久化；下一次同类命令（目标路径不同）直接命中，不再出卡。一次性决定仍存精确实例；具体 deny 永远优先于类别 allow；`resource = "*"` 的类别 Grant 不匹配任何未声明 `actionClass` 的效果，所以它不会变成 shell 总开关。无法归类的命令（解释器、管道、解析失败）没有类，只能「允许一次」/「拒绝」。同一轮已排队的同类交互卡片在「始终允许」后按 `allowOnce` 自动结束；持久待办（task/routine）不从队列接续，仍按 §2.7 的恢复点处理。只读 `bash` 继续不出卡。`authz.grant_snapshot` 的 11 字段形状不变，只是 `operation` 值域增加上述类 id、`canonicalResource` 使用既有 `"*"`；旧快照照常恢复，旧构建读到类别 Grant 只会更保守地重新询问。变更单：[PC-20261122-bot-approval-action-class](../../../docs/protocol-changes/PC-20261122-bot-approval-action-class.md)。
+
 ### 2.4 出口写审批、工作区根与文件 Grant 粒度
 
 Bot 会话经宿主 `/v1/http` 发出的网络写不再是 Worker 命令文本的职责。`approval-gate.ts` / `BotApprovalPatterns` 里的 `curl`、`wget`、`python` 网络模式**降级为提示**，不是安全边界；脚本文件、变量拼接和解释器都不能绕过出口判断。冻结记录见 [PC-20261111-bot-egress-approval](../../../docs/protocol-changes/PC-20261111-bot-egress-approval.md)。

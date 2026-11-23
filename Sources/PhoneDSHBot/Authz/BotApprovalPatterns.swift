@@ -65,7 +65,20 @@ public enum BotApprovalPatternAnalyzer {
         analyze(tool: tool, arguments: arguments, workspace: workspace, language: language).map {
             BotToolEffect(tool: tool, operation: $0.kind, resource: $0.resource,
                           target: $0.target, mutability: .destructive,
-                          policy: .ask, label: $0.label, detail: $0.detail)
+                          policy: .ask, label: $0.label, detail: $0.detail,
+                          actionClass: actionClass(forKind: $0.kind))
+        }
+    }
+
+    /// The standing-approval class one destructive pattern belongs to. The
+    /// pattern itself stays the exact audit/instance key; the class is only the
+    /// key a standing decision is stored under. Network patterns no longer
+    /// reach this analyzer, so they have no class.
+    public static func actionClass(forKind kind: String) -> BotActionClass? {
+        switch kind {
+        case "rm-destructive", "find-delete": return .execDelete
+        case "git-destructive": return .execGitReset
+        default: return nil
         }
     }
 

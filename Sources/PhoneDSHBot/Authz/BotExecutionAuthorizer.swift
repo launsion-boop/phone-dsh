@@ -104,7 +104,8 @@ public struct BotExecutionAuthorizer: Sendable {
                     ? "unknown" : effect.operation.trimmingCharacters(in: .whitespacesAndNewlines),
                 resource: resource, target: effect.target, mutability: effect.mutability,
                 policy: effect.policy, label: effect.label, detail: effect.detail, ui: effect.ui,
-                execution: effect.execution, known: effect.known, isMcp: effect.isMcp))
+                execution: effect.execution, known: effect.known, isMcp: effect.isMcp,
+                grantResource: effect.grantResource, actionClass: effect.actionClass))
         }
         guard let botId = resolvedPrincipal.botId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !botId.isEmpty else {

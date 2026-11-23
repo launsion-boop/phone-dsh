@@ -250,17 +250,35 @@ public actor BotGrantStore {
         }.filter {
             $0.scope != .session || ($0.sessionId != nil && $0.sessionId == sessionId)
         }.filter {
-            ($0.tool == "*" || $0.tool == effect.tool)
-                && ($0.operation == "*" || $0.operation == effect.operation)
-                // `resource == "*"` exists only to read grants written by the
-                // earlier experimental always build; new grants never store it.
-                && ($0.resource == "*"
-                    || $0.resource == wantedResource
-                    || $0.resource == wantedGrantScope)
+            self.matches($0, effect: effect, wantedResource: wantedResource,
+                         wantedGrantScope: wantedGrantScope)
         }.sorted { lhs, rhs in
             if lhs.decision != rhs.decision { return lhs.decision == .deny }
             return specificity(lhs) > specificity(rhs)
         }.first
+    }
+
+    /// Exact instance, stable scope, or standing action class.
+    ///
+    /// A standing class grant is stored as `operation = <class>` and
+    /// `resource = "*"`: the decision covers the class (`exec:delete`), not one
+    /// path. It is checked after the exact rules so a specific deny/allow still
+    /// wins, and the caller only reaches it when the effect names a class.
+    private func matches(_ grant: BotGrant, effect: BotToolEffect,
+                         wantedResource: String, wantedGrantScope: String) -> Bool {
+        guard grant.tool == "*" || grant.tool == effect.tool else { return false }
+        if grant.operation == "*" || grant.operation == effect.operation {
+            // `resource == "*"` also reads grants written by the earlier
+            // experimental always build; new exact grants never store it.
+            return grant.resource == "*"
+                || grant.resource == wantedResource
+                || grant.resource == wantedGrantScope
+        }
+        if let actionClass = effect.actionClass,
+           grant.operation == actionClass.rawValue, grant.resource == "*" {
+            return true
+        }
+        return false
     }
 
     @discardableResult
@@ -461,8 +479,11 @@ public actor BotGrantStore {
     }
 
     private func specificity(_ grant: BotGrant) -> Int {
+        // A wildcard resource is the coarsest scope, so an exact deny or a
+        // directory/host grant outranks a class grant when both could match.
         (grant.botId == "*" ? 0 : 100) + (grant.tool == "*" ? 0 : 10)
-            + (grant.operation == "*" ? 0 : 5) + 1
+            + (grant.operation == "*" ? 0 : 5)
+            + (grant.resource == "*" ? 0 : 5) + 1
     }
 
     private static func newID() -> String {
