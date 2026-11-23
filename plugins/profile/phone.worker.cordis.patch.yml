@@ -312,6 +312,48 @@
         }
       })()
 
+# ── model catalog: DeepSeek-only tool changes stay on the official endpoint ──
+# DSH's built-in catalog declares `deepseek-flash` with `toolUpdate:
+# addition-only`, so a session that activates a deferred tool sends a
+# `tool_addition` content block (a DeepSeek Messages extension). The Tono cloud
+# (`pdsh.tonoai.cn`) and other compatible endpoints reject that block with 400
+# (measured 2026-11-23: `upstream_rejected`, req_01m844eb5c5gqhdm0nk5rbvhq8),
+# which left every DSH-tab turn failing while Bot turns (no deferred tools)
+# worked. When the selected service is not api.deepseek.com, replace the catalog
+# with the same two entries minus `toolUpdate`: DSH then declares the complete
+# tool list on every request. `systemPromptUpdate: in-history` is kept because
+# the same endpoint accepts a mid-history system message (measured 200). The
+# official endpoint, or an unreadable projection, keeps the built-in catalog.
+- id: llm-deepseek
+  config:
+    models: !!js |
+      (() => {
+        try {
+          const doc = JSON.parse(process.env.PDSH_MODEL_PROVIDER_JSON ?? '{}')
+          const providers = Array.isArray(doc.providers) ? doc.providers : []
+          const provider = providers.find(entry => entry && entry.id === doc.selectedId) ?? providers[0]
+          if (!provider || typeof provider.baseURL !== 'string') return undefined
+          if (new URL(provider.baseURL).hostname.toLowerCase() === 'api.deepseek.com') return undefined
+          return [
+            {
+              id: 'deepseek-flash',
+              name: 'DeepSeek-V4.1-Flash',
+              contextWindow: 1048576,
+              inputModalities: ['text', 'image'],
+              systemPromptUpdate: 'in-history',
+            },
+            {
+              id: 'deepseek-v4-pro',
+              name: 'DeepSeek-V4-Pro',
+              description: 'Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.',
+              contextWindow: 1048576,
+            },
+          ]
+        } catch {
+          return undefined
+        }
+      })()
+
 # ── surface: the resident remote/web host on loopback ───────────────────────
 - insert:
     # HTTP carrier. The Worker's node:http mock binds no socket; it captures
