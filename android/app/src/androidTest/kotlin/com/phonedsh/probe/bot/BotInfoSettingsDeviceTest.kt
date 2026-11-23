@@ -30,7 +30,15 @@ class BotInfoSettingsDeviceTest {
             val original = engine.botInfo(id, BotInfoIntent.Load)
             val preferences = app.getSharedPreferences("phone-dsh-bot", Context.MODE_PRIVATE)
             val quiet = original.proactiveSettings.copy(dnd = !original.proactiveSettings.dnd, quietStart = "21:15", quietEnd = "07:30")
+            val key = BotMemoryMaintenanceSettings.DEFAULTS_KEY
+            val originalBlob = preferences.getString(key, null)
             try {
+                // iOS falls back to its standard settings when this Codable blob cannot decode.
+                assertTrue(preferences.edit().putString(key, "{").commit())
+                val recovered = engine.botInfo(id, BotInfoIntent.Load)
+                assertFalse(recovered.maintenanceEnabled)
+                assertEquals(BotMemoryMaintenanceSettings.standard.dailyTokenBudget.toLong(), recovered.maintenanceDailyBudget)
+                assertTrue(preferences.edit().putString(key, originalBlob).commit())
                 engine.botInfo(id, BotInfoIntent.SaveProactiveSettings(quiet))
                 engine.botInfo(id, BotInfoIntent.SetMaintenanceEnabled(!original.maintenanceEnabled))
                 val reread = engine.botInfo(id, BotInfoIntent.Load)
@@ -42,7 +50,7 @@ class BotInfoSettingsDeviceTest {
                 assertEquals(original.maintenanceDailyBudget, blob.getLong("dailyTokenBudget"))
             } finally {
                 engine.botInfo(id, BotInfoIntent.SaveProactiveSettings(original.proactiveSettings))
-                engine.botInfo(id, BotInfoIntent.SetMaintenanceEnabled(original.maintenanceEnabled))
+                assertTrue(preferences.edit().putString(key, originalBlob).commit())
             }
         }
         Unit

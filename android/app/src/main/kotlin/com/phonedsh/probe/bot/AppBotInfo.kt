@@ -11,6 +11,8 @@ import com.phonedsh.bot.memory.BotMemoryMaintenanceSettings
 import com.phonedsh.bot.memory.BotSqlMemoryDocumentStore
 import com.phonedsh.bot.proactive.ProactiveSettingsStore
 import com.phonedsh.bot.routines.RoutineMachine
+import com.phonedsh.bot.routines.Routine
+import com.phonedsh.bot.routines.RoutineSchedule
 import com.phonedsh.bot.routines.RoutinePatch
 import com.phonedsh.bot.routines.RoutineScheduler
 import com.phonedsh.bot.store.BotDomainStore
@@ -47,12 +49,6 @@ internal class AppBotInfo(
         val main = roster.mainBotId() == id
         val memory = BotMemory(BotSqlMemoryDocumentStore.forDomainStore(store, id, clock), id, now = clock)
         val batches = BotMemoryMaintenanceBatchStore(BotDomainMemoryEventLog(store), memory, id, main, clock)
-        val key = BotMemoryMaintenanceSettings.DEFAULTS_KEY
-        val settings = preferences.getString(key, null)?.let(::JSONObject) ?: JSONObject()
-            .put("enabled", BotMemoryMaintenanceSettings.standard.enabled)
-            .put("runTokenBudget", BotMemoryMaintenanceSettings.standard.runTokenBudget)
-            .put("dailyTokenBudget", BotMemoryMaintenanceSettings.standard.dailyTokenBudget)
-
         when (intent) {
             BotInfoIntent.Load -> Unit
             is BotInfoIntent.Rename -> roster.apply(BotDrawerIntent.Rename(id, intent.name))
@@ -61,8 +57,7 @@ internal class AppBotInfo(
                     dnd = dnd, quietStart = quietStart, quietEnd = quietEnd,
                     routineQuietWeekends = routineQuietWeekends, timeZone = timeZone))
             }
-            is BotInfoIntent.SetMaintenanceEnabled -> check(preferences.edit()
-                .putString(key, settings.put("enabled", intent.enabled).toString()).commit()) { "无法保存记忆整理设置" }
+            is BotInfoIntent.SetMaintenanceEnabled -> saveMaintenance(readMaintenance().copy(enabled = intent.enabled))
             is BotInfoIntent.Forget -> check(memory.forget(intent.documentPath, Math.toIntExact(intent.version)).ok) { "记忆版本已变化，请刷新" }
             BotInfoIntent.Erase, BotInfoIntent.EraseShared, is BotInfoIntent.EraseDocument ->
                 error("会话日志擦除服务不可用，记忆已保留")
@@ -76,6 +71,7 @@ internal class AppBotInfo(
                 check(batches.rollback(batch.batchId)?.conflicts?.isEmpty() == true) { "文档已变更，无法完整回滚" }
             }
         }
+        val settings = readMaintenance()
         val prefs = proactive.load()
         val rows = routines.list(id)
         val history = batches.batches()
@@ -96,13 +92,7 @@ internal class AppBotInfo(
                             it.deletionReason, it.updatedAtMs, it.author.kind.wire, it.evidence)
                     })
             },
-            routines = rows.map {
-                BotRoutineInfo(it.id, it.title, it.schedule.expr ?: it.schedule.time ?: it.schedule.everyMinutes?.let { n -> "每 ${n} 分钟" }.orEmpty(),
-                    it.schedule.timezone, it.delivery.rawValue, it.delivery.rawValue == "held", it.urgent,
-                    it.urgentReason, it.lastResult?.text.orEmpty(), it.enabled, completionCriteria = it.completionCriteria,
-                    routineConstraints = it.constraints, runStatus = it.runState?.status?.rawValue, runID = it.runState?.runId,
-                    nextDue = it.nextRunAt, quietDeferredFrom = it.quietDefer?.scheduledFor, quietDeferredUntil = it.quietDefer?.until)
-            },
+            routines = rows.map(::routineInfo),
             reconciliations = rows.mapNotNull { row ->
                 row.runState?.takeIf { it.status.rawValue == "needs-reconciliation" }?.let {
                     BotReconciliationInfo(row.id, row.title, it.attempt, it.runId, it.error)
@@ -114,9 +104,58 @@ internal class AppBotInfo(
             },
             proactiveSettings = ProactiveSettings(ProactiveMode.valueOf(prefs.mode.name), prefs.dnd, prefs.quietStart,
                 prefs.quietEnd, prefs.routineQuietWeekends, prefs.timeZone),
-            maintenance = last, maintenanceEnabled = settings.getBoolean("enabled"),
-            maintenanceDailyBudget = settings.getLong("dailyTokenBudget"),
+            maintenance = last, maintenanceEnabled = settings.enabled,
+            maintenanceDailyBudget = settings.dailyTokenBudget.toLong(),
             maintenanceDailyTokens = history.filter { it.finishedAtMs / 86400000L == clock() / 86400000L }.sumOf { it.budget.tokensUsed.toLong() },
+        )
+    }
+
+    private fun readMaintenance(): BotMemoryMaintenanceSettings {
+        val defaults = BotMemoryMaintenanceSettings.standard
+        val stored = preferences.getString(BotMemoryMaintenanceSettings.DEFAULTS_KEY, null) ?: return defaults
+        return try {
+            val json = JSONObject(stored)
+            fun budget(key: String): Int {
+                val number = json.get(key)
+                require(number is Int || number is Long)
+                return Math.toIntExact((number as Number).toLong()).coerceAtLeast(1)
+            }
+            BotMemoryMaintenanceSettings(json.get("enabled") as Boolean, budget("runTokenBudget"), budget("dailyTokenBudget"))
+        } catch (_: Exception) {
+            defaults
+        }
+    }
+
+    private fun saveMaintenance(settings: BotMemoryMaintenanceSettings) {
+        val json = JSONObject().put("enabled", settings.enabled)
+            .put("runTokenBudget", settings.runTokenBudget)
+            .put("dailyTokenBudget", settings.dailyTokenBudget)
+        check(preferences.edit().putString(BotMemoryMaintenanceSettings.DEFAULTS_KEY, json.toString()).commit()) {
+            "无法保存记忆整理设置"
+        }
+    }
+
+    private fun routineInfo(row: Routine): BotRoutineInfo {
+        val schedule = row.schedule
+        val description = when (schedule.kind) {
+            RoutineSchedule.Kind.INTERVAL -> "每 ${schedule.everyMinutes ?: 0} 分钟"
+            RoutineSchedule.Kind.DAILY -> "每天 ${schedule.time ?: "—"}"
+            RoutineSchedule.Kind.WEEKLY -> {
+                val weekdays = listOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")
+                val days = schedule.weekdays.orEmpty().joinToString("、") { weekdays.getOrNull(it - 1) ?: "第 ${it} 天" }
+                "每周 ${days.ifEmpty { "—" }} ${schedule.time.orEmpty()}"
+            }
+            RoutineSchedule.Kind.CRON -> "cron ${schedule.expr ?: "—"}"
+        }
+        return BotRoutineInfo(
+            id = row.id, title = row.title, schedule = description, timeZone = schedule.timezone,
+            delivery = row.delivery.rawValue, quiet = row.delivery.rawValue == "held",
+            urgent = row.urgent, urgentReason = row.urgentReason, enabled = row.enabled,
+            lastResult = row.lastResult?.let { it.text.ifBlank { it.error ?: it.status.rawValue } } ?: "还没有运行结果。",
+            creator = row.creator?.authorization?.rawValue, completionCriteria = row.completionCriteria,
+            routineConstraints = row.constraints, runStatus = row.runState?.status?.rawValue, runID = row.runState?.runId,
+            nextDue = row.nextRunAt, quietDeferredFrom = row.quietDefer?.scheduledFor, quietDeferredUntil = row.quietDefer?.until,
+            lastResultDetail = row.lastResult?.error,
         )
     }
 
@@ -129,7 +168,7 @@ internal class AppBotInfo(
             for (event in page.filter { it.principal?.botId == id }) {
                 fun text(name: String) = (event.data[name] as? JsonString)?.value
                 val approval = text("approvalID") ?: continue
-                if (event.type == "approval.requested") summaries[approval] = text("detail") ?: text("action").orEmpty()
+                if (event.type == "approval.requested") summaries[approval] = text("action") ?: text("detail").orEmpty()
                 if (event.type == "approval.decided") records += BotApprovalRecord(approval, summaries[approval].orEmpty(),
                     text("decision") ?: text("status").orEmpty(), event.time)
             }
