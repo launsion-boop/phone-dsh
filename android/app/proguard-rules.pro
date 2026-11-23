@@ -89,3 +89,22 @@
 -keepclassmembers class io.netty.channel.socket.nio.NioServerSocketChannel {
     public <init>();
 }
+
+# ResourceLeakDetector.addExclusions resolves these declared method names at
+# class initialization, even in an APK that never enables leak tracing.
+-keepclassmembers class io.netty.buffer.AbstractByteBufAllocator {
+    *** toLeakAwareBuffer(...);
+}
+-keepclassmembers class io.netty.buffer.AdvancedLeakAwareByteBuf {
+    *** touch(...);
+    *** recordLeakNonRefCountingOperation(...);
+}
+-keepclassmembers class io.netty.util.ReferenceCountUtil {
+    *** touch(...);
+}
+
+# Netty checks this runtime annotation before installing the shared Ktor
+# handler on a second client connection (the WebView follows the ready probe).
+-keepattributes RuntimeVisibleAnnotations
+-keep,allowobfuscation @interface io.netty.channel.ChannelHandler$Sharable
+-keep,allowoptimization,allowobfuscation @io.netty.channel.ChannelHandler$Sharable class *

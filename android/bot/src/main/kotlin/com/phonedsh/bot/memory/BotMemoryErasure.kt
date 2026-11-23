@@ -63,6 +63,8 @@ public data class BotMemoryErasurePlanResult(
 )
 
 public object BotMemoryErasurePlanner {
+    private val eventReference = Regex("""record://event/[0-9]+""")
+
     public fun plan(
         target: BotMemoryErasureTarget,
         botId: String,
@@ -144,7 +146,9 @@ public object BotMemoryErasurePlanner {
                 if (event.type.startsWith("memory.")) continue
                 if (event.type == "erasure") continue
                 if (!eventBelongs(event, normalizedBot, scope)) continue
-                if (event.refs.any { reference -> erasedRefs.any { reference.contains(it) } }) {
+                // Event sequence numbers can share a decimal prefix. A reference
+                // to event 20 does not authorize erasing it when event 2 is removed.
+                if (event.refs.any { text -> eventReference.findAll(text).any { it.value in erasedRefs } }) {
                     erased += event.seq
                 }
             }
