@@ -83,3 +83,9 @@
 -dontwarn org.conscrypt.Conscrypt
 -dontwarn org.conscrypt.HandshakeListener
 -dontwarn reactor.blockhound.integration.BlockHoundIntegration
+
+# Ktor gives this class to Netty's ReflectiveChannelFactory for the Android
+# Java NIO listener; the constructor is looked up only after the APK starts.
+-keepclassmembers class io.netty.channel.socket.nio.NioServerSocketChannel {
+    public <init>();
+}

@@ -79,7 +79,10 @@ internal class BotSessionErasure(
             acquire()
             kotlinx.coroutines.runBlocking {
                 val (settledOwners, exited) = ownership(request)
-                val final = plans(request, owners.keys + settledOwners.keys, erasureID, switched)
+                val known = owners.keys + settledOwners.keys
+                val witnesses = plans(request, known, erasureID, previewOnly = true)
+                    .groupBy { it.session }.mapValues { (_, copies) -> copies.flatMap { it.erased }.toSet() }
+                val final = plans(request, known, erasureID, switched, witnesses = witnesses)
                 val closed = final.filter { it.session in switched || it.session in exited }
                 for (plan in final - closed.toSet()) plan.erased.forEach { uncovered += ref(plan.session, it) }
                 if (closed.isNotEmpty()) writer.apply(closed.flatMap { it.changes }, closed.map { it.session }.toSet())
@@ -122,7 +125,8 @@ internal class BotSessionErasure(
         return owners to exited
     }
 
-    private fun plans(request: BotMemorySessionErasureRequest, owned: Set<String>, id: String, continuity: Set<String> = emptySet(), previewOnly: Boolean = false): List<Plan> {
+    private fun plans(request: BotMemorySessionErasureRequest, owned: Set<String>, id: String, continuity: Set<String> = emptySet(), previewOnly: Boolean = false,
+                      witnesses: Map<String, Set<Long>> = emptyMap()): List<Plan> {
         if (Files.notExists(sessionsRoot, NOFOLLOW_LINKS)) return emptyList()
         val groups = mutableMapOf<Path, MutableList<Path>>()
         Files.walk(sessionsRoot).use { files ->
@@ -137,15 +141,21 @@ internal class BotSessionErasure(
             check(!newest.fileName.toString().endsWith(".zstd")) { "最新会话日志已压缩，无法验证抹除" }
             val session = dir.fileName.toString()
             val original = Files.readAllBytes(newest)
-            val lines = Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(original)).toString().split('\n').map { raw ->
-                Line(raw, if (raw.isBlank()) null else JsonValue.parse(raw) as JsonObject)
-            }
-            val selected = lines.filter { line ->
-                val seq = line.seq ?: return@filter false
+            val lines = decodeLines(original)
+            fun matches(line: Line): Boolean {
+                val seq = line.seq ?: return false
                 val text = strings(line.data).joinToString("\n")
-                ref(session, seq) in request.records || line.kind != TOMBSTONE && request.needles.any(text::contains)
-            }.mapNotNull { it.seq }.toMutableSet()
-            if (selected.isEmpty() && session !in continuity) return@mapNotNull null
+                return ref(session, seq) in request.records || seq in witnesses[session].orEmpty() ||
+                    (line.kind != TOMBSTONE && request.needles.any(text::contains))
+            }
+            val selected = lines.filter(::matches).mapNotNull { it.seq }.toMutableSet()
+            if (previewOnly) {
+                // A previous generation may be the only remaining copy of a record.
+                for (old in files.drop(1).filterNot { it.fileName.toString().endsWith(".zstd") }) {
+                    decodeLines(Files.readAllBytes(old)).filter(::matches).mapNotNullTo(selected) { it.seq }
+                }
+            }
+            if (selected.isEmpty() && session !in continuity && session !in witnesses) return@mapNotNull null
             var added: Boolean
             do {
                 val fingerprints = lines.filter { it.seq in selected }.flatMap(::fingerprints).toSet()
@@ -167,17 +177,22 @@ internal class BotSessionErasure(
                 }.toByteArray()
                 edits += ClosedSessionRewrite.FileChange(newest, java.security.MessageDigest.getInstance("SHA-256").digest(original), bytes)
             }
-            if (selected.isNotEmpty()) {
+            if (selected.isNotEmpty() || session in witnesses) {
                 for (old in files.drop(1)) edits += ClosedSessionRewrite.FileChange(old, ClosedSessionRewrite.digest(old), null)
             }
             val tail = lines.filter { it.seq !in selected && it.kind in setOf("user/message", "assistant/message") }
                 .mapNotNull { line -> messageText(line.data)?.let { (if (line.kind == "user/message") "User: " else "Assistant: ") +
                     it.replace("<", "&lt;").replace(">", "&gt;") } }.joinToString("\n").takeLast(12000)
-            Plan(session, edits, selected, tail.takeIf { it.isNotEmpty() }?.let {
+            Plan(session, edits, selected + witnesses[session].orEmpty(), tail.takeIf { it.isNotEmpty() }?.let {
                 "<session_continuation>\nThe previous conversation continues below. Lines the user erased are omitted.\n$it\n</session_continuation>"
             })
         }
     }
+
+    private fun decodeLines(original: ByteArray): List<Line> =
+        Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(original)).toString().split('\n').map { raw ->
+            Line(raw, if (raw.isBlank()) null else JsonValue.parse(raw) as JsonObject)
+        }
 
     private fun fingerprints(line: Line): List<String> {
         val data = line.data ?: return emptyList()
