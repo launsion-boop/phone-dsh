@@ -6,7 +6,7 @@
 change: PC-20261123-android-erasure-live-approval
 base: c6b20cf43
 contracts: [P02, P05, P09, P25, P26, P27]
-status: frozen
+status: implemented
 breaking: false
 version_decision: retain WAL v1, session tombstones, existing P25 erasure records and durable approvals
 contract_revision: c6b20cf43 for wal.md §5.3, Bot v2 memory erasure, Bot v1 egress approvals, and session epochs
@@ -20,4 +20,13 @@ One implementer owns the Android host, gateway and Bot integration. Swift remain
 
 ## Interrupted multi-record file
 
-A log larger than the mutation limit cannot replace its surviving lines in one WAL record. A crash after the first complete-write record could otherwise truncate an unrelated surviving suffix. Before that first mutation, Android atomically publishes and fsyncs its survivor-only JSONL file in the private host root under `pending-session-rewrite/<original SHA-256>/<replacement SHA-256>/<path relative to home/sessions>`. A different digest or an unrecognized path fails closed. Input for recovery is the original digest (not started), the verified replacement (finished), or a byte-identical prefix of the verified replacement (finish the existing write). No command, identity, original payload or change to the WAL codec is stored. A cold boot or parked resume completes interrupted work before starting the Worker. The writer drops its private copy after durable close. Finish an interrupted erase on the producing version before rolling back; older versions do not have this recovery reader. After success there is no pending state for older versions to read.
+A log larger than the mutation limit cannot replace its surviving lines in one WAL record. A crash after the first complete-write record could otherwise truncate an unrelated surviving suffix. For each affected log, before its first mutation Android atomically publishes and fsyncs its survivor-only JSONL file in the private host root under `pending-session-rewrite/<original SHA-256>/<replacement SHA-256>/<path relative to home/sessions>`. A different digest or an unrecognized path fails closed. Input for recovery is the original digest (not started), the verified replacement (finished), or a byte-identical prefix of the verified replacement (finish the existing write). No command, identity, original payload or change to the WAL codec is stored. A cold boot or parked resume completes interrupted work before starting the Worker. After a committed prefix, recovery also completes removal of older generations and derived copies. The writer drops its private copy after durable close and cleanup. Finish an interrupted erase on the producing version before rolling back; older versions do not have this recovery reader. After success there is no pending state for older versions to read.
+
+
+## Runtime evidence
+
+The implementation reuses the existing P02 mutation codec, P25 physical-erasure transaction, P26 memory and authorization fixtures, P27 epoch switch and the P09 confirmation sheets. The Android loopback server uses Netty's peer channel at the pinned Ktor version. Only the host supplies this connection observation. The original request retains its body and consumes its once grant only after an affirmative decision. Android's HTTP client continues to use CIO.
+
+On the iOS and Android simulators, the document start state included two stored versions, a separate surviving document, a closed session with an evidence row and its inbox splice, and an older generation. Both products returned erased-session receipts for sequences 1 and 3, kept sequence 2 and changed the main chat epoch. After an application restart the old generation was absent and the selected marker was absent from the inspected SQLite, WAL and session files. The simulator network stimulus used a local HTTP receipt server. Denial returned 403 with zero delivered denied bodies. An allowed original request returned 200 with one matching body. Android additionally rejected a new request after the single-use grant had been spent.
+
+Android regressions include `ClosedSessionRewriteTest`, `DisconnectedWriteTest`, the shared memory-erasure and approval vectors, and the real-socket `BotNetworkApprovalDeviceTest`. iOS used its existing production erasure UI. A temporary simulator-only stimulus initiated the iOS network requests at the authenticated loopback entry. No iOS product change or test endpoint is shipped. Physical devices, power loss, device backups and raw flash blocks were not tested.

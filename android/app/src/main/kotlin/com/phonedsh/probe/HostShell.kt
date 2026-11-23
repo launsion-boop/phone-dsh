@@ -573,8 +573,12 @@ internal fun HostShell(
         val id = selectedBot ?: return
         providerProbeScope.launch {
             try {
-                val snapshot = engine.botInfo(id, intent)
-                if (engine.botPlatformConfig.value?.context?.botID == id) info = BotInfoModelState.loaded(snapshot)
+                var completionNotice: String? = null
+                val snapshot = engine.botInfo(id, intent) { completionNotice = it }
+                if (engine.botPlatformConfig.value?.context?.botID == id) {
+                    info = BotInfoModelState.loaded(snapshot)
+                    completionNotice?.let { notice = it }
+                }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {

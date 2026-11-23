@@ -338,6 +338,15 @@ class LoopbackModelProxy(
             status = HttpStatusCode.fromValue(exchange.status),
         ) {
             val output = this
+            // Publish the already sanitized upstream head even if the very first
+            // body chunk is refused. Netty batches writes until the event loop flushes.
+            call.attributes.getOrNull(LoopbackService.peerChannel)?.let { channel ->
+                val flushed = kotlinx.coroutines.CompletableDeferred<Unit>()
+                channel.eventLoop().execute {
+                    runCatching { channel.flush() }.fold({ flushed.complete(Unit) }, flushed::completeExceptionally)
+                }
+                flushed.await()
+            }
             input.use { stream ->
                 val buffer = ByteArray(STREAM_CHUNK_BYTES)
                 val deadline = System.nanoTime() + maxDurationMillis * 1_000_000L

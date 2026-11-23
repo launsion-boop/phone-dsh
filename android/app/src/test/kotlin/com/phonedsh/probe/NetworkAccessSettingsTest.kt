@@ -118,7 +118,7 @@ class NetworkAccessSettingsTest {
                 return GatewayTransportResponse(307, mapOf("Location" to "https://second.example.org/path"))
             }
         }
-        val gateway = GatewayHttpEgress(settings.readGateway(transport) { method, url ->
+        val gateway = GatewayHttpEgress(settings.readGateway(transport) { method, url, _ ->
             approvals += "$method ${url.host}"
             null
         })

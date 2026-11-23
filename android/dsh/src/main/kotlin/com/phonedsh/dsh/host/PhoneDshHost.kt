@@ -649,6 +649,7 @@ class DefaultPhoneDshHost(
     private var lastPathStatus: NetworkPathStatus? = null
 
     override fun start() {
+        if (synchronized(signalLock) { erasurePark }) return
         if (!started.compareAndSet(false, true)) {
             logger.info("start ignored: the host facade is already started")
             return
@@ -661,6 +662,7 @@ class DefaultPhoneDshHost(
         val bootJob = scope.launch {
             if (!current(generation)) return@launch
             val uplink = recoverWal()
+            if (wal?.hasPendingSessionRewrite() == true) return@launch
             if (!current(generation)) return@launch
             helloState = helloState.copy(wal = uplink)
             openJournal()
@@ -778,6 +780,40 @@ class DefaultPhoneDshHost(
     /** `true` while [generation] is the boot job the facade still wants. */
     private fun current(generation: Long): Boolean =
         started.get() && bootGeneration.get() == generation
+
+    private var erasurePark = false
+
+    /** A §5.3 lease covers the WAL rewrite and the subsequent Bot-store commit. */
+    suspend fun acquireErasurePark(shouldResume: () -> Boolean): AutoCloseable {
+        synchronized(signalLock) {
+            check(started.get() && !erasurePark && controller.state in setOf(HostState.RUNNING, HostState.PARKED)) {
+                "引擎当前无法停止写入，请稍后重试"
+            }
+            erasurePark = true
+        }
+        fun release() {
+            synchronized(signalLock) { erasurePark = false }
+            if (started.get() && shouldResume()) handle(ControllerSignal.ScenePhaseChanged(ScenePhase.ACTIVE))
+        }
+        val owner = Any()
+        try {
+            if (controller.state == HostState.RUNNING) dispatch(ControllerSignal.ScenePhaseChanged(ScenePhase.BACKGROUND))
+            kotlinx.coroutines.withTimeout(30000) {
+                state.first { it == HostState.PARKED }
+                engine.state.first { it is EngineHostState.Stopped }
+                epochCloseGate.lock(owner)
+            }
+            check(controller.state == HostState.PARKED && engine.state.value is EngineHostState.Stopped)
+        } catch (failure: Throwable) {
+            if (epochCloseGate.holdsLock(owner)) epochCloseGate.unlock(owner)
+            release()
+            throw failure
+        }
+        return AutoCloseable {
+            epochCloseGate.unlock(owner)
+            release()
+        }
+    }
 
     override suspend fun closeEpoch(): Long? = epochCloseGate.withLock { closeEpochUnderGate() }
 
@@ -1039,6 +1075,7 @@ class DefaultPhoneDshHost(
     private fun dispatch(signal: ControllerSignal) {
         val atMillis = clock.monotonicMillis()
         val outcome = synchronized(signalLock) {
+            if (erasurePark && controller.state == HostState.PARKED) return
             controller.handle(signal, atMillis).also { mutableState.value = controller.state }
         }
         report(outcome)
@@ -1301,7 +1338,19 @@ class DefaultPhoneDshHost(
 
             EngineHostState.Stopped, is EngineHostState.Failed -> {
                 logger.info("worker start requested by '$reason' from ${describe(current)}")
-                engine.start()
+                if (wal?.hasPendingSessionRewrite() == true) {
+                    val generation = bootGeneration.get()
+                    scope.launch {
+                        try {
+                            epochCloseGate.withLock { wal.recoverSessionRewrite() }
+                            if (current(generation) && engine.state.value is EngineHostState.Stopped) engine.start()
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            handle(ControllerSignal.FailureRaised(ControllerFailure.HOST_DEFECT, "closed-session rewrite recovery failed"))
+                        }
+                    }
+                } else engine.start()
             }
         }
     }

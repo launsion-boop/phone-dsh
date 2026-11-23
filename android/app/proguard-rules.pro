@@ -51,3 +51,35 @@
 -dontwarn org.newsclub.net.unix.**
 -dontwarn com.sun.jna.**
 -dontwarn org.ietf.jgss.**
+
+# The loopback Netty listener is cleartext HTTP/1.1 on Java NIO. Its optional
+# native TLS/PEM loaders, Log4j backend and BlockHound agent are not installed.
+-dontwarn io.netty.internal.tcnative.AsyncSSLPrivateKeyMethod
+-dontwarn io.netty.internal.tcnative.AsyncTask
+-dontwarn io.netty.internal.tcnative.Buffer
+-dontwarn io.netty.internal.tcnative.CertificateCallback
+-dontwarn io.netty.internal.tcnative.CertificateCompressionAlgo
+-dontwarn io.netty.internal.tcnative.CertificateVerifier
+-dontwarn io.netty.internal.tcnative.Library
+-dontwarn io.netty.internal.tcnative.SSL
+-dontwarn io.netty.internal.tcnative.SSLContext
+-dontwarn io.netty.internal.tcnative.SSLPrivateKeyMethod
+-dontwarn io.netty.internal.tcnative.SSLSessionCache
+-dontwarn io.netty.internal.tcnative.SessionTicketKey
+-dontwarn io.netty.internal.tcnative.SniHostNameMatcher
+-dontwarn org.apache.log4j.Level
+-dontwarn org.apache.log4j.Logger
+-dontwarn org.apache.log4j.Priority
+-dontwarn org.bouncycastle.openssl.PEMDecryptorProvider
+-dontwarn org.bouncycastle.openssl.PEMEncryptedKeyPair
+-dontwarn org.bouncycastle.openssl.PEMKeyPair
+-dontwarn org.bouncycastle.openssl.PEMParser
+-dontwarn org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter
+-dontwarn org.bouncycastle.openssl.jcajce.JceOpenSSLPKCS8DecryptorProviderBuilder
+-dontwarn org.bouncycastle.openssl.jcajce.JcePEMDecryptorProviderBuilder
+-dontwarn org.bouncycastle.operator.InputDecryptorProvider
+-dontwarn org.bouncycastle.pkcs.PKCS8EncryptedPrivateKeyInfo
+-dontwarn org.conscrypt.BufferAllocator
+-dontwarn org.conscrypt.Conscrypt
+-dontwarn org.conscrypt.HandshakeListener
+-dontwarn reactor.blockhound.integration.BlockHoundIntegration

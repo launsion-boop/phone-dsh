@@ -207,6 +207,8 @@ it over the old prefix and ends in the tombstone state; a crash between steps 4 
 the durable manifest listing the rewrite segment, and the next compaction completes. There
 is no window that restores the erased bytes after the operation returns success.
 
+Android keeps a verified, survivor-only JSONL recovery copy until the rewrite and cleanup are durable. Cold start and parked resume finish an interrupted prefix before starting the Worker. A divergent file blocks recovery. The path, hashes and rollback policy are recorded in [Android erasure and live write approval](../../docs/protocol-changes/PC-20261123-android-erasure-live-approval.md).
+
 The rewrite adds no manifest field, changes `format` and never allocates an mseq twice.
 `record://session/<sessionId>#<seq>` for a tombstoned seq is an erased record: readers must
 report `record_erased` and must not return the tombstone's data as the original line. DSH

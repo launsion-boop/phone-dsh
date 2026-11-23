@@ -33,7 +33,7 @@ internal class NetworkAccessSettings(file: File) : EgressPolicy {
 
     fun readGateway(
         transport: GatewayTransport = HttpUrlConnectionGatewayTransport(),
-        approveWrite: ((String, GatewayUrl) -> GatewayFailure?)? = null,
+        approveWrite: ((String, GatewayUrl, (() -> Boolean)?) -> GatewayFailure?)? = null,
     ) = GatewaySession(
         transport = transport,
         credentialProvider = GatewayCredentialProvider { GatewayCredential.None },

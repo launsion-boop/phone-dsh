@@ -74,7 +74,10 @@ internal fun BotInfoMemoryPage(
             document = document,
             onBack = { selectedPath = null },
             onForget = { onIntent(BotInfoIntent.Forget(document.path, document.version)) },
-            onErase = { onIntent(BotInfoIntent.EraseDocument(document.path)) },
+            onErase = {
+                selectedPath = null
+                onIntent(BotInfoIntent.EraseDocument(document.path))
+            },
             modifier = modifier,
             now = now,
         )

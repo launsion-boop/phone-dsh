@@ -95,3 +95,8 @@ Exact revisions are pinned in the root `Package.resolved`. Its bundled CCitadelB
 BoringSSL notices. These notices and the complete dependency license texts are
 shipped as `SSH-LICENSES.txt` in the app and available from Settings →
 Open-source licenses. No native source is vendored.
+
+
+### Android loopback HTTP
+
+The Android host uses the Ktor 3.2.3 Netty server engine to observe peer disconnects while a Bot write awaits approval. Ktor and Netty are Apache-2.0 licensed. The Android client still uses CIO. [Ktor license](https://github.com/ktorio/ktor/blob/3.2.3/LICENSE) · [Netty license and notices](https://github.com/netty/netty/blob/netty-4.2.2.Final/NOTICE.txt).

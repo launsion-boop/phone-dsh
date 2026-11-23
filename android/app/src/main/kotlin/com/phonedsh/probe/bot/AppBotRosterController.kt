@@ -113,6 +113,12 @@ internal class AppBotRosterController(
     }
 
     @Synchronized
+    fun forgetWorkerAfterErasure() = drivers.values.toList().forEach { it.forgetWorkerAfterErasure() }
+
+    @Synchronized
+    fun invalidateErasedHistory(botId: String) { drivers[botId]?.invalidateErasedHistory() }
+
+    @Synchronized
     fun domainChanged(botId: String?) {
         drivers[botId]?.domainChanged()
     }

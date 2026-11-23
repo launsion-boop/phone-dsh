@@ -40,6 +40,8 @@ import kotlinx.coroutines.flow.emptyFlow
  * VFS sink uses after recovery.
  */
 interface HostWal {
+    fun hasPendingSessionRewrite(): Boolean = false
+    suspend fun recoverSessionRewrite() {}
     /**
      * Runs cold recovery (idempotent) and returns the numbers in force.
      *
@@ -265,8 +267,27 @@ fun WorkspaceLog.asHostWal(): HostWal = WorkspaceLogHostWal(this)
 private class WorkspaceLogHostWal(
     private val log: WorkspaceLog,
 ) : HostWal {
-    override suspend fun recover(): WalRecovery =
-        when (val outcome = log.recover()) {
+    private val rewrites = com.phonedsh.log.ClosedSessionRewrite(log)
+    override fun hasPendingSessionRewrite() = rewrites.hasPending
+
+    override suspend fun recoverSessionRewrite() {
+        if (rewrites.hasPending) {
+            // A failed append may have closed the in-memory log. Rebuild it from
+            // the durable prefix while admission is still closed.
+            log.resetForRecovery()
+            check(log.recover() is RecoveryOutcome.Recovered)
+            rewrites.recoverPending()
+        }
+    }
+
+    override suspend fun recover(): WalRecovery {
+        var outcome = log.recover()
+        if (outcome is RecoveryOutcome.Recovered && rewrites.hasPending) {
+            recoverSessionRewrite()
+            log.resetForRecovery()
+            outcome = log.recover()
+        }
+        return when (outcome) {
             is RecoveryOutcome.Recovered -> WalRecovery.Recovered(
                 nextMseq = outcome.nextMseq,
                 ackedMseq = outcome.effectiveTail,
@@ -281,6 +302,8 @@ private class WorkspaceLogHostWal(
 
             is RecoveryOutcome.Failed -> WalRecovery.Failed(outcome.code, outcome.detail)
         }
+
+    }
 
     override suspend fun resetForRecovery() = log.resetForRecovery()
 

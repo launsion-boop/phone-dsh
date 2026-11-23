@@ -28,6 +28,7 @@ data class GatewayRequest(
     val url: String,
     val headers: Map<String, String> = emptyMap(),
     val body: ByteArray = ByteArray(0),
+    val downstreamConnected: (() -> Boolean)? = null,
 )
 
 /** One request the gateway actually issues to the transport. */
@@ -114,7 +115,7 @@ class GatewaySession(
     /** Restrict the ordinary product route to anonymous reads and independently approved writes. */
     private val anonymousReadsOnly: Boolean = false,
     /** Installed only on the product's ordinary egress route. Null decision authorizes one exchange. */
-    private val approveWrite: ((String, GatewayUrl) -> GatewayFailure?)? = null,
+    private val approveWrite: ((String, GatewayUrl, (() -> Boolean)?) -> GatewayFailure?)? = null,
 ) {
     fun exchange(request: GatewayRequest): GatewayOutcome {
         val method = request.method.trim().uppercase()
@@ -137,7 +138,7 @@ class GatewaySession(
             if (request.headers.keys.any { it.lowercase() in METHOD_OVERRIDE_HEADERS }) return preflightDeny(refusal)
             if (approvedWrite) {
                 val approve = approveWrite ?: return preflightDeny(refusal)
-                approve(method, url)?.let { return preflightDeny(it) }
+                approve(method, url, request.downstreamConnected)?.let { return preflightDeny(it) }
                 if (!egress.permits(url)) return preflightDeny(GatewayFailure.hostNotAllowed(url.host))
             } else if (method !in setOf("GET", "HEAD") || request.body.isNotEmpty()) return preflightDeny(refusal)
         }
@@ -166,6 +167,9 @@ class GatewaySession(
         var followed = 0
         var contacts = 0
         while (true) {
+            if (approvedWrite && request.downstreamConnected?.invoke() == false) {
+                return preflightDeny(GatewayFailure(GatewayFailureCode.EGRESS_APPROVAL_DENIED, "请求已断开"))
+            }
             contacts++
             val response = try {
                 transport.execute(

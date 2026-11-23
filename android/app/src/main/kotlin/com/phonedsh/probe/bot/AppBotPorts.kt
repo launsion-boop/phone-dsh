@@ -182,11 +182,11 @@ class AppBotMCPEventSink(
 
 /** B2's memory facade behind B5a1's three memory tools. */
 class AppBotMemoryLookup(
-    private val memory: BotMemory,
+    private val memoryFor: (String) -> BotMemory,
     private val now: () -> Long = { System.currentTimeMillis() },
 ) : BotMemoryLookup {
     override suspend fun promptBlock(botId: String, language: String): String =
-        memory.promptBlock()
+        memoryFor(botId).promptBlock()
 
     override suspend fun update(
         botId: String,
@@ -198,7 +198,7 @@ class AppBotMemoryLookup(
                 "invalid_arguments",
                 "unsupported memory action: ${request.action}",
             )
-        val result = memory.write(
+        val result = memoryFor(botId).write(
             DomainMemoryWriteRequest(
                 action = action,
                 path = request.path,
@@ -232,7 +232,7 @@ class AppBotMemoryLookup(
     }
 
     override suspend fun read(botId: String, path: String, version: Int?): JsonValue =
-        when (val result = memory.read(path, version)) {
+        when (val result = memoryFor(botId).read(path, version)) {
             is com.phonedsh.bot.memory.BotMemoryReadResult.Document -> result.toJson()
             is com.phonedsh.bot.memory.BotMemoryReadResult.Directory -> result.toJson()
             is com.phonedsh.bot.memory.BotMemoryReadResult.Failure -> result.toJson()
@@ -248,7 +248,7 @@ class AppBotMemoryLookup(
             com.phonedsh.bot.memory.BotMemoryScope.parse(it)
                 ?: throw BotMCPToolException("invalid_arguments", "unknown memory scope: $it")
         }
-        val page = memory.recallPage(query = query, limit = limit, scope = parsedScope)
+        val page = memoryFor(botId).recallPage(query = query, limit = limit, scope = parsedScope)
         return McpMemoryRecallPage(
             hits = page.hits.map { it.toJson() },
             total = page.total,

@@ -618,6 +618,10 @@ android {
             // multi-release layer. It is bundle metadata, not a class or a
             // licence, and Android ignores META-INF/versions/** classes anyway.
             excludes += "META-INF/versions/*/OSGI-INF/MANIFEST.MF"
+            excludes += "META-INF/INDEX.LIST"
+            // The Android loopback uses Java NIO; desktop native transports are unnecessary.
+            excludes += "META-INF/native/libnetty_transport_native_*"
+            merges += "META-INF/io.netty.versions.properties"
         }
     }
 
