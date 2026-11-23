@@ -74,7 +74,6 @@ public enum class PdshIcon(
     DEVICE("iphone"),
     DEVICE_RADIO("dot.radiowaves.left.and.right"),
     CHAT_BUBBLE("bubble.left"),
-    /** 发现 › Gmail tile (`ConnectorsPage.swift`, `envelope.fill`). */
     MAIL("envelope.fill"),
     /**
      * 发现 › GitHub tile. GitHub's mark, MIT-licensed by GitHub Inc.

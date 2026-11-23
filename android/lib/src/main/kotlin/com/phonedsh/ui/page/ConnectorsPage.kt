@@ -18,6 +18,7 @@
 // destination is an existing route, so the host only supplies [onOpen].
 package com.phonedsh.ui.page
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -56,11 +57,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.phonedsh.lib.R
 import com.phonedsh.ui.ConnectorsMetrics
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.icon.PdshIcon
@@ -78,16 +83,12 @@ import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
 
 /** One entry of the 连接器 group (`DiscoverConnector`, `ConnectorsPage.swift:12`). */
-public enum class DiscoverConnector(
-    internal val icon: PdshIcon,
-    /** The tile's glyph ink, the baseline's per-connector tint (`:24-31`). */
-    internal val tint: Color,
-) {
-    GMAIL(PdshIcon.MAIL, Color(0xFFEB4236)),
-    GITHUB(PdshIcon.GITHUB_MARK, Color(0xFF21262E)),
-    DEVICES(PdshIcon.DEVICE_RADIO, Color(0xFF30B0C7)),
-    WEB_SEARCH(PdshIcon.GLOBE, Color(0xFF33C759)),
-    MCP(PdshIcon.DATABASE, Color.Unspecified),
+public enum class DiscoverConnector {
+    GMAIL,
+    GITHUB,
+    DEVICES,
+    WEB_SEARCH,
+    MCP,
     ;
 
     internal fun title(languageId: String?): String = when (this) {
@@ -309,22 +310,33 @@ public fun ConnectorsPage(
     }
 }
 
-/** Rounded tile with a tinted glyph, the connector's icon (`ConnectorTile`, `:155`). */
+/** Artwork shared by the Discover row and the connector detail sheet. */
 @Composable
-private fun ConnectorTile(connector: DiscoverConnector, size: androidx.compose.ui.unit.Dp) {
+private fun ConnectorTile(connector: DiscoverConnector, size: Dp) {
     val tokens = LocalUiTokens.current
+    val iconSize = size * ConnectorsMetrics.TILE_GLYPH_RATIO
     Box(
         modifier = Modifier
             .size(size)
             .background(tokens.colors.userBubble, RoundedCornerShape(size * ConnectorsMetrics.TILE_RADIUS_RATIO)),
         contentAlignment = Alignment.Center,
     ) {
-        PdshIconView(
-            icon = connector.icon,
-            size = size * ConnectorsMetrics.TILE_GLYPH_RATIO,
-            tint = if (connector.tint == Color.Unspecified) tokens.colors.textPrimary else connector.tint,
-            contentDescription = null,
-        )
+        when (connector) {
+            DiscoverConnector.GMAIL -> Image(
+                painter = painterResource(R.drawable.connector_gmail),
+                contentDescription = null,
+                modifier = Modifier.size(iconSize),
+            )
+            DiscoverConnector.MCP -> Image(
+                painter = painterResource(R.drawable.connector_mcp),
+                contentDescription = null,
+                modifier = Modifier.size(iconSize),
+                colorFilter = ColorFilter.tint(tokens.colors.textPrimary),
+            )
+            DiscoverConnector.GITHUB -> PdshIconView(PdshIcon.GITHUB_MARK, iconSize, tokens.colors.textPrimary, null)
+            DiscoverConnector.DEVICES -> PdshIconView(PdshIcon.DEVICE_RADIO, iconSize, Color(0xFF30B0C7), null)
+            DiscoverConnector.WEB_SEARCH -> PdshIconView(PdshIcon.GLOBE, iconSize, Color(0xFF33C759), null)
+        }
     }
 }
 
