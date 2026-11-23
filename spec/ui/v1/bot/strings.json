@@ -562,7 +562,7 @@
     {
       "id": "runtime.queuedSend",
       "value": "待发送，引擎就绪后自动发出",
-      "source": "BotChatPage.swift:1367",
+      "source": "BotChatPage.swift:1360",
       "expect": "待发送",
       "note": "durable Bot send written while the engine/Bot unit is absent; the row stays optimistic and the pending-action replay delivers it"
     },
