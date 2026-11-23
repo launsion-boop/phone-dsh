@@ -304,6 +304,11 @@ public class BotIdentityRegistrationService(
         return expired
     }
 
+    /** Live bash registrations of this Worker generation, including ones whose principal was revoked. */
+    public fun liveBashRegistrations(): List<BotAttribution> = synchronized(lock) {
+        registrations.values.filter { it.runtimeId == scopedRuntimeId() && it.name == "bash" && it.expiresAt > now() }
+    }
+
     public fun registrationCount(): Int = synchronized(lock) { registrations.size }
 
     public companion object {

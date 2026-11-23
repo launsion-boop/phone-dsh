@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.AtomicFile
 import com.phonedsh.gateway.EgressPolicy
 import com.phonedsh.gateway.GatewayCredential
+import com.phonedsh.gateway.GatewayFailure
 import com.phonedsh.gateway.GatewayCredentialProvider
 import com.phonedsh.gateway.GatewaySession
 import com.phonedsh.gateway.GatewayTransport
@@ -30,11 +31,15 @@ internal class NetworkAccessSettings(file: File) : EgressPolicy {
     private val current = MutableStateFlow(readFacts())
     val facts = current.asStateFlow()
 
-    fun readGateway(transport: GatewayTransport = HttpUrlConnectionGatewayTransport()) = GatewaySession(
+    fun readGateway(
+        transport: GatewayTransport = HttpUrlConnectionGatewayTransport(),
+        approveWrite: ((String, GatewayUrl) -> GatewayFailure?)? = null,
+    ) = GatewaySession(
         transport = transport,
         credentialProvider = GatewayCredentialProvider { GatewayCredential.None },
         egress = this,
         anonymousReadsOnly = true,
+        approveWrite = approveWrite,
     )
 
     override fun permits(url: GatewayUrl): Boolean {

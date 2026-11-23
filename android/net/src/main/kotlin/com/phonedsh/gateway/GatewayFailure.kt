@@ -16,6 +16,9 @@ enum class GatewayFailureCode(
     val proxyStatus: Int,
     val proxyError: String,
 ) {
+    BOT_EGRESS_AMBIGUOUS("bot_egress_ambiguous", 403, "egress_approval_denied"),
+    BOT_EGRESS_UNATTRIBUTED("bot_egress_unattributed", 403, "egress_approval_denied"),
+    TASK_NETWORK_WRITE_DENIED("task_network_write_denied", 403, "egress_approval_denied"),
     EGRESS_APPROVAL_DENIED("egress_approval_denied", 403, "egress_approval_denied"),
     HOST_NOT_ALLOWED("host_not_allowed", 403, "forbidden"),
     INVALID_REQUEST("invalid_request", 400, "bad_request"),

@@ -368,6 +368,7 @@ class AppBotChatDriver(
 
     /** Test/diagnostic hook: waits until the first session exists. */
     suspend fun startMainSession(): String = withContext(Dispatchers.IO) {
+        (transport as? DshBotSessionTransport)?.awaitImportChannel()
         runtime.startMainSession()
     }
 

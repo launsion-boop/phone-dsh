@@ -149,6 +149,10 @@ public class BotSessionTokenRegistry(
     }
 
     @Synchronized
+    public fun activePrincipals(): List<BotSessionPrincipal> =
+        currentIncarnations.keys.toList().mapNotNull(::lookupSession)
+
+    @Synchronized
     public fun revoke(token: String): Boolean {
         if (token.isEmpty() || token.length > 512) return false
         val wanted = digest(token)

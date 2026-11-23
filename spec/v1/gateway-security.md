@@ -137,7 +137,7 @@ that registration alive and refreshed until it settles, and several live registr
 workbench-turn probe keeps `notBot` for a running workbench turn; otherwise one active Bot gets the card, several fail
 `bot_egress_ambiguous`, and none fails `bot_egress_unattributed`. After attribution, a Task without `task.network-write` is refused
 403 `task_network_write_denied` before any card; a standing Grant cannot widen the host-issued subset. A missing Grant uses
-`tool=egress`, `operation=egress.<method>`, `resource=host=<host>`; deny/timeout/cancel returns 403 `egress_approval_denied` with no credential, socket or response log; an approved write's 3xx is never followed. Kotlin has no Bot runtime, so the `gw-*` goldens stay unchanged.
+`tool=egress`, `operation=egress.<method>`, `resource=host=<host>`; deny/timeout/cancel returns 403 `egress_approval_denied` with no credential, socket or response log; an approved write's 3xx is never followed. Android connects this seam to the same session registry and approval coordinator as its Bot chat. Its buffered ordinary egress route returns the durable card immediately and requires a fresh request after approval. This avoids sending a timed-out request after a late decision. The anonymous workbench route still only admits reads.
 
 ## 6. Response side — `response-redaction`
 
@@ -323,4 +323,4 @@ This section fixes the observable timing and the bound; it does not change the r
 
 The [shared cases](../ui/v1/fixtures/mobile-egress-settings.json) specify the iOS default list and valid and invalid Android inputs. The app-private atomic file `egress-settings.json` stores `version: 1`, Boolean `allowAll` and an ordered `hosts` array of normalized bare DNS names or leftmost wildcard suffixes. Internationalized names use their ASCII DNS form. An explicit final DNS dot is preserved for exact matching. Only an absent file uses defaults; corrupt or unreadable data fails closed and retry re-reads it.
 An empty saved list denies ordinary reads. Allow-all preserves the list; disabling it restores the list (or the defaults for an empty stash, as on iOS). Android confirms writes by reading the file back. Subsequent requests and redirect checks see the confirmed policy.
-This list admits anonymous ordinary HTTP(S) reads; it confers no credential, MCP grant or §5.1 write approval. Requests requiring write authorization are refused on that route. Model, search, MCP and explicit diagnostic routes keep their own scopes. Old builds ignore the file; model storage and wire versions are unchanged.
+This list admits anonymous ordinary HTTP(S) reads; it confers no credential, MCP grant or §5.1 write approval. Ordinary writes require independent §5.1 authorization after host admission. A missing principal or grant cannot be replaced by list membership. Model, search, MCP and explicit diagnostic routes keep their own scopes. Old builds ignore the file; model storage and wire versions are unchanged.

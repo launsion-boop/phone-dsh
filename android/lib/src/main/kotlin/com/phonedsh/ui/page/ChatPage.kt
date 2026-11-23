@@ -334,6 +334,7 @@ public fun ChatPage(
     subagents: List<ChatSubagentEntry>? = null,
     /** Opens a subagent only after the host confirms its Worker identity/history. */
     onOpenSubagentSession: (suspend (ChatSubagentEntry) -> String?)? = null,
+    lostSendsBanner: (@Composable () -> Unit)? = null,
 ) {
     val tokens = LocalUiTokens.current
     val boundTimelineRetry = (timelineRetryAvailability as? PdshActionAvailability.Available)?.callback
@@ -428,6 +429,7 @@ public fun ChatPage(
             collapseTiming = collapseTiming,
             onSetCollapseTiming = onSetCollapseTiming,
         )
+        lostSendsBanner?.invoke()
         if (subagentCatalogOpen && !subagents.isNullOrEmpty()) {
             onOpenSubagentSession?.let { openSession ->
                 SubagentCatalogDialog(

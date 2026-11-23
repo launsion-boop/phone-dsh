@@ -68,6 +68,8 @@ internal interface ChatSendHost {
     /** The authoritative read-back of one entry. */
     suspend fun readBack(entry: SendOutboxEntry): SendOutboxReadBack
 
+    suspend fun targetMissing(sessionId: String): Boolean = false
+
     fun sessionExists(sessionId: String): Boolean
 
     /** The id after `account:` of the signed-in account, or null. */
@@ -265,7 +267,9 @@ internal class ChatSendQueue(
             }
             withContext(io) {
                 val entry = outbox.entry(rpcId) ?: return@withContext
-                if (entry.state == SendOutboxState.SUBMITTING) {
+                if (entry.state == SendOutboxState.QUEUED && failure == "session/not-found") {
+                    outbox.markTargetLost(rpcId)
+                } else if (entry.state == SendOutboxState.SUBMITTING) {
                     runCatching { outbox.markOutcomeUnknown(rpcId, failure ?: "the turn ended during submission") }
                 }
             }
@@ -434,8 +438,18 @@ internal class ChatSendQueue(
     private suspend fun drain() {
         val entries = withContext(io) { outbox.entries() }
         val blocked = HashSet<String>()
+        val missing = mutableMapOf<String, Boolean>()
         for (stale in entries) {
             val entry = withContext(io) { outbox.entry(stale.rpcId) } ?: continue
+            // A preceding unknown submission holds delivery, but cannot hide a proven loss
+            // of this never-submitted entry. Probe each session at most once per pass.
+            if (entry.state == SendOutboxState.QUEUED &&
+                missing.getOrPut(entry.sessionId) { host.targetMissing(entry.sessionId) }) {
+                gate.withLock { withContext(io) {
+                    if (outbox.entry(entry.rpcId)?.state == SendOutboxState.QUEUED) outbox.markTargetLost(entry.rpcId)
+                } }
+                continue
+            }
             if (entry.sessionId in blocked) continue
             when (entry.state) {
                 SendOutboxState.DURABLE -> gate.withLock { withContext(io) { runCatching { outbox.deleteIfDurable(entry.rpcId) } } }
@@ -606,7 +620,23 @@ internal class ChatSendQueue(
         return ids.any { outbox.entry(it)?.sessionId == sessionId }
     }
 
-    private suspend fun publish() {
+    suspend fun recoverLost(rpcId: String, target: String?) {
+        gate.withLock {
+            withContext(io) {
+                if (target == null) outbox.discardTargetLost(rpcId)
+                else {
+                    check(host.activeSessionId() == target) { "当前对话已切换，请重试" }
+                    outbox.resendTargetLost(rpcId, target)
+                }
+            }
+        }
+        publish()
+        requestDelivery()
+    }
+
+    private val publication = Mutex()
+
+    private suspend fun publish() = publication.withLock {
         val entries = withContext(io) { outbox.entries() }
         host.queueChanged(entries)
     }

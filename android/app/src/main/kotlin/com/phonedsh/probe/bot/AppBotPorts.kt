@@ -466,6 +466,8 @@ internal class AppBotSessionPrincipals(
     override fun revokeSession(sessionId: String) = registry.revokeSession(sessionId)
     override fun revokeBot(botId: String) = registry.revokeBot(botId)
 
+    fun activePrincipals() = registry.activePrincipals().map { it.toGateway() }
+
     private fun BotSessionPrincipal.toGateway() =
         BotGatewayPrincipal(botId, sessionId, kind, capabilities, expiresAt, incarnation)
 }
