@@ -490,8 +490,8 @@ public data class BotMemoryMaintenanceRollback(
 
 public data class BotMemoryMaintenanceSettings(
     public val enabled: Boolean = false,
-    public val runTokenBudget: Int = 32_000,
-    public val dailyTokenBudget: Int = 96_000,
+    public val runTokenBudget: Int = 400_000,
+    public val dailyTokenBudget: Int = 1_000_000,
 ) {
     public companion object {
         public const val DEFAULTS_KEY: String = "phone-dsh.bot.memory-maintenance.v1"

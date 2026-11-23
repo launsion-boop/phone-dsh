@@ -111,8 +111,10 @@ class GatewaySession(
     private val sleeper: (Long) -> Unit = { millis -> Thread.sleep(millis) },
     /** tono-account.md §11: told once about each cloud-origin 402 (never re-sent). */
     private val creditsHandler: (TonoCloudResponsePolicy.CreditsCondition) -> Unit = TonoCloudCreditsSignal::post,
-    /** Ordinary anonymous reads have no principal capable of approving network writes. */
+    /** Restrict the ordinary product route to anonymous reads and independently approved writes. */
     private val anonymousReadsOnly: Boolean = false,
+    /** Installed only on the product's ordinary egress route. Null decision authorizes one exchange. */
+    private val approveWrite: ((String, GatewayUrl) -> GatewayFailure?)? = null,
 ) {
     fun exchange(request: GatewayRequest): GatewayOutcome {
         val method = request.method.trim().uppercase()
@@ -129,9 +131,15 @@ class GatewaySession(
             return preflightDeny(GatewayFailure.hostNotAllowed(url.host))
         }
 
-        if (anonymousReadsOnly && ((method != "GET" && method != "HEAD") || request.body.isNotEmpty() ||
-                request.headers.keys.any { it.lowercase() in METHOD_OVERRIDE_HEADERS })) {
-            return preflightDeny(GatewayFailure(GatewayFailureCode.EGRESS_APPROVAL_DENIED, "network write approval required"))
+        val approvedWrite = anonymousReadsOnly && method in setOf("POST", "PUT", "PATCH", "DELETE")
+        if (anonymousReadsOnly) {
+            val refusal = GatewayFailure(GatewayFailureCode.EGRESS_APPROVAL_DENIED, "network write approval required")
+            if (request.headers.keys.any { it.lowercase() in METHOD_OVERRIDE_HEADERS }) return preflightDeny(refusal)
+            if (approvedWrite) {
+                val approve = approveWrite ?: return preflightDeny(refusal)
+                approve(method, url)?.let { return preflightDeny(it) }
+                if (!egress.permits(url)) return preflightDeny(GatewayFailure.hostNotAllowed(url.host))
+            } else if (method !in setOf("GET", "HEAD") || request.body.isNotEmpty()) return preflightDeny(refusal)
         }
 
         val scopes = ArrayList<CredentialScope>(1)
@@ -187,7 +195,7 @@ class GatewaySession(
             if (response.status in REDIRECT_STATUSES && location != null) {
                 val targetText = GatewayUrls.resolveLocation(currentUrl, location)
                 val target = GatewayUrls.parse(targetText)
-                if (target == null || !target.isHttp) {
+                if (approvedWrite || target == null || !target.isHttp) {
                     return refusedRedirect(
                         response = response,
                         contactedUrl = currentUrl,
@@ -239,7 +247,7 @@ class GatewaySession(
                 cloudPolicy.creditsCondition(currentUrl.raw, response.status, response.body)?.let(creditsHandler)
                 when (val decision = cloudPolicy.decide(currentUrl.raw, response.status, response.headers, response.body)) {
                     TonoCloudResponsePolicy.Decision.RefreshRetry ->
-                        if (credential.carriesSecret && credentialRetries < TonoCloudResponsePolicy.CREDENTIAL_RETRY_MAX) {
+                        if (!approvedWrite && credential.carriesSecret && credentialRetries < TonoCloudResponsePolicy.CREDENTIAL_RETRY_MAX) {
                             credentialRetries++
                             credentialProvider.invalidate(credential, scope)
                             scopes.add(scope)
@@ -257,7 +265,7 @@ class GatewaySession(
                             }
                         }
                     is TonoCloudResponsePolicy.Decision.RetryAfter ->
-                        if (identityRetries < TonoCloudResponsePolicy.IDENTITY_RETRY_MAX) {
+                        if (!approvedWrite && identityRetries < TonoCloudResponsePolicy.IDENTITY_RETRY_MAX) {
                             identityRetries++
                             sleeper(decision.seconds * 1_000L)
                             continue

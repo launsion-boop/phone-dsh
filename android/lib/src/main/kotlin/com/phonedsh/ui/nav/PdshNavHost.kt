@@ -591,6 +591,7 @@ public fun PdshNavHost(
     botNextSteps: com.phonedsh.ui.bot.state.BotNextStepsMetrics? = null,
     onEgressSettings: ((EgressSettingsAction) -> Unit)? = null,
     onBotDrawerVisibility: (Boolean) -> Unit = {},
+    lostSendsBanner: (@Composable () -> Unit)? = null,
 ) {
     val route = nav.current
     val botScope = rememberCoroutineScope()
@@ -716,6 +717,7 @@ public fun PdshNavHost(
             PdshRoute.Sessions ->
                 if (sessions != null) sessions() else SessionsRoute(facts, onBack)
             PdshRoute.Chat -> ChatRoute(
+                lostSendsBanner = lostSendsBanner,
                 workspaceRoot = workspaceRoot,
                 actionAvailability = facts.actionAvailability,
                 subpages = chatSubpages,
@@ -1123,6 +1125,7 @@ private fun ChatRoute(
     onRemoveAttachment: (Int) -> Unit,
     onDismissNotice: () -> Unit,
     actions: ChatInteractionActions,
+    lostSendsBanner: (@Composable () -> Unit)? = null,
 ) {
     fun available(action: PdshActionKey): Boolean =
         actionAvailability.forAction(action) is PdshActionAvailability.Available
@@ -1288,6 +1291,7 @@ private fun ChatRoute(
             }
         }
     ChatPage(
+        lostSendsBanner = lostSendsBanner,
         state = state ?: ChatScreenState.from(nodes = emptyList(), local = ChatLocalState()),
         onDraftChange = onDraftChange,
         onSend = onSend,

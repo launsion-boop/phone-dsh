@@ -126,6 +126,9 @@ class ChatSendQueueTest {
             return readBackAnswers[entry.rpcId] ?: SendOutboxReadBack.INCONCLUSIVE
         }
 
+        val missingSessions = mutableSetOf<String>()
+        override suspend fun targetMissing(sessionId: String) = sessionId in missingSessions
+
         override fun sessionExists(sessionId: String) = sessionId in sessions
 
         override fun signedInAccountId(): String? = null
@@ -385,6 +388,22 @@ class ChatSendQueueTest {
     }
 
     // ---------------------------------------- lost target (PC-20261122-outbox-lost-target)
+
+    @Test
+    fun `only a missing target verdict rests queued entries across sessions`() {
+        val store = outbox()
+        val lost = store.enqueue("missing", "pending")
+        val unknown = store.enqueue("missing", "uncertain")
+        store.markSubmitting(unknown.rpcId)
+        store.markOutcomeUnknown(unknown.rpcId, "interrupted")
+        val inactive = store.enqueue("another-session", "pending elsewhere")
+        val host = process { missingSessions.add("missing") }
+        host.queue.requestDelivery()
+        assertEquals(SendOutboxState.TARGET_LOST, store.entry(lost.rpcId)?.state)
+        assertEquals(SendOutboxState.OUTCOME_UNKNOWN, store.entry(unknown.rpcId)?.state)
+        assertEquals(SendOutboxState.QUEUED, store.entry(inactive.rpcId)?.state)
+        assertTrue(host.transport.isEmpty())
+    }
 
     @Test
     fun `a lost entry is never delivered, never boots the engine and never holds the live session`() {

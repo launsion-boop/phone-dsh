@@ -61,6 +61,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
+import com.phonedsh.ui.bot.state.BotInfoModelState
+import com.phonedsh.ui.bot.state.BotInfoIntent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -556,6 +558,8 @@ internal fun HostShell(
     var activeProviderTestRequest by remember { mutableStateOf<String?>(null) }
     var activeProviderSaveRequest by remember { mutableStateOf<String?>(null) }
     val providerProbeScope = rememberCoroutineScope()
+    val selectedBot = botPlatform?.context?.botID
+    var info by remember(selectedBot) { mutableStateOf(BotInfoModelState.initial(hasDriver = true)) }
     var notice by remember { mutableStateOf<String?>(null) }
     // The route stack and the contract's push state move as one value: the tab
     // bar, the drawer overlay and the coordinator all read the same [hostBack],
@@ -565,6 +569,24 @@ internal fun HostShell(
     }
     val nav: PdshNavState = hostBack.nav
 
+    fun handleInfo(intent: BotInfoIntent) {
+        val id = selectedBot ?: return
+        providerProbeScope.launch {
+            try {
+                val snapshot = engine.botInfo(id, intent)
+                if (engine.botPlatformConfig.value?.context?.botID == id) info = BotInfoModelState.loaded(snapshot)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (engine.botPlatformConfig.value?.context?.botID == id) {
+                    val message = error.localizedMessage ?: "Bot 信息读取失败"
+                    if (intent == BotInfoIntent.Load) info = BotInfoModelState.failed(info, message)
+                    else info = info.copy(actionError = message)
+                    notice = message
+                }
+            }
+        }
+    }
     val pcHistoryRoute = nav.current as? PdshRoute.PcSessionHistory
     var pcHistoryRevision by remember(pcHistoryRoute) { mutableIntStateOf(0) }
     val pcHistoryView by produceState<PcSessionHistoryUiState?>(
@@ -1328,6 +1350,16 @@ internal fun HostShell(
                     PdshNavHost(
                         nav = nav,
                         facts = shownFacts,
+                        lostSendsBanner = {
+                            val lost by engine.lostSends.collectAsState()
+                            LostSendBanner(lost, chatUi.workerSessionId) { rpcId, target ->
+                                providerProbeScope.launch {
+                                    try { engine.recoverLostSend(rpcId, target) }
+                                    catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                                    catch (_: Exception) { notice = "无法处理这条待发送消息，请重试" }
+                                }
+                            }
+                        },
                         botDriver = botPlatform?.driver,
                         onBotDrawerVisibility = { botDrawerVisible = it },
                         botFish = { lifecycle, appearance, crowned, size, paused, modifier ->
@@ -1335,10 +1367,22 @@ internal fun HostShell(
                         },
                         readBotPresence = engine::readBotPresence,
                         onBotAppearanceIntent = { intent -> botPlatform?.context?.botID?.let { engine.updateBotAppearance(it, intent) } },
-                        onBotInfoIntent = { intent ->
-                            if (intent is com.phonedsh.ui.bot.state.BotInfoIntent.Rename) {
-                                botPlatform?.context?.botID?.let { engine.handleBotDrawer(com.phonedsh.ui.bot.state.BotDrawerIntent.Rename(it, intent.name)) }
-                            }
+                        botInfoState = info,
+                        onBotInfoIntent = ::handleInfo,
+                        onOpenBotPath = { path -> navigateFromDrawer(PdshRoute.Preview(path)) },
+                        onOpenBotUrl = { raw ->
+                            val uri = android.net.Uri.parse(raw)
+                            if (uri.scheme?.lowercase() in setOf("http", "https") && !uri.host.isNullOrEmpty()) {
+                                try {
+                                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                                        .addCategory(android.content.Intent.CATEGORY_BROWSABLE))
+                                } catch (_: android.content.ActivityNotFoundException) { notice = "没有可以打开此链接的浏览器" }
+                            } else notice = "无法打开此链接"
+                        },
+                        onSelectBot = { id ->
+                            if (botPlatform?.roster?.any { it.id == id } == true) {
+                                engine.handleBotDrawer(com.phonedsh.ui.bot.state.BotDrawerIntent.Select(id))
+                            } else notice = "找不到这个 Bot"
                         },
                         botNextSteps = engine.botNextSteps,
                         botContext = botPlatform?.context

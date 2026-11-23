@@ -106,6 +106,31 @@ class NetworkAccessSettingsTest {
         assertTrue(calls.none { it.url.contains("destination.example.org") })
     }
 
+    @Test fun approvedWriteContactsOnlyTheApprovedHostAndMethod() {
+        val settings = NetworkAccessSettings(file)
+        settings.add("first.example.org")
+        settings.add("second.example.org")
+        val approvals = mutableListOf<String>()
+        val calls = mutableListOf<GatewayTransportRequest>()
+        val transport = object : GatewayTransport {
+            override fun execute(request: GatewayTransportRequest): GatewayTransportResponse {
+                calls += request
+                return GatewayTransportResponse(307, mapOf("Location" to "https://second.example.org/path"))
+            }
+        }
+        val gateway = GatewayHttpEgress(settings.readGateway(transport) { method, url ->
+            approvals += "$method ${url.host}"
+            null
+        })
+        assertEquals(403, gateway.handle(request("third.example.org", "PUT")).status)
+        assertEquals(403, gateway.handle(request("first.example.org", "GET", byteArrayOf(1))).status)
+        assertEquals(403, gateway.handle(request("first.example.org", "POST", extra = mapOf("X-HTTP-Method-Override" to "DELETE"))).status)
+        assertEquals(307, gateway.handle(request("first.example.org", "PATCH", byteArrayOf(1))).status)
+        assertEquals(listOf("PATCH first.example.org"), approvals)
+        assertEquals("PATCH", calls.single().method)
+        assertArrayEquals(byteArrayOf(1), calls.single().body)
+    }
+
     @Test fun failedEditDoesNotPublishAnUnconfirmedPermissionAndRetryReadsOldFile() {
         val parent = directory.newFolder("product")
         val store = NetworkAccessSettings(File(parent, "rules.json"))

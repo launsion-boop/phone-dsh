@@ -1068,7 +1068,12 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
             credentialProvider = modelCredential ?: AnonymousCredentialProvider,
             egress = AllowListEgressPolicy(listOf(grant)),
         )
-    } ?: networkSettings.readGateway()
+    } ?: networkSettings.readGateway { method, url ->
+        val approval = appBotRuntime?.egress
+        if (approval == null) com.phonedsh.gateway.GatewayFailure(
+            com.phonedsh.gateway.GatewayFailureCode.BOT_EGRESS_UNATTRIBUTED, "Bot 身份服务不可用")
+        else approval.check(method, url, turnRunning.get())
+    }
     private val ordinaryHttpEgress = GatewayHttpEgress(gateway)
 
     /**
@@ -1797,6 +1802,13 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
             }
         }
     }
+
+    private val botInfoIo = Dispatchers.IO.limitedParallelism(1)
+
+    internal suspend fun botInfo(id: String, intent: com.phonedsh.ui.bot.state.BotInfoIntent) =
+        withContext(botInfoIo) {
+            checkNotNull(appBotRuntime?.info) { "Bot 服务暂不可用" }.handle(id, intent)
+        }
 
     internal suspend fun readBotPresence(botID: String) = withContext(Dispatchers.IO) {
         appBotRuntime?.presence(botID, appForeground)?.let { fact ->
@@ -2582,6 +2594,20 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
             }
         }
 
+        override suspend fun targetMissing(sessionId: String): Boolean {
+            return try {
+                // Same empty-page identity probe as DSHRemoteHarness.openSession.
+                val address = JsonObject(mapOf("kind" to JsonString("session"), "sessionId" to JsonString(sessionId)))
+                val request = JsonObject(mapOf("address" to address, "throughSeq" to JsonNumber("-1"), "maxMessages" to JsonNumber("1")))
+                DshTurnClient(host.channel, ::logTurn).call("session/page", JsonObject(mapOf("request" to request)), timeoutMillis = 2500)
+                false
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                workerSessionGone(reasonOf(failure))
+            }
+        }
+
         override fun sessionExists(sessionId: String): Boolean =
             sessionId in chatWorkerClaims || mutableChat.value.workerSessionId == sessionId
 
@@ -2660,7 +2686,13 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
      * yet: one local queue row per `queued` entry of the conversation on screen
      * that has no bubble. Rows owned by the mid-turn composer are left alone.
      */
+    internal val lostSends = MutableStateFlow<List<SendOutboxEntry>>(emptyList())
+
+    internal suspend fun recoverLostSend(rpcId: String, target: String?) =
+        chatSendQueue.recoverLost(rpcId, target)
+
     private fun projectQueuedSends(entries: List<SendOutboxEntry>) {
+        lostSends.value = entries.filter { it.state == SendOutboxState.TARGET_LOST }
         mutableChat.update { live ->
             val session = live.workerSessionId
             val kept = live.localQueueItems.filterNot {
@@ -4642,8 +4674,9 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                             else live.copy(streaming = live.streaming + text)
                         }
                     },
-                    onContextLost = { message ->
-                        if (turnGeneration == chatTurnGeneration.get()) recordContextLost(chatId, message)
+                    onContextLost = {
+                        // Let deliveryEnded settle the outbox before the runner can redirect this prompt.
+                        throw DshTurnException("session/not-found", "原对话已不在引擎中")
                     },
                     onInteractiveRequest = { request, responder ->
                         if (turnGeneration == chatTurnGeneration.get()) receiveChatRequest(chatId, request, responder)
@@ -5350,6 +5383,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     private fun onWorkerConsole(text: String) {
         if (text.contains("XL_DSH_READY")) {
             Log.i(TAG_TURN, "APP_WORKER_READY")
+            chatSendQueue.requestDelivery()
             // A cold restore may try the projection before the Worker has
             // registered its channel. Once this exact Worker announces ready,
             // re-read the current session's facts; no new Worker/session is made.

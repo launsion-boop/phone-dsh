@@ -18,7 +18,6 @@ import com.phonedsh.bot.authz.BotGrantStore
 import com.phonedsh.bot.gateway.BotAttributionRegistry
 import com.phonedsh.bot.gateway.BotIdentityRegistrationService
 import com.phonedsh.bot.gateway.BotIdentityRegistrationRequest
-import com.phonedsh.bot.gateway.BotTokenPrincipalPort
 import com.phonedsh.bot.session.BotSessionTokenRegistry
 import com.phonedsh.bot.mcp.BotAttributionPort
 import com.phonedsh.bot.mcp.BotMCPHandler
@@ -205,9 +204,9 @@ class SharedPreferencesProactiveSettingsStore(
     }
 
     override fun save(settings: ProactiveSettings) {
-        preferences.edit()
-            .putString(key, ProactiveSettingsPersistence.encode(settings).toJsonString())
-            .apply()
+        check(preferences.edit().putString(key, ProactiveSettingsPersistence.encode(settings).toJsonString()).commit()) {
+            "无法保存打扰设置"
+        }
     }
 }
 
@@ -230,6 +229,8 @@ class AppBotRuntime internal constructor(
     private val routines: AppBotRoutineService,
     private val logger: (String) -> Unit,
     private val rosterController: AppBotRosterController? = null,
+    internal val info: AppBotInfo? = null,
+    internal val egress: AppBotWriteApproval? = null,
 ) : AutoCloseable {
     private val running = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
@@ -359,7 +360,7 @@ class AppBotRuntime internal constructor(
             val memoryLookup = AppBotMemoryLookup(memory, clock)
             val routineLookup = AppBotRoutineLookup(routineMachine, clock)
             val sessionTokens = BotSessionTokenRegistry(now = clock)
-            val tokens: BotTokenPrincipalPort = AppBotSessionPrincipals(sessionTokens)
+            val tokens = AppBotSessionPrincipals(sessionTokens)
             val storeLock = Any()
             val grantLog = AppBotAuthzEventLog(store, AppBotAuthzEventLog.GRANT_TYPES, clock, storeLock)
             var notifyBotChanged: (String?) -> Unit = {}
@@ -543,6 +544,8 @@ class AppBotRuntime internal constructor(
                 ),
                 logger = logger,
                 rosterController = rosterController,
+                egress = AppBotWriteApproval(identity, tokens, approvals, clock),
+                info = AppBotInfo(store, preferences, proactiveSettings, grantStore, approvalLog, routineMachine, scheduler, rosterController, clock),
             )
         }
 

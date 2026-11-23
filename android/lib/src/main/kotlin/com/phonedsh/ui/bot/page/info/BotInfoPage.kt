@@ -132,6 +132,7 @@ public fun BotInfoPage(
             throw cancelled
         } catch (_: Exception) { null }
     }
+    androidx.compose.runtime.LaunchedEffect(profileName) { onIntent(BotInfoIntent.Load) }
     val refresh = { refreshCount++; onIntent(BotInfoIntent.Load) }
 
     when (route) {
