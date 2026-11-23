@@ -3,10 +3,9 @@
 //
 // D18 fixes the epoch-close order (spec/v1/wal.md §5.2): fsync every file the
 // epoch touched, then publish the manifest with a rename, then fsync the
-// containing directory so the rename itself survives. Java can do the first two;
-// there is no Java API that fsyncs a directory, so the directory step goes
-// through `android.system.Os.open(O_RDONLY)` + `Os.fsync` on the raw fd. That is
-// the one primitive Android has and the JVM does not.
+// containing directory so the rename itself survives. Directories and files
+// materialized with a read-only mode use `android.system.Os.open(O_RDONLY)`
+// and `Os.fsync` to flush their contents and metadata.
 //
 // Both sync steps are injected seams. The host JVM cannot call `Os`, so the JVM
 // suite proves the ordering with recording fakes, and the device suite
@@ -21,6 +20,7 @@ import com.phonedsh.platform.Durability
 import com.phonedsh.platform.DurabilityLevel
 import java.io.IOException
 import java.nio.channels.FileChannel
+import java.nio.file.AccessDeniedException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -52,11 +52,19 @@ fun interface DirectorySync {
     fun fsync(directory: Path)
 }
 
-/** [FileSync] through `FileChannel.force(true)`; works on device and on a JVM. */
+/** [FileSync] through `FileChannel.force(true)` for files openable for writing. */
 object ChannelFileSync : FileSync {
     override fun fsync(path: Path) {
-        FileChannel.open(path, StandardOpenOption.WRITE).use { channel ->
-            channel.force(true)
+        val channel = try {
+            FileChannel.open(path, StandardOpenOption.WRITE)
+        } catch (_: AccessDeniedException) {
+            // WAL replay can apply a read-only mode before the recovery sync.
+            // Flush that inode through Android without changing its permissions.
+            fsyncReadOnly(path, "file")
+            return
+        }
+        channel.use {
+            it.force(true)
         }
     }
 }
@@ -70,21 +78,25 @@ object ChannelFileSync : FileSync {
  */
 object OsDirectorySync : DirectorySync {
     override fun fsync(directory: Path) {
-        val fd = try {
-            Os.open(directory.toAbsolutePath().toString(), OsConstants.O_RDONLY, 0)
-        } catch (failure: ErrnoException) {
-            throw IOException("cannot open directory for fsync", failure)
-        }
+        fsyncReadOnly(directory, "directory")
+    }
+}
+
+private fun fsyncReadOnly(path: Path, kind: String) {
+    val fd = try {
+        Os.open(path.toAbsolutePath().toString(), OsConstants.O_RDONLY, 0)
+    } catch (failure: ErrnoException) {
+        throw IOException("cannot open $kind for fsync", failure)
+    }
+    try {
+        Os.fsync(fd)
+    } catch (failure: ErrnoException) {
+        throw IOException("$kind fsync failed", failure)
+    } finally {
         try {
-            Os.fsync(fd)
-        } catch (failure: ErrnoException) {
-            throw IOException("directory fsync failed", failure)
-        } finally {
-            try {
-                Os.close(fd)
-            } catch (ignored: ErrnoException) {
-                // The sync result is what matters; a close failure cannot undo it.
-            }
+            Os.close(fd)
+        } catch (ignored: ErrnoException) {
+            // The sync result is what matters; a close failure cannot undo it.
         }
     }
 }

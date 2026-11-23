@@ -9,6 +9,7 @@
 package com.phonedsh.platform.android
 
 import android.content.Context
+import android.system.Os
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.platform.DurabilityLevel
@@ -18,6 +19,7 @@ import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -61,6 +63,37 @@ class AndroidDurabilityDeviceTest {
             root.list()!!.sorted(),
         )
         durability.fsyncPath(target.toPath())
+    }
+
+    @Test
+    fun aReadOnlyMaterializedFileCanBeSyncedWithoutChangingItsMode() = runBlocking {
+        val target = File(root, "attachment")
+        target.writeText("attachment bytes")
+        val ownerReadOnly = 0b100_000_000
+        Os.chmod(target.path, ownerReadOnly)
+        assertFalse(target.canWrite())
+
+        durability.fsyncPath(target.toPath())
+
+        assertEquals(ownerReadOnly, Os.stat(target.path).st_mode and 0b111_111_111)
+        assertEquals("attachment bytes", target.readText())
+    }
+
+    @Test
+    fun aFileThatCannotBeOpenedStillFailsToSync() = runBlocking {
+        val target = File(root, "unreadable")
+        target.writeText("bytes")
+        Os.chmod(target.path, 0)
+
+        val failure = try {
+            durability.fsyncPath(target.toPath())
+            null
+        } catch (expected: IOException) {
+            expected
+        }
+
+        assertNotNull("an inaccessible file must not be reported as synced", failure)
+        assertEquals(0, Os.stat(target.path).st_mode and 0b111_111_111)
     }
 
     @Test
