@@ -27,7 +27,7 @@
     "note": "hand-registered chrome contract for a non-*Page composable in the surface package; page_structure_check.py reads it like home-drawer.json. Android's row labels live in UiStrings and its value formats mirror the Swift sheet (nativePercent; plain `tok` counts)."
   },
   "handRegistered": {
-    "reason": "NativeTurnUsageDetails is a sheet struct, not a `*Page` struct, so extract_ios_pages.py does not generate a contract for it. The sheet is the product's turn-tail 用量 action (ChatPage.swift:913-918) and page contract chat.json#sheet-913 records only the destination and trigger, not the labels or value formats. Registering it here freezes the sheet's content without hand-editing the generated chat.json.",
+    "reason": "NativeTurnUsageDetails is a sheet struct, not a `*Page` struct, so extract_ios_pages.py does not generate a contract for it. The sheet is the product's turn-tail 用量 action (ChatPage.swift:927-918) and page contract chat.json#sheet-913 records only the destination and trigger, not the labels or value formats. Registering it here freezes the sheet's content without hand-editing the generated chat.json.",
     "mechanism": "a whole contract file, like pages/home-drawer.json: the extractor never writes or deletes pages/turn-usage.json; CHROME_CONTRACTS pins the Swift file and struct, and page_structure_check.py compares the contract against the Android TurnUsageSheet composable, provenance included."
   },
   "sections": [

@@ -45,6 +45,13 @@ enum BotSignInRequirement: Equatable {
         return false
     }
 
+    /// Whether a held send may go out by itself when the sign-in sheet closes: only after a real
+    /// sign-in. A service of the user's own chosen in that sheet runs once the engine restarts,
+    /// so its draft waits in the composer instead.
+    static var sendsHeldDraft: Bool {
+        TonoAccountSession.shared.hasSession && !current().holdsSend
+    }
+
     var title: String {
         switch self {
         case .none: return ""
@@ -57,7 +64,7 @@ enum BotSignInRequirement: Equatable {
     var detail: String {
         switch self {
         case .signIn(.reverifyRequired): return "登录满 180 天需要用短信验证码再登录一次。"
-        case .signIn: return "云端模型要用你的 Tono 账号。用手机号和短信验证码登录后就能继续聊。"
+        case .signIn: return "云端模型要用你的 Tono 账号。用手机号和短信验证码登录后就能继续聊，也可以在「模型服务」里用自己的密钥。"
         case .none: return ""
         }
     }

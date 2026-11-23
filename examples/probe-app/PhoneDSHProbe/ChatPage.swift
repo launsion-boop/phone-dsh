@@ -111,6 +111,10 @@ struct ChatPage: View {
     @State private var previewTarget: PreviewTarget?
     @State private var showSettings = false
     @State private var showProviderSettings = false
+    /// spec/ui/v1/pages/chat.md 「需要登录」: the Tono account sheet a held send opens.
+    @State private var showTonoSignIn = false
+    /// A send was held for sign-in; the sheet's dismissal retries it once.
+    @State private var sendAfterSignIn = false
     /// A path whose bytes had not arrived yet; the next file refresh retries it.
     @State private var pendingPreviewPath: String?
     @State private var showSessionList = false
@@ -623,6 +627,16 @@ struct ChatPage: View {
             NavigationStack { ModelProviderSettingsPage().homeSheetDone() }
                 .homeSheetChrome()
         }
+        .sheet(isPresented: $showTonoSignIn, onDismiss: {
+            guard sendAfterSignIn else { return }
+            sendAfterSignIn = false
+            // Only a sign-in sends the kept draft: a newly chosen service of the user's own runs
+            // once the engine restarts, so the draft waits in the composer for that.
+            if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty,
+               BotSignInRequirement.sendsHeldDraft {
+                submitDraft()
+            }
+        }) { TonoSignInSheet() }
         .sheet(isPresented: $showSettings) {
             NavigationStack { SettingsPage(onOpenSession: { showSettings = false }) }
                 .homeSheetChrome()
@@ -2182,6 +2196,9 @@ struct ChatPage: View {
             // Launch: the engine starts by itself. Show the empty chat it is about to become
             // instead of flashing 引擎还没启动 → 正在启动… for the moment that takes.
             readyState(viewportHeight: viewportHeight)
+        } else if providerNeedsKey, BotSignInRequirement.current(signedIn: accountSignedIn).holdsSend {
+            signInSetupState
+                .padding(.top, 88)
         } else if providerNeedsKey {
             providerSetupState
                 .padding(.top, 88)
@@ -2261,6 +2278,42 @@ struct ChatPage: View {
     }
 
     /// B:引擎已启动,只差模型服务。和 A 同一个版式。
+    /// The cloud profile only needs the Tono account: say so and open the sign-in, not the
+    /// model-service settings (where there is no key to paste).
+    private var signInSetupState: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("还差一步：登录 Tono 账号")
+                .font(.system(size: 17.5, weight: .semibold))
+                .foregroundStyle(HomeSpec.textPrimary)
+            Text("用手机号和短信验证码登录后就能开始；也可以用自己的模型服务和密钥，不用登录。")
+                .font(.system(size: 14))
+                .foregroundStyle(HomeSpec.textPlaceholder)
+                .padding(.top, 8)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                showTonoSignIn = true
+            } label: {
+                Text("去登录")
+            }
+            .buttonStyle(HomePrimaryButtonStyle())
+            .padding(.top, 24)
+            .accessibilityIdentifier("chat.empty.signin")
+            Button {
+                showProviderSettings = true
+            } label: {
+                Text("用自己的密钥")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(HomeSpec.textSecondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+            .accessibilityIdentifier("chat.empty.own-key")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var providerSetupState: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("还差一步:配好模型服务")
@@ -3418,6 +3471,15 @@ struct ChatPage: View {
             return
         }
         let steer = usesSteerDelivery(accelerated: accelerated)
+        // The Tono cloud profile without an account session or a stored key cannot answer: the
+        // turn would only wait on a credential that never comes. Ask for the sign-in instead and
+        // keep the draft; the sheet's dismissal sends it once signed in. Same rule as the Bot tab.
+        if !steer, model.backendID == .phone, BotSignInRequirement.current().holdsSend {
+            dismissKeyboard()
+            sendAfterSignIn = true
+            showTonoSignIn = true
+            return
+        }
         if steer, !pendingAttachments.isEmpty {
             composerNotice = ComposerNotice(level: .error,
                                             text: "补充说明不支持附带图片；请先移除图片，或改用排队发送。")

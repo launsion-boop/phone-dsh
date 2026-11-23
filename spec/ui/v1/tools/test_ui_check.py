@@ -382,7 +382,7 @@ class UiCheckTests(unittest.TestCase):
 
     def test_page_layer_expect_snippet_fails_on_wrong_line(self) -> None:
         document = self.tokens()
-        document["provenance"]["geometry.bubblePaddingH"]["source"] = "ChatPage.swift:3902"
+        document["provenance"]["geometry.bubblePaddingH"]["source"] = "ChatPage.swift:3964"
         self.write_tokens(document)
         self.assert_fails(run_checker(self.root), "expected '.padding(.horizontal, 16)'")
 
@@ -600,7 +600,7 @@ class UiCheckTests(unittest.TestCase):
     def test_sheet_default_page_detent_must_anchor_on_home_sheet_chrome(self) -> None:
         document = self.tokens()
         row = self._sheet_row(document, "settings")
-        row["source"] = "ChatPage.swift:501"
+        row["source"] = "ChatPage.swift:609"
         row["expect"] = ".presentationDetents([.large])"
         self.write_tokens(document)
         self.assert_fails(run_checker(self.root),
@@ -609,7 +609,7 @@ class UiCheckTests(unittest.TestCase):
     def test_sheet_default_page_detent_rejects_detents_in_its_sheet_body(self) -> None:
         document = self.tokens()
         row = self._sheet_row(document, "settings")
-        row["source"] = "ChatPage.swift:502"
+        row["source"] = "ChatPage.swift:610"
         row["expect"] = ".homeSheetChrome()"
         self.write_tokens(document)
         self.assert_fails(run_checker(self.root),
@@ -618,7 +618,7 @@ class UiCheckTests(unittest.TestCase):
     def test_sheet_non_default_page_detent_must_anchor_on_presentation_detents(self) -> None:
         document = self.tokens()
         row = self._sheet_row(document, "previewShare")
-        row["source"] = "ChatPage.swift:496"
+        row["source"] = "ChatPage.swift:614"
         row["expect"] = ".homeSheetChrome()"
         self.write_tokens(document)
         self.assert_fails(run_checker(self.root),

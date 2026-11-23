@@ -955,17 +955,10 @@ private struct BotComposerDock: View {
         .sheet(isPresented: $showingSignIn, onDismiss: {
             guard sendAfterSignIn else { return }
             sendAfterSignIn = false
-            if !BotSignInRequirement.current().holdsSend { send() }
-        }) {
-            NavigationStack {
-                TonoAccountPage()
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("完成") { showingSignIn = false }
-                        }
-                    }
-            }
-        }
+            // Only a sign-in sends the kept draft: a newly chosen service of the user's own runs
+            // once the engine restarts, so the draft waits in the composer for that.
+            if BotSignInRequirement.sendsHeldDraft { send() }
+        }) { TonoSignInSheet() }
     }
 
     /// Chips for the files waiting to be sent, plus the one-line refusal for a

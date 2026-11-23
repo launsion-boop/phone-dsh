@@ -31,16 +31,7 @@ struct BotSignInBannerSlot: ViewModifier {
                 refresh()
             }
         }
-        .sheet(isPresented: $showingSignIn, onDismiss: refresh) {
-            NavigationStack {
-                TonoAccountPage()
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("完成") { showingSignIn = false }
-                        }
-                    }
-            }
-        }
+        .sheet(isPresented: $showingSignIn, onDismiss: refresh) { TonoSignInSheet() }
     }
 
     private func refresh() {
@@ -85,5 +76,33 @@ struct BotSignInBanner: View {
         .padding(.top, 6)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("bot.signin.banner")
+    }
+}
+
+/// The sheet a sign-in prompt opens on both chat tabs (spec/ui/v1/pages/bot-chat.md 「需要登录」):
+/// the Tono account page, with the other way in underneath — the user's own model service and
+/// key (spec/v1/tono-account.md §4), which needs no account. The selected service's host joins
+/// the gateway allow-list by itself when the engine starts with it.
+struct TonoSignInSheet: View {
+    var body: some View {
+        NavigationStack {
+            TonoAccountPage()
+                .homeSheetDone()
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    NavigationLink {
+                        ModelProviderSettingsPage()
+                    } label: {
+                        Text("不想登录？用自己的模型服务和密钥")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(HomeSpec.textSecondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.plain)
+                    .background(HomeSpec.page)
+                    .accessibilityIdentifier("signin.own-key")
+                }
+        }
+        .homeSheetChrome()
     }
 }
