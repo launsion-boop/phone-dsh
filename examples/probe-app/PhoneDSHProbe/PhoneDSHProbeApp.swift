@@ -31,6 +31,8 @@ struct PhoneDSHProbeApp: App {
     @State private var preferences = NativeChatPreferences.shared
 
     init() {
+        // Before any page reads the model service: a fresh install gets 「Tono 云端」.
+        PhoneModelProviderSettings.shared.seedTonoCloudIfFresh()
         #if DEBUG
         DebugEngineQuarantine.runIfRequested()   // DEBUG recovery: moves chat-host aside, then exits
         DebugChannel.shared.install()            // DEBUG developer control channel (spec/dev/debug-channel.md)

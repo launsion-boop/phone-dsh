@@ -41,6 +41,7 @@ import com.phonedsh.agentcore.JsonObject
 import com.phonedsh.agentcore.JsonString
 import com.phonedsh.agentcore.JsonValue
 import com.phonedsh.agentcore.toJsonString
+import com.phonedsh.gateway.TonoCloudResponsePolicy
 import com.phonedsh.ui.page.ProviderDraft
 import java.io.File
 import java.net.URI
@@ -213,6 +214,31 @@ internal class ProviderConfigStore(
      */
     private val log: (String) -> Unit = { message -> Log.w(TAG, message) },
 ) {
+
+    /**
+     * A fresh install has no model service, so the gateway allow-list was empty and a
+     * signed-in user's first turn failed with "upstream host is not allowed" (a
+     * signed-out user's send did nothing). Seeds the Tono cloud service once, only
+     * when there is no document and the one-time marker is absent; afterwards it is an
+     * ordinary record the person may edit or delete, and a deletion is not undone.
+     * The account token (or a pasted key) makes it work (tono-account.md §4).
+     */
+    fun seedTonoCloudIfFresh(): Boolean {
+        val marker = File(file.parentFile, SEED_MARKER)
+        if (file.exists() || marker.exists()) return false
+        val outcome = save(
+            ProviderRecord(
+                id = "tono-cloud",
+                name = "Tono 云端",
+                model = ProviderRecord.DEFAULT_MODEL,
+                endpoint = TonoCloudResponsePolicy.CLOUD_ORIGIN + "/v1/llm/anthropic",
+            ),
+            selectAsDefault = true,
+        )
+        if (outcome != ProviderWriteOutcome.Saved) return false
+        runCatching { marker.writeText("1") }
+        return true
+    }
 
     /** Reads the document; every failure is its own state, never an empty one. */
     fun read(): ProviderStoreRead {
@@ -527,6 +553,7 @@ internal class ProviderConfigStore(
         private val MODEL_FIELDS = setOf(
             "id", "name", "contextWindow", "maxTokens", "textInput", "imageInput", "reasoningEffort",
         )
+        private const val SEED_MARKER: String = "model-provider.tono-cloud-seeded"
         private const val SUFFIX_TEMPORARY: String = ".tmp"
 
         /** The file name under `<filesDir>/settings`; also the test's temp name. */

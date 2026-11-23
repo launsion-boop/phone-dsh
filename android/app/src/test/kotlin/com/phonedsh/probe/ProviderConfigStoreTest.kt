@@ -37,6 +37,27 @@ class ProviderConfigStoreTest {
         endpoint: String = "https://api.deepseek.com/anthropic",
     ): ProviderRecord = ProviderRecord(id = id, name = name, model = model, endpoint = endpoint)
 
+    @Test
+    fun `fresh install seeds Tono cloud once and a deletion is not undone`() {
+        val store = store()
+        assertTrue(store.seedTonoCloudIfFresh())
+        val seeded = store.current()!!
+        assertEquals("https://pdsh.tonoai.cn/v1/llm/anthropic", seeded.endpoint)
+        assertEquals("deepseek-flash", seeded.model)
+        assertFalse(store.seedTonoCloudIfFresh())
+        store.delete(seeded.id)
+        assertFalse(store.seedTonoCloudIfFresh())
+        assertEquals(null, store.current())
+    }
+
+    @Test
+    fun `seed never touches an existing service`() {
+        val store = store()
+        store.save(record())
+        assertFalse(store.seedTonoCloudIfFresh())
+        assertEquals(record(), store.current())
+    }
+
     // ------------------------------------------------------------------ save
 
     @Test
