@@ -56,15 +56,19 @@ public enum PhoneAudioSessionLease {
         var hasSpeakerOwner: Bool { !speakerTokens.isEmpty }
         var isSpeakerOverridden: Bool { speakerOverridden }
 
-        /// Phone speech that must be heard on the phone. Only an AirPlay output needs the
-        /// mixable playAndRecord profile (sticky like a microphone's), because only that
-        /// category can force the built-in speaker. Any other output plays under the current
-        /// profile: iOS refuses a background switch to playAndRecord ('!int'), so a background
-        /// turn must not change category when the output does not require it.
-        func acquireSpeakerOutput() throws -> SpeakerToken {
+        /// Phone speech that must be heard on the phone. Only the mixable playAndRecord profile
+        /// (sticky like a microphone's) can force the built-in speaker, and iOS refuses a
+        /// background switch to it ('!int'). So an AirPlay output takes that profile now, and an
+        /// `armed` claim (the voice host, in the foreground, while a board is connected) takes it
+        /// whatever the output is: screen mirroring often starts after the claim, with the App
+        /// already in the background. Any other claim plays under the current profile.
+        ///
+        /// iOS drops the speaker override on a route or category change, so it is applied on
+        /// every claim while the output is AirPlay, not once per set of owners.
+        func acquireSpeakerOutput(armed: Bool = false) throws -> SpeakerToken {
             if microphoneProfile {
                 try activate()
-            } else if outputIsAirPlay() {
+            } else if armed || outputIsAirPlay() {
                 do { try configureMicrophone() } catch {
                     if isKeepAliveHeld { try? configurePlayback(); reclaim?() }
                     else if !hasMicrophoneOwner && speakerTokens.isEmpty { deactivate() }
@@ -76,14 +80,17 @@ public enum PhoneAudioSessionLease {
             } else {
                 try configurePlayback()
             }
-            if !speakerOverridden, outputIsAirPlay() {
-                overrideToSpeaker(true)
-                speakerOverridden = true
-            }
             let token = SpeakerToken()
             speakerTokens.insert(token)
+            assertSpeakerOverride()
             reclaim?()
             return token
+        }
+
+        private func assertSpeakerOverride() {
+            guard hasSpeakerOwner, microphoneProfile, outputIsAirPlay() else { return }
+            overrideToSpeaker(true)
+            speakerOverridden = true
         }
 
         func releaseSpeakerOutput(_ token: SpeakerToken) {
@@ -111,10 +118,13 @@ public enum PhoneAudioSessionLease {
                 return
             }
             if microphoneProfile {
-                try configureMicrophone()
+                // Setting the category again cancels a speaker override, and the route change
+                // that follows stops the engines again: with a speaker owner, only activate.
+                if hasSpeakerOwner { try activate() } else { try configureMicrophone() }
             } else {
                 try configurePlayback()
             }
+            assertSpeakerOverride()
         }
 
         func endKeepAlive() {
@@ -213,8 +223,8 @@ public enum PhoneAudioSessionLease {
         state.releaseMicrophoneUser(token)
     }
 
-    public static func acquireSpeakerOutput() throws -> SpeakerToken {
-        try state.acquireSpeakerOutput()
+    public static func acquireSpeakerOutput(armed: Bool = false) throws -> SpeakerToken {
+        try state.acquireSpeakerOutput(armed: armed)
     }
 
     public static func releaseSpeakerOutput(_ token: SpeakerToken) {

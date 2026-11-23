@@ -42,6 +42,17 @@ public struct BLEDeviceTrustMemory: Sendable {
         (defaults.dictionary(forKey: Self.boardsKey) as? [String: String] ?? [:]).keys.compactMap(UUID.init(uuidString:))
     }
 
+    /// The remembered board whose name starts with `prefix`, for a caller that talks to one kind
+    /// of board (the TonoLink voice link: "PhoneAgent"). Every board the user connected is
+    /// remembered, and a dictionary has no order, so "the first remembered board" is a different
+    /// device from one launch to the next. Several matches resolve to the lowest identifier.
+    public func rememberedBoard(namePrefix prefix: String) -> UUID? {
+        guard !prefix.isEmpty else { return nil }
+        return (defaults.dictionary(forKey: Self.boardsKey) as? [String: String] ?? [:])
+            .filter { $0.value.hasPrefix(prefix) }
+            .keys.sorted().lazy.compactMap(UUID.init(uuidString:)).first
+    }
+
     public func rememberBoard(_ id: UUID, name: String) {
         var all = defaults.dictionary(forKey: Self.boardsKey) as? [String: String] ?? [:]
         all[id.uuidString] = name

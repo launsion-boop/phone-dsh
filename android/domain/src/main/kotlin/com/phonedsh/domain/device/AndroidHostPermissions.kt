@@ -1,9 +1,9 @@
 // The Android readings behind the phone-capability matrix.
 // SPDX-License-Identifier: MIT
 //
-// The 23 capabilities the phone-permissions page draws are iOS's vocabulary. Most
+// The 22 capabilities the phone-permissions page draws are iOS's vocabulary. Most
 // of them have no Android authorization at all, so the honest reading surface is
-// not "the 23 statuses" but the five things Android really reports:
+// not "the 22 statuses" but the five things Android really reports:
 //
 //  * which runtime permissions this app's **merged** manifest declares
 //    (`GET_PERMISSIONS`) and which of them the platform currently grants
@@ -58,7 +58,7 @@ import android.hardware.SensorManager
 import android.speech.SpeechRecognizer
 
 /**
- * One reading of the Android state behind the page's 23 phone capabilities.
+ * One reading of the Android state behind the page's 22 phone capabilities.
  *
  * A `null` member means the reading could not be taken (the platform service was
  * missing or refused). It is never turned into "absent": only a `false` reading is
@@ -67,8 +67,8 @@ import android.speech.SpeechRecognizer
  *
  * @property sdkInt the API level the reads below were taken against; the caller
  *   uses it for the permission-model questions (`POST_NOTIFICATIONS` from 33,
- *   `BLUETOOTH_SCAN` from 31, `READ_MEDIA_IMAGES` from 33, background location
- *   from 29, `ACTIVITY_RECOGNITION` from 29).
+ *   `BLUETOOTH_SCAN` from 31, `READ_MEDIA_IMAGES` from 33, and
+ *   `ACTIVITY_RECOGNITION` from 29).
  * @property declaredPermissions the runtime and normal permissions this app's
  *   merged manifest requests, exactly as `PackageManager` reports them.
  * @property grantedPermissions the subset of [declaredPermissions] the platform
@@ -265,10 +265,6 @@ class AndroidHostPermissions(
 
         /** Coarse location permission, the other half of 定位. */
         const val ACCESS_COARSE_LOCATION: String = "android.permission.ACCESS_COARSE_LOCATION"
-
-        /** The permission behind 后台定位, from API 29. */
-        const val ACCESS_BACKGROUND_LOCATION: String =
-            "android.permission.ACCESS_BACKGROUND_LOCATION"
 
         /** The permission behind 运动与健身, from API 29. */
         const val ACTIVITY_RECOGNITION: String = "android.permission.ACTIVITY_RECOGNITION"

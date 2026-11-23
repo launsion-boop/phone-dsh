@@ -49,16 +49,24 @@ session; otherwise it restarts rendering without touching category or activation
 
 The TonoLink voice turn plays cloud TTS (16 kHz PCM) through its own
 AVAudioEngine and never records (the board's microphone does). For each turn it
-holds a **speaker-output** claim. Only while the current output is an AirPlay
-receiver does `acquireSpeakerOutput()` apply the same mixable playAndRecord profile
-(sticky exactly like a microphone's) and override the output to the built-in
-speaker; any other output plays under the current profile (the keep-alive's, or a
-playback profile the claim owns when nothing else holds the session). iOS refuses a
-background switch to playAndRecord (`'!int'`, cannot interrupt others), so a claim
-must not change category when its output does not require it, and the voice host
-arms the AirPlay profile in the foreground and keeps that armed claim through a
-board drop while the App is in the background (released on the next foreground
-with no board). A background drop also keeps the keep-alive for a bounded 600 s
+holds a **speaker-output** claim. Only the mixable playAndRecord profile (sticky
+exactly like a microphone's) can override the output to the built-in speaker, and
+iOS refuses a background switch to it (`'!int'`, cannot interrupt others). So
+`acquireSpeakerOutput()` applies that profile while the current output is an
+AirPlay receiver, and `acquireSpeakerOutput(armed: true)` applies it whatever the
+output is; any other claim plays under the current profile (the keep-alive's, or a
+playback profile the claim owns when nothing else holds the session) and must not
+change category. The voice host takes the armed claim in the foreground while a
+board is connected, because screen mirroring usually starts after that, with the
+App already in the background; it keeps the armed claim through a board drop while
+the App is in the background (released on the next foreground with no board). iOS
+drops the override on a route or category change, so every claim applies it again
+while the output is AirPlay, and a keep-alive resume that finds a speaker owner on
+that profile only activates the session (never sets the category again) and
+applies the override again. The turn's player keeps what it has scheduled until it
+is heard: the override stops the engine a moment after it is requested, and
+flushed speech is scheduled again on the new route (at most 4 restarts).
+A background drop also keeps the keep-alive for a bounded 600 s
 grace so the session stays active for a reconnect. Mirroring the screen to the TonoLink board makes the output
 AirPlay, and the board discards AirPlay audio, so without the override the
 phone's speech is silent (xiaozhi-link `USB_AIRPLAY_LESSONS.md`,
@@ -84,7 +92,8 @@ Valid and invalid ownership fixtures run through the real lease state in
 `examples/probe-app/PhoneDSHSimTests/ProbeSceneLifecycleTests.swift`. They cover
 the speaker-output claim (AirPlay override and restore, shared profile, stale release, failed
 configuration, no category switch for a non-AirPlay output, an armed profile reused by a later
-AirPlay claim, a lone playback claim), both handoff orders, zero-owner deactivation, stale and double release, failed
+AirPlay claim, an armed claim taken on the speaker before mirroring starts, the override applied
+again by a later claim and by a keep-alive resume without a category change, a lone playback claim), both handoff orders, zero-owner deactivation, stale and double release, failed
 activation and concurrent microphone rejection. Source-boundary checks are in
 `Tests/PhoneDSHTests/ProbeScenePhaseWiringTests.swift`. Device acceptance must
 check actual recording files, event progression, locked completion and cleanup;

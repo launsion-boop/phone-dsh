@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import {
   argsDigest, BOT_RUNTIME_UNAVAILABLE_REASON, botRuntimeAvailable, botSessionOwned,
-  dispatchArguments, NATIVE_PHONE_TOOL_PREFIX, PHONE_TOOL_PREFIX,
+  dispatchArguments, NATIVE_IPHONE_AGENT_TOOL, NATIVE_PHONE_TOOL_PREFIX, PHONE_TOOL_PREFIX,
 } from './identity-bridge.ts'
 
 export interface ApprovalEffect {
@@ -334,12 +334,14 @@ export function phoneEffectsForApproval(
 
 /**
  * The structural gate only owns the Worker shell/file tools and Bot's own
- * phone tools. Native Android tools keep the App's native MCP authorization;
+ * phone tools. Native Android and iPhone-agent tools keep the App's native MCP authorization;
  * unrelated built-ins (read/grep/glob/web) must not be turned into approval
  * requests, which used to end as unattributed and blocked them.
  */
 export function needsStructuralApproval(name: string): boolean {
   if (name.startsWith(NATIVE_PHONE_TOOL_PREFIX)) return false
+  // Unregistered by design (identity-bridge): a card for it would be unattributed and denied.
+  if (name === NATIVE_IPHONE_AGENT_TOOL) return false
   if (name === 'bash' || name === 'write' || name === 'edit') return true
   if (name === 'read_image') return true
   return name.startsWith(PHONE_TOOL_PREFIX)

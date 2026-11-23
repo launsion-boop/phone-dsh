@@ -106,6 +106,28 @@ private final class ScriptedModel: URLProtocol, @unchecked Sendable {
         XCTAssertTrue((last?.first?["text"] as? String ?? "").contains("opened the top result"))
     }
 
+    /// Device log 2026-11-22: 设置 opened at step 1, then the model's reply was a long "Thought: …"
+    /// cut off before any action. It was performed as an action, failed, and the model launched
+    /// 设置 again, until the loop guard. A reply without an action is asked again, for the action alone.
+    func testReplyWithoutAnActionIsAskedAgainNotPerformed() async throws {
+        ScriptedModel.reset(["<action>LaunchApp(app='设置')</action>",
+                             "Thought: The user's instruction is to open Settings. The current screen shows the Bluetooth page. Hmm, wait",
+                             "<action>Finished(content='设置已打开')</action>"])
+        let phone = FakePhone()
+        let result = try await IPhoneAgent(device: phone, client: try client(), settle: .zero).run("打开设置")
+        XCTAssertTrue(result.finished)
+        XCTAssertEqual(result.answer, "设置已打开")
+        XCTAssertEqual(phone.actions.map(\.name), ["launchapp"], "the thinking was never performed and 设置 was not launched twice")
+        XCTAssertEqual(result.steps.count, 2)
+        let bodies = ScriptedModel.lock.withLock { ScriptedModel.bodies }
+        XCTAssertEqual(bodies.count, 3)
+        let retry = (bodies[2]["messages"] as? [[String: Any]])?.last?["content"] as? [[String: Any]]
+        let text = retry?.first?["text"] as? String ?? ""
+        XCTAssertTrue(text.contains("contained no action"))
+        XCTAssertTrue(text.contains("do not launch it again"), "the LaunchApp feedback is kept for the retry")
+        XCTAssertEqual(bodies[2]["max_tokens"] as? Int, 160)
+    }
+
     func testFailedActionIsReportedToTheModelNotRetried() async throws {
         ScriptedModel.reset(["<action>Click(point=(100,200))</action>", "<action>CallUser(content='请解锁手机')</action>"])
         let phone = FakePhone(); phone.failNext = true
@@ -282,5 +304,32 @@ private func solidJPEG(_ gray: CGFloat) -> Data {
         XCTAssertEqual(action.name, "click")
         XCTAssertEqual(action.points, [.init(120, 845)])
         XCTAssertEqual(IPhoneAction.parse("<think>t</think><action>LaunchApp(app='小红书')").text, "小红书")
+    }
+}
+
+/// tonolink-board.md §4.4: the passcode is typed only when the screenshot is unambiguously the
+/// passcode page, so a reply that names none or several of the three kinds is no answer.
+final class IPhoneLockScreenTests: XCTestCase {
+    func testOnlyAnUnambiguousReplyClassifiesTheScreen() {
+        XCTAssertEqual(IPhoneLockScreen.parse("<action>Answer(content='PASSCODE')</action>"), .passcode)
+        XCTAssertEqual(IPhoneLockScreen.parse("<think>keypad</think><action>Answer(content='passcode')</action>"), .passcode)
+        XCTAssertEqual(IPhoneLockScreen.parse("<action>Answer(content='LOCKSCREEN')</action>"), .lockScreen)
+        XCTAssertEqual(IPhoneLockScreen.parse("<action>Answer(content='OTHER')</action>"), .other)
+        XCTAssertNil(IPhoneLockScreen.parse("<action>Answer(content='PASSCODE or LOCKSCREEN')</action>"))
+        XCTAssertNil(IPhoneLockScreen.parse("<action>Click(point=(500, 500))</action>"))
+        XCTAssertNil(IPhoneLockScreen.parse("Thought: the screen shows a keypad, so it might be"))
+        XCTAssertNil(IPhoneLockScreen.parse(""))
+    }
+}
+
+@MainActor final class IPhoneAgentUnlockActionTests: XCTestCase {
+    /// §4.4: a step that sees the lock asks for Unlock; it reaches the phone as an action (the
+    /// host decides from its own screenshot whether to type), and is not taken for a missing action.
+    func testUnlockIsAnActionThePhonePerforms() {
+        let action = IPhoneAction.parse("<think>输入密码 page</think><action>Unlock()</action>")
+        XCTAssertEqual(action.name, "unlock")
+        XCTAssertTrue(IPhoneAgent.knownActions.contains("unlock"))
+        XCTAssertTrue(IPhoneAgent.systemPrompt.contains("- Unlock()"))
+        XCTAssertTrue(IPhoneAgent.systemPrompt.contains("Never tap or type a passcode yourself"))
     }
 }

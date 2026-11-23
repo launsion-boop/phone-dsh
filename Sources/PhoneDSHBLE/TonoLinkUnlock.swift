@@ -51,11 +51,11 @@ public enum TonoLinkUnlock {
     }
 
     /// Writes the lines in order, stopping at the first answer other than `ok`. `stillLocked` is
-    /// asked after the wake key: when the phone is no longer locked the digits are not typed (they
-    /// would land in whatever app is now in front).
+    /// asked after the wake key (the caller looks at the mirrored screen for the passcode page):
+    /// when it says no, the digits are not typed (they would land in whatever is now in front).
     @MainActor
     public static func run(link: TonoLinkCtrlLink, seq: UInt16, passcode: String, timing: Timing = Timing(),
-                           stillLocked: @MainActor () -> Bool = { true }) async throws -> Outcome {
+                           stillLocked: @MainActor () async -> Bool = { true }) async throws -> Outcome {
         let lines = try commands(seq: seq, passcode: passcode)
         try await link.connect(timeout: .seconds(10))
         for (index, item) in lines.enumerated() {
@@ -70,7 +70,7 @@ public enum TonoLinkUnlock {
             if index == 0 { try await Task.sleep(for: timing.afterAttach) }
             if index == 1 {
                 try await Task.sleep(for: timing.afterWake)
-                if !stillLocked() { return .unlockedByWake }
+                if !(await stillLocked()) { return .unlockedByWake }
             } else if index == 2 {
                 try await Task.sleep(for: timing.afterAbsorb)
             } else if index >= 3 {

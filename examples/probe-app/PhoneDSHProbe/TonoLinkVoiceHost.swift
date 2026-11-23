@@ -50,14 +50,19 @@ import ProbeKit
     /// Keeps a ctrl link to the user's board and listens for its wake word.
     func start() {
         guard supervisor == nil else { return }
+        player.onEvent = { [weak self] event in self?.log("player \(event)") }
         supervisor = Task { [weak self] in await self?.supervise() }
     }
 
     /// One long-lived, restorable link to the user's board (callmate's recipe): iOS keeps a
     /// parked connect while the app is suspended and wakes it for the board's `ev wake`.
     private func supervise() async {
-        let board = BLEDeviceTrustMemory().rememberedBoards().first
-        let link = TonoLinkCtrlBLE(nameHint: "PhoneAgent", peripheralID: board, restoreIdentifier: Self.restoreIdentifier)
+        // The TonoLink board among the remembered ones, never "the first": with an AI Passport
+        // also remembered, half the launches parked this link on a device that has no ctrl
+        // service and the wake word was never heard (device log 2026-11-22).
+        let board = BLEDeviceTrustMemory().rememberedBoard(namePrefix: Self.boardNamePrefix)
+        log("voice link board=\(board?.uuidString ?? "none (scan by name)")")
+        let link = TonoLinkCtrlBLE(nameHint: Self.boardNamePrefix, peripheralID: board, restoreIdentifier: Self.restoreIdentifier)
         link.onAudio = { [weak self] data in self?.receiveAudio(data) }
         link.onLine = { [weak self] line in self?.receive(line) }
         link.onReady = { [weak self] in self?.linkReady(link) }
@@ -113,6 +118,8 @@ import ProbeKit
     }
 
     static let restoreIdentifier = "dev.phone-dsh.tonolink-voice"
+    /// BLE name prefix of a TonoLink board (`PhoneAgent-7356`).
+    static let boardNamePrefix = "PhoneAgent"
     /// How long a background board drop keeps the keep-alive (and the armed speaker profile
     /// active) for a reconnect; after it the App may suspend until the board wakes it.
     static let backgroundReconnectGrace: TimeInterval = 600
@@ -139,7 +146,7 @@ import ProbeKit
     func armSpeakerIfForeground() {
         guard armedSpeaker == nil, ctrl?.isConnected == true, UIApplication.shared.applicationState == .active else { return }
         do {
-            armedSpeaker = try PhoneAudioSessionLease.acquireSpeakerOutput()
+            armedSpeaker = try PhoneAudioSessionLease.acquireSpeakerOutput(armed: true)
             log("speaker armed outputs=\(PhoneAudioSessionLease.outputPorts)")
         } catch {
             log("speaker arm failed: \(error.localizedDescription)")
@@ -298,6 +305,9 @@ import ProbeKit
         do { try await speakHere(credential: credential, timing: { self.note("here_fetch_ms", ms()) }) }
         catch { note("here_error", error.localizedDescription) }
         note("here_ms", ms())
+        // 「我在」 that was not heard is the whole failure for the person: record where it went
+        // and how long it is, next to how long it took.
+        note("here_out", ["route": PhoneAudioSessionLease.outputPorts, "audio_ms": (hereAudio?.count ?? 0) / 32])
         guard !Task.isCancelled else { await session.cancel(); return }
         guard let ctrl, ctrl.isConnected else { await session.cancel(); note("error", "板子已断开"); return }
         await lightChain?.value   // the ctrl link takes one command at a time
@@ -729,12 +739,23 @@ import ProbeKit
     private let node = AVAudioPlayerNode()
     private let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
     private var attached = false
-    private var scheduled = 0
-    private var generation = 0
+    /// Buffers handed to the node and not yet heard, oldest first. They are kept so speech that a
+    /// route or category change flushed (the engine stops itself) is scheduled again.
+    private var pending: [AVAudioPCMBuffer] = []
+    /// Bumped whenever the node's queue is thrown away, so its late completions are ignored.
+    private var epoch = 0
+    /// When the current queue started playing and how much of it has been heard since.
+    private var startedAt = Date()
+    private var heardSeconds: Double = 0
+    private var restarts = 0
+    private var drains = 0
     private var drained: [CheckedContinuation<Void, Never>] = []
-    /// Audio scheduled since the last drain, so a wait cannot outlive it if the engine is stopped
-    /// by a route or category change (completion handlers are then not guaranteed).
-    private var pendingSeconds: Double = 0
+    private var configurationObserver: NSObjectProtocol?
+    /// Diagnostics (`restart …`), for the voice log.
+    var onEvent: ((String) -> Void)?
+    private static let maxRestarts = 4
+
+    private static func seconds(_ buffer: AVAudioPCMBuffer) -> Double { Double(buffer.frameLength) / 16_000 }
 
     func play(_ pcm: Data) throws {
         let samples = pcm.count / 2
@@ -749,25 +770,38 @@ import ProbeKit
             engine.attach(node)
             engine.connect(node, to: engine.mainMixerNode, format: format)
             attached = true
+            // The engine stops itself when the output route changes (the speaker override of an
+            // AirPlay output does exactly that, a moment after it is requested).
+            configurationObserver = NotificationCenter.default.addObserver(
+                forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.replayPending(reason: "engine configuration changed") }
+            }
         }
         if !engine.isRunning { try engine.start() }
-        scheduled += 1
-        pendingSeconds += Double(samples) / 16_000
-        let mine = generation
+        if pending.isEmpty { startedAt = Date(); heardSeconds = 0; restarts = 0 }
+        pending.append(buffer)
+        schedule(buffer)
+    }
+
+    private func schedule(_ buffer: AVAudioPCMBuffer) {
+        let mine = epoch
         node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-            Task { @MainActor in self?.finished(generation: mine) }
+            Task { @MainActor in self?.finished(epoch: mine) }
         }
         if !node.isPlaying { node.play() }
     }
 
     func waitUntilDrained() async {
-        if scheduled == 0 { return }
-        let limit = pendingSeconds + 2
-        let mine = generation
+        if pending.isEmpty { return }
+        // A wait cannot outlive its audio (with room for replays) if completions never arrive.
+        let limit = pending.reduce(0) { $0 + Self.seconds($1) } * 2 + 3
+        let mine = drains
         let guardTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(limit))
-            guard !Task.isCancelled, let self, self.generation == mine else { return }
-            self.scheduled = 0
+            guard !Task.isCancelled, let self, self.drains == mine else { return }
+            self.onEvent?("drain timed out pending=\(self.pending.count)")
+            self.epoch += 1
             self.release()
         }
         await withCheckedContinuation { drained.append($0) }
@@ -775,20 +809,53 @@ import ProbeKit
     }
 
     func stop() {
-        generation += 1
+        epoch += 1
         node.stop()
-        scheduled = 0
         release()
     }
 
-    private func finished(generation: Int) {
-        guard generation == self.generation else { return }
-        scheduled = max(0, scheduled - 1)
-        if scheduled == 0 { release() }
+    private func finished(epoch: Int) {
+        guard epoch == self.epoch, let head = pending.first else { return }
+        // A stopped engine completes its buffers at once. A buffer that "finished" well before
+        // its audio could have played was flushed, not heard: play what is left again.
+        let due = (heardSeconds + Self.seconds(head)) * 0.6
+        if Date().timeIntervalSince(startedAt) < due {
+            replayPending(reason: "flushed after \(Int(Date().timeIntervalSince(startedAt) * 1000)) ms")
+            return
+        }
+        heardSeconds += Self.seconds(head)
+        pending.removeFirst()
+        if pending.isEmpty { release() }
+    }
+
+    /// Reconnects to the new output and schedules everything not yet heard, from its start.
+    private func replayPending(reason: String) {
+        guard !pending.isEmpty else { return }
+        epoch += 1
+        guard restarts < Self.maxRestarts else {
+            onEvent?("gave up after \(restarts) restarts (\(reason))")
+            release()
+            return
+        }
+        restarts += 1
+        node.stop()
+        do {
+            engine.connect(node, to: engine.mainMixerNode, format: format)
+            if !engine.isRunning { try engine.start() }
+        } catch {
+            onEvent?("restart failed (\(reason)): \(error.localizedDescription)")
+            release()
+            return
+        }
+        onEvent?("restart \(restarts) (\(reason)) buffers=\(pending.count)")
+        startedAt = Date()
+        heardSeconds = 0
+        for buffer in pending { schedule(buffer) }
     }
 
     private func release() {
-        pendingSeconds = 0
+        pending = []
+        drains += 1
         let waiters = drained; drained = []
         waiters.forEach { $0.resume() }
     }

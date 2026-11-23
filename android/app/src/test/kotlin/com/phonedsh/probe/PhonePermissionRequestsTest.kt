@@ -1,4 +1,4 @@
-// Which of the 23 rows can really raise a system request, and what the page does
+// Which of the 22 rows can really raise a system request, and what the page does
 // with that answer.
 // SPDX-License-Identifier: MIT
 //
@@ -11,7 +11,7 @@
 //  2. the page is a pure function of its facts, so the *rendered* action of each row
 //     is asserted for the same snapshots. That second half is what proves the fake
 //     controls are gone: before this lane a row with no status fell back to
-//     `NotDetermined`, whose `canRequest` is true, so 16 of the 23 rows opened the
+//     `NotDetermined`, whose `canRequest` is true, so 16 of the 22 rows opened the
 //     confirmation for a dialog that could never appear.
 package com.phonedsh.probe
 
@@ -66,7 +66,6 @@ class PhonePermissionRequestsTest {
         // than arming a dialog the system drops.
         assertEquals(PhoneGrantRoute.NONE, routes[PhoneCapability.CONTACTS])
         assertEquals(PhoneGrantRoute.NONE, routes[PhoneCapability.CAMERA])
-        assertEquals(PhoneGrantRoute.NONE, routes[PhoneCapability.LOCATION_ALWAYS])
         // The four with no Android mechanism at all.
         listOf(
             PhoneCapability.REMINDERS,
@@ -149,10 +148,6 @@ class PhonePermissionRequestsTest {
         ).forEach { capability ->
             assertEquals(capability.id, PhoneGrantRoute.REQUEST, routes[capability])
         }
-        // Background location is the two-step case: from targetSdk 30 the platform
-        // raises no dialog for it, so the settings page is the only route — even with
-        // the permission declared.
-        assertEquals(PhoneGrantRoute.SYSTEM_SETTINGS, routes[PhoneCapability.LOCATION_ALWAYS])
         assertEquals(PhoneGrantRoute.NONE, routes[PhoneCapability.FILES_FOLDER])
         assertEquals(PhoneGrantRoute.NONE, routes[PhoneCapability.MUSIC])
     }
@@ -182,40 +177,6 @@ class PhonePermissionRequestsTest {
 
         val pre29 = readings(sdkInt = 28, declared = setOf(AndroidHostPermissions.ACTIVITY_RECOGNITION))
         assertTrue(requestablePermissions(PhoneCapability.MOTION, pre29).isEmpty())
-    }
-
-    @Test
-    fun backgroundLocationIsTwoStepOnAndroid10AndSettingsOnlyAfterIt() {
-        val declared = setOf(
-            AndroidHostPermissions.ACCESS_FINE_LOCATION,
-            AndroidHostPermissions.ACCESS_COARSE_LOCATION,
-            AndroidHostPermissions.ACCESS_BACKGROUND_LOCATION,
-        )
-        // API 29: requestable, but only once the foreground grant exists.
-        val foregroundMissing = readings(sdkInt = 29, declared = declared)
-        assertTrue(
-            requestablePermissions(PhoneCapability.LOCATION_ALWAYS, foregroundMissing).isEmpty(),
-        )
-        val foregroundGranted = readings(
-            sdkInt = 29,
-            declared = declared,
-            granted = setOf(
-                AndroidHostPermissions.ACCESS_FINE_LOCATION,
-                AndroidHostPermissions.ACCESS_COARSE_LOCATION,
-            ),
-        )
-        assertEquals(
-            listOf(AndroidHostPermissions.ACCESS_BACKGROUND_LOCATION),
-            requestablePermissions(PhoneCapability.LOCATION_ALWAYS, foregroundGranted),
-        )
-        // API 30+: the platform shows no dialog, whatever the grants are.
-        val modern = readings(
-            sdkInt = 30,
-            declared = declared,
-            granted = declared - AndroidHostPermissions.ACCESS_BACKGROUND_LOCATION,
-        )
-        assertTrue(requestablePermissions(PhoneCapability.LOCATION_ALWAYS, modern).isEmpty())
-        assertEquals(PhoneGrantRoute.SYSTEM_SETTINGS, phoneGrantRoutes(modern)[PhoneCapability.LOCATION_ALWAYS])
     }
 
     // -----------------------------------------------------------------------
@@ -251,7 +212,6 @@ class PhonePermissionRequestsTest {
             PhoneCapability.LOCAL_NETWORK,
             PhoneCapability.FILES_FOLDER,
             PhoneCapability.CLIPBOARD,
-            PhoneCapability.LOCATION_ALWAYS,
             PhoneCapability.MUSIC,
         ).forEach { capability ->
             assertEquals(
@@ -364,7 +324,6 @@ class PhonePermissionRequestsTest {
         listOf(
             PhoneCapability.CONTACTS,
             PhoneCapability.NOTIFICATIONS,
-            PhoneCapability.LOCATION_ALWAYS,
             PhoneCapability.CAMERA,
         ).forEach { capability ->
             assertEquals(
@@ -388,7 +347,6 @@ class PhonePermissionRequestsTest {
         AndroidHostPermissions.RECORD_AUDIO,
         AndroidHostPermissions.ACCESS_FINE_LOCATION,
         AndroidHostPermissions.ACCESS_COARSE_LOCATION,
-        AndroidHostPermissions.ACCESS_BACKGROUND_LOCATION,
         AndroidHostPermissions.ACTIVITY_RECOGNITION,
         AndroidHostPermissions.BLUETOOTH_SCAN,
         AndroidHostPermissions.POST_NOTIFICATIONS,
