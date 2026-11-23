@@ -31,6 +31,25 @@ final class BotSignInRequirementTests: XCTestCase {
         XCTAssertEqual(BotSignInRequirement.resolve(account: .signedOut(notice: nil), profileBaseURL: nil, hasStoredKey: false), .none)
     }
 
+    /// spec/ui/v1/pages/bot-chat.md 「需要登录」: a send is held (and the sign-in sheet opened) exactly
+    /// when the banner would show. Regression for the fresh-install case where a signed-out Bot send
+    /// was admitted and the transcript filled with failed turns instead of asking to sign in.
+    func testOnlyARequiredSignInHoldsTheSend() {
+        for notice in [nil, TonoAccountNotice.sessionEnded, .reverifyRequired] {
+            XCTAssertTrue(BotSignInRequirement.signIn(notice).holdsSend)
+        }
+        XCTAssertFalse(BotSignInRequirement.none.holdsSend)
+        XCTAssertTrue(BotSignInRequirement.resolve(signedIn: false, notice: nil, profileBaseURL: cloud,
+                                                   hasStoredKey: false).holdsSend)
+        XCTAssertFalse(BotSignInRequirement.resolve(signedIn: true, notice: nil, profileBaseURL: cloud,
+                                                    hasStoredKey: false).holdsSend)
+        XCTAssertFalse(BotSignInRequirement.resolve(signedIn: false, notice: nil, profileBaseURL: cloud,
+                                                    hasStoredKey: true).holdsSend)
+        XCTAssertFalse(BotSignInRequirement.resolve(signedIn: false, notice: nil,
+                                                    profileBaseURL: "https://api.deepseek.com/anthropic",
+                                                    hasStoredKey: false).holdsSend)
+    }
+
     func testEveryBannerStateHasUserFacingText() {
         for notice in [nil, TonoAccountNotice.sessionEnded, .reverifyRequired] {
             let requirement = BotSignInRequirement.signIn(notice)

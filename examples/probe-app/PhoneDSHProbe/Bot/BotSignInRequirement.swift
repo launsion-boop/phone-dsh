@@ -28,6 +28,23 @@ enum BotSignInRequirement: Equatable {
         return .signIn(notice)
     }
 
+    /// The rule over the live settings at the moment of a send. `signedIn` defaults to the stored
+    /// session record, which is readable synchronously; a session ended by the server is cleared
+    /// from the record, so it reads as signed out here too.
+    static func current(signedIn: Bool = TonoAccountSession.shared.hasSession) -> Self {
+        let settings = PhoneModelProviderSettings.shared
+        guard let profile = (try? settings.load())?.selected else { return .none }
+        let hasKey = (try? settings.hasAPIKey(for: profile.id)) ?? true
+        return resolve(signedIn: signedIn, notice: nil, profileBaseURL: profile.baseURL, hasStoredKey: hasKey)
+    }
+
+    /// spec/ui/v1/pages/bot-chat.md 「需要登录」: a send while sign-in is required is not admitted;
+    /// the composer keeps the draft and opens the Tono account sheet instead.
+    var holdsSend: Bool {
+        if case .signIn = self { return true }
+        return false
+    }
+
     var title: String {
         switch self {
         case .none: return ""
