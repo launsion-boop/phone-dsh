@@ -312,8 +312,10 @@ class AppBotRuntime internal constructor(
             nativeAdmission: () -> Boolean = { true },
             routineAvailable: () -> Boolean = { false },
             materializedSessions: Path? = null,
+            erasureWriter: com.phonedsh.log.ClosedSessionRewrite? = null,
+            acquireErasurePark: (() -> AutoCloseable)? = null,
         ): AppBotRuntime? = runCatching {
-            build(context, transport, logger, clock, nativeMcp, nativeAdmission, routineAvailable, materializedSessions)
+            build(context, transport, logger, clock, nativeMcp, nativeAdmission, routineAvailable, materializedSessions, erasureWriter, acquireErasurePark)
         }.onFailure { error ->
             Log.w(
                 ListenerAppBotMcpServer.TAG,
@@ -330,6 +332,8 @@ class AppBotRuntime internal constructor(
             nativeAdmission: () -> Boolean,
             routineAvailable: () -> Boolean,
             materializedSessions: Path?,
+            erasureWriter: com.phonedsh.log.ClosedSessionRewrite?,
+            acquireErasurePark: (() -> AutoCloseable)?,
         ): AppBotRuntime {
             val store = BotDomainStore(AndroidBotSqlDriver.open(context))
             val botId = AppBotRoster.DEFAULT_BOT_ID
@@ -338,11 +342,10 @@ class AppBotRuntime internal constructor(
             val proactiveSettings = SharedPreferencesProactiveSettingsStore(preferences)
             runCatching { proactiveSettings.load() }
                 .onFailure { logger("proactive settings load failed: ${it.message}") }
-            val memory = BotMemory(
-                store = BotSqlMemoryDocumentStore.forDomainStore(store, botId, clock),
-                botId = botId,
-                now = clock,
-            )
+            val memories = ConcurrentHashMap<String, BotMemory>()
+            fun memoryFor(id: String) = memories.computeIfAbsent(id) {
+                BotMemory(store = BotSqlMemoryDocumentStore.forDomainStore(store, id, clock), botId = id, now = clock)
+            }
             val hostWake = HostWakeScheduler.get(context)
             val routineStore = BotRoutineStore(store, clock) { changedBot, snapshot ->
                 val identity = WakeDemandKey(WakeDemandSource.botRoutine, changedBot)
@@ -357,7 +360,7 @@ class AppBotRuntime internal constructor(
             val routineMachine = RoutineMachine(routineStore)
             val wakeInbox = inboxFor(botId)
 
-            val memoryLookup = AppBotMemoryLookup(memory, clock)
+            val memoryLookup = AppBotMemoryLookup(::memoryFor, clock)
             val routineLookup = AppBotRoutineLookup(routineMachine, clock)
             val sessionTokens = BotSessionTokenRegistry(now = clock)
             val tokens = AppBotSessionPrincipals(sessionTokens)
@@ -509,6 +512,9 @@ class AppBotRuntime internal constructor(
                 )
             }
             notifyBotChanged = rosterController::domainChanged
+            val eraser = if (materializedSessions != null && erasureWriter != null && acquireErasurePark != null) {
+                BotSessionErasure(materializedSessions, store, rosterController, acquireErasurePark, erasureWriter) { identity.workerRestarted() }
+            } else null
             val platform = rosterController.state.value
             val connectorOutboxes = ConcurrentHashMap<String, ConnectorUpdateOutbox>()
             val deviceResults = DeviceTaskResultOutbox(store, clock)
@@ -545,7 +551,7 @@ class AppBotRuntime internal constructor(
                 logger = logger,
                 rosterController = rosterController,
                 egress = AppBotWriteApproval(identity, tokens, approvals, clock),
-                info = AppBotInfo(store, preferences, proactiveSettings, grantStore, approvalLog, routineMachine, scheduler, rosterController, clock),
+                info = AppBotInfo(store, preferences, proactiveSettings, grantStore, approvalLog, routineMachine, scheduler, rosterController, clock, eraser),
             )
         }
 

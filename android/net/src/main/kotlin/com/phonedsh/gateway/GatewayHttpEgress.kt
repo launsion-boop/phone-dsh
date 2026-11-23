@@ -42,6 +42,7 @@ class GatewayHttpEgress(
                 url = target,
                 headers = request.headers,
                 body = request.body,
+                downstreamConnected = request.downstreamConnected,
             ),
         )
         val status = outcome.responseStatus

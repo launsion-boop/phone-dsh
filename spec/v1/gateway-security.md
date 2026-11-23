@@ -137,7 +137,7 @@ that registration alive and refreshed until it settles, and several live registr
 workbench-turn probe keeps `notBot` for a running workbench turn; otherwise one active Bot gets the card, several fail
 `bot_egress_ambiguous`, and none fails `bot_egress_unattributed`. After attribution, a Task without `task.network-write` is refused
 403 `task_network_write_denied` before any card; a standing Grant cannot widen the host-issued subset. A missing Grant uses
-`tool=egress`, `operation=egress.<method>`, `resource=host=<host>`; deny/timeout/cancel returns 403 `egress_approval_denied` with no credential, socket or response log; an approved write's 3xx is never followed. Android connects this seam to the same session registry and approval coordinator as its Bot chat. Its buffered ordinary egress route returns the durable card immediately and requires a fresh request after approval. This avoids sending a timed-out request after a late decision. The anonymous workbench route still only admits reads.
+`tool=egress`, `operation=egress.<method>`, `resource=host=<host>`; deny/timeout/cancel returns 403 `egress_approval_denied` with no credential, socket or response log; an approved write's 3xx is never followed. Android connects this seam to the same session registry and approval coordinator as its Bot chat. A chat request with a live downstream connection waits up to the same 20-second window as iOS. A timely allow continues that request once. A disconnected or expired waiter cannot send, and a durable decision may authorize a later retry. The anonymous workbench route still only admits reads.
 
 ## 6. Response side — `response-redaction`
 

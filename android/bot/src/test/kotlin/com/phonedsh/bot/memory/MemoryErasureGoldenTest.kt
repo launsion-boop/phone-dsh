@@ -16,6 +16,20 @@ class MemoryErasureGoldenTest {
     private val fixture = MemoryVectors.golden("memory-erasure")
 
     @Test
+    fun derivedCopiesMatchCompleteEventSequences() {
+        val scope = BotMemoryScope.AGENT
+        val path = "agent/note.md"
+        val doc = BotMemoryErasureStateDocument(path, scope, "main", true, listOf(BotMemoryErasureVersion(1, "sample")))
+        val events = listOf(
+            BotMemoryErasureStateEvent(2, "memory.document_written", botId = "main", path = path),
+            BotMemoryErasureStateEvent(3, "ui.notice", botId = "main", refs = listOf("see record://event/20")),
+            BotMemoryErasureStateEvent(4, "ui.notice", botId = "main", refs = listOf("see [record](record://event/2)")),
+        )
+        val result = BotMemoryErasurePlanner.plan(BotMemoryErasureTarget(scope, path), "main", listOf(doc), events)
+        assertEquals(listOf(2L, 4L), result.plan?.erasedEvents)
+    }
+
+    @Test
     fun everyErasureCaseMatchesTheGoldenPlan() {
         for ((index, case) in MemoryVectors.objects(fixture, "cases").withIndex()) {
             val name = MemoryVectors.requireString(case, "name")

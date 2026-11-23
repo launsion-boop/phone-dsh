@@ -43,8 +43,9 @@ internal class AppBotInfo(
     private val scheduler: RoutineScheduler,
     private val roster: AppBotRosterController,
     private val clock: () -> Long,
+    private val sessionEraser: BotSessionErasure?,
 ) {
-    fun handle(id: String, intent: BotInfoIntent): BotInfoSnapshot {
+    fun handle(id: String, intent: BotInfoIntent, onNotice: (String) -> Unit = {}): BotInfoSnapshot {
         check(roster.state.value.roster.any { it.id == id }) { "找不到这个 Bot" }
         val main = roster.mainBotId() == id
         val memory = BotMemory(BotSqlMemoryDocumentStore.forDomainStore(store, id, clock), id, now = clock)
@@ -59,8 +60,21 @@ internal class AppBotInfo(
             }
             is BotInfoIntent.SetMaintenanceEnabled -> saveMaintenance(readMaintenance().copy(enabled = intent.enabled))
             is BotInfoIntent.Forget -> check(memory.forget(intent.documentPath, Math.toIntExact(intent.version)).ok) { "记忆版本已变化，请刷新" }
-            BotInfoIntent.Erase, BotInfoIntent.EraseShared, is BotInfoIntent.EraseDocument ->
-                error("会话日志擦除服务不可用，记忆已保留")
+            BotInfoIntent.Erase, BotInfoIntent.EraseShared, is BotInfoIntent.EraseDocument -> {
+                val service = checkNotNull(sessionEraser) { "会话日志擦除服务不可用，记忆已保留" }
+                val result = service.perform { eraser ->
+                    when (intent) {
+                        is BotInfoIntent.EraseDocument -> memory.erase(intent.documentPath, eraser)
+                        BotInfoIntent.EraseShared -> memory.erase(com.phonedsh.bot.memory.BotMemoryScope.USER, eraser)
+                        else -> memory.erase(com.phonedsh.bot.memory.BotMemoryScope.AGENT, eraser)
+                    }
+                }
+                check(result.ok) { result.error ?: "抹除记忆失败" }
+                if (result.uncoveredRecords.isNotEmpty()) {
+                    onNotice("已抹除记忆。另有 ${result.uncoveredRecords.size} 条会话记录无法确认已关闭，已保留。")
+                }
+                for (bot in roster.state.value.roster) roster.invalidateErasedHistory(bot.id)
+            }
             is BotInfoIntent.RevokeGrant -> check(grants.list(id).any { it.id == intent.grantID } && grants.revoke(intent.grantID)) { "授权已失效" }
             is BotInfoIntent.SetRoutineEnabled -> routines.update(id, intent.routineID, RoutinePatch(enabled = intent.enabled), clock())
             is BotInfoIntent.CancelRoutine -> check(id == AppBotRoster.DEFAULT_BOT_ID && scheduler.cancelRunning(intent.routineID).cancelled) { "任务未在运行" }

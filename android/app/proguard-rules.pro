@@ -51,3 +51,69 @@
 -dontwarn org.newsclub.net.unix.**
 -dontwarn com.sun.jna.**
 -dontwarn org.ietf.jgss.**
+
+# The loopback Netty listener is cleartext HTTP/1.1 on Java NIO. Its optional
+# native TLS/PEM loaders, Log4j backend and BlockHound agent are not installed.
+-dontwarn io.netty.internal.tcnative.AsyncSSLPrivateKeyMethod
+-dontwarn io.netty.internal.tcnative.AsyncTask
+-dontwarn io.netty.internal.tcnative.Buffer
+-dontwarn io.netty.internal.tcnative.CertificateCallback
+-dontwarn io.netty.internal.tcnative.CertificateCompressionAlgo
+-dontwarn io.netty.internal.tcnative.CertificateVerifier
+-dontwarn io.netty.internal.tcnative.Library
+-dontwarn io.netty.internal.tcnative.SSL
+-dontwarn io.netty.internal.tcnative.SSLContext
+-dontwarn io.netty.internal.tcnative.SSLPrivateKeyMethod
+-dontwarn io.netty.internal.tcnative.SSLSessionCache
+-dontwarn io.netty.internal.tcnative.SessionTicketKey
+-dontwarn io.netty.internal.tcnative.SniHostNameMatcher
+-dontwarn org.apache.log4j.Level
+-dontwarn org.apache.log4j.Logger
+-dontwarn org.apache.log4j.Priority
+-dontwarn org.bouncycastle.openssl.PEMDecryptorProvider
+-dontwarn org.bouncycastle.openssl.PEMEncryptedKeyPair
+-dontwarn org.bouncycastle.openssl.PEMKeyPair
+-dontwarn org.bouncycastle.openssl.PEMParser
+-dontwarn org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter
+-dontwarn org.bouncycastle.openssl.jcajce.JceOpenSSLPKCS8DecryptorProviderBuilder
+-dontwarn org.bouncycastle.openssl.jcajce.JcePEMDecryptorProviderBuilder
+-dontwarn org.bouncycastle.operator.InputDecryptorProvider
+-dontwarn org.bouncycastle.pkcs.PKCS8EncryptedPrivateKeyInfo
+-dontwarn org.conscrypt.BufferAllocator
+-dontwarn org.conscrypt.Conscrypt
+-dontwarn org.conscrypt.HandshakeListener
+-dontwarn reactor.blockhound.integration.BlockHoundIntegration
+
+# Ktor gives this class to Netty's ReflectiveChannelFactory for the Android
+# Java NIO listener; the constructor is looked up only after the APK starts.
+-keepclassmembers class io.netty.channel.socket.nio.NioServerSocketChannel {
+    public <init>();
+}
+
+# ResourceLeakDetector.addExclusions resolves these declared method names at
+# class initialization, even in an APK that never enables leak tracing.
+-keepclassmembers class io.netty.buffer.AbstractByteBufAllocator {
+    *** toLeakAwareBuffer(...);
+}
+-keepclassmembers class io.netty.buffer.AdvancedLeakAwareByteBuf {
+    *** touch(...);
+    *** recordLeakNonRefCountingOperation(...);
+}
+-keepclassmembers class io.netty.util.ReferenceCountUtil {
+    *** touch(...);
+}
+
+# Netty checks this runtime annotation before installing the shared Ktor
+# handler on a second client connection (the WebView follows the ready probe).
+-keepattributes RuntimeVisibleAnnotations
+-keep,allowobfuscation @interface io.netty.channel.ChannelHandler$Sharable
+-keep,allowobfuscation class io.netty.channel.ChannelInitializer
+-keep,allowshrinking,allowobfuscation @io.netty.channel.ChannelHandler$Sharable class *
+
+# The WebSocket upgrade installs NettyDirectEncoder. MessageToByteEncoder's
+# no-arg constructor discovers its "I" argument from this superclass signature.
+# R8 must retain the hierarchy as well as the concrete HttpContent argument.
+-keepattributes Signature
+-keep,allowobfuscation class io.netty.handler.codec.MessageToByteEncoder
+-keep,allowobfuscation class io.ktor.server.netty.NettyDirectEncoder
+-keep,allowobfuscation interface io.netty.handler.codec.http.HttpContent

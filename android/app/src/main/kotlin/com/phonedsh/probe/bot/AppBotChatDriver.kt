@@ -163,6 +163,7 @@ class AppBotChatDriver(
     private val epochOrder = ArrayList<String>()
     private val recordsBySession = LinkedHashMap<String, MutableList<BotSessionLogRecord>>()
     private val loadedSessions = HashSet<String>()
+    private var historyGeneration = 0L
 
     /** Records written before the runtime has chosen its main session. */
     private val pendingRecords = ArrayList<BotSessionLogRecord>(seedRecords)
@@ -279,6 +280,29 @@ class AppBotChatDriver(
             }
             result
         }
+
+    internal fun startSessionForErasure(): String {
+        check(synchronized(lock) { activeTurnId == null }) { "Bot 正在运行，请在本轮结束后重试" }
+        return kotlinx.coroutines.runBlocking { startMainSession() }
+    }
+
+    internal fun switchForErasure(id: String, records: List<String>) =
+        runtime.switchMainSessionForErasure(id, records)
+
+    internal fun continueAfterErasure(text: String?) = runtime.setPendingContinuation(text)
+
+    internal fun forgetWorkerAfterErasure() = runtime.workerReplaced()
+
+    internal fun invalidateErasedHistory() {
+        synchronized(lock) {
+            historyGeneration++
+            recordsBySession.clear()
+            pendingRecords.clear()
+            loadedSessions.clear()
+            bumpLocked()
+        }
+        requestHistoryLoad()
+    }
 
     internal fun domainChanged() {
         synchronized(lock) { bumpLocked() }
@@ -511,6 +535,7 @@ class AppBotChatDriver(
         var completed = true
         for (sessionId in targets) {
             if (closed.get()) return true
+            val generation = synchronized(lock) { historyGeneration }
             val remote = try {
                 historyReader.load(sessionId)
             } catch (_: Exception) {
@@ -518,6 +543,7 @@ class AppBotChatDriver(
                 continue
             }
             synchronized(lock) {
+                if (generation != historyGeneration) return false
                 mergeRemoteRecordsLocked(sessionId, remote)
                 loadedSessions.add(sessionId)
                 bumpLocked()

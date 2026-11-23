@@ -511,7 +511,7 @@ class LoopbackModelProxyTest {
                     }
                     val input = socket.getInputStream()
                     val head = readHeaderBlock(input).toString(Charsets.ISO_8859_1)
-                    assertTrue(head.startsWith("HTTP/1.1 200"))
+                    assertTrue("expected upstream success, status line: ${head.lineSequence().first()}", head.startsWith("HTTP/1.1 200"))
                     assertFalse("no response header may carry the key", head.contains(fakeKey))
                     assertTrue(
                         "the echo header is redacted whole",

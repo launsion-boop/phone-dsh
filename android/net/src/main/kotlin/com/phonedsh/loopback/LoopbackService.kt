@@ -136,6 +136,7 @@ internal class LoopbackService(
         liveSessions.clear()
     }
 
+
     fun install(app: Application) {
         app.install(WebSockets) {
             pingPeriod = PING_PERIOD
@@ -146,6 +147,9 @@ internal class LoopbackService(
         }
         // Runs before routing, i.e. before the WebSocket upgrade is attempted.
         app.intercept(ApplicationCallPipeline.Plugins) {
+            (call as? io.ktor.server.netty.NettyApplicationCall)?.let { native ->
+                call.attributes.put(peerChannel, native.context.channel())
+            }
             val call = call
             // The origin only answers requests addressed to its own authority.
             // This is the server half of the D22 launch-cookie binding: a request
@@ -359,16 +363,13 @@ internal class LoopbackService(
         val targetMethod = call.request.headers[TARGET_METHOD_HEADER]?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?: method
+        val channel = call.attributes.getOrNull(peerChannel)
+        val request = LoopbackHttpRequest(
+            method, target, targetMethod, headers, body,
+            downstreamConnected = channel?.let { { it.isActive } },
+        )
         val response = try {
-            egress.handle(
-                LoopbackHttpRequest(
-                    method = method,
-                    targetUrl = target,
-                    targetMethod = targetMethod,
-                    headers = headers,
-                    body = body,
-                ),
-            )
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { egress.handle(request) }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -609,6 +610,7 @@ internal class LoopbackService(
     }
 
     companion object {
+        internal val peerChannel = io.ktor.util.AttributeKey<io.netty.channel.Channel>("http-peer")
         private const val NO_STORE = "no-store"
         private const val COOP = "Cross-Origin-Opener-Policy"
         private const val COEP = "Cross-Origin-Embedder-Policy"

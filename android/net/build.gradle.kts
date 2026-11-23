@@ -25,7 +25,9 @@ dependencies {
 
     // Embedded HTTP/1.1 origin: CIO engine, static assets, one WS endpoint.
     implementation("io.ktor:ktor-server-core:3.2.3")
-    implementation("io.ktor:ktor-server-cio:3.2.3")
+    // Netty exposes the HTTP peer channel, needed to stop an approved write after disconnect.
+    implementation("io.ktor:ktor-server-netty:3.2.3")
+    testImplementation("io.ktor:ktor-server-cio:3.2.3")
     implementation("io.ktor:ktor-server-websockets:3.2.3")
 
     // Cloud voice consumer: the ASR session is one RFC 6455 WebSocket

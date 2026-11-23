@@ -14,7 +14,7 @@
 
 package com.phonedsh.loopback
 
-import io.ktor.server.cio.CIO
+import io.ktor.server.netty.Netty
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -152,7 +152,7 @@ class LoopbackServer(
             var engine: EmbeddedServer<*, *>? = null
             try {
                 val created = scope.embeddedServer(
-                    factory = CIO,
+                    factory = Netty,
                     port = configuration.port,
                     host = LoopbackConfiguration.LOOPBACK_HOST,
                     parentCoroutineContext = failures.handler,

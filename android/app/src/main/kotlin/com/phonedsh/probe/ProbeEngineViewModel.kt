@@ -1068,11 +1068,11 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
             credentialProvider = modelCredential ?: AnonymousCredentialProvider,
             egress = AllowListEgressPolicy(listOf(grant)),
         )
-    } ?: networkSettings.readGateway { method, url ->
+    } ?: networkSettings.readGateway { method, url, connected ->
         val approval = appBotRuntime?.egress
         if (approval == null) com.phonedsh.gateway.GatewayFailure(
             com.phonedsh.gateway.GatewayFailureCode.BOT_EGRESS_UNATTRIBUTED, "Bot 身份服务不可用")
-        else approval.check(method, url, turnRunning.get())
+        else approval.check(method, url, turnRunning.get(), connected)
     }
     private val ordinaryHttpEgress = GatewayHttpEgress(gateway)
 
@@ -1757,6 +1757,10 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                 context = getApplication(),
                 transport = DshBotSessionTransport(host.channel, ::logTurn),
                 materializedSessions = walPaths.materializedHome.resolve("sessions"),
+                erasureWriter = com.phonedsh.log.ClosedSessionRewrite(workspaceLog),
+                acquireErasurePark = { kotlinx.coroutines.runBlocking {
+                    host.acquireErasurePark { appForeground && !userStoppedEngine }
+                } },
                 logger = { line -> Log.i("AppBotRuntime", line) },
                 nativeMcp = AndroidAdbHost.get(getApplication()).server,
                 nativeAdmission = { controller.admission == Admission.OPEN },
@@ -1805,9 +1809,9 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
 
     private val botInfoIo = Dispatchers.IO.limitedParallelism(1)
 
-    internal suspend fun botInfo(id: String, intent: com.phonedsh.ui.bot.state.BotInfoIntent) =
+    internal suspend fun botInfo(id: String, intent: com.phonedsh.ui.bot.state.BotInfoIntent, onNotice: (String) -> Unit = {}) =
         withContext(botInfoIo) {
-            checkNotNull(appBotRuntime?.info) { "Bot 服务暂不可用" }.handle(id, intent)
+            checkNotNull(appBotRuntime?.info) { "Bot 服务暂不可用" }.handle(id, intent, onNotice)
         }
 
     internal suspend fun readBotPresence(botID: String) = withContext(Dispatchers.IO) {

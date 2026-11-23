@@ -207,7 +207,7 @@ it over the old prefix and ends in the tombstone state; a crash between steps 4 
 the durable manifest listing the rewrite segment, and the next compaction completes. There
 is no window that restores the erased bytes after the operation returns success.
 
-The rewrite adds no manifest field, changes `format` and never allocates an mseq twice.
+The rewrite adds no manifest field, changes `format` and never allocates an mseq twice. Android completes interrupted multi-record writes from a verified survivor-only copy before restarting the Worker ([recovery and rollback](../../docs/protocol-changes/PC-20261123-android-erasure-live-approval.md)).
 `record://session/<sessionId>#<seq>` for a tombstoned seq is an erased record: readers must
 report `record_erased` and must not return the tombstone's data as the original line. DSH
 admits an unknown `ignorable` event and excludes it from the surface, so the closed session

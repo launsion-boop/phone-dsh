@@ -29,6 +29,7 @@ data class LoopbackHttpRequest(
     val headers: Map<String, String>,
     /** The request body, copied off the Ktor call. */
     val body: ByteArray,
+    val downstreamConnected: (() -> Boolean)? = null,
 )
 
 /** One answer the host hands back to the Worker. */
