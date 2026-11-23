@@ -290,6 +290,20 @@ private struct BotApprovalCardView: View {
     private var longCommand: Bool {
         command.count > 240 || command.split(separator: "\n", omittingEmptySubsequences: false).count > 5
     }
+    /// The action class a standing answer would cover, when the host named
+    /// one (`exec:delete`, `exec:git-reset`). It only labels the scope of the
+    /// standing button; a card without a class keeps the older wording.
+    private var standingClassTitle: String? {
+        guard standingScope != nil else { return nil }
+        for effect in row.body["effects"]?.array ?? [] {
+            guard let fields = effect.object,
+                  let raw = fields["actionClass"]?.string,
+                  let parsed = BotActionClass(rawValue: raw), parsed.isStandable else { continue }
+            return parsed.zhTitle
+        }
+        return nil
+    }
+
     private var highRisk: Bool {
         let risk = row.body["risk"]?.object
         return risk?["level"]?.string == "high" || risk?["tags"]?.array?.contains(.string("irreversible")) == true
@@ -364,6 +378,11 @@ private struct BotApprovalCardView: View {
                     .botCardMeta()
                     .frame(maxWidth: .infinity, alignment: .center)
                     .accessibilityIdentifier("bot.approval.session.scope")
+            } else if let standingClassTitle {
+                Text("「总是允许」只覆盖同类操作：\(standingClassTitle)")
+                    .botCardMeta()
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .accessibilityIdentifier("bot.approval.class-scope")
             } else if standingScope == nil {
                 Text(BotApprovalOffer.onceOnlyNote)
                     .botCardMeta()

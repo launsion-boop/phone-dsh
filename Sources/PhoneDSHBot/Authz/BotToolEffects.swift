@@ -39,32 +39,51 @@ public struct BotToolEffect: Codable, Sendable, Equatable {
     /// not create a second approval card.
     public let grantResource: String?
 
+    /// The coarser decision class a standing approval may persist. `nil`
+    /// keeps a standing grant on the exact resource, so the next call asks
+    /// again. Set only for families the host can name without trusting the
+    /// model's description of the command.
+    public let actionClass: BotActionClass?
+
     /// Whether a standing approval may cover more than this exact resource.
-    /// Unknown tools are never widened. Destructive bash/memory operations
-    /// stay exact; only external-send effects (images/network) and effects
-    /// that explicitly declare a grantResource (file egress uses its
-    /// directory) get a stable scope.
+    /// Unknown tools are never widened. A destructive operation is standable
+    /// only when it belongs to a named `actionClass` (`exec:delete`,
+    /// `exec:git-reset`); `exec:unknown` is refused by construction. Other
+    /// effects keep the earlier rule: external sends and an explicit
+    /// `grantResource` (file egress uses its directory) get a stable scope.
     public var canUseStandingGrant: Bool {
         guard known else { return false }
+        if let actionClass { return actionClass.isStandable }
         if grantResource != nil { return true }
         return mutability == .externalSend
     }
 
-    /// The stable scope a standing approval stores. Images opt into the
-    /// narrower `model:image`; file/network egress declare their directory or
-    /// host; other external sends use `operation:<id>`. Destructive and
-    /// unclassified effects return their exact resource, so a standing
-    /// decision never widens them.
+    /// The stable scope a standing approval stores. An action class stores
+    /// the wildcard `*`: the class, not one path, is the decision. Images opt
+    /// into the narrower `model:image`; file/network egress declare their
+    /// directory or host; other external sends use `operation:<id>`.
+    /// Destructive and unclassified effects return their exact resource, so a
+    /// standing decision never widens them.
     public var stableGrantResource: String {
+        if let actionClass, actionClass.isStandable { return "*" }
         if let grantResource { return grantResource }
         guard canUseStandingGrant else { return resource }
         return operation.isEmpty ? resource : "operation:\(operation)"
     }
 
+    /// The operation a standing grant is stored under. An action class is its
+    /// own key (`exec:delete`), so the same decision covers `rm` and
+    /// `find -delete`; every other effect keeps its operation id.
+    public var grantOperation: String {
+        if let actionClass, actionClass.isStandable { return actionClass.rawValue }
+        return operation
+    }
+
     public init(tool: String, operation: String, resource: String, target: String? = nil,
                 mutability: BotToolMutability, policy: BotToolPolicy, label: String = "",
                 detail: String = "", ui: Bool = false, execution: String? = nil,
-                known: Bool = true, isMcp: Bool = false, grantResource: String? = nil) {
+                known: Bool = true, isMcp: Bool = false, grantResource: String? = nil,
+                actionClass: BotActionClass? = nil) {
         self.tool = tool
         self.operation = operation
         self.resource = resource
@@ -78,6 +97,7 @@ public struct BotToolEffect: Codable, Sendable, Equatable {
         self.known = known
         self.isMcp = isMcp
         self.grantResource = grantResource
+        self.actionClass = actionClass
     }
 }
 

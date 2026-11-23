@@ -487,8 +487,14 @@ public actor BotApprovalCoordinator {
                     let storedResource = effectiveScope == .once
                         ? effect.resource
                         : effect.stableGrantResource
+                    // A standing class decision is keyed by the class
+                    // (`exec:delete`, resource `*`), so the next delete in the
+                    // family matches it. A one-shot stays the exact instance.
+                    let storedOperation = effectiveScope == .once
+                        ? effect.operation
+                        : effect.grantOperation
                     let grant = try await grants.add(BotGrant(
-                        botId: request.principal.botId, tool: effect.tool, operation: effect.operation,
+                        botId: request.principal.botId, tool: effect.tool, operation: storedOperation,
                         resource: storedResource, scope: effectiveScope,
                         sessionId: request.principal.sessionId,
                         createdAt: now(), source: "approval-card", decision: .allow))
@@ -501,6 +507,18 @@ public actor BotApprovalCoordinator {
                 if effectiveScope == .once, !request.deferConsumption, !request.persistent {
                     guard try await grants.consumeOnceAtomically(ids: createdGrantIDs) else {
                         throw BotGrantError.invalidGrant
+                    }
+                }
+                // A standing answer covers the queue, not only the card that
+                // was tapped: parallel calls of the same class must not keep
+                // asking after the person already answered for the class.
+                if decision == .always, !request.persistent {
+                    let classes = Set(request.effects.compactMap(\.actionClass)
+                        .filter(\.isStandable))
+                    if !classes.isEmpty {
+                        await allowQueuedSameClass(
+                            botId: request.principal.botId, classes: classes,
+                            excluding: approvalId)
                     }
                 }
             }
@@ -1055,15 +1073,45 @@ public actor BotApprovalCoordinator {
             ok: false, allowed: false, approvalId: approvalId, message: "approval timed out"))
     }
 
+    /// Resolve every other interactive card whose whole effect set belongs to
+    /// a class the person just made standing. Durable (task/routine) cards are
+    /// deliberately excluded: they park their turn and resume through the
+    /// durable decision notice, not through a queued interactive card.
+    private func allowQueuedSameClass(botId: String, classes: Set<BotActionClass>,
+                                      excluding approvalId: String) async {
+        let queued = pending.filter { key, request in
+            key != approvalId && !request.persistent
+                && request.principal.botId == botId
+                && !request.effects.isEmpty
+                && request.effects.allSatisfy { effect in
+                    guard let cls = effect.actionClass else { return false }
+                    return classes.contains(cls)
+                }
+        }.keys.sorted()
+        for id in queued {
+            guard let request = pending[id] else { continue }
+            // The request's own stored digest is the decision key; its row
+            // already exists, so no new card is drawn for the auto-answer.
+            _ = await resolve(approvalId: id, decision: .allowOnce,
+                              digest: request.digest)
+        }
+    }
+
     private static func effectJSON(_ effect: BotToolEffect) -> BotJSONValue {
-        .object([
+        var fields: [String: BotJSONValue] = [
             "tool": .string(effect.tool), "operation": .string(effect.operation),
             "resource": .string(effect.resource), "target": .string(effect.target),
             "mutability": .string(effect.mutability.rawValue), "policy": .string(effect.policy.rawValue),
             "label": .string(effect.label), "detail": .string(effect.detail),
             "ui": .bool(effect.ui), "known": .bool(effect.known), "isMcp": .bool(effect.isMcp),
             "execution": effect.execution.map(BotJSONValue.string) ?? .null,
-        ])
+        ]
+        // Only class-scoped effects carry the key; old rows and every other
+        // effect keep their previous bytes.
+        if let actionClass = effect.actionClass {
+            fields["actionClass"] = .string(actionClass.rawValue)
+        }
+        return .object(fields)
     }
 }
 

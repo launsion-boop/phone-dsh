@@ -226,8 +226,8 @@ enum BotUIFormat {
         case "write.file", "file.write": return "写入文件"
         case "file.edit": return "编辑文件"
         case "network-egress": return "访问网络"
-        case "rm-destructive", "find-delete": return "删除文件"
-        case "git-destructive": return "丢弃改动"
+        case "rm-destructive", "find-delete", "exec:delete": return "删除文件"
+        case "git-destructive", "exec:git-reset": return "丢弃改动"
         case "dshbot.task": return "启动子任务"
         case "dshbot.awaittask": return "等待子任务"
         case "dshbot.stopsubagent": return "停止子任务"
@@ -268,6 +268,8 @@ enum BotUIFormat {
         let value = trimmed(resource)
         guard !value.isEmpty else { return unknownValue }
         let lower = value.lowercased()
+        // A class-scoped standing grant covers every target in its family.
+        if value == "*" { return "同类操作（不限具体目标）" }
         if lower.hasPrefix("dir=") { return pathSummary(value, isDirectory: true) }
         if lower.hasPrefix("host=") {
             let host = trimmed(String(value.dropFirst(5)))
