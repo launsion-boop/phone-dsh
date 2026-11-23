@@ -681,6 +681,29 @@ public final class PhoneModelProviderSettings {
     /// secret rather than a document pointing at a deleted key. A replaced
     /// credential account is deleted only after the new document commits; if
     /// that delete fails it becomes a pending orphan removed by a later load.
+    /// A fresh install has no model service, so the gateway allow-list was empty
+    /// and a signed-in user's first turn failed with "upstream host is not
+    /// allowed" (a signed-out user's send did nothing). Seed the Tono cloud
+    /// service once, only when there is no document and no legacy value; the
+    /// account token (or a pasted key) then makes it work (tono-account.md §4).
+    /// It is an ordinary profile afterwards: editable and deletable, and a
+    /// deletion is not undone because the seed runs at most once.
+    @discardableResult
+    public func seedTonoCloudIfFresh() -> Bool {
+        guard defaults.data(forKey: Self.defaultsKey) == nil,
+              !defaults.bool(forKey: Self.cloudSeededKey),
+              let snapshot = try? load(), snapshot.profiles.isEmpty else { return false }
+        let profile = ProviderProfile(id: "tono-cloud",
+                                      displayName: "Tono 云端",
+                                      baseURL: TonoCloudResponsePolicy.cloudOrigin + "/v1/llm/anthropic",
+                                      model: "deepseek-flash")
+        guard (try? upsert(profile)) != nil else { return false }
+        defaults.set(true, forKey: Self.cloudSeededKey)
+        return true
+    }
+
+    static let cloudSeededKey = "phone-dsh.model-providers.tono-cloud-seeded.v1"
+
     @discardableResult
     public func upsert(_ profile: ProviderProfile, apiKey: String? = nil) throws -> ProviderProfile {
         let normalizedProfile = try normalized(profile)

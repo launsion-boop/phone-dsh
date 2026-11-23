@@ -241,7 +241,7 @@ class MainActivity : ComponentActivity() {
         // The model service's device record, installed before the launch config:
         // `ProbeLaunchConfig.from` overlays the saved endpoint/model on the launch
         // extras, which is what makes a 保存 apply at the next host start.
-        ProviderConfigStore.install(applicationContext)
+        ProviderConfigStore.install(applicationContext).seedTonoCloudIfFresh()
         // The phone-permissions page's ask log, read before the first facts build so
         // the very first frame already knows which rows were already answered.
         PhonePermissionAsks.install(applicationContext)

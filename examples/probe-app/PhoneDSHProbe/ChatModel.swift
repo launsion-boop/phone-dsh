@@ -2148,6 +2148,7 @@ final class ChatModel {
             return nil
         }
 
+        PhoneModelProviderSettings.shared.seedTonoCloudIfFresh()
         let egressHosts = Self.egressHosts(from: egressAllow)
         // The provider document is the only model configuration authority.
         // It is read for every new host — including the rebuild a reset does —

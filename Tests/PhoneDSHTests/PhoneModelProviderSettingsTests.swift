@@ -894,6 +894,30 @@ final class PhoneModelProviderSettingsTests: XCTestCase {
         }
         XCTAssertTrue(environment.isEmpty)
     }
+
+    /// Real-device regression: a fresh install had no model service, so a signed-in
+    /// turn failed with "upstream host is not allowed" and a signed-out send did nothing.
+    func testFreshInstallSeedsTonoCloudOnceAndAllowsItsHost() throws {
+        XCTAssertTrue(settings.seedTonoCloudIfFresh())
+        let selected = try XCTUnwrap(settings.load().selected)
+        XCTAssertEqual(selected.baseURL, "https://pdsh.tonoai.cn/v1/llm/anthropic")
+        var plan = ModelProviderLaunchPlan()
+        try settings.apply(to: &plan)
+        XCTAssertEqual(plan.allowedModelHosts, ["https://pdsh.tonoai.cn"])
+        // Once only: a deletion by the user is not undone.
+        XCTAssertFalse(settings.seedTonoCloudIfFresh())
+        try settings.remove(id: selected.id)
+        XCTAssertFalse(settings.seedTonoCloudIfFresh())
+        XCTAssertTrue(try settings.load().profiles.isEmpty)
+    }
+
+    func testSeedNeverTouchesAnExistingService() throws {
+        try settings.upsert(ProviderProfile(id: "mine", displayName: "Mine",
+                                            baseURL: "https://api.example.com/anthropic", model: "m"),
+                            apiKey: "k")
+        XCTAssertFalse(settings.seedTonoCloudIfFresh())
+        XCTAssertEqual(try settings.load().profiles.map(\.id), ["mine"])
+    }
 }
 
 private final class InMemoryModelProviderSecretStore: ModelProviderSecretStore, @unchecked Sendable {
