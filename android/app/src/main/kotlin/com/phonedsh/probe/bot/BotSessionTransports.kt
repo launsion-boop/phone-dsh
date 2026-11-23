@@ -26,6 +26,7 @@ import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileTime
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -46,6 +47,26 @@ class DshBotSessionTransport(
     private val log: (String) -> Unit = {},
 ) : BotSessionTransport {
     private val client = DshTurnClient(channel, log)
+
+    internal suspend fun awaitImportChannel() {
+        // The channel can answer HELLO before the Worker's Remote services are mounted.
+        // Retry a passive catalog read, never an unacknowledged session/create or write.
+        check(kotlinx.coroutines.withTimeoutOrNull(30000) {
+            channel.lastSentHello.first { it != null }
+            var ready = false
+            while (!ready) {
+                try {
+                    client.call("agentPresets/list", timeoutMillis = 2500)
+                    ready = true
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: com.phonedsh.dsh.host.HostApiException) {
+                    kotlinx.coroutines.delay(250)
+                }
+            }
+            true
+        } == true) { "Worker 尚未就绪" }
+    }
 
     override fun call(endpoint: String, args: JsonObject): JsonObject = try {
         runBlocking { client.call(endpoint, args) } as? JsonObject

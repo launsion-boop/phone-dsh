@@ -565,7 +565,7 @@ public fun PdshNavHost(
     botPeerIsMainBot: (String) -> Boolean = { false },
     botPeerReaction: (String) -> BotFishReaction? = { null },
     /** The host's attachment picker adds a chip through `BotChatModel`. */
-    onBotAttach: () -> Unit = {},
+    onBotAttach: (() -> Unit)? = null,
     /**
      * The Bot drawer's roster (K5b). The default reports an empty roster, so a
      * host that supplies only a driver still gets the drawer's honest empty
@@ -590,6 +590,7 @@ public fun PdshNavHost(
      */
     botNextSteps: com.phonedsh.ui.bot.state.BotNextStepsMetrics? = null,
     onEgressSettings: ((EgressSettingsAction) -> Unit)? = null,
+    onBotDrawerVisibility: (Boolean) -> Unit = {},
 ) {
     val route = nav.current
     val botScope = rememberCoroutineScope()
@@ -674,6 +675,7 @@ public fun PdshNavHost(
                     onBotDrawerIntent = onBotDrawerIntent,
                     onBotInfoIntent = onBotInfoIntent,
                     onBotAppearanceIntent = onBotAppearanceIntent,
+                    onDrawerVisibility = onBotDrawerVisibility,
                     hostOnOpenDrawer = onOpenBotDrawer,
                     hostOnOpenInfo = onOpenBotInfo,
                 ) { openDrawer, openInfo ->
@@ -693,7 +695,8 @@ public fun PdshNavHost(
                         onInteraction = model::noteInteraction,
                         onOpenInfo = openInfo,
                         onConnectDevice = { onNavigate(PdshRoute.DeviceConnection) },
-                        onAttach = onBotAttach,
+                        onAttach = onBotAttach ?: {},
+                        onPicked = if (onBotAttach == null && botDriver is com.phonedsh.ui.bot.driver.BotDraftImporter) model::acceptPickedAttachments else null,
                         onRemoveAttachment = model::removeDraftAttachment,
                         onDismissAttachmentNotice = model::dismissAttachmentNotice,
                         onOpenDrawer = openDrawer,
@@ -954,6 +957,7 @@ internal fun sheetPageIdOf(route: PdshRoute): String? = when (route) {
     PdshRoute.Configuration -> "configuration"
     PdshRoute.Settings -> "settings"
     PdshRoute.ModelProvider -> "modelProvider"
+    PdshRoute.PcPairing -> "pcPairing"
     PdshRoute.Runtime -> "runtime"
     is PdshRoute.Workbench -> "workbench"
     PdshRoute.DeviceConnection -> "deviceConnection"

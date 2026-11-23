@@ -20,6 +20,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -117,6 +122,7 @@ public fun BotChatPage(
     onOpenInfo: () -> Unit,
     onConnectDevice: () -> Unit,
     onAttach: () -> Unit,
+    onPicked: ((List<BotDraftAttachment>, List<String>) -> Unit)? = null,
     onRemoveAttachment: (Int) -> Unit,
     onDismissAttachmentNotice: () -> Unit,
     onOpenDrawer: (() -> Unit)? = null,
@@ -201,9 +207,12 @@ public fun BotChatPage(
         }
     }
 
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     Column(
         modifier = modifier
             .fillMaxSize()
+            .imePadding()
             .background(tokens.colors.page),
     ) {
         BotHeader(
@@ -216,7 +225,9 @@ public fun BotChatPage(
             onConnectDevice = onConnectDevice,
             onInteraction = onInteraction,
         )
-        Box(Modifier.weight(1f)) {
+        Box(Modifier.weight(1f).pointerInput(focus, keyboard) {
+            detectTapGestures(onTap = { focus.clearFocus(); keyboard?.hide() })
+        }) {
             LazyColumn(
                 state = transcriptState,
                 modifier = Modifier.fillMaxSize().testTag(BotChatTags.TRANSCRIPT),
@@ -318,6 +329,7 @@ public fun BotChatPage(
             onSend = onSend,
             onStop = onStop,
             onAttach = onAttach,
+            onPicked = onPicked,
             onRemoveAttachment = onRemoveAttachment,
             onDismissAttachmentNotice = onDismissAttachmentNotice,
             onInteraction = onInteraction,
@@ -880,12 +892,14 @@ private fun BotComposer(
     onSend: () -> Unit,
     onStop: () -> Unit,
     onAttach: () -> Unit,
+    onPicked: ((List<BotDraftAttachment>, List<String>) -> Unit)? = null,
     onRemoveAttachment: (Int) -> Unit,
     onDismissAttachmentNotice: () -> Unit,
     onInteraction: () -> Unit,
 ) {
     val tokens = LocalUiTokens.current
-    val canSend = state.draft.trim().isNotEmpty() || state.draftAttachments.isNotEmpty()
+    var picking by remember { mutableStateOf(false) }
+    val canSend = !state.importingAttachments && (state.draft.trim().isNotEmpty() || state.draftAttachments.isNotEmpty())
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -971,12 +985,18 @@ private fun BotComposer(
                     .background(tokens.colors.userBubble)
                     .clickable(role = Role.Button) {
                         onInteraction()
-                        onAttach()
+                        if (onPicked == null) onAttach() else picking = true
                     }
                     .semantics { contentDescription = BotChatCopy.ATTACH }
                     .testTag(BotChatTags.COMPOSER_ATTACH),
                 contentAlignment = Alignment.Center,
             ) {
+                if (onPicked != null) {
+                    androidx.compose.runtime.key(state.context.botID) {
+                        BotAttachmentMenu(picking, { picking = false },
+                            com.phonedsh.bot.attachments.BotAttachmentPolicy.MAX_COUNT - state.draftAttachments.size, onPicked)
+                    }
+                }
                 PdshIconView(
                     PdshIcon.PLUS,
                     BotChatMetrics.COMPOSER_ATTACH_GLYPH_PT.dp,

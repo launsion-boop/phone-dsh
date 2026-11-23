@@ -101,6 +101,7 @@ public fun BotPageLayer(
     modifier: Modifier = Modifier,
     hostOnOpenDrawer: (() -> Unit)? = null,
     hostOnOpenInfo: (() -> Unit)? = null,
+    onDrawerVisibility: (Boolean) -> Unit = {},
     content: @Composable (
         onOpenDrawer: () -> Unit,
         onOpenInfo: () -> Unit,
@@ -113,6 +114,13 @@ public fun BotPageLayer(
     // closes whatever was open instead of leaving it over the next route.
     LaunchedEffect(active) {
         if (!active) overlay = BotPageOverlay.NONE
+    }
+
+    val drawerVisible = active && (overlay == BotPageOverlay.DRAWER || overlay == BotPageOverlay.APPEARANCE)
+    val reportVisibility by androidx.compose.runtime.rememberUpdatedState(onDrawerVisibility)
+    androidx.compose.runtime.DisposableEffect(drawerVisible) {
+        reportVisibility(drawerVisible)
+        onDispose { reportVisibility(false) }
     }
 
     val openDrawer: () -> Unit = {
