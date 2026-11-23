@@ -107,4 +107,13 @@
 # handler on a second client connection (the WebView follows the ready probe).
 -keepattributes RuntimeVisibleAnnotations
 -keep,allowobfuscation @interface io.netty.channel.ChannelHandler$Sharable
--keep,allowoptimization,allowobfuscation @io.netty.channel.ChannelHandler$Sharable class *
+-keep,allowobfuscation class io.netty.channel.ChannelInitializer
+-keep,allowshrinking,allowobfuscation @io.netty.channel.ChannelHandler$Sharable class *
+
+# The WebSocket upgrade installs NettyDirectEncoder. MessageToByteEncoder's
+# no-arg constructor discovers its "I" argument from this superclass signature.
+# R8 must retain the hierarchy as well as the concrete HttpContent argument.
+-keepattributes Signature
+-keep,allowobfuscation class io.netty.handler.codec.MessageToByteEncoder
+-keep,allowobfuscation class io.ktor.server.netty.NettyDirectEncoder
+-keep,allowobfuscation interface io.netty.handler.codec.http.HttpContent

@@ -193,19 +193,19 @@ public object BotInfoCopy {
     public const val ERASE_DOCUMENT_TITLE: String = "抹除这份文档？"
     public const val ERASE_DOCUMENT_CONFIRM: String = "抹除文档和全部版本"
     public const val ERASE_DOCUMENT_BODY: String =
-        "会永久删除这份文档和全部历史版本，相关内容也会从旧对话里移除，共享记忆的其他文档不受影响，无法撤销。"
+        "会永久删除这份文档和全部历史版本，相关内容也会从旧对话里移除，共享记忆的其他文档不受影响，无法撤销；App 内部的操作日志可能仍保留原文。"
     public const val ERASE_BOT_TITLE: String = "抹除这个 Bot 的记忆？"
     public const val ERASE_BOT_CONFIRM: String = "抹除这个 Bot 的记忆"
     public const val ERASE_BOT_BODY: String =
-        "会永久删除这个 Bot 的记忆和全部历史版本，相关内容也会从旧对话里移除，共享记忆不受影响，无法撤销。"
+        "会永久删除这个 Bot 的记忆和全部历史版本，相关内容也会从旧对话里移除，共享记忆不受影响，无法撤销；App 内部的操作日志可能仍保留原文。"
     public const val ERASE_SHARED_TITLE: String = "抹除所有 Bot 共享的记忆？"
     public const val ERASE_SHARED_CONFIRM: String = "继续"
     public const val ERASE_SHARED_BODY: String =
-        "所有 Bot 共享的记忆和全部历史版本会被永久删除，相关内容也会从旧对话里移除，无法撤销。"
+        "所有 Bot 共享的记忆和全部历史版本会被永久删除，相关内容也会从旧对话里移除，无法撤销；App 内部的操作日志可能仍保留原文。"
     public const val ERASE_SHARED_AGAIN_TITLE: String = "最后确认：抹除全部共享记忆？"
     public const val ERASE_SHARED_AGAIN_CONFIRM: String = "抹除共享记忆"
     public const val ERASE_SHARED_AGAIN_BODY: String =
-        "所有 Bot 会立即失去这些共享记忆，全部历史版本也会被永久删除，无法撤销。"
+        "所有 Bot 会立即失去这些共享记忆，全部历史版本也会被永久删除，无法撤销；App 内部的操作日志可能仍保留原文。"
     public const val EVIDENCE_SESSION: String = "对话来源"
     public const val EVIDENCE_EVENT: String = "记录来源"
     public const val EVIDENCE_OTHER: String = "其他来源"
