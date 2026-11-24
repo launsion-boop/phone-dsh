@@ -60,3 +60,17 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+QQ Mail
+-------
+QQ Mail (QQ 邮箱) is a trademark of Tencent. The QQ Mail connector uses the app
+icon Tencent Technology (Shenzhen) Company Limited publishes on the App Store
+(https://apps.apple.com/cn/app/id473225145), 128 px, taken from the TonoLive
+connector logo set (design/connector-logos/qq_mail.png and its sources.json).
+
+NetEase Mail
+------------
+NetEase Mail (网易邮箱) is a trademark of NetEase. The NetEase Mail connector
+uses the favicon published at https://mail.163.com/favicon.ico, 48 px, taken
+from the TonoLive connector logo set (design/connector-logos/netease_mail.png
+and its sources.json).

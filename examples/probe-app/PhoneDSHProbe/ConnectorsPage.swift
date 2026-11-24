@@ -23,7 +23,8 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .gmail: return "GmailMark"
         case .github: return "GitHubMark"
         case .tencentDocs: return "TencentDocsMark"
-        case .qqMail, .neteaseMail: return "envelope.fill"
+        case .qqMail: return "QQMailMark"
+        case .neteaseMail: return "NetEaseMailMark"
         }
     }
 
@@ -213,12 +214,19 @@ private struct ConnectorTile: View {
     var body: some View {
         Group {
             switch connector {
-            case .gmail, .github, .mcp, .tencentDocs:
+            case .gmail, .github, .mcp, .tencentDocs, .neteaseMail:
                 Image(connector.icon)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: size * 0.46, height: size * 0.46)
-            case .devices, .webSearch, .qqMail, .neteaseMail:
+                    .frame(width: size * markScale, height: size * markScale)
+            case .qqMail:
+                // The published artwork is the full app icon; show it as one.
+                Image(connector.icon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: size * 0.62, height: size * 0.62)
+                    .clipShape(RoundedRectangle(cornerRadius: size * 0.62 * 0.225, style: .continuous))
+            case .devices, .webSearch:
                 Image(systemName: connector.icon)
                     .font(.system(size: size * 0.46, weight: .medium))
             }
@@ -228,6 +236,16 @@ private struct ConnectorTile: View {
         .background(HomeSpec.userBubble,
                     in: RoundedRectangle(cornerRadius: size * 0.27, style: .continuous))
         .accessibilityHidden(true)
+    }
+
+    /// Marks whose artwork carries its own padding are drawn larger so they
+    /// match the visual size of the others.
+    private var markScale: CGFloat {
+        switch connector {
+        case .tencentDocs: return 0.72
+        case .neteaseMail: return 0.56
+        default: return 0.46
+        }
     }
 }
 
