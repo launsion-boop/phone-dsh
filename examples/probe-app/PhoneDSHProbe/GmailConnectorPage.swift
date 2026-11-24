@@ -210,6 +210,16 @@ struct GmailConnectorPage: View {
     var body: some View {
         List {
             accountSection
+            Section {
+                NavigationLink {
+                    MailConnectorPage(provider: .gmail)
+                } label: {
+                    Label(NativeText("让 DSH 读写 Gmail", "Let DSH read and send Gmail"), systemImage: "sparkles")
+                }
+            } footer: {
+                Text(NativeText("用应用专用密码连接后，对话里的 DSH 可以搜索、阅读和发送邮件，发信前会请你确认。",
+                                "Connect with an app password so DSH can search, read and send mail in chat; it asks before sending."))
+            }
             if let notice = mailbox.notice {
                 Section {
                     Text(verbatim: notice).foregroundStyle(.secondary)

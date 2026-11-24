@@ -8,6 +8,7 @@ import Foundation
 import OSLog
 import PhoneDSHBLE
 import PhoneDSHLoopback
+import PhoneDSHMail
 import PhoneDSHVenus
 import UIKit
 
@@ -15,13 +16,17 @@ import UIKit
 /// through to ADB). Both the Worker's direct `/mcp/native` and the Bot listener's forwarder use this
 /// same instance, so one receipt store and one in-flight task guard serve every caller.
 @MainActor enum PhoneNativeMCP {
+    /// Mail tools sit in front: they answer only `mail_*` calls (and add their
+    /// descriptors while a mailbox is connected) and pass everything else on.
+    private static let chain: any NativeMCPServing = MailMCPServer(
+        fallback: IPhoneAgentMCPServer(fallback: DeviceMCPServer.shared, executor: IPhoneAgentHost.shared),
+        store: .shared,
+        approver: MailSendApprover())
     #if DEBUG
     /// DEBUG builds record what reaches the native tools (`GET /debug/native-mcp`).
-    static let server: any NativeMCPServing = NativeMCPDebugRecorder(IPhoneAgentMCPServer(
-        fallback: DeviceMCPServer.shared, executor: IPhoneAgentHost.shared))
+    static let server: any NativeMCPServing = NativeMCPDebugRecorder(chain)
     #else
-    static let server: any NativeMCPServing = IPhoneAgentMCPServer(
-        fallback: DeviceMCPServer.shared, executor: IPhoneAgentHost.shared)
+    static let server: any NativeMCPServing = chain
     #endif
 }
 

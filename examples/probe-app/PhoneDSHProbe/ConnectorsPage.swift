@@ -6,11 +6,12 @@
 // half height and drags up to full; its action pushes the setup page.
 
 import PhoneDSH
+import PhoneDSHMail
 import ProbeKit
 import SwiftUI
 
 enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
-    case gmail, github, tencentDocs, devices, webSearch, mcp
+    case gmail, qqMail, neteaseMail, github, tencentDocs, devices, webSearch, mcp
 
     var id: String { rawValue }
 
@@ -22,6 +23,8 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .gmail: return "GmailMark"
         case .github: return "GitHubMark"
         case .tencentDocs: return "TencentDocsMark"
+        case .qqMail: return "QQMailMark"
+        case .neteaseMail: return "NetEaseMailMark"
         }
     }
 
@@ -33,6 +36,8 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .gmail: return .primary // The original-color asset ignores this tint.
         case .github: return HomeSpec.textPrimary
         case .tencentDocs: return .primary // The original-color asset ignores this tint.
+        case .qqMail: return Color(red: 0.07, green: 0.53, blue: 0.95)
+        case .neteaseMail: return Color(red: 0.85, green: 0.16, blue: 0.18)
         }
     }
 
@@ -44,6 +49,8 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .gmail: return "Gmail"
         case .github: return "GitHub"
         case .tencentDocs: return NativeText("腾讯文档", "Tencent Docs")
+        case .qqMail: return NativeText("QQ 邮箱", "QQ Mail")
+        case .neteaseMail: return NativeText("网易邮箱", "NetEase Mail")
         }
     }
 
@@ -55,6 +62,8 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .gmail: return NativeText("连接账号、搜索和阅读邮件", "Connect an account, search and read mail")
         case .github: return NativeText("浏览已授权的仓库", "Browse authorized repositories")
         case .tencentDocs: return NativeText("在对话里查找、阅读和编辑文档", "Find, read and edit documents in chat")
+        case .qqMail: return NativeText("用授权码登录，在对话里收发邮件", "Sign in with an authorization code to read and send mail in chat")
+        case .neteaseMail: return NativeText("163、126、yeah.net，在对话里收发邮件", "163, 126 and yeah.net mail in chat")
         }
     }
 
@@ -65,7 +74,16 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .gmail, .github: return NativeText("打开", "Open")
         case .webSearch: return NativeText("设置", "Set up")
         case .mcp: return NativeText("添加", "Add")
-        case .tencentDocs: return NativeText("连接", "Connect")
+        case .tencentDocs, .qqMail, .neteaseMail: return NativeText("连接", "Connect")
+        }
+    }
+
+    /// The mailbox provider behind this row, when it is one.
+    var mailProvider: MailProvider? {
+        switch self {
+        case .qqMail: return .qq
+        case .neteaseMail: return .netease
+        default: return nil
         }
     }
 
@@ -86,6 +104,7 @@ struct ConnectorsPage: View {
     @State private var pendingPush: DiscoverConnector?
     @State private var pushed: DiscoverConnector?
     @State private var connectorService = MCPConnectorService.shared
+    @State private var mailModel = MailConnectorModel.shared
 
     var body: some View {
         List { DevicePanelShortcuts()
@@ -138,11 +157,16 @@ struct ConnectorsPage: View {
         case .github: GitHubConnectorPage()
         case .tencentDocs:
             MCPConnectorPage(connector: PhoneMCPConnectorCatalog.tencentDocs, title: connector.title)
+        case .qqMail: MailConnectorPage(provider: .qq)
+        case .neteaseMail: MailConnectorPage(provider: .netease)
         }
     }
 
     /// Hosted MCP connectors show their live state on the pill.
     private func pillTitle(_ connector: DiscoverConnector) -> String {
+        if let provider = connector.mailProvider {
+            return mailModel.accounts(for: provider).isEmpty ? connector.pillTitle : NativeText("已连接", "Connected")
+        }
         guard let mcp = connector.mcpConnector else { return connector.pillTitle }
         switch connectorService.state(mcp) {
         case .connected: return NativeText("已连接", "Connected")
@@ -190,11 +214,18 @@ private struct ConnectorTile: View {
     var body: some View {
         Group {
             switch connector {
-            case .gmail, .github, .mcp, .tencentDocs:
+            case .gmail, .github, .mcp, .tencentDocs, .neteaseMail:
                 Image(connector.icon)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: size * 0.46, height: size * 0.46)
+                    .frame(width: size * markScale, height: size * markScale)
+            case .qqMail:
+                // The published artwork is the full app icon; show it as one.
+                Image(connector.icon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: size * 0.62, height: size * 0.62)
+                    .clipShape(RoundedRectangle(cornerRadius: size * 0.62 * 0.225, style: .continuous))
             case .devices, .webSearch:
                 Image(systemName: connector.icon)
                     .font(.system(size: size * 0.46, weight: .medium))
@@ -205,6 +236,16 @@ private struct ConnectorTile: View {
         .background(HomeSpec.userBubble,
                     in: RoundedRectangle(cornerRadius: size * 0.27, style: .continuous))
         .accessibilityHidden(true)
+    }
+
+    /// Marks whose artwork carries its own padding are drawn larger so they
+    /// match the visual size of the others.
+    private var markScale: CGFloat {
+        switch connector {
+        case .tencentDocs: return 0.72
+        case .neteaseMail: return 0.56
+        default: return 0.46
+        }
     }
 }
 
@@ -279,6 +320,8 @@ private struct ConnectorDetailSheet: View {
         case .gmail: return NativeText("打开 Gmail", "Open Gmail")
         case .github: return NativeText("打开 GitHub", "Open GitHub")
         case .tencentDocs: return NativeText("连接腾讯文档", "Connect Tencent Docs")
+        case .qqMail: return NativeText("连接 QQ 邮箱", "Connect QQ Mail")
+        case .neteaseMail: return NativeText("连接网易邮箱", "Connect NetEase Mail")
         }
     }
 
@@ -299,6 +342,9 @@ private struct ConnectorDetailSheet: View {
         case .github:
             return NativeText("连接 GitHub 账号后，可以在手机上查看你选择的仓库。",
                               "Connect a GitHub account to browse the repositories you choose on this phone.")
+        case .qqMail, .neteaseMail:
+            return NativeText("用邮箱地址和客户端授权码登录后，DSH 可以在对话里搜索、阅读邮件，并在你确认后代你发信。",
+                              "Sign in with your address and client authorization code so DSH can search and read mail in chat, and send mail after you confirm.")
         case .tencentDocs:
             return NativeText("连接腾讯文档账号后，DSH 可以在对话里查找、阅读、创建和编辑你的文档。",
                               "Connect a Tencent Docs account so DSH can find, read, create and edit your documents in chat.")
@@ -350,6 +396,18 @@ private struct ConnectorDetailSheet: View {
                 ("lock.shield", NativeText("GitHub 授权", "GitHub authorization"),
                  NativeText("在 GitHub 授权。你可以随时断开连接，或到 GitHub 管理授权。",
                             "Authorize on GitHub. You can disconnect here or manage access on GitHub.")),
+            ]
+        case .qqMail, .neteaseMail:
+            return [
+                ("tray.full", NativeText("读取和搜索邮件", "Read and search mail"),
+                 NativeText("按主题或收发件人查找最近的邮件并阅读正文；阅读不会把邮件标为已读。",
+                            "Find recent mail by subject or address and read it; reading does not mark it as read.")),
+                ("paperplane", NativeText("发信前确认", "Confirm before sending"),
+                 NativeText("每次发信都会在手机上显示收件人、主题和正文，由你确认后才发出。",
+                            "Each send shows the recipients, subject and text on this phone and waits for your confirmation.")),
+                ("key", NativeText("授权码只存在本机", "Code stays on this phone"),
+                 NativeText("授权码保存在设备钥匙串，不是邮箱登录密码，可以随时在邮箱设置里停用。",
+                            "The code is kept in the device keychain. It is not your login password and can be revoked in the mailbox settings.")),
             ]
         case .tencentDocs:
             return [

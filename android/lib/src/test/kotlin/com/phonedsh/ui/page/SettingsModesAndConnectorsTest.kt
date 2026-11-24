@@ -146,10 +146,14 @@ class SettingsModesAndConnectorsTest {
         }
         compose.onNodeWithText("发现").assertIsDisplayed()
         compose.onNodeWithText("连接器").assertIsDisplayed()
+        // Eight connectors push 更多 below the fold of the test window.
+        compose.onNodeWithTag(ConnectorsPageTags.LIST).performScrollToNode(hasTestTag(ConnectorsPageTags.PLUGINS_TOOLS))
         compose.onNodeWithText("更多").assertIsDisplayed()
         compose.onNodeWithTag(ConnectorsPageTags.PLUGINS_TOOLS).performClick()
         assertEquals(1, plugins)
 
+        compose.onNodeWithTag(ConnectorsPageTags.LIST)
+            .performScrollToNode(hasTestTag(ConnectorsPageTags.ROW_PREFIX + "web_search"))
         compose.onNodeWithTag(ConnectorsPageTags.ROW_PREFIX + "web_search").performClick()
         compose.onNodeWithText("设置网页搜索").assertIsDisplayed()
         assertEquals(emptyList<DiscoverConnector>(), opened)
@@ -193,11 +197,14 @@ class SettingsModesAndConnectorsTest {
 
     @Test
     fun `gmail and github follow the baseline order and open their pages`() {
-        // ConnectorsPage.swift:12: gmail, github, devices, webSearch, mcp.
+        // ConnectorsPage.swift:12: gmail, qqMail, neteaseMail, github, tencentDocs, devices, webSearch, mcp.
         assertEquals(
             listOf(
                 DiscoverConnector.GMAIL,
+                DiscoverConnector.QQ_MAIL,
+                DiscoverConnector.NETEASE_MAIL,
                 DiscoverConnector.GITHUB,
+                DiscoverConnector.TENCENT_DOCS,
                 DiscoverConnector.DEVICES,
                 DiscoverConnector.WEB_SEARCH,
                 DiscoverConnector.MCP,

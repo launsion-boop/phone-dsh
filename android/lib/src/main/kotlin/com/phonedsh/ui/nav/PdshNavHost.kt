@@ -786,9 +786,33 @@ public fun PdshNavHost(
                         com.phonedsh.ui.page.DiscoverConnector.MCP -> onNavigate(PdshRoute.Mcp)
                         com.phonedsh.ui.page.DiscoverConnector.GMAIL -> onNavigate(PdshRoute.GmailConnector)
                         com.phonedsh.ui.page.DiscoverConnector.GITHUB -> onNavigate(PdshRoute.GitHubConnector)
+                        com.phonedsh.ui.page.DiscoverConnector.QQ_MAIL -> onNavigate(PdshRoute.MailConnector("qq"))
+                        com.phonedsh.ui.page.DiscoverConnector.NETEASE_MAIL -> onNavigate(PdshRoute.MailConnector("netease"))
+                        com.phonedsh.ui.page.DiscoverConnector.TENCENT_DOCS -> onNavigate(PdshRoute.TencentDocsConnector)
                     }
                 },
                 onOpenPluginsTools = { onNavigate(PdshRoute.Configuration) },
+                languageId = facts.settings.preferences.language?.id,
+                connected = buildSet {
+                    if (facts.mail.connected("qq")) add(com.phonedsh.ui.page.DiscoverConnector.QQ_MAIL)
+                    if (facts.mail.connected("netease")) add(com.phonedsh.ui.page.DiscoverConnector.NETEASE_MAIL)
+                    if (facts.tencentDocs.phase == com.phonedsh.ui.page.McpConnectorPhase.CONNECTED) {
+                        add(com.phonedsh.ui.page.DiscoverConnector.TENCENT_DOCS)
+                    }
+                },
+            )
+            is PdshRoute.MailConnector -> com.phonedsh.ui.page.MailConnectorPage(
+                providerId = route.providerId,
+                facts = facts.mail,
+                onBack = onBack,
+                onAction = { onHostAction(PdshHostAction.MailConnector(it)) },
+                languageId = facts.settings.preferences.language?.id,
+            )
+            PdshRoute.TencentDocsConnector -> com.phonedsh.ui.page.McpConnectorPage(
+                title = com.phonedsh.ui.UiStrings.settingsNativeText(facts.settings.preferences.language?.id, "腾讯文档", "Tencent Docs"),
+                facts = facts.tencentDocs,
+                onBack = onBack,
+                onAction = { onHostAction(PdshHostAction.TencentDocsConnector(it)) },
                 languageId = facts.settings.preferences.language?.id,
             )
             PdshRoute.ModelProvider -> ModelProviderRoute(facts, onBack, onHostAction, backLevel = backLevel)

@@ -68,6 +68,12 @@
       "status": "target"
     },
     {
+      "swift": "PhoneDSHMail",
+      "kotlin": "com.phonedsh.mail",
+      "gradle": ":net",
+      "status": "mapped"
+    },
+    {
       "swift": "PhoneDSHLog",
       "kotlin": "com.phonedsh.log",
       "gradle": ":core",

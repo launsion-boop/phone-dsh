@@ -219,6 +219,26 @@
                     android:path="/callback" />
             </intent-filter>
         </activity>
+
+        <!-- 发现 › 腾讯文档: the hosted-MCP OAuth callback phonedsh-oauth://callback/<connector>
+             (docs/design-connectors-2026-11-24.md). No UI: it hands the URI to the
+             pending attempt and returns to MainActivity. -->
+        <activity
+            android:name="com.phonedsh.probe.connectors.McpOAuthCallbackActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="phonedsh-oauth"
+                    android:host="callback" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>
