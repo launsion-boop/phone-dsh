@@ -29,6 +29,10 @@ let withShell = shellRequested && FileManager.default.fileExists(atPath: shellXC
 let modules: [Module] = [
     Module(name: "PhoneDSHDeviceTasks", dependencies: ["PhoneDSHAgentCore"]),
     Module(name: "PhoneDSHLAN"),
+    // Mail connectors (QQ, NetEase, Gmail app password): IMAPS/SMTPS, MIME and
+    // the native MCP mail tools the Worker reaches through /mcp/native.
+    Module(name: "PhoneDSHMail", dependencies: ["PhoneDSHAgentCore", "PhoneDSHLoopback"],
+           testDependencies: ["PhoneDSHAgentCore", "PhoneDSHLoopback"]),
     // UI-Venus phone agent: OpenAI-compatible client, action parser, and the on-iPhone agent loop
     // that sees the TonoLink board's screen stream and acts through its HID (PhoneDSHBLE).
     Module(name: "PhoneDSHVenus", dependencies: ["PhoneDSH", "PhoneDSHADB", "PhoneDSHAgentCore", "PhoneDSHLoopback"], testDependencies: ["PhoneDSH", "PhoneDSHADB", "PhoneDSHAgentCore", "PhoneDSHLoopback"]),

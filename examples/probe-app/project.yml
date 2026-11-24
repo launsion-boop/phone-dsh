@@ -118,6 +118,9 @@ targets:
         product: PhoneDSHDeviceTasks
       - package: PhoneDSH
         product: PhoneDSHVenus
+      # QQ / NetEase / Gmail mailboxes: IMAPS/SMTPS and the native MCP mail tools.
+      - package: PhoneDSH
+        product: PhoneDSHMail
       - package: PhoneDSH
         product: PhoneDSHPCLink
       - package: GoogleSignIn
