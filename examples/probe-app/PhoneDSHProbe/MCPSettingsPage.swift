@@ -62,14 +62,14 @@ struct MCPSettingsPage: View {
                     ContentUnavailableView("主机尚未启动",
                                            systemImage: "network",
                                            description: Text("先启动本地引擎,才能读取和修改这些服务器。"))
-                } else if model.loading && model.rows.isEmpty {
+                } else if model.loading && model.customRows.isEmpty {
                     ProgressView("正在读取 MCP 注册表…")
-                } else if model.rows.isEmpty {
+                } else if model.customRows.isEmpty {
                     ContentUnavailableView("尚未添加 MCP 服务器",
                                            systemImage: "server.rack",
                                            description: Text("在网页版里加过的服务器,这里也能看到;两边是同一份列表。"))
                 } else {
-                    ForEach(model.rows) { row in
+                    ForEach(model.customRows) { row in
                         VStack(alignment: .leading) {
                             NavigationLink {
                                 MCPEditorPage(model: model, server: row)

@@ -133,7 +133,7 @@
   - 否则在每个连接器各自的 actor 锁内刷新，同一时刻只有一个刷新请求，其余调用等它的结果；
   - 刷新返回 `invalid_grant`，或没有 refresh token：把连接器标为 `needsReauth`，返回 `.none`。服务器随后会返回 401，模型看到的是工具调用失败。
 - `invalidate(_:for:)` 命中 `.oauth` 路由时，把该令牌标记为失效，下次调用会强制刷新。
-- **网关新行为**：一个带宿主注入凭据的 MCP 请求收到 401 时，调用 `invalidate`，然后**只重试一次**。只对请求体能完整重放的请求重试；网关能否重放 MCP 的 streamable-http POST 请求体还没有核实（见 S4）。已经开始流式传输的响应不重试。这是 P05 的行为变更，见第 6 节。
+- **网关新行为（v1 未实现）**：第一版只在令牌快过期时主动刷新；`PhoneMCPCredentialProvider.invalidate` 已接到令牌源上，但网关目前只对云端答复调用它，MCP 的 401 还不会触发刷新重试。计划中的行为是：一个带宿主注入凭据的 MCP 请求收到 401 时，调用 `invalidate`，然后**只重试一次**。只对请求体能完整重放的请求重试；网关能否重放 MCP 的 streamable-http POST 请求体还没有核实（见 S4）。已经开始流式传输的响应不重试。这是 P05 的行为变更，见第 6 节。
 
 ### 5.5 Worker 侧的行
 
@@ -192,8 +192,7 @@ notConnected ──connect──▶ authorizing ──成功──▶ connected
 - `DiscoverConnector` 新增 `linear`、`notion`、`tencentDocs` 三项，数据来自 5.2 节的 `PhoneConnectorCatalog`，不在枚举里硬编码 URL。
 - 行右侧的药丸按钮按状态显示：未连接显示“连接”，已连接显示“已连接”，需要重新授权显示“重新连接”。
 - 详情弹窗沿用现有样式（图标、名称、一个操作按钮、用途说明、“关于此连接器”）。操作按钮：
-  - 未连接或需要重新授权时，直接调用 `PhoneConnectorService.connect`，打开 `ASWebAuthenticationSession`，不再推入设置页；
-  - 已连接时，推入一个简单的账号页，显示账号标识和工具数量，提供“断开”。
+  - 和 Gmail、GitHub 一样，推入连接器自己的设置页（`MCPConnectorPage`）。页面上按状态显示“连接”“重新连接”或“断开”；点“连接”才打开 `ASWebAuthenticationSession`。（实现时改为沿用现有模式，没有在弹窗里直接发起授权。）
 - 图标复用上游各连接器包里的 `icon.svg`（`packages/connector/<name>/icon.svg`），沿用上游的许可证；放进 Asset Catalog 前先确认许可证允许。
 - “自定义 MCP 服务”这一行保持不变，仍然推入 `MCPSettingsPage`。在那个页面里用 5.2 节的保留名单过滤掉连接器的行，连接器只能在自己的卡片上断开。
 - **Web MCP 页**（phone-mcp 的 `McpSettingsTab`）在手机上不作为入口，避免出现两个都能改同一份 `mcp.json` 的地方。实现时先确认手机上的 Web 设置页能不能打开它；如果能，就在 phone profile 里禁用这个客户端标签行。桌面或 Web 端照旧使用它。
@@ -251,7 +250,7 @@ notConnected ──connect──▶ authorizing ──成功──▶ connected
 
 | # | 假设 | 验证方法 | 不成立时 |
 |---|---|---|---|
-| S1 | 三家都支持 RFC 9728 / RFC 8414 发现，并支持动态客户端注册 | 用 curl 走一遍发现和注册 | 向厂商申请预注册 `clientId`，写进目录 |
+| S1 | 三家都支持 RFC 9728 / RFC 8414 发现，并支持动态客户端注册（腾讯文档 2026-11-24 已用 curl 确认：resource_metadata 只能从 401 头里读到，授权端点自带 `?authType=2`，支持 DCR、PKCE S256、public client、refresh_token，另有 device_code） | 用 curl 走一遍发现和注册 | 向厂商申请预注册 `clientId`，写进目录 |
 | S2 | 动态注册接受自定义 scheme 作为 redirect URI | 注册时提交 `phonedsh-oauth://…` | 改用 Universal Link 的 https 回调（需要关联域名） |
 | S3 | 刷新令牌可用，并且有合理的有效期 | 真实授权后观察 `expires_in` 和刷新行为 | 没有 refresh token 时，过期后进入 `needsReauth` |
 | S4 | MCP POST 请求体在网关处可以完整重放 | 读 `ModelGateway` 的 streaming 路径并加测试 | 401 时不重试，只 invalidate，下一次调用才生效 |

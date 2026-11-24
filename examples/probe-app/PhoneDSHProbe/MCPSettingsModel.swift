@@ -255,11 +255,22 @@ final class MCPSettingsModel {
         didSaveGrant(before, after, serverName)
     }
 
-    func save(_ draft: MCPServerDraft) async {
+    /// Rows the user manages by hand. Connector rows (`PhoneMCPConnectorCatalog`)
+    /// are owned by the Discover connector cards and hidden here.
+    var customRows: [MCPServerSummary] {
+        rows.filter { !PhoneMCPConnectorCatalog.reservedServerNames.contains($0.serverName) }
+    }
+
+    func save(_ draft: MCPServerDraft, allowReservedServerName: Bool = false) async {
         errorText = nil
         notice = nil
         let trimmedName = draft.serverName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedURL = draft.url.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !allowReservedServerName,
+           PhoneMCPConnectorCatalog.reservedServerNames.contains(trimmedName) {
+            errorText = "“\(trimmedName)”是内置连接器使用的名称，请到“发现”页连接它，或换一个服务器名称。"
+            return
+        }
         guard !trimmedName.isEmpty, !trimmedURL.isEmpty else {
             errorText = "请填写服务器名称和 MCP 地址。"
             return
