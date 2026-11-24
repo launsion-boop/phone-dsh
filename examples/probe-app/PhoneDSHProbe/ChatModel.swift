@@ -2212,6 +2212,9 @@ final class ChatModel {
             }
         }
         mcpAccessPolicy = mcpPolicy
+        // Hosted MCP connectors: reinstall each saved OAuth grant on this
+        // launch's policy (docs/design-connectors-2026-11-24.md §5.4).
+        MCPConnectorService.shared.installSources(into: mcpPolicy)
         allowedModelHosts = launchPlan.allowedModelHosts
         credentialProvider = launchPlan.credentialProvider
         environment = launchPlan.environment

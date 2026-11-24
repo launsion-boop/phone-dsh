@@ -5,11 +5,12 @@
 // 我的 › 手机权限. Picking a connector opens its detail sheet, which rests at
 // half height and drags up to full; its action pushes the setup page.
 
+import PhoneDSH
 import ProbeKit
 import SwiftUI
 
 enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
-    case gmail, github, devices, webSearch, mcp
+    case gmail, github, tencentDocs, devices, webSearch, mcp
 
     var id: String { rawValue }
 
@@ -20,6 +21,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .mcp: return "MCPMark"
         case .gmail: return "GmailMark"
         case .github: return "GitHubMark"
+        case .tencentDocs: return "TencentDocsMark"
         }
     }
 
@@ -30,6 +32,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .mcp: return HomeSpec.textPrimary
         case .gmail: return .primary // The original-color asset ignores this tint.
         case .github: return HomeSpec.textPrimary
+        case .tencentDocs: return .primary // The original-color asset ignores this tint.
         }
     }
 
@@ -40,6 +43,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .mcp: return NativeText("自定义 MCP 服务", "Custom MCP server")
         case .gmail: return "Gmail"
         case .github: return "GitHub"
+        case .tencentDocs: return NativeText("腾讯文档", "Tencent Docs")
         }
     }
 
@@ -50,6 +54,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .mcp: return NativeText("添加你自己的服务地址", "Add your own server")
         case .gmail: return NativeText("连接账号、搜索和阅读邮件", "Connect an account, search and read mail")
         case .github: return NativeText("浏览已授权的仓库", "Browse authorized repositories")
+        case .tencentDocs: return NativeText("在对话里查找、阅读和编辑文档", "Find, read and edit documents in chat")
         }
     }
 
@@ -60,6 +65,15 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .gmail, .github: return NativeText("打开", "Open")
         case .webSearch: return NativeText("设置", "Set up")
         case .mcp: return NativeText("添加", "Add")
+        case .tencentDocs: return NativeText("连接", "Connect")
+        }
+    }
+
+    /// The hosted MCP connector behind this row, when it is one.
+    var mcpConnector: PhoneMCPConnector? {
+        switch self {
+        case .tencentDocs: return PhoneMCPConnectorCatalog.tencentDocs
+        default: return nil
         }
     }
 
@@ -71,6 +85,7 @@ struct ConnectorsPage: View {
     /// and the push never animate over each other.
     @State private var pendingPush: DiscoverConnector?
     @State private var pushed: DiscoverConnector?
+    @State private var connectorService = MCPConnectorService.shared
 
     var body: some View {
         List { DevicePanelShortcuts()
@@ -121,6 +136,19 @@ struct ConnectorsPage: View {
         case .mcp: MCPSettingsPage()
         case .gmail: GmailConnectorPage()
         case .github: GitHubConnectorPage()
+        case .tencentDocs:
+            MCPConnectorPage(connector: PhoneMCPConnectorCatalog.tencentDocs, title: connector.title)
+        }
+    }
+
+    /// Hosted MCP connectors show their live state on the pill.
+    private func pillTitle(_ connector: DiscoverConnector) -> String {
+        guard let mcp = connector.mcpConnector else { return connector.pillTitle }
+        switch connectorService.state(mcp) {
+        case .connected: return NativeText("已连接", "Connected")
+        case .connecting: return NativeText("连接中", "Connecting")
+        case .needsReauth: return NativeText("重新连接", "Reconnect")
+        case .notConnected: return connector.pillTitle
         }
     }
 
@@ -145,7 +173,7 @@ struct ConnectorsPage: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                ConnectPill(title: connector.pillTitle)
+                ConnectPill(title: pillTitle(connector))
             }
             .padding(.vertical, 4)
             .contentShape(Rectangle())
@@ -162,7 +190,7 @@ private struct ConnectorTile: View {
     var body: some View {
         Group {
             switch connector {
-            case .gmail, .github, .mcp:
+            case .gmail, .github, .mcp, .tencentDocs:
                 Image(connector.icon)
                     .resizable()
                     .scaledToFit()
@@ -250,6 +278,7 @@ private struct ConnectorDetailSheet: View {
         case .mcp: return NativeText("添加服务", "Add a server")
         case .gmail: return NativeText("打开 Gmail", "Open Gmail")
         case .github: return NativeText("打开 GitHub", "Open GitHub")
+        case .tencentDocs: return NativeText("连接腾讯文档", "Connect Tencent Docs")
         }
     }
 
@@ -270,6 +299,9 @@ private struct ConnectorDetailSheet: View {
         case .github:
             return NativeText("连接 GitHub 账号后，可以在手机上查看你选择的仓库。",
                               "Connect a GitHub account to browse the repositories you choose on this phone.")
+        case .tencentDocs:
+            return NativeText("连接腾讯文档账号后，DSH 可以在对话里查找、阅读、创建和编辑你的文档。",
+                              "Connect a Tencent Docs account so DSH can find, read, create and edit your documents in chat.")
         }
     }
 
@@ -318,6 +350,15 @@ private struct ConnectorDetailSheet: View {
                 ("lock.shield", NativeText("GitHub 授权", "GitHub authorization"),
                  NativeText("在 GitHub 授权。你可以随时断开连接，或到 GitHub 管理授权。",
                             "Authorize on GitHub. You can disconnect here or manage access on GitHub.")),
+            ]
+        case .tencentDocs:
+            return [
+                ("doc.text", NativeText("读写文档", "Read and write documents"),
+                 NativeText("授权范围是读取和编辑文档，不包含管理权限。",
+                            "The grant covers reading and editing documents, not management.")),
+                ("key", NativeText("令牌只存在本机", "Token stays on this phone"),
+                 NativeText("访问令牌保存在设备钥匙串，由本机附加到请求上，你可以随时断开。",
+                            "The access token is kept in the device keychain and attached by the app; disconnect at any time.")),
             ]
         }
     }

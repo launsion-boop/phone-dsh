@@ -158,6 +158,10 @@ public final class MCPEgressPolicy: EgressHostAuthorizing, MCPEgressGating,
 
     private let lock = NSLock()
     private var routes: [String: Route] = [:]
+    /// Host-owned credential sources (OAuth connectors) by serverName. A route
+    /// with a source gets its headers from the source instead of a stored
+    /// Keychain value. Never persisted; the app reinstalls them at launch.
+    private var dynamicSources: [String: any MCPDynamicCredentialSource] = [:]
     /// Host-run MCP egress credential. It is written by the host at start and
     /// read by the gateway gate; it is never persisted or logged.
     private var mcpEgressToken: String?
@@ -251,6 +255,21 @@ public final class MCPEgressPolicy: EgressHostAuthorizing, MCPEgressGating,
         lock.lock()
         routes.removeValue(forKey: serverName)
         lock.unlock()
+    }
+
+    /// Install or remove one serverName's host-owned credential source. It
+    /// only takes effect while an exact route for that serverName exists.
+    public func setDynamicCredentialSource(_ source: (any MCPDynamicCredentialSource)?,
+                                           serverName: String) {
+        lock.lock()
+        dynamicSources[serverName] = source
+        lock.unlock()
+    }
+
+    func dynamicCredentialSource(serverName: String) -> (any MCPDynamicCredentialSource)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return dynamicSources[serverName]
     }
 
     /// One atomically installed route. `headers` carries real values only in
@@ -428,13 +447,29 @@ public struct PhoneMCPCredentialProvider: CredentialProvider, Sendable {
         guard let route = policy.route(for: scope) else {
             return try await base.credential(for: scope)
         }
+        if let source = policy.dynamicCredentialSource(serverName: route.serverName) {
+            guard let headers = await source.headers(), !headers.isEmpty else { return .none }
+            return Credential(kind: .headers(headers), value: "")
+        }
         return route.headers.isEmpty ? .none : Credential(kind: .headers(route.headers), value: "")
     }
 
     public func invalidate(_ credential: Credential, for scope: CredentialScope) async {
-        guard policy.route(for: scope) == nil else { return }
-        await base.invalidate(credential, for: scope)
+        guard let route = policy.route(for: scope) else {
+            await base.invalidate(credential, for: scope)
+            return
+        }
+        await policy.dynamicCredentialSource(serverName: route.serverName)?.invalidate()
     }
+}
+
+/// A host-owned, refreshable header source for one MCP serverName (OAuth
+/// connectors). `headers()` returns the current values, refreshing first when
+/// needed, or `nil` when the user must authorize again. `invalidate()` marks
+/// the current value rejected so the next call refreshes.
+public protocol MCPDynamicCredentialSource: Sendable {
+    func headers() async -> [String: String]?
+    func invalidate() async
 }
 
 /// Non-secret persistence seam for the MCP grant document. Production uses
