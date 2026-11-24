@@ -139,7 +139,7 @@ android/
 └── tools/                     # bootstrap + structure_check.py + test-count.sh + unittest
 ```
 
-## Swift 模块 → Kotlin 包 → Gradle 模块（18/18）
+## Swift 模块 → Kotlin 包 → Gradle 模块（19/19）
 
 | Swift 模块（`Sources/`） | Kotlin 包 | Gradle 模块 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -163,6 +163,7 @@ android/
 | PhoneDSHBot | `com.phonedsh.bot` | `:bot` | target | partial（in progress，**不是 implemented**）：独立 JVM 模块（PC-20261112-android-bot-w4 A1）只消费已冻结的 `spec/bot/v1` golden：rows/user action、card payload、display projection、attachments、profile/roster、fish director；store、session、MCP listener、Bot tab 与大肥鱼渲染尚未实现（GAP-38 未关闭） |
 | PhoneDSHLAN | `com.phonedsh.domain.connector.lan` | `:domain` | target | 状态列由 `spec/platform/android-module-map.json` 拥有，待契约 owner 更新为 partial。有界 DNS 报文解析＋DNS-SD 折叠＋候选解码（`:domain`），`:app` 的 `AndroidLanDiscovery` 在 Wi-Fi 上做用户发起的 mDNS 扫描并列出未验证候选；不连接、不授权、不持久化（见 PC-20261108-android-lan-mdns） |
 | PhoneDSHDeviceTasks | — | — | absent | Android 无对应实现 |
+| PhoneDSHMail | `com.phonedsh.mail` | `:net` | mapped | 合并进 `:net`；QQ/网易/Gmail 的 IMAPS/SMTPS、MIME 与 `/mcp/native` 的 `mail_*` 工具；凭据走 Android Keystore，发信前在前台确认 |
 
 **合并规则**：`:core`（wire + log + agentcore）、`:net`（loopback + gateway）、`:testkit`
 （scenario + harness）是 Gradle 构建边界的合并；包名对应仅表示结构映射，不表示 API 或行为已完全一致。

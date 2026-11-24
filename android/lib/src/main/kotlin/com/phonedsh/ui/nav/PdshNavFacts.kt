@@ -123,6 +123,10 @@ public data class PdshNavFacts(
     public val gmail: com.phonedsh.ui.page.GmailConnectorFacts = com.phonedsh.ui.page.GmailConnectorFacts(),
     /** 发现 › GitHub: the connection and the authorized repositories, host-owned. */
     public val github: com.phonedsh.ui.page.GitHubConnectorFacts = com.phonedsh.ui.page.GitHubConnectorFacts(),
+    /** 发现 › 邮箱: the connected mailboxes and the add form's state, host-owned. */
+    public val mail: com.phonedsh.ui.page.MailConnectorFacts = com.phonedsh.ui.page.MailConnectorFacts(),
+    /** 发现 › 腾讯文档: the OAuth connection state, host-owned. */
+    public val tencentDocs: com.phonedsh.ui.page.McpConnectorFacts = com.phonedsh.ui.page.McpConnectorFacts(),
     public val runtime: RuntimeFacts = RuntimeFacts(),
     public val egress: EgressAllowListFacts = EgressAllowListFacts(),
     public val automation: AutomationFacts = AutomationFacts(),
@@ -558,6 +562,16 @@ public sealed interface PdshHostAction {
     /** One tap on the GitHub page. */
     public data class GitHubConnector(public val action: com.phonedsh.ui.page.GitHubConnectorAction) : PdshHostAction {
         override val wire: String = "github.connector"
+    }
+
+    /** One tap on a mailbox page; `toString` of an add hides the code. */
+    public data class MailConnector(public val action: com.phonedsh.ui.page.MailConnectorAction) : PdshHostAction {
+        override val wire: String = "mail.connector"
+    }
+
+    /** One tap on the 腾讯文档 page. */
+    public data class TencentDocsConnector(public val action: com.phonedsh.ui.page.McpConnectorAction) : PdshHostAction {
+        override val wire: String = "tencentDocs.connector"
     }
 
     /** Tono 账号 获取验证码 for the drafted number; `toString` hides it. */

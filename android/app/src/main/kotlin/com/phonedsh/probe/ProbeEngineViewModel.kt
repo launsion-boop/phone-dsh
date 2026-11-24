@@ -1250,7 +1250,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // spec/v1/native-mcp.md: the android_* tools on `/mcp/native`, the same
         // process-owned server the Android ADB settings page tests with (iOS sets
         // `configuration.nativeMCP` unconditionally too).
-        nativeMcp = AndroidAdbHost.get(application).server,
+        nativeMcp = com.phonedsh.probe.connectors.NativeMcpChain.get(application),
         // spec/bot/v1/mcp-endpoint.md §1: when the Bot listener is live, the
         // Worker gets its loopback URL and the non-secret placeholder token;
         // the provider is read again on every page load, so a recovered port is
@@ -1762,7 +1762,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                     host.acquireErasurePark { appForeground && !userStoppedEngine }
                 } },
                 logger = { line -> Log.i("AppBotRuntime", line) },
-                nativeMcp = AndroidAdbHost.get(getApplication()).server,
+                nativeMcp = com.phonedsh.probe.connectors.NativeMcpChain.get(getApplication()),
                 nativeAdmission = { controller.admission == Admission.OPEN },
                 routineAvailable = {
                     appForeground && !userStoppedEngine && host.ready.value && controller.admission == Admission.OPEN

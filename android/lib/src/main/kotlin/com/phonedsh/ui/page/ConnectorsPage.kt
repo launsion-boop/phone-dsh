@@ -56,6 +56,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.testTag
@@ -85,7 +86,10 @@ import com.phonedsh.ui.theme.LocalUiType
 /** One entry of the 连接器 group (`DiscoverConnector`, `ConnectorsPage.swift:12`). */
 public enum class DiscoverConnector {
     GMAIL,
+    QQ_MAIL,
+    NETEASE_MAIL,
     GITHUB,
+    TENCENT_DOCS,
     DEVICES,
     WEB_SEARCH,
     MCP,
@@ -97,7 +101,18 @@ public enum class DiscoverConnector {
         MCP -> UiStrings.settingsNativeText(languageId, "自定义 MCP 服务", "Custom MCP server")
         GMAIL -> "Gmail"
         GITHUB -> "GitHub"
+        QQ_MAIL -> UiStrings.settingsNativeText(languageId, "QQ 邮箱", "QQ Mail")
+        NETEASE_MAIL -> UiStrings.settingsNativeText(languageId, "网易邮箱", "NetEase Mail")
+        TENCENT_DOCS -> UiStrings.settingsNativeText(languageId, "腾讯文档", "Tencent Docs")
     }
+
+    /** The mail provider id behind a mailbox row (`MailProvider.id`), else `null`. */
+    public val mailProviderId: String?
+        get() = when (this) {
+            QQ_MAIL -> "qq"
+            NETEASE_MAIL -> "netease"
+            else -> null
+        }
 
     internal fun subtitle(languageId: String?): String = when (this) {
         DEVICES -> UiStrings.settingsNativeText(languageId, "通过蓝牙连接外设", "Peripherals over Bluetooth")
@@ -105,6 +120,9 @@ public enum class DiscoverConnector {
         MCP -> UiStrings.settingsNativeText(languageId, "添加你自己的服务地址", "Add your own server")
         GMAIL -> UiStrings.settingsNativeText(languageId, "连接账号、搜索和阅读邮件", "Connect an account, search and read mail")
         GITHUB -> UiStrings.settingsNativeText(languageId, "浏览已授权的仓库", "Browse authorized repositories")
+        QQ_MAIL -> UiStrings.settingsNativeText(languageId, "用授权码登录，在对话里收发邮件", "Sign in with an authorization code to read and send mail in chat")
+        NETEASE_MAIL -> UiStrings.settingsNativeText(languageId, "163、126、yeah.net，在对话里收发邮件", "163, 126 and yeah.net mail in chat")
+        TENCENT_DOCS -> UiStrings.settingsNativeText(languageId, "在对话里查找、阅读和编辑文档", "Find, read and edit documents in chat")
     }
 
     /** The gray pill on the row, naming what the sheet's action does (`:52-58`). */
@@ -113,6 +131,7 @@ public enum class DiscoverConnector {
         GMAIL, GITHUB -> UiStrings.settingsNativeText(languageId, "打开", "Open")
         WEB_SEARCH -> UiStrings.settingsNativeText(languageId, "设置", "Set up")
         MCP -> UiStrings.settingsNativeText(languageId, "添加", "Add")
+        QQ_MAIL, NETEASE_MAIL, TENCENT_DOCS -> UiStrings.settingsNativeText(languageId, "连接", "Connect")
     }
 
     /** The sheet's primary action (`actionTitle`, `:243-251`). */
@@ -122,6 +141,9 @@ public enum class DiscoverConnector {
         MCP -> UiStrings.settingsNativeText(languageId, "添加服务", "Add a server")
         GMAIL -> UiStrings.settingsNativeText(languageId, "打开 Gmail", "Open Gmail")
         GITHUB -> UiStrings.settingsNativeText(languageId, "打开 GitHub", "Open GitHub")
+        QQ_MAIL -> UiStrings.settingsNativeText(languageId, "连接 QQ 邮箱", "Connect QQ Mail")
+        NETEASE_MAIL -> UiStrings.settingsNativeText(languageId, "连接网易邮箱", "Connect NetEase Mail")
+        TENCENT_DOCS -> UiStrings.settingsNativeText(languageId, "连接腾讯文档", "Connect Tencent Docs")
     }
 
     internal fun summary(languageId: String?): String = when (this) {
@@ -149,6 +171,16 @@ public enum class DiscoverConnector {
             languageId,
             "连接 GitHub 账号后，可以在手机上查看你选择的仓库。",
             "Connect a GitHub account to browse the repositories you choose on this phone.",
+        )
+        QQ_MAIL, NETEASE_MAIL -> UiStrings.settingsNativeText(
+            languageId,
+            "用邮箱地址和客户端授权码登录后，DSH 可以在对话里搜索、阅读邮件，并在你确认后代你发信。",
+            "Sign in with your address and client authorization code so DSH can search and read mail in chat, and send mail after you confirm.",
+        )
+        TENCENT_DOCS -> UiStrings.settingsNativeText(
+            languageId,
+            "连接腾讯文档账号后，DSH 可以在对话里查找、阅读、创建和编辑你的文档。",
+            "Connect a Tencent Docs account so DSH can find, read, create and edit your documents in chat.",
         )
     }
 
@@ -199,6 +231,24 @@ public enum class DiscoverConnector {
                     t("在 GitHub 授权。你可以随时断开连接，或到 GitHub 管理授权。",
                         "Authorize on GitHub. You can disconnect here or manage access on GitHub."),
             )
+            QQ_MAIL, NETEASE_MAIL -> listOf(
+                t("读取和搜索邮件", "Read and search mail") to
+                    t("按主题或收发件人查找最近的邮件并阅读正文；阅读不会把邮件标为已读。",
+                        "Find recent mail by subject or address and read it; reading does not mark it as read."),
+                t("发信前确认", "Confirm before sending") to
+                    t("每次发信都会在手机上显示收件人、主题和正文，由你确认后才发出。",
+                        "Each send shows the recipients, subject and text on this phone and waits for your confirmation."),
+                t("授权码只存在本机", "Code stays on this phone") to
+                    t("授权码保存在本机的 Android 密钥库里，不是邮箱登录密码，可以随时在邮箱设置里停用。",
+                        "The code is kept in this phone's Android Keystore. It is not your login password and can be revoked in the mailbox settings."),
+            )
+            TENCENT_DOCS -> listOf(
+                t("读写文档", "Read and write documents") to
+                    t("授权范围是读取和编辑文档，不包含管理权限。", "The grant covers reading and editing documents, not management."),
+                t("令牌只存在本机", "Token stays on this phone") to
+                    t("访问令牌保存在本机的 Android 密钥库里，由本机代为调用，你可以随时断开。",
+                        "The access token is kept in this phone's Android Keystore and the app makes the calls; disconnect at any time."),
+            )
         }
     }
 }
@@ -228,6 +278,8 @@ public fun ConnectorsPage(
     onOpenPluginsTools: () -> Unit,
     modifier: Modifier = Modifier,
     languageId: String? = null,
+    /** Connectors with a saved account; their pill reads 已连接. */
+    connected: Set<DiscoverConnector> = emptySet(),
 ) {
     val tokens = LocalUiTokens.current
     var selected by rememberSaveable { mutableStateOf<DiscoverConnector?>(null) }
@@ -255,6 +307,7 @@ public fun ConnectorsPage(
                             ConnectorRow(
                                 connector = connector,
                                 languageId = languageId,
+                                connected = connector in connected,
                                 dividerBelow = index != DiscoverConnector.entries.lastIndex,
                                 onSelect = { selected = connector },
                             )
@@ -334,6 +387,22 @@ private fun ConnectorTile(connector: DiscoverConnector, size: Dp) {
                 colorFilter = ColorFilter.tint(tokens.colors.textPrimary),
             )
             DiscoverConnector.GITHUB -> PdshIconView(PdshIcon.GITHUB_MARK, iconSize, tokens.colors.textPrimary, null)
+            // The published QQ Mail and Tencent Docs artwork are full app icons; show them as one.
+            DiscoverConnector.QQ_MAIL -> Image(
+                painter = painterResource(R.drawable.connector_qq_mail),
+                contentDescription = null,
+                modifier = Modifier.size(size * 0.62f).clip(RoundedCornerShape(size * 0.62f * 0.225f)),
+            )
+            DiscoverConnector.TENCENT_DOCS -> Image(
+                painter = painterResource(R.drawable.connector_tencent_docs),
+                contentDescription = null,
+                modifier = Modifier.size(size * 0.62f).clip(RoundedCornerShape(size * 0.62f * 0.225f)),
+            )
+            DiscoverConnector.NETEASE_MAIL -> Image(
+                painter = painterResource(R.drawable.connector_netease_mail),
+                contentDescription = null,
+                modifier = Modifier.size(size * 0.56f),
+            )
             DiscoverConnector.DEVICES -> PdshIconView(PdshIcon.DEVICE_RADIO, iconSize, Color(0xFF30B0C7), null)
             DiscoverConnector.WEB_SEARCH -> PdshIconView(PdshIcon.GLOBE, iconSize, Color(0xFF33C759), null)
         }
@@ -345,6 +414,7 @@ private fun ConnectorTile(connector: DiscoverConnector, size: Dp) {
 private fun ConnectorRow(
     connector: DiscoverConnector,
     languageId: String?,
+    connected: Boolean,
     dividerBelow: Boolean,
     onSelect: () -> Unit,
 ) {
@@ -374,7 +444,7 @@ private fun ConnectorRow(
                 )
             }
             BasicText(
-                text = connector.pillTitle(languageId),
+                text = if (connected) UiStrings.settingsNativeText(languageId, "已连接", "Connected") else connector.pillTitle(languageId),
                 style = type.body.copy(
                     color = tokens.colors.textPrimary,
                     fontWeight = FontWeight.SemiBold,

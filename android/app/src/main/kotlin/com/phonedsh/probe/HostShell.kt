@@ -83,6 +83,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.verticalScroll
 import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -468,6 +469,31 @@ internal fun HostShell(
     val gmailFacts by gmailConnector.facts.collectAsState()
     val githubConnector = remember { com.phonedsh.probe.connectors.GitHubConnectorHost.get(context) }
     val githubFacts by githubConnector.facts.collectAsState()
+    // 发现 › 邮箱 / 腾讯文档: process-owned; their native tools sit on /mcp/native.
+    val mailConnector = remember { com.phonedsh.probe.connectors.MailConnectorHost.get(context) }
+    val mailFacts by mailConnector.facts.collectAsState()
+    val pendingMailSend by mailConnector.pendingSend.collectAsState()
+    val tencentDocsConnector = remember { com.phonedsh.probe.connectors.TencentDocsConnectorHost.get(context) }
+    val tencentDocsFacts by tencentDocsConnector.facts.collectAsState()
+    // mail_send is approved only while this window is resumed.
+    val mailLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(mailLifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> mailConnector.foreground = true
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> {
+                    mailConnector.foreground = false
+                    mailConnector.answer(false)
+                }
+                else -> Unit
+            }
+        }
+        mailLifecycle.lifecycle.addObserver(observer)
+        onDispose { mailLifecycle.lifecycle.removeObserver(observer); mailConnector.foreground = false }
+    }
+    pendingMailSend?.let { pending ->
+        MailSendConfirmDialog(pending, onAnswer = mailConnector::answer)
+    }
     // 云端任务: the process-owned phone task queue (cloud-tasks.md §7); the page shows
     // its switch and status line inside the Tono account facts.
     val cloudTasks = remember { com.phonedsh.probe.cloudtasks.CloudTaskCenter.get(context) }
@@ -1153,6 +1179,8 @@ internal fun HostShell(
         lan = lanFacts,
         gmail = gmailFacts,
         github = githubFacts,
+        mail = mailFacts,
+        tencentDocs = tencentDocsFacts,
         // The two local stores behind the phone-permissions page's 常用授权 and
         // 建议卡使用 sections (iOS reads them on appear).
         phonePermissions = facts.phonePermissions.copy(
@@ -1437,6 +1465,11 @@ internal fun HostShell(
                                 com.phonedsh.probe.connectors.GmailConnectorHost.languageId =
                                     facts.settings.preferences.language?.id
                                 gmailConnector.handle(action.action)
+                            } else if (action is PdshHostAction.MailConnector) {
+                                // The page owns its error line; no host note.
+                                mailConnector.handle(action.action)
+                            } else if (action is PdshHostAction.TencentDocsConnector) {
+                                tencentDocsConnector.handle(action.action)
                             } else if (action is PdshHostAction.GitHubConnector) {
                                 com.phonedsh.probe.connectors.GmailConnectorHost.languageId =
                                     facts.settings.preferences.language?.id
@@ -2523,6 +2556,8 @@ private fun actionLabel(action: PdshHostAction): String = when (action) {
     PdshHostAction.AndroidAdbCancelConnect -> "取消电视连接"
     is PdshHostAction.GmailConnector -> "Gmail"
     is PdshHostAction.GitHubConnector -> "GitHub"
+    is PdshHostAction.MailConnector -> "邮箱"
+    is PdshHostAction.TencentDocsConnector -> "腾讯文档"
     is PdshHostAction.TonoAccountRequestCode -> "获取 Tono 验证码"
     is PdshHostAction.TonoAccountSignIn -> "登录 Tono 账号"
     PdshHostAction.TonoAccountSignOut -> "退出 Tono 账号"
@@ -2582,7 +2617,7 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
     PdshRoute.AndroidAdb -> null
     PdshRoute.TonoAccount -> null
     // The connector pages print their own notices.
-    PdshRoute.GmailConnector, PdshRoute.GitHubConnector -> null
+    PdshRoute.GmailConnector, PdshRoute.GitHubConnector, is PdshRoute.MailConnector, PdshRoute.TencentDocsConnector -> null
 
     PdshRoute.Configuration -> null
     PdshRoute.Automation -> null
@@ -2855,3 +2890,33 @@ private const val TAG_NAV: String = "PDSHNav"
 
 /** How long a gesture's outcome line stays on screen (four seconds). */
 private const val NOTICE_MILLIS: Long = 4_000L
+
+
+/** Shows exactly what the agent is about to send; nothing is sent without 发送. */
+@Composable
+private fun MailSendConfirmDialog(
+    pending: com.phonedsh.probe.connectors.PendingMailSend,
+    onAnswer: (Boolean) -> Unit,
+) {
+    val draft = pending.draft
+    val lines = buildList {
+        add("发件人：${pending.account.address}")
+        add("收件人：${draft.to.joinToString(", ")}")
+        if (draft.cc.isNotEmpty()) add("抄送：${draft.cc.joinToString(", ")}")
+        if (draft.bcc.isNotEmpty()) add("密送：${draft.bcc.joinToString(", ")}")
+        add("主题：${draft.subject}")
+        add("")
+        add(if (draft.body.length > 600) draft.body.take(600) + "…" else draft.body)
+    }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { onAnswer(false) },
+        title = { androidx.compose.material3.Text("发送这封邮件？") },
+        text = {
+            androidx.compose.foundation.layout.Box(
+                androidx.compose.ui.Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()),
+            ) { androidx.compose.material3.Text(lines.joinToString("\n")) }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = { onAnswer(true) }) { androidx.compose.material3.Text("发送") } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = { onAnswer(false) }) { androidx.compose.material3.Text("取消") } },
+    )
+}

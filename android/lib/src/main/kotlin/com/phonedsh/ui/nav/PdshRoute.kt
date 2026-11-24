@@ -207,6 +207,16 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
+    /** 发现 › QQ 邮箱 / 网易邮箱 / Gmail 应用专用密码; push (`MailConnectorPage`). */
+    public data class MailConnector(public val providerId: String) : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
+    /** 发现 › 腾讯文档; push (`McpConnectorPage`, docs/design-connectors-2026-11-24.md). */
+    public data object TencentDocsConnector : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
     /** 设置行「Tono 账号」; §1: push. SMS sign-in for the cloud service (tono-account.md). */
     public data object TonoAccount : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
