@@ -183,7 +183,7 @@ notConnected ──connect──▶ authorizing ──成功──▶ connected
 
 入口是底部导航“发现”标签里的连接器页 `ConnectorsPage`（`examples/probe-app/PhoneDSHProbe/ConnectorsPage.swift`）。
 
-> 前提：“发现”页目前**不在本分支，也不在 `main`**。它由 `42fbd12c0`（2026-11-08，“底部标签栏、发现页、我的页与 Bot 页按首页规范重做”）引入，现在位于 `codex/android-interaction-parity` 等尚未合入的分支，以及 `refs/codex/pr-119`、`pr-120`。本文的 UI 部分要等这些分支合入后才能实现；在那之前可以先做第 5.3–5.6 节的宿主部分。Android 的 `HostShell.kt` 也有对应的“发现”页，Android 版本另行跟进。
+> 前提：“发现”页由 `42fbd12c0`（2026-11-08）引入，已合入 `origin/main`（截至 `41879bc82`），但本设计稿所在分支基于更早的 `8374cee7f`。实现前先把分支 rebase 到最新的 `main`。Android 的 `HostShell.kt` 也有对应的“发现”页，Android 版本另行跟进。
 
 现状：`ConnectorsPage` 用 `DiscoverConnector` 枚举列出连接器，当前有 `gmail`、`github`、`devices`、`webSearch`、`mcp` 五项。点一行会弹出半屏的 `ConnectorDetailSheet`，点其中的操作按钮再推入对应的设置页；其中 `mcp`（“自定义 MCP 服务”）推入的正是 `MCPSettingsPage`。
 
@@ -263,7 +263,7 @@ notConnected ──connect──▶ authorizing ──成功──▶ connected
 | 阶段 | 内容 | 验收 |
 |---|---|---|
 | P0 | S1–S4 spike，挑一家（建议 Linear）跑通 | 真机上完成授权，Worker 的 MCP 调用成功；Worker 环境和 VFS 中搜不到令牌 |
-| P1 | `PhoneMCPOAuthClient`、`.oauth` 路由、网关 401 重试、连接器目录；在“发现”页的 `DiscoverConnector` 中加入连接器项（依赖“发现”页先合入）；先只上 Linear | 第 6 节的测试全部通过；断开后工具消失，出站被拒绝 |
+| P1 | `PhoneMCPOAuthClient`、`.oauth` 路由、网关 401 重试、连接器目录；在“发现”页的 `DiscoverConnector` 中加入连接器项（实现分支需基于最新 `main`）；先只上 Linear | 第 6 节的测试全部通过；断开后工具消失，出站被拒绝 |
 | P2 | Notion、腾讯文档加入目录 | 每家一条真机授权和工具调用记录 |
 | P3 | 冷启动对账、`needsReauth` 的 UX、Web MCP 页同名行的处理 | 故障注入测试；杀进程后能恢复 |
 | 后续 | CLI 类逐家评估（第 7 节）；DSH runtime 升级（第 8 节） | 各自单独立项 |
